@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pin: tests/hooks/ uses self._assert_not_none(x), not assertIsNotNone(x);
+"""Pin: tests/ uses self._assert_not_none(x), not assertIsNotNone(x);
 assert x is not None pyright crutch.
 
 Sprint-065 story-002 (carries forward sprint-064 story-009 / sprint-063
@@ -8,15 +8,16 @@ x is not None` pattern was a per-site pyright-narrowing crutch — pyright
 does not propagate `assertIsNotNone`'s narrowing to local variables, so
 each call site repeated the `assert x is not None` line below it.
 
-`_HookTestCase._assert_not_none(value)` is the typed replacement: it
-returns the narrowed value with type `T` instead of `T | None`, so
+`_AssertNotNoneMixin._assert_not_none(value)` is the typed replacement:
+it returns the narrowed value with type `T` instead of `T | None`, so
 callers get pyright narrowing through the return assignment without
-the redundant assert line.
+the redundant assert line. The mixin is mixed into `_SMMTestCase` and
+`_IntegrationTestCase`, so most test bases inherit it transparently.
 
 This pin enforces zero remaining sites of the legacy two-line pattern
-in tests/hooks/. New sites added under tests/hooks/ must use the helper.
-Other test directories (tests/integration/, tests/smm/, tests/engine/)
-are out of scope for this story; future stories may extend the pin.
+across plugins/xp-agents/tests/. Sprint-065 story-002 originally scoped
+to tests/hooks/ only; sprint-close found 2 surviving sites in
+tests/integration/ and the pin was widened to catch the full surface.
 """
 
 import re
@@ -28,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from conftest import _HookTestCase
 
-_HOOKS_DIR = Path(__file__).parent
+_TESTS_DIR = Path(__file__).parent.parent
 
 # Two-line crutch: `self.assertIsNotNone(<expr>)` immediately followed by
 # `assert <same-expr> is not None`. The captured group enforces that the
@@ -45,7 +46,7 @@ _CRUTCH_PATTERN = re.compile(
 class TestAssertNotNonePin(unittest.TestCase):
     def test_no_assertisnotnone_followed_by_assert_is_not_none(self):
         offenders: dict[str, int] = {}
-        for path in _HOOKS_DIR.rglob("*.py"):
+        for path in _TESTS_DIR.rglob("*.py"):
             if path == Path(__file__):
                 continue
             text = path.read_text(encoding="utf-8")
@@ -55,7 +56,7 @@ class TestAssertNotNonePin(unittest.TestCase):
         self.assertEqual(
             offenders,
             {},
-            "tests/hooks/ should use self._assert_not_none(x) instead of "
+            "tests/ should use self._assert_not_none(x) instead of "
             "the assertIsNotNone(x); assert x is not None crutch. "
             f"Sites still using the crutch: {offenders}",
         )

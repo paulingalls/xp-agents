@@ -56,6 +56,10 @@ Report each flag in the **Fix** section under the flag's `xp_value`. Use the fla
 
 Use raw signals (`honesty_signals`, `work_signals`, `session_stats`) for narrative context only, not for threshold judgments.
 
+## Stale-Flag Concerns
+
+`session_end._sweep_stale_concerns` emits NEW concern events with `metadata.flagged_stale=true` and `references=[root_id]` pointing at concerns that have outlived their addressable window without resolution. Surface these in the **Fix** section so the human can triage — root concern stays open (the cascade will close the flag when the root closes), but stale flags accumulating across sessions is itself a Fix-lens signal worth naming.
+
 ## Work Analysis
 
 Commit messages in `signal_events` are the primary record of what was accomplished. Use them to:

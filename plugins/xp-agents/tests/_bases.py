@@ -137,7 +137,7 @@ class _HookTestCase(_SMMTestCase):
         super().tearDown()
 
 
-class _IntegrationTestCase(unittest.TestCase):
+class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     """Base class that creates a temp git repo and inits SMM via init.sh.
 
     The git repo and SMM directory are created once per class (setUpClass).

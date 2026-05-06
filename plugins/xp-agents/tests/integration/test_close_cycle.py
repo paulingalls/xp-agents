@@ -71,8 +71,7 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             {"agent_id": "main", "agent_type": "main"},
             self.smm_dir,
         )
-        self.assertIsNotNone(block_msg)
-        assert block_msg is not None
+        block_msg = self._assert_not_none(block_msg)
         self.assertIn("xp-close-reviewer", block_msg)
 
         # Security event arrives. Gate checks marker presence, not

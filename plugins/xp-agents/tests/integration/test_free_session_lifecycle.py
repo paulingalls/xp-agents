@@ -71,8 +71,7 @@ class TestFreeSessionLifecycle(_IntegrationTestCase):
 
         # ---- Step 2: simulate Step 2.5 auto-create + 2 commits ----
         free_branch = branching.create_free_branch(cwd, "tinker", self.smm_dir)
-        self.assertIsNotNone(free_branch)
-        assert free_branch is not None  # narrow for type-checker
+        free_branch = self._assert_not_none(free_branch)
         self.assertEqual(get_current_branch(cwd), free_branch)
 
         sha1 = _commit_file(cwd, "tinker_a.txt", "alpha", "free: alpha")
