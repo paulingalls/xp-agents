@@ -76,6 +76,30 @@ class TestPlanReviewerPin(unittest.TestCase):
             "when AC paths do not intersect file_domain",
         )
 
+    def test_body_covers_unittest_discover(self):
+        # The codebase uses `python -m unittest discover -s <path>` as a
+        # sequential fallback (see CLAUDE.md Testing). If the guidance only
+        # extracts pytest tokens, an AC using unittest discover with a probe
+        # path silently escapes the coherence check.
+        self.assertIn(
+            "unittest discover",
+            self.body_lower,
+            "xp-plan-reviewer body must include unittest discover in its "
+            "AC-path extraction guidance, or unittest-style ACs slip through",
+        )
+
+    def test_body_covers_direct_script_invocations(self):
+        # Section 10b also covers `python <path>` / `bash <path>` direct
+        # script invocations as AC commands. Pin a token from that line so
+        # a future trim of the bullet list can't silently drop it (symmetric
+        # coverage with the unittest-discover pin above).
+        self.assertIn(
+            "direct script invocations",
+            self.body_lower,
+            "xp-plan-reviewer body must include direct script invocations "
+            "(python/bash <path>) in its AC-path extraction guidance",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

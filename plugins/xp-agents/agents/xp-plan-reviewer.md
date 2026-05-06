@@ -131,7 +131,12 @@ If no execution plan exists, skip this section.
 
 ### 10b. AC-Command / File-Domain Coherence
 
-For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list is used) and extract the pytest path arguments — the file or directory tokens passed to `pytest`/`python -m pytest`. Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. A path `tests/hooks/test_x.py` is inside `tests/hooks/`; a path `tests/hooks/test_x.py` does NOT intersect a `file_domain` of only `[scripts/foo.py]`.
+For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list is used) and extract the path arguments — the file or directory tokens passed to one of:
+- `pytest` / `python -m pytest <path>` (positional path tokens)
+- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present)
+- direct script invocations such as `python <path>` or `bash <path>`
+
+Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. The path `tests/hooks/test_x.py` is inside `tests/hooks/`; the same path does NOT intersect a `file_domain` of only `[smm/event_schema.py]` (no shared prefix).
 
 When no extracted path intersects the story's `file_domain`, emit a concern naming the mismatch: which story, which AC command, which paths it points at, and which paths the story actually owns. Sprint-065 story-006 shipped with an AC command pointing at a probe file that exercised none of the new code — the green AC was meaningless. This check catches that drift at plan time.
 
