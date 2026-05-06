@@ -129,6 +129,14 @@ If `${SMM_DIR}/execution_plan.json` exists:
 
 If no execution plan exists, skip this section.
 
+### 10b. AC-Command / File-Domain Coherence
+
+For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list is used) and extract the pytest path arguments — the file or directory tokens passed to `pytest`/`python -m pytest`. Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. A path `tests/hooks/test_x.py` is inside `tests/hooks/`; a path `tests/hooks/test_x.py` does NOT intersect a `file_domain` of only `[scripts/foo.py]`.
+
+When no extracted path intersects the story's `file_domain`, emit a concern naming the mismatch: which story, which AC command, which paths it points at, and which paths the story actually owns. Sprint-065 story-006 shipped with an AC command pointing at a probe file that exercised none of the new code — the green AC was meaningless. This check catches that drift at plan time.
+
+Skip this section for stories whose `file_domain` is empty (no domain to intersect against) or whose `acceptance_execution` is absent.
+
 ## Output
 
 Complete review (not summary), most actionable first. Blocking questions at top, then plan issues, then "Plan looks good" if sound. Write decision/assumption events tight — before: *"We will use the existing validation infrastructure in event_schema.py's validate_event function which is already called from all append paths"* (143 chars). After: *"Budget check in validate_event() — single enforcement point, all append paths already call it"* (91 chars).
