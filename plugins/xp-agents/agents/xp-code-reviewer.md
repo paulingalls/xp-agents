@@ -29,9 +29,15 @@ For each debt item in the prompt:
 - Changes make debt worse → flag with high severity
 - Changes unrelated → note but don't block
 
-**Resolve-and-replace over duplicate debt on refactor relocation.** When a new debt would near-duplicate an existing open debt (the duplicate-debt probe will surface this as an advisory concern), retire the older debt by appending a status event with `metadata.resolves=["<existing_event_id>"]` so only the newer Risks-pillar entry remains open — anchor-update in place. Events.jsonl is append-only; `metadata.resolves` is the universal resolution link consumed by `resolution.compute_resolutions`. Do NOT attempt `smm_cli update-item` against an event id (that primitive operates on materialized pillar items, not events) and do NOT put `metadata.supersedes` on a debt event (the superseded-decision detector consumes it only on `decision` events sharing the same `topic`).
+## 3a. Resolve-and-Replace on Refactor Relocation
 
-## 3a. New-Pattern Decision Nudge
+When a new debt would near-duplicate an existing open debt (the duplicate-debt probe surfaces this as an advisory concern), retire the older debt rather than appending a fresh one. Anchor-update in place via append-only semantics:
+
+- Append a `status` event with `metadata.resolves=["<existing_event_id>"]` — the universal resolution link consumed by `resolution.compute_resolutions`. Only the newer Risks-pillar entry remains open.
+- **Do NOT** call `smm_cli update-item` against an event id — that primitive operates on materialized pillar items, not events.
+- **Do NOT** put `metadata.supersedes` on a debt event — the superseded-decision detector consumes it only on `decision` events sharing the same `topic`.
+
+## 3b. New-Pattern Decision Nudge
 
 When the diff introduces a NEW architectural pattern (a structural choice future code will mirror — naming convention, module boundary, error-handling shape, retry strategy, etc.), softly nudge the author to emit a `type=decision` event capturing the pattern and its rationale, with a stable `--topic <slug>` so that a future divergent decision lands in the same topic bucket. This is an advisory cue, not an enforcement gate — record only the nudge as a low-severity concern if the author has not already logged the decision; do not block the commit. The `decision` event paired with a stable topic lets the superseded-decision detector (`concerns.py` pattern #5) catch a future divergent pattern as drift instead of silent supersession — pattern #5 keys on `topic`, so an empty or ad-hoc topic silently disables the detector.
 
