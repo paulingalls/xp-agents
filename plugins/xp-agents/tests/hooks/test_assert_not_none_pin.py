@@ -33,9 +33,12 @@ _HOOKS_DIR = Path(__file__).parent
 # Two-line crutch: `self.assertIsNotNone(<expr>)` immediately followed by
 # `assert <same-expr> is not None`. The captured group enforces that the
 # same identifier appears on both lines so we don't false-flag legitimate
-# back-to-back asserts on different names.
+# back-to-back asserts on different names. `[\w.]+` (not just `\w+`) so
+# attribute-style crutches like `self.assertIsNotNone(obj.field); assert
+# obj.field is not None` are caught too — a future regression on a dotted
+# expression should trip this pin the same way a bare-name regression does.
 _CRUTCH_PATTERN = re.compile(
-    r"self\.assertIsNotNone\((\w+)\)\s*\n\s*assert\s+\1\s+is\s+not\s+None"
+    r"self\.assertIsNotNone\(([\w.]+)\)\s*\n\s*assert\s+\1\s+is\s+not\s+None"
 )
 
 
@@ -74,6 +77,39 @@ class TestAssertNotNoneBehavior(_HookTestCase):
         with self.assertRaises(AssertionError) as ctx:
             self._assert_not_none(None, msg="custom failure message")
         self.assertIn("custom failure message", str(ctx.exception))
+
+
+class TestCrutchPatternCatchesOffenders(unittest.TestCase):
+    """Proves `_CRUTCH_PATTERN` actually trips on synthetic offenders.
+
+    Story-002 AC4: "E2E: Given a new test uses the pattern, Then it
+    fails the new vocab pin." The pin in TestAssertNotNonePin scans
+    the live tree and finds zero (correct), but that doesn't prove the
+    regex is functional — a broken regex would also find zero. These
+    cases pin the regex against fixture strings so a future tweak that
+    breaks detection trips the test.
+    """
+
+    def test_bare_name_offender_caught(self):
+        text = (
+            "        self.assertIsNotNone(result)\n        assert result is not None\n"
+        )
+        self.assertEqual(_CRUTCH_PATTERN.findall(text), ["result"])
+
+    def test_attribute_offender_caught(self):
+        text = (
+            "        self.assertIsNotNone(obj.field)\n"
+            "        assert obj.field is not None\n"
+        )
+        self.assertEqual(_CRUTCH_PATTERN.findall(text), ["obj.field"])
+
+    def test_mismatched_names_not_caught(self):
+        # Backreference enforces same identifier on both lines; legitimate
+        # back-to-back asserts on different names must not trip the pin.
+        text = (
+            "        self.assertIsNotNone(result)\n        assert other is not None\n"
+        )
+        self.assertEqual(_CRUTCH_PATTERN.findall(text), [])
 
 
 if __name__ == "__main__":
