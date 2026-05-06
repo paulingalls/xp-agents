@@ -6,7 +6,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -16,7 +15,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import concerns
 import lint_check
 import worktree
-from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
+from conftest import (
+    _HookTestCase,
+    _make_bash_input,
+    _make_write_input,
+    _MixinBase,
+    make_event,
+)
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_STATUS,
@@ -152,17 +157,6 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         self._write_events([concern, resolver, pass_status])
         result = tdd_stop_gate.run({"session_id": "t"}, smm_dir=self.smm_dir)
         self.assertIsNone(result)
-
-
-# Static-only base for the mixin below: pyright sees unittest.TestCase
-# (so super().setUp/tearDown and inherited TestCase attrs type-check),
-# but at runtime the mixin is plain `object` so pytest doesn't auto-
-# collect the mixin's test methods in isolation. Mirrors
-# _close_fixtures._MixinBase.
-if TYPE_CHECKING:
-    _MixinBase = unittest.TestCase
-else:
-    _MixinBase = object
 
 
 class _LintTmpDirMixin(_MixinBase):
