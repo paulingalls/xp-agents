@@ -24,17 +24,8 @@ from conftest import (
     SPRINT_ALL_DONE,
     SPRINT_IN_PROGRESS,
     _IntegrationTestCase,
+    _MixinBase,
 )
-
-# Static-only base for the mixin below: pyright sees unittest.TestCase
-# (so self.assertEqual / self.smm_dir / self._run_preload type-check),
-# but at runtime the mixin is plain `object` so pytest doesn't auto-
-# collect the mixin's test methods in isolation. Mirrors
-# _close_fixtures._MixinBase.
-if TYPE_CHECKING:
-    _MixinBase = unittest.TestCase
-else:
-    _MixinBase = object
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_BASE = _PLUGIN_ROOT / "skills" / "_preload_base.sh"

@@ -340,8 +340,9 @@ class TestTier1SecurityScan(_HookTestCase):
 class TestStagedRuffGate(_HookTestCase):
     """Story-007: ruff F401/F811 enforcement deferred from edit-time to staging.
 
-    pre_tool_bash invokes lint_check.run_ruff(p, context='staging') over each
-    staged .py file. A non-empty code list raises BlockedError naming the
+    pre_tool_bash invokes lint_check.run_linter_batch('ruff', staged_py_files,
+    context='staging') ONCE per commit (story-020 phase 3 — was per-file
+    via run_ruff). A non-empty code list raises BlockedError naming the
     offending paths/codes — the only place these codes are enforced.
     """
 
@@ -359,36 +360,35 @@ class TestStagedRuffGate(_HookTestCase):
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_ruff")
-    def test_staged_py_with_F401_blocks_commit(self, mock_run_ruff, _files, _diff):
+    @patch("lint_check.run_linter_batch")
+    def test_staged_py_with_F401_blocks_commit(self, mock_batch, _files, _diff):
         """A staged .py file with unused-import F401 raises BlockedError at commit."""
-        mock_run_ruff.return_value = (["F401"], "src/app.py:1:1: F401 [*] `os` unused")
+        mock_batch.return_value = {"src/app.py": ["F401"]}
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception)
         self.assertIn("F401", msg)
         self.assertIn("src/app.py", msg)
-        # The block must call run_ruff with context="staging" (NOT edit)
-        call_kwargs = mock_run_ruff.call_args.kwargs
+        # The block must call run_linter_batch with context="staging" (NOT edit)
+        call_kwargs = mock_batch.call_args.kwargs
         self.assertEqual(call_kwargs.get("context"), "staging")
+        # And it must batch — one fork covers all staged files.
+        mock_batch.assert_called_once()
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_ruff")
-    def test_staged_py_with_F811_blocks_commit(self, mock_run_ruff, _files, _diff):
+    @patch("lint_check.run_linter_batch")
+    def test_staged_py_with_F811_blocks_commit(self, mock_batch, _files, _diff):
         """A staged .py file with F811 (redefinition-of-unused) blocks at commit."""
-        mock_run_ruff.return_value = (
-            ["F811"],
-            "src/app.py:5:1: F811 redefinition of unused `foo`",
-        )
+        mock_batch.return_value = {"src/app.py": ["F811"]}
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         self.assertIn("F811", str(ctx.exception))
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_ruff", return_value=([], ""))
-    def test_clean_staged_py_does_not_block(self, _ruff, _files, _diff):
+    @patch("lint_check.run_linter_batch", return_value={"src/app.py": []})
+    def test_clean_staged_py_does_not_block(self, _batch, _files, _diff):
         """A staged .py file with no ruff findings does not raise BlockedError."""
         try:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
@@ -397,22 +397,22 @@ class TestStagedRuffGate(_HookTestCase):
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["docs/README.md", "config.yml"])
-    @patch("lint_check.run_ruff")
-    def test_non_python_staged_files_skip_ruff(self, mock_run_ruff, _files, _diff):
+    @patch("lint_check.run_linter_batch")
+    def test_non_python_staged_files_skip_ruff(self, mock_batch, _files, _diff):
         """Non-.py staged files must not invoke ruff (would error on bad input)."""
-        # Other gates may fire — we only assert ruff was not called
+        # Other gates may fire — we only assert the batch was not called
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        mock_run_ruff.assert_not_called()
+        mock_batch.assert_not_called()
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_ruff")
-    def test_non_deferred_codes_do_not_block_commit(self, mock_run_ruff, _files, _diff):
+    @patch("lint_check.run_linter_batch")
+    def test_non_deferred_codes_do_not_block_commit(self, mock_batch, _files, _diff):
         """E302 (non-deferred) at staging time must NOT block — that's outside
         story-007's deferral scope; non-F401/F811 codes already surface as
         concerns at edit time."""
-        mock_run_ruff.return_value = (["E302"], "src/app.py:1:1: E302 ...")
+        mock_batch.return_value = {"src/app.py": ["E302"]}
         try:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         except _common.BlockedError as e:
@@ -420,13 +420,10 @@ class TestStagedRuffGate(_HookTestCase):
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_ruff")
-    def test_mixed_codes_block_only_on_deferred(self, mock_run_ruff, _files, _diff):
+    @patch("lint_check.run_linter_batch")
+    def test_mixed_codes_block_only_on_deferred(self, mock_batch, _files, _diff):
         """When ruff reports F401 alongside E302, the block only names F401."""
-        mock_run_ruff.return_value = (
-            ["F401", "E302"],
-            "src/app.py:1:1: F401\nsrc/app.py:3:5: E302",
-        )
+        mock_batch.return_value = {"src/app.py": ["F401", "E302"]}
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception)
@@ -435,20 +432,17 @@ class TestStagedRuffGate(_HookTestCase):
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/a.py", "docs/README.md"])
-    @patch("lint_check.run_ruff", return_value=([], ""))
-    def test_only_py_files_passed_to_ruff(self, mock_run_ruff, _files, _diff):
-        """When mixing .py and non-.py, ruff is invoked only for .py."""
+    @patch("lint_check.run_linter_batch", return_value={"src/a.py": []})
+    def test_only_py_files_passed_to_ruff(self, mock_batch, _files, _diff):
+        """When mixing .py and non-.py, only the .py paths are batched."""
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        py_calls = [
-            c
-            for c in mock_run_ruff.call_args_list
-            if str(c.args[0] if c.args else c.kwargs.get("file_path", "")).endswith(
-                ".py"
-            )
-        ]
-        self.assertEqual(len(py_calls), len(mock_run_ruff.call_args_list))
-        self.assertEqual(len(py_calls), 1)
+        # Single batch invocation, .py paths only in the `paths` arg.
+        mock_batch.assert_called_once()
+        args, kwargs = mock_batch.call_args
+        # args[0] is linter_name, args[1] is paths (or kwargs)
+        paths = args[1] if len(args) > 1 else kwargs.get("paths")
+        self.assertEqual(paths, ["src/a.py"])
 
 
 def _heredoc_commit(prefix: str, body: str) -> str:

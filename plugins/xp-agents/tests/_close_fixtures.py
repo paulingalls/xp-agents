@@ -31,19 +31,8 @@ import unittest
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from conftest import _extract_preload_var
+from conftest import _extract_preload_var, _MixinBase
 from event_schema import EVENT_TYPE_CONCERN
-
-# Static-only base for the mixin classes below: pyright sees
-# unittest.TestCase (so self.assertEqual / self.smm_dir / etc are known
-# attributes), but at runtime the mixin is plain `object` so pytest
-# doesn't try to collect the mixin's test methods in isolation. The
-# real subclasses inherit from _IntegrationTestCase / unittest.TestCase
-# alongside the mixin and supply the actual TestCase machinery.
-if TYPE_CHECKING:
-    _MixinBase = unittest.TestCase
-else:
-    _MixinBase = object
 
 
 def _assert_text_ordering(
