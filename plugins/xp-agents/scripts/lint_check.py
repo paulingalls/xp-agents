@@ -72,7 +72,15 @@ _LINTER_CONFIGS = [
 ]
 
 _LINTER_COMMANDS = {
-    "ruff": ["ruff", "check"],
+    # `--output-format=concise` pins ruff to the legacy single-line
+    # `path:line:col: CODE message` shape that `_RUFF_LINE_CODE` /
+    # `_RUFF_LINE_PATH_CODE` parse. ruff 0.15+ defaults to multi-line
+    # "full" format with arrows; without this pin both parsers silently
+    # extract zero codes and the F401/F811 deferral pipeline (edit-time
+    # filter + staging-time gate + new run_linter_batch) is dead code.
+    # Story-018 introduced the same fix on a parallel branch — if both
+    # land this de-dupes to one line at merge.
+    "ruff": ["ruff", "check", "--output-format=concise"],
     "flake8": ["flake8"],
     "eslint": ["npx", "eslint"],
     "prettier": ["npx", "prettier", "--check"],
@@ -222,6 +230,26 @@ _PYFLAKES_CODE_SHAPE = r"[A-Z]+\d{3,4}"
 
 # Matches the leading code on a ruff line: "path:line:col: F401 [*] message"
 _RUFF_LINE_CODE = re.compile(rf"^\s*[^:\s]+:\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
+# Same shape but also captures the path — used by run_linter_batch to bucket
+# findings back to their source file when ruff is forked over many paths.
+_RUFF_LINE_PATH_CODE = re.compile(rf"^([^\s:]+):\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
+
+
+def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
+    """Filter ``paths`` to those the linter handles, preserving order.
+
+    Combines the two guards `run_linter` and `run_linter_batch` need:
+    skip flag-shaped paths (argument-injection guard) and skip files
+    whose extension the linter doesn't claim. Single source of truth
+    so future linter additions don't risk one caller's filter drifting
+    from another's.
+    """
+    allowed = _LINTER_EXTENSIONS.get(linter_name)
+    return [
+        p
+        for p in paths
+        if not p.startswith("-") and (allowed is None or Path(p).suffix in allowed)
+    ]
 
 
 def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
@@ -233,13 +261,10 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
     if not binary or not shutil.which(binary):
         return None
 
-    # Guard against argument injection: reject paths that look like flags
-    if file_path.startswith("-"):
-        return None
-
-    # Skip files the linter doesn't understand
-    allowed = _LINTER_EXTENSIONS.get(linter_name)
-    if allowed is not None and Path(file_path).suffix not in allowed:
+    # `_eligible_for_linter` enforces the argument-injection guard
+    # (no leading `-`) and the per-linter extension allowlist; sharing
+    # it with `run_linter_batch` keeps the security guard from drifting.
+    if not _eligible_for_linter(linter_name, [file_path]):
         return None
 
     # Use "--" to separate flags from the filename argument
@@ -298,6 +323,76 @@ def run_ruff(
     text = "\n".join(kept_lines).strip()
     # dedupe preserving order
     return (list(dict.fromkeys(codes)), text)
+
+
+def run_linter_batch(
+    linter_name: str,
+    paths: list[str],
+    *,
+    context: Literal["edit", "staging"],
+    cwd: str | None = None,
+) -> dict[str, list[str]]:
+    """Run linter once over many paths; return {path: codes} per file.
+
+    Generalizes per-file `run_ruff` so commit-gate callers (today
+    `pre_tool_bash._staged_ruff_findings`) can fork the linter ONCE
+    for all changed files instead of once per file. Output codes are
+    filtered the same way `run_ruff` filters: ``edit`` strips
+    EDIT_DEFERRED_CODES (F401/F811); ``staging`` keeps everything.
+
+    Per-line parsing is ruff-specific today (uses `_RUFF_LINE_PATH_CODE`).
+    Routing by `linter_name` is generic — flake8/eslint siblings can
+    join when the per-line parser branches by linter, not before.
+
+    Returns ``{}`` when the linter binary is missing, no eligible paths
+    remain, OR ruff times out / fails to spawn. The empty-on-failure
+    contract matches `run_linter`/`run_ruff` — the caller treats an
+    absent path the same as "linter unavailable" and falls back to
+    other gates. Returning `{p: []}` on timeout would silently report
+    "all clean" and bypass the F401/F811 commit gate.
+
+    Files the linter saw but with no findings map to ``[]`` so callers
+    can distinguish "linted clean" (key present, value empty) from
+    "skipped" (key absent).
+
+    Timeout is 10s vs `run_linter`'s 5s — batch covers more files;
+    ruff at ~1ms/file gives 10000-file headroom.
+    """
+    binary = _LINTER_BINARIES.get(linter_name)
+    if not binary or not shutil.which(binary):
+        return {}
+
+    eligible = _eligible_for_linter(linter_name, paths)
+    if not eligible:
+        return {}
+
+    cmd = _LINTER_COMMANDS[linter_name] + ["--"] + eligible
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=cwd,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return {}
+
+    raw = proc.stdout or proc.stderr or ""
+    deferred = EDIT_DEFERRED_CODES if context == "edit" else frozenset()
+
+    out: dict[str, list[str]] = {p: [] for p in eligible}
+    for line in raw.splitlines():
+        m = _RUFF_LINE_PATH_CODE.match(line)
+        if not m:
+            continue
+        path, code = m.group(1), m.group(2)
+        if code in deferred:
+            continue
+        if path in out and code not in out[path]:
+            out[path].append(code)
+
+    return out
 
 
 def _summarize_lint_output(lint_output: str) -> str:

@@ -157,13 +157,16 @@ def _staged_ruff_findings(
     ``staged_files`` is passed in (never re-derived) so the caller's single
     `git diff --cached --name-only` invocation is reused — pinned by
     test_common_path_at_most_one_name_only_call. Single source of truth
-    for the ruff command line is lint_check.run_ruff.
+    for the ruff invocation is lint_check.run_linter_batch — one fork
+    per commit instead of one per staged .py file.
     """
+    py_paths = [p for p in staged_files if p.endswith(".py")]
+    if not py_paths:
+        return []
+    per_file = lint_check.run_linter_batch("ruff", py_paths, context="staging", cwd=cwd)
     findings: list[tuple[str, list[str]]] = []
-    for path in staged_files:
-        if not path.endswith(".py"):
-            continue
-        codes, _text = lint_check.run_ruff(path, context="staging", cwd=cwd)
+    for path in py_paths:
+        codes = per_file.get(path, [])
         deferred = [c for c in codes if c in lint_check.EDIT_DEFERRED_CODES]
         if deferred:
             findings.append((path, deferred))
