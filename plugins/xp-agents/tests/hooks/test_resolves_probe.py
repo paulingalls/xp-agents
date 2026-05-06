@@ -18,6 +18,7 @@ from conftest import _HookTestCase, _ProbeTestHelpers, make_event
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
+    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
@@ -805,6 +806,250 @@ class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):
             METADATA_KEY_PROBE_SELECTION_REASONS
         ]
         self.assertEqual(reasons_map, {"abc": []})
+
+
+class TestFindProbeCandidatesDiscovery(_HookTestCase):
+    """Discovery events surface as probe candidates the same way concerns
+    and debts do, so commits closing a discovery don't force the agent to
+    hand-edit a Resolves-Event trailer."""
+
+    NOW = "2026-04-29T00:00:00+00:00"
+    RECENT = "2026-04-27T00:00:00+00:00"
+    CYCLE_ACTIVE = "active01cycle"
+
+    def _seed_discovery(
+        self,
+        content: str,
+        files: list[str],
+        cycle_id: str | None = None,
+        ts: str = RECENT,
+    ) -> str:
+        metadata: dict = {}
+        if cycle_id is not None:
+            metadata = {"close_cycle_id": cycle_id, "close_mode": "sprint"}
+        e = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content=content,
+            files=files,
+            ts=ts,
+            metadata=metadata,
+        )
+        _common.append_safe(self.smm_dir, e)
+        return e["id"]
+
+    def _seed_concern(self, content: str, files: list[str]) -> str:
+        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files)
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def _seed_debt(self, content: str, files: list[str]) -> str:
+        d = make_event(EVENT_TYPE_DEBT, content=content, files=files)
+        _common.append_safe(self.smm_dir, d)
+        return d["id"]
+
+    def _seed_anchor_in_cycle(self) -> str:
+        """Seed an in-cycle anchor concern that triggers _find_active_cycle_id
+        and provides the file overlap the upstream pipeline needs."""
+        anchor = make_event(
+            EVENT_TYPE_CONCERN,
+            content="anchor with cycle",
+            files=["scripts/auth.py"],
+            ts=self.RECENT,
+            metadata={"close_cycle_id": self.CYCLE_ACTIVE, "close_mode": "sprint"},
+        )
+        _common.append_safe(self.smm_dir, anchor)
+        return anchor["id"]
+
+    # -- AC #1: file-overlap discoveries surface ------------------------------
+
+    def test_open_discovery_with_file_overlap_surfaces(self):
+        """AC #1: an open discovery whose files overlap the commit appears
+        in the candidate set."""
+        did = self._seed_discovery("Auth assumption broken", ["scripts/auth.py"])
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        self.assertIn(did, [c["id"] for c in result])
+
+    def test_resolved_discovery_does_not_surface(self):
+        """A discovery that's already been resolved (e.g. via a prior
+        Resolves-Event trailer) MUST NOT appear in the candidate set."""
+        did = self._seed_discovery("Already resolved", ["scripts/auth.py"])
+        # Resolver references the discovery by id — compute_resolutions will
+        # bucket the discovery into resolved_other_ids.
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="resolves the discovery",
+            metadata={"resolves": [did]},
+            references=[did],
+        )
+        _common.append_safe(self.smm_dir, resolver)
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        self.assertIn(did, resolutions["resolved_other_ids"])
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=events,
+            resolutions=resolutions,
+            now_ts=self.NOW,
+        )
+        self.assertNotIn(did, [c["id"] for c in result])
+
+    def test_discovery_filtered_via_resolves_arg(self):
+        """Resolves-Event trailer ids passed in as `resolves` filter
+        discoveries the same as concerns/debts."""
+        did = self._seed_discovery("Skip me", ["scripts/auth.py"])
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [did],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        self.assertNotIn(did, [c["id"] for c in result])
+
+    # -- AC #2: ranking unchanged across mixed types --------------------------
+
+    def test_mixed_types_ranking_unchanged(self):
+        """AC #2: with a mix of concern + debt + discovery all matching the
+        same commit by file-overlap, ranking order on those rows mirrors the
+        prior concern/debt behavior — ranking is type-agnostic, so equal
+        scores tiebreak by ts descending."""
+        # All three share the same file, same content shape, distinct ts.
+        # Default OLD_TS ("2026-03-12") for both concern/debt; discovery
+        # with newer ts so ts-descending tiebreak puts it first.
+        cid = self._seed_concern("zzz", ["scripts/auth.py"])
+        bid = self._seed_debt("zzz", ["scripts/auth.py"])
+        did = self._seed_discovery("zzz", ["scripts/auth.py"], ts=self.RECENT)
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(cid, ids)
+        self.assertIn(bid, ids)
+        self.assertIn(did, ids)
+        # Discovery has the newest ts and a recency boost (within 5 days),
+        # so it ranks first; concern/debt tie on score and ts → stable on
+        # whichever was appended first (concern before debt).
+        self.assertEqual(ids[0], did)
+
+    # -- AC #3 (E2E): discovery surfaces with selection_reasons ---------------
+
+    def test_discovery_carries_file_overlap_selection_reason(self):
+        """E2E shape: a surfaced discovery candidate carries the same
+        selection_reasons list shape as concerns/debts so build_nudge_lines
+        and the probe-status event downstream consumers behave uniformly."""
+        did = self._seed_discovery("auth middleware leaks tokens", ["scripts/auth.py"])
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            commit_message="fix auth",
+            now_ts=self.NOW,
+        )
+        cand = next(c for c in result if c["id"] == did)
+        self.assertIn("selection_reasons", cand)
+        self.assertIn(SELECTION_REASON_FILE_OVERLAP, cand["selection_reasons"])
+
+    # -- in-sprint-batch sibling axis now also includes discoveries -----------
+
+    def test_discovery_sibling_via_in_sprint_batch_axis(self):
+        """Sibling-batch loop widening: a discovery carrying the same
+        close_cycle_id as the active cycle surfaces as an in-batch sibling
+        even without file overlap."""
+        anchor = self._seed_anchor_in_cycle()
+        sibling = self._seed_discovery(
+            "sibling unrelated text",
+            ["docs/unrelated.md"],
+            cycle_id=self.CYCLE_ACTIVE,
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [anchor],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(sibling, ids)
+        sib = next(c for c in result if c["id"] == sibling)
+        self.assertIn(SELECTION_REASON_IN_SPRINT_BATCH, sib["selection_reasons"])
+
+    def test_resolved_discovery_excluded_from_sibling_axis(self):
+        """A discovery resolved by a prior Resolves-Event MUST NOT surface
+        even when its close_cycle_id matches the active cycle — the sibling
+        loop's resolved_set must include resolved_other_ids."""
+        anchor = self._seed_anchor_in_cycle()
+        sibling = self._seed_discovery(
+            "sibling unrelated", ["docs/unrelated.md"], cycle_id=self.CYCLE_ACTIVE
+        )
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="resolves",
+            metadata={"resolves": [sibling]},
+            references=[sibling],
+        )
+        _common.append_safe(self.smm_dir, resolver)
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [anchor],
+            cwd=str(self.smm_dir),
+            now_ts=self.NOW,
+        )
+        self.assertNotIn(sibling, [c["id"] for c in result])
+
+
+class TestCountFileOverlaps(unittest.TestCase):
+    """_count_file_overlaps direct pin — covers list-guard, str-guard, and
+    normalize_path raising branches that the discovery-flow tests reach
+    only transitively. A future refactor that silently zeros the score
+    must trip one of these. normalize_path is patched to identity so
+    tests don't depend on a real git root.
+    """
+
+    CWD = "/tmp/repo"
+
+    def setUp(self):
+        self._original_normalize = worktree.normalize_path
+        worktree.normalize_path = lambda f, _c: f
+
+    def tearDown(self):
+        worktree.normalize_path = self._original_normalize
+
+    def test_non_list_returns_zero(self):
+        self.assertEqual(
+            resolves_probe._count_file_overlaps("not-a-list", {"a.py"}, self.CWD), 0
+        )
+        self.assertEqual(
+            resolves_probe._count_file_overlaps(None, {"a.py"}, self.CWD), 0
+        )
+
+    def test_non_str_elements_skipped(self):
+        self.assertEqual(
+            resolves_probe._count_file_overlaps(["a.py", 42, None], {"a.py"}, self.CWD),
+            1,
+        )
+
+    def test_normalize_path_raising_branch_skips_entry(self):
+        def _raise(_f, _c):
+            raise ValueError("bad")
+
+        worktree.normalize_path = _raise
+        self.assertEqual(
+            resolves_probe._count_file_overlaps(["a.py"], {"a.py"}, self.CWD), 0
+        )
 
 
 if __name__ == "__main__":
