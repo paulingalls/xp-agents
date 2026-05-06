@@ -124,8 +124,7 @@ class TestCreateSprintBranchRecordsBranchName(unittest.TestCase):
             with patch("branching.identity.user_namespace", return_value="paul"):
                 branching.create_sprint_branch(td, "sprint-031", "lifecycle", smm_dir)
 
-            sprint = sprint_store.load_sprint(smm_dir)
-            assert sprint is not None
+            sprint = sprint_store.load_sprint_required(smm_dir)
             self.assertEqual(sprint["branch_name"], "paul/sprint-031-lifecycle")
 
     def test_resume_re_records_fixing_drift(self):
@@ -141,16 +140,14 @@ class TestCreateSprintBranchRecordsBranchName(unittest.TestCase):
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=2)
             _write_sprint_json(smm_dir, "sprint-031", "ignored goal")
-            sprint = sprint_store.load_sprint(smm_dir)
-            assert sprint is not None
+            sprint = sprint_store.load_sprint_required(smm_dir)
             sprint["branch_name"] = "paul/sprint-031-stale"
             sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
 
             with patch("branching.identity.user_namespace", return_value="paul"):
                 branching.create_sprint_branch(td, "sprint-031", "actual-name", smm_dir)
 
-            sprint = sprint_store.load_sprint(smm_dir)
-            assert sprint is not None
+            sprint = sprint_store.load_sprint_required(smm_dir)
             self.assertEqual(sprint["branch_name"], "paul/sprint-031-actual-name")
 
     def test_no_sprint_no_record_no_error(self):
@@ -327,8 +324,7 @@ class TestGetStoryBaseBranch(unittest.TestCase):
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=2)
             _write_sprint_json(smm_dir, "sprint-027", "edited goal text")
-            sprint = sprint_store.load_sprint(smm_dir)
-            assert sprint is not None
+            sprint = sprint_store.load_sprint_required(smm_dir)
             sprint["branch_name"] = "paul/sprint-027-actual-name"
             sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
 
@@ -352,8 +348,7 @@ class TestGetStoryBaseBranch(unittest.TestCase):
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=2)
             _write_sprint_json(smm_dir, "sprint-027", "legacy")
-            sprint = sprint_store.load_sprint(smm_dir)
-            assert sprint is not None
+            sprint = sprint_store.load_sprint_required(smm_dir)
             sprint["branch_name"] = "paul/sprint-027-deleted"
             sprint_store.save_sprint(smm_dir, sprint, enforce_budget=False)
 

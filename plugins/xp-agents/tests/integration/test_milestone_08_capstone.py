@@ -316,9 +316,9 @@ class TestMilestone08Capstone(_IntegrationTestCase):
                 text=True,
             )
             self.assertNotEqual(fail.returncode, 0, "first-red must exit non-zero")
-            # Tighter than `assertIn("false")` alone — guards against the
-            # substring matching unrelated traceback text.
-            self.assertIn("command failed", fail.stderr)
+            # Multi-command stories label the failing slot as `commands[N]`
+            # (story-001) — guards against substring matching traceback text.
+            self.assertIn("commands[1] failed", fail.stderr)
             self.assertIn("false", fail.stderr)
         finally:
             shutil.rmtree(cap_smm_dir, ignore_errors=True)

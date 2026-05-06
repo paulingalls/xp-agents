@@ -251,7 +251,7 @@ class TestSessionEnd(_HookTestCase):
     def test_session_end_content_within_budget(self):
         """session_end content must stay within 50-char budget."""
         import session_end
-        from event_schema import CONTENT_BUDGETS
+        from event_schema import get_required_budget
 
         self._write_events([make_event()])
         session_end.run(
@@ -260,8 +260,7 @@ class TestSessionEnd(_HookTestCase):
         )
         events = _common.read_events_raw(self.smm_dir)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        budget = CONTENT_BUDGETS[EVENT_TYPE_SESSION_END]
-        assert budget is not None
+        budget = get_required_budget(EVENT_TYPE_SESSION_END)
         self.assertLessEqual(
             len(se["content"]),
             budget,
@@ -390,6 +389,151 @@ class TestSessionEnd(_HookTestCase):
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         meta = se.get("metadata") or {}
         self.assertNotIn("resolves", meta)
+
+
+# ===========================================================================
+# Stale-concern sweep tests
+# ===========================================================================
+
+
+class TestStaleConcernSweep(_HookTestCase):
+    """SessionEnd flags concerns older than 4 SESSION_END markers by emitting
+    a NEW concern event with references=[orig_id] + metadata.flagged_stale.
+    The flag participates in WEAK-references cascade closure."""
+
+    @staticmethod
+    def _flag_concerns(events: list[dict]) -> list[dict]:
+        return [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and (e.get("metadata") or {}).get("flagged_stale") is True
+        ]
+
+    def test_stale_concern_emits_flag(self):
+        import session_end
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Old concern")
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
+            ]
+        )
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        flags = self._flag_concerns(_common.read_events_raw(self.smm_dir))
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].get("references"), [c["id"]])
+        self.assertEqual(flags[0]["metadata"]["stale_session_count"], 4)
+        self.assertEqual(flags[0].get("severity"), "low")
+
+    def test_fresh_concern_not_flagged(self):
+        import session_end
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Fresh concern")
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
+            ]
+        )
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(self._flag_concerns(_common.read_events_raw(self.smm_dir)), [])
+
+    def test_resolved_concern_not_flagged(self):
+        import session_end
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Already-resolved concern")
+        r = make_event(
+            EVENT_TYPE_STATUS,
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [c["id"]]},
+        )
+        self._write_events(
+            [
+                c,
+                r,
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
+            ]
+        )
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(self._flag_concerns(_common.read_events_raw(self.smm_dir)), [])
+
+    def test_multiple_stale_concerns_all_flagged(self):
+        """Given multiple stale concerns, every one gets a flag in one sweep
+        (E2E AC: 'session ends with multiple stale concerns -> Fix lens lists each')."""
+        import session_end
+
+        c1 = make_event(EVENT_TYPE_CONCERN, content="Stale orig 1")
+        c2 = make_event(EVENT_TYPE_CONCERN, content="Stale orig 2")
+        self._write_events(
+            [
+                c1,
+                c2,
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
+            ]
+        )
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        flags = self._flag_concerns(_common.read_events_raw(self.smm_dir))
+        flagged_origs = {f.get("references", [None])[0] for f in flags}
+        self.assertEqual(flagged_origs, {c1["id"], c2["id"]})
+
+    def test_already_flagged_stale_concern_not_re_flagged(self):
+        """Idempotency: if a flag-concern already exists for an orig concern,
+        session_end must not emit a duplicate flag."""
+        import session_end
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Stale orig")
+        existing_flag = make_event(
+            EVENT_TYPE_CONCERN,
+            content=(
+                f"Concern {c['id']} is stale (4 sessions old) — triage at next kickoff"
+            ),
+            references=[c["id"]],
+            severity="low",
+            metadata={"flagged_stale": True, "stale_session_count": 4},
+        )
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
+                existing_flag,
+            ]
+        )
+        session_end.run(
+            {"session_id": "test", "reason": "logout"},
+            smm_dir=self.smm_dir,
+        )
+        flags = self._flag_concerns(_common.read_events_raw(self.smm_dir))
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["id"], existing_flag["id"])
 
 
 # ===========================================================================

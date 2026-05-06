@@ -56,6 +56,10 @@ Report each flag in the **Fix** section under the flag's `xp_value`. Use the fla
 
 Use raw signals (`honesty_signals`, `work_signals`, `session_stats`) for narrative context only, not for threshold judgments.
 
+## Stale-Flag Concerns
+
+`session_end._sweep_stale_concerns` emits NEW concern events with `metadata.flagged_stale=true` and `references=[root_id]` pointing at concerns that have outlived their addressable window without resolution. Surface these in the **Fix** section so the human can triage — root concern stays open (the cascade will close the flag when the root closes), but stale flags accumulating across sessions is itself a Fix-lens signal worth naming.
+
 ## Work Analysis
 
 Commit messages in `signal_events` are the primary record of what was accomplished. Use them to:
@@ -126,7 +130,7 @@ When `sizing_analysis` contains `resolves_link_rate`, report a "Resolution-Link 
 - **Overall trailer rate** (`resolves_link_rate`): percentage of all code commits with a Resolves-Event trailer. Print as `X% (hits/total)`. If below 0.80, flag as Fix under Communication.
 - **Probe adoption rate** (`probe_adoption_rate`): when the pre-commit nudge showed overlapping concerns, how often did the agent add a trailer that referenced one of those candidates? Print as `X% (hits/total)`. This is the actionable metric — it measures nudge effectiveness. If below 0.50, flag as Fix under Feedback **and name the dominant miss bucket(s)** so the cause is explicit. List all tied buckets when counts are equal — don't pick arbitrarily — and read the tie as itself diagnostic ("escapes and diverts are equal — both nudge ergonomics and probe candidate quality need attention").
   - **escape** (`probe_escape`): paired commit had `Resolves-Event: none`. Reads as "agent declined the suggestion to clear the gate." If escape dominates, the suggestions aren't trusted.
-  - **divert** (`probe_divert`): paired commit added a different ID. Reads as "agent had its own context the probe didn't see." If divert dominates, the probe candidate set is noisy or under-specified. **When `probe_divert > 0`, also surface up to 3 examples from `probe_divert_details` (each entry has `candidates`, `resolves`, `agent_id`, `probe_ts`, `commit_ts`).** Use the side-by-side pairing to recommend a specific Try — e.g., "candidate set excluded the file domain agent acted on" or "agent's chosen ID was newer than the probe's snapshot". Counts alone are not actionable; the pairing is.
+  - **divert** (`probe_divert`): paired commit added a different ID. Reads as "agent had its own context the probe didn't see." If divert dominates, the probe candidate set is noisy or under-specified. **When `probe_divert > 0`, also surface up to 3 examples from `probe_divert_details` (each entry has `candidates`, `resolves`, `agent_id`, `probe_ts`, `commit_ts`, `reason`).** The `reason` is one of `newer-than-snapshot` / `outside-file-domain` / `cross-story` / `wrong-type` / `unknown` — name the dominant cause in the Fix lens (e.g., "newer-than-snapshot dominates → probe snapshot is stale"). Counts alone are not actionable; the pairing plus the dominant reason is.
   - **silent** (`probe_silent`): probe fired but no commit by the same agent followed in the sprint window. Informational only — non-zero values are surfaced under the rate but do not by themselves trigger a Fix (a single stray miss is not enough to act on).
 
 If `resolves_link_rate` is absent (zero probes in the sprint, or non-sprint session), omit the subsection entirely.

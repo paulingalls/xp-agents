@@ -5,6 +5,7 @@ Computes duration, event count, unresolved items, active working_on,
 and final status — then appends a session_end event.
 """
 
+import bisect
 import contextlib
 import sys
 from datetime import datetime, timezone
@@ -15,11 +16,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _append_impl
 import _common
+import concerns
 import coordination
 import identity
 import markers
 from event_builder import generate_id
-from event_schema import CONTENT_BUDGETS, METADATA_KEY_RESOLVES
+from event_schema import (
+    METADATA_KEY_FLAGGED_STALE,
+    METADATA_KEY_RESOLVES,
+    METADATA_KEY_STALE_SESSION_COUNT,
+    get_required_budget,
+)
+
+STALE_CONCERN_SESSION_THRESHOLD = 4
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -105,6 +114,72 @@ def _compute_summary(
     }
 
 
+def _sweep_stale_concerns(
+    smm_dir: Path,
+    events: list[dict],
+    resolutions: dict,
+    agent_id: str,
+) -> None:
+    """Emit one flag-concern per open concern that has survived
+    STALE_CONCERN_SESSION_THRESHOLD or more SESSION_END markers.
+
+    Idempotency: a concern that already has an unresolved flag-concern
+    pointing back to it (metadata.flagged_stale=True, references=[orig_id])
+    is skipped to prevent every session_end from appending another flag.
+    """
+    resolved_ids = resolutions["resolved_concern_ids"]
+    already_flagged: set[str] = set()
+    session_end_positions: list[int] = []
+    concern_position: dict[str, int] = {}
+    for i, e in enumerate(events):
+        match e.get("type"):
+            case _common.SESSION_END:
+                session_end_positions.append(i)
+            case _common.CONCERN:
+                eid = e.get("id", "")
+                if eid:
+                    concern_position[eid] = i
+                if (
+                    eid not in resolved_ids
+                    and (e.get("metadata") or {}).get("flagged_stale") is True
+                ):
+                    already_flagged.update(e.get("references") or [])
+    stale = concerns.filter_by_session_age(
+        events,
+        STALE_CONCERN_SESSION_THRESHOLD,
+        resolutions=resolutions,
+        session_end_positions=session_end_positions,
+    )
+    if not stale:
+        return
+    total_ends = len(session_end_positions)
+    flag_events: list[dict] = []
+    for orig in stale:
+        orig_id = orig.get("id", "")
+        if not orig_id or orig_id in already_flagged:
+            continue
+        ends_since = total_ends - bisect.bisect_right(
+            session_end_positions, concern_position[orig_id]
+        )
+        flag_events.append(
+            concerns.make_concern(
+                content=(
+                    f"Concern {orig_id} is stale ({ends_since} sessions old)"
+                    " — triage at next kickoff"
+                ),
+                severity="low",
+                agent_id=agent_id,
+                references=[orig_id],
+                metadata={
+                    METADATA_KEY_FLAGGED_STALE: True,
+                    METADATA_KEY_STALE_SESSION_COUNT: ends_since,
+                },
+            )
+        )
+    if flag_events:
+        _common.bulk_append_safe(smm_dir, flag_events)
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
     """Core session_end logic. Appends session_end event."""
     # Recursion prevention
@@ -126,10 +201,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         owns_goal=lambda g: _owns_goal(g, is_teammate=is_teammate, agent_id=agent_id),
     )
 
+    _sweep_stale_concerns(smm_dir, events, resolutions, agent_id)
+
     # Build session_end event directly (avoids subprocess + shell escaping)
     prefix = "Session ended: "
-    budget = CONTENT_BUDGETS[_common.SESSION_END]
-    assert budget is not None
+    budget = get_required_budget(_common.SESSION_END)
     max_reason = budget - len(prefix)
     reason = input_data.get("reason", "unknown")[:max_reason]
     event = {

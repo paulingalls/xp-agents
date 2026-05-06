@@ -118,8 +118,7 @@ class TestCheckWorkingOnOverlapCoordination(_HookTestCase):
         result = pre_tool_write.check_working_on_overlap(
             self.smm_dir, "main", "src/app.ts", "/project"
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("other", result)
 
     def test_self_overlap_ignored(self):

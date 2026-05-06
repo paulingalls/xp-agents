@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -71,7 +72,14 @@ _LINTER_CONFIGS = [
 ]
 
 _LINTER_COMMANDS = {
-    "ruff": ["ruff", "check"],
+    # `--output-format=concise` pins ruff to the legacy single-line
+    # `path:line:col: CODE message` shape that `_RUFF_LINE_CODE` /
+    # `_RUFF_LINE_PATH_CODE` parse. ruff 0.15+ defaults to multi-line
+    # "full" format with arrows; without this pin both parsers silently
+    # extract zero codes and the F401/F811 deferral pipeline (edit-time
+    # filter + staging-time gate + run_linter_batch commit gate) is dead
+    # code.
+    "ruff": ["ruff", "check", "--output-format=concise"],
     "flake8": ["flake8"],
     "eslint": ["npx", "eslint"],
     "prettier": ["npx", "prettier", "--check"],
@@ -205,6 +213,44 @@ def detect_linter_config(
 # Linter execution
 # ---------------------------------------------------------------------------
 
+# Codes deferred until the file is staged for commit. F401 (unused import) and
+# F811 (redefinition of unused) false-positive routinely during multi-step
+# replace_all migrations: an import added in one Edit and consumed in the next
+# fires F401 mid-stream. The commit-gate check in
+# pre_tool_bash._staged_ruff_findings (which calls run_linter_batch with
+# context="staging") catches truly-unused imports before they ship.
+EDIT_DEFERRED_CODES: frozenset[str] = frozenset({"F401", "F811"})
+
+# Code shape shared by all pyflakes-family linters (ruff/pylint/flake8): one or
+# more uppercase letters followed by 3-4 digits. Ruff plugin namespaces keep
+# growing (F=1, RUF=3, PERF=4, ASYNC=5, ...), so the prefix is unbounded. Single
+# source of truth — both the per-line ruff parser (run_ruff) and the summary
+# extractor (_summarize_lint_output) consume it.
+_PYFLAKES_CODE_SHAPE = r"[A-Z]+\d{3,4}"
+
+# Matches the leading code on a ruff line: "path:line:col: F401 [*] message"
+_RUFF_LINE_CODE = re.compile(rf"^\s*[^:\s]+:\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
+# Same shape but also captures the path — used by run_linter_batch to bucket
+# findings back to their source file when ruff is forked over many paths.
+_RUFF_LINE_PATH_CODE = re.compile(rf"^([^\s:]+):\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
+
+
+def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
+    """Filter ``paths`` to those the linter handles, preserving order.
+
+    Combines the two guards `run_linter` and `run_linter_batch` need:
+    skip flag-shaped paths (argument-injection guard) and skip files
+    whose extension the linter doesn't claim. Single source of truth
+    so future linter additions don't risk one caller's filter drifting
+    from another's.
+    """
+    allowed = _LINTER_EXTENSIONS.get(linter_name)
+    return [
+        p
+        for p in paths
+        if not p.startswith("-") and (allowed is None or Path(p).suffix in allowed)
+    ]
+
 
 def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
     """Run linter on file. Returns error output or None if clean/unavailable.
@@ -215,13 +261,10 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
     if not binary or not shutil.which(binary):
         return None
 
-    # Guard against argument injection: reject paths that look like flags
-    if file_path.startswith("-"):
-        return None
-
-    # Skip files the linter doesn't understand
-    allowed = _LINTER_EXTENSIONS.get(linter_name)
-    if allowed is not None and Path(file_path).suffix not in allowed:
+    # `_eligible_for_linter` enforces the argument-injection guard
+    # (no leading `-`) and the per-linter extension allowlist; sharing
+    # it with `run_linter_batch` keeps the security guard from drifting.
+    if not _eligible_for_linter(linter_name, [file_path]):
         return None
 
     # Use "--" to separate flags from the filename argument
@@ -245,6 +288,113 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
     return None
 
 
+def run_ruff(
+    file_path: str | Path,
+    *,
+    context: Literal["edit", "staging"],
+    cwd: str | None = None,
+) -> tuple[list[str], str]:
+    """Single source of truth for ruff invocation.
+
+    Runs ruff once, returns (codes, filtered_text). In ``edit`` context,
+    codes in EDIT_DEFERRED_CODES (F401, F811) are stripped from both
+    outputs — they belong at staging time. In ``staging`` context, all
+    codes are reported.
+
+    Returns ([], "") when ruff is unavailable, the file extension is wrong,
+    or ruff exits clean. Used by lint_check.run() (edit) and
+    pre_tool_bash (staging).
+    """
+    raw = run_linter("ruff", str(file_path), cwd=cwd)
+    if raw is None:
+        return ([], "")
+
+    kept_lines: list[str] = []
+    codes: list[str] = []
+    deferred = EDIT_DEFERRED_CODES if context == "edit" else frozenset()
+    for line in raw.splitlines():
+        m = _RUFF_LINE_CODE.match(line)
+        code = m.group(1) if m else None
+        if code and code in deferred:
+            continue
+        kept_lines.append(line)
+        if code:
+            codes.append(code)
+    text = "\n".join(kept_lines).strip()
+    # dedupe preserving order
+    return (list(dict.fromkeys(codes)), text)
+
+
+def run_linter_batch(
+    linter_name: str,
+    paths: list[str],
+    *,
+    context: Literal["edit", "staging"],
+    cwd: str | None = None,
+) -> dict[str, list[str]]:
+    """Run linter once over many paths; return {path: codes} per file.
+
+    Generalizes per-file `run_ruff` so commit-gate callers (today
+    `pre_tool_bash._staged_ruff_findings`) can fork the linter ONCE
+    for all changed files instead of once per file. Output codes are
+    filtered the same way `run_ruff` filters: ``edit`` strips
+    EDIT_DEFERRED_CODES (F401/F811); ``staging`` keeps everything.
+
+    Per-line parsing is ruff-specific today (uses `_RUFF_LINE_PATH_CODE`).
+    Routing by `linter_name` is generic — flake8/eslint siblings can
+    join when the per-line parser branches by linter, not before.
+
+    Returns ``{}`` when the linter binary is missing, no eligible paths
+    remain, OR ruff times out / fails to spawn. The empty-on-failure
+    contract matches `run_linter`/`run_ruff` — the caller treats an
+    absent path the same as "linter unavailable" and falls back to
+    other gates. Returning `{p: []}` on timeout would silently report
+    "all clean" and bypass the F401/F811 commit gate.
+
+    Files the linter saw but with no findings map to ``[]`` so callers
+    can distinguish "linted clean" (key present, value empty) from
+    "skipped" (key absent).
+
+    Timeout is 10s vs `run_linter`'s 5s — batch covers more files;
+    ruff at ~1ms/file gives 10000-file headroom.
+    """
+    binary = _LINTER_BINARIES.get(linter_name)
+    if not binary or not shutil.which(binary):
+        return {}
+
+    eligible = _eligible_for_linter(linter_name, paths)
+    if not eligible:
+        return {}
+
+    cmd = _LINTER_COMMANDS[linter_name] + ["--"] + eligible
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=cwd,
+        )
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return {}
+
+    raw = proc.stdout or proc.stderr or ""
+    deferred = EDIT_DEFERRED_CODES if context == "edit" else frozenset()
+
+    out: dict[str, list[str]] = {p: [] for p in eligible}
+    for line in raw.splitlines():
+        m = _RUFF_LINE_PATH_CODE.match(line)
+        if not m:
+            continue
+        path, code = m.group(1), m.group(2)
+        if code in deferred:
+            continue
+        if path in out and code not in out[path]:
+            out[path].append(code)
+
+    return out
+
+
 def _summarize_lint_output(lint_output: str) -> str:
     """Extract error codes from lint output for a concise concern summary.
 
@@ -256,8 +406,8 @@ def _summarize_lint_output(lint_output: str) -> str:
     - eslint: kebab-case rules at end of line (no-unused-vars, no-console)
     - eslint plugins: scoped rules (@typescript-eslint/no-explicit-any)
     """
-    # ruff/pylint/flake8 codes: F401, I001, C0114, W0611, RUF059
-    codes = re.findall(r"\b([A-Z]{1,3}\d{3,4})\b", lint_output)
+    # ruff/pylint/flake8 codes: F401, I001, C0114, W0611, RUF059, PERF401
+    codes = re.findall(rf"\b({_PYFLAKES_CODE_SHAPE})\b", lint_output)
     # eslint rules: "  error  'x' is unused  no-unused-vars" or "(no-unused-vars)"
     eslint_rules = re.findall(
         r"[\s(]((?:@[\w-]+/)?[a-z][\w-]*(?:/[a-z][\w-]*)*)[)\s]*$",
@@ -342,9 +492,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not binary or not shutil.which(binary):
         return None
 
-    # Run linter
-    lint_output = run_linter(linter_name, normalized, cwd=git_root)
-    if lint_output:
+    # Route ruff through run_ruff so the edit-time filter (F401/F811 deferred
+    # to staging) is the single source of truth for the ruff command line.
+    # Gate on parsed codes for ruff: filtered output may retain ruff's
+    # "Found N errors." footer even when every individual code was filtered.
+    if linter_name == "ruff":
+        codes, lint_output = run_ruff(normalized, context="edit", cwd=git_root)
+        has_errors = bool(codes)
+    else:
+        lint_output = run_linter(linter_name, normalized, cwd=git_root) or ""
+        has_errors = bool(lint_output)
+    if has_errors:
         if not _has_unresolved_lint_concern(smm_dir, normalized):
             summary = _summarize_lint_output(lint_output)
             concern = _common.make_event(

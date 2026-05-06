@@ -350,9 +350,17 @@ def parse_effective_cwd(command: str, fallback: str) -> str:
     Lets the post-Bash hook read HEAD from the right repo when an agent
     chained `cd <wt> && git commit && cd -` (the cd-back means input_data.cwd
     is no longer the worktree by the time the hook fires).
+
+    Quoted strings and heredoc bodies are stripped before scanning so a
+    commit message that quotes `cd /tmp` or `git -C /elsewhere` cannot
+    retarget cwd — real paths inside message bodies pass `is_dir()`.
     """
     if not command:
         return fallback
+
+    # Reuse git_commits' private quote/heredoc stripper so this function and
+    # is_git_commit share one definition of "what counts as the outer command".
+    scan_target = git_commits._strip_quoted(command)
 
     def _resolve(candidate: str) -> str | None:
         path = Path(candidate)
@@ -361,7 +369,7 @@ def parse_effective_cwd(command: str, fallback: str) -> str:
         return str(path) if path.is_dir() else None
 
     def _last_validated(regex: re.Pattern[str]) -> str | None:
-        for m in reversed(list(regex.finditer(command))):
+        for m in reversed(list(regex.finditer(scan_target))):
             resolved = _resolve(m.group(1))
             if resolved is not None:
                 return resolved

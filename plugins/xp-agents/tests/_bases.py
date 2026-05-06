@@ -22,18 +22,52 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TypeVar
 from unittest.mock import patch
+
+from _test_typing import _MixinBase
+
+_T = TypeVar("_T")
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
 _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 _SMM_DIR = _PLUGIN_ROOT / "smm"
+_MARKERS_PY = _SCRIPTS_DIR / "markers.py"
+
+
+class _AssertNotNoneMixin(_MixinBase):
+    """Adds `self._assert_not_none(value)` — a pyright-narrowing variant of
+    assertIsNotNone that returns the value typed as ``T`` instead of
+    ``T | None``. Replaces the legacy two-line crutch
+    ``self.assertIsNotNone(x); assert x is not None`` at call sites.
+
+    Mixin so both `_SMMTestCase` and standalone `unittest.TestCase`
+    subclasses (e.g. `tests/hooks/test_branching_push._BasePushTest`)
+    can share the helper without restructuring their primary base.
+
+    Inherits from `_test_typing._MixinBase` (TYPE_CHECKING=TestCase /
+    runtime=object) — single source of truth for the mixin shim per
+    sprint-065 story-020 consolidation.
+    """
+
+    def _assert_not_none(self, value: _T | None, msg: str | None = None) -> _T:
+        """Assert value is not None and return it narrowed to T.
+
+        Pyright narrows callers via the ``T`` (not ``T | None``)
+        return type, so the second ``assert`` line at each site
+        becomes unnecessary.
+        """
+        self.assertIsNotNone(value, msg)
+        assert value is not None
+        return value
+
 
 # Make scripts/ importable so we can default-mock commits.get_staged_diff
 # below. Mirrors the sys.path discipline every hook test file already does.
 sys.path.insert(0, str(_SCRIPTS_DIR))
 
 
-class _SMMTestCase(unittest.TestCase):
+class _SMMTestCase(_AssertNotNoneMixin, unittest.TestCase):
     """Base test case that creates a temp SMM directory.
 
     Pins SMM_DIR env var to the temp dir for the test's lifetime, so any
@@ -103,7 +137,7 @@ class _HookTestCase(_SMMTestCase):
         super().tearDown()
 
 
-class _IntegrationTestCase(unittest.TestCase):
+class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     """Base class that creates a temp git repo and inits SMM via init.sh.
 
     The git repo and SMM directory are created once per class (setUpClass).

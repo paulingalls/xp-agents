@@ -12,6 +12,11 @@ jointly establish:
 4. Bare ``/security-review`` outside a close cycle never trips the
    gate (the desired sidestep).
 
+Marker writes go through the ``markers.py`` CLI — the same surface the
+close-skill prose drives — so a regression in the CLI write path (e.g.,
+allowlist drift, argparse rename) breaks this suite, not just the
+narrower ``test_markers_cli`` unit tests.
+
 Sprint AC #4 (per-skill ordering pin) is satisfied by the existing
 ``_Step4SecurityIncludeTests`` mixin in ``tests/_close_fixtures.py``
 which the four close-skill test classes already inherit — restating
@@ -21,7 +26,9 @@ evolve.
 
 from __future__ import annotations
 
-from conftest import _IntegrationTestCase
+import json
+
+from conftest import _MARKERS_PY, _IntegrationTestCase, run_cli
 from event_schema import EVENT_TYPE_STATUS
 
 
@@ -53,15 +60,18 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
         )
 
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "")
+        # Real close-skill path: prose invokes `markers.py write`. A
+        # direct markers.marker_write() call would skip argparse +
+        # _CLI_ALLOWLIST and let CLI regressions slip past the capstone.
+        cli_result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
+        self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
 
         block_msg = close_cycle_stop_gate.run(
             {"agent_id": "main", "agent_type": "main"},
             self.smm_dir,
         )
-        self.assertIsNotNone(block_msg)
-        assert block_msg is not None
+        block_msg = self._assert_not_none(block_msg)
         self.assertIn("xp-close-reviewer", block_msg)
 
         # Security event arrives. Gate checks marker presence, not
@@ -116,6 +126,60 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             self.smm_dir,
         )
         self.assertIsNone(result)
+
+    def test_real_stranding_vector_when_marker_unconsumed(self):
+        """Stranding vector: close skill writes the marker via the CLI
+        (real prose path), /security-review records its completion, but
+        xp-close-reviewer never fires — so its SubagentStop never
+        consumes the marker. The next Stop hook MUST block, otherwise
+        the agent would silently auto-resume past Step 4.5.
+
+        Pinning this scenario is the whole point of the capstone: the
+        positive test proves consume-on-close-reviewer releases the
+        gate; this test proves the gate STAYS shut when consume never
+        happens. Together they bracket the marker lifecycle.
+        """
+        import markers
+
+        # Drive marker write through the same CLI surface the close
+        # skill prose invokes. A direct markers.marker_write() call
+        # would bypass argparse + the _CLI_ALLOWLIST gate and silently
+        # paper over a CLI regression.
+        cli_result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
+        self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
+
+        # Security review completes (the only event the close skill
+        # records between marker-write and xp-close-reviewer). Marker
+        # remains — review_cycle_done.py emits SECURITY_COMPLETE, it
+        # does NOT consume the close-cycle marker.
+        self._seed_events([_security_complete_event("strand0000001")])
+
+        # xp-close-reviewer is intentionally NOT invoked here. This is
+        # the stranding vector: the LLM forgets / a hook regression
+        # prevents the SubagentStop from firing, etc.
+
+        # Run the gate via subprocess so we exercise the real
+        # block_output() JSON shape the harness sees (decision=block).
+        result = self._run_script(
+            "close_cycle_stop_gate.py",
+            {"agent_id": "main", "agent_type": "main"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        decision = json.loads(result.stdout)
+        self.assertEqual(decision["decision"], "block")
+        self.assertIn("Close cycle mid-flight", decision["reason"])
+        self.assertIn("xp-close-reviewer", decision["reason"])
+
+        # Marker is still present — the agent is stranded mid-cycle
+        # until xp-close-reviewer's SubagentStop runs. THIS is the
+        # load-bearing invariant: a marker that vanished without
+        # xp-close-reviewer would silently auto-resume the cycle.
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "Stranding vector: marker must persist when xp-close-reviewer "
+            "never fires — close-cycle MUST NOT auto-resume",
+        )
 
     # No event-ordering test: marker-consume IS the close-reviewer
     # completion signal (no completion event emitted). The pass-through

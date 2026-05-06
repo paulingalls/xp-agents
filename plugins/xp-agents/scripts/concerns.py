@@ -24,12 +24,13 @@ from _common import (
     DISCOVERY,
     PRIORITY_BLOCKING,
     QUESTION,
+    SESSION_END,
     STATUS,
     bulk_append_safe,
     make_event,
     read_events_raw,
 )
-from event_schema import CONTENT_BUDGETS, METADATA_KEY_RESOLVES
+from event_schema import METADATA_KEY_RESOLVES, get_required_budget
 from worktree import normalize_path
 
 # ---------------------------------------------------------------------------
@@ -95,6 +96,39 @@ def _find_unresolved(
         if e.get("type") == CONCERN
         and e.get("id", "") not in resolved_ids
         and matcher(e.get("content", ""))
+    ]
+
+
+def filter_by_session_age(
+    events: list[dict],
+    min_session_ends: int,
+    resolutions: dict | None = None,
+    session_end_positions: list[int] | None = None,
+) -> list[dict]:
+    """Return open concerns whose first appearance is >= min_session_ends
+    SESSION_END markers ago.
+
+    Used by session_end's stale-concern sweep to flag long-lived concerns
+    for human triage at the next /xp-kickoff retro. Resolved concerns
+    (per resolution.compute_resolutions) are excluded. Pass `resolutions`
+    AND/OR `session_end_positions` when the caller already computed them
+    to avoid the redundant pass over events.
+    """
+    if resolutions is None:
+        resolutions = resolution.compute_resolutions(events)
+    resolved_ids = resolutions["resolved_concern_ids"]
+    if session_end_positions is None:
+        session_end_positions = [
+            i for i, e in enumerate(events) if e.get("type") == SESSION_END
+        ]
+    total_ends = len(session_end_positions)
+    return [
+        e
+        for i, e in enumerate(events)
+        if e.get("type") == CONCERN
+        and e.get("id", "") not in resolved_ids
+        and total_ends - bisect.bisect_right(session_end_positions, i)
+        >= min_session_ends
     ]
 
 
@@ -165,17 +199,22 @@ def make_concern(
     agent_id: str,
     references: list[str] | None = None,
     files: list[str] | None = None,
+    metadata: dict | None = None,
 ) -> dict:
     """Build a concern event dict.
 
     `references` attaches WEAK cascade links.
     `files` records affected file paths for file-overlap resolution.
+    `metadata` carries discriminators (e.g. flagged_stale) consumed by
+    sweepers and retros.
     """
     extra: dict = {"severity": severity}
     if references:
         extra["references"] = references
     if files:
         extra["files"] = files
+    if metadata:
+        extra["metadata"] = metadata
     return make_event(CONCERN, agent_id, content, **extra)
 
 
@@ -268,8 +307,7 @@ def detect_conflicts(
             for ref in e.get("references", []):
                 if ref in assumptions:
                     # Template = 57 chars; split remaining budget across both texts
-                    _budget = CONTENT_BUDGETS[CONCERN]
-                    assert _budget is not None
+                    _budget = get_required_budget(CONCERN)
                     _max_text = (_budget - 57) // 2
                     a_text = assumptions[ref]["content"][:_max_text]
                     d_text = e["content"][:_max_text]

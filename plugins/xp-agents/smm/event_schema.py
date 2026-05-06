@@ -181,6 +181,14 @@ METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
 # defer past the FORCE-CLOSE gate via --force-defer-with-date; YYYY-MM-DD.
 METADATA_KEY_DEFER_UNTIL = "defer_until"
 
+# Stale-concern sweep (session_end._sweep_stale_concerns) flag-concern keys.
+# Carried on a NEW concern event with references=[orig_id]; the WEAK cascade
+# (resolution.compute_resolutions) closes the flag when orig_id resolves.
+# Producer: session_end. Consumer: session_end (idempotency check) + retro
+# Fix-lens (xp-retrospective surfaces flagged concerns for human triage).
+METADATA_KEY_FLAGGED_STALE = "flagged_stale"
+METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
+
 # Per-candidate selector signals attached by resolves_probe._score_candidate
 # and persisted on probe status events so retro_metrics can attribute
 # divert events to specific signals (which selector misfired). Shape:
@@ -205,6 +213,18 @@ SELECTION_REASON_CLOSE_MODE = "close_mode"
 # probe-divert gap where in-batch siblings were missed because they had no
 # file or keyword tie to the current commit.
 SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
+
+# Divert-reason vocabulary written by retro_metrics._classify_divert_reason
+# into probe_divert_details[i]["reason"]. Each value names the cause class
+# of an agent's resolves choice falling outside the probe candidate set,
+# so retros can act on cause not just count. UNKNOWN is the catch-all so
+# no divert is silently uncategorized. Order matches first-match precedence
+# in the classifier.
+DIVERT_REASON_NEWER_THAN_SNAPSHOT = "newer-than-snapshot"
+DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
+DIVERT_REASON_CROSS_STORY = "cross-story"
+DIVERT_REASON_WRONG_TYPE = "wrong-type"
+DIVERT_REASON_UNKNOWN = "unknown"
 
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
@@ -283,6 +303,28 @@ _VALIDATE_NO_TYPE_RULES = frozenset(
 # ---------------------------------------------------------------------------
 # Event validation (single source of truth for required-field checks)
 # ---------------------------------------------------------------------------
+
+
+def get_required_budget(event_type: str) -> int:
+    """Return the content budget for `event_type` or raise ValueError.
+
+    Use this at call sites where the budget MUST exist (production
+    enforcement paths, tests with seeded fixtures). Pyright sees the
+    `int` return so callers don't need a follow-up
+    `assert budget is not None` after a `CONTENT_BUDGETS[<key>]` lookup.
+
+    Raises ValueError when the event_type is unknown to the schema, OR
+    when its registered budget is None (uncapped types like
+    `customer_input` and `retrospective` — callers that demand a numeric
+    budget cannot be satisfied by an uncapped type, so failing loud
+    here is the right move).
+    """
+    if event_type not in CONTENT_BUDGETS:
+        raise ValueError(f"unknown event_type {event_type!r}; not in CONTENT_BUDGETS")
+    budget = CONTENT_BUDGETS[event_type]
+    if budget is None:
+        raise ValueError(f"event_type {event_type!r} has no content budget (None)")
+    return budget
 
 
 def validate_event(event: dict) -> list[str]:

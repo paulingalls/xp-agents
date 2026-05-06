@@ -22,6 +22,8 @@ Use `match/case` for tool_name routing, event type handling, and hook input pars
 
 All scripts start with `#!/usr/bin/env python3`.
 
+**`_required` narrowing convention.** For `T | None` loaders/lookups whose callers know the value MUST exist, add a sibling `<name>_required(...) -> T` helper that raises ValueError on None. Pyright narrows via the return type — no per-site `assert x is not None` crutch. See `sprint_store.load_sprint_required`, `execution_plan_store.load_plan_required`, `event_schema.get_required_budget`, and the `_AssertNotNoneMixin._assert_not_none` test helper. Reach for the existing pattern before hand-rolling a fourth.
+
 **Keep files small and focused.** Target 500 lines max per file. Each module should have a single responsibility. When a file grows past 500 lines, look for a cohesive group of functions to extract into its own module (e.g., `coordination.py`, `security.py`, `concerns.py` were extracted from `_common.py`). Test files follow the same rule — split by the script or feature they test, not by milestone or chronology.
 
 ## Hook Patterns

@@ -52,6 +52,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 **`--files` discipline**: every concern that names ANY source path — in `--content`, in the original finding, or in the diff hunk you're flagging — MUST pass those paths via `--files`. The structural commit-link probe matches concerns to commits via file overlap; concerns without `files=[]` can never auto-resolve. Auto-extract is a fallback at the SMM layer — explicit is better.
 
+**Flag-style concerns** (stale, divert, escape, superseded, convention-violation flags about an existing root issue) MUST include `references=[root_id]` so the WEAK cascade in `smm/resolution.py` closes the flag when the root resolves. Without the link the flag persists across sessions even after the root is fixed.
+
 For debt (fix too large for this review): use `--type "debt"` instead, omit `--severity`.
 
 ## Output

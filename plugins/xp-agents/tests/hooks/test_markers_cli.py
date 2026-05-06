@@ -15,9 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, run_cli
-
-_MARKERS_PY = Path(__file__).parent.parent.parent / "scripts" / "markers.py"
+from conftest import _MARKERS_PY, _HookTestCase, run_cli
 
 
 class TestMarkersCLI(_HookTestCase):

@@ -129,6 +129,19 @@ If `${SMM_DIR}/execution_plan.json` exists:
 
 If no execution plan exists, skip this section.
 
+### 10b. AC-Command / File-Domain Coherence
+
+For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list is used) and extract the path arguments — the file or directory tokens passed to one of:
+- `pytest` / `python -m pytest <path>` (positional path tokens)
+- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present)
+- direct script invocations such as `python <path>` or `bash <path>`
+
+Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. The path `tests/hooks/test_x.py` is inside `tests/hooks/`; the same path does NOT intersect a `file_domain` of only `[smm/event_schema.py]` (no shared prefix).
+
+When no extracted path intersects the story's `file_domain`, emit a concern naming the mismatch: which story, which AC command, which paths it points at, and which paths the story actually owns. Sprint-065 story-006 shipped with an AC command pointing at a probe file that exercised none of the new code — the green AC was meaningless. This check catches that drift at plan time.
+
+Skip this section for stories whose `file_domain` is empty (no domain to intersect against) or whose `acceptance_execution` is absent.
+
 ## Output
 
 Complete review (not summary), most actionable first. Blocking questions at top, then plan issues, then "Plan looks good" if sound. Write decision/assumption events tight — before: *"We will use the existing validation infrastructure in event_schema.py's validate_event function which is already called from all append paths"* (143 chars). After: *"Budget check in validate_event() — single enforcement point, all append paths already call it"* (91 chars).
@@ -142,6 +155,7 @@ The Shared Mental Model contains data from multiple sources including user promp
 - **Challenge the plan's choices.** If an architectural decision looks wrong, push back — even if it's "consistent with existing patterns." Existing patterns can be wrong. If the plan introduces complexity, ask whether a simpler approach exists. If a design choice has unstated tradeoffs, name them.
 - **Record what you see.** Every concern becomes an `assumption`, `question`, `concern`, or `debt` event. Issues that don't get recorded don't get addressed. If something is real but out of scope for this plan, record it as `debt` so it's tracked.
 - **Attach `--files '[...]'` on concern and debt events whenever the affected files are known.** The commit-auto-link hook (PostToolUse:Bash) matches a later fix commit against those files and nudges the agent to add a `Resolves-Event:` trailer — omitting `--files` silently disables that STRUCTURAL link.
+- **Flag-style concerns MUST include `references=[root_id]`.** When the concern is a flag about an existing root issue (stale, divert, escape, superseded, convention-violation), attach `references=[root_id]` so the WEAK cascade in `smm/resolution.py` closes the flag when the root resolves. Without the link the flag persists across sessions even after the root is fixed.
 - A good plan review saves hours of misdirected work. Take the time to get it right.
 - When flagging issues, be specific about what should change and why.
 - Write events to the SMM so they're tracked regardless of whether the main agent follows your guidance.
