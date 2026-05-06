@@ -367,6 +367,8 @@ def detect_conflicts(
     # next session, it'll re-fire and require re-acceptance. The cross-
     # session noise reduction outweighs the re-acceptance friction.
     session_events = events[current_session_start_index(events) :]
+    # Indices below (concern_pos_list, decisions_by_topic positions)
+    # are slice-relative to session_events, NOT the full event log.
     decisions_by_topic: dict[str, list[tuple[int, dict]]] = {}
     concern_pos_list: list[int] = []
     already_accepted_topics: set[str] = set()
