@@ -119,7 +119,15 @@ def probe_duplicate_debt(
 def build_advisory_concern(
     matches: list[dict], new_debt_id: str, agent_id: str
 ) -> dict:
-    """Build an advisory concern event for duplicate debt matches."""
+    """Build an advisory concern event for duplicate debt matches.
+
+    Content directs the reviewer to retire the older debt by appending a
+    status event with `metadata.resolves=[<existing_event_id>]` — the
+    universal resolution link consumed by `resolution.compute_resolutions`.
+    Events.jsonl is append-only, so there is no in-place edit primitive
+    for an event; resolves-link is the canonical "this older Risks entry
+    is superseded" mechanism.
+    """
     best = max(matches, key=lambda m: m["similarity"])
     return {
         "id": generate_id(),
@@ -128,8 +136,13 @@ def build_advisory_concern(
         "severity": "low",
         "agent_id": agent_id,
         "content": (
-            f"Possible duplicate debt: new debt {new_debt_id} "
-            f"is {best['similarity']:.0%} similar to existing debt {best['debt_id']}"
+            f"Possible duplicate debt: new debt {new_debt_id} is "
+            f"{best['similarity']:.0%} similar to existing debt {best['debt_id']}. "
+            f"Events are append-only — retire the older debt by appending a "
+            f'status event with `metadata.resolves=["{best["debt_id"]}"]` '
+            f"(via `append.sh --type status --metadata ...`) so only the new "
+            f"debt remains open in the Risks pillar, instead of letting both "
+            f"near-duplicate entries persist."
         ),
         "schema_version": 1,
         "metadata": {"duplicate_of": best["debt_id"]},
