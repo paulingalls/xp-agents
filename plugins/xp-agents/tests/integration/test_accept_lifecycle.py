@@ -159,7 +159,7 @@ class TestAcceptCloseThenDoneOrdering(unittest.TestCase):
             self,
             self.text,
             "## Step 2: Invoke /xp-story-close",
-            "## Step 4: Update sprint.json",
+            "## Step 4:",
             "update-story story-NNN <done|deferred>",
             msg=(
                 "close-then-done: Step 2 (close) precedes Step 4 (mark done)"

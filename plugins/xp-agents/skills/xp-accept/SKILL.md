@@ -135,7 +135,7 @@ for sid in "$DEFERRED" $CASCADE; do
 done
 ```
 
-Step 3 records a status event for each deferral with the cascade reason (e.g., "deferred: depends on deferred story-NNN").
+Step 5 records a status event for each deferral with the cascade reason (e.g., "deferred: depends on deferred story-NNN").
 
 ## Step 1b: Concern Triage
 
