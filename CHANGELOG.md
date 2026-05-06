@@ -1,5 +1,56 @@
 # Changelog
 
+## v3.1.9 — sprint-065 deferral burndown + retro-flag cascade + silent-prod-bug catches
+
+Sprint-065 ships 19 stories at 1.00 velocity / zero carryover — burns down all 5 sprint-064 carry-forwards plus 4 retro Tries, 5 adopted debts, and 5 adopted concerns. Two silent production bugs caught + pinned mid-sprint (ruff 0.15+ output-format change had killed the F401 deferral pipeline; `run_linter_batch` would have silently let F401/F811 through commit gate on hung-ruff timeout). Wave-2 ran 4 parallel CLI teammates; Waves 1+3 solo serial. Friction #4 (`.accept` marker re-arm) reproduced live and captured for next sprint.
+
+### Type-quality `_required` convention (stories 002/003/004)
+
+Three sibling helpers eliminate the per-site `assert x is not None` pyright-narrowing crutch that had spread to 53 call sites:
+- `_AssertNotNoneMixin._assert_not_none(value) -> T` on `tests/_bases.py` (mixed into `_SMMTestCase` + `_IntegrationTestCase` + 2 standalone unittest.TestCase subclasses); 38 site migration across `tests/hooks/` and `tests/integration/`.
+- `execution_plan_store.load_plan_required` + `sprint_store.load_sprint_required` (latter promoted from existing private `_load_required` with internal callers renamed); 11 site migration. `compute_story_analysis_required` was added then dropped during review — zero migration-candidate callers (retrospective.py legitimately handles None).
+- `event_schema.get_required_budget(event_type) -> int` raises ValueError for unknown types OR known-but-uncapped (None); 6 site migration. The concerns.py site is a small reliability win — original `assert _budget is not None` strips under `python -O`; the new ValueError raise is unconditional.
+
+Each helper has a no-bare-narrowing pin scoped to its callsite tree. Convention documented in CLAUDE.md.
+
+### Silent production bug fixes (stories 018/020)
+
+- `lint_check._RUFF_LINE_CODE` only matched ruff's legacy concise output; ruff 0.15+ defaulted to multi-line "full" format with `-->` arrows. The entire story-007 F401/F811 deferral pipeline was silently dead in production — only "passing" via mocked unit tests. Fix: `--output-format=concise` pin in `_LINTER_COMMANDS["ruff"]` plus `_PYFLAKES_CODE_SHAPE` widened to `[A-Z]+\d{3,4}`. New AC4 E2E pin (`test_replace_all_e2e.py`) drives Edit→Edit→git commit through the real hook chain so a regression here trips the test.
+- `lint_check.run_linter_batch` would have returned `{p: []}` on `subprocess.TimeoutExpired` — silent "all clean" that bypasses the F401/F811 commit gate. Fix returns `{}` so callers fall back to other gates; pin test asserts the empty-vs-per-path-clean distinction.
+
+### Test fixture consolidation (story-020 bundle, story-016)
+
+- `_MixinBase` (3 inline copies → `tests/_test_typing.py`)
+- `_LintTmpDirMixin` (1 inline + 13 hand-rolled `mkdtemp/ruff.toml` triples → `tests/_lint_fixtures.py`)
+- `_split_frontmatter_body` (2 copies → `tests/_md_helpers.py`)
+- `_MARKERS_PY` (2 sites → `tests/_bases.py`)
+- `_assert_text_ordering` (3 inline triplets → `tests/_close_fixtures.py`)
+- `make_fake_copy_failing_on_backup_restore` (2 sites → `tests/scaffold/_helpers.py`)
+
+Each consolidation has a no-duplication pin in `test_conftest_consolidation_pin.py`.
+
+### Probe + reviewer doctrine (stories 006/008/009/017)
+
+- `probe_divert_details` now classifies divert reasons (`newer-than-snapshot`, `outside-file-domain`, `cross-story`, `wrong-type`) at retro-time so retros surface the dominant failure mode.
+- `session_end._sweep_stale_concerns` emits NEW concern with `references=[root_id]` + `metadata.flagged_stale=True` (cascade via WEAK references; not a status hack). `xp-retrospective.md` got a Stale-Flag Concerns section directing the agent to surface them in the Fix lens.
+- All 4 reviewer agents (close, code, plan, sprint) + retrospective got the `references=[root_id]` cascade-link doctrine paragraph; `test_retro_flag_cascade.py` pins both the prose presence (frontmatter-aware grep) and the cascade-close behavior end-to-end.
+- `xp-plan-reviewer.md` Section 10b: AC-command/file_domain coherence check at plan time. Catches `acceptance_execution.command` pointing at files outside the story's `file_domain` (the sprint-065 story-006 incident — AC was green without testing anything the story added). Covers pytest, `python -m unittest discover`, and direct `python <path>` / `bash <path>` invocations.
+
+### Hook hardening (stories 007/014)
+
+- `parse_effective_cwd` (in `scripts/commits.py`) now strips quoted/heredoc bodies via `git_commits._strip_quoted` before scanning for `cd <path>` / `git -C <path>` tokens. Meta-commit messages quoting `cd /tmp` no longer retarget cwd. Pinned by `TestParseEffectiveCwdHeredoc`.
+- ruff F401/F811 hook checks deferred from edit-time to staging-time so multi-file `replace_all` migrations (import added in file A, consumed in file B mid-edit) don't trip stale-F401 false positives.
+
+### Other
+
+- `verify_acceptance.py` stderr now names `commands[N] failed` for multi-command AC; single-command keeps `command failed` (story-001).
+- Phase 6 capstone replaced its synthetic-fence test with a real stranding-vector test (`test_real_stranding_vector_when_marker_unconsumed`) that drives the marker write through the `markers.py` CLI (story-005).
+- Repo-root `pyrightconfig.json` (post-sprint chore): mirrors plugin-local config with path prefixes; closes IDE language-server discovery gap. Sync-invariant test in `test_pyrightconfig_extrapaths.py` catches drift between the two configs.
+
+### Doc reorg
+
+- `docs/ideas/3` split into doc 8 (incremental teammate acceptance via reviewing self-promote) + doc 9 (`.accept` marker re-arm investigation). Execution plan M-3 reframed from "defensive preload widening" to "producer-attests-green incremental acceptance" referencing R8 + R9.
+
 ## v3.1.8 — sprint-064 deferral burndown + type-quality cleanup
 
 Sprint-064 burns down 10 of 15 deferred stories from sprint-063 plus retro-Try aged debt. No new milestone — explicit "deferred-only sweep" carrying 5 stories forward to sprint-065. Two long-standing 7+ session aged debts close (`events_of_type` 184-site consolidation; `assertEqual` vocab pin 36-site migration). Mix of solo-mode (story-002, story-003) and 7-teammate parallel execution (story-004/005/006/007/013/014/015) with full close-cycle review per story.
