@@ -21,17 +21,20 @@ Two assertions:
     teaches the agents to wire the link.
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _SMMTestCase, make_event
-from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
-from resolution import compute_resolutions
+from conftest import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_STATUS,
+    _SMMTestCase,
+    _split_frontmatter_body,
+    compute_resolutions,
+    make_event,
+)
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _AGENT_FILES = [
@@ -41,14 +44,6 @@ _AGENT_FILES = [
     _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md",
     _PLUGIN_ROOT / "agents" / "xp-retrospective.md",
 ]
-
-
-def _split_frontmatter_body(text: str) -> tuple[str, str]:
-    """Split an agent .md into (frontmatter, body) on the closing `---`."""
-    match = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.DOTALL)
-    if not match:
-        return "", text
-    return match.group(1), match.group(2)
 
 
 class TestAgentsPinFlagCascadeGuidance(unittest.TestCase):

@@ -50,6 +50,7 @@ for _leaked_var in (
 # ---------------------------------------------------------------------------
 
 from _bases import (  # noqa: E402, F401
+    _MARKERS_PY,
     _PLUGIN_ROOT,
     _SCRIPTS_DIR,
     _SMM_DIR,
@@ -59,6 +60,7 @@ from _bases import (  # noqa: E402, F401
     _TempRepoTestCase,
     cleanup_test_worktrees,
 )
+from _md_helpers import _split_frontmatter_body  # noqa: E402, F401
 
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
@@ -99,6 +101,7 @@ from _hook_inputs import (  # noqa: E402, F401
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS  # noqa: E402
+from resolution import compute_resolutions  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Sprint fixtures — kept inline; single consumer set across tests, no need

@@ -27,6 +27,7 @@ from unittest.mock import patch
 _PLUGIN_ROOT = Path(__file__).parent.parent
 _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 _SMM_DIR = _PLUGIN_ROOT / "smm"
+_MARKERS_PY = _SCRIPTS_DIR / "markers.py"
 
 # Make scripts/ importable so we can default-mock commits.get_staged_diff
 # below. Mirrors the sys.path discipline every hook test file already does.
