@@ -1,6 +1,37 @@
 # Changelog
 
-## v3.1.9 — sprint-065 deferral burndown + retro-flag cascade + silent-prod-bug catches
+## v3.1.10 — sprint-066 R1 signal-quality hardening (8 stories, 8/8 velocity, 8 parallel teammates)
+
+Sprint-066 ships 8 stories at 1.00 velocity / zero carryover — first sprint where every story spawned to its own teammate worktree and shipped in parallel. Six items from R1 feature-requests (#2, #3, #4, #6, #7, #8) plus four sprint-065 retro adoptions (probe_divert classifier blind spot, validate-domain glob drift, run_linter_batch fail-open, /xp-quality-review preload TEAMMATE_CWD routing). M-1 marked delivered.
+
+### Probe + reviewer signal-quality (stories 001/002/003/004/005)
+
+- **Probe candidates include `type=discovery`** (story-001) — `resolves_probe.find_probe_candidates` widens its candidate filter on both file-overlap and in-sprint-batch sibling axes; commits closing a discovery now surface as ranked trailer candidates instead of forcing hand-edits. Drive-by extracted `_count_file_overlaps` shared helper; raw `"concern"` string fixed to `_common.CONCERN`.
+- **Plan-reviewer NEW-file rule + trace reclassification + AC2 loop pin** (story-002) — `xp-plan-reviewer.md` §10c rejects plans whose story description names new-file verbs (`extract`/`introduce`/`add module`/`create helper`) but omits the implied path from `file_domain`; matches on whole-word verb + NEW-file context token (path-like, `module`, `helper`, `file`, `to its own`) in same sentence so bare `"extract value from X"` doesn't false-trigger. §11 reclassifies "verified-clean trace" emissions to `type=decision` (or `type=status,category=trace`) so the unresolved-concern metric stays clean. AC2 pin runs the rule loop directly against synthesized in-memory plans.
+- **Code-reviewer debt resolves-link + new-pattern decision nudge** (story-003) — `xp-code-reviewer.md` gains §3a (resolve-and-replace via `metadata.resolves` — the universal resolution link, NOT `smm_cli update-item` (pillar-scoped) NOR `metadata.supersedes` (decision-only per `concerns.py` pattern #5)) and §3b (advisory nudge to emit `type=decision` event with stable `--topic <slug>` when a commit introduces a new architectural pattern, so pattern #5 can later detect divergence as supersession). `duplicate_debt_probe.build_advisory_concern` content rewritten to direct anchor relocation rather than hint at duplication.
+- **Superseded-decision detector → session window** (story-004) — `concerns.py` pattern #5 slices events from the most recent `SESSION_END` forward via canonical `_common.current_session_start_index`, eliminating cross-session false positives on stable topics (execution-mode, css-prefix-convention, retro-try-resolves-trailers). Already-accepted-topics resolution stays scoped to the window.
+- **Probe divert classifier names all sprint pairs + file-overlap normalization** (story-005) — `retro_metrics._classify_divert_reason` extends bucket set with `MISSING_EVENT` (rejected ID has no backing event) and `PROBE_SELECTION_MISS` (in-domain candidate the probe missed); all 8 sprint-065 paired-divert fixtures now classify non-`unknown`. File-overlap canonicalization via `worktree.normalize_path` plumbed through `retrospective._compute_resolves_link_rate → _compute_probe_adoption → _classify_divert_reason`.
+
+### Cascade analysis (story-006)
+
+- **`extract_file_domain_paths` glob expansion** — `smm/triage.py` gains optional `candidate_files` kwarg with a `**`-aware glob translator (LRU-cached) that handles `tests/hooks/**/*.py` semantics `fnmatch.translate` can't express. Wired at the cascade-analysis callsites (`story_metrics._attribute_commits`, `story_metrics.resolve_dominant_story`, `concern_triage.find_concerns_for_story`) so glob entries in `file_domain` no longer flag legitimate in-scope edits as drift. Path.glob fallback for callers without candidate files. Resolves 6 sprint-065 historical drift concerns retroactively.
+
+### Linter contract + parser hygiene (story-007)
+
+- **`run_linter_batch` fail-closed + scaled timeout** — `pre_tool_bash._staged_ruff_findings` raises `BlockedError` when any staged `.py` path is missing from the batch result map (timeout, missing binary, partial run); unverified F401/F811 cannot ship. Batch timeout scales `min(10, 5 + 0.05*N)` so single-file batches degrade as fast as `run_linter`'s 5s per-file path while large batches cap at 10s. `LINTER_BASE_TIMEOUT_S` / `BATCH_TIMEOUT_PER_PATH_S` / `BATCH_TIMEOUT_CAP_S` constants extracted for single-source-of-truth.
+- **`bash_post_tool` single-scan parser hygiene** — `git_commits._strip_quoted` promoted to public `strip_quoted`; `is_git_commit` and `commits.parse_effective_cwd` accept optional pre-stripped `scan_target` arg. `bash_post_tool.run` strips the command ONCE per Bash and threads the result into both helpers, eliminating the redundant `re.DOTALL` heredoc scan that fired twice on every commit-shaped Bash. Pinned by `TestStripQuotedSingleScan` (call-count == 1).
+
+### Preload teammate-cwd routing (story-008)
+
+- **`xp-quality-review` preload routes diff capture to `TEAMMATE_CWD`** — `skills/_preload_base.sh` `dump_diff` and `get_changed_files` now run via `_git()` which prefixes `git -C "$TEAMMATE_CWD"` when set, otherwise plain `git`. Default behavior unchanged for every existing caller. `xp-quality-review/scripts/preload.sh` auto-detects fix-cycles: when `ACCEPT_ACTIVE` marker is present and exactly one in-motion (`in-progress`/`reviewing`) story has a live teammate worktree, sets `TEAMMATE_CWD` to that worktree path. Explicit `TEAMMATE_CWD` always wins; ambiguous matches fall back to orchestrator cwd. Without this, `/xp-accept` teammate fix-cycles fed the reviewer the orchestrator's incidental edits and missed the teammate's actual changes.
+
+### Process firsts
+
+- **First all-parallel sprint** — 8 teammate worktrees spawned simultaneously via `/xp-assign`, each running its own TDD plan-cycle (red → green → /simplify → /xp-quality-review → commit) in isolation. No solo fallback; no chained sequential work.
+- **Per-story close-reviews caught and addressed inline**: 10 reviewer concerns surfaced across 8 stories; 6 fix-routed (false-trailer re-open + new debt tracker, direct unit test addition, conftest re-export, regex tightening, false-positive guards, prompt restructure to bulleted subsection); 4 ASK-routed (tracked debts or retro signals).
+- **Mechanism honesty correction** — story-003 AC1 literal wording named `smm_cli update-item` and `metadata.supersedes`; verification during /xp-quality-review proved both wrong (update-item is pillar-scoped, supersedes is decision-only). Pivoted to `metadata.resolves`; AC1 intent (consolidate, don't duplicate) satisfied; AC literal-text drift surfaced for retro.
+
+
 
 Sprint-065 ships 19 stories at 1.00 velocity / zero carryover — burns down all 5 sprint-064 carry-forwards plus 4 retro Tries, 5 adopted debts, and 5 adopted concerns. Two silent production bugs caught + pinned mid-sprint (ruff 0.15+ output-format change had killed the F401 deferral pipeline; `run_linter_batch` would have silently let F401/F811 through commit gate on hung-ruff timeout). Wave-2 ran 4 parallel CLI teammates; Waves 1+3 solo serial. Friction #4 (`.accept` marker re-arm) reproduced live and captured for next sprint.
 
