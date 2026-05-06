@@ -29,7 +29,15 @@ def find_concerns_for_story(
 ) -> list[dict]:
     """Find open concerns whose files overlap a story's file_domain."""
     file_domain = story.get("file_domain") or []
-    domain_paths = triage.extract_file_domain_paths(file_domain)
+    # Pass concern files as candidates so glob entries in file_domain expand
+    # to the literal concern paths — same drift shape the cascade-analysis
+    # fix targets, applied symmetrically here.
+    concern_file_union: set[str] = set()
+    for concern in open_concerns:
+        concern_file_union |= set(concern.get("files") or [])
+    domain_paths = triage.extract_file_domain_paths(
+        file_domain, candidate_files=concern_file_union
+    )
     if not domain_paths:
         return []
 

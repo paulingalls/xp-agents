@@ -64,7 +64,9 @@ def resolve_dominant_story(
     best_overlap = 0
     tied = False
     for story in in_progress:
-        domain = extract_file_domain_paths(story.get("file_domain", []))
+        domain = extract_file_domain_paths(
+            story.get("file_domain", []), candidate_files=files
+        )
         if not domain:
             continue
         overlap = sum(1 for f in files if file_matches_domain(f, domain))
@@ -89,8 +91,16 @@ def _attribute_commits(
     Files are deduplicated per story using set union.
     """
     story_ids = {s["id"] for s in stories}
+    # Union all committed files once so glob entries in file_domain expand
+    # against the historical commit set (files may no longer exist on disk).
+    all_committed: set[str] = set()
+    for commit in commit_events:
+        all_committed |= set(commit.get("files", []))
     story_domains = {
-        s["id"]: extract_file_domain_paths(s.get("file_domain", [])) for s in stories
+        s["id"]: extract_file_domain_paths(
+            s.get("file_domain", []), candidate_files=all_committed
+        )
+        for s in stories
     }
 
     commit_counts: dict[str, int] = {sid: 0 for sid in story_ids}
