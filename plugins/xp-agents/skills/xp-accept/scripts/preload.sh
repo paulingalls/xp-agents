@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-accept: show in-progress stories for verification.
+# Preload for xp-accept: reviewing-first dispatch with in-progress
+# fallback. Surfaces the in-motion story set the skill iterates.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
@@ -15,11 +16,22 @@ if ! sprint_exists; then
     exit 0
 fi
 
+# Reviewing-first dispatch: teammate self-promote (story-004) lands stories
+# in `reviewing`; solo work leaves them in `in-progress`. Picking reviewing
+# first ensures the orchestrator processes finished teammate work before
+# any in-progress fallback even when both states coexist.
+reviewing_count=$(sprint_count_status reviewing)
 in_progress_count=$(sprint_count_status in-progress)
 
-if [ "$in_progress_count" -eq 0 ]; then
-    echo "### NO_IN_PROGRESS"
-    echo "No in-progress stories to accept."
+if [ "$reviewing_count" -gt 0 ]; then
+    SELECTED_STATUS=reviewing
+    SELECTED_COUNT=$reviewing_count
+elif [ "$in_progress_count" -gt 0 ]; then
+    SELECTED_STATUS=in-progress
+    SELECTED_COUNT=$in_progress_count
+else
+    echo "### NO_STORIES_TO_ACCEPT"
+    echo "No reviewing or in-progress stories to accept."
     exit 0
 fi
 
@@ -30,10 +42,13 @@ consume_marker ACCEPT
 
 # Signal pre_tool_write to skip .accept gate re-arm during multi-story
 # fix-cycles. Consumed by xp-sprint-close on entry.
+# (story-004 removes this marker entirely once close-then-done lands —
+# the structural fix makes it semantically dead in the common path.)
 write_marker ACCEPT_ACTIVE ""
 
 echo "### STORIES_TO_ACCEPT"
-echo "Sprint has ${in_progress_count} in-progress stories to verify."
+echo "Sprint has ${SELECTED_COUNT} ${SELECTED_STATUS} stories to verify."
+echo "SELECTED_STATUS=${SELECTED_STATUS}"
 echo "SPRINT_FILE=${SPRINT_FILE}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 

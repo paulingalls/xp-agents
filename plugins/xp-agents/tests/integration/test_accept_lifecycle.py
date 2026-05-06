@@ -11,11 +11,17 @@ These tests pin the SKILL.md and PROCESS_GUIDE.md prose contracts so
 neither doc drifts back to the pre-`reviewing` four-state behavior.
 """
 
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from _close_fixtures import _assert_text_ordering
+
 _PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-accept" / "SKILL.md"
+_PRELOAD_SH = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 _PROCESS_GUIDE = _PLUGIN_ROOT / "PROCESS_GUIDE.md"
 
 _LIFECYCLE_STATES = ("ready", "scheduled", "in-progress", "reviewing", "done")
@@ -84,6 +90,110 @@ class TestAcceptReviewingLifecycle(unittest.TestCase):
         # sees `reviewing` alongside the other states.
         for state in _LIFECYCLE_STATES:
             self.assertIn(state, self.text)
+
+
+class TestAcceptReviewingFirstDispatch(unittest.TestCase):
+    """Story-002: preload selects reviewing-state stories first (teammate
+    self-promote path); falls back to in-progress only when no reviewing
+    stories exist (solo path). The skill iterates whichever set was
+    selected — single dispatch primitive across both modes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.preload = _PRELOAD_SH.read_text()
+        cls.skill = _SKILL_MD.read_text()
+
+    def test_preload_counts_reviewing_before_in_progress(self):
+        # Preload must count reviewing FIRST so teammate-promoted stories
+        # are processed ahead of any lingering in-progress fallbacks.
+        # Pin both literal CLI invocations so the prose can be executed.
+        reviewing_idx = self.preload.find("sprint_count_status reviewing")
+        in_progress_idx = self.preload.find("sprint_count_status in-progress")
+        self.assertGreater(reviewing_idx, -1, "preload must count reviewing")
+        self.assertGreater(in_progress_idx, -1, "preload must count in-progress")
+        self.assertLess(
+            reviewing_idx,
+            in_progress_idx,
+            "reviewing count MUST appear before in-progress (precedence)",
+        )
+
+    def test_preload_emits_selected_status_routing(self):
+        # Preload routes the selected status into stdout so SKILL.md can
+        # iterate the correct set. Pin the literal SELECTED_STATUS=
+        # contract — this is the seam between preload and skill.
+        self.assertIn("SELECTED_STATUS=", self.preload)
+
+    def test_preload_no_stories_exit_covers_both_states(self):
+        # The "nothing to accept" exit must mention BOTH states so a
+        # reader (and the skill's error-handling clause) understands the
+        # combined precondition. Pin the new sentinel name.
+        self.assertIn("NO_STORIES_TO_ACCEPT", self.preload)
+
+    def test_skill_handles_no_stories_to_accept_sentinel(self):
+        # The SKILL.md error-handling clause must recognize the new
+        # NO_STORIES_TO_ACCEPT sentinel so the agent stops cleanly when
+        # neither reviewing nor in-progress stories exist.
+        self.assertIn("NO_STORIES_TO_ACCEPT", self.skill)
+
+
+class TestAcceptCloseThenDoneOrdering(unittest.TestCase):
+    """Story-002 Step 2/2b reorder: invoke /xp-story-close BEFORE marking
+    the story `done`. The story stays in `reviewing` throughout the close
+    cycle; mark-done is the final step. This eliminates the flicker
+    window the marker was protecting against and gives merge-failure-
+    leaves-story-reviewing semantics for retry."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_close_invocation_precedes_mark_done_in_skill_prose(self):
+        # Pin the section ordering via section headers and the canonical
+        # mark-done CLI string. Header-anchored so passing prose mentions
+        # of /xp-story-close in earlier sections don't cause a false-pass;
+        # CLI-anchored on the done end so a future prose reword can't
+        # silently break the regression pin. After the renumber, sections
+        # are physically sequential: Step 2 (close) → Step 3 (decisions)
+        # → Step 4 (mark done).
+        _assert_text_ordering(
+            self,
+            self.text,
+            "## Step 2: Invoke /xp-story-close",
+            "## Step 4:",
+            "update-story story-NNN <done|deferred>",
+            msg=(
+                "close-then-done: Step 2 (close) precedes Step 4 (mark done)"
+                " which contains the mark-done CLI"
+            ),
+        )
+
+    def test_skill_prose_explains_close_then_done(self):
+        # Prose must document the close-then-done semantics + merge-
+        # failure semantics so a reader knows why the story stays in
+        # reviewing during /xp-story-close.
+        lower = self.text.lower()
+        self.assertIn("close-then-done", lower)
+        self.assertTrue(
+            "merge fail" in lower or "merge-fail" in lower or "merge failure" in lower,
+            "Prose must explain merge-failure-leaves-reviewing semantics",
+        )
+
+    def test_skill_prose_pins_close_then_done_as_primary_protection(self):
+        # The structural close-then-done ordering IS the primary
+        # protection against fix-cycle .accept re-arm — not the
+        # ACCEPT_ACTIVE marker. Pin that the prose names this.
+        lower = self.text.lower()
+        self.assertTrue(
+            "close-then-done" in lower or "stays in `reviewing`" in lower,
+            "Prose must name close-then-done as the structural protection",
+        )
+
+    def test_skill_documents_idempotent_promote(self):
+        # Step 1.0 promote becomes idempotent (no-op when story already
+        # reviewing). The prose must document this so the agent knows
+        # not to special-case the already-reviewing branch.
+        lower = self.text.lower()
+        self.assertIn("idempotent", lower)
 
 
 class TestAcceptCwdSubshell(unittest.TestCase):
