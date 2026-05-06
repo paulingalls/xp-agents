@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
+from _bases import _AssertNotNoneMixin
 from conftest import _HookTestCase
 from event_schema import EVENT_TYPE_STATUS
 
@@ -42,7 +43,7 @@ def _story(sid, status="in-progress", file_domain=None):
     }
 
 
-class TestFindStoryCandidate(unittest.TestCase):
+class TestFindStoryCandidate(_AssertNotNoneMixin, unittest.TestCase):
     """find_story_candidate: pre-commit nudge for story-prefix attribution."""
 
     def setUp(self):
@@ -104,8 +105,7 @@ class TestFindStoryCandidate(unittest.TestCase):
             ["scripts/foo.py", "scripts/bar.py", "scripts/quux.py"],
             "subject without prefix",
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertEqual(result["story_id"], "story-001")
         self.assertEqual(result["overlap_count"], 2)
         self.assertEqual(result["total_files"], 3)

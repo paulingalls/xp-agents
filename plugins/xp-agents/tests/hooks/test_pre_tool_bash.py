@@ -214,8 +214,7 @@ class TestResolvesTrailerReminder(_HookTestCase):
             _make_bash_input(command="git commit -m 'fix bug'"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("Resolves-Event:", result)
 
     @patch("commits.get_staged_files", return_value=["src/app.py"])

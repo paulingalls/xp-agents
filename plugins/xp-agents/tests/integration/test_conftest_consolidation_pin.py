@@ -84,15 +84,25 @@ class TestConftestConsolidation(unittest.TestCase):
         # defined inline in 3 sites — _close_fixtures.py, integration/
         # test_preload_markers.py, hooks/test_auto_resolve.py. Promote to
         # tests/_test_typing.py so the pattern lives in one place.
-        # `\s+` (any leading whitespace, not exactly 4) so a future copy-
-        # paste at module top-level (no indent), inside a class body
-        # (8-space), or under a tab-indented block all trip the pin too.
-        hits = _files_matching(r"^\s+_MixinBase\s*=\s*unittest\.TestCase")
+        # Story-002 follow-up: catches the rename gap too — any
+        # `<Anything>Base = unittest.TestCase` line under a TYPE_CHECKING
+        # branch is the same pattern under a different name and should
+        # be replaced by an `import _MixinBase` instead. `\s+` (any
+        # leading whitespace, not exactly 4) so a copy-paste under
+        # TYPE_CHECKING (4-space), inside a class body (8-space), or
+        # under a tab-indented block all trip the pin. A zero-indent
+        # top-level `Base = unittest.TestCase` is NOT caught here — but
+        # that shape is not the TYPE_CHECKING shim pattern anyway (no
+        # if-branch wraps it), so it would be a class alias, not a
+        # mixin shim, and out of scope for this pin.
+        hits = _files_matching(r"^\s+\w*Base\s*=\s*unittest\.TestCase")
         self.assertEqual(
             len(hits),
             1,
             f"_MixinBase TYPE_CHECKING shim should be defined exactly once "
-            f"(in tests/_test_typing.py); found in: {[str(p) for p in hits]}",
+            f"(in tests/_test_typing.py); a renamed alias of the same shape "
+            f"is also a duplicate — import _MixinBase instead. Found in: "
+            f"{[str(p) for p in hits]}",
         )
         self.assertEqual(hits[0].name, "_test_typing.py")
 

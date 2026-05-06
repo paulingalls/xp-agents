@@ -124,8 +124,7 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
             _make_bash_input(command=_COMMIT_CMD),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertNotIn("auth bypass", result)
         self.assertIn("Resolves-Event:", result)
 
@@ -219,8 +218,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
             _make_bash_input(command="git commit -m 'wire something up'"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn(_STORY_NUDGE_PREFIX, result)
         self.assertIn("story-001", result)
 
@@ -292,8 +290,7 @@ class TestStoryProbeIntegration(_ProbeTestHelpers, _HookTestCase):
             _make_bash_input(command="git commit -m 'wire something up'"),
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn(_STORY_NUDGE_PREFIX, result)
         self.assertIn("Resolves-Event", result)
         self.assertLess(
