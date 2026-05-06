@@ -354,10 +354,13 @@ def run_linter_batch(
 
     Returns ``{}`` when the linter binary is missing, no eligible paths
     remain, OR ruff times out / fails to spawn. The empty-on-failure
-    contract matches `run_linter`/`run_ruff` — the caller treats an
-    absent path the same as "linter unavailable" and falls back to
-    other gates. Returning `{p: []}` on timeout would silently report
-    "all clean" and bypass the F401/F811 commit gate.
+    contract matches `run_linter`/`run_ruff` — absence of a path means
+    "not verified" rather than "verified clean". Returning `{p: []}` on
+    timeout would silently report "all clean" and bypass the F401/F811
+    commit gate. Callers that gate on F401/F811 (today
+    `pre_tool_bash._staged_ruff_findings`) MUST treat any missing path
+    as fail-closed: an unverified file could harbor the very codes the
+    gate exists to catch.
 
     Files the linter saw but with no findings map to ``[]`` so callers
     can distinguish "linted clean" (key present, value empty) from
