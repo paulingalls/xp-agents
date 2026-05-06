@@ -72,7 +72,12 @@ _LINTER_CONFIGS = [
 ]
 
 _LINTER_COMMANDS = {
-    "ruff": ["ruff", "check"],
+    # `--output-format=concise` pins the legacy one-line-per-error layout
+    # (`path:line:col: CODE msg`) that `_RUFF_LINE_CODE` parses. ruff 0.15+
+    # defaults to a multi-line "full" format with `-->` arrows that the
+    # regex does not match -- without this flag run_ruff returns codes=[]
+    # for every real invocation, silently disabling story-007 deferral.
+    "ruff": ["ruff", "check", "--output-format=concise"],
     "flake8": ["flake8"],
     "eslint": ["npx", "eslint"],
     "prettier": ["npx", "prettier", "--check"],
