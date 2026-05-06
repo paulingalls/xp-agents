@@ -27,6 +27,7 @@ from _common import (
     SESSION_END,
     STATUS,
     bulk_append_safe,
+    current_session_start_index,
     make_event,
     read_events_raw,
 )
@@ -356,14 +357,20 @@ def detect_conflicts(
                 references=[qid],
             )
 
-    # 5. Superseded decision — two decisions on same topic with no concern between
-    # Topics whose prior superseded-decision concerns have been resolved
-    # are treated as "accepted as additive" — pattern #5 honors the
-    # human's explicit acceptance and doesn't re-fire for new pairs.
+    # 5. Superseded decision — two decisions on same topic with no concern between.
+    # Scoped to the current session window: cross-session re-citations of
+    # stable topics (e.g. execution-mode, css-prefix-convention) are NOT
+    # flagged. Topics whose prior in-window superseded-decision concerns
+    # have been resolved are treated as "accepted as additive".
+    # Trade-off: a topic acceptance recorded in a prior session is dropped
+    # at the window boundary — if the same topic gets a new in-session pair
+    # next session, it'll re-fire and require re-acceptance. The cross-
+    # session noise reduction outweighs the re-acceptance friction.
+    session_events = events[current_session_start_index(events) :]
     decisions_by_topic: dict[str, list[tuple[int, dict]]] = {}
     concern_pos_list: list[int] = []
     already_accepted_topics: set[str] = set()
-    for i, e in enumerate(events):
+    for i, e in enumerate(session_events):
         if e.get("type") == DECISION:
             topic = e.get("topic", "")
             decisions_by_topic.setdefault(topic, []).append((i, e))
