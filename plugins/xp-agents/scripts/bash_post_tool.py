@@ -189,6 +189,7 @@ def _handle_commit(
     response_text: str,
     *,
     is_xp_agent_leak: bool = False,
+    scan_target: str | None = None,
 ) -> str | None:
     """Process a git commit response: record events, consume markers, nudge.
 
@@ -204,13 +205,15 @@ def _handle_commit(
 
     `command` is parsed for `cd <wt>` / `git -C <wt>` segments so the
     HEAD/files/body lookups target the repo the commit actually ran in,
-    not the orchestrator cwd left after a `cd -` cleanup.
+    not the orchestrator cwd left after a `cd -` cleanup. `scan_target`
+    is the pre-stripped command from `run` — passing it through avoids
+    a second strip_quoted scan inside parse_effective_cwd.
     """
     msg = commits.parse_commit_message(response_text)
     if not msg:
         return None
 
-    effective_cwd = commits.parse_effective_cwd(command, cwd)
+    effective_cwd = commits.parse_effective_cwd(command, cwd, scan_target=scan_target)
 
     committed_files = commits.get_committed_files(effective_cwd)
     commit_hash = commits.get_head_commit_hash(effective_cwd)
@@ -324,7 +327,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # commit event always lands; side-effect mutations (lint resolution,
     # security marker, review cycle, QR nudge) are gated by is_xp_agent_leak.
     # See TestCommitRecordingDespiteXpAgentType.
-    if git_commits.is_git_commit(command):
+    #
+    # Single strip_quoted scan per Bash, threaded through both is_git_commit
+    # and parse_effective_cwd. Avoids the re.DOTALL heredoc scan running
+    # twice on every commit-shaped Bash.
+    scan_target = git_commits.strip_quoted(command)
+    if git_commits.is_git_commit(command, scan_target=scan_target):
         is_xp_agent_leak = _common.is_xp_agent(input_data)
         result = _handle_commit(
             smm_dir,
@@ -333,6 +341,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             command,
             response_text,
             is_xp_agent_leak=is_xp_agent_leak,
+            scan_target=scan_target,
         )
         if not is_xp_agent_leak:
             nudge = _check_mid_chain_nudge(smm_dir, input_data)

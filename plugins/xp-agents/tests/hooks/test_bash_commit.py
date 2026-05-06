@@ -819,5 +819,37 @@ class TestBashPostToolMultiCommitSequence(_HookTestCase):
         self.assertEqual(cycle2["last_review_commit"], "hash2222222222")
 
 
+class TestStripQuotedSingleScan(_HookTestCase):
+    """bash_post_tool runs strip_quoted ONCE per Bash and threads the result
+    into both is_git_commit and parse_effective_cwd. Pins the wire-up so
+    nobody silently reintroduces the second re.DOTALL heredoc scan that
+    each helper used to run independently."""
+
+    def test_commit_shaped_bash_strips_once(self):
+        with tempfile.TemporaryDirectory() as wt:
+            with (
+                patch(
+                    "git_commits.strip_quoted",
+                    side_effect=lambda cmd: cmd,
+                ) as strip_spy,
+                patch("commits.get_head_commit_hash", return_value="abc1234567890"),
+                patch("commits.get_committed_files", return_value=["a.py"]),
+                patch("commits.get_commit_message_body", return_value="msg"),
+            ):
+                bash_post_tool.run(
+                    _make_bash_input(
+                        command=f"cd {wt} && git commit -m 'fix' && cd -",
+                        stdout="[main abc1234] fix\n 1 file changed",
+                        cwd="/orig/cwd",
+                    ),
+                    smm_dir=self.smm_dir,
+                )
+            self.assertEqual(
+                strip_spy.call_count,
+                1,
+                f"strip_quoted should run once per Bash, got {strip_spy.call_count}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
