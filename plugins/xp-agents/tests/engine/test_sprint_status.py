@@ -42,6 +42,7 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_reviewing_stories_data",
         "has_in_motion_stories",
         "has_in_motion_stories_data",
+        "select_in_motion_stories",
         "has_ready_stories",
         "has_scheduled_stories",
         "scheduled_file_domains_overlap",

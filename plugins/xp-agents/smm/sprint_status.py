@@ -85,6 +85,11 @@ def has_in_motion_stories_data(data: dict) -> bool:
     return any(s["status"] in IN_MOTION_STORY_STATUSES for s in data["stories"])
 
 
+def select_in_motion_stories(stories: list[dict]) -> list[dict]:
+    """Return stories under acceptance (in-progress or reviewing)."""
+    return [s for s in stories if s.get("status") in IN_MOTION_STORY_STATUSES]
+
+
 def has_ready_stories(smm_dir: Path) -> bool:
     """True if sprint has ready stories."""
     return has_stories_with_status(smm_dir, "ready")

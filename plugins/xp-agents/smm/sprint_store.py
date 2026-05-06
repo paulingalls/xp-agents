@@ -177,6 +177,7 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_stories_with_status_data,  # noqa: F401  re-export for legacy callers
     is_complete,  # noqa: F401  re-export for legacy callers
     scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
+    select_in_motion_stories,  # noqa: F401  re-export for legacy callers
 )
 
 
