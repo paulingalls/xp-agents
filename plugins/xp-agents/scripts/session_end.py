@@ -22,10 +22,10 @@ import identity
 import markers
 from event_builder import generate_id
 from event_schema import (
-    CONTENT_BUDGETS,
     METADATA_KEY_FLAGGED_STALE,
     METADATA_KEY_RESOLVES,
     METADATA_KEY_STALE_SESSION_COUNT,
+    get_required_budget,
 )
 
 STALE_CONCERN_SESSION_THRESHOLD = 4
@@ -205,8 +205,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Build session_end event directly (avoids subprocess + shell escaping)
     prefix = "Session ended: "
-    budget = CONTENT_BUDGETS[_common.SESSION_END]
-    assert budget is not None
+    budget = get_required_budget(_common.SESSION_END)
     max_reason = budget - len(prefix)
     reason = input_data.get("reason", "unknown")[:max_reason]
     event = {

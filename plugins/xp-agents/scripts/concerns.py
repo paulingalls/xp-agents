@@ -30,7 +30,7 @@ from _common import (
     make_event,
     read_events_raw,
 )
-from event_schema import CONTENT_BUDGETS, METADATA_KEY_RESOLVES
+from event_schema import METADATA_KEY_RESOLVES, get_required_budget
 from worktree import normalize_path
 
 # ---------------------------------------------------------------------------
@@ -307,8 +307,7 @@ def detect_conflicts(
             for ref in e.get("references", []):
                 if ref in assumptions:
                     # Template = 57 chars; split remaining budget across both texts
-                    _budget = CONTENT_BUDGETS[CONCERN]
-                    assert _budget is not None
+                    _budget = get_required_budget(CONCERN)
                     _max_text = (_budget - 57) // 2
                     a_text = assumptions[ref]["content"][:_max_text]
                     d_text = e["content"][:_max_text]
