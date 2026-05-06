@@ -50,8 +50,7 @@ class TestMidChainNudge(_HookTestCase):
     def test_solo_two_in_progress_returns_nudge(self):
         (self.smm_dir / "sprint.json").write_text(_two_in_progress_sprint())
         result = self._run_commit()
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("Multiple stories in-progress", result)
 
     def test_solo_one_in_progress_no_nudge(self):
@@ -90,8 +89,7 @@ class TestMidChainNudge(_HookTestCase):
         """Pin the exact nudge text so accidental rewording is caught."""
         (self.smm_dir / "sprint.json").write_text(_two_in_progress_sprint())
         result = self._run_commit()
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn(bash_post_tool.MID_CHAIN_NUDGE, result)
 
 

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _branching_fixtures as _bf
 import branching
+from _bases import _AssertNotNoneMixin
 
 _init_repo = _bf.init_repo
 _write_system_context = _bf.write_system_context
@@ -30,7 +31,7 @@ _remote_has_branch = _bf.remote_has_branch
 _checkout_main = _bf.checkout_main
 
 
-class _BasePushTest(unittest.TestCase):
+class _BasePushTest(_AssertNotNoneMixin, unittest.TestCase):
     """Sets up a primed repo: stage 2, primary `main`, optional remote."""
 
     stage = 2
@@ -60,8 +61,7 @@ class TestStoryBranchPushes(_BasePushTest):
     def test_pushes_freshly_created(self):
         td, smm = self._setup_repo()
         name = branching.create_story_branch(td, "story-001", "demo", smm)
-        self.assertIsNotNone(name)
-        assert name is not None
+        name = self._assert_not_none(name)
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_silent_when_no_remote(self):
@@ -95,8 +95,7 @@ class TestSprintBranchPushes(_BasePushTest):
         td, smm = self._setup_repo()
         _seed_plan(smm)
         name = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
-        self.assertIsNotNone(name)
-        assert name is not None
+        name = self._assert_not_none(name)
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
@@ -116,8 +115,7 @@ class TestScaffoldBranchPushes(_BasePushTest):
     def test_pushes_freshly_created(self):
         td, smm = self._setup_repo()
         name = branching.create_scaffold_branch(td, "cli", smm)
-        self.assertIsNotNone(name)
-        assert name is not None
+        name = self._assert_not_none(name)
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
@@ -136,8 +134,7 @@ class TestFreeBranchPushes(_BasePushTest):
     def test_pushes_freshly_created(self):
         td, smm = self._setup_repo()
         name = branching.create_free_branch(td, "demo", smm)
-        self.assertIsNotNone(name)
-        assert name is not None
+        name = self._assert_not_none(name)
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
@@ -154,8 +151,7 @@ class TestPlanBranchPushes(_BasePushTest):
     def test_pushes_freshly_created(self):
         td, smm = self._setup_repo()
         name = branching.create_plan_branch(td, "demo", smm)
-        self.assertIsNotNone(name)
-        assert name is not None
+        name = self._assert_not_none(name)
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):

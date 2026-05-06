@@ -125,8 +125,7 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         )
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         # All reviews done — cycle complete, should NOT defer
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("xp-accept", result)
 
     def test_asking_user_marker_allows_stop(self):
@@ -154,8 +153,7 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("xp-accept", result)
 
     def test_in_progress_without_accept_marker_allows_stop(self):
@@ -200,8 +198,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("xp-sprint-review", result)
 
     def test_sprint_complete_with_end_event_falls_through(self):
@@ -244,8 +241,7 @@ class TestSprintStopGateReviewCascade(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, event)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("xp-sprint-review", result)
 
 

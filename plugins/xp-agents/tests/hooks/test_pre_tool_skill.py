@@ -20,16 +20,14 @@ class TestSimplifyNudge(_HookTestCase):
     def test_simplify_gets_courage_nudge(self):
         """When /simplify runs, inject courage + subagent reminder."""
         result = pre_tool_skill.run(_make_skill_input("simplify"))
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("3 review subagents", result)
         self.assertIn("Courage", result)
 
     def test_simplify_plugin_prefixed(self):
         """Plugin-prefixed simplify also gets nudge."""
         result = pre_tool_skill.run(_make_skill_input("xp-agents:simplify"))
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("3 review subagents", result)
 
     def test_unrelated_skills_no_output(self):
@@ -52,8 +50,7 @@ class TestQualityReviewProbe(_HookTestCase):
     def test_qr_gets_probe(self, mock_probe):
         mock_probe.return_value = "Found 1 open concern(s)"
         result = pre_tool_skill.run(_make_skill_input("xp-agents:xp-quality-review"))
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("Found 1 open concern", result)
         mock_probe.assert_called_once()
 
@@ -61,16 +58,14 @@ class TestQualityReviewProbe(_HookTestCase):
     def test_qr_no_concerns(self, mock_probe):
         mock_probe.return_value = "(no open concerns match changed files)"
         result = pre_tool_skill.run(_make_skill_input("xp-quality-review"))
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("no open concerns", result)
 
     @patch("pre_tool_skill._run_qr_probe")
     def test_qr_no_changed_files(self, mock_probe):
         mock_probe.return_value = "(no changed files)"
         result = pre_tool_skill.run(_make_skill_input("xp-quality-review"))
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("no changed files", result)
 
     def test_xp_agent_skips_qr_probe(self):

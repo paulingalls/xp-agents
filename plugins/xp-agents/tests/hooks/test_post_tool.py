@@ -306,8 +306,7 @@ class TestPostToolExitPlan(_HookTestCase):
             {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
             smm_dir=self.smm_dir,
         )
-        self.assertIsNotNone(result)
-        assert result is not None
+        result = self._assert_not_none(result)
         self.assertIn("xp-review-plan", result)
 
     def test_writes_marker_file(self):
