@@ -219,11 +219,15 @@ SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
 # of an agent's resolves choice falling outside the probe candidate set,
 # so retros can act on cause not just count. UNKNOWN is the catch-all so
 # no divert is silently uncategorized. Order matches first-match precedence
-# in the classifier.
+# in the classifier. MISSING_EVENT and PROBE_SELECTION_MISS added by
+# story-005 after sprint-065 retro flagged 8/8 diverts as 'unknown'
+# (4/8 = rejected ID not in events.jsonl, 4/8 = in-domain probe miss).
+DIVERT_REASON_MISSING_EVENT = "missing-event"
 DIVERT_REASON_NEWER_THAN_SNAPSHOT = "newer-than-snapshot"
 DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
 DIVERT_REASON_CROSS_STORY = "cross-story"
 DIVERT_REASON_WRONG_TYPE = "wrong-type"
+DIVERT_REASON_PROBE_SELECTION_MISS = "probe-selection-miss"
 DIVERT_REASON_UNKNOWN = "unknown"
 
 # Retro Try disposition values written to metadata.disposition by
