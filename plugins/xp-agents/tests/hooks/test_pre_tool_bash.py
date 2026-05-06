@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import code_files
+import commits
 import git_commits
 import pre_tool_bash
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
@@ -448,6 +449,70 @@ class TestStagedRuffGate(_HookTestCase):
         ]
         self.assertEqual(len(py_calls), len(mock_run_ruff.call_args_list))
         self.assertEqual(len(py_calls), 1)
+
+
+def _heredoc_commit(prefix: str, body: str) -> str:
+    """Build `<prefix> git commit -m "$(cat <<'EOF'\\n<body>\\nEOF\\n)"`."""
+    return f"{prefix} git commit -m \"$(cat <<'EOF'\n{body}\nEOF\n)\""
+
+
+class TestParseEffectiveCwdHeredoc(unittest.TestCase):
+    """story-014: parse_effective_cwd must skip heredoc commit-message bodies.
+
+    A meta-commit body that quotes `cd /tmp` or `git -C /elsewhere` would
+    otherwise trick the matcher into retargeting cwd, because the bare
+    `is_dir()` filter accepts real paths even when they appear inside the
+    message body. Tests construct realistic commit invocations using a real
+    tempdir as the outer cwd target so the validator returns it.
+    """
+
+    def test_heredoc_body_cd_does_not_retarget(self):
+        """AC1: `cd /tmp` inside a heredoc commit body must NOT win."""
+        with tempfile.TemporaryDirectory() as outer:
+            command = _heredoc_commit(
+                f"cd {outer} &&",
+                "Refactor: simplify foo\n\ncd /tmp && rm -rf workspace",
+            )
+            result = commits.parse_effective_cwd(command, fallback=outer)
+            self.assertEqual(result, outer)
+            self.assertNotEqual(result, "/tmp")
+
+    def test_normal_cd_then_commit_unchanged(self):
+        """AC2: happy path — `cd /path && git commit` resolves to /path."""
+        with tempfile.TemporaryDirectory() as outer:
+            command = f"cd {outer} && git commit -m 'fix bug'"
+            result = commits.parse_effective_cwd(command, fallback="/")
+            self.assertEqual(result, outer)
+
+    def test_git_dash_c_before_heredoc_wins(self):
+        """AC3: `git -C /elsewhere commit` followed by heredoc keeps -C target."""
+        # The `_heredoc_commit` helper hardcodes `git commit`; AC3 needs the
+        # `git -C <p> commit` shape, so build the command inline.
+        with tempfile.TemporaryDirectory() as elsewhere:
+            command = (
+                f"git -C {elsewhere} commit -m \"$(cat <<'EOF'\n"
+                "Document migration\n\ncd /tmp && do something\n"
+                "EOF\n"
+                ')"'
+            )
+            result = commits.parse_effective_cwd(command, fallback="/")
+            self.assertEqual(result, elsewhere)
+
+    def test_meta_commit_body_does_not_retarget(self):
+        """AC4: meta-commit body with `cd /tmp` at line-start does not poison cwd."""
+        with tempfile.TemporaryDirectory() as worktree_dir:
+            command = _heredoc_commit(
+                f"cd {worktree_dir} &&",
+                "[story-014] Document the cd-poisoning workaround\n"
+                "\n"
+                "Old recipe (DO NOT USE):\n"
+                "cd /tmp && git status\n"
+                "Better:\n"
+                "git -C /elsewhere status",
+            )
+            result = commits.parse_effective_cwd(command, fallback="/")
+            self.assertEqual(result, worktree_dir)
+            self.assertNotEqual(result, "/tmp")
 
 
 if __name__ == "__main__":
