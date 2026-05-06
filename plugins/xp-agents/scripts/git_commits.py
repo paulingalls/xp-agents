@@ -48,5 +48,6 @@ def is_git_commit(command: str, *, scan_target: str | None = None) -> bool:
     `strip_quoted`) so the same Bash invocation isn't quote-stripped
     twice when downstream functions also need it.
     """
-    target = strip_quoted(command) if scan_target is None else scan_target
-    return bool(re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", target))
+    if scan_target is None:
+        scan_target = strip_quoted(command)
+    return bool(re.search(GIT_PREFIX + r"(?:commit|merge)\b(?!-)", scan_target))

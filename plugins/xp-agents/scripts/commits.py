@@ -339,7 +339,9 @@ _GIT_DASH_C_RE = re.compile(_BOUNDARY + r"git\s+-C\s+" + _PATH_TOKEN)
 _CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
 
 
-def parse_effective_cwd(command: str, fallback: str) -> str:
+def parse_effective_cwd(
+    command: str, fallback: str, *, scan_target: str | None = None
+) -> str:
     """Return the effective cwd a git invocation in `command` ran under.
 
     `git -C <path>` wins (highest precedence); otherwise the last `cd <path>`
@@ -354,13 +356,16 @@ def parse_effective_cwd(command: str, fallback: str) -> str:
     Quoted strings and heredoc bodies are stripped before scanning so a
     commit message that quotes `cd /tmp` or `git -C /elsewhere` cannot
     retarget cwd — real paths inside message bodies pass `is_dir()`.
+
+    `scan_target` lets callers pass a pre-stripped command (via
+    `git_commits.strip_quoted`) so the same Bash invocation isn't
+    quote-stripped twice when downstream functions also need it.
     """
     if not command:
         return fallback
 
-    # Reuse git_commits.strip_quoted so this function and is_git_commit
-    # share one definition of "what counts as the outer command".
-    scan_target = git_commits.strip_quoted(command)
+    if scan_target is None:
+        scan_target = git_commits.strip_quoted(command)
 
     def _resolve(candidate: str) -> str | None:
         path = Path(candidate)
