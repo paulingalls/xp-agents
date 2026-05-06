@@ -166,11 +166,15 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_active_stories,  # noqa: F401  re-export for legacy callers
     has_active_stories_data,
     has_in_motion_stories,  # noqa: F401  re-export for legacy callers
+    has_in_motion_stories_data,  # noqa: F401  re-export for legacy callers
     has_in_progress_stories,  # noqa: F401  re-export for legacy callers
+    has_in_progress_stories_data,  # noqa: F401  re-export for legacy callers
     has_ready_stories,  # noqa: F401  re-export for legacy callers
     has_reviewing_stories,  # noqa: F401  re-export for legacy callers
+    has_reviewing_stories_data,  # noqa: F401  re-export for legacy callers
     has_scheduled_stories,  # noqa: F401  re-export for legacy callers
     has_stories_with_status,  # noqa: F401  re-export for legacy callers
+    has_stories_with_status_data,  # noqa: F401  re-export for legacy callers
     is_complete,  # noqa: F401  re-export for legacy callers
     scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
 )

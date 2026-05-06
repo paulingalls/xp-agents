@@ -35,9 +35,13 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_active_stories",
         "has_active_stories_data",
         "has_stories_with_status",
+        "has_stories_with_status_data",
         "has_in_progress_stories",
+        "has_in_progress_stories_data",
         "has_reviewing_stories",
+        "has_reviewing_stories_data",
         "has_in_motion_stories",
+        "has_in_motion_stories_data",
         "has_ready_stories",
         "has_scheduled_stories",
         "scheduled_file_domains_overlap",
@@ -222,6 +226,22 @@ class TestStatusChecks(_SMMTestCase):
         import sprint_store
 
         self.assertFalse(sprint_store.has_in_motion_stories(self.smm_dir))
+
+    def test_has_in_progress_data_true_and_false(self):
+        import sprint_store
+
+        sprint_yes = _make_sprint(stories=[_make_story(status="in-progress")])
+        sprint_no = _make_sprint(stories=[_make_story(status="reviewing")])
+        self.assertTrue(sprint_store.has_in_progress_stories_data(sprint_yes))
+        self.assertFalse(sprint_store.has_in_progress_stories_data(sprint_no))
+
+    def test_has_reviewing_data_true_and_false(self):
+        import sprint_store
+
+        sprint_yes = _make_sprint(stories=[_make_story(status="reviewing")])
+        sprint_no = _make_sprint(stories=[_make_story(status="in-progress")])
+        self.assertTrue(sprint_store.has_reviewing_stories_data(sprint_yes))
+        self.assertFalse(sprint_store.has_reviewing_stories_data(sprint_no))
 
     def test_next_scheduled_returns_lowest_id_with_deps_done(self):
         import sprint_store

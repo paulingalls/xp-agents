@@ -2,8 +2,13 @@
 """Stop command hook: unified sprint lifecycle gate.
 
 Replaces accept_gate.py. Handles the sprint cascade (accept → review):
-  1. in-progress stories + ACCEPT marker → block "run /xp-accept"
+  1. reviewing stories OR (in-progress + ACCEPT marker) → block "run /xp-accept"
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
+
+Reviewing-state alone fires the gate (incremental teammate accept):
+teammates self-promote in-progress -> reviewing on clean exit without
+orchestrator Edits, so the .accept marker never arms; reviewing IS the
+canonical "work needs acceptance" signal.
 
 Sprint retrospective is NOT part of the Stop cascade. It runs at the
 start of the next session via retrospective.py, which detects a
@@ -27,9 +32,14 @@ import markers
 import sprint_state
 import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
+from sprint_status import (
+    has_active_stories_data,
+    has_in_progress_stories_data,
+    has_reviewing_stories_data,
+)
 
 _ACCEPT_MESSAGE = (
-    "Stories are in-progress. Run /xp-accept to verify "
+    "Stories need acceptance. Run /xp-accept to verify "
     "acceptance criteria before stopping."
 )
 
@@ -71,15 +81,22 @@ def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:
 
 
 def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
-    """Return the first triggered cascade block message, or None."""
-    # Cascade step 1: accept gate
-    if sprint_state.has_in_progress_stories(smm_dir):
+    """Return the first triggered cascade block message, or None.
+
+    Uses the ``_data`` predicate variants throughout so the sprint dict
+    loaded by the caller is reused — no double-load on the disk for a
+    single Stop hook invocation.
+    """
+    # Cascade step 1: accept gate. Reviewing alone fires (Option A).
+    if has_reviewing_stories_data(sprint_data):
+        return _ACCEPT_MESSAGE
+    if has_in_progress_stories_data(sprint_data):
         if markers.marker_exists(smm_dir, markers.ACCEPT):
             return _ACCEPT_MESSAGE
         return None
 
-    # Cascade step 2: sprint-review gate — requires sprint complete
-    if not sprint_state.is_sprint_complete(smm_dir):
+    # Cascade step 2: sprint-review gate — requires sprint complete.
+    if has_active_stories_data(sprint_data):
         return None
 
     sprint_id = sprint_data.get("sprint_id") or ""

@@ -38,7 +38,16 @@ def has_stories_with_status(smm_dir: Path, status: str) -> bool:
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return False
-    return any(s["status"] == status for s in sprint["stories"])
+    return has_stories_with_status_data(sprint, status)
+
+
+def has_stories_with_status_data(data: dict, status: str) -> bool:
+    """True if sprint dict has any story matching `status`.
+
+    Sibling to has_stories_with_status for callers that already hold
+    the loaded sprint dict.
+    """
+    return any(s["status"] == status for s in data["stories"])
 
 
 def has_in_progress_stories(smm_dir: Path) -> bool:
@@ -46,9 +55,19 @@ def has_in_progress_stories(smm_dir: Path) -> bool:
     return has_stories_with_status(smm_dir, "in-progress")
 
 
+def has_in_progress_stories_data(data: dict) -> bool:
+    """True if sprint dict has in-progress stories."""
+    return has_stories_with_status_data(data, "in-progress")
+
+
 def has_reviewing_stories(smm_dir: Path) -> bool:
     """True if sprint has reviewing stories."""
     return has_stories_with_status(smm_dir, "reviewing")
+
+
+def has_reviewing_stories_data(data: dict) -> bool:
+    """True if sprint dict has reviewing stories."""
+    return has_stories_with_status_data(data, "reviewing")
 
 
 def has_in_motion_stories(smm_dir: Path) -> bool:
@@ -58,7 +77,12 @@ def has_in_motion_stories(smm_dir: Path) -> bool:
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return False
-    return any(s["status"] in IN_MOTION_STORY_STATUSES for s in sprint["stories"])
+    return has_in_motion_stories_data(sprint)
+
+
+def has_in_motion_stories_data(data: dict) -> bool:
+    """True if sprint dict has in-motion (in-progress or reviewing) stories."""
+    return any(s["status"] in IN_MOTION_STORY_STATUSES for s in data["stories"])
 
 
 def has_ready_stories(smm_dir: Path) -> bool:

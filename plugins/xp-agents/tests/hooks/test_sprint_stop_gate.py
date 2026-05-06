@@ -19,9 +19,12 @@ from conftest import (
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
+    SPRINT_REVIEWING_ONLY,
     SPRINT_SCHEDULED_ONLY,
     _HookTestCase,
     _make_stop_input,
+    _s,
+    _sprint_json,
     make_event,
 )
 from event_schema import EVENT_TYPE_SPRINT
@@ -172,6 +175,36 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         # No in-progress stories; ready stories means sprint not complete
         self.assertIsNone(result)
+
+    def test_reviewing_only_fires_gate(self):
+        """Option A (M-3): a reviewing-state story alone forces /xp-accept on
+        Stop, even without the .accept marker. Teammates self-promote
+        in-progress -> reviewing without orchestrator Edits, so the marker
+        never arms; reviewing alone IS the signal that work needs acceptance."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_mixed_in_progress_and_reviewing_blocks_via_reviewing(self):
+        """Mixed states: a teammate has self-promoted to reviewing while
+        siblings remain in-progress. The reviewing branch fires regardless
+        of the marker — orchestrator must process the reviewing teammate
+        incrementally."""
+        import sprint_stop_gate
+
+        sprint = _sprint_json(
+            [
+                _s("story-001", "story A reviewing", "reviewing"),
+                _s("story-002", "story B still working", "in-progress"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(sprint)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
 
     def test_scheduled_only_does_not_block_stop(self):
         """Scheduled stories with no in-progress should NOT trigger the
