@@ -44,12 +44,13 @@ class TestAcceptPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
 
-    def test_preload_no_in_progress(self):
-        """Outputs NO_IN_PROGRESS when no in-progress stories."""
+    def test_preload_no_stories_to_accept(self):
+        """Outputs NO_STORIES_TO_ACCEPT when neither reviewing nor in-progress
+        stories exist (story-002 reviewing-first dispatch)."""
         (self.smm_dir / "sprint.json").write_text(SPRINT_READY_ONLY)
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
-        self.assertIn("NO_IN_PROGRESS", result.stdout)
+        self.assertIn("NO_STORIES_TO_ACCEPT", result.stdout)
 
     def test_preload_outputs_path_not_content(self):
         """Outputs SPRINT_FILE path, not full sprint content."""
