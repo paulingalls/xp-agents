@@ -187,11 +187,14 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         pre_tool_write.run(main_input, smm_dir=self.smm_dir)
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
 
-        # Phase 4: mark story-002 done; xp-story-close preload discovers
-        # the teammate worktree (TEAMMATE_CWD + CURRENT_BRANCH from the
-        # worktree's HEAD, not the orchestrator's) and consumes
-        # ACCEPT_ACTIVE on entry.
-        sprint_store.update_story_status(self.smm_dir, "story-002", "done")
+        # Phase 4: promote story-002 to reviewing (close-then-done — story
+        # stays in `reviewing` throughout the close cycle; mark-done is
+        # the final step AFTER successful merge). xp-story-close preload
+        # discovers the teammate worktree by keying on `reviewing` status
+        # (TEAMMATE_CWD + CURRENT_BRANCH from the worktree's HEAD, not
+        # the orchestrator's). ACCEPT_ACTIVE is PRESERVED — xp-sprint-
+        # close consumes it end-of-flow, not xp-story-close.
+        sprint_store.update_story_status(self.smm_dir, "story-002", "reviewing")
         sc = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
         self.assertEqual(sc.returncode, 0, sc.stderr)
         teammate_cwd = _extract_preload_var(sc.stdout, "TEAMMATE_CWD")
@@ -199,7 +202,13 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         self.assertNotEqual(
             _extract_preload_var(sc.stdout, "CURRENT_BRANCH"), orch_branch
         )
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
+            msg=(
+                "ACCEPT_ACTIVE must persist across xp-story-close "
+                "(xp-sprint-close consumes end-of-flow)"
+            ),
+        )
 
         # Phase 5: actually merge via close_common.py. Story-003 caught
         # that merge MUST run at orchestrator cwd (not TEAMMATE_CWD) —

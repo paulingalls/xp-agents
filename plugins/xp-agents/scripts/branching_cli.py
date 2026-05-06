@@ -111,14 +111,16 @@ def _cmd_find_teammate_worktree(args: argparse.Namespace) -> int:
 
 
 def _cmd_find_closing_teammate_worktree(args: argparse.Namespace) -> int:
-    """Print ``<abs-path>\\t<branch>`` for the worktree of the just-done story.
+    """Print ``<abs-path>\\t<branch>`` for the worktree of the in-reviewing story.
 
     Implicit-derivation discovery for /xp-story-close: pairs the live
     teammate worktree with its sprint.json story status; prints exactly
-    when one worktree's story is `done`. Empty stdout = no match (solo,
-    or no teammate finished). Non-zero exit + stderr on multi-match —
-    that signals broken /xp-accept iteration; fail loud rather than
-    guess which worktree to close.
+    when one worktree's story is `reviewing`. Under close-then-done
+    semantics, /xp-story-close runs while the story is still in
+    `reviewing` (mark-done is the FINAL step after merge). Empty stdout
+    = no match (solo, or no teammate finished). Non-zero exit + stderr
+    on multi-match — that signals broken /xp-accept iteration; fail loud
+    rather than guess which worktree to close.
 
     Tab-delimited: worktree paths can contain spaces on macOS; the
     prior space-delimited emit forced bash consumers to lean on the
@@ -273,7 +275,9 @@ def main() -> int:
 
     p_fctw = sub.add_parser(
         "find-closing-teammate-worktree",
-        help="Print `<abs-path><TAB><branch>` for the worktree of the just-done story",
+        help=(
+            "Print `<abs-path><TAB><branch>` for the worktree of the in-reviewing story"
+        ),
     )
     p_fctw.add_argument("--cwd", required=True)
     p_fctw.set_defaults(func=_cmd_find_closing_teammate_worktree)

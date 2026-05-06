@@ -120,10 +120,14 @@ class TestXpAcceptPreloadAcceptActive(_IntegrationTestCase):
 class _ClosePreloadAcceptActiveMixin(_MixinBase):
     """Shared assertions for close-skill preloads that consume ACCEPT_ACTIVE.
 
-    The four close-skill preloads (sprint, plan, free, story) must each
-    consume ACCEPT_ACTIVE on entry so the marker cannot strand across
-    sessions when an alternate close path fires. Idempotent when the
-    marker is absent.
+    Three close-skill preloads (sprint, plan, free) consume ACCEPT_ACTIVE
+    on entry so the marker cannot strand across sessions when an
+    alternate close path fires. Idempotent when the marker is absent.
+
+    NOTE: xp-story-close does NOT consume the marker under close-then-done
+    semantics — pinned separately by `TestXpStoryClosePreloadPreservesAcceptActive`
+    (preservation is the load-bearing inverse contract: consuming early
+    leaves subsequent /xp-accept fix-cycles unprotected).
 
     Subclasses set `_PRELOAD` and inherit `_IntegrationTestCase` for
     smm_dir / tmpdir / _run_preload.
@@ -168,10 +172,31 @@ class TestXpFreeClosePreloadAcceptActive(
     _PRELOAD = _XP_FREE_CLOSE_PRELOAD
 
 
-class TestXpStoryClosePreloadAcceptActive(
-    _ClosePreloadAcceptActiveMixin, _IntegrationTestCase
-):
-    _PRELOAD = _XP_STORY_CLOSE_PRELOAD
+class TestXpStoryClosePreloadPreservesAcceptActive(_IntegrationTestCase):
+    """xp-story-close preload PRESERVES ACCEPT_ACTIVE under close-then-done.
+
+    The marker stays armed throughout the per-story close cycle so
+    /xp-accept fix-cycles inside /xp-story-close remain protected
+    against .accept re-arm. xp-sprint-close consumes the marker at
+    end-of-flow. Inverse pin guards against a future regression that
+    re-introduces the early consume in xp-story-close.
+    """
+
+    def test_preserves_marker_when_present(self):
+        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+        result = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
+            msg=f"marker MUST persist; stdout={result.stdout}",
+        )
+
+    def test_idempotent_when_absent(self):
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+        result = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
 
 
 class TestXpKickoffPreloadAcceptActive(_IntegrationTestCase):
@@ -276,8 +301,10 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
         return os.path.realpath(str(path))
 
     def test_preload_emits_teammate_cwd_and_branch(self):
-        seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
-        wt_path = self._make_teammate_worktree("story-001", "u/story-001-done")
+        # Close-then-done: xp-story-close discovers the in-`reviewing`
+        # story (mark-done is the FINAL step after merge).
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "reviewing")])
+        wt_path = self._make_teammate_worktree("story-001", "u/story-001-reviewing")
         self.assertIn(" ", wt_path)
 
         result = subprocess.run(
@@ -303,7 +330,7 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
         )
         self.assertEqual(
             fields.get("CURRENT_BRANCH"),
-            "u/story-001-done",
+            "u/story-001-reviewing",
             msg=f"branch parse drift; stdout={result.stdout!r}",
         )
 

@@ -96,7 +96,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
 
     def test_solo_emits_empty_teammate_cwd_and_orchestrator_branch(self):
         # No teammate worktree at all — solo flow.
-        seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "reviewing")])
         result = self._run_preload(self._PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
@@ -105,9 +105,11 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
             get_current_branch_at(self.tmpdir),
         )
 
-    def test_done_teammate_emits_teammate_cwd_and_teammate_branch(self):
+    def test_reviewing_teammate_emits_teammate_cwd_and_teammate_branch(self):
+        # Close-then-done: story is in `reviewing` while /xp-story-close
+        # runs (mark-done is the FINAL step after merge).
         wt_path = self._create_worktree("story-042")
-        seed_sprint_with_stories(self.smm_dir, [("story-042", "done")])
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "reviewing")])
         result = self._run_preload(self._PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         emitted = _extract_preload_var(result.stdout, "TEAMMATE_CWD")
@@ -120,7 +122,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         )
 
     def test_in_progress_teammate_emits_empty_teammate_cwd(self):
-        # Worktree exists but story is in-progress, not done — preload
+        # Worktree exists but story is in-progress, not reviewing — preload
         # should NOT pick it; CURRENT_BRANCH stays at orchestrator HEAD.
         self._create_worktree("story-007")
         seed_sprint_with_stories(self.smm_dir, [("story-007", "in-progress")])
@@ -132,9 +134,9 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
             get_current_branch_at(self.tmpdir),
         )
 
-    def test_multi_done_match_propagates_failure(self):
+    def test_multi_reviewing_match_propagates_failure(self):
         # The helper's "fail loud on multi-match" contract only holds if
-        # the preload doesn't swallow it. Two `done` stories with live
+        # the preload doesn't swallow it. Two `reviewing` stories with live
         # worktrees signal broken /xp-accept iteration — the preload
         # MUST surface the helper's stderr and exit non-zero rather than
         # silently degrading to solo flow (which would then dispatch
@@ -143,7 +145,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         self._create_worktree("story-101")
         self._create_worktree("story-102")
         seed_sprint_with_stories(
-            self.smm_dir, [("story-101", "done"), ("story-102", "done")]
+            self.smm_dir, [("story-101", "reviewing"), ("story-102", "reviewing")]
         )
         result = self._run_preload(self._PRELOAD)
         self.assertNotEqual(
@@ -151,7 +153,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
             0,
             "preload must propagate multi-match ValueError, not swallow it",
         )
-        self.assertIn("multiple done stories", result.stderr)
+        self.assertIn("multiple reviewing stories", result.stderr)
 
 
 class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
