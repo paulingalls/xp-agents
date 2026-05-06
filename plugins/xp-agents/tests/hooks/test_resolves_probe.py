@@ -1011,5 +1011,46 @@ class TestFindProbeCandidatesDiscovery(_HookTestCase):
         self.assertNotIn(sibling, [c["id"] for c in result])
 
 
+class TestCountFileOverlaps(unittest.TestCase):
+    """_count_file_overlaps direct pin — covers list-guard, str-guard, and
+    normalize_path raising branches that the discovery-flow tests reach
+    only transitively. A future refactor that silently zeros the score
+    must trip one of these. normalize_path is patched to identity so
+    tests don't depend on a real git root.
+    """
+
+    CWD = "/tmp/repo"
+
+    def setUp(self):
+        self._original_normalize = worktree.normalize_path
+        worktree.normalize_path = lambda f, _c: f
+
+    def tearDown(self):
+        worktree.normalize_path = self._original_normalize
+
+    def test_non_list_returns_zero(self):
+        self.assertEqual(
+            resolves_probe._count_file_overlaps("not-a-list", {"a.py"}, self.CWD), 0
+        )
+        self.assertEqual(
+            resolves_probe._count_file_overlaps(None, {"a.py"}, self.CWD), 0
+        )
+
+    def test_non_str_elements_skipped(self):
+        self.assertEqual(
+            resolves_probe._count_file_overlaps(["a.py", 42, None], {"a.py"}, self.CWD),
+            1,
+        )
+
+    def test_normalize_path_raising_branch_skips_entry(self):
+        def _raise(_f, _c):
+            raise ValueError("bad")
+
+        worktree.normalize_path = _raise
+        self.assertEqual(
+            resolves_probe._count_file_overlaps(["a.py"], {"a.py"}, self.CWD), 0
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
