@@ -61,6 +61,20 @@ def load_plan(smm_dir: Path) -> dict | None:
     return data
 
 
+def load_plan_required(smm_dir: Path) -> dict:
+    """Load the execution plan or raise ValueError if missing.
+
+    Use this at call sites where the plan MUST exist (tests with
+    seeded fixtures, internal CLI subcommands). Pyright sees the
+    `dict` return so callers don't need a follow-up
+    `assert plan is not None`.
+    """
+    plan = load_plan(smm_dir)
+    if plan is None:
+        raise ValueError(f"No execution plan found at {smm_dir}")
+    return plan
+
+
 def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None:
     """Validate and atomically write the execution plan.
 
