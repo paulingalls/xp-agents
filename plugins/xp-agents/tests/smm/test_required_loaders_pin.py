@@ -32,11 +32,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import execution_plan_store
-import sprint_store
+from conftest import execution_plan_store, sprint_store
 
 _TESTS_DIR = Path(__file__).parent.parent
 

@@ -67,6 +67,13 @@ from _test_typing import _MixinBase  # noqa: E402, F401
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
 import _common  # noqa: E402
+
+# Module-level re-exports of sibling production modules (smm/ + scripts/)
+# so test files can `from conftest import event_schema, sprint_store, ...`
+# instead of duplicating the sys.path.insert + bare-import dance.
+import event_schema  # noqa: E402, F401
+import execution_plan_store  # noqa: E402, F401
+import sprint_store  # noqa: E402, F401
 from _cli_helpers import (  # noqa: E402, F401
     VALID_MILESTONE,
     VALID_SOURCE,

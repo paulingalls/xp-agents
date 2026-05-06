@@ -22,9 +22,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import event_schema
+from conftest import event_schema
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SCAN_DIRS = [

@@ -6,6 +6,12 @@ directions: dead entries (path removed but listing kept) silently mask real
 import errors, and missing entries (new skill scripts/ dir not added)
 produce false-positive `reportMissingImports`. This test reconciles the
 declared list with the filesystem in both directions.
+
+Two configs to keep in sync (pyright lacks `extends` across cwds, so the
+repo-root config duplicates the plugin-local one with prefixes for IDE
+language-server discovery from the repo root). Both are validated here:
+plugin-local entries are relative to `plugins/xp-agents/`; root-config
+entries are relative to the repo root.
 """
 
 import json
@@ -14,12 +20,14 @@ from pathlib import Path
 
 from conftest import _PLUGIN_ROOT
 
-_PYRIGHT_CONFIG = _PLUGIN_ROOT / "pyrightconfig.json"
+_PLUGIN_PYRIGHT_CONFIG = _PLUGIN_ROOT / "pyrightconfig.json"
+_REPO_ROOT = _PLUGIN_ROOT.parent.parent
+_ROOT_PYRIGHT_CONFIG = _REPO_ROOT / "pyrightconfig.json"
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
 
 
-def _load_extra_paths() -> list[str]:
-    config = json.loads(_PYRIGHT_CONFIG.read_text())
+def _load_extra_paths(config_path: Path) -> list[str]:
+    config = json.loads(config_path.read_text())
     return config["extraPaths"]
 
 
@@ -28,11 +36,10 @@ def _has_direct_py_files(directory: Path) -> bool:
 
 
 class TestPyrightExtraPathsDriftGuard(unittest.TestCase):
-    def test_every_declared_extra_path_is_a_real_dir_with_py_files(self):
-        # Aggregate so a single dead entry doesn't hide the rest.
+    def _check_paths_resolve(self, base: Path, entries: list[str]) -> list[str]:
         violations = []
-        for entry in _load_extra_paths():
-            target = _PLUGIN_ROOT / entry
+        for entry in entries:
+            target = base / entry
             if not target.is_dir():
                 violations.append(f"{entry!r}: not a directory (resolved to {target})")
                 continue
@@ -40,13 +47,59 @@ class TestPyrightExtraPathsDriftGuard(unittest.TestCase):
                 violations.append(
                     f"{entry!r}: contains no .py files — dead entry, remove it"
                 )
+        return violations
+
+    def test_every_declared_extra_path_is_a_real_dir_with_py_files(self):
+        # Plugin-local config: entries relative to plugins/xp-agents/.
+        violations = self._check_paths_resolve(
+            _PLUGIN_ROOT, _load_extra_paths(_PLUGIN_PYRIGHT_CONFIG)
+        )
         self.assertFalse(
             violations,
-            "pyrightconfig.json:extraPaths drift:\n  " + "\n  ".join(violations),
+            "plugins/xp-agents/pyrightconfig.json:extraPaths drift:\n  "
+            + "\n  ".join(violations),
+        )
+
+    def test_root_config_extra_paths_resolve(self):
+        # Root config: entries relative to repo root, prefixed with
+        # plugins/xp-agents/. Same drift modes as the plugin-local config.
+        violations = self._check_paths_resolve(
+            _REPO_ROOT, _load_extra_paths(_ROOT_PYRIGHT_CONFIG)
+        )
+        self.assertFalse(
+            violations,
+            "repo-root pyrightconfig.json:extraPaths drift:\n  "
+            + "\n  ".join(violations),
+        )
+
+    def test_root_and_plugin_extra_paths_stay_in_sync(self):
+        # The two configs MUST list the same logical paths (root-config
+        # entries are just plugin-local entries with `plugins/xp-agents/`
+        # prepended). Keeping them in sync prevents IDE-vs-CLI diagnostic
+        # divergence: an import error caught by one config but masked by
+        # the other is a worst-case false-pass.
+        plugin_paths = set(_load_extra_paths(_PLUGIN_PYRIGHT_CONFIG))
+        root_paths = set(_load_extra_paths(_ROOT_PYRIGHT_CONFIG))
+        prefix = "plugins/xp-agents/"
+        derived_from_root = {
+            p[len(prefix) :] for p in root_paths if p.startswith(prefix)
+        }
+        non_prefixed = {p for p in root_paths if not p.startswith(prefix)}
+        self.assertFalse(
+            non_prefixed,
+            "repo-root pyrightconfig.json entries must all start with "
+            f"{prefix!r}; offending entries: {non_prefixed}",
+        )
+        self.assertEqual(
+            plugin_paths,
+            derived_from_root,
+            "pyrightconfig.json extraPaths drift between plugin-local and "
+            f"repo-root configs.\n  plugin-only: {plugin_paths - derived_from_root}"
+            f"\n  root-only:   {derived_from_root - plugin_paths}",
         )
 
     def test_every_skill_scripts_dir_with_py_files_is_declared(self):
-        declared = set(_load_extra_paths())
+        declared = set(_load_extra_paths(_PLUGIN_PYRIGHT_CONFIG))
         missing = []
         for scripts_dir in sorted(_SKILLS_DIR.glob("*/scripts")):
             if not scripts_dir.is_dir():

@@ -1,0 +1,19 @@
+{
+  "include": ["plugins/xp-agents/scripts", "plugins/xp-agents/smm", "plugins/xp-agents/tests"],
+  "extraPaths": [
+    "plugins/xp-agents/scripts",
+    "plugins/xp-agents/smm",
+    "plugins/xp-agents/tests",
+    "plugins/xp-agents/skills/xp-accept/scripts",
+    "plugins/xp-agents/skills/xp-quality-review/scripts",
+    "plugins/xp-agents/skills/xp-sprint-review/scripts",
+    "plugins/xp-agents/skills/xp-sprint-start/scripts",
+    "plugins/xp-agents/skills/xp-work-selection/scripts"
+  ],
+  "exclude": ["**/__pycache__", "**/.pytest_cache"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportAttributeAccessIssue": "error",
+  "reportIndexIssue": "error"
+}
