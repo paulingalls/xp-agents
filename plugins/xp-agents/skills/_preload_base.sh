@@ -178,11 +178,23 @@ clear_accept_active_marker() {
     consume_marker ACCEPT_ACTIVE
 }
 
+# Route git through ${TEAMMATE_CWD} so dump_diff / get_changed_files
+# capture the teammate worktree's diff during /xp-accept fix-cycles —
+# without this, the orchestrator's incidental cwd edits would mask the
+# teammate's actual changes in /xp-quality-review.
+_git() {
+    if [ -n "${TEAMMATE_CWD:-}" ]; then
+        git -C "$TEAMMATE_CWD" "$@"
+    else
+        git "$@"
+    fi
+}
+
 # List all changed files (staged + unstaged + untracked), one per line.
 # Usage: get_changed_files
 get_changed_files() {
-    { git diff HEAD --name-only 2>/dev/null
-      git ls-files --others --exclude-standard 2>/dev/null
+    { _git diff HEAD --name-only 2>/dev/null
+      _git ls-files --others --exclude-standard 2>/dev/null
     } | sort -u
 }
 
@@ -193,9 +205,9 @@ dump_diff() {
     local mode="${1:-stat}"
     local staged_stat unstaged_stat untracked
 
-    staged_stat=$(git diff --cached --stat 2>/dev/null || true)
-    unstaged_stat=$(git diff --stat 2>/dev/null || true)
-    untracked=$(git ls-files --others --exclude-standard 2>/dev/null || true)
+    staged_stat=$(_git diff --cached --stat 2>/dev/null || true)
+    unstaged_stat=$(_git diff --stat 2>/dev/null || true)
+    untracked=$(_git ls-files --others --exclude-standard 2>/dev/null || true)
 
     if [ -z "$staged_stat" ] && [ -z "$unstaged_stat" ] && [ -z "$untracked" ]; then
         echo "## No Changes"
@@ -209,7 +221,7 @@ dump_diff() {
             echo "$staged_stat"
             echo ""
             echo "## Staged Diff"
-            git diff --cached 2>/dev/null || true
+            _git diff --cached 2>/dev/null || true
         fi
         if [ -n "$unstaged_stat" ]; then
             echo ""
@@ -217,7 +229,7 @@ dump_diff() {
             echo "$unstaged_stat"
             echo ""
             echo "## Unstaged Diff"
-            git diff 2>/dev/null || true
+            _git diff 2>/dev/null || true
         fi
     else
         echo "## Recent Changes"

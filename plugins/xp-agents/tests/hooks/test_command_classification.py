@@ -113,6 +113,57 @@ class TestIsGitCommit(unittest.TestCase):
         self.assertTrue(git_commits.is_git_commit("git -p commit -m 'x'"))
 
 
+class TestStripQuotedPublic(unittest.TestCase):
+    """story-007: `_strip_quoted` was promoted to public `strip_quoted` so
+    callers (commits.parse_effective_cwd, bash_post_tool) can share one
+    pre-stripped scan target with `is_git_commit` instead of each
+    re-stripping the command independently."""
+
+    def test_public_name_exists(self):
+        """`strip_quoted` is the supported public name."""
+        self.assertTrue(callable(getattr(git_commits, "strip_quoted", None)))
+
+    def test_strips_single_quotes(self):
+        self.assertNotIn("git commit", git_commits.strip_quoted("echo 'git commit'"))
+
+    def test_strips_double_quotes(self):
+        self.assertNotIn("git commit", git_commits.strip_quoted('echo "git commit"'))
+
+    def test_strips_heredoc(self):
+        cmd = "cat <<'EOF'\ngit commit body\nEOF"
+        self.assertNotIn("git commit", git_commits.strip_quoted(cmd))
+
+
+class TestIsGitCommitScanTarget(unittest.TestCase):
+    """story-007: `is_git_commit` accepts an optional pre-stripped
+    scan_target so callers that already have one (bash_post_tool runs
+    strip_quoted once per Bash and threads it through) avoid the
+    double-strip cost."""
+
+    def test_default_strips_internally(self):
+        """Omitting scan_target keeps the original behavior — quoted
+        `git commit` inside an arg must NOT match."""
+        self.assertFalse(
+            git_commits.is_git_commit('append.sh --content "before git commit"')
+        )
+
+    def test_pre_stripped_scan_target_honored(self):
+        """A pre-stripped scan_target is consulted directly; the quoted
+        text in the original command is irrelevant since the caller
+        already removed it."""
+        cmd = "git commit -m 'see git push'"
+        scan_target = git_commits.strip_quoted(cmd)
+        self.assertTrue(git_commits.is_git_commit(cmd, scan_target=scan_target))
+
+    def test_pre_stripped_scan_target_takes_precedence(self):
+        """When scan_target is provided, it's the SCAN; the function
+        does not re-strip command. Pass a deliberately neutered
+        scan_target to prove the function trusts the caller."""
+        cmd = "git commit -m 'msg'"  # would match by default
+        # Caller passes an empty scan_target — function honors it, returns False.
+        self.assertFalse(git_commits.is_git_commit(cmd, scan_target=""))
+
+
 class TestGitPrefixSharedRegex(unittest.TestCase):
     """git_commits.GIT_PREFIX is reused by commits.get_code_files_for_review
     for `git add` / `git commit -a` detection. Same root-cause class as

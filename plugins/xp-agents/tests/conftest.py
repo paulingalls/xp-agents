@@ -74,6 +74,7 @@ import _common  # noqa: E402
 import event_schema  # noqa: E402, F401
 import execution_plan_store  # noqa: E402, F401
 import sprint_store  # noqa: E402, F401
+import triage  # noqa: E402, F401
 from _cli_helpers import (  # noqa: E402, F401
     VALID_MILESTONE,
     VALID_SOURCE,

@@ -161,6 +161,61 @@ class TestSummarizeLintOutput(unittest.TestCase):
         self.assertIn("3 errors", result)
 
 
+class TestRunLinterBatchScaledTimeout(unittest.TestCase):
+    """run_linter_batch timeout scales with len(eligible) per story-007.
+
+    Formula: ``min(CAP, BASE + PER_PATH * N)`` — single-file batches stay
+    fast (one base interval), large batches stay bounded by CAP so a hung
+    ruff can't stall the commit gate forever. The empty-on-timeout sentinel
+    contract is pinned by test_lint.TestRunLinterBatch.
+    """
+
+    def _captured_timeout(self, n_paths: int) -> float:
+        paths = [f"f{i}.py" for i in range(n_paths)]
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run_linter_batch("ruff", paths, context="staging", cwd="/tmp")
+        return float(mock_run.call_args.kwargs["timeout"])
+
+    def _expected(self, n: int) -> float:
+        return min(
+            lint_check.BATCH_TIMEOUT_CAP_S,
+            lint_check.LINTER_BASE_TIMEOUT_S + lint_check.BATCH_TIMEOUT_PER_PATH_S * n,
+        )
+
+    def test_n1_below_cap(self):
+        self.assertAlmostEqual(self._captured_timeout(1), self._expected(1), places=6)
+
+    def test_n20_below_cap(self):
+        self.assertAlmostEqual(self._captured_timeout(20), self._expected(20), places=6)
+
+    def test_at_cap_boundary(self):
+        # N=100 with default constants saturates the min() to the literal cap.
+        self.assertEqual(self._captured_timeout(100), lint_check.BATCH_TIMEOUT_CAP_S)
+
+    def test_above_cap_clamped(self):
+        self.assertEqual(self._captured_timeout(500), lint_check.BATCH_TIMEOUT_CAP_S)
+
+    def test_uses_eligible_not_input_count(self):
+        """Non-.py paths are filtered out before scaling — the timeout
+        sizes against what ruff actually sees, not the raw input list."""
+        paths = ["a.py"] + [f"x{i}.md" for i in range(19)]
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run_linter_batch("ruff", paths, context="staging", cwd="/tmp")
+        self.assertAlmostEqual(
+            float(mock_run.call_args.kwargs["timeout"]),
+            self._expected(1),
+            places=6,
+        )
+
+
 import bash_failure  # noqa: E402
 from event_helpers import events_of_type  # noqa: E402
 from event_schema import EVENT_TYPE_CONCERN  # noqa: E402

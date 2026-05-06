@@ -5,6 +5,7 @@ Issue-matching and file-listing tests live in test_commits_issues.py.
 """
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import commits
+import git_commits
 
 # ---------------------------------------------------------------------------
 # parse_commit_message
@@ -609,6 +611,48 @@ class TestIsEscapeHatchCommit(unittest.TestCase):
         self.assertFalse(
             commits.is_escape_hatch_commit('git commit -m "fix [release] tag"')
         )
+
+
+class TestParseEffectiveCwdScanTarget(unittest.TestCase):
+    """story-007: parse_effective_cwd accepts a pre-stripped scan_target so
+    callers (bash_post_tool) that already have one don't pay for a second
+    strip_quoted scan. Default behavior (scan_target=None) preserves the
+    self-stripping path."""
+
+    def test_default_strips_internally(self):
+        """Omitting scan_target keeps the heredoc-immune behavior — quoted
+        `cd /tmp` inside a commit message must NOT retarget cwd."""
+        with tempfile.TemporaryDirectory() as outer:
+            command = (
+                f"cd {outer} && git commit -m \"$(cat <<'EOF'\n"
+                'subject\n\ncd /tmp && rm -rf workspace\nEOF\n)"'
+            )
+            self.assertEqual(commits.parse_effective_cwd(command, fallback="/"), outer)
+
+    def test_pre_stripped_scan_target_honored(self):
+        """A caller-supplied scan_target is consulted directly — the function
+        does not re-strip command. Pinned by passing the canonical strip
+        result from git_commits.strip_quoted."""
+        with tempfile.TemporaryDirectory() as outer:
+            command = f"cd {outer} && git commit -m 'subject'"
+            scan_target = git_commits.strip_quoted(command)
+            self.assertEqual(
+                commits.parse_effective_cwd(
+                    command, fallback="/", scan_target=scan_target
+                ),
+                outer,
+            )
+
+    def test_pre_stripped_scan_target_takes_precedence(self):
+        """When scan_target is provided, it's the SCAN; the function does
+        not re-strip command. Pass an empty scan_target and prove the
+        cd-token in the original command is not consulted."""
+        with tempfile.TemporaryDirectory() as outer:
+            command = f"cd {outer} && git commit"
+            self.assertEqual(
+                commits.parse_effective_cwd(command, fallback="/tmp", scan_target=""),
+                "/tmp",
+            )
 
 
 if __name__ == "__main__":

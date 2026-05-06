@@ -13,10 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import worktree
 from event_schema import (
     DIVERT_REASON_CROSS_STORY,
+    DIVERT_REASON_MISSING_EVENT,
     DIVERT_REASON_NEWER_THAN_SNAPSHOT,
     DIVERT_REASON_OUTSIDE_FILE_DOMAIN,
+    DIVERT_REASON_PROBE_SELECTION_MISS,
     DIVERT_REASON_UNKNOWN,
     DIVERT_REASON_WRONG_TYPE,
     METADATA_KEY_DISPOSITION,
@@ -276,7 +279,9 @@ def _event_in_sprint_window(event: dict, sprint_start_ts: str | None) -> bool:
 
 
 def _compute_resolves_link_rate(
-    events: list[dict], sprint_start_ts: str | None
+    events: list[dict],
+    sprint_start_ts: str | None,
+    cwd: str | None = None,
 ) -> dict:
     """Count code commits with Resolves-Event trailers vs total code commits.
 
@@ -321,7 +326,9 @@ def _compute_resolves_link_rate(
             "resolves_trailer_total": agent_total,
         }
 
-    probe_adoption = _compute_probe_adoption(events, code_commits, sprint_start_ts)
+    probe_adoption = _compute_probe_adoption(
+        events, code_commits, sprint_start_ts, cwd=cwd
+    )
 
     return {
         "resolves_link_rate": total_hits / total if total > 0 else 0.0,
@@ -332,11 +339,33 @@ def _compute_resolves_link_rate(
     }
 
 
+def _normalize_file_set(files: list[str], cwd: str | None) -> set[str]:
+    """Canonicalize a list of file paths via worktree.normalize_path so
+    './scripts/x.py', 'scripts/x.py', and absolute forms intersect on the
+    same git-root-relative key. Mirrors resolves_probe._score_candidate
+    and concerns.find_issues_for_file. cwd=None falls back to raw set
+    semantics — kept as a test affordance so unit tests don't need to
+    construct a real git repo.
+    """
+    if cwd is None:
+        return {f for f in files if isinstance(f, str)}
+    out: set[str] = set()
+    for f in files:
+        if not isinstance(f, str):
+            continue
+        try:
+            out.add(worktree.normalize_path(f, cwd))
+        except (ValueError, OSError):
+            continue
+    return out
+
+
 def _classify_divert_reason(
     rejected_event: dict,
     probe_ts: str,
     commit_files: list[str],
     story_id: str | None,
+    cwd: str | None = None,
 ) -> str:
     """Reason an agent's resolves choice fell outside the probe candidate set.
 
@@ -345,23 +374,34 @@ def _classify_divert_reason(
     DIVERT_REASON_UNKNOWN is the catch-all so no divert is silently
     uncategorized.
 
+    Precedence (story-005 widened post sprint-065 retro): missing-event,
+    newer-than-snapshot, outside-file-domain, cross-story, wrong-type,
+    probe-selection-miss, unknown.
+
+    File overlap normalizes both rejected_files and commit_files via
+    worktree.normalize_path when cwd is supplied — mirrors the canonical
+    pattern at resolves_probe._score_candidate so abs/rel/'./' forms match.
+
     cross-story is dormant in practice today (spike decision 4f62e2ada08d:
     0/84 concern/debt/discovery events carried metadata.story_id) but we
     keep the rule for forward-compat — once teammates start tagging, it
     lights up without a code change.
     """
     if not rejected_event:
-        return DIVERT_REASON_UNKNOWN
+        return DIVERT_REASON_MISSING_EVENT
     rejected_ts = rejected_event.get("ts") or ""
     if probe_ts and rejected_ts and rejected_ts > probe_ts:
         return DIVERT_REASON_NEWER_THAN_SNAPSHOT
 
     rejected_files = rejected_event.get("files") or []
+    rejected_set = _normalize_file_set(rejected_files, cwd)
+    commit_set = _normalize_file_set(commit_files, cwd)
+    files_overlap = bool(rejected_set & commit_set)
     if (
         isinstance(rejected_files, list)
         and rejected_files
         and commit_files
-        and not (set(rejected_files) & set(commit_files))
+        and not files_overlap
     ):
         return DIVERT_REASON_OUTSIDE_FILE_DOMAIN
 
@@ -375,6 +415,14 @@ def _classify_divert_reason(
     if rejected_event.get("type") not in _VALID_RESOLVES_TYPES:
         return DIVERT_REASON_WRONG_TYPE
 
+    # All exclusionary checks passed AND files clearly overlap → probe
+    # should have surfaced this candidate but didn't. Sprint-065 retro
+    # found 4/8 diverts in this shape, all previously bucketed UNKNOWN.
+    # files_overlap=True implies both lists were non-empty (empty sets
+    # can't intersect), so no need to re-check.
+    if files_overlap:
+        return DIVERT_REASON_PROBE_SELECTION_MISS
+
     return DIVERT_REASON_UNKNOWN
 
 
@@ -382,6 +430,7 @@ def _compute_probe_adoption(
     events: list[dict],
     code_commits: list[dict],
     sprint_start_ts: str | None,
+    cwd: str | None = None,
 ) -> dict:
     """Probe adoption: pair each probe with the next code commit by the
     same agent_id in the sprint window, then classify into hit / escape /
@@ -482,6 +531,7 @@ def _compute_probe_adoption(
                 probe_ts=probe_ts,
                 commit_files=commit_files,
                 story_id=commit_story_id,
+                cwd=cwd,
             )
             divert_details.append(
                 {

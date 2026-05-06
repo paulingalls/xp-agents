@@ -159,11 +159,29 @@ def _staged_ruff_findings(
     test_common_path_at_most_one_name_only_call. Single source of truth
     for the ruff invocation is lint_check.run_linter_batch — one fork
     per commit instead of one per staged .py file.
+
+    Raises BlockedError when the batch is missing any staged .py path
+    (timeout, missing binary, partial run) — fail-closed so unverified
+    F401/F811 cannot ship.
     """
     py_paths = [p for p in staged_files if p.endswith(".py")]
     if not py_paths:
         return []
     per_file = lint_check.run_linter_batch("ruff", py_paths, context="staging", cwd=cwd)
+    missing = [p for p in py_paths if p not in per_file]
+    if missing:
+        raise _common.BlockedError(
+            "\n".join(
+                [
+                    "Staged ruff check could not verify these files:",
+                    *(f"  - {p}" for p in missing),
+                    "",
+                    "Common causes: ruff not on PATH, timeout, or subprocess error.",
+                    "Resolve and retry the commit.",
+                ]
+            ),
+            "Staged ruff fail-closed: incomplete batch coverage.",
+        )
     findings: list[tuple[str, list[str]]] = []
     for path in py_paths:
         codes = per_file.get(path, [])

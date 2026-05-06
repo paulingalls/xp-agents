@@ -213,6 +213,14 @@ def detect_linter_config(
 # Linter execution
 # ---------------------------------------------------------------------------
 
+# Per-file timeout for `run_linter`; also the base for `run_linter_batch`'s
+# scaled timeout (`LINTER_BASE_TIMEOUT_S + BATCH_TIMEOUT_PER_PATH_S * N`,
+# capped at `BATCH_TIMEOUT_CAP_S`). One source of truth so a future bump to
+# the base lands in both call sites.
+LINTER_BASE_TIMEOUT_S: float = 5.0
+BATCH_TIMEOUT_PER_PATH_S: float = 0.05
+BATCH_TIMEOUT_CAP_S: float = 10.0
+
 # Codes deferred until the file is staged for commit. F401 (unused import) and
 # F811 (redefinition of unused) false-positive routinely during multi-step
 # replace_all migrations: an import added in one Edit and consumed in the next
@@ -274,7 +282,7 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
             cmd,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=LINTER_BASE_TIMEOUT_S,
             cwd=cwd,
         )
         if result.returncode != 0:
@@ -346,17 +354,22 @@ def run_linter_batch(
 
     Returns ``{}`` when the linter binary is missing, no eligible paths
     remain, OR ruff times out / fails to spawn. The empty-on-failure
-    contract matches `run_linter`/`run_ruff` — the caller treats an
-    absent path the same as "linter unavailable" and falls back to
-    other gates. Returning `{p: []}` on timeout would silently report
-    "all clean" and bypass the F401/F811 commit gate.
+    contract matches `run_linter`/`run_ruff` — absence of a path means
+    "not verified" rather than "verified clean". Returning `{p: []}` on
+    timeout would silently report "all clean" and bypass the F401/F811
+    commit gate. Callers that gate on F401/F811 (today
+    `pre_tool_bash._staged_ruff_findings`) MUST treat any missing path
+    as fail-closed: an unverified file could harbor the very codes the
+    gate exists to catch.
 
     Files the linter saw but with no findings map to ``[]`` so callers
     can distinguish "linted clean" (key present, value empty) from
     "skipped" (key absent).
 
-    Timeout is 10s vs `run_linter`'s 5s — batch covers more files;
-    ruff at ~1ms/file gives 10000-file headroom.
+    Timeout scales with len(eligible): ``min(10, 5 + 0.05 * N)`` —
+    5s base, +50ms per path, capped at 10s. Single-file batches stay
+    fast (~5s) so a stuck commit gate fails quickly; large batches stay
+    bounded so a hung ruff can't stall a 100-file commit forever.
     """
     binary = _LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
@@ -367,12 +380,16 @@ def run_linter_batch(
         return {}
 
     cmd = _LINTER_COMMANDS[linter_name] + ["--"] + eligible
+    timeout = min(
+        BATCH_TIMEOUT_CAP_S,
+        LINTER_BASE_TIMEOUT_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
+    )
     try:
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=timeout,
             cwd=cwd,
         )
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):

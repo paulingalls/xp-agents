@@ -15,8 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import make_event
 from event_schema import (
     DIVERT_REASON_CROSS_STORY,
+    DIVERT_REASON_MISSING_EVENT,
     DIVERT_REASON_NEWER_THAN_SNAPSHOT,
     DIVERT_REASON_OUTSIDE_FILE_DOMAIN,
+    DIVERT_REASON_PROBE_SELECTION_MISS,
     DIVERT_REASON_UNKNOWN,
     DIVERT_REASON_WRONG_TYPE,
     EVENT_TYPE_COMMIT,
@@ -320,10 +322,11 @@ class TestClassifyDivertReason(unittest.TestCase):
         )
         self.assertEqual(reason, DIVERT_REASON_WRONG_TYPE)
 
-    def test_unknown_fallback(self):
-        """Concern/debt with file overlap, older than probe, no cross-story
-        signal — none of the precedence rules fire so reason is unknown.
-        Guarantees no divert is silently uncategorized."""
+    def test_probe_selection_miss_when_in_domain_older_valid_type(self):
+        """story-005: rejected concern/debt with file overlap, older than
+        probe, no cross-story signal — probe should have surfaced this
+        but didn't. Sprint-065 had 4/8 diverts in this shape, all
+        previously bucketed as UNKNOWN."""
         import retro_metrics
 
         rejected = make_event(
@@ -338,10 +341,12 @@ class TestClassifyDivertReason(unittest.TestCase):
             commit_files=["scripts/x.py"],
             story_id="story-006",
         )
-        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
 
     def test_discovery_is_valid_type(self):
-        """post sprint-064 widening — discovery events are not wrong-type."""
+        """post sprint-064 widening — discovery events are not wrong-type.
+        story-005: in-domain discovery now classifies as PROBE_SELECTION_MISS
+        instead of falling through to UNKNOWN."""
         import retro_metrics
 
         rejected = make_event(
@@ -356,14 +361,16 @@ class TestClassifyDivertReason(unittest.TestCase):
             commit_files=["scripts/x.py"],
             story_id=None,
         )
-        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+        self.assertNotEqual(reason, DIVERT_REASON_WRONG_TYPE)
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
 
-    def test_absent_event_returns_unknown(self):
-        """Block-fix (concern f23270ea5b70): when the rejected ID has no
-        backing event in events_by_id (`events_by_id.get(...) or {}` yields
-        `{}`), classifier must return UNKNOWN — NOT WRONG_TYPE. The empty
-        dict has no `type`, but "missing event" is genuinely unknown, not
-        a vocabulary violation."""
+    def test_missing_event_returns_missing_event_bucket(self):
+        """story-005 (replaces the f23270ea5b70 block-fix pin): when the
+        rejected ID has no backing event in events_by_id (`events_by_id.get(...)
+        or {}` yields `{}`), classifier returns MISSING_EVENT — distinct
+        from UNKNOWN and from WRONG_TYPE. Sprint-065 had 4/8 diverts in
+        this shape (typo / hallucinated / external IDs), all previously
+        bucketed as UNKNOWN."""
         import retro_metrics
 
         reason = retro_metrics._classify_divert_reason(
@@ -372,12 +379,13 @@ class TestClassifyDivertReason(unittest.TestCase):
             commit_files=["scripts/x.py"],
             story_id="story-006",
         )
-        self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
+        self.assertEqual(reason, DIVERT_REASON_MISSING_EVENT)
 
     def test_cross_story_dormant_when_story_id_missing(self):
         """Spike (decision 4f62e2ada08d): metadata.story_id absent on real
         concern events today. When the rejected event lacks story_id, the
-        cross-story rule must NOT fire — fall through to wrong-type / unknown."""
+        cross-story rule must NOT fire — fall through to PROBE_SELECTION_MISS
+        (in-domain) or UNKNOWN (no file signal)."""
         import retro_metrics
 
         rejected = make_event(
@@ -385,6 +393,30 @@ class TestClassifyDivertReason(unittest.TestCase):
             content="No story tag",
             ts="2026-05-01T09:00:00+00:00",
             files=["scripts/x.py"],
+        )
+        reason = retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts="2026-05-01T10:00:00+00:00",
+            commit_files=["scripts/x.py"],
+            story_id="story-006",
+        )
+        self.assertNotEqual(reason, DIVERT_REASON_CROSS_STORY)
+        # in-domain → PROBE_SELECTION_MISS post-story-005
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+
+    def test_unknown_fallback_when_no_file_signal(self):
+        """True UNKNOWN catch-all: rejected event has no files, so neither
+        OUTSIDE_FILE_DOMAIN nor PROBE_SELECTION_MISS can fire. Other
+        precedence rules (newer-than-snapshot, cross-story, wrong-type)
+        also don't apply. Guarantees the bucket isn't swallowed by the
+        new PROBE_SELECTION_MISS rule when there's genuinely no signal."""
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_DEBT,
+            content="No-file debt",
+            ts="2026-05-01T09:00:00+00:00",
+            files=[],
         )
         reason = retro_metrics._classify_divert_reason(
             rejected,
@@ -524,6 +556,220 @@ class TestProbeDivertDetailsReason(unittest.TestCase):
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["reason"], DIVERT_REASON_NEWER_THAN_SNAPSHOT)
+
+
+class TestSprint065DivertScenariosAllNamed(unittest.TestCase):
+    """story-005 AC #1, #2, #4: each of the 8 sprint-065 paired-divert
+    fixtures must classify into a named (non-UNKNOWN) bucket.
+
+    Sprint-065 retrospective (Try 2b9a624f1335) flagged that all 8
+    paired-diverts classified as 'unknown' — uncategorized = blind spot.
+    Discovery (a499c0468583) found 4/8 had rejected IDs not in events.jsonl
+    (MISSING_EVENT) and 4/8 were in-domain+older+valid-type
+    (PROBE_SELECTION_MISS).
+    """
+
+    def _scenario(
+        self,
+        rejected_event: dict | None,
+        commit_files: list[str],
+        probe_ts: str = "2026-05-06T03:00:00+00:00",
+        story_id: str | None = None,
+    ) -> str:
+        import retro_metrics
+
+        # rejected_event=None reproduces events_by_id miss → empty dict
+        rejected = rejected_event if rejected_event is not None else {}
+        return retro_metrics._classify_divert_reason(
+            rejected,
+            probe_ts=probe_ts,
+            commit_files=commit_files,
+            story_id=story_id,
+        )
+
+    def test_divert_1_id_not_found_classifies_named(self):
+        # worktree-story-017: rejected 7692b1b0cfad NOT FOUND in events.jsonl
+        reason = self._scenario(
+            None,
+            ["plugins/xp-agents/agents/xp-plan-reviewer.md"],
+            probe_ts="2026-05-06T00:51:49+00:00",
+            story_id="story-017",
+        )
+        self.assertEqual(reason, DIVERT_REASON_MISSING_EVENT)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_2_id_not_found_classifies_named(self):
+        # worktree-story-020: rejected fc9b476f2aff NOT FOUND
+        reason = self._scenario(
+            None,
+            ["plugins/xp-agents/tests/conftest.py"],
+            probe_ts="2026-05-06T00:54:13+00:00",
+            story_id="story-020",
+        )
+        self.assertEqual(reason, DIVERT_REASON_MISSING_EVENT)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_3_in_domain_older_valid_classifies_named(self):
+        # worktree-story-018: e9294fb99156 in domain (lint_check.py), older
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="RUFF env-pin scope-shaped cowardice",
+            ts="2026-05-06T00:59:33+00:00",
+            files=[
+                "plugins/xp-agents/scripts/lint_check.py",
+                "plugins/xp-agents/tests/integration/test_replace_all_e2e.py",
+            ],
+        )
+        reason = self._scenario(
+            rejected,
+            [
+                "plugins/xp-agents/scripts/lint_check.py",
+                "plugins/xp-agents/tests/integration/test_replace_all_e2e.py",
+            ],
+            probe_ts="2026-05-06T01:03:09+00:00",
+            story_id="story-018",
+        )
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_4_id_not_found_classifies_named(self):
+        # worktree-story-020: rejected fd291938c7bf NOT FOUND
+        reason = self._scenario(
+            None,
+            ["plugins/xp-agents/tests/hooks/test_lint.py"],
+            probe_ts="2026-05-06T01:08:33+00:00",
+            story_id="story-020",
+        )
+        self.assertEqual(reason, DIVERT_REASON_MISSING_EVENT)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_5_in_domain_older_valid_classifies_named(self):
+        # worktree-story-020: e9294fb99156 in domain (lint_check.py)
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="RUFF env-pin scope-shaped cowardice",
+            ts="2026-05-06T00:59:33+00:00",
+            files=[
+                "plugins/xp-agents/scripts/lint_check.py",
+                "plugins/xp-agents/tests/integration/test_replace_all_e2e.py",
+            ],
+        )
+        reason = self._scenario(
+            rejected,
+            ["plugins/xp-agents/scripts/lint_check.py"],
+            probe_ts="2026-05-06T01:21:45+00:00",
+            story_id="story-020",
+        )
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_6_in_domain_older_valid_classifies_named(self):
+        # main: 77d5d46896f4 in domain (lint_check.py merge-conflict concern)
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Known merge conflict with story-018 on lint_check.py",
+            ts="2026-05-06T02:54:26+00:00",
+            files=["plugins/xp-agents/scripts/lint_check.py"],
+        )
+        reason = self._scenario(
+            rejected,
+            ["plugins/xp-agents/scripts/lint_check.py"],
+            probe_ts="2026-05-06T03:03:15+00:00",
+            story_id=None,
+        )
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_7_in_domain_older_valid_classifies_named(self):
+        # main: 8ee439c41f08 in domain (test_assert_not_none_pin.py AC gap)
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="AC #4 verification gap test_assert_not_none_pin",
+            ts="2026-05-06T03:23:19+00:00",
+            files=["plugins/xp-agents/tests/hooks/test_assert_not_none_pin.py"],
+        )
+        reason = self._scenario(
+            rejected,
+            ["plugins/xp-agents/tests/hooks/test_assert_not_none_pin.py"],
+            probe_ts="2026-05-06T03:25:45+00:00",
+            story_id=None,
+        )
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+    def test_divert_8_id_not_found_classifies_named(self):
+        # main: rejected 6066b329f860 NOT FOUND
+        reason = self._scenario(
+            None,
+            ["plugins/xp-agents/smm/sprint_store.py"],
+            probe_ts="2026-05-06T03:26:32+00:00",
+            story_id="story-003",
+        )
+        self.assertEqual(reason, DIVERT_REASON_MISSING_EVENT)
+        self.assertNotEqual(reason, DIVERT_REASON_UNKNOWN)
+
+
+class TestFileOverlapNormalization(unittest.TestCase):
+    """story-005 AC #3: file-overlap recognizes ./ and absolute paths
+    as the same file via worktree.normalize_path (mirrors the canonical
+    pattern in resolves_probe._score_candidate and concerns.find_issues
+    _for_file). Stub normalize_path so the tests assert the contract
+    without needing a real git repo (mirrors the pattern in
+    test_resolves_probe.test_file_overlap_uses_worktree_normalize_path).
+    """
+
+    def test_dot_slash_path_recognized_as_same_file(self):
+        from unittest.mock import patch as patch_
+
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Concern",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["./scripts/x.py"],
+        )
+
+        def _stub(path, _cwd):
+            return path.lstrip("./") if path.startswith("./") else path
+
+        with patch_("worktree.normalize_path", side_effect=_stub):
+            reason = retro_metrics._classify_divert_reason(
+                rejected,
+                probe_ts="2026-05-01T10:00:00+00:00",
+                commit_files=["scripts/x.py"],
+                story_id=None,
+                cwd="/repo",
+            )
+        # './scripts/x.py' canonicalizes to 'scripts/x.py' → overlap → no
+        # OUTSIDE_FILE_DOMAIN. In-domain valid → PROBE_SELECTION_MISS.
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+
+    def test_absolute_path_recognized_as_same_file(self):
+        from unittest.mock import patch as patch_
+
+        import retro_metrics
+
+        rejected = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Concern",
+            ts="2026-05-01T09:00:00+00:00",
+            files=["/abs/repo/scripts/x.py"],
+        )
+
+        def _stub(path, _cwd):
+            return path.split("/abs/repo/", 1)[-1].lstrip("/")
+
+        with patch_("worktree.normalize_path", side_effect=_stub):
+            reason = retro_metrics._classify_divert_reason(
+                rejected,
+                probe_ts="2026-05-01T10:00:00+00:00",
+                commit_files=["scripts/x.py"],
+                story_id=None,
+                cwd="/abs/repo",
+            )
+        # '/abs/repo/scripts/x.py' canonicalizes to 'scripts/x.py' → overlap.
+        self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
 
 
 if __name__ == "__main__":
