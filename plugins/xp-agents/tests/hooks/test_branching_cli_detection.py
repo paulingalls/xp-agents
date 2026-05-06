@@ -320,14 +320,16 @@ class TestListTeammateWorktreePathsCli(unittest.TestCase):
 
 class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
     """branching_cli find-closing-teammate-worktree emits ``<abs-path>\\t<branch>``
-    for the live teammate worktree whose sprint.json story is `done`.
+    for the live teammate worktree whose sprint.json story is `reviewing`.
 
     Drives /xp-story-close's preload: no marker, no /xp-accept
     context-passing — discover the worktree implicitly from the (live
-    worktree, done status) join. Tab delimiter: worktree paths can
-    contain spaces on macOS; tab guarantees a single split point in
-    bash parameter expansion. Empty stdout when no match; non-zero
-    exit + stderr on multi-match (signals broken /xp-accept
+    worktree, reviewing status) join under close-then-done semantics
+    (story is in `reviewing` when /xp-story-close runs; mark-done is
+    the FINAL step after merge). Tab delimiter: worktree
+    paths can contain spaces on macOS; tab guarantees a single split
+    point in bash parameter expansion. Empty stdout when no match;
+    non-zero exit + stderr on multi-match (signals broken /xp-accept
     iteration — fail loud).
     """
 
@@ -366,7 +368,7 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
             _init_repo(td)
             smm_dir = Path(smm)
             self._write_sprint(
-                smm_dir, [("story-001", "done"), ("story-002", "in-progress")]
+                smm_dir, [("story-001", "reviewing"), ("story-002", "in-progress")]
             )
             try:
                 p1 = self._make_worktree(td, "story-001")
@@ -388,7 +390,7 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
         ):
             td = _init_repo_in_spaced_parent(parent)
             smm_dir = Path(smm)
-            self._write_sprint(smm_dir, [("story-001", "done")])
+            self._write_sprint(smm_dir, [("story-001", "reviewing")])
             try:
                 p1 = self._make_worktree(td, "story-001")
                 self.assertIn(" ", p1)
@@ -407,14 +409,14 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
-            self._write_sprint(smm_dir, [("story-001", "done")])
+            self._write_sprint(smm_dir, [("story-001", "reviewing")])
             r = self._run_branching(
                 smm_dir, "find-closing-teammate-worktree", "--cwd", td
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout, "")
 
-    def test_empty_stdout_when_no_done_status(self):
+    def test_empty_stdout_when_no_reviewing_status(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
@@ -429,12 +431,35 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
             finally:
                 self._cleanup_worktree(td, "worktree-story-001")
 
-    def test_errors_on_multi_done_match(self):
+    def test_empty_stdout_when_only_done_status(self):
+        # Inverse-regression pin: a `done` story's worktree must NOT
+        # match under close-then-done semantics. Mark-done is the FINAL
+        # step after merge — by the time a story is `done` the worktree
+        # should already be cleaned up, but if the discovery query
+        # regressed back to `done` this fixture would falsely match.
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             smm_dir = Path(smm)
-            # Two done-status stories with live worktrees — broken iteration.
-            self._write_sprint(smm_dir, [("story-001", "done"), ("story-002", "done")])
+            self._write_sprint(smm_dir, [("story-001", "done")])
+            try:
+                self._make_worktree(td, "story-001")
+                r = self._run_branching(
+                    smm_dir, "find-closing-teammate-worktree", "--cwd", td
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout, "")
+            finally:
+                self._cleanup_worktree(td, "worktree-story-001")
+
+    def test_errors_on_multi_reviewing_match(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            # Two reviewing-status stories with live worktrees — broken
+            # iteration under close-then-done's per-story dispatch loop.
+            self._write_sprint(
+                smm_dir, [("story-001", "reviewing"), ("story-002", "reviewing")]
+            )
             try:
                 self._make_worktree(td, "story-001")
                 self._make_worktree(td, "story-002")
@@ -444,6 +469,7 @@ class TestFindClosingTeammateWorktreeCli(unittest.TestCase):
                 self.assertNotEqual(r.returncode, 0, r.stdout)
                 self.assertIn("story-001", r.stderr)
                 self.assertIn("story-002", r.stderr)
+                self.assertIn("reviewing", r.stderr)
             finally:
                 self._cleanup_worktree(td, "worktree-story-001")
                 self._cleanup_worktree(td, "worktree-story-002")
