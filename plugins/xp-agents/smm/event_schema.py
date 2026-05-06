@@ -305,6 +305,28 @@ _VALIDATE_NO_TYPE_RULES = frozenset(
 # ---------------------------------------------------------------------------
 
 
+def get_required_budget(event_type: str) -> int:
+    """Return the content budget for `event_type` or raise ValueError.
+
+    Use this at call sites where the budget MUST exist (production
+    enforcement paths, tests with seeded fixtures). Pyright sees the
+    `int` return so callers don't need a follow-up
+    `assert budget is not None` after a `CONTENT_BUDGETS[<key>]` lookup.
+
+    Raises ValueError when the event_type is unknown to the schema, OR
+    when its registered budget is None (uncapped types like
+    `customer_input` and `retrospective` — callers that demand a numeric
+    budget cannot be satisfied by an uncapped type, so failing loud
+    here is the right move).
+    """
+    if event_type not in CONTENT_BUDGETS:
+        raise ValueError(f"unknown event_type {event_type!r}; not in CONTENT_BUDGETS")
+    budget = CONTENT_BUDGETS[event_type]
+    if budget is None:
+        raise ValueError(f"event_type {event_type!r} has no content budget (None)")
+    return budget
+
+
 def validate_event(event: dict) -> list[str]:
     """Validate event structure. Returns list of error strings (empty = valid)."""
     errors: list[str] = []

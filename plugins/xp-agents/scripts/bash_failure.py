@@ -20,7 +20,7 @@ import append_validation
 import bash_post_tool
 import concerns
 import identity
-from event_schema import CONTENT_BUDGETS, STATUS_ACTION_BASH_FAILED
+from event_schema import STATUS_ACTION_BASH_FAILED, get_required_budget
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> None:
@@ -53,8 +53,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
     # exit_code (when provided by the hook input) are the canonical signal;
     # content stays as the legacy human-readable digest.
     prefix = f"Test run failed ({framework}): "
-    budget = CONTENT_BUDGETS[_common.STATUS]
-    assert budget is not None
+    budget = get_required_budget(_common.STATUS)
     max_error = budget - len(prefix)
     metadata: dict = {"action": STATUS_ACTION_BASH_FAILED}
     exit_code = input_data.get("exit_code")

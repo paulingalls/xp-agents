@@ -251,7 +251,7 @@ class TestSessionEnd(_HookTestCase):
     def test_session_end_content_within_budget(self):
         """session_end content must stay within 50-char budget."""
         import session_end
-        from event_schema import CONTENT_BUDGETS
+        from event_schema import get_required_budget
 
         self._write_events([make_event()])
         session_end.run(
@@ -260,8 +260,7 @@ class TestSessionEnd(_HookTestCase):
         )
         events = _common.read_events_raw(self.smm_dir)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        budget = CONTENT_BUDGETS[EVENT_TYPE_SESSION_END]
-        assert budget is not None
+        budget = get_required_budget(EVENT_TYPE_SESSION_END)
         self.assertLessEqual(
             len(se["content"]),
             budget,
