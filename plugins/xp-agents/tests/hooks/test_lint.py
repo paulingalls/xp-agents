@@ -16,7 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
-from conftest import _HookTestCase, _make_write_input
+from conftest import (
+    _HookTestCase,
+    _LintTmpDirMixin,
+    _make_write_input,
+    _mock_ruff_result,
+)
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION
 
@@ -25,7 +30,7 @@ from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION
 # ===========================================================================
 
 
-class TestLintCheck(_HookTestCase):
+class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
     def test_no_config_skips_non_code_files(self):
         """Non-code files (md, txt, yml, etc.) should not trigger linter nudge."""
         for filename in ("README.md", "notes.txt", "config.yml", ".gitignore"):
@@ -82,139 +87,92 @@ class TestLintCheck(_HookTestCase):
         self.assertEqual(len(questions), 0)
 
     def test_linter_binary_missing(self):
-        # Create a ruff.toml in a temp dir but ruff isn't on PATH
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            with patch("lint_check.shutil.which", return_value=None):
-                lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": "src/app.py", "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 0)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        # ruff.toml is in self._lint_tmpdir but ruff isn't on PATH
+        with patch("lint_check.shutil.which", return_value=None):
+            lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": "src/app.py", "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 0)
 
     def test_clean_lint_no_event(self):
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-            ):
-                mock_run.return_value = type(
-                    "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
-                )()
-                lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": "src/app.py", "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 0)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": "src/app.py", "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 0)
 
     def test_lint_errors_appends_concern(self):
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-            ):
-                mock_run.return_value = type(
-                    "R",
-                    (),
-                    {
-                        "returncode": 1,
-                        "stdout": "src/app.py:1:1: E302 expected 2 blank lines",
-                        "stderr": "",
-                    },
-                )()
-                lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": "src/app.py", "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 1)
-            self.assertEqual(concerns[0].get("severity"), "medium")
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout="src/app.py:1:1: E302 expected 2 blank lines",
+            )
+            lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": "src/app.py", "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0].get("severity"), "medium")
 
     def test_lint_concern_not_duplicated(self):
         """Second lint run for same file should not append duplicate concern."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            mock_result = type(
-                "R",
-                (),
-                {
-                    "returncode": 1,
-                    "stdout": "src/app.py:1:1: E302 expected 2 blank lines",
-                    "stderr": "",
-                },
-            )()
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run", return_value=mock_result),
-            ):
-                inp = _make_write_input(
-                    tool_input={"file_path": "src/app.py", "content": "x"},
-                    cwd=str(tmpdir),
-                )
-                lint_check.run(inp, smm_dir=self.smm_dir)
-                lint_check.run(inp, smm_dir=self.smm_dir)
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 1, "Duplicate lint concern appended")
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        mock_result = _mock_ruff_result(
+            returncode=1,
+            stdout="src/app.py:1:1: E302 expected 2 blank lines",
+        )
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run", return_value=mock_result),
+        ):
+            inp = _make_write_input(
+                tool_input={"file_path": "src/app.py", "content": "x"},
+                cwd=str(self._lint_tmpdir),
+            )
+            lint_check.run(inp, smm_dir=self.smm_dir)
+            lint_check.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 1, "Duplicate lint concern appended")
 
     def test_lint_timeout(self):
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.run_linter", return_value=None),
-            ):
-                lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": "src/app.py", "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 0)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.run_linter", return_value=None),
+        ):
+            lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": "src/app.py", "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 0)
 
     def test_xp_agent_skips(self):
         lint_check.run(
@@ -233,36 +191,22 @@ class TestLintCheck(_HookTestCase):
 
     def test_ruff_skips_json_file(self):
         """ruff should not run against .json files — they are not Python."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            with patch("lint_check.shutil.which", return_value="/usr/bin/ruff"):
-                result = lint_check.run_linter("ruff", str(tmpdir / "hooks.json"))
-            self.assertIsNone(result)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with patch("lint_check.shutil.which", return_value="/usr/bin/ruff"):
+            result = lint_check.run_linter(
+                "ruff", str(self._lint_tmpdir / "hooks.json")
+            )
+        self.assertIsNone(result)
 
     def test_ruff_runs_on_python_file(self):
         """ruff should still run on .py files."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-            ):
-                mock_run.return_value = type(
-                    "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
-                )()
-                result = lint_check.run_linter("ruff", str(tmpdir / "app.py"))
-            self.assertIsNone(result)  # clean — no errors
-            mock_run.assert_called_once()
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            result = lint_check.run_linter("ruff", str(self._lint_tmpdir / "app.py"))
+        self.assertIsNone(result)  # clean — no errors
+        mock_run.assert_called_once()
 
     def test_run_linter_passes_cwd(self):
         """run_linter should pass cwd to subprocess so relative paths resolve."""
@@ -270,44 +214,32 @@ class TestLintCheck(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = type(
-                "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
-            )()
+            mock_run.return_value = _mock_ruff_result()
             lint_check.run_linter("ruff", "src/app.py", cwd="/projects/myapp")
         _, kwargs = mock_run.call_args
         self.assertEqual(kwargs.get("cwd"), "/projects/myapp")
 
     def test_detect_skips_linter_for_wrong_extension(self):
         """detect_linter_config should skip eslint for .py files."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "eslint.config.js").touch()
-        (tmpdir / "ruff.toml").touch()
-        try:
-            result = lint_check.detect_linter_config(
-                str(tmpdir), str(tmpdir), file_path="src/app.py"
-            )
-            assert result is not None
-            self.assertEqual(result[0], "ruff")
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        (self._lint_tmpdir / "eslint.config.js").touch()
+        result = lint_check.detect_linter_config(
+            str(self._lint_tmpdir),
+            str(self._lint_tmpdir),
+            file_path="src/app.py",
+        )
+        assert result is not None
+        self.assertEqual(result[0], "ruff")
 
     def test_detect_returns_eslint_for_js_files(self):
         """detect_linter_config should return eslint for .js files."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "eslint.config.js").touch()
-        (tmpdir / "ruff.toml").touch()
-        try:
-            result = lint_check.detect_linter_config(
-                str(tmpdir), str(tmpdir), file_path="src/app.js"
-            )
-            assert result is not None
-            self.assertEqual(result[0], "eslint")
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        (self._lint_tmpdir / "eslint.config.js").touch()
+        result = lint_check.detect_linter_config(
+            str(self._lint_tmpdir),
+            str(self._lint_tmpdir),
+            file_path="src/app.js",
+        )
+        assert result is not None
+        self.assertEqual(result[0], "eslint")
 
     def test_detect_walks_from_file_directory(self):
         """detect_linter_config should start from the file's dir, not cwd."""
@@ -333,69 +265,46 @@ class TestLintCheck(_HookTestCase):
     def test_lint_errors_return_context(self):
         """Lint errors should return additionalContext string."""
         (self.smm_dir / ".lint-warned").touch()  # suppress no-config warning
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        target = tmpdir / "app.py"
+        target = self._lint_tmpdir / "app.py"
         target.write_text("import os\n")
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
-            ):
-                mock_run.return_value = type(
-                    "R",
-                    (),
-                    {
-                        "returncode": 1,
-                        "stdout": "app.py:1:1: F841 unused variable",
-                        "stderr": "",
-                    },
-                )()
-                result = lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": str(target), "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            assert result is not None
-            self.assertIn("Lint errors", result)
-            self.assertIn("F841", result)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+            patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout="app.py:1:1: F841 unused variable",
+            )
+            result = lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": str(target), "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        assert result is not None
+        self.assertIn("Lint errors", result)
+        self.assertIn("F841", result)
 
     def test_clean_lint_returns_none(self):
         """Clean lint should return None (no additionalContext)."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        target = tmpdir / "app.py"
+        target = self._lint_tmpdir / "app.py"
         target.write_text("x = 1\n")
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
-            ):
-                mock_run.return_value = type(
-                    "R",
-                    (),
-                    {"returncode": 0, "stdout": "", "stderr": ""},
-                )()
-                result = lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": str(target), "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            self.assertIsNone(result)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+            patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            result = lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": str(target), "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
 
 
 # ===========================================================================
@@ -411,18 +320,18 @@ class TestRunRuffContext(_HookTestCase):
     them so the commit gate catches truly-unused imports.
     """
 
-    def _ruff_stdout(self, body: str) -> object:
-        return type("R", (), {"returncode": 1, "stdout": body, "stderr": ""})()
-
     def test_run_ruff_filters_F401_in_edit_context(self):
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:1:1: F401 [*] `os` imported but unused\n"
-                "app.py:3:5: E302 expected 2 blank lines\n"
-                "Found 2 errors.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:1:1: F401 [*] `os` imported but unused\n"
+                    "app.py:3:5: E302 expected 2 blank lines\n"
+                    "Found 2 errors.\n"
+                ),
             )
             codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
         self.assertNotIn("F401", codes)
@@ -433,8 +342,11 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
+                ),
             )
             codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
         self.assertEqual(codes, [])
@@ -444,8 +356,11 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:1:1: F401 [*] `os` imported but unused\nFound 1 error.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:1:1: F401 [*] `os` imported but unused\nFound 1 error.\n"
+                ),
             )
             codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
         self.assertIn("F401", codes)
@@ -455,8 +370,11 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
+                ),
             )
             codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
         self.assertIn("F811", codes)
@@ -467,10 +385,13 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:1:1: F401 [*] `os` imported but unused\n"
-                "app.py:3:5: E302 expected 2 blank lines\n"
-                "Found 2 errors.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:1:1: F401 [*] `os` imported but unused\n"
+                    "app.py:3:5: E302 expected 2 blank lines\n"
+                    "Found 2 errors.\n"
+                ),
             )
             _codes, text = lint_check.run_ruff(Path("app.py"), context="edit")
         self.assertNotIn("F401", text)
@@ -481,9 +402,7 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = type(
-                "R", (), {"returncode": 0, "stdout": "", "stderr": ""}
-            )()
+            mock_run.return_value = _mock_ruff_result()
             codes, text = lint_check.run_ruff(Path("app.py"), context="staging")
         self.assertEqual(codes, [])
         self.assertEqual(text, "")
@@ -502,11 +421,14 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:1:1: RUF059 unpacked variable\n"
-                "app.py:2:1: PLR0915 too many statements\n"
-                "app.py:3:1: UP007 use X | Y\n"
-                "Found 3 errors.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:1:1: RUF059 unpacked variable\n"
+                    "app.py:2:1: PLR0915 too many statements\n"
+                    "app.py:3:1: UP007 use X | Y\n"
+                    "Found 3 errors.\n"
+                ),
             )
             codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
         self.assertIn("RUF059", codes)
@@ -523,11 +445,14 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = self._ruff_stdout(
-                "app.py:1:1: PERF401 use list comprehension\n"
-                "app.py:2:1: FURB169 use isinstance not type comparison\n"
-                "app.py:3:1: ASYNC100 unnecessary trio.fail_after\n"
-                "Found 3 errors.\n"
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:1:1: PERF401 use list comprehension\n"
+                    "app.py:2:1: FURB169 use isinstance not type comparison\n"
+                    "app.py:3:1: ASYNC100 unnecessary trio.fail_after\n"
+                    "Found 3 errors.\n"
+                ),
             )
             codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
         self.assertIn("PERF401", codes)
@@ -535,7 +460,7 @@ class TestRunRuffContext(_HookTestCase):
         self.assertIn("ASYNC100", codes)
 
 
-class TestLintEditContextFilters(_HookTestCase):
+class TestLintEditContextFilters(_LintTmpDirMixin, _HookTestCase):
     """End-to-end: lint_check.run() is the 'edit' context entry point.
 
     A file whose only ruff finding is F401 must NOT raise a concern and
@@ -544,85 +469,56 @@ class TestLintEditContextFilters(_HookTestCase):
     """
 
     def test_F401_only_returns_no_concern_at_edit_time(self):
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        target = tmpdir / "app.py"
+        target = self._lint_tmpdir / "app.py"
         target.write_text("import os\n")
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
-            ):
-                mock_run.return_value = type(
-                    "R",
-                    (),
-                    {
-                        "returncode": 1,
-                        "stdout": (
-                            "app.py:1:1: F401 [*] `os` imported but unused\n"
-                            "Found 1 error.\n"
-                        ),
-                        "stderr": "",
-                    },
-                )()
-                result = lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": str(target), "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            self.assertIsNone(result, "F401 must not surface at edit time")
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(
-                len(concerns), 0, "F401 must not raise concern at edit time"
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+            patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=(
+                    "app.py:1:1: F401 [*] `os` imported but unused\nFound 1 error.\n"
+                ),
             )
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+            result = lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": str(target), "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result, "F401 must not surface at edit time")
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 0, "F401 must not raise concern at edit time")
 
     def test_non_F401_still_surfaces_at_edit_time(self):
         """E302 (non-deferred code) still creates a concern at edit time."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        target = tmpdir / "app.py"
+        target = self._lint_tmpdir / "app.py"
         target.write_text("def f():\n    pass\n")
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
-            ):
-                mock_run.return_value = type(
-                    "R",
-                    (),
-                    {
-                        "returncode": 1,
-                        "stdout": (
-                            "app.py:1:1: E302 expected 2 blank lines\nFound 1 error.\n"
-                        ),
-                        "stderr": "",
-                    },
-                )()
-                result = lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": str(target), "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            assert result is not None
-            self.assertIn("E302", result)
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 1)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+            patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1,
+                stdout=("app.py:1:1: E302 expected 2 blank lines\nFound 1 error.\n"),
+            )
+            result = lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": str(target), "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        assert result is not None
+        self.assertIn("E302", result)
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 1)
 
 
 if __name__ == "__main__":

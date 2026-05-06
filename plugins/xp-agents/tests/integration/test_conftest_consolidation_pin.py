@@ -96,6 +96,44 @@ class TestConftestConsolidation(unittest.TestCase):
         )
         self.assertEqual(hits[0].name, "_test_typing.py")
 
+    def test_single_lint_tmpdir_mixin_definition(self):
+        # Story-020 phase 2: _LintTmpDirMixin (setUp/tearDown that creates a
+        # tmpdir with ruff.toml and rmtree's it) was defined inline in
+        # tests/hooks/test_auto_resolve.py and has 13 hand-rolled equivalents
+        # in tests/hooks/test_lint.py. Promote to tests/_lint_fixtures.py
+        # so consumers share the fixture instead of pasting the boilerplate.
+        hits = _files_matching(r"^class _LintTmpDirMixin\b")
+        self.assertEqual(
+            len(hits),
+            1,
+            f"_LintTmpDirMixin should be defined exactly once "
+            f"(in tests/_lint_fixtures.py); found in: {[str(p) for p in hits]}",
+        )
+        self.assertEqual(hits[0].name, "_lint_fixtures.py")
+
+    def test_test_lint_does_not_hand_roll_ruff_toml_tmpdir(self):
+        # Acceptance #3 for story-020 phase 2: after migration, the
+        # mkdtemp+ruff.toml.touch() pair in test_lint*.py should drop to
+        # ≤2 occurrences per file (tolerates genuinely-different shapes
+        # like a `tmpdir / "nonexistent"` non-ruff.toml path or a class
+        # whose tests intentionally vary which config file is present).
+        # Counts the closer-to-source signal directly: it is impossible
+        # to have N hand-rolled pairs without N `(... / "ruff.toml").touch()`
+        # lines and at least N `tempfile.mkdtemp()` calls in the file —
+        # the min of the two upper-bounds the pair count.
+        for fname in ("test_lint.py", "test_lint_detection.py"):
+            text = _FILE_TEXTS[_TESTS_DIR / "hooks" / fname]
+            mkdtemp = text.count("tempfile.mkdtemp()")
+            ruff_touch = text.count('"ruff.toml").touch()')
+            pairs = min(mkdtemp, ruff_touch)
+            self.assertLessEqual(
+                pairs,
+                2,
+                f"{fname} still hand-rolls {pairs} mkdtemp+ruff.toml "
+                f"pairs (mkdtemp={mkdtemp}, ruff_touch={ruff_touch}) "
+                "— migrate to _LintTmpDirMixin.",
+            )
+
     def test_retro_flag_cascade_does_not_reintroduce_smm_sys_path_insert(self):
         # Story-016 removed a raw `sys.path.insert(... "smm")` from
         # test_retro_flag_cascade.py in favor of the conftest re-export.

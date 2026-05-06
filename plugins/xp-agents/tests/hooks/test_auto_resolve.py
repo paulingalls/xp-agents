@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Tests for auto-resolve of test-failure and lint concerns."""
 
-import shutil
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,9 +15,9 @@ import lint_check
 import worktree
 from conftest import (
     _HookTestCase,
+    _LintTmpDirMixin,
     _make_bash_input,
     _make_write_input,
-    _MixinBase,
     make_event,
 )
 from event_schema import (
@@ -157,19 +155,6 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         self._write_events([concern, resolver, pass_status])
         result = tdd_stop_gate.run({"session_id": "t"}, smm_dir=self.smm_dir)
         self.assertIsNone(result)
-
-
-class _LintTmpDirMixin(_MixinBase):
-    """Shared setUp/tearDown for tests needing a tmpdir with ruff.toml."""
-
-    def setUp(self):
-        super().setUp()
-        self._lint_tmpdir = Path(tempfile.mkdtemp())
-        (self._lint_tmpdir / "ruff.toml").touch()
-
-    def tearDown(self):
-        shutil.rmtree(self._lint_tmpdir, ignore_errors=True)
-        super().tearDown()
 
 
 class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):

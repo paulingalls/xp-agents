@@ -16,7 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
-from conftest import _HookTestCase, _make_write_input
+from conftest import (
+    _HookTestCase,
+    _LintTmpDirMixin,
+    _make_write_input,
+    _mock_ruff_result,
+)
 
 
 class TestDetectLinterConfig(unittest.TestCase):
@@ -51,14 +56,12 @@ class TestDetectLinterConfig(unittest.TestCase):
         self.assertIsNone(result)
 
 
-class TestLintConcernContent(_HookTestCase):
+class TestLintConcernContent(_LintTmpDirMixin, _HookTestCase):
     """Lint concern events should be concise summaries, not full ruff output."""
 
     def test_lint_concern_is_summary_not_full_output(self):
         """Concern content should have file + error codes, not full ruff output."""
-        tmpdir = Path(tempfile.mkdtemp())
-        (tmpdir / "ruff.toml").touch()
-        target = tmpdir / "app.py"
+        target = self._lint_tmpdir / "app.py"
         target.write_text("def f():\n    pass\n")
         # Use E302 (non-deferred) — story-007 defers F401/F811 to staging,
         # so F401 alone produces no concern at edit time. This test exercises
@@ -73,36 +76,27 @@ class TestLintConcernContent(_HookTestCase):
             "\n"
             "Found 1 error.\n"
         )
-        try:
-            with (
-                patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-                patch("lint_check.subprocess.run") as mock_run,
-                patch("lint_check.detect_linter_config", return_value=("ruff", "")),
-            ):
-                mock_run.return_value = type(
-                    "R",
-                    (),
-                    {"returncode": 1, "stdout": full_output, "stderr": ""},
-                )()
-                lint_check.run(
-                    _make_write_input(
-                        tool_input={"file_path": str(target), "content": "x"},
-                        cwd=str(tmpdir),
-                    ),
-                    smm_dir=self.smm_dir,
-                )
-            events = _common.read_events_raw(self.smm_dir)
-            concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-            self.assertEqual(len(concerns), 1)
-            content = concerns[0]["content"]
-            self.assertIn("app.py", content)
-            self.assertNotIn("-->", content)
-            self.assertNotIn("help:", content)
-            self.assertIn("E302", content)
-        finally:
-            import shutil as sh
-
-            sh.rmtree(tmpdir)
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+            patch("lint_check.detect_linter_config", return_value=("ruff", "")),
+        ):
+            mock_run.return_value = _mock_ruff_result(returncode=1, stdout=full_output)
+            lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": str(target), "content": "x"},
+                    cwd=str(self._lint_tmpdir),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_raw(self.smm_dir)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 1)
+        content = concerns[0]["content"]
+        self.assertIn("app.py", content)
+        self.assertNotIn("-->", content)
+        self.assertNotIn("help:", content)
+        self.assertIn("E302", content)
 
 
 class TestSummarizeLintOutput(unittest.TestCase):
