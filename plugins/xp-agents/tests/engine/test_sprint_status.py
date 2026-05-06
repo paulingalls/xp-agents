@@ -36,6 +36,8 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_active_stories_data",
         "has_stories_with_status",
         "has_in_progress_stories",
+        "has_reviewing_stories",
+        "has_in_motion_stories",
         "has_ready_stories",
         "has_scheduled_stories",
         "scheduled_file_domains_overlap",
@@ -155,6 +157,71 @@ class TestStatusChecks(_SMMTestCase):
         sprint = _make_sprint(stories=[_make_story(status="in-progress")])
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         self.assertFalse(sprint_store.has_scheduled_stories(self.smm_dir))
+
+    def test_has_reviewing_true_when_reviewing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="reviewing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_reviewing_stories(self.smm_dir))
+
+    def test_has_reviewing_false_when_only_in_progress(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertFalse(sprint_store.has_reviewing_stories(self.smm_dir))
+
+    def test_has_reviewing_false_when_missing_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.has_reviewing_stories(self.smm_dir))
+
+    def test_has_in_motion_true_when_in_progress(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_in_motion_stories(self.smm_dir))
+
+    def test_has_in_motion_true_when_reviewing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="reviewing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_in_motion_stories(self.smm_dir))
+
+    def test_has_in_motion_true_when_mixed(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="s1", status="done"),
+                _make_story(id="s2", status="reviewing"),
+                _make_story(id="s3", status="scheduled"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_in_motion_stories(self.smm_dir))
+
+    def test_has_in_motion_false_when_all_terminal_or_queued(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="s1", status="done"),
+                _make_story(id="s2", status="deferred"),
+                _make_story(id="s3", status="scheduled"),
+                _make_story(id="s4", status="ready"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertFalse(sprint_store.has_in_motion_stories(self.smm_dir))
+
+    def test_has_in_motion_false_when_missing_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.has_in_motion_stories(self.smm_dir))
 
     def test_next_scheduled_returns_lowest_id_with_deps_done(self):
         import sprint_store
