@@ -12,7 +12,7 @@ import cleanly without a cycle when sprint_store re-exports back.
 from itertools import combinations
 from pathlib import Path
 
-from sprint_schema import ACTIVE_STORY_STATUSES
+from sprint_schema import ACTIVE_STORY_STATUSES, IN_MOTION_STORY_STATUSES
 from triage import extract_file_domain_paths
 
 
@@ -38,12 +38,51 @@ def has_stories_with_status(smm_dir: Path, status: str) -> bool:
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return False
-    return any(s["status"] == status for s in sprint["stories"])
+    return has_stories_with_status_data(sprint, status)
+
+
+def has_stories_with_status_data(data: dict, status: str) -> bool:
+    """True if sprint dict has any story matching `status`.
+
+    Sibling to has_stories_with_status for callers that already hold
+    the loaded sprint dict.
+    """
+    return any(s["status"] == status for s in data["stories"])
 
 
 def has_in_progress_stories(smm_dir: Path) -> bool:
     """True if sprint has in-progress stories."""
     return has_stories_with_status(smm_dir, "in-progress")
+
+
+def has_in_progress_stories_data(data: dict) -> bool:
+    """True if sprint dict has in-progress stories."""
+    return has_stories_with_status_data(data, "in-progress")
+
+
+def has_reviewing_stories(smm_dir: Path) -> bool:
+    """True if sprint has reviewing stories."""
+    return has_stories_with_status(smm_dir, "reviewing")
+
+
+def has_reviewing_stories_data(data: dict) -> bool:
+    """True if sprint dict has reviewing stories."""
+    return has_stories_with_status_data(data, "reviewing")
+
+
+def has_in_motion_stories(smm_dir: Path) -> bool:
+    """True if sprint has in-motion (in-progress or reviewing) stories."""
+    from sprint_store import load_sprint
+
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return has_in_motion_stories_data(sprint)
+
+
+def has_in_motion_stories_data(data: dict) -> bool:
+    """True if sprint dict has in-motion (in-progress or reviewing) stories."""
+    return any(s["status"] in IN_MOTION_STORY_STATUSES for s in data["stories"])
 
 
 def has_ready_stories(smm_dir: Path) -> bool:
