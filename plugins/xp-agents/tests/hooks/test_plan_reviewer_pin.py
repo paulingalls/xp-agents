@@ -17,8 +17,7 @@ import re
 import unittest
 from pathlib import Path
 
-from conftest import _split_frontmatter_body
-from triage import extract_file_domain_paths
+from conftest import _split_frontmatter_body, triage
 
 _AGENT_PATH = Path(__file__).parent.parent.parent / "agents" / "xp-plan-reviewer.md"
 
@@ -217,23 +216,51 @@ _NEW_FILE_VERBS: tuple[str, ...] = (
 # (`apps/server/src/required-env.ts`, `scripts/foo.py`).
 _PATH_TOKEN_RE = re.compile(r"(?:[\w-]+/)+[\w.-]+\.\w+")
 
+# NEW-file context tokens — when a verb fires, one of these (or a
+# path-like token) must co-occur in the same sentence to confirm the
+# verb is talking about a file/module, not a value/data/concept.
+# Mirrors §10c's "verb + context token" requirement.
+_NEW_FILE_CONTEXT_TOKENS: tuple[str, ...] = ("module", "helper", "file", "to its own")
+
+
+def _has_new_file_intent(description: str) -> bool:
+    """Whole-word verb + NEW-file context token (or path-like) in same sentence.
+
+    Mirrors §10c: bare-substring matches of `extract`/`introduce` on their
+    own ("extract value from X", "introduce backwards-incompatible change")
+    MUST NOT trigger — they need a co-occurring file/module/helper/path
+    token in the same sentence.
+    """
+    desc_lower = description.lower()
+    for sentence in re.split(r"[.!?]\s+", desc_lower):
+        for verb in _NEW_FILE_VERBS:
+            if not re.search(rf"\b{re.escape(verb)}\b", sentence):
+                continue
+            if any(t in sentence for t in _NEW_FILE_CONTEXT_TOKENS):
+                return True
+            if _PATH_TOKEN_RE.search(sentence):
+                return True
+    return False
+
 
 def _flagged_missing_paths(description: str, file_domain: list[str]) -> list[str]:
     """Apply the NEW-file rejection rule to a (description, domain) pair.
 
     Mirrors the agent body's prose rule deterministically: when the
-    description contains any new-file verb, every path-like token in the
-    description must appear in the (em-dash-stripped) file_domain. Tokens
-    absent from the domain are returned in description order.
+    description has a verb+context pair (whole-word verb co-occurring
+    with a NEW-file context token in the same sentence), every path-like
+    token in the description must appear in the (em-dash-stripped)
+    file_domain. Tokens absent from the domain are returned in
+    description order.
 
     Kept in this test module on purpose — the agent prompt is the
     canonical specification; this is a pin, not a runtime helper. If the
     rule grows beyond what one regex captures, it moves to a real module
     and this helper becomes a thin re-export.
     """
-    if not any(v in description.lower() for v in _NEW_FILE_VERBS):
+    if not _has_new_file_intent(description):
         return []
-    domain_paths = extract_file_domain_paths(file_domain)
+    domain_paths = triage.extract_file_domain_paths(file_domain)
     return [p for p in _PATH_TOKEN_RE.findall(description) if p not in domain_paths]
 
 
@@ -287,6 +314,22 @@ class TestPlanReviewerNewFileRule(unittest.TestCase):
                     "story": {
                         "description": extract_desc,
                         "file_domain": [f"{path} — new module"],
+                    },
+                    "expected_missing": [],
+                },
+                {
+                    "name": "False positive: bare 'extract' no context — must NOT flag",
+                    "story": {
+                        "description": "extract value from request body for validation",
+                        "file_domain": ["apps/server/src/index.ts"],
+                    },
+                    "expected_missing": [],
+                },
+                {
+                    "name": "False positive: 'introduce' no file ctx — must NOT flag",
+                    "story": {
+                        "description": "introduce a backwards-incompatible API change",
+                        "file_domain": ["apps/server/src/api.ts"],
                     },
                     "expected_missing": [],
                 },

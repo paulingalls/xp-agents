@@ -144,14 +144,14 @@ Skip this section for stories whose `file_domain` is empty (no domain to interse
 
 ### 10c. NEW-file Path Enumeration
 
-For each story in `SPRINT_FILE`, scan the `description` (and `context` if present) for verbs that imply a story will create a new file or module:
+For each story in `SPRINT_FILE`, scan the `description` (and `context` if present) for verbs that imply a story will create a new file or module. Match on **whole-word verb + a NEW-file context token in the same sentence** (one of: `module`, `helper`, `file`, `to its own`, or a path-like token containing `/` or `.py`/`.ts`/etc.). Bare substrings of `extract` (e.g., "extract value from X") or `introduce` ("introduce a backwards-incompatible API change") MUST NOT trigger this rule on their own — they're false positives.
 
-- `extract` (e.g., "extract REQUIRED_ENV to its own module")
-- `introduce` (e.g., "introduce a new helper for X")
-- `add module` (e.g., "add module for Y")
-- `create helper` (e.g., "create helper at path/Z.py")
+- `extract` + path/module/file token (e.g., "extract REQUIRED_ENV to its own module")
+- `introduce` + new-helper/file token (e.g., "introduce a new helper for X")
+- `add module` (whole phrase, e.g., "add module for Y")
+- `create helper` (whole phrase, e.g., "create helper at path/Z.py")
 
-When any verb fires, the implied path MUST appear in the story's `file_domain`. If the planner has named a path-like token in the description (`apps/server/src/required-env.ts`, `scripts/foo.py`, etc.) and that exact token is absent from `file_domain`, **reject** the plan — emit a 🔴 `question` event naming the missing path and asking the planner to enumerate it, then halt review. If the description implies a NEW file but no path is named yet, also reject: that's a planning gap (the planner cannot commit to a path means the design isn't complete).
+When the verb+context pair fires, the implied path MUST appear in the story's `file_domain`. If the planner has named a path-like token in the description (`apps/server/src/required-env.ts`, `scripts/foo.py`, etc.) and that exact token is absent from `file_domain`, **reject** the plan — emit a 🔴 `question` event naming the missing path and asking the planner to enumerate it, then halt review. If the verb+context pair fires but no path is named yet, also reject: that's a planning gap (the planner cannot commit to a path means the design isn't complete).
 
 Sprint-012 story-003 said "extract REQUIRED_ENV to its own module" but `file_domain` listed only the existing files; the new file was not enumerated, drift wasn't caught until close-review (concern `73cfb6b97049`). This rule catches that at plan time.
 
