@@ -107,6 +107,25 @@ class TestRequiredVariantsBehavior(unittest.TestCase):
             result = sprint_store.load_sprint_required(smm)
             self.assertEqual(result["sprint_id"], "sprint-099")
 
+    def test_load_plan_required_returns_dict_when_present(self):
+        # Mirrors the sprint round-trip: save then load_required returns
+        # the saved dict. Symmetric coverage so a future regression on
+        # the plan happy-path doesn't slip past unnoticed.
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            execution_plan_store.save_plan(
+                smm,
+                {
+                    "title": "test plan",
+                    "overview": "test",
+                    "sources": [],
+                    "milestones": [],
+                },
+                enforce_budget=False,
+            )
+            result = execution_plan_store.load_plan_required(smm)
+            self.assertEqual(result["title"], "test plan")
+
 
 if __name__ == "__main__":
     unittest.main()
