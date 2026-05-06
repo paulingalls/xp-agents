@@ -27,12 +27,9 @@ evolve.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from conftest import _IntegrationTestCase, run_cli
+from conftest import _MARKERS_PY, _IntegrationTestCase, run_cli
 from event_schema import EVENT_TYPE_STATUS
-
-_MARKERS_PY = Path(__file__).parent.parent.parent / "scripts" / "markers.py"
 
 
 def _security_complete_event(event_id: str) -> dict:

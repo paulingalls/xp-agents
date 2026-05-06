@@ -36,24 +36,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _close_fixtures import _Step4SecurityIncludeTests
-from conftest import _IntegrationTestCase
+from conftest import _IntegrationTestCase, _split_frontmatter_body
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md"
 _SHARED_MD = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
-
-
-def _split_frontmatter_body(text: str) -> tuple[str, str]:
-    """Split a SKILL.md into (frontmatter, body) on the closing `---` fence.
-
-    Mirrors tests/scaffold/_helpers.py::frontmatter_body but reproduced
-    here to avoid a cross-package import (scaffold/ is a separate test
-    suite with its own conftest path setup).
-    """
-    match = re.match(r"^---\n(.*?)\n---\n(.*)$", text, re.DOTALL)
-    if not match:
-        return "", text
-    return match.group(1), match.group(2)
 
 
 class TestStoryCloseStep4(_Step4SecurityIncludeTests, _IntegrationTestCase):
