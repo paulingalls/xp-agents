@@ -17,10 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from _helpers import init_git_identity, run_git
 from conftest import _SMMTestCase, run_cli
 
-_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _CLI = _PLUGIN_ROOT / "scripts" / "scaffold_cli.py"
 
 

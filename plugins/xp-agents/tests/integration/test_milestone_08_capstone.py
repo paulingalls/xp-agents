@@ -34,9 +34,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import identity  # canonical home for WORKTREE_PATH_FRAGMENT
+from _bases import _PLUGIN_ROOT
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _VERIFY_ACCEPTANCE = _PLUGIN_ROOT / "scripts" / "verify_acceptance.py"
 
 

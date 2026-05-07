@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _PLUGIN_ROOT
 from _close_fixtures import (
     _assert_text_ordering,
     _ClosePreloadCommonTests,
@@ -35,7 +36,6 @@ from conftest import _IntegrationTestCase, run_cli
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SMM_CLI = _PLUGIN_ROOT / "smm" / "smm_cli.py"
 
 

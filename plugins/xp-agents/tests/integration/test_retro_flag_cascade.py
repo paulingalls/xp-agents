@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _PLUGIN_ROOT
 from conftest import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_STATUS,
@@ -36,7 +37,6 @@ from conftest import (
     make_event,
 )
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _AGENT_FILES = [
     _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md",
     _PLUGIN_ROOT / "agents" / "xp-plan-reviewer.md",

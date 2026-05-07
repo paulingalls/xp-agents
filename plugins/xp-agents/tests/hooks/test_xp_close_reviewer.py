@@ -16,9 +16,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from event_schema import EVENT_TYPE_CONCERN
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _AGENT_MD = _PLUGIN_ROOT / "agents" / "xp-close-reviewer.md"
 _AGENT_TEXT = _AGENT_MD.read_text()
 

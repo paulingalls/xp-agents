@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import seed_plan, write_system_context
 from _close_fixtures import (
     _ClosePreloadCommonTests,
@@ -23,8 +24,6 @@ from _close_fixtures import (
     _Step4SecurityIncludeTests,
 )
 from conftest import _extract_preload_var, _IntegrationTestCase
-
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 
 
 class TestSprintClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):

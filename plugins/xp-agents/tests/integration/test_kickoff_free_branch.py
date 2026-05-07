@@ -21,10 +21,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import write_system_context
 from conftest import _IntegrationTestCase
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-kickoff" / "SKILL.md"
 

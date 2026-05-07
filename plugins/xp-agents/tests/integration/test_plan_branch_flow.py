@@ -18,9 +18,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _PLUGIN_ROOT
 from conftest import _IntegrationTestCase
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PLAN_CLI = _PLUGIN_ROOT / "smm" / "plan_cli.py"
 _BRANCHING = _PLUGIN_ROOT / "scripts" / "branching.py"
 
