@@ -12,8 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _test_typing import _MixinBase
-from conftest import make_event
+from conftest import _NormalizePathIdentityMixin, make_event
 from event_schema import (
     DIVERT_REASON_CROSS_STORY,
     DIVERT_REASON_MISSING_EVENT,
@@ -37,23 +36,6 @@ from event_schema import (
     STATUS_ACTION_TEST_RUN_COMPLETE,
     STATUS_CONTENT_RESOLVES_PROBE,
 )
-
-
-class _PatchNormalizePathIdentity(_MixinBase):
-    """Stub worktree.normalize_path to identity in setUp.
-
-    For tests where canonical path form is incidental — only set equality
-    on raw paths matters. TestFileOverlapNormalization, by contrast, uses
-    inline patches because the canonical-form contract IS the assertion.
-    """
-
-    def setUp(self):
-        super().setUp()
-        from unittest.mock import patch as patch_
-
-        patcher = patch_("worktree.normalize_path", side_effect=lambda p, _c: p)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
 
 class TestDirectTrailerCount(unittest.TestCase):
@@ -269,7 +251,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
         self.assertEqual(counts["commits"], 2)
 
 
-class TestClassifyDivertReason(_PatchNormalizePathIdentity, unittest.TestCase):
+class TestClassifyDivertReason(_NormalizePathIdentityMixin, unittest.TestCase):
     """_classify_divert_reason picks first-match reason for an agent's
     rejected resolves choice (divert), so retros can act on cause not count.
 
@@ -462,7 +444,7 @@ class TestClassifyDivertReason(_PatchNormalizePathIdentity, unittest.TestCase):
         self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
 
 
-class TestProbeDivertDetailsReason(_PatchNormalizePathIdentity, unittest.TestCase):
+class TestProbeDivertDetailsReason(_NormalizePathIdentityMixin, unittest.TestCase):
     """Integration: probe_divert_details[i]['reason'] is set per divert tuple.
     Wires _classify_divert_reason into _compute_probe_adoption."""
 
@@ -600,7 +582,7 @@ class TestProbeDivertDetailsReason(_PatchNormalizePathIdentity, unittest.TestCas
 
 
 class TestSprint065DivertScenariosAllNamed(
-    _PatchNormalizePathIdentity, unittest.TestCase
+    _NormalizePathIdentityMixin, unittest.TestCase
 ):
     """story-005 AC #1, #2, #4: each of the 8 sprint-065 paired-divert
     fixtures must classify into a named (non-UNKNOWN) bucket.

@@ -121,6 +121,25 @@ class TestConftestConsolidation(unittest.TestCase):
         )
         self.assertEqual(hits[0].name, "_lint_fixtures.py")
 
+    def test_single_normalize_path_identity_mixin_definition(self):
+        # Free-session debt-burndown (dab25036311b): the identity stub
+        # `lambda p, _cwd: p` for `worktree.normalize_path` was inlined
+        # across 8+ test sites (test_retro_metrics, test_probe_adoption,
+        # test_resolves_probe). The setUp-mixin variant lives in
+        # tests/_worktree_fixtures.py — scoped `with patch(...)` blocks
+        # in test_action_vocabulary_smoke / test_bash_commit_qr_linkage
+        # are deliberately out of scope (different shape, mixin doesn't
+        # fit). This pin guards the canonical class against re-inlining.
+        hits = _files_matching(r"^class _NormalizePathIdentityMixin\b")
+        self.assertEqual(
+            len(hits),
+            1,
+            f"_NormalizePathIdentityMixin should be defined exactly once "
+            f"(in tests/_worktree_fixtures.py); found in: "
+            f"{[str(p) for p in hits]}",
+        )
+        self.assertEqual(hits[0].name, "_worktree_fixtures.py")
+
     def test_test_lint_does_not_hand_roll_ruff_toml_tmpdir(self):
         # Acceptance #3 for story-020 phase 2: after migration, the
         # mkdtemp+ruff.toml.touch() pair in test_lint*.py should drop to
