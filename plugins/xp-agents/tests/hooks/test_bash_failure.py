@@ -242,7 +242,13 @@ class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(result), 1)
 
     def test_events_provided_skips_disk_read(self):
-        """events= provided passes through to commits, skipping disk read."""
+        """events= provided passes through to commits, skipping disk read.
+
+        now_ts pinned within the snapshot-staleness threshold of the seeded
+        event's default ts (2026-03-12) so the story-003 freshness reload
+        does NOT trigger — that path has its own test coverage in
+        TestFindProbeCandidatesSnapshotFreshness.
+        """
         self._seed_auth_concern()
         events = _common.read_events_raw(self.smm_dir)
         import resolves_probe
@@ -254,6 +260,7 @@ class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
                 [],
                 str(self.smm_dir),
                 events=events,
+                now_ts="2026-03-12T00:00:01+00:00",
             )
         mock_read.assert_not_called()
         self.assertEqual(len(result), 1)

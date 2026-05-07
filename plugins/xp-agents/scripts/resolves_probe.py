@@ -37,6 +37,13 @@ _KEYWORD_MATCH_CAP = 5
 _RECENCY_DAYS = 5
 _TOKEN_RE = re.compile(r"[^a-z0-9_]+")
 
+# Force events.jsonl re-read when caller's snapshot is older than this many
+# seconds vs now_ts. Closes the spurious-`newer-than-snapshot` divert
+# (sprint-067 retro saw 3) where the agent picked an event that landed on
+# disk between snapshot and commit. 5s comfortably exceeds inter-agent race
+# windows without triggering reload churn for normal load-and-pass-down.
+_SNAPSHOT_STALENESS_THRESHOLD_SECONDS = 5
+
 # Shared trailer-reminder text used by pre_tool_bash in both the soft-nudge
 # (parts.append) and hard-block (BlockedError body) paths. Centralized so
 # wording stays in lockstep with the trailer-extraction conventions in
@@ -52,6 +59,34 @@ def _extract_keywords(text: str) -> set[str]:
         return set()
     tokens = _TOKEN_RE.split(text.lower())
     return {t for t in tokens if len(t) >= 3 and t not in STOPWORDS}
+
+
+def _is_events_snapshot_stale(events: list[dict], now_ts: str) -> bool:
+    """True when the newest event in `events` is meaningfully older than now_ts.
+
+    Caller-supplied `events` snapshots can drift behind disk between the
+    caller's load and probe time (other agents writing to events.jsonl,
+    pre-commit hook latency between subagent emission and commit). When
+    that drift exceeds _SNAPSHOT_STALENESS_THRESHOLD_SECONDS, the probe
+    re-reads from disk so the candidate set covers events the agent
+    plausibly saw on disk by commit time.
+
+    Returns False on missing/malformed inputs — fail-safe degrades to
+    "trust the caller's snapshot" rather than gratuitous re-reads.
+    """
+    if not events or not now_ts:
+        return False
+    # ISO-8601 strings lex-compare in chronological order at same precision —
+    # cheaper than parsing every event's ts to find the max.
+    max_ts = max((e.get("ts") or "" for e in events), default="")
+    if not max_ts:
+        return False
+    try:
+        now_dt = datetime.fromisoformat(now_ts)
+        max_dt = datetime.fromisoformat(max_ts)
+    except ValueError:
+        return False
+    return (now_dt - max_dt).total_seconds() > _SNAPSHOT_STALENESS_THRESHOLD_SECONDS
 
 
 def _is_recent(event_ts: str, now_ts: str) -> bool:
@@ -285,14 +320,14 @@ def find_probe_candidates(
     # Load events once so both the file-match and in-cycle-sibling lookups
     # share the same snapshot — also lets us derive active_cycle_id without
     # a second disk read.
-    if events is None:
+    resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
+    if events is None or _is_events_snapshot_stale(events, resolved_now):
         events, resolutions = _common.load_events_with_resolutions(smm_dir)
     elif resolutions is None:
         import resolution
 
         resolutions = resolution.compute_resolutions(events)
 
-    resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
     active_cycle_id = _find_active_cycle_id(events, resolved_now)
 
     commit_file_set: set[str] = set()
@@ -372,6 +407,14 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
         tag = f"[{etype}|{severity}|{c['id']}]"
         mode = _metadata_field(c, METADATA_KEY_CLOSE_MODE)
         suffix = f" (from {mode}-close-reviewer)" if mode else ""
+        # Surface all reasons (vocabulary capped to 5 by SELECTION_REASON_*
+        # contract; ~60 chars worst case fits one line). Concern 684a9d401adc:
+        # capping by position would always occlude `in_sprint_batch` /
+        # `close_mode` (the signals explaining WHY no-file-overlap siblings
+        # surfaced — exactly what sprint-067 retro is targeting).
+        reasons = c.get("selection_reasons") or []
+        if reasons:
+            suffix += f" (why: {', '.join(reasons)})"
         items.append(f"- {tag}: {content}{suffix}")
     ids = ", ".join(c["id"] for c in candidates)
     block = (
