@@ -29,18 +29,13 @@ from _branching_fixtures import (
     merge_teammate_branch,
 )
 from conftest import (
-    _PLUGIN_ROOT,
     _extract_preload_var,
     _IntegrationTestCase,
     _make_write_input,
     _s,
     _sprint_json,
 )
-
-_XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
-_XP_STORY_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
-)
+from integration.conftest import _XP_ACCEPT_PRELOAD, _XP_STORY_CLOSE_PRELOAD
 
 
 class TestIncrementalTeammateAccept(_IntegrationTestCase):
