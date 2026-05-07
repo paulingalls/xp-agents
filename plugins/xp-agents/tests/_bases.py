@@ -254,6 +254,21 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             for f in retro_dir.iterdir():
                 f.unlink()
 
+    def tearDown(self):
+        # Prune story worktrees so the class-shared git repo's registry
+        # stays clean across tests. Without this, a test that creates a
+        # worktree at `.claude/worktrees/worktree-story-X` leaks the
+        # registry entry into the next test, breaking reuse-by-id.
+        # Sprint-069's closing-state capstone worked around this by
+        # hand-picking unique ids per test (story-A1/B1/C1...).
+        # Fast-path skip when no worktrees were created — most
+        # integration tests don't touch `.claude/worktrees/`, so
+        # spawning `git worktree list` on every tearDown is wasteful.
+        worktrees_dir = self.tmpdir / ".claude" / "worktrees"
+        if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
+            cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
+        super().tearDown()
+
     def _run_preload(
         self,
         script_path: Path,

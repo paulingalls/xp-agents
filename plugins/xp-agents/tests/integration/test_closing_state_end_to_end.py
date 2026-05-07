@@ -65,10 +65,11 @@ def _run_cas(smm_dir: Path, story_id: str, expected: str, new: str):
 class TestClosingStateEndToEnd(_IntegrationTestCase):
     """Capstone for sprint-069 — pins the closing-state singleton lock.
 
-    Each test uses unique story-id + branch names (story-A1/A2/B1/...)
-    so the class-shared tmpdir from _IntegrationTestCase isn't reused
-    by `git worktree add` — sidesteps the worktree-registry leak
-    without per-test cleanup.
+    Story-id naming (A1=AC1, B1=AC2, C1=AC3, D1=AC4, E1/E2=invariant)
+    is left as test-authored shorthand mapping each test to the
+    sprint-069 acceptance criterion it pins. The earlier rationale
+    that unique ids 'sidestep the worktree-registry leak' no longer
+    applies — _IntegrationTestCase.tearDown prunes worktrees per test.
     """
 
     def test_two_reviewing_one_transitions_to_closing(self):
