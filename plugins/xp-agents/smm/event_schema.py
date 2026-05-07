@@ -199,6 +199,24 @@ METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
 # divert-analysis consumers must treat both cases as 'no signal data'.
 METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
 
+# Snapshot-freshness telemetry attached to probe status events. The
+# probe captures both:
+#   probe_snapshot_max_ts — newest ts in the caller's events snapshot at
+#                           probe entry, BEFORE any staleness reread.
+#   probe_tail_ts         — newest ts after the staleness check (post-
+#                           reread when triggered, same as snapshot_max
+#                           when not).
+# When they differ, the probe re-read disk between caller-snapshot and
+# probe-time. Lets retro_metrics distinguish "agent picked an event the
+# probe never saw" from "agent picked an event that arrived after the
+# caller snapshot but before commit" — the second class is closable by
+# the staleness reload, the first needs a different fix. Producer:
+# resolves_probe.find_probe_candidates (out_meta) +
+# resolves_probe.emit_probe_status (probe_meta). Consumers: future
+# divert classifier, retro analysis.
+METADATA_KEY_PROBE_SNAPSHOT_MAX_TS = "probe_snapshot_max_ts"
+METADATA_KEY_PROBE_TAIL_TS = "probe_tail_ts"
+
 # Selector-signal vocabulary for resolves_probe._score_candidate. Each
 # constant names a signal that contributed to a candidate's score and
 # appears in the candidate's selection_reasons list iff that signal
@@ -213,6 +231,14 @@ SELECTION_REASON_CLOSE_MODE = "close_mode"
 # probe-divert gap where in-batch siblings were missed because they had no
 # file or keyword tie to the current commit.
 SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
+# Widening for batched close-mode siblings: when in_sprint_batch AND
+# close_mode both fire and file_overlap is 0, score +1 and emit this
+# reason. Targets the outside-file-domain divert observed at 33% of
+# recent diverts (close-mode multi-resolves), where a legitimate
+# sibling fell off the top-5 cap because file_overlap=0 starved its
+# score. Tests for double-counting prevention live in
+# TestInBatchCloseNoOverlapWidening.
+SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP = "in_batch_close_no_overlap"
 
 # Divert-reason vocabulary written by retro_metrics._classify_divert_reason
 # into probe_divert_details[i]["reason"]. Each value names the cause class

@@ -159,23 +159,33 @@ If the preload shows `### Concerns for story-NNN`, review each listed concern ag
 
 File overlap alone does not mean a concern is resolved. Use your judgment based on the concern's content and what the commits actually changed.
 
-## Step 1.5: Transition reviewing → closing
+## Step 1.5: Transition reviewing → closing (CAS-guarded)
 
 Immediately before dispatching /xp-story-close, transition the story
-from `reviewing` to `closing`. This is sprint-069's singleton
-in-pipeline lock — `closing` marks exactly one story actively inside
-/xp-story-close at any time, while `reviewing` stays plural-safe for
-concurrent teammate finish-bursts.
+from `reviewing` to `closing` via the CAS subcommand. This is
+sprint-069's singleton in-pipeline lock — `closing` marks exactly one
+story actively inside /xp-story-close at any time, while `reviewing`
+stays plural-safe for concurrent teammate finish-bursts.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
-  update-story story-NNN closing
+  update-story-if story-NNN --expected reviewing --new closing
 ```
 
-Bare `update-story` (not CAS) is correct here: the orchestrator is
-single-threaded across /xp-accept; no concurrent writer races this
-transition. (Contrast `spawn_teammate.py`'s in-progress→reviewing
-which DOES use CAS because it races with /xp-accept's promote.)
+The `update-story-if` subcommand is a compare-and-swap: rc=0 on
+success, rc=1 when the story is no longer at `reviewing` (already
+advanced or deferred), rc=2 on validation errors. If you get rc=1,
+skip this story — another path advanced it past `reviewing` and
+re-running close would race or duplicate work; continue with the
+next story. If you get rc=2, halt the per-story loop and surface the
+stderr message: rc=2 means malformed input or a corrupt sprint.json,
+not a benign race, and silently skipping risks masking corruption.
+
+Bare `update-story` would also work in normal solo orchestration, but
+CAS is the right contract for the singleton-lock invariant: it makes
+the guarantee explicit at the writer side, not just at the
+orchestrator-is-single-threaded assumption (which can break under
+recovery, concurrent agent paths, or future code).
 
 After Step 1.5, `find_closing_teammate_worktree` (story-003) returns
 this story's worktree to /xp-story-close's preload; multi-reviewing

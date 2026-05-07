@@ -42,6 +42,8 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_reviewing_stories_data",
         "has_closing_stories",
         "has_closing_stories_data",
+        "has_under_acceptance_stories",
+        "has_under_acceptance_stories_data",
         "has_in_motion_stories",
         "has_in_motion_stories_data",
         "select_in_motion_stories",
@@ -276,6 +278,47 @@ class TestStatusChecks(_SMMTestCase):
 
         self.assertFalse(sprint_store.has_in_motion_stories(self.smm_dir))
 
+    def test_has_under_acceptance_data_true_for_reviewing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="reviewing")])
+        self.assertTrue(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_data_true_for_closing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        self.assertTrue(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_data_false_for_in_progress_only(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
+        self.assertFalse(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_data_false_for_terminal_only(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="s1", status="done"),
+                _make_story(id="s2", status="deferred"),
+            ]
+        )
+        self.assertFalse(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_disk_true_when_closing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_under_acceptance_stories(self.smm_dir))
+
+    def test_has_under_acceptance_disk_false_when_missing_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.has_under_acceptance_stories(self.smm_dir))
+
     def test_has_in_progress_data_true_and_false(self):
         import sprint_store
 
@@ -316,6 +359,54 @@ class TestStatusChecks(_SMMTestCase):
         sprint = _make_sprint(stories=[_make_story(status="in-progress")])
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
+
+    def test_next_scheduled_treats_as_done_satisfies_dep(self):
+        # JIT-next race fix: /xp-story-close Step 8 runs BEFORE
+        # /xp-accept Step 4 marks the just-closed story `done`. With
+        # the dep gate requiring `done`, the next story would never
+        # be promoted in solo mode when it depends on the just-closed
+        # one. treat_as_done lets the caller assert "this id is about
+        # to be done" so the dep check passes.
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="closing"),
+                _make_story(
+                    id="story-002", status="scheduled", dependencies=["story-001"]
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # Without the override: dep is `closing` not `done`, so None.
+        self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
+        # With the override: dep treated as satisfied; story-002 surfaces.
+        self.assertEqual(
+            sprint_store.next_scheduled_story_id(
+                self.smm_dir, treat_as_done={"story-001"}
+            ),
+            "story-002",
+        )
+
+    def test_next_scheduled_treat_as_done_does_not_promote_in_progress(self):
+        # Override only satisfies deps; it MUST NOT make a story whose
+        # own status is `in-progress` appear in the scheduled-set query.
+        # Setup: only an in-progress story exists, no scheduled. With or
+        # without the override naming the in-progress id, the
+        # next-scheduled query must return None.
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[_make_story(id="story-001", status="in-progress")]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # Override naming story-001 must NOT surface it as next-scheduled —
+        # treat_as_done relaxes deps, not the status filter.
+        self.assertIsNone(
+            sprint_store.next_scheduled_story_id(
+                self.smm_dir, treat_as_done={"story-001"}
+            )
+        )
 
     def test_scheduled_file_domains_overlap_true_when_shared_file(self):
         import sprint_store

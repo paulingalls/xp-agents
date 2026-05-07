@@ -170,14 +170,22 @@ class TestResolvesTrailerNudge(_ProbeTestHelpers, _HookTestCase):
     @patch("commits.get_staged_files", return_value=["scripts/other.py"])
     @patch("git_commits.is_git_commit", return_value=True)
     @patch("commits.get_code_files_for_review", return_value=[])
-    def test_no_probe_status_event_when_no_overlap(self, *_mocks):
-        """No probe status event when staged files don't overlap concerns."""
+    def test_zero_candidate_probe_emits_telemetry_when_no_overlap(self, *_mocks):
+        """Zero-candidate probe still emits telemetry (snapshot_max_ts /
+        tail_ts) so divert classification can distinguish 'snapshot was
+        stale' from other divert classes. The probe_candidates list is
+        empty when no concerns overlap."""
         self._write_concern("auth bypass risk", ["scripts/auth.py"])
         pre_tool_bash.run(
             _make_bash_input(command=_COMMIT_CMD),
             smm_dir=self.smm_dir,
         )
-        self.assertEqual(len(self._probes()), 0)
+        probes = self._probes()
+        self.assertEqual(len(probes), 1)
+        meta = probes[0]["metadata"]
+        self.assertEqual(meta[METADATA_KEY_PROBE_CANDIDATES], [])
+        self.assertIn("probe_snapshot_max_ts", meta)
+        self.assertIn("probe_tail_ts", meta)
 
 
 def _multi_story_sprint():

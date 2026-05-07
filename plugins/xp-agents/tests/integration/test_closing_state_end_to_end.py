@@ -35,32 +35,80 @@ import pre_tool_write
 import sprint_store
 import worktree
 from _branching_fixtures import seed_sprint_with_stories
+from _cli_helpers import run_cli
 from _worktree_fixtures import make_teammate_worktree
 from conftest import _IntegrationTestCase, _make_write_input
+
+_SPRINT_CLI = Path(__file__).resolve().parents[2] / "smm" / "sprint_cli.py"
+
+
+def _run_cas(smm_dir: Path, story_id: str, expected: str, new: str):
+    """Run the CAS subcommand exactly the way xp-accept Step 1.5 does.
+
+    Thin wrapper over the shared run_cli helper so the test reads at
+    the same level as the SKILL.md invocation.
+    """
+    return run_cli(
+        _SPRINT_CLI,
+        [
+            "update-story-if",
+            story_id,
+            "--expected",
+            expected,
+            "--new",
+            new,
+        ],
+        smm_dir,
+    )
 
 
 class TestClosingStateEndToEnd(_IntegrationTestCase):
     """Capstone for sprint-069 — pins the closing-state singleton lock.
 
-    Each test uses unique story-id + branch names (story-A1/A2/B1/...)
-    so the class-shared tmpdir from _IntegrationTestCase isn't reused
-    by `git worktree add` — sidesteps the worktree-registry leak
-    without per-test cleanup.
+    Story-id naming (A1=AC1, B1=AC2, C1=AC3, D1=AC4, E1/E2=invariant)
+    is left as test-authored shorthand mapping each test to the
+    sprint-069 acceptance criterion it pins. The earlier rationale
+    that unique ids 'sidestep the worktree-registry leak' no longer
+    applies — _IntegrationTestCase.tearDown prunes worktrees per test.
     """
 
     def test_two_reviewing_one_transitions_to_closing(self):
         # AC1: 2 stories at `reviewing`; transitioning A -> `closing`
-        # leaves B at `reviewing`. State changes are independent;
-        # the transition does not cross-contaminate.
+        # via the CAS subcommand (mirroring xp-accept Step 1.5) leaves
+        # B at `reviewing`. State changes are independent; the
+        # transition does not cross-contaminate.
         seed_sprint_with_stories(
             self.smm_dir,
             [("story-A1", "reviewing"), ("story-A2", "reviewing")],
         )
-        sprint_store.update_story_status(self.smm_dir, "story-A1", "closing")
+        result = _run_cas(self.smm_dir, "story-A1", "reviewing", "closing")
+        self.assertEqual(result.returncode, 0, result.stderr)
         story_a = sprint_store.get_story(self.smm_dir, "story-A1")
         story_b = sprint_store.get_story(self.smm_dir, "story-A2")
         self.assertEqual(story_a["status"], "closing")
         self.assertEqual(story_b["status"], "reviewing")
+
+    def test_double_promote_to_closing_is_singleton_safe(self):
+        # Singleton-lock CAS guard: two consecutive CAS calls with the
+        # same expected→new pair must succeed once and fail once. The
+        # second call sees status=='closing' and returns nonzero without
+        # mutating sprint.json. Pins concern c8118872ad2b — the AC1
+        # promise that the reviewing→closing transition is CAS-guarded.
+        seed_sprint_with_stories(self.smm_dir, [("story-A3", "reviewing")])
+        first = _run_cas(self.smm_dir, "story-A3", "reviewing", "closing")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        second = _run_cas(self.smm_dir, "story-A3", "reviewing", "closing")
+        self.assertEqual(
+            second.returncode,
+            1,
+            "Second CAS call must report rc=1 (race-loss) — singleton lock "
+            "means only one transition wins, and rc=1 is the orchestrator's "
+            "skip-this-story signal (rc=2 would mean halt-on-corruption). "
+            f"Got rc={second.returncode}; sprint.json contents: "
+            f"{(self.smm_dir / 'sprint.json').read_text()}",
+        )
+        story = sprint_store.get_story(self.smm_dir, "story-A3")
+        self.assertEqual(story["status"], "closing")
 
     def test_find_closing_teammate_worktree_returns_worktree(self):
         # AC2: with story-A at `closing` + a live teammate worktree,

@@ -215,25 +215,73 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 # every caller (production scripts and 16+ test files).
 
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
-    has_active_stories,  # noqa: F401  re-export for legacy callers
+    has_active_stories,
     has_active_stories_data,
-    has_closing_stories,  # noqa: F401  re-export for legacy callers
-    has_closing_stories_data,  # noqa: F401  re-export for legacy callers
-    has_in_motion_stories,  # noqa: F401  re-export for legacy callers
-    has_in_motion_stories_data,  # noqa: F401  re-export for legacy callers
-    has_in_progress_stories,  # noqa: F401  re-export for legacy callers
-    has_in_progress_stories_data,  # noqa: F401  re-export for legacy callers
-    has_ready_stories,  # noqa: F401  re-export for legacy callers
-    has_reviewing_stories,  # noqa: F401  re-export for legacy callers
-    has_reviewing_stories_data,  # noqa: F401  re-export for legacy callers
-    has_scheduled_stories,  # noqa: F401  re-export for legacy callers
-    has_stories_with_status,  # noqa: F401  re-export for legacy callers
-    has_stories_with_status_data,  # noqa: F401  re-export for legacy callers
-    is_complete,  # noqa: F401  re-export for legacy callers
-    scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
-    select_closing_stories,  # noqa: F401  re-export for legacy callers
-    select_in_motion_stories,  # noqa: F401  re-export for legacy callers
+    has_closing_stories,
+    has_closing_stories_data,
+    has_in_motion_stories,
+    has_in_motion_stories_data,
+    has_in_progress_stories,
+    has_in_progress_stories_data,
+    has_ready_stories,
+    has_reviewing_stories,
+    has_reviewing_stories_data,
+    has_scheduled_stories,
+    has_stories_with_status,
+    has_stories_with_status_data,
+    has_under_acceptance_stories,
+    has_under_acceptance_stories_data,
+    is_complete,
+    scheduled_file_domains_overlap,
+    select_closing_stories,
+    select_in_motion_stories,
 )
+
+# Public API contract — listed for pyright (so re-exports aren't flagged
+# "not accessed") and ruff F401 suppression without per-line noqa. Must
+# enumerate ALL public names of this module, both module-defined and
+# re-exported, to be a complete contract.
+__all__ = [
+    "compute_blockers",
+    "compute_velocity",
+    "count_by_status",
+    "edit_story",
+    "get_story",
+    "get_story_branch_name",
+    "has_active_stories",
+    "has_active_stories_data",
+    "has_closing_stories",
+    "has_closing_stories_data",
+    "has_in_motion_stories",
+    "has_in_motion_stories_data",
+    "has_in_progress_stories",
+    "has_in_progress_stories_data",
+    "has_ready_stories",
+    "has_reviewing_stories",
+    "has_reviewing_stories_data",
+    "has_scheduled_stories",
+    "has_stories_with_status",
+    "has_stories_with_status_data",
+    "has_under_acceptance_stories",
+    "has_under_acceptance_stories_data",
+    "is_complete",
+    "list_stories",
+    "load_sprint",
+    "load_sprint_required",
+    "next_in_progress_story_id",
+    "next_scheduled_story_id",
+    "next_sprint_id",
+    "save_sprint",
+    "scheduled_file_domains_overlap",
+    "select_closing_stories",
+    "select_in_motion_stories",
+    "set_branch",
+    "set_story_branch",
+    "sprint_exists",
+    "transitive_active_dependents",
+    "update_story_status",
+    "update_story_status_if",
+]
 
 
 def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
@@ -257,7 +305,12 @@ def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     return story.get("branch_name", "") or ""
 
 
-def _next_story_id_with_status(smm_dir: Path, status: str) -> str | None:
+def _next_story_id_with_status(
+    smm_dir: Path,
+    status: str,
+    *,
+    treat_as_done: set[str] | None = None,
+) -> str | None:
     """Lowest-id story with `status` whose deps are ALL done. None if none.
 
     Powers JIT branch creation in /xp-story-close: the next story's
@@ -266,15 +319,22 @@ def _next_story_id_with_status(smm_dir: Path, status: str) -> str | None:
     naturally excludes blocked stories — a deferred story's status is
     "deferred", not "done", so any matching story depending on it fails
     the "all deps done" check and is skipped.
+
+    `treat_as_done` lets the caller assert "this id is about to be
+    done" without it actually being marked done on disk yet. Closes
+    the JIT-next race: /xp-story-close Step 8 runs BEFORE /xp-accept
+    Step 4 marks the just-closed story `done`, so a dep-gated next
+    story would never be promoted in solo mode without this override.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return None
     by_id = {s["id"]: s for s in sprint["stories"]}
+    overrides = treat_as_done or set()
 
     def _deps_done(story: dict) -> bool:
         return all(
-            by_id.get(dep, {}).get("status") == "done"
+            (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
             for dep in story.get("dependencies", [])
         )
 
@@ -331,7 +391,9 @@ def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
     return sorted(blocked - {story_id})
 
 
-def next_in_progress_story_id(smm_dir: Path) -> str | None:
+def next_in_progress_story_id(
+    smm_dir: Path, *, treat_as_done: set[str] | None = None
+) -> str | None:
     """Lowest-id in-progress story whose deps are ALL done. None if none.
 
     Powers /xp-story-close's JIT branch creation: the next story's branch
@@ -340,11 +402,18 @@ def next_in_progress_story_id(smm_dir: Path) -> str | None:
     blocked stories — a deferred story's status is "deferred", not
     "done", so any in-progress story depending on it fails the
     "all deps done" check and is skipped.
+
+    See `_next_story_id_with_status` for the `treat_as_done` override
+    semantics — exposed here for symmetry with `next_scheduled_story_id`.
     """
-    return _next_story_id_with_status(smm_dir, "in-progress")
+    return _next_story_id_with_status(
+        smm_dir, "in-progress", treat_as_done=treat_as_done
+    )
 
 
-def next_scheduled_story_id(smm_dir: Path) -> str | None:
+def next_scheduled_story_id(
+    smm_dir: Path, *, treat_as_done: set[str] | None = None
+) -> str | None:
     """Lowest-id scheduled story whose deps are ALL done. None if none.
 
     Powers /xp-story-close's JIT-next dispatch when no in-progress story
@@ -352,7 +421,7 @@ def next_scheduled_story_id(smm_dir: Path) -> str | None:
     its branch off the merged sprint tip. Same cascade-defer semantics
     as next_in_progress_story_id.
     """
-    return _next_story_id_with_status(smm_dir, "scheduled")
+    return _next_story_id_with_status(smm_dir, "scheduled", treat_as_done=treat_as_done)
 
 
 # -------------------------------------------------------------------

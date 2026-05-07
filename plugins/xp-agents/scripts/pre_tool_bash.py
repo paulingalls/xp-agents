@@ -324,13 +324,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 if story_candidate
                 else None
             )
+            probe_meta: dict = {}
             candidates = resolves_probe.find_probe_candidates(
-                smm_dir, staged, already_resolved, cwd, commit_message=msg or ""
+                smm_dir,
+                staged,
+                already_resolved,
+                cwd,
+                commit_message=msg or "",
+                out_meta=probe_meta,
             )
             if story_nudge:
                 parts.append(story_nudge)
+            # Emit even on zero candidates when probe_meta carries snapshot/
+            # tail telemetry — the empty-candidate emit is the diagnostic
+            # signal for newer-than-snapshot diverts.
+            if candidates or probe_meta:
+                resolves_probe.emit_probe_status(
+                    smm_dir, candidates, agent_id, probe_meta=probe_meta
+                )
             if candidates:
-                resolves_probe.emit_probe_status(smm_dir, candidates, agent_id)
                 # Concern a47dda9f00bd: advisory nudge → block when no
                 # trailer present. `Resolves-Event: none` is the universal
                 # escape. Any trailer (even mismatched IDs) is treated as

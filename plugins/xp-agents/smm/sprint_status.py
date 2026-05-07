@@ -12,7 +12,11 @@ import cleanly without a cycle when sprint_store re-exports back.
 from itertools import combinations
 from pathlib import Path
 
-from sprint_schema import ACTIVE_STORY_STATUSES, IN_MOTION_STORY_STATUSES
+from sprint_schema import (
+    ACTIVE_STORY_STATUSES,
+    IN_MOTION_STORY_STATUSES,
+    UNDER_ACCEPTANCE_STORY_STATUSES,
+)
 from triage import extract_file_domain_paths
 
 
@@ -100,8 +104,27 @@ def has_in_motion_stories_data(data: dict) -> bool:
     return any(s["status"] in IN_MOTION_STORY_STATUSES for s in data["stories"])
 
 
+def has_under_acceptance_stories(smm_dir: Path) -> bool:
+    """True if sprint has reviewing or closing stories.
+
+    Stories inside the per-story accept dispatch window. See
+    sprint_schema.UNDER_ACCEPTANCE_STORY_STATUSES.
+    """
+    from sprint_store import load_sprint
+
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return has_under_acceptance_stories_data(sprint)
+
+
+def has_under_acceptance_stories_data(data: dict) -> bool:
+    """True if sprint dict has reviewing or closing stories."""
+    return any(s["status"] in UNDER_ACCEPTANCE_STORY_STATUSES for s in data["stories"])
+
+
 def select_in_motion_stories(stories: list[dict]) -> list[dict]:
-    """Return stories under acceptance (in-progress, reviewing, or closing)."""
+    """Return in-motion stories (in-progress, reviewing, or closing)."""
     return [s for s in stories if s.get("status") in IN_MOTION_STORY_STATUSES]
 
 

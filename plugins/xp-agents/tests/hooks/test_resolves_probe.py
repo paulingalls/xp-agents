@@ -27,8 +27,11 @@ from event_schema import (
     EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
+    METADATA_KEY_PROBE_SNAPSHOT_MAX_TS,
+    METADATA_KEY_PROBE_TAIL_TS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP,
     SELECTION_REASON_IN_SPRINT_BATCH,
     SELECTION_REASON_KEYWORD,
     SELECTION_REASON_RECENCY,
@@ -586,6 +589,74 @@ class TestInSprintBatchAxis(_ScoringHelpers, unittest.TestCase):
         self.assertEqual(with_axis - without_axis, 1)
 
 
+class TestInBatchCloseNoOverlapWidening(_ScoringHelpers, unittest.TestCase):
+    """Widening for batched close-mode siblings without file overlap.
+
+    /xp-story-close batched multi-resolves emit candidates that legitimately
+    have files=[] but belong to the active cycle. Without this widening,
+    the file-overlap signal alone keeps them below the top-5 cap and they
+    fall out — the outside-file-domain divert observed at 33% of recent
+    diverts (retro Try #3). When in_sprint_batch + close_mode both fire
+    and file_overlap is 0, add +1 score and emit the marker reason so
+    the divert classifier doesn't tag them as outside-file-domain.
+    """
+
+    CYCLE = "abc123def456"
+
+    def _close_mode_in_cycle_no_overlap(self):
+        return self._candidate(
+            content="zzz",
+            files=[],
+            metadata={"close_mode": "sprint", "close_cycle_id": self.CYCLE},
+        )
+
+    def test_in_batch_close_no_overlap_adds_one_when_both_signals_fire(self):
+        cand = self._close_mode_in_cycle_no_overlap()
+        with_widening = self._score(cand, active_cycle_id=self.CYCLE)
+        without_widening = self._score(cand, active_cycle_id=None)
+        # Without widening: only close_mode fires (+1).
+        # With widening: in_sprint_batch (+1) + the new widening (+1) on top.
+        self.assertEqual(with_widening - without_widening, 2)
+
+    def test_in_batch_close_no_overlap_emits_marker_reason(self):
+        cand = self._close_mode_in_cycle_no_overlap()
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+    def test_does_not_fire_when_file_overlap_present(self):
+        # If file_overlap is already there, the FILE_OVERLAP signal already
+        # carries this candidate; widening would double-count.
+        cand = self._candidate(
+            content="zzz",
+            files=["scripts/auth.py"],
+            metadata={"close_mode": "sprint", "close_cycle_id": self.CYCLE},
+        )
+        _, reasons = self._score_with_reasons(
+            cand,
+            commit_files=["scripts/auth.py"],
+            active_cycle_id=self.CYCLE,
+        )
+        self.assertNotIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+    def test_does_not_fire_without_close_mode(self):
+        # In-cycle but not close-mode (e.g. an in-progress concern that just
+        # happens to share cycle): widening must not fire.
+        cand = self._candidate(
+            content="zzz",
+            files=[],
+            metadata={"close_cycle_id": self.CYCLE},
+        )
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertNotIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+    def test_does_not_fire_without_in_sprint_batch(self):
+        # Close-mode but no active cycle (or different cycle): widening
+        # must not fire — both signals are required together.
+        cand = self._close_mode_in_cycle_no_overlap()
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=None)
+        self.assertNotIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+
 class TestFindActiveCycleId(unittest.TestCase):
     """_find_active_cycle_id picks the most-recent recent concern's
     close_cycle_id from events.jsonl context."""
@@ -767,7 +838,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
     payload size bounded and force deliberate review when adding a new
     selector signal.
 
-    Adding a 6th constant requires:
+    Adding a 7th constant requires:
       1. Updating _score_candidate to emit it (in deterministic order)
       2. Bumping this expected count
       3. Reviewing the divert-narrative payload size impact (each probe
@@ -776,7 +847,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
          strings per probe event).
     """
 
-    def test_exactly_five_selection_reason_constants(self):
+    def test_exactly_six_selection_reason_constants(self):
         # Substring match catches both public (SELECTION_REASON_*) and
         # private (_SELECTION_REASON_*) — a private constant still grows
         # the divert payload, so it counts toward the cap.
@@ -789,6 +860,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
                 "SELECTION_REASON_RECENCY",
                 "SELECTION_REASON_CLOSE_MODE",
                 "SELECTION_REASON_IN_SPRINT_BATCH",
+                "SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP",
             },
             "Selector-signal vocabulary changed — see this test's docstring "
             "for the deliberate-review checklist before updating the expected set.",
@@ -996,6 +1068,124 @@ class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):
             METADATA_KEY_PROBE_SELECTION_REASONS
         ]
         self.assertEqual(reasons_map, {"abc": []})
+
+    def test_emit_with_probe_meta_emits_even_when_zero_candidates(self):
+        # The most diagnostic case for newer-than-snapshot diverts is the
+        # zero-candidate emit — without this, we'd never see the snapshot
+        # vs tail-ts evidence for a divert that matters most.
+        probe_meta = {
+            METADATA_KEY_PROBE_SNAPSHOT_MAX_TS: "2026-04-29T10:00:00+00:00",
+            METADATA_KEY_PROBE_TAIL_TS: "2026-04-29T10:00:30+00:00",
+        }
+        resolves_probe.emit_probe_status(
+            self.smm_dir, [], "main", probe_meta=probe_meta
+        )
+        probes = self._probes()
+        self.assertEqual(len(probes), 1)
+        meta = probes[0]["metadata"]
+        self.assertEqual(
+            meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS], "2026-04-29T10:00:00+00:00"
+        )
+        self.assertEqual(meta[METADATA_KEY_PROBE_TAIL_TS], "2026-04-29T10:00:30+00:00")
+
+    def test_emit_with_neither_candidates_nor_probe_meta_returns_silently(self):
+        # Regression guard for the original empty-candidates short-circuit:
+        # when there's nothing to emit AND no diagnostic metadata, stay
+        # silent. Only the probe_meta channel can override the early return.
+        resolves_probe.emit_probe_status(self.smm_dir, [], "main", probe_meta=None)
+        self.assertEqual(self._probes(), [])
+
+    def test_emit_with_candidates_and_probe_meta_merges_metadata(self):
+        candidates = [{"id": "abc", "content": "first"}]
+        probe_meta = {
+            METADATA_KEY_PROBE_SNAPSHOT_MAX_TS: "2026-04-29T10:00:00+00:00",
+            METADATA_KEY_PROBE_TAIL_TS: "2026-04-29T10:00:00+00:00",
+        }
+        resolves_probe.emit_probe_status(
+            self.smm_dir, candidates, "main", probe_meta=probe_meta
+        )
+        meta = self._probes()[0]["metadata"]
+        self.assertEqual(meta[METADATA_KEY_PROBE_CANDIDATES], ["abc"])
+        self.assertEqual(
+            meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS], "2026-04-29T10:00:00+00:00"
+        )
+        self.assertEqual(meta[METADATA_KEY_PROBE_TAIL_TS], "2026-04-29T10:00:00+00:00")
+
+
+class TestFindProbeCandidatesOutMeta(_HookTestCase):
+    """find_probe_candidates populates out_meta with snapshot/tail timestamps.
+
+    Reinforces the newer-than-snapshot divert diagnosis by capturing both
+    the caller's snapshot freshness AND the on-disk tail at probe time —
+    so retro_metrics (and humans) can see whether a divert was caused by
+    snapshot lag or by something else.
+    """
+
+    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
+        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def test_out_meta_populated_with_snapshot_and_tail_ts(self):
+        ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Auth concern", ["scripts/auth.py"], ts)
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        out_meta: dict = {}
+        resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=events,
+            resolutions=resolutions,
+            now_ts="2026-04-29T10:00:01+00:00",
+            out_meta=out_meta,
+        )
+        self.assertEqual(out_meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS], ts)
+        self.assertEqual(out_meta[METADATA_KEY_PROBE_TAIL_TS], ts)
+
+    def test_out_meta_snapshot_ts_pinned_before_staleness_reread(self):
+        # When the caller's snapshot is stale, find_probe_candidates re-reads
+        # disk. The pinning contract: snapshot_max_ts MUST reflect the
+        # caller's stale value, not the post-reread tail. Otherwise both
+        # timestamps equal disk tail and the metric is meaningless.
+        old_ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Old concern", ["scripts/auth.py"], old_ts)
+        stale_events, stale_res = _common.load_events_with_resolutions(self.smm_dir)
+        new_ts = "2026-04-29T10:00:30+00:00"
+        self._seed_concern("Fresh concern", ["scripts/auth.py"], new_ts)
+        out_meta: dict = {}
+        resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=stale_events,
+            resolutions=stale_res,
+            now_ts="2026-04-29T10:01:00+00:00",
+            out_meta=out_meta,
+        )
+        self.assertEqual(
+            out_meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS],
+            old_ts,
+            "snapshot_max_ts MUST be the caller's pre-reread max, not the "
+            "disk tail post-reread; otherwise newer-than-snapshot diverts "
+            "are undiagnosable.",
+        )
+        self.assertEqual(out_meta[METADATA_KEY_PROBE_TAIL_TS], new_ts)
+
+    def test_out_meta_default_none_does_not_break_existing_callers(self):
+        ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Auth concern", ["scripts/auth.py"], ts)
+        # No out_meta passed — pre-existing call shape, must not error.
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts="2026-04-29T10:00:01+00:00",
+        )
+        self.assertEqual(len(result), 1)
 
 
 class TestFindProbeCandidatesDiscovery(_HookTestCase):

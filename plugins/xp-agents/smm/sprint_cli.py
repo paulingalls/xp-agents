@@ -37,7 +37,9 @@ def _cmd_is_complete(args: argparse.Namespace) -> int:
 
 
 def _cmd_next_in_progress(args: argparse.Namespace) -> int:
-    story_id = store.next_in_progress_story_id(args.smm_dir)
+    story_id = store.next_in_progress_story_id(
+        args.smm_dir, treat_as_done=set(args.treat_as_done)
+    )
     if story_id is None:
         return 1
     print(story_id)
@@ -45,7 +47,9 @@ def _cmd_next_in_progress(args: argparse.Namespace) -> int:
 
 
 def _cmd_next_scheduled(args: argparse.Namespace) -> int:
-    story_id = store.next_scheduled_story_id(args.smm_dir)
+    story_id = store.next_scheduled_story_id(
+        args.smm_dir, treat_as_done=set(args.treat_as_done)
+    )
     if story_id is None:
         return 1
     print(story_id)
@@ -193,6 +197,24 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_update_story_if(args: argparse.Namespace) -> int:
+    """Atomic compare-and-swap on story status.
+
+    Exits 0 when the on-disk status matched --expected and the write
+    succeeded; 1 when the status differed (no-op, file untouched);
+    2 on validation/missing-id/missing-sprint errors. Callers can
+    distinguish "lost the race" (rc=1) from "bad input" (rc=2).
+    """
+    try:
+        ok = store.update_story_status_if(
+            args.smm_dir, args.story_id, expected=args.expected, new=args.new
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    return 0 if ok else 1
+
+
 def _cmd_edit_story(args: argparse.Namespace) -> int:
     raw = sys.stdin.read()
     try:
@@ -290,13 +312,32 @@ def main() -> None:
     sub.add_parser("exists", help="Check if sprint exists")
     sub.add_parser("has-active", help="Check for active stories")
     sub.add_parser("is-complete", help="Check if sprint is complete")
-    sub.add_parser(
+    nip_p = sub.add_parser(
         "next-in-progress",
         help="Lowest-id in-progress story whose deps are all done (exit 1 if none)",
     )
-    sub.add_parser(
+    nip_p.add_argument(
+        "--treat-as-done",
+        action="append",
+        default=[],
+        metavar="STORY_ID",
+        help=(
+            "Treat STORY_ID as if its status were 'done' for the dep check. "
+            "Repeatable. Used by /xp-story-close Step 8 to surface a "
+            "next-scheduled story whose dep is the just-closed story "
+            "(still 'closing' at JIT-next time, not yet 'done')."
+        ),
+    )
+    nsc_p = sub.add_parser(
         "next-scheduled",
         help="Lowest-id scheduled story whose deps are all done (exit 1 if none)",
+    )
+    nsc_p.add_argument(
+        "--treat-as-done",
+        action="append",
+        default=[],
+        metavar="STORY_ID",
+        help="Same as next-in-progress: see that subcommand's help.",
     )
     sub.add_parser(
         "scheduled-overlap",
@@ -343,6 +384,21 @@ def main() -> None:
         "status",
         choices=_STATUS_CHOICES,
         help="New status",
+    )
+
+    usi_p = sub.add_parser(
+        "update-story-if",
+        help=(
+            "Atomic compare-and-swap on story status. Exits 0 on success, "
+            "1 when the on-disk status differed from --expected (no write), "
+            "2 on validation errors. Used by xp-accept Step 1.5 to guard "
+            "the singleton reviewing→closing transition."
+        ),
+    )
+    usi_p.add_argument("story_id", help="Story ID")
+    usi_p.add_argument("--expected", required=True, help="Required current status")
+    usi_p.add_argument(
+        "--new", required=True, choices=_STATUS_CHOICES, help="New status"
     )
 
     usb_p = sub.add_parser("update-story-branch", help="Set a story's branch name")
@@ -411,6 +467,7 @@ def main() -> None:
         "add-story": _cmd_add_story,
         "edit-story": _cmd_edit_story,
         "update-story": _cmd_update_story,
+        "update-story-if": _cmd_update_story_if,
         "update-story-branch": _cmd_update_story_branch,
         "get-story-branch": _cmd_get_story_branch,
         "get-story": _cmd_get_story,
