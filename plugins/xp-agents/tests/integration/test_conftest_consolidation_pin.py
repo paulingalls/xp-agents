@@ -144,6 +144,26 @@ class TestConftestConsolidation(unittest.TestCase):
                 "— migrate to _LintTmpDirMixin.",
             )
 
+    def test_single_xp_preload_path_constant_definitions(self):
+        # Story-001 (sprint-068 burndown). Resolves debt d414ec71b89a:
+        # _XP_ACCEPT_PRELOAD and _XP_STORY_CLOSE_PRELOAD path constants
+        # were duplicated across 3 integration test files. Hoist to
+        # tests/integration/conftest.py so a single canonical site owns
+        # the path. Pin scoped to integration/ — the constants are
+        # integration-suite-only by purpose. One regex with alternation
+        # so the file walk happens once, matching sibling pins.
+        integration_dir = _TESTS_DIR / "integration"
+        const_re = r"^(_XP_ACCEPT_PRELOAD|_XP_STORY_CLOSE_PRELOAD)\s*=\s*"
+        hits = [p for p in _files_matching(const_re) if integration_dir in p.parents]
+        self.assertEqual(
+            len(hits),
+            1,
+            "_XP_ACCEPT_PRELOAD / _XP_STORY_CLOSE_PRELOAD should be defined "
+            f"exactly once under tests/integration/ (in conftest.py); "
+            f"found in: {[str(p) for p in hits]}",
+        )
+        self.assertEqual(hits[0].name, "conftest.py")
+
     def test_retro_flag_cascade_does_not_reintroduce_smm_sys_path_insert(self):
         # Story-016 removed a raw `sys.path.insert(... "smm")` from
         # test_retro_flag_cascade.py in favor of the conftest re-export.

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _test_typing import _MixinBase
 from conftest import make_event
 from event_schema import (
     DIVERT_REASON_CROSS_STORY,
@@ -36,6 +37,23 @@ from event_schema import (
     STATUS_ACTION_TEST_RUN_COMPLETE,
     STATUS_CONTENT_RESOLVES_PROBE,
 )
+
+
+class _PatchNormalizePathIdentity(_MixinBase):
+    """Stub worktree.normalize_path to identity in setUp.
+
+    For tests where canonical path form is incidental — only set equality
+    on raw paths matters. TestFileOverlapNormalization, by contrast, uses
+    inline patches because the canonical-form contract IS the assertion.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from unittest.mock import patch as patch_
+
+        patcher = patch_("worktree.normalize_path", side_effect=lambda p, _c: p)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
 
 class TestDirectTrailerCount(unittest.TestCase):
@@ -65,7 +83,9 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit([], "2026-04-05T11:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["resolves_trailer_total"], 3)
         self.assertEqual(result["resolves_trailer_hits"], 2)
         self.assertAlmostEqual(result["resolves_link_rate"], 2 / 3, places=6)
@@ -74,7 +94,9 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [make_event(content="status only")]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["resolves_trailer_total"], 0)
         self.assertEqual(result["resolves_link_rate"], 0.0)
 
@@ -86,7 +108,9 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit([], "2026-04-05T11:00:00+00:00", "agent-1"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00", "agent-2"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         pa = result["per_agent"]
         self.assertEqual(pa["agent-1"]["resolves_trailer_total"], 2)
         self.assertEqual(pa["agent-1"]["resolves_trailer_hits"], 1)
@@ -100,7 +124,9 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit(["aaa"], "2026-03-15T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T10:00:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["resolves_trailer_total"], 1)
         self.assertEqual(result["resolves_trailer_hits"], 1)
 
@@ -243,7 +269,7 @@ class TestClassifyM2ToolActions(unittest.TestCase):
         self.assertEqual(counts["commits"], 2)
 
 
-class TestClassifyDivertReason(unittest.TestCase):
+class TestClassifyDivertReason(_PatchNormalizePathIdentity, unittest.TestCase):
     """_classify_divert_reason picks first-match reason for an agent's
     rejected resolves choice (divert), so retros can act on cause not count.
 
@@ -267,6 +293,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id=None,
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_NEWER_THAN_SNAPSHOT)
 
@@ -284,6 +311,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/billing.py"],
             story_id=None,
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_OUTSIDE_FILE_DOMAIN)
 
@@ -302,6 +330,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id="story-006",
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_CROSS_STORY)
 
@@ -319,6 +348,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id=None,
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_WRONG_TYPE)
 
@@ -340,6 +370,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id="story-006",
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
 
@@ -360,6 +391,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id=None,
+            cwd="/repo",
         )
         self.assertNotEqual(reason, DIVERT_REASON_WRONG_TYPE)
         self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
@@ -378,6 +410,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id="story-006",
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_MISSING_EVENT)
 
@@ -399,6 +432,7 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id="story-006",
+            cwd="/repo",
         )
         self.assertNotEqual(reason, DIVERT_REASON_CROSS_STORY)
         # in-domain → PROBE_SELECTION_MISS post-story-005
@@ -423,11 +457,12 @@ class TestClassifyDivertReason(unittest.TestCase):
             probe_ts="2026-05-01T10:00:00+00:00",
             commit_files=["scripts/x.py"],
             story_id="story-006",
+            cwd="/repo",
         )
         self.assertEqual(reason, DIVERT_REASON_UNKNOWN)
 
 
-class TestProbeDivertDetailsReason(unittest.TestCase):
+class TestProbeDivertDetailsReason(_PatchNormalizePathIdentity, unittest.TestCase):
     """Integration: probe_divert_details[i]['reason'] is set per divert tuple.
     Wires _classify_divert_reason into _compute_probe_adoption."""
 
@@ -482,7 +517,9 @@ class TestProbeDivertDetailsReason(unittest.TestCase):
                 files=["scripts/billing.py"],
             ),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_divert"], 1)
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
@@ -527,7 +564,9 @@ class TestProbeDivertDetailsReason(unittest.TestCase):
                 files=["scripts/x.py"],
             ),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["reason"], DIVERT_REASON_OUTSIDE_FILE_DOMAIN)
@@ -552,13 +591,17 @@ class TestProbeDivertDetailsReason(unittest.TestCase):
                 files=["scripts/x.py"],
             ),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["reason"], DIVERT_REASON_NEWER_THAN_SNAPSHOT)
 
 
-class TestSprint065DivertScenariosAllNamed(unittest.TestCase):
+class TestSprint065DivertScenariosAllNamed(
+    _PatchNormalizePathIdentity, unittest.TestCase
+):
     """story-005 AC #1, #2, #4: each of the 8 sprint-065 paired-divert
     fixtures must classify into a named (non-UNKNOWN) bucket.
 
@@ -585,6 +628,7 @@ class TestSprint065DivertScenariosAllNamed(unittest.TestCase):
             probe_ts=probe_ts,
             commit_files=commit_files,
             story_id=story_id,
+            cwd="/repo",
         )
 
     def test_divert_1_id_not_found_classifies_named(self):
@@ -770,6 +814,23 @@ class TestFileOverlapNormalization(unittest.TestCase):
             )
         # '/abs/repo/scripts/x.py' canonicalizes to 'scripts/x.py' → overlap.
         self.assertEqual(reason, DIVERT_REASON_PROBE_SELECTION_MISS)
+
+
+class TestNormalizeFileSetSignatureTightened(unittest.TestCase):
+    """story-006 AC #1: _normalize_file_set requires cwd: str — no None
+    affordance. Pyright/mypy enforce this statically; the runtime check
+    here pins the contract so the affordance can't be reintroduced
+    without breaking a test."""
+
+    def test_normalize_file_set_requires_cwd_str(self):
+        import inspect
+
+        import retro_metrics
+
+        sig = inspect.signature(retro_metrics._normalize_file_set)
+        cwd_param = sig.parameters["cwd"]
+        self.assertIs(cwd_param.annotation, str)
+        self.assertIs(cwd_param.default, inspect.Parameter.empty)
 
 
 if __name__ == "__main__":

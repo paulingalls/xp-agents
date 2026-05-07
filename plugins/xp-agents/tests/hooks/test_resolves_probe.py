@@ -192,6 +192,88 @@ class TestBuildNudgeLines(unittest.TestCase):
         block = resolves_probe.build_nudge_lines([candidate])[0]
         self.assertNotIn("close-reviewer", block)
 
+    def test_selection_reasons_render_as_why_suffix(self):
+        """Story-003 (A): each item line surfaces ALL selection_reasons as
+        a `(why: ...)` suffix so the agent sees WHY each candidate was
+        picked. No positional cap — concern 684a9d401adc: capping would
+        always occlude `in_sprint_batch` / `close_mode` (the signals
+        explaining WHY no-file-overlap siblings surfaced, which is exactly
+        what sprint-067 retro is targeting). Vocabulary is hard-capped at
+        5 by SELECTION_REASON_* contract, so worst-case suffix fits one
+        line."""
+        candidate = {
+            "id": "abc123def456",
+            "type": EVENT_TYPE_CONCERN,
+            "severity": "medium",
+            "content": "Auth leak",
+            "selection_reasons": [
+                SELECTION_REASON_KEYWORD,
+                SELECTION_REASON_FILE_OVERLAP,
+                SELECTION_REASON_RECENCY,
+                SELECTION_REASON_IN_SPRINT_BATCH,
+            ],
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        expected_why = (
+            f"(why: {SELECTION_REASON_KEYWORD}, "
+            f"{SELECTION_REASON_FILE_OVERLAP}, "
+            f"{SELECTION_REASON_RECENCY}, "
+            f"{SELECTION_REASON_IN_SPRINT_BATCH})"
+        )
+        self.assertIn(expected_why, block)
+
+    def test_no_why_suffix_when_selection_reasons_empty(self):
+        """Empty/missing selection_reasons → no `(why: ...)` suffix at all,
+        so legacy probe payloads (pre-reasons) and zero-signal candidates
+        render cleanly without an empty suffix."""
+        candidate = {
+            "id": "abc123def456",
+            "type": EVENT_TYPE_CONCERN,
+            "severity": "medium",
+            "content": "Plain concern",
+            "selection_reasons": [],
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertNotIn("why:", block)
+
+    def test_why_suffix_coexists_with_close_mode_suffix(self):
+        """When BOTH close_mode (provenance) and selection_reasons are present,
+        both suffixes render — they're independent signals (provenance is for
+        attribution, why is for selection rationale)."""
+        candidate = {
+            "id": "abc123def456",
+            "type": EVENT_TYPE_CONCERN,
+            "severity": "medium",
+            "content": "Cross-cutting",
+            "metadata": {"close_mode": "sprint"},
+            "selection_reasons": [SELECTION_REASON_FILE_OVERLAP],
+        }
+        block = resolves_probe.build_nudge_lines([candidate])[0]
+        self.assertIn("(from sprint-close-reviewer)", block)
+        self.assertIn(f"(why: {SELECTION_REASON_FILE_OVERLAP})", block)
+
+    def test_why_suffix_does_not_break_ready_to_use_trailer_line(self):
+        """The trailer line `Ready-to-use trailer: Resolves-Event: <ids>` is
+        load-bearing for pre_tool_bash and downstream consumers. Adding the
+        per-item `(why: ...)` suffix must NOT bleed into or break that line.
+        """
+        candidates = [
+            {
+                "id": "abc",
+                "type": EVENT_TYPE_CONCERN,
+                "content": "first",
+                "selection_reasons": [SELECTION_REASON_KEYWORD],
+            },
+            {
+                "id": "def",
+                "type": EVENT_TYPE_CONCERN,
+                "content": "second",
+                "selection_reasons": [SELECTION_REASON_FILE_OVERLAP],
+            },
+        ]
+        block = resolves_probe.build_nudge_lines(candidates)[0]
+        self.assertIn("\nReady-to-use trailer: Resolves-Event: abc, def", block)
+
 
 class _ScoringHelpers:
     """Shared candidate-builder + score caller for TestScoreCandidate and
@@ -706,6 +788,109 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
             "Selector-signal vocabulary changed — see this test's docstring "
             "for the deliberate-review checklist before updating the expected set.",
         )
+
+
+class TestFindProbeCandidatesSnapshotFreshness(_HookTestCase):
+    """Story-003 (B): when caller passes an `events` snapshot that is
+    meaningfully older than `now_ts`, find_probe_candidates re-loads
+    events from disk so newer events appear in the candidate set.
+
+    Without this guard, the caller's stale snapshot would silently miss
+    events that arrived on disk between snapshot time and probe time —
+    leading to spurious `newer-than-snapshot` divert classifications
+    when the agent commits with a Resolves-Event id that the freshness
+    reload would have surfaced as a candidate.
+    """
+
+    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
+        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def test_stale_events_snapshot_triggers_disk_reload(self):
+        """Caller passes events snapshot whose newest ts is well before
+        now_ts. find_probe_candidates detects the staleness and re-reads
+        events.jsonl, picking up a fresh concern that wasn't in the
+        snapshot."""
+        old_ts = "2026-04-29T10:00:00+00:00"
+        # Old concern is on disk AND in the caller's stale snapshot.
+        old_id = self._seed_concern("Old auth concern", ["scripts/auth.py"], old_ts)
+        stale_events, stale_resolutions = _common.load_events_with_resolutions(
+            self.smm_dir
+        )
+        # New concern arrives on disk AFTER the caller took its snapshot.
+        new_ts = "2026-04-29T10:00:30+00:00"
+        new_id = self._seed_concern("Fresh auth concern", ["scripts/auth.py"], new_ts)
+        # Caller passes the stale snapshot but now_ts is well after the new
+        # concern's ts — staleness threshold MUST trigger a disk reload.
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=stale_events,
+            resolutions=stale_resolutions,
+            now_ts="2026-04-29T10:01:00+00:00",
+        )
+        ids = {c["id"] for c in result}
+        self.assertIn(
+            new_id,
+            ids,
+            "Fresh concern must surface after staleness-triggered reload — "
+            "without this, divert classifier spuriously fires "
+            "newer-than-snapshot for events on disk at commit time.",
+        )
+        self.assertIn(old_id, ids, "Old concern must still surface after reload.")
+
+    def test_fresh_events_snapshot_skips_disk_reload(self):
+        """When the passed snapshot's newest ts is within the freshness
+        threshold of now_ts, find_probe_candidates trusts the snapshot
+        and does NOT re-read disk. Verified by mutating the on-disk file
+        AFTER snapshotting — the mutation must NOT appear in the result.
+        """
+        ts = "2026-04-29T10:00:00+00:00"
+        old_id = self._seed_concern("Old auth concern", ["scripts/auth.py"], ts)
+        snapshot, snapshot_resolutions = _common.load_events_with_resolutions(
+            self.smm_dir
+        )
+        # Disk gains a new concern AFTER snapshot — but now_ts is only a
+        # second after the snapshot's newest ts, well within threshold.
+        new_id = self._seed_concern(
+            "Fresh auth concern", ["scripts/auth.py"], "2026-04-29T10:00:01+00:00"
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=snapshot,
+            resolutions=snapshot_resolutions,
+            now_ts="2026-04-29T10:00:01+00:00",
+        )
+        ids = {c["id"] for c in result}
+        self.assertIn(old_id, ids)
+        self.assertNotIn(
+            new_id,
+            ids,
+            "Fresh snapshot must NOT trigger a disk reload — staleness "
+            "threshold is the contract that gates the reload.",
+        )
+
+    def test_events_none_still_loads_fresh_unchanged(self):
+        """Backward-compat: existing callers that pass events=None continue
+        to load fresh from disk (no behavior change for the pre-commit hook
+        path that doesn't pre-snapshot events)."""
+        cid = self._seed_concern(
+            "Auth concern", ["scripts/auth.py"], "2026-04-29T10:00:00+00:00"
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts="2026-04-29T10:01:00+00:00",
+        )
+        self.assertIn(cid, [c["id"] for c in result])
 
 
 class TestFindProbeCandidatesSorting(_HookTestCase):

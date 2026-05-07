@@ -178,38 +178,28 @@ class TestExtractFileDomainPaths(unittest.TestCase):
         )
         self.assertEqual(result, {"test_a.py", "test_b.py"})
 
-    def test_glob_with_no_candidates_falls_back_to_disk(self):
-        """When candidate_files is omitted, expand via Path.glob from cwd."""
-        with tempfile.TemporaryDirectory() as td:
-            tdp = Path(td)
-            (tdp / "tests" / "hooks").mkdir(parents=True)
-            (tdp / "tests" / "hooks" / "test_a.py").touch()
-            (tdp / "tests" / "hooks" / "test_b.py").touch()
-            (tdp / "scripts").mkdir()
-            (tdp / "scripts" / "foo.py").touch()
+    def test_glob_with_no_candidates_and_no_cwd_raises(self):
+        """Glob entry without candidate_files OR cwd raises ValueError.
 
-            cwd = os.getcwd()
-            os.chdir(td)
-            try:
-                result = triage.extract_file_domain_paths(["tests/hooks/*.py"])
-            finally:
-                os.chdir(cwd)
-            self.assertEqual(result, {"tests/hooks/test_a.py", "tests/hooks/test_b.py"})
+        Eliminates the prior implicit-cwd foot-gun (concern edf2fc993f52).
+        Callers MUST declare a glob root explicitly — either via
+        candidate_files (cascade-analysis) or cwd= (disk expansion).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            triage.extract_file_domain_paths(["tests/hooks/*.py"])
+        self.assertIn("tests/hooks/*.py", str(ctx.exception))
+        self.assertIn("candidate_files=", str(ctx.exception))
+        self.assertIn("cwd=", str(ctx.exception))
 
-    def test_glob_recursive_no_candidates_falls_back_to_disk(self):
-        """** falls back to Path.glob recursive matching."""
+    def test_glob_recursive_with_cwd_expands_via_disk(self):
+        """** glob expands recursively via Path(cwd).glob when cwd is supplied."""
         with tempfile.TemporaryDirectory() as td:
             tdp = Path(td)
             (tdp / "tests" / "hooks" / "sub").mkdir(parents=True)
             (tdp / "tests" / "hooks" / "test_a.py").touch()
             (tdp / "tests" / "hooks" / "sub" / "test_b.py").touch()
 
-            cwd = os.getcwd()
-            os.chdir(td)
-            try:
-                result = triage.extract_file_domain_paths(["tests/hooks/**/*.py"])
-            finally:
-                os.chdir(cwd)
+            result = triage.extract_file_domain_paths(["tests/hooks/**/*.py"], cwd=td)
             self.assertIn("tests/hooks/test_a.py", result)
             self.assertIn("tests/hooks/sub/test_b.py", result)
 
@@ -231,6 +221,66 @@ class TestExtractFileDomainPaths(unittest.TestCase):
             candidate_files=candidates,
         )
         self.assertEqual(result, {"tests/hooks/test_a.py", "scripts/explicit.py"})
+
+    # --- cwd kwarg (story-005 / concern edf2fc993f52) ---------------------
+
+    def test_glob_with_cwd_kwarg_uses_provided_dir(self):
+        """AC2/AC3: cwd= names the glob root — does NOT consult os.getcwd()."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            (tdp / "tests" / "hooks").mkdir(parents=True)
+            (tdp / "tests" / "hooks" / "test_a.py").touch()
+            (tdp / "tests" / "hooks" / "test_b.py").touch()
+
+            # Stay in a DIFFERENT cwd to prove the kwarg, not the process
+            # cwd, drives expansion. If the implementation regresses to
+            # `Path(".").glob` the result will be empty under any tmpdir
+            # that doesn't itself contain `tests/hooks/*.py`.
+            with tempfile.TemporaryDirectory() as other_cwd:
+                origin = os.getcwd()
+                os.chdir(other_cwd)
+                try:
+                    result = triage.extract_file_domain_paths(
+                        ["tests/hooks/*.py"], cwd=td
+                    )
+                finally:
+                    os.chdir(origin)
+
+            self.assertEqual(
+                result,
+                {"tests/hooks/test_a.py", "tests/hooks/test_b.py"},
+                "cwd= should drive glob expansion, not the process cwd",
+            )
+
+    def test_literal_paths_work_without_cwd(self):
+        """Literal file_domain paths (no glob) work without cwd or candidates.
+
+        sprint_status.scheduled_file_domains_overlap rides this path —
+        sprint stories declare literal paths in file_domain, the function
+        does set-overlap on declared strings, no disk lookup needed.
+        """
+        result = triage.extract_file_domain_paths(
+            ["tests/hooks/test_a.py", "scripts/foo.py"]
+        )
+        self.assertEqual(result, {"tests/hooks/test_a.py", "scripts/foo.py"})
+
+    def test_cwd_ignored_when_candidate_files_provided(self):
+        """AC2: candidate_files takes precedence — cwd= is irrelevant.
+
+        Cascade-analysis call-sites (story_metrics._attribute_commits) pass
+        candidate_files with historical commit paths that may not exist on
+        disk. cwd= must NOT silently switch them to disk-glob.
+        """
+        candidates = ["tests/hooks/test_a.py"]
+        with tempfile.TemporaryDirectory() as td:
+            # The tmpdir has no matching files — if cwd= leaked through,
+            # the result would be empty. The candidate_files path must win.
+            result = triage.extract_file_domain_paths(
+                ["tests/hooks/*.py"],
+                candidate_files=candidates,
+                cwd=td,
+            )
+        self.assertEqual(result, {"tests/hooks/test_a.py"})
 
 
 if __name__ == "__main__":

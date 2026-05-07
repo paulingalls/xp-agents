@@ -140,6 +140,128 @@ class TestUpdateStoryStatus(_SMMTestCase):
             sprint_store.update_story_status(self.smm_dir, "story-001", "done")
 
 
+class TestUpdateStoryStatusIf(_SMMTestCase):
+    """Atomic compare-and-swap on story status.
+
+    Closes the get_story → update_story_status TOCTOU window in
+    spawn_teammate.py: load+check+save run under a single flock so a
+    concurrent mutation between read and write cannot silently demote
+    a story already advanced past in-progress.
+    """
+
+    def _seed(self, status: str) -> None:
+        sprint = _make_sprint(stories=[_make_story(status=status)])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def _read_status(self) -> str:
+        return json.loads((self.smm_dir / "sprint.json").read_text())["stories"][0][
+            "status"
+        ]
+
+    def test_returns_true_and_updates_when_status_matches(self):
+        import sprint_store
+
+        self._seed("in-progress")
+        result = sprint_store.update_story_status_if(
+            self.smm_dir, "story-001", expected="in-progress", new="reviewing"
+        )
+        self.assertTrue(result)
+        self.assertEqual(self._read_status(), "reviewing")
+
+    def test_returns_false_and_leaves_status_when_already_done(self):
+        """Pins concern 3ba0b6237c65: rc=0 promote must not demote a story
+        already advanced past in-progress (e.g. user manually flipped it
+        to done mid-run, or an orchestrator raced past)."""
+        import sprint_store
+
+        self._seed("done")
+        result = sprint_store.update_story_status_if(
+            self.smm_dir, "story-001", expected="in-progress", new="reviewing"
+        )
+        self.assertFalse(result)
+        self.assertEqual(self._read_status(), "done")
+
+    def test_invalid_new_status_raises_before_load(self):
+        """Boundary validation matches update_story_status — `new` must be
+        a known status. Raises before touching the sprint file."""
+        import sprint_store
+
+        self._seed("in-progress")
+        with self.assertRaises(ValueError):
+            sprint_store.update_story_status_if(
+                self.smm_dir, "story-001", expected="in-progress", new="bogus"
+            )
+        # Status untouched.
+        self.assertEqual(self._read_status(), "in-progress")
+
+    def test_unknown_story_id_raises(self):
+        import sprint_store
+
+        self._seed("in-progress")
+        with self.assertRaises(ValueError):
+            sprint_store.update_story_status_if(
+                self.smm_dir, "story-999", expected="in-progress", new="reviewing"
+            )
+
+    def test_no_sprint_raises(self):
+        import sprint_store
+
+        with self.assertRaises(ValueError):
+            sprint_store.update_story_status_if(
+                self.smm_dir, "story-001", expected="in-progress", new="reviewing"
+            )
+
+    def test_concurrent_callers_serialize_via_lock(self):
+        """Two parallel processes both attempting in-progress → reviewing.
+
+        Exactly one must see status==expected and update; the other must
+        observe the post-update status (`reviewing` ≠ `in-progress`) and
+        return False. If both returned True, the lock isn't holding the
+        load-modify-save together as a single critical section.
+        """
+        import subprocess
+        import sys as _sys
+
+        self._seed("in-progress")
+
+        plugin_root = Path(__file__).parent.parent.parent
+        smm_pkg = plugin_root / "smm"
+        snippet = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(smm_pkg)!r})\n"
+            "from pathlib import Path\n"
+            "import sprint_store\n"
+            "r = sprint_store.update_story_status_if(\n"
+            f"    Path({str(self.smm_dir)!r}),\n"
+            "    'story-001', expected='in-progress', new='reviewing'\n"
+            ")\n"
+            "print('TRUE' if r else 'FALSE')\n"
+        )
+
+        procs = [
+            subprocess.Popen(
+                [_sys.executable, "-c", snippet],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(2)
+        ]
+        outs = [p.communicate(timeout=15) for p in procs]
+
+        for p, (_stdout, stderr) in zip(procs, outs, strict=True):
+            self.assertEqual(p.returncode, 0, f"subprocess failed: {stderr}")
+
+        results = sorted(o[0].strip() for o in outs)
+        self.assertEqual(
+            results,
+            ["FALSE", "TRUE"],
+            f"expected exactly one TRUE/FALSE pair, got {results!r}",
+        )
+        # Final status reflects the winning CAS.
+        self.assertEqual(self._read_status(), "reviewing")
+
+
 class TestSetBranch(_SMMTestCase):
     def test_writes_branch_name(self):
         import sprint_store
