@@ -143,8 +143,8 @@ the question's event-id.
    ```
 4. For selected stories: mark each as `scheduled` (queued for this
    iteration). xp-assign promotes the first scheduled story to
-   `in-progress` when it creates the branch — the four-state lifecycle
-   keeps "queued" and "actively worked" distinct so the stop gate and
+   `in-progress` when it creates the branch — the lifecycle keeps
+   "queued" and "actively worked" distinct so the stop gate and
    /xp-accept only fire on stories that have a branch.
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
