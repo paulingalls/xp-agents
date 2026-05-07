@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
     SPRINT_ALL_DONE,
+    SPRINT_CLOSING_ONLY,
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
@@ -184,6 +185,37 @@ class TestSprintStopGateAcceptCascade(_HookTestCase):
         import sprint_stop_gate
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_closing_only_fires_gate(self):
+        """Story-005: a story stuck in `closing` (interrupted /xp-story-close)
+        must still drive the user to /xp-accept on Stop. Mirrors the reviewing-
+        only gate — closing is just a later phase of the same accept window.
+        Without this, the user could Stop with a half-merged close and the
+        cascade would silently fall through."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_mixed_in_progress_and_closing_blocks_via_closing(self):
+        """Mixed states: a teammate is mid-/xp-story-close on one story while
+        siblings remain in-progress. The closing branch fires regardless of
+        the marker — orchestrator must process the closing teammate before
+        Stop is allowed."""
+        import sprint_stop_gate
+
+        sprint = _sprint_json(
+            [
+                _s("story-001", "story A closing", "closing"),
+                _s("story-002", "story B still working", "in-progress"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(sprint)
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         result = self._assert_not_none(result)
         self.assertIn("xp-accept", result)
