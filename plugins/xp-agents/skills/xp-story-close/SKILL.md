@@ -2,7 +2,7 @@
 name: xp-story-close
 description: >-
   Per-story close: review the story diff, merge into the sprint base,
-  and (solo mode) JIT-create the next in-progress story's branch off
+  and (solo mode) JIT-create the next scheduled story's branch off
   the merged tip. Invoked by /xp-accept on each accepted story; the
   sprint-review dispatch is owned by /xp-accept after its loop
   completes — single source of truth lives there.
