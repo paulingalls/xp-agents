@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.1.13 — free-session debt burndown + CI fix
+
+Free session addressing debt items adopted at kickoff and a CI-only test failure. Seven commits, no new features. Full pytest suite (4528 tests) green throughout.
+
+### CI fix
+
+- **`TestMechanicalPromote` inherits `_SMMTestCase`** — three tests in `test_spawn_teammate.py` failed on GitHub Actions because they hardcoded `--smm-dir /tmp/smm` and that path doesn't exist on CI runners (`worktree.write_story_assignment` → `tempfile.mkstemp` raised `FileNotFoundError`). Local `/tmp/smm` persisted across runs, hiding the failure. Migration to `_SMMTestCase` (which provides a real per-test tempdir, `events.jsonl`/`events.lock`, and SMM_DIR env pin) replaces hand-rolled scaffolding the test was already groping toward.
+
+### Real bug fix
+
+- **`spawn_teammate.py` preserves `prompt_file` on subprocess failure** — the `finally` block unconditionally unlinked `args.prompt_file` even on `CalledProcessError`, breaking re-spawn after a transient teammate failure (hit live in sprint-068). Move the unlink to the success path; combined-prompt file (regenerated each spawn) keeps its `finally` cleanup. New unit + integration tests pin both contracts; the prior integration test was inverted from `_deleted_after_failed_spawn` to `_preserved_after_failed_spawn` since it had pinned the buggy behavior.
+
+### Refactors (debt burndown)
+
+- **`flock_with_timeout` helper extracted** — five near-identical SIGALRM+flock+`os.fdopen` scaffolds (~25 lines each) duplicated across `_append_impl.py` (`read_with_lock` LOCK_SH, `append_event`, `bulk_append`, `replace_events_file` LOCK_EX) and `sprint_store._sprint_lock` (LOCK_EX) collapse to one `@contextmanager`. The helper unifies subtle drift: routes ALL sites through `_safe_open_nofollow` (closing the symlink gap two sites had bypassed), wraps every `LOCK_UN` in `contextlib.suppress(OSError)` (so a flaky release never masks an in-flight exception or blocks `close`). Mode is parameterized. Three new `TestFlockWithTimeout` tests pin the helper's contract directly so the next refactor inherits the spec instead of having to rediscover it.
+- **`_PLUGIN_ROOT` centralized across 26 test files** — sprint-068 added a 28th recompute site as a regression after the canonical export at `tests/_bases.py:32` was already in place. Sweep replaces both pattern variants (`Path(__file__).parent.parent.parent` and `.resolve().parents[2]`) with `from _bases import _PLUGIN_ROOT`. Two scaffold tests using `_REPO_ROOT / "plugins" / "xp-agents"` (different semantic — repo root, not plugin root) intentionally skipped. `test_branching_team_scenarios.py` reorders its import so it follows its own `sys.path.insert` for direct-run safety.
+- **`_NormalizePathIdentityMixin` promoted to `_worktree_fixtures.py`** — the mixin already lived inline in `test_retro_metrics.py:42`, but `test_probe_adoption.py` (manual setUp) and `test_resolves_probe.py` `TestCountFileOverlaps` (manual attribute swap) each rolled their own variant. Canonical home parallels existing `_lint_fixtures.py`, re-exported from `conftest.py`. Renamed for `_LintTmpDirMixin` consistency (Mixin suffix), lambda parameter `_c` → `_cwd` to mirror the production `normalize_path(path, cwd)` signature. Consolidation pin (`test_single_normalize_path_identity_mixin_definition`) prevents future re-inlining. Five remaining inline `worktree.normalize_path` patches stay inline intentionally — three are non-identity stubs that strip prefixes to assert canonicalization behavior, two are scoped `with patch(...)` blocks where the setUp-mixin shape doesn't fit.
+
+### Doc fixes
+
+- **Worktree prefix typo** — `CLAUDE.md` and `docs/ARCHITECTURE.md` both said the teammate worktree prefix is `teammate-` but `identity._TEAMMATE_PREFIX` is `worktree-story-`. Stale doc misled a `/simplify` reviewer in sprint-068.
+- **`xp-plan` SKILL Discovery elevated** — Discovery was already referenced inside the Change Zones and Impact Zones bullets of the "For each milestone" list but not as a step on its own. Planners reading top-down would skip the discovery pass described in the paragraph above. Promote Discovery to its own bullet positioned between Sources and Change Zones.
+
 ## v3.1.12 — sprint-068 retro burndown (6 stories, 6/6 velocity) + close-cycle hook fixes
 
 Sprint-068 burns down sprint-067 retro: probe nudges, spawn cleanup, file_domain redesign, test/code hygiene. 6 planned / 6 delivered, all spawned as parallel teammate worktrees. Plus two free-mode bug fixes from mechanics surfaced live during the sprint's close cycles.
