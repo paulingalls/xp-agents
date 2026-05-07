@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.1.14 — sprint-069 add 'closing' story state (7 stories, 7/7 velocity)
+
+Sprint-069 inserts a new `closing` state between `reviewing` and `done` in the story lifecycle. Resolves the long-standing `xp-story-close` multi-reviewing race (risk a1244ea46e52): concurrent teammate finish-bursts no longer stall the close pipeline because `reviewing` is now plural-safe and `closing` is the sprint-singleton in-pipeline lock. 7 planned / 7 delivered, 4561 tests pass (was 4528; +33 net).
+
+### Lifecycle reshape (stories 001/002/003)
+
+- **Schema constants** (story-001) — `VALID_STORY_STATUSES` and `IN_MOTION_STORY_STATUSES` extended with `closing`. `ACTIVE_STORY_STATUSES` (`VALID − TERMINAL`) auto-absorbs. Sweeps four docstrings + one CLI help text in `sprint_state.py`/`sprint_cli.py`/`sprint_status.py`/`sprint_store.py` to honestly describe IN_MOTION as "in-progress, reviewing, or closing".
+- **Store/state helpers** (story-002) — `has_closing_stories`/`has_closing_stories_data`/`select_closing_stories` mirror the existing `reviewing` family. `count_by_status` and `transitive_active_dependents` auto-extend through their schema-constant keys; explicit regression tests pin both. New `SPRINT_CLOSING_ONLY` test fixture in `conftest.py` for downstream story-005 reuse.
+- **`worktree.py` architectural pivot** (story-003) — `find_closing_teammate_worktree` now keys on `status == "closing"` (was `"reviewing"`). The singleton multi-match raise migrates to `closing` so multiple `reviewing` stories with live teammate worktrees no longer trip it. Five sibling tests across CLI wrapper/preload/multi-story integration updated to seed `closing` and explicitly call `update_story_status` to mirror the production `xp-accept` Step 1.5 wiring.
+
+### Hook + helper alignment (stories 004/005)
+
+- **Orphan-branch active-set** (story-004) — `list_orphan_story_branches` switched from a 4-call `list_stories(status=...)` concat to a single set comprehension over `ACTIVE_STORY_STATUSES`. `closing` (and any future status) auto-included; `branching_cli` docstring + help text aligned. Pin tests cover closing-status branch exclusion and the `scheduled`-with-`branch_name` protection.
+- **`pre_tool_write` re-arm + `sprint_stop_gate` suppression** (story-005) — `.accept` re-arm and the stop-gate accept cascade both now fire on `closing` in addition to `reviewing` (interrupted close cycles still nudge to `/xp-accept`). Hot-path optimization: `pre_tool_write` switched to a single `read_sprint_content` + `_data` predicate calls, eliminating 3-disk-read regressions on every Write/Edit/MultiEdit.
+
+### Skill prose wiring + capstone (stories 006/007)
+
+- **Step 1.5 reviewing→closing transition** (story-006) — `xp-accept` SKILL.md gains a Step 1.5 between concern triage and `/xp-story-close` dispatch using bare `update-story` (orchestrator is single-threaded across `/xp-accept`; spawn_teammate's CAS pattern doesn't apply because no concurrent writer races this transition). Step 2/3/merge-failure prose updated to read "closing" where it describes the close-window state. Revert path covers both reviewing and closing source states. Cascade-deferral now mentions all 3 in-motion statuses. `xp-story-close` SKILL.md gains a "story state expectation" preamble. PROCESS_GUIDE.md lifecycle line updated to 6-state with `closing` as the singleton lock; stop-gate generalized to "in-motion stories". `xp-kickoff` + `xp-story-close` orphan-set enumeration sweeps + `acceptance_types.py` docstring align. `test_two_teammate_incremental_flow` fence re-tightened from BEFORE the closing-promote to AFTER (story-005's closing suppression makes the truer in-pipeline placement work).
+- **End-to-end capstone** (story-007) — New `tests/integration/test_closing_state_end_to_end.py` (5 tests, AC-mapped 1:1) verifies the closing-state architecture end-to-end: state isolation, worktree match, orphan exclusion, pre_tool_write suppression, and the singleton-lock `ValueError` invariant on multi-`closing`+live. Verification-only — first-run pass confirms stories 001-006 actually delivered the contract. Drives `make_teammate_worktree` promotion from per-class duplicates in `test_preload_markers.py` + `test_quality_review_preload.py` to `_worktree_fixtures.py` (refactor-before-add prevented a 3rd duplicate).
+
+### Doc fix from cumulative review
+
+- **`xp-work-selection` SKILL.md `four-state lifecycle` phrase** — predated story-002's `reviewing` addition; now contradicts both PROCESS_GUIDE.md 6-state and the schema. Fixed inline at sprint-close.
+
 ## v3.1.13 — free-session debt burndown + CI fix
 
 Free session addressing debt items adopted at kickoff and a CI-only test failure. Seven commits, no new features. Full pytest suite (4528 tests) green throughout.
