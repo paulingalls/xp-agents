@@ -48,8 +48,6 @@ echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
 emit_hook_guidance "$HOOK_STATUS"
 
-clear_accept_active_marker
-
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close
 # skills instead of four near-duplicate inlined copies.

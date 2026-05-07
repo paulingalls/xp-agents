@@ -88,5 +88,44 @@ class TestFormatConcernTriage(unittest.TestCase):
         self.assertIn("LIKELY ADDRESSED", result)
 
 
+class TestSelectInMotionStories(unittest.TestCase):
+    """Story-002 widening contract: concern_triage and acceptance_types
+    both surface info for the in-motion (in-progress + reviewing) story
+    set, not just in-progress. The shared filter helper is the seam.
+    """
+
+    def test_includes_in_progress(self):
+        stories = [{"id": "s1", "status": "in-progress"}]
+        result = concern_triage.select_in_motion_stories(stories)
+        self.assertEqual([s["id"] for s in result], ["s1"])
+
+    def test_includes_reviewing(self):
+        stories = [{"id": "s1", "status": "reviewing"}]
+        result = concern_triage.select_in_motion_stories(stories)
+        self.assertEqual([s["id"] for s in result], ["s1"])
+
+    def test_includes_both_when_mixed(self):
+        stories = [
+            {"id": "s1", "status": "reviewing"},
+            {"id": "s2", "status": "in-progress"},
+            {"id": "s3", "status": "ready"},
+            {"id": "s4", "status": "scheduled"},
+            {"id": "s5", "status": "done"},
+            {"id": "s6", "status": "deferred"},
+        ]
+        result = concern_triage.select_in_motion_stories(stories)
+        self.assertEqual({s["id"] for s in result}, {"s1", "s2"})
+
+    def test_excludes_terminal_and_queued(self):
+        stories = [
+            {"id": "s1", "status": "ready"},
+            {"id": "s2", "status": "scheduled"},
+            {"id": "s3", "status": "done"},
+            {"id": "s4", "status": "deferred"},
+        ]
+        result = concern_triage.select_in_motion_stories(stories)
+        self.assertEqual(result, [])
+
+
 if __name__ == "__main__":
     unittest.main()

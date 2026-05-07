@@ -22,9 +22,11 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import identity
+import sprint_store
 import worktree
 
 
@@ -235,6 +237,17 @@ def main(argv: list[str] | None = None) -> None:
         Path(args.prompt_file).unlink(missing_ok=True)
         if combined_path is not None:
             Path(combined_path).unlink(missing_ok=True)
+
+    # rc=0 path: mechanical promote to reviewing under close-then-done.
+    # On rc!=0 the run_with_tee call above raised CalledProcessError,
+    # this code never runs, and the story stays in-progress for debug.
+    # Guard: only promote from in-progress — a story already done or
+    # deferred (e.g. user manually advanced it mid-run) must not be
+    # silently demoted back to reviewing.
+    if args.story_id is not None:
+        smm_dir = Path(args.smm_dir)
+        if sprint_store.get_story(smm_dir, args.story_id)["status"] == "in-progress":
+            sprint_store.update_story_status(smm_dir, args.story_id, "reviewing")
 
 
 if __name__ == "__main__":

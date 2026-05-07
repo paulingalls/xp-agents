@@ -63,6 +63,40 @@ class TestAcceptanceTypes(unittest.TestCase):
         output = acceptance_types.format_acceptance_types(sprint)
         self.assertEqual(output, "")
 
+    def test_reviewing_story_surfaced(self):
+        # Story-002: reviewing stories (teammate self-promote path) MUST
+        # surface alongside in-progress so xp-accept's iteration loop sees
+        # the same acceptance type info regardless of which path is active.
+        story = _make_story(
+            id="story-001",
+            status="reviewing",
+            acceptance_execution={"type": "pytest", "command": "pytest tests/"},
+        )
+        sprint = {"stories": [story]}
+        output = acceptance_types.format_acceptance_types(sprint)
+        self.assertIn("story-001: pytest", output)
+
+    def test_mixed_in_progress_and_reviewing_both_surfaced(self):
+        # Both states appear together when teammate-A has self-promoted
+        # while teammate-B is still working — orchestrator iterates the
+        # full set as picked by preload's reviewing-first dispatch.
+        stories = [
+            _make_story(
+                id="story-001",
+                status="reviewing",
+                acceptance_execution={"type": "pytest", "command": "pytest"},
+            ),
+            _make_story(
+                id="story-002",
+                status="in-progress",
+                acceptance_execution={"type": "bash", "command": "bash t.sh"},
+            ),
+        ]
+        sprint = {"stories": stories}
+        output = acceptance_types.format_acceptance_types(sprint)
+        self.assertIn("story-001: pytest", output)
+        self.assertIn("story-002: bash", output)
+
 
 if __name__ == "__main__":
     unittest.main()

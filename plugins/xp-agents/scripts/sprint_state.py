@@ -23,6 +23,20 @@ def has_in_progress_stories(smm_dir: Path) -> bool:
     return _fn(smm_dir)
 
 
+def has_reviewing_stories(smm_dir: Path) -> bool:
+    """True if sprint has reviewing stories."""
+    from sprint_store import has_reviewing_stories as _fn
+
+    return _fn(smm_dir)
+
+
+def has_in_motion_stories(smm_dir: Path) -> bool:
+    """True if sprint has in-motion (in-progress or reviewing) stories."""
+    from sprint_store import has_in_motion_stories as _fn
+
+    return _fn(smm_dir)
+
+
 def read_sprint_content(smm_dir: Path) -> dict | None:
     """Load sprint data from sprint.json. Returns None if missing."""
     from sprint_store import load_sprint

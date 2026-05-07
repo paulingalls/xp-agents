@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find open concerns overlapping in-progress stories' file domains.
+"""Find open concerns overlapping in-motion stories' file domains.
 
 Called by xp-accept preload to surface concerns that may have been
 addressed by the story's work. The LLM agent in xp-accept then judges
@@ -21,6 +21,7 @@ import event_schema  # noqa: E402
 import materialize  # noqa: E402
 import resolution  # noqa: E402
 import triage  # noqa: E402
+from sprint_status import select_in_motion_stories  # noqa: E402
 
 
 def find_concerns_for_story(
@@ -74,14 +75,12 @@ def format_concern_triage(
 
 
 def run(smm_dir: Path, sprint_file: Path) -> str:
-    """Scan for open concerns matching in-progress stories."""
+    """Scan for open concerns matching in-motion stories."""
     if not sprint_file.is_file():
         return ""
 
     sprint_data = json.loads(sprint_file.read_text())
-    stories = [
-        s for s in sprint_data.get("stories", []) if s.get("status") == "in-progress"
-    ]
+    stories = select_in_motion_stories(sprint_data.get("stories", []))
     if not stories:
         return ""
 
@@ -111,7 +110,7 @@ def run(smm_dir: Path, sprint_file: Path) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Find open concerns overlapping in-progress stories."
+        description="Find open concerns overlapping in-motion stories."
     )
     parser.add_argument("--smm-dir", type=Path, required=True)
     parser.add_argument("--sprint-file", type=Path, required=True)
