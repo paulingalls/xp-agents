@@ -300,6 +300,32 @@ class TestListOrphanStoryBranches(unittest.TestCase):
             self.assertIn("test/story-003-orphan", result)
             self.assertNotIn("test/story-001-nudge", result)
 
+    def test_scheduled_with_branch_not_orphan(self):
+        # Pin: scheduled stories carrying a branch_name (e.g., eager
+        # parallel-teammate batch from /xp-assign) are protected from the
+        # orphan list because scheduled is in ACTIVE_STORY_STATUSES. Without
+        # this pin a future revert of ACTIVE could silently re-orphan them.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            smm_dir = Path(td) / "smm"
+            smm_dir.mkdir()
+            _create_branch(td, "test/story-001-queued")
+            self._write_sprint(
+                smm_dir,
+                _sprint_json(
+                    [
+                        _s(
+                            "story-001",
+                            "Queued story",
+                            "scheduled",
+                            branch_name="test/story-001-queued",
+                        ),
+                    ]
+                ),
+            )
+            result = branch_queries.list_orphan_story_branches(td, smm_dir)
+            self.assertNotIn("test/story-001-queued", result)
+
 
 if __name__ == "__main__":
     unittest.main()
