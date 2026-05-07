@@ -102,6 +102,15 @@ class TestValidateSprint(unittest.TestCase):
                 f"{not_in_motion!r} should NOT be in IN_MOTION",
             )
 
+    def test_validate_sprint_accepts_closing_status(self):
+        # AC3: sprint.json with a story at status 'closing' validates
+        # with no errors. Pinned as a dedicated test (not just iterated
+        # via test_valid_statuses) so an AC-trace grep finds the named
+        # case directly.
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
     def test_story_missing_required_fields(self):
         sprint = _make_sprint(stories=[{"id": "story-001"}])
         errors = sprint_schema.validate_sprint(sprint)
