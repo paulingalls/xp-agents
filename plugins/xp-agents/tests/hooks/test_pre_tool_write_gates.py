@@ -19,6 +19,7 @@ import markers
 import pre_tool_write
 import sprint_state
 from conftest import (
+    SPRINT_CLOSING_ONLY,
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
     SPRINT_REVIEWING_ONLY,
@@ -233,6 +234,40 @@ class TestAcceptMarker(_HookTestCase):
         (self.smm_dir / "sprint.json").write_text(sprint_json)
         self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
         self.assertTrue(sprint_state.has_reviewing_stories(self.smm_dir))
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
+
+    def test_no_marker_when_only_closing_stories(self):
+        # Story-005: extends the reviewing-suppression carve-out to the new
+        # `closing` state. A story in `closing` is mid-/xp-story-close
+        # (review → push → merge); fix-cycle Edits during that window must
+        # NOT re-arm .accept, otherwise the subsequent update-story done
+        # call is blocked. Mirrors test_no_marker_when_only_reviewing_stories.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
+        pre_tool_write.run(
+            _make_write_input(session_id="t", cwd="/tmp"),
+            smm_dir=self.smm_dir,
+        )
+        self.assertFalse((self.smm_dir / ".accept").exists())
+
+    def test_no_rearm_when_closing_story_present(self):
+        # Story-005: mixed in-progress + closing — the close-window suppression
+        # must fire even when siblings remain in-progress. Mirrors
+        # test_no_rearm_when_reviewing_story_present for the closing state.
+        from conftest import _s, _sprint_json
+
+        sprint_json = _sprint_json(
+            [
+                _s("story-001", "a", "in-progress"),
+                _s("story-002", "b", "closing"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(sprint_json)
+        self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
+        self.assertTrue(sprint_state.has_closing_stories(self.smm_dir))
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
