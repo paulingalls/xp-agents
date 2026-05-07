@@ -23,6 +23,7 @@ import pre_tool_write
 import sprint_state
 import sprint_store
 from _branching_fixtures import (
+    branch_exists,
     create_teammate_worktree_with_commit,
     get_current_branch_at,
     git_log_oneline_at,
@@ -175,15 +176,8 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         )
         self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
         # Branch is gone (no orphan ref) — the production gap fix.
-        ref = f"refs/heads/{teammate_branch}"
-        branch_check = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", ref],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
-        self.assertNotEqual(
-            branch_check.returncode,
-            0,
+        self.assertFalse(
+            branch_exists(str(self.tmpdir), teammate_branch),
             f"teammate branch {teammate_branch} should be deleted after cleanup",
         )
 
