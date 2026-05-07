@@ -524,7 +524,12 @@ class TestMechanicalPromote(unittest.TestCase):
     """Story-004: spawn_teammate.main() promotes the story to `reviewing`
     after a clean teammate exit (rc=0). On rc!=0 the teammate stays
     `in-progress` for debug. The promote is mechanical — no LLM
-    judgment, no prompt-template instruction; the wrapper does it."""
+    judgment, no prompt-template instruction; the wrapper does it.
+
+    Story-002 (sprint-068): the get_story → update_story_status pair
+    was replaced with a single atomic update_story_status_if CAS —
+    these tests assert against the CAS callsite, not the legacy pair.
+    """
 
     def _make_prompt_file(self):
         import tempfile
@@ -539,13 +544,16 @@ class TestMechanicalPromote(unittest.TestCase):
         self,
         *,
         story_id: str | None = "story-001",
-        current_status: str = "in-progress",
+        cas_return: bool = True,
         run_with_tee_side_effect=None,
-    ) -> list[tuple[str, str, str]]:
+    ) -> list[tuple[str, str, str, str]]:
         """Run spawn_teammate.main with stubbed worktree+subprocess+sprint
-        and return the captured update_story_status calls.
+        and return the captured update_story_status_if calls as
+        (smm_dir, story_id, expected, new) tuples.
 
         story_id=None omits --story-id (ad-hoc teammate).
+        cas_return controls what the patched CAS returns (True=updated,
+        False=expected mismatch — actual already advanced past expected).
         run_with_tee_side_effect raises if you want rc!=0 simulation.
         """
         from unittest.mock import patch
@@ -553,10 +561,11 @@ class TestMechanicalPromote(unittest.TestCase):
         import spawn_teammate
 
         prompt_path = self._make_prompt_file()
-        captured_calls: list[tuple[str, str, str]] = []
+        captured_calls: list[tuple[str, str, str, str]] = []
 
-        def fake_promote(smm_dir, sid, status):
-            captured_calls.append((str(smm_dir), sid, status))
+        def fake_cas(smm_dir, sid, *, expected, new):
+            captured_calls.append((str(smm_dir), sid, expected, new))
+            return cas_return
 
         argv = [
             "--name",
@@ -579,13 +588,8 @@ class TestMechanicalPromote(unittest.TestCase):
                 ),
                 patch.object(
                     spawn_teammate.sprint_store,
-                    "get_story",
-                    return_value={"status": current_status},
-                ),
-                patch.object(
-                    spawn_teammate.sprint_store,
-                    "update_story_status",
-                    side_effect=fake_promote,
+                    "update_story_status_if",
+                    side_effect=fake_cas,
                 ),
             ):
                 spawn_teammate.main(argv)
@@ -595,24 +599,29 @@ class TestMechanicalPromote(unittest.TestCase):
         return captured_calls
 
     def test_promotes_to_reviewing_on_rc_0(self):
-        """Successful teammate (rc=0) triggers update_story_status to reviewing."""
+        """Successful teammate (rc=0) triggers a single CAS in-progress→reviewing."""
         captured = self._run_promote()
         self.assertEqual(
             captured,
-            [("/tmp/smm", "story-001", "reviewing")],
-            f"expected single reviewing-promote call, got: {captured!r}",
+            [("/tmp/smm", "story-001", "in-progress", "reviewing")],
+            f"expected single CAS call (in-progress→reviewing), got: {captured!r}",
         )
 
-    def test_does_not_promote_when_already_done(self):
-        """Guard against silently demoting a story already advanced past
-        in-progress. If current status is done/deferred (e.g. user
-        manually advanced mid-run), the rc=0 promote MUST be skipped.
-        Pins close-reviewer concern 3ba0b6237c65."""
-        captured = self._run_promote(current_status="done")
-        self.assertEqual(captured, [], f"unexpected demote of done story: {captured!r}")
+    def test_cas_returns_false_does_not_raise(self):
+        """When the CAS sees actual!=expected (concurrent advance to
+        done/deferred), spawn_teammate accepts the no-op silently — the
+        caller's job was 'try to promote', not 'demand promotion'.
+        Pins close-reviewer concern 3ba0b6237c65 end-to-end."""
+        captured = self._run_promote(cas_return=False)
+        self.assertEqual(
+            captured,
+            [("/tmp/smm", "story-001", "in-progress", "reviewing")],
+            "CAS must still be invoked even when it returns False",
+        )
 
     def test_does_not_promote_on_rc_nonzero(self):
-        """Failed teammate (rc!=0) leaves story in-progress for debug."""
+        """Failed teammate (rc!=0) leaves story in-progress for debug —
+        the CAS is never invoked because the exception propagates first."""
 
         def raise_failure(*_args, **_kwargs):
             raise subprocess.CalledProcessError(2, ["fake"])
@@ -621,11 +630,54 @@ class TestMechanicalPromote(unittest.TestCase):
             self._run_promote(run_with_tee_side_effect=raise_failure)
 
     def test_does_not_promote_when_story_id_absent(self):
-        """No --story-id → no promote attempted (ad-hoc teammates without
+        """No --story-id → no CAS attempted (ad-hoc teammates without
         sprint context just exit cleanly)."""
         captured = self._run_promote(story_id=None)
+        self.assertEqual(captured, [], f"unexpected CAS without story-id: {captured!r}")
+
+
+class TestNoSysPathInsert(unittest.TestCase):
+    """Story-002 (sprint-068): spawn_teammate.py must not poke sys.path
+    at module load. The marketplace cache layout
+    (~/.claude/plugins/cache/xp-agents/xp-agents/<version>/scripts/) was
+    never tested with the prior `Path(__file__).resolve().parent` insert,
+    and the .resolve() call would dereference any cache-side symlink and
+    point smm/ at the wrong location. The fix: rely on Python's
+    automatic script-dir-on-sys.path[0] for sibling imports, and import
+    a sibling that already arranges smm/ on sys.path as a side effect.
+    """
+
+    _SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "spawn_teammate.py"
+
+    def test_source_has_no_sys_path_insert(self):
+        """grep-style guard: spawn_teammate.py contains zero
+        sys.path.insert lines. Mirrors the acceptance command exactly so a
+        regression that adds the line back trips this test before close."""
+        source = self._SCRIPT.read_text(encoding="utf-8")
+        offending = [ln for ln in source.splitlines() if "sys.path.insert" in ln]
         self.assertEqual(
-            captured, [], f"unexpected promote without story-id: {captured!r}"
+            offending,
+            [],
+            f"spawn_teammate.py must not poke sys.path: {offending!r}",
+        )
+
+    def test_imports_cleanly_with_only_scripts_on_path(self):
+        """Run spawn_teammate.py as a subprocess with --help, with NO
+        external sys.path manipulation. Python auto-adds the script's
+        parent (scripts/) to sys.path[0]; the script must arrange its
+        own access to smm/ without sys.path.insert. argparse's --help
+        exits 0 after argv parsing, which only succeeds if every
+        top-level import resolved."""
+        r = subprocess.run(
+            [sys.executable, str(self._SCRIPT), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            r.returncode,
+            0,
+            f"spawn_teammate.py --help failed (likely an import error):\n"
+            f"--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}",
         )
 
 

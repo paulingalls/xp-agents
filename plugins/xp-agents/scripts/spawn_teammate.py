@@ -22,12 +22,13 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
+# `worktree` import is the side-effect bootstrap that adds smm/ to
+# sys.path (mirrors scripts/_common.py); pinned first via `isort: split`
+# so the `sprint_store` import below resolves.
+import worktree  # isort: split
 
 import identity
 import sprint_store
-import worktree
 
 
 def cleanup_existing(name: str, cwd: str) -> None:
@@ -241,13 +242,17 @@ def main(argv: list[str] | None = None) -> None:
     # rc=0 path: mechanical promote to reviewing under close-then-done.
     # On rc!=0 the run_with_tee call above raised CalledProcessError,
     # this code never runs, and the story stays in-progress for debug.
-    # Guard: only promote from in-progress — a story already done or
-    # deferred (e.g. user manually advanced it mid-run) must not be
-    # silently demoted back to reviewing.
+    # The CAS guard inside update_story_status_if rejects the promote
+    # when the story has already been advanced past in-progress (e.g. an
+    # orchestrator flipped it to done mid-run) — closing the TOCTOU
+    # window the prior get_story → update_story_status pair exposed.
     if args.story_id is not None:
-        smm_dir = Path(args.smm_dir)
-        if sprint_store.get_story(smm_dir, args.story_id)["status"] == "in-progress":
-            sprint_store.update_story_status(smm_dir, args.story_id, "reviewing")
+        sprint_store.update_story_status_if(
+            Path(args.smm_dir),
+            args.story_id,
+            expected="in-progress",
+            new="reviewing",
+        )
 
 
 if __name__ == "__main__":
