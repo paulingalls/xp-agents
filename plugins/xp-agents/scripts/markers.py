@@ -53,7 +53,6 @@ NEEDS_EXECUTION_PLAN = MarkerDef(marker_names.NEEDS_EXECUTION_PLAN, "text")
 NEEDS_SYSTEM_CONTEXT = MarkerDef(marker_names.NEEDS_SYSTEM_CONTEXT, "text")
 NEEDS_SPRINT = MarkerDef(marker_names.NEEDS_SPRINT, "text")
 ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
-ACCEPT_ACTIVE = MarkerDef(marker_names.ACCEPT_ACTIVE, "text")
 PLAN_AWAITING_REVIEW = MarkerDef(marker_names.PLAN_AWAITING_REVIEW, "text")
 QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
@@ -209,9 +208,9 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 
 
 # Allowlist of markers writable/consumable via the CLI. Every other
-# non-agent-scoped marker (KICKOFF, ASSIGN_PENDING, ACCEPT_ACTIVE,
-# PLAN_AWAITING_REVIEW, etc.) has its own deterministic writer in a hook
-# or skill — the CLI is intentionally NOT a back door for those flows.
+# non-agent-scoped marker (KICKOFF, ASSIGN_PENDING, PLAN_AWAITING_REVIEW,
+# etc.) has its own deterministic writer in a hook or skill — the CLI is
+# intentionally NOT a back door for those flows.
 # Add a marker here only when a skill prose step needs to drive it.
 _CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE"})
 

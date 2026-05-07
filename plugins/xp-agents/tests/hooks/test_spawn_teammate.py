@@ -520,5 +520,114 @@ class TestRunWithTee(unittest.TestCase):
             )
 
 
+class TestMechanicalPromote(unittest.TestCase):
+    """Story-004: spawn_teammate.main() promotes the story to `reviewing`
+    after a clean teammate exit (rc=0). On rc!=0 the teammate stays
+    `in-progress` for debug. The promote is mechanical — no LLM
+    judgment, no prompt-template instruction; the wrapper does it."""
+
+    def _make_prompt_file(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".prompt.txt", delete=False
+        ) as f:
+            f.write("body")
+            return f.name
+
+    def _run_promote(
+        self,
+        *,
+        story_id: str | None = "story-001",
+        current_status: str = "in-progress",
+        run_with_tee_side_effect=None,
+    ) -> list[tuple[str, str, str]]:
+        """Run spawn_teammate.main with stubbed worktree+subprocess+sprint
+        and return the captured update_story_status calls.
+
+        story_id=None omits --story-id (ad-hoc teammate).
+        run_with_tee_side_effect raises if you want rc!=0 simulation.
+        """
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        prompt_path = self._make_prompt_file()
+        captured_calls: list[tuple[str, str, str]] = []
+
+        def fake_promote(smm_dir, sid, status):
+            captured_calls.append((str(smm_dir), sid, status))
+
+        argv = [
+            "--name",
+            "worktree-story-001" if story_id else "worktree-foo",
+            "--smm-dir",
+            "/tmp/smm",
+            "--prompt-file",
+            prompt_path,
+        ]
+        if story_id is not None:
+            argv += ["--story-id", story_id]
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(
+                    spawn_teammate,
+                    "run_with_tee",
+                    side_effect=run_with_tee_side_effect,
+                ),
+                patch.object(
+                    spawn_teammate.sprint_store,
+                    "get_story",
+                    return_value={"status": current_status},
+                ),
+                patch.object(
+                    spawn_teammate.sprint_store,
+                    "update_story_status",
+                    side_effect=fake_promote,
+                ),
+            ):
+                spawn_teammate.main(argv)
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        return captured_calls
+
+    def test_promotes_to_reviewing_on_rc_0(self):
+        """Successful teammate (rc=0) triggers update_story_status to reviewing."""
+        captured = self._run_promote()
+        self.assertEqual(
+            captured,
+            [("/tmp/smm", "story-001", "reviewing")],
+            f"expected single reviewing-promote call, got: {captured!r}",
+        )
+
+    def test_does_not_promote_when_already_done(self):
+        """Guard against silently demoting a story already advanced past
+        in-progress. If current status is done/deferred (e.g. user
+        manually advanced mid-run), the rc=0 promote MUST be skipped.
+        Pins close-reviewer concern 3ba0b6237c65."""
+        captured = self._run_promote(current_status="done")
+        self.assertEqual(captured, [], f"unexpected demote of done story: {captured!r}")
+
+    def test_does_not_promote_on_rc_nonzero(self):
+        """Failed teammate (rc!=0) leaves story in-progress for debug."""
+
+        def raise_failure(*_args, **_kwargs):
+            raise subprocess.CalledProcessError(2, ["fake"])
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            self._run_promote(run_with_tee_side_effect=raise_failure)
+
+    def test_does_not_promote_when_story_id_absent(self):
+        """No --story-id → no promote attempted (ad-hoc teammates without
+        sprint context just exit cleanly)."""
+        captured = self._run_promote(story_id=None)
+        self.assertEqual(
+            captured, [], f"unexpected promote without story-id: {captured!r}"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

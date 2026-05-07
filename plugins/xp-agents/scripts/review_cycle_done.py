@@ -106,8 +106,10 @@ _NEXT_STEP: dict[str, str] = {
 _TASK_CREATION_NUDGE = (
     "Use TaskCreate to track the upcoming work. Solo mode: one task per "
     "planned step (each = a red-green-commit cycle). Teammate mode: "
-    "coordination tasks for waiting on each teammate, running /xp-accept "
-    "per accepted story, and /xp-story-close per merged branch. Mark tasks "
+    "coordination tasks for waiting for each teammate to self-promote a "
+    "story to `reviewing`, then running /xp-accept incrementally (it "
+    "dispatches /xp-story-close per accepted story). Loop until all "
+    "teammates finish; do not wait for the slowest. Mark tasks "
     "in_progress when you start them and completed when done."
 )
 

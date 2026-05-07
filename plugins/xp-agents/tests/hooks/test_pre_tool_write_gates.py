@@ -214,34 +214,37 @@ class TestAcceptMarker(_HookTestCase):
         pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
         self.assertFalse((self.smm_dir / ".accept").exists())
 
-    def test_no_rearm_when_accept_active_marker_present(self):
-        # The multi-in-progress fix: when xp-accept has set ACCEPT_ACTIVE,
-        # pre_tool_write must NOT re-arm .accept on Edits during the
-        # acceptance session — even if other stories are still
-        # in-progress (which keeps has_in_progress_stories True). Pins
-        # the contract that unblocks teammate sprints.
-        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
-        # Explicit precondition: the gate only fires when
-        # has_in_progress_stories returns True; pin the fixture's
-        # contract so a future fixture change can't silently make the
-        # test a no-op.
+    def test_no_rearm_when_reviewing_story_present(self):
+        # Story-004: ACCEPT_ACTIVE marker removed; close-then-done makes
+        # has_reviewing_stories the structural "we're inside the accept
+        # window" signal. pre_tool_write must NOT re-arm .accept on
+        # Edits when ANY story is in `reviewing` — even if other
+        # stories remain in-progress (which keeps has_in_progress True).
+        # Pins the contract that unblocks incremental teammate accept.
+        # Sprint with 2 stories: one in-progress, one reviewing.
+        from conftest import _s, _sprint_json
+
+        sprint_json = _sprint_json(
+            [
+                _s("story-001", "a", "in-progress"),
+                _s("story-002", "b", "reviewing"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(sprint_json)
         self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
+        self.assertTrue(sprint_state.has_reviewing_stories(self.smm_dir))
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,
         )
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
 
-    def test_rearm_when_accept_active_absent(self):
-        # Regression-pin existing behavior: with no ACCEPT_ACTIVE marker
-        # the existing re-arm path still fires. Renamed/clarified
-        # variant of test_sets_accept_marker_when_in_progress_stories
-        # — this one explicitly asserts the absence of ACCEPT_ACTIVE
-        # is what allows the re-arm.
+    def test_rearm_when_in_progress_only_no_reviewing(self):
+        # Inverse pin: with in-progress stories AND no reviewing, the
+        # re-arm fires. close-then-done window not active.
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         self.assertTrue(sprint_state.has_in_progress_stories(self.smm_dir))
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+        self.assertFalse(sprint_state.has_reviewing_stories(self.smm_dir))
         pre_tool_write.run(
             _make_write_input(session_id="t", cwd="/tmp"),
             smm_dir=self.smm_dir,

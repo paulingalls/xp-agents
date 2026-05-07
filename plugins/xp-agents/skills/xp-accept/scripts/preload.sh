@@ -40,12 +40,6 @@ fi
 # ask an agent to run rm.
 consume_marker ACCEPT
 
-# Signal pre_tool_write to skip .accept gate re-arm during multi-story
-# fix-cycles. Consumed by xp-sprint-close on entry.
-# (story-004 removes this marker entirely once close-then-done lands —
-# the structural fix makes it semantically dead in the common path.)
-write_marker ACCEPT_ACTIVE ""
-
 echo "### STORIES_TO_ACCEPT"
 echo "Sprint has ${SELECTED_COUNT} ${SELECTED_STATUS} stories to verify."
 echo "SELECTED_STATUS=${SELECTED_STATUS}"
