@@ -74,6 +74,45 @@ class TestAnsiStripping(unittest.TestCase):
         self.assertEqual(written["content"], "Normal text without escapes")
 
 
+class TestFlockWithTimeout(_SMMTestCase):
+    """Direct exercises of `flock_with_timeout` — the helper that
+    backs every events.lock and sprint.lock acquisition. Existing
+    callsite tests cover the integrated path; these pin the helper's
+    own contract so the next refactor doesn't have to rediscover it.
+    """
+
+    def test_acquire_yields_and_releases(self):
+        """Helper yields when the lock is free, then releases on exit
+        so a second acquire succeeds without contention."""
+        lock_path = self.smm_dir / "test.lock"
+        with _append_impl.flock_with_timeout(lock_path):
+            pass
+        with _append_impl.flock_with_timeout(lock_path):
+            pass
+
+    def test_raises_lock_timeout_when_held(self):
+        """When the lock is held by another holder, the helper raises
+        LockTimeoutError after the SIGALRM budget elapses."""
+        with (
+            held_events_lock(self.smm_dir),
+            self.assertRaises(_append_impl.LockTimeoutError),
+            _append_impl.flock_with_timeout(self.smm_dir / "events.lock"),
+        ):
+            pass
+
+    def test_rejects_symlink_lock_path(self):
+        """Symlinked lock_path must be rejected (O_NOFOLLOW)."""
+        target = self.smm_dir / "real.lock"
+        target.touch()
+        link = self.smm_dir / "link.lock"
+        link.symlink_to(target)
+        with (
+            self.assertRaises(OSError),
+            _append_impl.flock_with_timeout(link),
+        ):
+            pass
+
+
 class TestLockTimeout(_SMMTestCase):
     """Test that lock timeout raises instead of degrading."""
 

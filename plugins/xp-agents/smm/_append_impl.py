@@ -14,6 +14,8 @@ import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -130,48 +132,58 @@ def _safe_open_nofollow(path: Path, flags: int) -> int:
     return os.open(str(path), flags | os.O_NOFOLLOW, 0o600)
 
 
+@contextmanager
+def flock_with_timeout(lock_path: Path, mode: int = fcntl.LOCK_EX) -> Iterator[None]:
+    """Acquire ``flock(mode)`` on ``lock_path`` under a SIGALRM timeout.
+
+    Opens ``lock_path`` with ``O_NOFOLLOW`` (rejecting symlinks) and
+    permission ``0o600``, arms ``SIGALRM`` for ``LOCK_TIMEOUT_SECONDS``,
+    takes the flock, yields, then on exit releases the lock and closes
+    the fd. ``LOCK_UN`` is wrapped in ``contextlib.suppress(OSError)``
+    so a flaky release never masks an in-flight exception or blocks
+    ``close``. Restores any prior ``SIGALRM`` handler.
+
+    Raises ``LockTimeoutError`` if the lock cannot be acquired within
+    the budget; raises ``OSError`` if ``lock_path`` is a symlink.
+
+    The lock fd is intentionally not yielded — every caller acquires
+    its own fd against the data file (events.jsonl, sprint.json) and
+    uses this lock purely as a serialization marker.
+    """
+    raw_fd = _safe_open_nofollow(lock_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+    try:
+        lock_fd = os.fdopen(raw_fd, "a")
+    except BaseException:
+        os.close(raw_fd)
+        raise
+    try:
+        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
+        try:
+            signal.alarm(LOCK_TIMEOUT_SECONDS)
+            fcntl.flock(lock_fd, mode)
+            signal.alarm(0)
+        finally:
+            signal.signal(signal.SIGALRM, old_handler)
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
+
 def read_with_lock(path: Path) -> str:
     """Read file contents under shared flock.
 
     Raises LockTimeoutError if the lock cannot be acquired within the
     flock budget. Raises OSError if the lock file is a symlink.
     """
-    lock_path = path.parent / "events.lock"
-    lock_fd = None
-    raw_fd = None
-
-    try:
-        raw_fd = os.open(
-            str(lock_path),
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
-            0o600,
-        )
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(LOCK_TIMEOUT_SECONDS)
-            fcntl.flock(lock_fd, fcntl.LOCK_SH)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
+    with flock_with_timeout(path.parent / "events.lock", fcntl.LOCK_SH):
         try:
             if path.stat().st_size > MAX_EVENTS_FILE_SIZE:
                 return ""
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
 
 
 def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
@@ -242,27 +254,7 @@ def append_event(smm_dir: Path, event: dict) -> None:
             f"({len(line.encode('utf-8'))} > {MAX_EVENT_BYTES} bytes)"
         )
 
-    lock_fd = None
-    raw_fd = None
-
-    try:
-        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None  # now owned by lock_fd
-
-        # Use blocking flock with SIGALRM timeout.
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(LOCK_TIMEOUT_SECONDS)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
+    with flock_with_timeout(lock_file):
         ev_fd = _safe_open_nofollow(events_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
         try:
             with os.fdopen(ev_fd, "a", encoding="utf-8") as f:
@@ -270,11 +262,6 @@ def append_event(smm_dir: Path, event: dict) -> None:
         except Exception:
             os.close(ev_fd)
             raise
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
 
     # Notify on blocking questions — after write succeeds, never fails the write
     _notify_blocking_question(event)
@@ -324,26 +311,8 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
     # Single lock acquisition, write all lines
     events_file = smm_dir / "events.jsonl"
     lock_file = smm_dir / "events.lock"
-    lock_fd = None
-    raw_fd = None
 
-    try:
-        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(LOCK_TIMEOUT_SECONDS)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
+    with flock_with_timeout(lock_file):
         ev_fd = _safe_open_nofollow(events_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
         try:
             with os.fdopen(ev_fd, "wb") as f:
@@ -352,11 +321,6 @@ def bulk_append(smm_dir: Path, events: list[dict]) -> None:
         except Exception:
             os.close(ev_fd)
             raise
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
 
     # Notify on blocking questions — after write succeeds
     for event in cleaned:
@@ -374,27 +338,9 @@ def replace_events_file(smm_dir: Path, events: list[dict]) -> str:
     """
     events_file = smm_dir / "events.jsonl"
     lock_file = smm_dir / "events.lock"
-    lock_fd = None
-    raw_fd = None
     original_content = ""
 
-    try:
-        raw_fd = _safe_open_nofollow(lock_file, os.O_WRONLY | os.O_CREAT | os.O_APPEND)
-        try:
-            lock_fd = os.fdopen(raw_fd, "a")
-        except Exception:
-            os.close(raw_fd)
-            raise
-        raw_fd = None
-
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(LOCK_TIMEOUT_SECONDS)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
-
+    with flock_with_timeout(lock_file):
         # Read original under lock (prevents TOCTOU race)
         try:
             original_content = events_file.read_text(encoding="utf-8")
@@ -413,11 +359,6 @@ def replace_events_file(smm_dir: Path, events: list[dict]) -> str:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
             raise
-
-    finally:
-        if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
 
     return original_content
 
