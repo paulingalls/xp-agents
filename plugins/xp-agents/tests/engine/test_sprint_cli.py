@@ -200,6 +200,92 @@ class TestUpdateStoryCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestUpdateStoryIfCommand(_SMMTestCase):
+    """CLI exposure of the CAS helper. Production xp-accept Step 1.5
+    uses this to guard the singleton reviewing→closing transition."""
+
+    def _seed(self, status: str) -> None:
+        sprint = _make_sprint(stories=[_make_story(id="story-001", status=status)])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_succeeds_when_status_matches_expected(self):
+        self._seed("reviewing")
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "reviewing",
+                "--new",
+                "closing",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "closing")
+
+    def test_cas_mismatch_exits_rc1(self):
+        # A prior caller already advanced the story past `reviewing`;
+        # the CAS subcommand must report failure (no demotion). Pins
+        # rc=1 specifically — the xp-accept skill instructs the
+        # orchestrator to skip-this-story on rc=1 vs halt on rc=2,
+        # so the 1↔2 distinction is contract, not implementation detail.
+        self._seed("closing")
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "reviewing",
+                "--new",
+                "closing",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "closing")
+
+    def test_invalid_new_status_exits_rc2(self):
+        # Validation error (argparse choices=) — distinct from the
+        # benign rc=1 race-loss; orchestrator must halt, not skip.
+        self._seed("reviewing")
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "reviewing",
+                "--new",
+                "bogus",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_unknown_story_id_exits_rc2(self):
+        # Helper's ValueError → rc=2. Same orchestrator semantics as
+        # the bogus-status case: halt, surface stderr, do not skip.
+        self._seed("reviewing")
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-999",
+                "--expected",
+                "reviewing",
+                "--new",
+                "closing",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 2)
+
+
 class TestRenderCommand(_SMMTestCase):
     def test_render(self):
         (self.smm_dir / "sprint.json").write_text(

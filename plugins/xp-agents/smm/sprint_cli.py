@@ -193,6 +193,24 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_update_story_if(args: argparse.Namespace) -> int:
+    """Atomic compare-and-swap on story status.
+
+    Exits 0 when the on-disk status matched --expected and the write
+    succeeded; 1 when the status differed (no-op, file untouched);
+    2 on validation/missing-id/missing-sprint errors. Callers can
+    distinguish "lost the race" (rc=1) from "bad input" (rc=2).
+    """
+    try:
+        ok = store.update_story_status_if(
+            args.smm_dir, args.story_id, expected=args.expected, new=args.new
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    return 0 if ok else 1
+
+
 def _cmd_edit_story(args: argparse.Namespace) -> int:
     raw = sys.stdin.read()
     try:
@@ -345,6 +363,21 @@ def main() -> None:
         help="New status",
     )
 
+    usi_p = sub.add_parser(
+        "update-story-if",
+        help=(
+            "Atomic compare-and-swap on story status. Exits 0 on success, "
+            "1 when the on-disk status differed from --expected (no write), "
+            "2 on validation errors. Used by xp-accept Step 1.5 to guard "
+            "the singleton reviewing→closing transition."
+        ),
+    )
+    usi_p.add_argument("story_id", help="Story ID")
+    usi_p.add_argument("--expected", required=True, help="Required current status")
+    usi_p.add_argument(
+        "--new", required=True, choices=_STATUS_CHOICES, help="New status"
+    )
+
     usb_p = sub.add_parser("update-story-branch", help="Set a story's branch name")
     usb_p.add_argument("story_id", help="Story ID")
     usb_p.add_argument("branch_name", help="Branch name to record")
@@ -411,6 +444,7 @@ def main() -> None:
         "add-story": _cmd_add_story,
         "edit-story": _cmd_edit_story,
         "update-story": _cmd_update_story,
+        "update-story-if": _cmd_update_story_if,
         "update-story-branch": _cmd_update_story_branch,
         "get-story-branch": _cmd_get_story_branch,
         "get-story": _cmd_get_story,

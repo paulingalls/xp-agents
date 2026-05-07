@@ -115,19 +115,21 @@ class TestAcceptReviewingLifecycle(unittest.TestCase):
 
     def test_step_1_5_transitions_reviewing_to_closing(self):
         # Sprint-069: per-story Step 1.5 transitions reviewing -> closing
-        # immediately before /xp-story-close dispatch. Pin the CLI
+        # immediately before /xp-story-close dispatch. Pin the CAS CLI
         # invocation appears INSIDE the Step 1.5 section, before Step 2,
         # so future prose reorders can't silently move the transition
-        # to a wrong section.
+        # to a wrong section. Switched to the CAS subcommand to honor
+        # the singleton-lock invariant from concern c8118872ad2b.
         _assert_text_ordering(
             self,
             self.text,
             "## Step 1.5: Transition reviewing → closing",
-            "update-story story-NNN closing",
+            "update-story-if story-NNN --expected reviewing --new closing",
             "## Step 2:",
             msg=(
                 "Step 1.5 must contain the canonical reviewing->closing "
-                "CLI invocation, positioned before Step 2"
+                "CAS CLI invocation (update-story-if), positioned before "
+                "Step 2"
             ),
         )
 
