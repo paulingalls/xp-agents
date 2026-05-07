@@ -89,9 +89,10 @@ class TestFormatConcernTriage(unittest.TestCase):
 
 
 class TestSelectInMotionStories(unittest.TestCase):
-    """Story-002 widening contract: concern_triage and acceptance_types
-    both surface info for the in-motion (in-progress + reviewing) story
-    set, not just in-progress. The shared filter helper is the seam.
+    """Story-002 widening contract (extended in sprint-069 to include
+    `closing`): concern_triage and acceptance_types both surface info
+    for the in-motion (in-progress + reviewing + closing) story set,
+    not just in-progress. The shared filter helper is the seam.
     """
 
     def test_includes_in_progress(self):
@@ -104,7 +105,12 @@ class TestSelectInMotionStories(unittest.TestCase):
         result = concern_triage.select_in_motion_stories(stories)
         self.assertEqual([s["id"] for s in result], ["s1"])
 
-    def test_includes_both_when_mixed(self):
+    def test_includes_closing(self):
+        stories = [{"id": "s1", "status": "closing"}]
+        result = concern_triage.select_in_motion_stories(stories)
+        self.assertEqual([s["id"] for s in result], ["s1"])
+
+    def test_includes_all_three_when_mixed(self):
         stories = [
             {"id": "s1", "status": "reviewing"},
             {"id": "s2", "status": "in-progress"},
@@ -112,9 +118,10 @@ class TestSelectInMotionStories(unittest.TestCase):
             {"id": "s4", "status": "scheduled"},
             {"id": "s5", "status": "done"},
             {"id": "s6", "status": "deferred"},
+            {"id": "s7", "status": "closing"},
         ]
         result = concern_triage.select_in_motion_stories(stories)
-        self.assertEqual({s["id"] for s in result}, {"s1", "s2"})
+        self.assertEqual({s["id"] for s in result}, {"s1", "s2", "s7"})
 
     def test_excludes_terminal_and_queued(self):
         stories = [

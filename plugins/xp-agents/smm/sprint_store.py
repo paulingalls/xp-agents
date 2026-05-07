@@ -217,6 +217,8 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_active_stories,  # noqa: F401  re-export for legacy callers
     has_active_stories_data,
+    has_closing_stories,  # noqa: F401  re-export for legacy callers
+    has_closing_stories_data,  # noqa: F401  re-export for legacy callers
     has_in_motion_stories,  # noqa: F401  re-export for legacy callers
     has_in_motion_stories_data,  # noqa: F401  re-export for legacy callers
     has_in_progress_stories,  # noqa: F401  re-export for legacy callers
@@ -229,6 +231,7 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_stories_with_status_data,  # noqa: F401  re-export for legacy callers
     is_complete,  # noqa: F401  re-export for legacy callers
     scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
+    select_closing_stories,  # noqa: F401  re-export for legacy callers
     select_in_motion_stories,  # noqa: F401  re-export for legacy callers
 )
 
@@ -302,11 +305,11 @@ def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
 
     Powers cascade-deferral in /xp-accept: when a story can't ship, every
     in-motion descendant is also blocked and should be deferred together.
-    In-motion = in-progress OR reviewing (see sprint_schema's
-    IN_MOTION_STORY_STATUSES) — a reviewing dependent is mid-acceptance
-    and its verification work is invalidated when its base defers.
-    Done/deferred/ready/scheduled dependents are excluded; cycles
-    terminate because we only add unseen ids.
+    In-motion = in-progress OR reviewing OR closing (see sprint_schema's
+    IN_MOTION_STORY_STATUSES) — a reviewing/closing dependent is mid-
+    acceptance or mid-close and its verification work is invalidated when
+    its base defers. Done/deferred/ready/scheduled dependents are excluded;
+    cycles terminate because we only add unseen ids.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:

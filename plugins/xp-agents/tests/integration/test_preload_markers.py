@@ -24,6 +24,7 @@ from _branching_fixtures import (
     init_repo_in_spaced_parent,
     seed_sprint_with_stories,
 )
+from _worktree_fixtures import make_teammate_worktree
 from conftest import _IntegrationTestCase
 from integration.conftest import _XP_STORY_CLOSE_PRELOAD
 
@@ -132,22 +133,13 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
         shutil.rmtree(self._parent, ignore_errors=True)
         shutil.rmtree(self._plugin_data, ignore_errors=True)
 
-    def _make_teammate_worktree(self, story_id: str, branch: str) -> str:
-        path = self.repo / ".claude" / "worktrees" / f"worktree-{story_id}"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "worktree", "add", "-b", branch, str(path), "HEAD"],
-            cwd=self.repo,
-            capture_output=True,
-            check=True,
-        )
-        return os.path.realpath(str(path))
-
     def test_preload_emits_teammate_cwd_and_branch(self):
-        # Close-then-done: xp-story-close discovers the in-`reviewing`
-        # story (mark-done is the FINAL step after merge).
-        seed_sprint_with_stories(self.smm_dir, [("story-001", "reviewing")])
-        wt_path = self._make_teammate_worktree("story-001", "u/story-001-reviewing")
+        # xp-story-close discovers the in-`closing` story (xp-accept
+        # promotes reviewing→closing before dispatch).
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "closing")])
+        wt_path = str(
+            make_teammate_worktree(self.repo, "story-001", "u/story-001-closing")
+        )
         self.assertIn(" ", wt_path)
 
         result = subprocess.run(
@@ -173,7 +165,7 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
         )
         self.assertEqual(
             fields.get("CURRENT_BRANCH"),
-            "u/story-001-reviewing",
+            "u/story-001-closing",
             msg=f"branch parse drift; stdout={result.stdout!r}",
         )
 

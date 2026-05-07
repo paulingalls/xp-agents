@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Prose pins for the 5-state story lifecycle.
+"""Prose pins for the 6-state story lifecycle.
 
 The lifecycle is `ready -> scheduled -> in-progress -> reviewing ->
-done/deferred`. xp-accept's per-story Step 1 must promote a story to
-`reviewing` before running its acceptance command, and the
-debug-after-fail branch must demote it back to `in-progress` so
-pre_tool_write re-arms the `.accept` marker for fix-cycle Edits.
+closing -> done/deferred`. xp-accept's per-story Step 1 must promote a
+story to `reviewing` before running its acceptance command, Step 1.5
+transitions it to `closing` immediately before /xp-story-close
+dispatch, and the debug-after-fail branch must demote it back to
+`in-progress` so pre_tool_write re-arms the `.accept` marker for
+fix-cycle Edits.
 
 These tests pin the SKILL.md and PROCESS_GUIDE.md prose contracts so
-neither doc drifts back to the pre-`reviewing` four-state behavior.
+neither doc drifts back to the pre-`closing` lifecycle.
 """
 
 import sys
@@ -24,7 +26,14 @@ _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-accept" / "SKILL.md"
 _PRELOAD_SH = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 _PROCESS_GUIDE = _PLUGIN_ROOT / "PROCESS_GUIDE.md"
 
-_LIFECYCLE_STATES = ("ready", "scheduled", "in-progress", "reviewing", "done")
+_LIFECYCLE_STATES = (
+    "ready",
+    "scheduled",
+    "in-progress",
+    "reviewing",
+    "closing",
+    "done",
+)
 
 
 class TestAcceptHasNoTier2(unittest.TestCase):
@@ -85,11 +94,54 @@ class TestAcceptReviewingLifecycle(unittest.TestCase):
         self.assertIn("update-story story-NNN in-progress", self.text)
         self.assertIn("debug", self.text.lower())
 
-    def test_lifecycle_section_names_five_states(self):
-        # SKILL.md should reference all 5 lifecycle states so a reader
-        # sees `reviewing` alongside the other states.
+    def test_lifecycle_section_names_six_states(self):
+        # SKILL.md should reference all 6 lifecycle states so a reader
+        # sees `closing` alongside the other states.
         for state in _LIFECYCLE_STATES:
             self.assertIn(state, self.text)
+
+    def test_skill_documents_closing_is_singleton_in_pipeline(self):
+        # The `closing` state's load-bearing semantic is that it is a
+        # SINGLETON lock — exactly one story in the close pipeline at a
+        # time, so /xp-story-close's worktree discovery is unambiguous.
+        # Pin the prose so a future trim doesn't drop the singleton
+        # rationale (which justifies why bare update-story is OK and
+        # why find_closing_teammate_worktree can match-or-None).
+        lower = self.text.lower()
+        self.assertTrue(
+            "singleton" in lower,
+            "SKILL.md must document `closing` as the singleton in-pipeline lock",
+        )
+
+    def test_step_1_5_transitions_reviewing_to_closing(self):
+        # Sprint-069: per-story Step 1.5 transitions reviewing -> closing
+        # immediately before /xp-story-close dispatch. Pin the CLI
+        # invocation appears INSIDE the Step 1.5 section, before Step 2,
+        # so future prose reorders can't silently move the transition
+        # to a wrong section.
+        _assert_text_ordering(
+            self,
+            self.text,
+            "## Step 1.5: Transition reviewing → closing",
+            "update-story story-NNN closing",
+            "## Step 2:",
+            msg=(
+                "Step 1.5 must contain the canonical reviewing->closing "
+                "CLI invocation, positioned before Step 2"
+            ),
+        )
+
+    def test_debug_branch_demotes_closing_to_in_progress(self):
+        # When the user picks "Debug and re-run" after AC fails AFTER
+        # the closing transition, the revert is closing -> in-progress
+        # (skipping reviewing). Pin the explicit "closing -> in-progress"
+        # / "closing to in-progress" prose so a loose substring match
+        # can't pass on coincidental closing+in-progress mentions.
+        lower = self.text.lower()
+        self.assertTrue(
+            "closing → in-progress" in lower or "closing to in-progress" in lower,
+            "Revert path must explicitly document closing -> in-progress demote",
+        )
 
 
 class TestAcceptReviewingFirstDispatch(unittest.TestCase):
@@ -214,7 +266,7 @@ class TestAcceptCwdSubshell(unittest.TestCase):
 
 
 class TestProcessGuideLifecycle(unittest.TestCase):
-    """PROCESS_GUIDE.md sprint-flow paragraph must name all 5 states."""
+    """PROCESS_GUIDE.md sprint-flow paragraph must name all 6 states."""
 
     @classmethod
     def setUpClass(cls):
@@ -227,11 +279,17 @@ class TestProcessGuideLifecycle(unittest.TestCase):
         # readers about the valid transitions.
         self.assertIn("reviewing", self.text)
 
-    def test_process_guide_names_full_5_state_lifecycle(self):
+    def test_process_guide_names_full_6_state_lifecycle(self):
         # Pin the full ordered sequence so a future trim doesn't
-        # accidentally drop one state.
-        for state in _LIFECYCLE_STATES:
-            self.assertIn(state, self.text)
+        # accidentally drop one state. Use _assert_text_ordering so the
+        # test ACTUALLY pins ordering (a bare substring loop would pass
+        # even if states appeared scrambled or in unrelated paragraphs).
+        _assert_text_ordering(
+            self,
+            self.text,
+            *_LIFECYCLE_STATES,
+            msg="PROCESS_GUIDE lifecycle paragraph must list states in order",
+        )
 
 
 if __name__ == "__main__":

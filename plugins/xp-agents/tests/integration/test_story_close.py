@@ -75,13 +75,14 @@ _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md"
 
 class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
     """Story-close preload emits TEAMMATE_CWD + overrides CURRENT_BRANCH
-    when a teammate worktree corresponds to the just-done story.
+    when a teammate worktree corresponds to the in-closing story.
 
-    Implicit-derivation discovery (story-002 sprint-057): no marker, no
-    /xp-accept context-passing — preload pairs live teammate worktrees
-    against sprint.json status, picks the worktree whose story is
-    `done`. Solo flow (no teammate worktree, or no matching done story)
-    keeps the orchestrator HEAD as CURRENT_BRANCH and TEAMMATE_CWD="".
+    Implicit-derivation discovery: no marker, no /xp-accept context-
+    passing — preload pairs live teammate worktrees against sprint.json
+    status, picks the worktree whose story is `closing` (the singleton
+    in-pipeline lock; mark-done is the FINAL step after merge). Solo
+    flow (no teammate worktree, or no matching closing story) keeps the
+    orchestrator HEAD as CURRENT_BRANCH and TEAMMATE_CWD="".
     """
 
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
@@ -95,7 +96,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
 
     def test_solo_emits_empty_teammate_cwd_and_orchestrator_branch(self):
         # No teammate worktree at all — solo flow.
-        seed_sprint_with_stories(self.smm_dir, [("story-001", "reviewing")])
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "closing")])
         result = self._run_preload(self._PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(_extract_preload_var(result.stdout, "TEAMMATE_CWD"), "")
@@ -104,11 +105,12 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
             get_current_branch_at(self.tmpdir),
         )
 
-    def test_reviewing_teammate_emits_teammate_cwd_and_teammate_branch(self):
-        # Close-then-done: story is in `reviewing` while /xp-story-close
-        # runs (mark-done is the FINAL step after merge).
+    def test_closing_teammate_emits_teammate_cwd_and_teammate_branch(self):
+        # Story is in `closing` while /xp-story-close runs (xp-accept
+        # promotes reviewing→closing before dispatch; mark-done is the
+        # FINAL step after merge).
         wt_path = self._create_worktree("story-042")
-        seed_sprint_with_stories(self.smm_dir, [("story-042", "reviewing")])
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "closing")])
         result = self._run_preload(self._PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         emitted = _extract_preload_var(result.stdout, "TEAMMATE_CWD")
@@ -121,7 +123,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
         )
 
     def test_in_progress_teammate_emits_empty_teammate_cwd(self):
-        # Worktree exists but story is in-progress, not reviewing — preload
+        # Worktree exists but story is in-progress, not closing — preload
         # should NOT pick it; CURRENT_BRANCH stays at orchestrator HEAD.
         self._create_worktree("story-007")
         seed_sprint_with_stories(self.smm_dir, [("story-007", "in-progress")])
@@ -133,18 +135,19 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
             get_current_branch_at(self.tmpdir),
         )
 
-    def test_multi_reviewing_match_propagates_failure(self):
+    def test_multi_closing_match_propagates_failure(self):
         # The helper's "fail loud on multi-match" contract only holds if
-        # the preload doesn't swallow it. Two `reviewing` stories with live
-        # worktrees signal broken /xp-accept iteration — the preload
-        # MUST surface the helper's stderr and exit non-zero rather than
-        # silently degrading to solo flow (which would then dispatch
-        # close_common.py at the orchestrator cwd against the wrong
-        # branch). Regression guard for the original `2>/dev/null || echo ""`.
+        # the preload doesn't swallow it. Two `closing` stories with live
+        # worktrees signal broken /xp-accept iteration — closing is the
+        # singleton lock. Preload MUST surface the helper's stderr and
+        # exit non-zero rather than silently degrading to solo flow
+        # (which would then dispatch close_common.py at the orchestrator
+        # cwd against the wrong branch). Regression guard for the
+        # original `2>/dev/null || echo ""`.
         self._create_worktree("story-101")
         self._create_worktree("story-102")
         seed_sprint_with_stories(
-            self.smm_dir, [("story-101", "reviewing"), ("story-102", "reviewing")]
+            self.smm_dir, [("story-101", "closing"), ("story-102", "closing")]
         )
         result = self._run_preload(self._PRELOAD)
         self.assertNotEqual(
@@ -152,7 +155,7 @@ class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
             0,
             "preload must propagate multi-match ValueError, not swallow it",
         )
-        self.assertIn("multiple reviewing stories", result.stderr)
+        self.assertIn("multiple closing stories", result.stderr)
 
 
 class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):

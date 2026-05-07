@@ -384,9 +384,9 @@ def main() -> None:
     ftd_p = sub.add_parser(
         "find-transitive-dependents",
         help=(
-            "Print space-separated in-motion (in-progress or reviewing) "
-            "story ids that depend (transitively) on the given story; "
-            "powers cascade-deferral"
+            "Print space-separated in-motion (in-progress, reviewing, or "
+            "closing) story ids that depend (transitively) on the given "
+            "story; powers cascade-deferral"
         ),
     )
     ftd_p.add_argument("story_id", help="Story ID to walk dependents of")

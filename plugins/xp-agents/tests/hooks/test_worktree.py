@@ -539,16 +539,15 @@ class TestListLiveTeammateWorktreePaths(unittest.TestCase):
 
 class TestFindClosingTeammateWorktree(unittest.TestCase):
     """find_closing_teammate_worktree picks the live teammate worktree
-    whose sprint.json story status is `reviewing` — the implicit-
+    whose sprint.json story status is `closing` — the implicit-
     derivation discovery used by /xp-story-close to know which teammate
     worktree it's closing without requiring /xp-accept to pass context.
 
-    Under close-then-done ordering, the story is in `reviewing` when
-    /xp-story-close runs; mark-done is the FINAL step (after the
-    close cycle). Returns (abs_path, branch). None when no
-    live teammate worktree matches a reviewing story (solo flow, or no
-    teammates running). Raises ValueError on multi-match (signals
-    broken /xp-accept iteration — fail loud, never guess).
+    `closing` is the singleton in-pipeline lock; `reviewing` is plural-
+    safe so concurrent teammate self-promotes can coexist. Returns
+    (abs_path, branch). None when no live teammate worktree matches a
+    closing story. Raises ValueError on multi-closing (signals broken
+    /xp-accept iteration — fail loud, never guess which to close).
     """
 
     def setUp(self):
@@ -577,7 +576,7 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
         return "\n".join(blocks)
 
     def test_returns_none_when_no_teammate_worktrees(self):
-        self._write_sprint([("story-001", "reviewing")])
+        self._write_sprint([("story-001", "closing")])
         porcelain = "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n"
         with patch("worktree.subprocess.check_output", return_value=porcelain):
             result = worktree.find_closing_teammate_worktree(
@@ -585,7 +584,7 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
             )
         self.assertIsNone(result)
 
-    def test_returns_none_when_no_reviewing_story(self):
+    def test_returns_none_when_no_closing_story(self):
         wt = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
         wt.mkdir(parents=True)
         self._write_sprint([("story-001", "in-progress")])
@@ -597,12 +596,11 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_returns_none_when_done_with_worktree(self):
-        # Inverse-regression pin: under close-then-done semantics, a
-        # `done` story's worktree must NOT match — mark-done is the
-        # final step AFTER /xp-story-close, so by the time a story is
-        # done its worktree should already be cleaned up. Pinning the
-        # exclusion guards against a future regression flipping the
-        # discovery query back to `done`.
+        # Inverse-regression pin: a `done` story's worktree must NOT
+        # match — mark-done is the FINAL step AFTER /xp-story-close, so
+        # by the time a story is done its worktree should already be
+        # cleaned up. Pinning the exclusion guards against a future
+        # regression flipping the discovery query back to `done`.
         wt = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
         wt.mkdir(parents=True)
         self._write_sprint([("story-001", "done")])
@@ -631,15 +629,12 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
             )
         self.assertIsNone(result)
 
-    def test_returns_path_and_branch_when_reviewing_with_worktree(self):
+    def test_returns_path_and_branch_when_closing_with_worktree(self):
         wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
         wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
         wt1.mkdir(parents=True)
         wt2.mkdir(parents=True)
-        # story-001 just self-promoted to reviewing (close-then-done:
-        # /xp-story-close runs while story is still reviewing); story-002
-        # still in-progress.
-        self._write_sprint([("story-001", "reviewing"), ("story-002", "in-progress")])
+        self._write_sprint([("story-001", "closing"), ("story-002", "in-progress")])
         porcelain = self._porcelain_for(
             [(str(wt1), "paulingalls/story-001"), (str(wt2), "paulingalls/story-002")]
         )
@@ -649,10 +644,39 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
             )
         self.assertEqual(result, (str(wt1), "paulingalls/story-001"))
 
-    def test_raises_when_multiple_reviewing_with_worktrees(self):
-        # Signals broken /xp-accept iteration: two reviewing stories with
-        # live worktrees should not coexist under the per-story dispatch
-        # loop (close-then-done iterates one at a time).
+    def test_returns_closing_when_concurrent_reviewing_present(self):
+        # Multiple reviewing worktrees plus one closing → return the
+        # closing worktree, no raise. Reviewing is plural-safe; only
+        # `closing` is the singleton lock.
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
+        wt3 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-003"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        wt3.mkdir(parents=True)
+        self._write_sprint(
+            [
+                ("story-001", "reviewing"),
+                ("story-002", "reviewing"),
+                ("story-003", "closing"),
+            ]
+        )
+        porcelain = self._porcelain_for(
+            [
+                (str(wt1), "paulingalls/story-001"),
+                (str(wt2), "paulingalls/story-002"),
+                (str(wt3), "paulingalls/story-003"),
+            ]
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertEqual(result, (str(wt3), "paulingalls/story-003"))
+
+    def test_returns_none_when_only_reviewing_stories(self):
+        # Reviewing-status worktrees must never match — only `closing`
+        # triggers the discovery. Multiple reviewing + zero closing → None.
         wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
         wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
         wt1.mkdir(parents=True)
@@ -662,18 +686,35 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
             [(str(wt1), "paulingalls/story-001"), (str(wt2), "paulingalls/story-002")]
         )
         with patch("worktree.subprocess.check_output", return_value=porcelain):
+            result = worktree.find_closing_teammate_worktree(
+                self.smm_dir, str(self.tmpdir)
+            )
+        self.assertIsNone(result)
+
+    def test_raises_when_multiple_closing_with_worktrees(self):
+        # Two `closing` stories with live worktrees signals a broken
+        # iteration — fail loud, never guess which to close.
+        wt1 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-001"
+        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
+        wt1.mkdir(parents=True)
+        wt2.mkdir(parents=True)
+        self._write_sprint([("story-001", "closing"), ("story-002", "closing")])
+        porcelain = self._porcelain_for(
+            [(str(wt1), "paulingalls/story-001"), (str(wt2), "paulingalls/story-002")]
+        )
+        with patch("worktree.subprocess.check_output", return_value=porcelain):
             with self.assertRaises(ValueError) as ctx:
                 worktree.find_closing_teammate_worktree(self.smm_dir, str(self.tmpdir))
             self.assertIn("story-001", str(ctx.exception))
             self.assertIn("story-002", str(ctx.exception))
-            self.assertIn("reviewing", str(ctx.exception))
+            self.assertIn("closing", str(ctx.exception))
 
     def test_returns_none_when_worktree_story_not_in_sprint(self):
         # Defensive: a worktree exists for a story-id that's no longer in
         # sprint.json (orphan / stale fixture). Don't raise — treat as no match.
         wt = self.tmpdir / ".claude" / "worktrees" / "worktree-story-999"
         wt.mkdir(parents=True)
-        self._write_sprint([("story-001", "reviewing")])
+        self._write_sprint([("story-001", "closing")])
         porcelain = self._porcelain_for([(str(wt), "paulingalls/story-999")])
         with patch("worktree.subprocess.check_output", return_value=porcelain):
             result = worktree.find_closing_teammate_worktree(

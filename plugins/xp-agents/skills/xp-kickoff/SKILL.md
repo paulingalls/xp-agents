@@ -112,7 +112,7 @@ This step runs at every kickoff regardless of the session mode chosen in Step 2 
 
 ## Step 2.7: Orphan story-branch triage (ALWAYS, every kickoff)
 
-If the preload shows **ORPHAN_STORY_BRANCHES**, the user has story branches not backed by any active (ready/in-progress/reviewing) sprint story. For each branch listed, ask via `AskUserQuestion`: **merge / keep / delete?**
+If the preload shows **ORPHAN_STORY_BRANCHES**, the user has story branches not backed by any active (ready/in-progress/reviewing/closing) sprint story. For each branch listed, ask via `AskUserQuestion`: **merge / keep / delete?**
 
 - **merge** — merge the branch into the sprint base via `branching.py merge-branch --cwd . --branch <name>`, then delete it via `branching.py delete --cwd . --branch <name>`.
 - **keep** — leave the branch alone; it will reappear at the next kickoff.

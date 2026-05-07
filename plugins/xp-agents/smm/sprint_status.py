@@ -70,8 +70,23 @@ def has_reviewing_stories_data(data: dict) -> bool:
     return has_stories_with_status_data(data, "reviewing")
 
 
+def has_closing_stories(smm_dir: Path) -> bool:
+    """True if sprint has closing stories."""
+    return has_stories_with_status(smm_dir, "closing")
+
+
+def has_closing_stories_data(data: dict) -> bool:
+    """True if sprint dict has closing stories."""
+    return has_stories_with_status_data(data, "closing")
+
+
+def select_closing_stories(stories: list[dict]) -> list[dict]:
+    """Return stories in the /xp-story-close pipeline."""
+    return [s for s in stories if s.get("status") == "closing"]
+
+
 def has_in_motion_stories(smm_dir: Path) -> bool:
-    """True if sprint has in-motion (in-progress or reviewing) stories."""
+    """True if sprint has in-motion (in-progress, reviewing, or closing) stories."""
     from sprint_store import load_sprint
 
     sprint = load_sprint(smm_dir)
@@ -81,12 +96,12 @@ def has_in_motion_stories(smm_dir: Path) -> bool:
 
 
 def has_in_motion_stories_data(data: dict) -> bool:
-    """True if sprint dict has in-motion (in-progress or reviewing) stories."""
+    """True if sprint dict has in-motion stories (in-progress, reviewing, closing)."""
     return any(s["status"] in IN_MOTION_STORY_STATUSES for s in data["stories"])
 
 
 def select_in_motion_stories(stories: list[dict]) -> list[dict]:
-    """Return stories under acceptance (in-progress or reviewing)."""
+    """Return stories under acceptance (in-progress, reviewing, or closing)."""
     return [s for s in stories if s.get("status") in IN_MOTION_STORY_STATUSES]
 
 
