@@ -535,136 +535,97 @@ class TestMechanicalPromote(unittest.TestCase):
             f.write("body")
             return f.name
 
-    def test_promotes_to_reviewing_on_rc_0(self):
-        """Successful teammate (rc=0) triggers update_story_status to reviewing."""
+    def _run_promote(
+        self,
+        *,
+        story_id: str | None = "story-001",
+        current_status: str = "in-progress",
+        run_with_tee_side_effect=None,
+    ) -> list[tuple[str, str, str]]:
+        """Run spawn_teammate.main with stubbed worktree+subprocess+sprint
+        and return the captured update_story_status calls.
+
+        story_id=None omits --story-id (ad-hoc teammate).
+        run_with_tee_side_effect raises if you want rc!=0 simulation.
+        """
         from unittest.mock import patch
 
         import spawn_teammate
 
         prompt_path = self._make_prompt_file()
-        captured_calls = []
+        captured_calls: list[tuple[str, str, str]] = []
 
-        def fake_promote(smm_dir, story_id, status):
-            captured_calls.append((str(smm_dir), story_id, status))
+        def fake_promote(smm_dir, sid, status):
+            captured_calls.append((str(smm_dir), sid, status))
+
+        argv = [
+            "--name",
+            "worktree-story-001" if story_id else "worktree-foo",
+            "--smm-dir",
+            "/tmp/smm",
+            "--prompt-file",
+            prompt_path,
+        ]
+        if story_id is not None:
+            argv += ["--story-id", story_id]
 
         try:
             with (
                 patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(spawn_teammate, "run_with_tee"),  # rc=0 path
+                patch.object(
+                    spawn_teammate,
+                    "run_with_tee",
+                    side_effect=run_with_tee_side_effect,
+                ),
+                patch.object(
+                    spawn_teammate.sprint_store,
+                    "get_story",
+                    return_value={"status": current_status},
+                ),
                 patch.object(
                     spawn_teammate.sprint_store,
                     "update_story_status",
                     side_effect=fake_promote,
                 ),
             ):
-                spawn_teammate.main(
-                    [
-                        "--name",
-                        "worktree-story-001",
-                        "--smm-dir",
-                        "/tmp/smm",
-                        "--prompt-file",
-                        prompt_path,
-                        "--story-id",
-                        "story-001",
-                    ]
-                )
+                spawn_teammate.main(argv)
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
+        return captured_calls
+
+    def test_promotes_to_reviewing_on_rc_0(self):
+        """Successful teammate (rc=0) triggers update_story_status to reviewing."""
+        captured = self._run_promote()
         self.assertEqual(
-            captured_calls,
+            captured,
             [("/tmp/smm", "story-001", "reviewing")],
-            f"expected single reviewing-promote call, got: {captured_calls!r}",
+            f"expected single reviewing-promote call, got: {captured!r}",
         )
+
+    def test_does_not_promote_when_already_done(self):
+        """Guard against silently demoting a story already advanced past
+        in-progress. If current status is done/deferred (e.g. user
+        manually advanced mid-run), the rc=0 promote MUST be skipped.
+        Pins close-reviewer concern 3ba0b6237c65."""
+        captured = self._run_promote(current_status="done")
+        self.assertEqual(captured, [], f"unexpected demote of done story: {captured!r}")
 
     def test_does_not_promote_on_rc_nonzero(self):
         """Failed teammate (rc!=0) leaves story in-progress for debug."""
-        from unittest.mock import patch
 
-        import spawn_teammate
-
-        prompt_path = self._make_prompt_file()
-        captured_calls = []
-
-        def fake_promote(smm_dir, story_id, status):
-            captured_calls.append((str(smm_dir), story_id, status))
-
-        def raise_failure(*a, **kw):
+        def raise_failure(*_args, **_kwargs):
             raise subprocess.CalledProcessError(2, ["fake"])
 
-        try:
-            with (
-                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(spawn_teammate, "run_with_tee", side_effect=raise_failure),
-                patch.object(
-                    spawn_teammate.sprint_store,
-                    "update_story_status",
-                    side_effect=fake_promote,
-                ),
-                self.assertRaises(subprocess.CalledProcessError),
-            ):
-                spawn_teammate.main(
-                    [
-                        "--name",
-                        "worktree-story-001",
-                        "--smm-dir",
-                        "/tmp/smm",
-                        "--prompt-file",
-                        prompt_path,
-                        "--story-id",
-                        "story-001",
-                    ]
-                )
-        finally:
-            Path(prompt_path).unlink(missing_ok=True)
-
-        self.assertEqual(
-            captured_calls,
-            [],
-            f"unexpected promote on failure: {captured_calls!r}",
-        )
+        with self.assertRaises(subprocess.CalledProcessError):
+            self._run_promote(run_with_tee_side_effect=raise_failure)
 
     def test_does_not_promote_when_story_id_absent(self):
         """No --story-id → no promote attempted (ad-hoc teammates without
         sprint context just exit cleanly)."""
-        from unittest.mock import patch
-
-        import spawn_teammate
-
-        prompt_path = self._make_prompt_file()
-        captured_calls = []
-
-        def fake_promote(smm_dir, story_id, status):
-            captured_calls.append((str(smm_dir), story_id, status))
-
-        try:
-            with (
-                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(spawn_teammate, "run_with_tee"),
-                patch.object(
-                    spawn_teammate.sprint_store,
-                    "update_story_status",
-                    side_effect=fake_promote,
-                ),
-            ):
-                spawn_teammate.main(
-                    [
-                        "--name",
-                        "worktree-foo",
-                        "--smm-dir",
-                        "/tmp/smm",
-                        "--prompt-file",
-                        prompt_path,
-                    ]
-                )
-        finally:
-            Path(prompt_path).unlink(missing_ok=True)
-
+        captured = self._run_promote(story_id=None)
         self.assertEqual(
-            captured_calls,
-            [],
-            f"unexpected promote without story-id: {captured_calls!r}",
+            captured, [], f"unexpected promote without story-id: {captured!r}"
         )
 
 

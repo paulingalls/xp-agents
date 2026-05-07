@@ -241,9 +241,13 @@ def main(argv: list[str] | None = None) -> None:
     # rc=0 path: mechanical promote to reviewing under close-then-done.
     # On rc!=0 the run_with_tee call above raised CalledProcessError,
     # this code never runs, and the story stays in-progress for debug.
-    # Idempotent — sprint_store accepts no-op transitions.
+    # Guard: only promote from in-progress — a story already done or
+    # deferred (e.g. user manually advanced it mid-run) must not be
+    # silently demoted back to reviewing.
     if args.story_id is not None:
-        sprint_store.update_story_status(Path(args.smm_dir), args.story_id, "reviewing")
+        smm_dir = Path(args.smm_dir)
+        if sprint_store.get_story(smm_dir, args.story_id)["status"] == "in-progress":
+            sprint_store.update_story_status(smm_dir, args.story_id, "reviewing")
 
 
 if __name__ == "__main__":
