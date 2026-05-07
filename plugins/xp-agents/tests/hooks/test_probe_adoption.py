@@ -32,6 +32,16 @@ from event_schema import (
 class TestProbeAdoptionRate(unittest.TestCase):
     """probe_adoption_rate: how often agents add trailers when probes are shown."""
 
+    def setUp(self):
+        # Stub normalize_path to identity — divert classification calls
+        # _normalize_file_set, which requires cwd: str. Raw test paths
+        # compare set-equal without canonicalization.
+        from unittest.mock import patch as patch_
+
+        patcher = patch_("worktree.normalize_path", side_effect=lambda p, _c: p)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @staticmethod
     def _probe_event(
         candidate_ids: list[str],
@@ -75,7 +85,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["aaa"], "2026-04-05T10:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 1)
         self.assertEqual(result["probe_adoption_hits"], 1)
         self.assertAlmostEqual(result["probe_adoption_rate"], 1.0)
@@ -87,7 +99,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit([], "2026-04-05T10:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 1)
         self.assertEqual(result["probe_adoption_hits"], 0)
         self.assertAlmostEqual(result["probe_adoption_rate"], 0.0)
@@ -98,7 +112,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
         events = [
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 0)
         self.assertAlmostEqual(result["probe_adoption_rate"], 0.0)
 
@@ -111,7 +127,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["bbb"], "2026-04-05T11:00:00+00:00"),
             self._code_commit([], "2026-04-05T11:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 2)
         self.assertEqual(result["probe_adoption_hits"], 1)
         self.assertAlmostEqual(result["probe_adoption_rate"], 0.5)
@@ -127,7 +145,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit([], "2026-04-05T10:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 1)
         self.assertEqual(result["probe_adoption_hits"], 0)
         self.assertEqual(result["probe_escape"], 1)
@@ -143,7 +163,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T10:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 1)
         self.assertEqual(result["probe_adoption_hits"], 0)
         self.assertEqual(result["probe_escape"], 0)
@@ -165,7 +187,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             ),
             self._code_commit(["zzz"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_divert"], 1)
         details = result.get("probe_divert_details")
         assert details is not None, (
@@ -198,7 +222,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             ),
             self._code_commit(["zzz"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["selection_reasons"], reasons)
@@ -215,7 +241,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             ),
             self._code_commit(["zzz"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["selection_reasons"], {"aaa": [], "bbb": []})
@@ -229,7 +257,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["aaa"], "2026-04-05T10:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_divert"], 0)
         self.assertEqual(result.get("probe_divert_details", []), [])
 
@@ -240,7 +270,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
         events = [
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00", agent_id="paul"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 1)
         self.assertEqual(result["probe_adoption_hits"], 0)
         self.assertEqual(result["probe_escape"], 0)
@@ -256,7 +288,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:00+00:00", agent_id="paul"),
             self._code_commit(["aaa"], "2026-04-05T10:01:00+00:00", agent_id="alice"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 1)
         self.assertEqual(result["probe_adoption_hits"], 0)
         self.assertEqual(result["probe_silent"], 1)
@@ -271,7 +305,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._code_commit(["aaa"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
             self._code_commit(["bbb"], "2026-04-05T10:02:00+00:00", agent_id="alice"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 2)
         self.assertEqual(result["probe_adoption_hits"], 2)
 
@@ -286,7 +322,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-04-05T10:00:30+00:00", agent_id="paul"),
             self._code_commit(["aaa"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 2)
         self.assertEqual(result["probe_adoption_hits"], 1)
         self.assertEqual(result["probe_silent"], 1)
@@ -299,7 +337,9 @@ class TestProbeAdoptionRate(unittest.TestCase):
             self._probe_event(["aaa"], "2026-03-15T10:00:00+00:00"),
             self._code_commit([], "2026-03-15T10:01:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
         self.assertEqual(result["probe_adoption_total"], 0)
         self.assertEqual(result["probe_escape"], 0)
 

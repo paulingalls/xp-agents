@@ -281,7 +281,7 @@ def _event_in_sprint_window(event: dict, sprint_start_ts: str | None) -> bool:
 def _compute_resolves_link_rate(
     events: list[dict],
     sprint_start_ts: str | None,
-    cwd: str | None = None,
+    cwd: str,
 ) -> dict:
     """Count code commits with Resolves-Event trailers vs total code commits.
 
@@ -339,16 +339,13 @@ def _compute_resolves_link_rate(
     }
 
 
-def _normalize_file_set(files: list[str], cwd: str | None) -> set[str]:
+def _normalize_file_set(files: list[str], cwd: str) -> set[str]:
     """Canonicalize a list of file paths via worktree.normalize_path so
     './scripts/x.py', 'scripts/x.py', and absolute forms intersect on the
     same git-root-relative key. Mirrors resolves_probe._score_candidate
-    and concerns.find_issues_for_file. cwd=None falls back to raw set
-    semantics — kept as a test affordance so unit tests don't need to
-    construct a real git repo.
+    and concerns.find_issues_for_file. Tests stub worktree.normalize_path
+    (see TestFileOverlapNormalization) rather than skipping normalization.
     """
-    if cwd is None:
-        return {f for f in files if isinstance(f, str)}
     out: set[str] = set()
     for f in files:
         if not isinstance(f, str):
@@ -365,7 +362,7 @@ def _classify_divert_reason(
     probe_ts: str,
     commit_files: list[str],
     story_id: str | None,
-    cwd: str | None = None,
+    cwd: str,
 ) -> str:
     """Reason an agent's resolves choice fell outside the probe candidate set.
 
@@ -379,8 +376,8 @@ def _classify_divert_reason(
     probe-selection-miss, unknown.
 
     File overlap normalizes both rejected_files and commit_files via
-    worktree.normalize_path when cwd is supplied — mirrors the canonical
-    pattern at resolves_probe._score_candidate so abs/rel/'./' forms match.
+    worktree.normalize_path — mirrors the canonical pattern at
+    resolves_probe._score_candidate so abs/rel/'./' forms match.
 
     cross-story is dormant in practice today (spike decision 4f62e2ada08d:
     0/84 concern/debt/discovery events carried metadata.story_id) but we
@@ -430,7 +427,7 @@ def _compute_probe_adoption(
     events: list[dict],
     code_commits: list[dict],
     sprint_start_ts: str | None,
-    cwd: str | None = None,
+    cwd: str,
 ) -> dict:
     """Probe adoption: pair each probe with the next code commit by the
     same agent_id in the sprint window, then classify into hit / escape /
