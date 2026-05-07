@@ -33,6 +33,34 @@ def _extract_var(stdout: str, name: str) -> str | None:
 
 
 class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Mirror real-repo .gitignore — without this, the orchestrator's
+        # untracked-files check sees the .claude/worktrees/ dir itself
+        # (which contains teammate worktrees) and reports the orchestrator
+        # as "dirty", defeating the hijack-guard. Done once at class level
+        # because per-test setUp wipes the worktree but not .git's HEAD —
+        # a per-test re-add+commit would no-op the second test (file
+        # restored to HEAD content) and break check=True.
+        gitignore = cls.tmpdir / ".gitignore"
+        gitignore.write_text(".claude/worktrees/\n")
+        subprocess.run(
+            ["git", "add", ".gitignore"],
+            cwd=str(cls.tmpdir),
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "test: gitignore worktrees"],
+            cwd=str(cls.tmpdir),
+            capture_output=True,
+            check=True,
+        )
+        # Refresh _IntegrationTestCase's snapshot to include the new HEAD
+        # state (the base setUpClass snapshotted SMM dir contents only;
+        # tmpdir HEAD is unaffected by per-test setUp restore).
+
     def setUp(self):
         super().setUp()
         # Setup wipes .claude/ but leaves git's worktree registry stale —
@@ -48,24 +76,15 @@ class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
                 cwd=str(self.tmpdir),
                 capture_output=True,
             )
-        # Mirror real-repo .gitignore — without this, the orchestrator's
-        # untracked-files check sees the .claude/worktrees/ dir itself
-        # (which contains teammate worktrees) and reports the orchestrator
-        # as "dirty", defeating the hijack-guard. Real repos always
-        # gitignore worktree paths.
-        gitignore = self.tmpdir / ".gitignore"
-        if not gitignore.exists():
-            gitignore.write_text(".claude/worktrees/\n")
-            subprocess.run(
-                ["git", "add", ".gitignore"],
-                cwd=str(self.tmpdir),
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "commit", "-m", "test: gitignore worktrees"],
-                cwd=str(self.tmpdir),
-                capture_output=True,
-            )
+        # Per-test setUp wiped .gitignore from worktree (it's not in the
+        # base's preserve-list). Restore from HEAD so the orchestrator
+        # is clean for tests that depend on the hijack-guard.
+        subprocess.run(
+            ["git", "checkout", "--", ".gitignore"],
+            cwd=str(self.tmpdir),
+            capture_output=True,
+            check=True,
+        )
 
     def _run_preload(
         self, env_overrides: dict | None = None
