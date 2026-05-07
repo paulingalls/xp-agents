@@ -302,11 +302,11 @@ def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
 
     Powers cascade-deferral in /xp-accept: when a story can't ship, every
     in-motion descendant is also blocked and should be deferred together.
-    In-motion = in-progress OR reviewing (see sprint_schema's
-    IN_MOTION_STORY_STATUSES) — a reviewing dependent is mid-acceptance
-    and its verification work is invalidated when its base defers.
-    Done/deferred/ready/scheduled dependents are excluded; cycles
-    terminate because we only add unseen ids.
+    In-motion = in-progress OR reviewing OR closing (see sprint_schema's
+    IN_MOTION_STORY_STATUSES) — a reviewing/closing dependent is mid-
+    acceptance or mid-close and its verification work is invalidated when
+    its base defers. Done/deferred/ready/scheduled dependents are excluded;
+    cycles terminate because we only add unseen ids.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:
