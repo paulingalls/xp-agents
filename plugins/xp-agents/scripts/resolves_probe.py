@@ -24,6 +24,8 @@ from event_schema import (
     METADATA_KEY_CLOSE_MODE,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
+    METADATA_KEY_PROBE_SNAPSHOT_MAX_TS,
+    METADATA_KEY_PROBE_TAIL_TS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
     SELECTION_REASON_IN_SPRINT_BATCH,
@@ -61,32 +63,43 @@ def _extract_keywords(text: str) -> set[str]:
     return {t for t in tokens if len(t) >= 3 and t not in STOPWORDS}
 
 
-def _is_events_snapshot_stale(events: list[dict], now_ts: str) -> bool:
-    """True when the newest event in `events` is meaningfully older than now_ts.
+def _events_max_ts(events: list[dict]) -> str:
+    """Newest ts in events (lex-compare on ISO-8601 strings); "" when empty.
 
-    Caller-supplied `events` snapshots can drift behind disk between the
-    caller's load and probe time (other agents writing to events.jsonl,
-    pre-commit hook latency between subagent emission and commit). When
-    that drift exceeds _SNAPSHOT_STALENESS_THRESHOLD_SECONDS, the probe
-    re-reads from disk so the candidate set covers events the agent
-    plausibly saw on disk by commit time.
+    ISO-8601 strings lex-compare in chronological order at same precision —
+    cheaper than parsing every event's ts. Reused by snapshot/tail telemetry
+    capture in find_probe_candidates and the staleness check.
+    """
+    return max((e.get("ts") or "" for e in events), default="")
 
-    Returns False on missing/malformed inputs — fail-safe degrades to
+
+def _is_events_snapshot_stale(events: list[dict], now_ts: str) -> tuple[bool, str]:
+    """Return (is_stale, max_ts).
+
+    is_stale: True when the newest event in `events` is meaningfully older
+    than now_ts. Caller-supplied `events` snapshots can drift behind disk
+    between the caller's load and probe time (other agents writing to
+    events.jsonl, pre-commit hook latency between subagent emission and
+    commit). When that drift exceeds _SNAPSHOT_STALENESS_THRESHOLD_SECONDS,
+    the probe re-reads from disk so the candidate set covers events the
+    agent plausibly saw on disk by commit time.
+
+    max_ts: the newest event ts (also returned so callers don't iterate
+    events a second time for the same value). "" when events is empty.
+
+    is_stale=False on missing/malformed inputs — fail-safe degrades to
     "trust the caller's snapshot" rather than gratuitous re-reads.
     """
-    if not events or not now_ts:
-        return False
-    # ISO-8601 strings lex-compare in chronological order at same precision —
-    # cheaper than parsing every event's ts to find the max.
-    max_ts = max((e.get("ts") or "" for e in events), default="")
-    if not max_ts:
-        return False
+    max_ts = _events_max_ts(events) if events else ""
+    if not events or not now_ts or not max_ts:
+        return (False, max_ts)
     try:
         now_dt = datetime.fromisoformat(now_ts)
         max_dt = datetime.fromisoformat(max_ts)
     except ValueError:
-        return False
-    return (now_dt - max_dt).total_seconds() > _SNAPSHOT_STALENESS_THRESHOLD_SECONDS
+        return (False, max_ts)
+    is_stale = (now_dt - max_dt).total_seconds() > _SNAPSHOT_STALENESS_THRESHOLD_SECONDS
+    return (is_stale, max_ts)
 
 
 def _is_recent(event_ts: str, now_ts: str) -> bool:
@@ -305,6 +318,7 @@ def find_probe_candidates(
     resolutions: dict | None = None,
     commit_message: str = "",
     now_ts: str | None = None,
+    out_meta: dict | None = None,
 ) -> list[dict]:
     """Open concerns/debts with file overlap OR in-sprint-batch tie, ranked.
 
@@ -313,6 +327,14 @@ def find_probe_candidates(
     in-sprint-batch axis (sibling concerns from the same active close-reviewer
     cycle, surfaced even without file/keyword overlap to close the
     probe-divert gap). Sorts by score descending, ts descending as tiebreak.
+
+    When `out_meta` is provided, the probe records snapshot/tail freshness
+    telemetry into it: `out_meta["snapshot_max_ts"]` is the newest ts in
+    the caller's snapshot at probe entry (BEFORE any staleness reread —
+    pinned so the divert classifier can distinguish stale-snapshot from
+    other divert classes); `out_meta["tail_ts"]` is the newest ts after
+    the staleness check (post-reread when triggered). When they differ,
+    the probe re-read disk between caller-snapshot and probe-time.
     """
     # No early-return on empty commit_files: the in-sprint-batch axis must
     # surface siblings regardless of file overlap (empty-stage commits with
@@ -321,12 +343,23 @@ def find_probe_candidates(
     # share the same snapshot — also lets us derive active_cycle_id without
     # a second disk read.
     resolved_now: str = now_ts if now_ts is not None else _common.now_iso()
-    if events is None or _is_events_snapshot_stale(events, resolved_now):
+    # Pin snapshot_max_ts BEFORE the staleness reread shadows the original
+    # value — otherwise both timestamps equal the post-reread tail and the
+    # newer-than-snapshot signal is undiagnosable. The staleness check
+    # already iterates events to compute max_ts; reuse that value.
+    if events is None:
+        is_stale, snapshot_max_ts = False, ""
+    else:
+        is_stale, snapshot_max_ts = _is_events_snapshot_stale(events, resolved_now)
+    if events is None or is_stale:
         events, resolutions = _common.load_events_with_resolutions(smm_dir)
     elif resolutions is None:
         import resolution
 
         resolutions = resolution.compute_resolutions(events)
+    if out_meta is not None:
+        out_meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS] = snapshot_max_ts
+        out_meta[METADATA_KEY_PROBE_TAIL_TS] = _events_max_ts(events)
 
     active_cycle_id = _find_active_cycle_id(events, resolved_now)
 
@@ -427,20 +460,37 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
     return [block]
 
 
-def emit_probe_status(smm_dir: "Path", candidates: list[dict], agent_id: str) -> None:
-    """Write a probe status event to events.jsonl."""
-    if not candidates:
+def emit_probe_status(
+    smm_dir: "Path",
+    candidates: list[dict],
+    agent_id: str,
+    probe_meta: dict | None = None,
+) -> None:
+    """Write a probe status event to events.jsonl.
+
+    Emits even when `candidates` is empty IF `probe_meta` is provided —
+    the zero-candidate emit is the most diagnostic case for
+    newer-than-snapshot diverts (no candidate surfaced; was the snapshot
+    stale?). When neither is provided, stays silent.
+    """
+    if not candidates and not probe_meta:
         return
+    metadata: dict = {
+        METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
+        METADATA_KEY_PROBE_SELECTION_REASONS: {
+            c["id"]: c.get("selection_reasons", []) for c in candidates
+        },
+    }
+    if probe_meta:
+        # probe_meta keys are already METADATA_KEY_* constants (set by
+        # find_probe_candidates' out_meta path) — direct merge, no
+        # translation layer needed.
+        metadata.update(probe_meta)
     event = _common.make_event(
         _common.STATUS,
         agent_id,
         f"{STATUS_CONTENT_RESOLVES_PROBE}: {len(candidates)} candidates",
         working_on=[],
-        metadata={
-            METADATA_KEY_PROBE_CANDIDATES: [c["id"] for c in candidates],
-            METADATA_KEY_PROBE_SELECTION_REASONS: {
-                c["id"]: c.get("selection_reasons", []) for c in candidates
-            },
-        },
+        metadata=metadata,
     )
     _common.append_safe(smm_dir, event)

@@ -27,6 +27,8 @@ from event_schema import (
     EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
     METADATA_KEY_PROBE_SELECTION_REASONS,
+    METADATA_KEY_PROBE_SNAPSHOT_MAX_TS,
+    METADATA_KEY_PROBE_TAIL_TS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
     SELECTION_REASON_IN_SPRINT_BATCH,
@@ -996,6 +998,124 @@ class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):
             METADATA_KEY_PROBE_SELECTION_REASONS
         ]
         self.assertEqual(reasons_map, {"abc": []})
+
+    def test_emit_with_probe_meta_emits_even_when_zero_candidates(self):
+        # The most diagnostic case for newer-than-snapshot diverts is the
+        # zero-candidate emit — without this, we'd never see the snapshot
+        # vs tail-ts evidence for a divert that matters most.
+        probe_meta = {
+            METADATA_KEY_PROBE_SNAPSHOT_MAX_TS: "2026-04-29T10:00:00+00:00",
+            METADATA_KEY_PROBE_TAIL_TS: "2026-04-29T10:00:30+00:00",
+        }
+        resolves_probe.emit_probe_status(
+            self.smm_dir, [], "main", probe_meta=probe_meta
+        )
+        probes = self._probes()
+        self.assertEqual(len(probes), 1)
+        meta = probes[0]["metadata"]
+        self.assertEqual(
+            meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS], "2026-04-29T10:00:00+00:00"
+        )
+        self.assertEqual(meta[METADATA_KEY_PROBE_TAIL_TS], "2026-04-29T10:00:30+00:00")
+
+    def test_emit_with_neither_candidates_nor_probe_meta_returns_silently(self):
+        # Regression guard for the original empty-candidates short-circuit:
+        # when there's nothing to emit AND no diagnostic metadata, stay
+        # silent. Only the probe_meta channel can override the early return.
+        resolves_probe.emit_probe_status(self.smm_dir, [], "main", probe_meta=None)
+        self.assertEqual(self._probes(), [])
+
+    def test_emit_with_candidates_and_probe_meta_merges_metadata(self):
+        candidates = [{"id": "abc", "content": "first"}]
+        probe_meta = {
+            METADATA_KEY_PROBE_SNAPSHOT_MAX_TS: "2026-04-29T10:00:00+00:00",
+            METADATA_KEY_PROBE_TAIL_TS: "2026-04-29T10:00:00+00:00",
+        }
+        resolves_probe.emit_probe_status(
+            self.smm_dir, candidates, "main", probe_meta=probe_meta
+        )
+        meta = self._probes()[0]["metadata"]
+        self.assertEqual(meta[METADATA_KEY_PROBE_CANDIDATES], ["abc"])
+        self.assertEqual(
+            meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS], "2026-04-29T10:00:00+00:00"
+        )
+        self.assertEqual(meta[METADATA_KEY_PROBE_TAIL_TS], "2026-04-29T10:00:00+00:00")
+
+
+class TestFindProbeCandidatesOutMeta(_HookTestCase):
+    """find_probe_candidates populates out_meta with snapshot/tail timestamps.
+
+    Reinforces the newer-than-snapshot divert diagnosis by capturing both
+    the caller's snapshot freshness AND the on-disk tail at probe time —
+    so retro_metrics (and humans) can see whether a divert was caused by
+    snapshot lag or by something else.
+    """
+
+    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
+        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def test_out_meta_populated_with_snapshot_and_tail_ts(self):
+        ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Auth concern", ["scripts/auth.py"], ts)
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        out_meta: dict = {}
+        resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=events,
+            resolutions=resolutions,
+            now_ts="2026-04-29T10:00:01+00:00",
+            out_meta=out_meta,
+        )
+        self.assertEqual(out_meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS], ts)
+        self.assertEqual(out_meta[METADATA_KEY_PROBE_TAIL_TS], ts)
+
+    def test_out_meta_snapshot_ts_pinned_before_staleness_reread(self):
+        # When the caller's snapshot is stale, find_probe_candidates re-reads
+        # disk. The pinning contract: snapshot_max_ts MUST reflect the
+        # caller's stale value, not the post-reread tail. Otherwise both
+        # timestamps equal disk tail and the metric is meaningless.
+        old_ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Old concern", ["scripts/auth.py"], old_ts)
+        stale_events, stale_res = _common.load_events_with_resolutions(self.smm_dir)
+        new_ts = "2026-04-29T10:00:30+00:00"
+        self._seed_concern("Fresh concern", ["scripts/auth.py"], new_ts)
+        out_meta: dict = {}
+        resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=stale_events,
+            resolutions=stale_res,
+            now_ts="2026-04-29T10:01:00+00:00",
+            out_meta=out_meta,
+        )
+        self.assertEqual(
+            out_meta[METADATA_KEY_PROBE_SNAPSHOT_MAX_TS],
+            old_ts,
+            "snapshot_max_ts MUST be the caller's pre-reread max, not the "
+            "disk tail post-reread; otherwise newer-than-snapshot diverts "
+            "are undiagnosable.",
+        )
+        self.assertEqual(out_meta[METADATA_KEY_PROBE_TAIL_TS], new_ts)
+
+    def test_out_meta_default_none_does_not_break_existing_callers(self):
+        ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Auth concern", ["scripts/auth.py"], ts)
+        # No out_meta passed — pre-existing call shape, must not error.
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts="2026-04-29T10:00:01+00:00",
+        )
+        self.assertEqual(len(result), 1)
 
 
 class TestFindProbeCandidatesDiscovery(_HookTestCase):

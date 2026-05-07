@@ -199,6 +199,24 @@ METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
 # divert-analysis consumers must treat both cases as 'no signal data'.
 METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
 
+# Snapshot-freshness telemetry attached to probe status events. The
+# probe captures both:
+#   probe_snapshot_max_ts — newest ts in the caller's events snapshot at
+#                           probe entry, BEFORE any staleness reread.
+#   probe_tail_ts         — newest ts after the staleness check (post-
+#                           reread when triggered, same as snapshot_max
+#                           when not).
+# When they differ, the probe re-read disk between caller-snapshot and
+# probe-time. Lets retro_metrics distinguish "agent picked an event the
+# probe never saw" from "agent picked an event that arrived after the
+# caller snapshot but before commit" — the second class is closable by
+# the staleness reload, the first needs a different fix. Producer:
+# resolves_probe.find_probe_candidates (out_meta) +
+# resolves_probe.emit_probe_status (probe_meta). Consumers: future
+# divert classifier, retro analysis.
+METADATA_KEY_PROBE_SNAPSHOT_MAX_TS = "probe_snapshot_max_ts"
+METADATA_KEY_PROBE_TAIL_TS = "probe_tail_ts"
+
 # Selector-signal vocabulary for resolves_probe._score_candidate. Each
 # constant names a signal that contributed to a candidate's score and
 # appears in the candidate's selection_reasons list iff that signal
