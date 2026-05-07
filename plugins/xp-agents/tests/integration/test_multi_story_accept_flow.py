@@ -22,7 +22,10 @@ import markers
 import pre_tool_write
 import sprint_state
 import sprint_store
-from _branching_fixtures import get_current_branch_at
+from _branching_fixtures import (
+    create_teammate_worktree_with_commit,
+    get_current_branch_at,
+)
 from conftest import (
     _extract_preload_var,
     _IntegrationTestCase,
@@ -33,9 +36,6 @@ from conftest import (
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
-_XP_SPRINT_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
-)
 _XP_STORY_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 )
@@ -70,31 +70,10 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
     """
 
     def _create_teammate_with_commit(self, story_id):
-        """Create a teammate worktree with one real commit ready to merge."""
-        sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
-        import spawn_teammate
-
-        wt_path = spawn_teammate.create_worktree(
-            f"worktree-{story_id}", str(self.tmpdir)
+        """Backward-compatible thin wrapper around the shared fixture."""
+        return create_teammate_worktree_with_commit(
+            str(self.tmpdir), story_id, self._test_env.copy()
         )
-        feature = Path(wt_path) / f"{story_id}-feature.txt"
-        feature.write_text(f"work for {story_id}")
-        env = self._test_env.copy()
-        subprocess.run(
-            ["git", "add", feature.name],
-            cwd=wt_path,
-            env=env,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", f"[{story_id}] add feature"],
-            cwd=wt_path,
-            env=env,
-            capture_output=True,
-            check=True,
-        )
-        return wt_path
 
     def _git_log_oneline(self, branch):
         return subprocess.run(

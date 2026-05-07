@@ -95,6 +95,46 @@ def get_head_sha(cwd: str) -> str:
     ).stdout.strip()
 
 
+def create_teammate_worktree_with_commit(
+    repo_cwd: str,
+    story_id: str,
+    env: dict,
+    *,
+    content: str | None = None,
+) -> str:
+    """Create a teammate worktree under repo_cwd with one real commit.
+
+    Shared shape used by capstone integration tests that need to verify
+    teammate close + merge composition. Returns the absolute worktree path.
+
+    `content` overrides the default body for the teammate's feature file —
+    set distinct content per branch when the test exercises a merge
+    conflict (default content is per-story but identical across branches
+    when caller doesn't specify).
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    import spawn_teammate
+
+    wt_path = spawn_teammate.create_worktree(f"worktree-{story_id}", repo_cwd)
+    feature = Path(wt_path) / f"{story_id}-feature.txt"
+    feature.write_text(content if content is not None else f"work for {story_id}")
+    subprocess.run(
+        ["git", "add", feature.name],
+        cwd=wt_path,
+        env=env,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", f"[{story_id}] add feature"],
+        cwd=wt_path,
+        env=env,
+        capture_output=True,
+        check=True,
+    )
+    return wt_path
+
+
 def make_commit(
     cwd: str,
     branch: str,
