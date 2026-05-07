@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import identity
+import sprint_status
 import sprint_store
 
 _WORKTREE_PREFIX = "worktree-"
@@ -171,40 +172,43 @@ def list_live_teammate_worktree_paths(cwd: str) -> list[tuple[str, str]]:
 
 
 def find_closing_teammate_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] | None:
-    """Locate the teammate worktree corresponding to the in-reviewing story.
+    """Locate the teammate worktree corresponding to the in-closing story.
 
     Returns ``(abs_path, branch)`` for the live teammate worktree whose
-    sprint.json story has ``status == "reviewing"`` — implicit-
-    derivation discovery used by /xp-story-close to know which teammate
-    worktree it's closing without requiring /xp-accept to pass context.
-    Returns ``None`` when no live teammate worktree matches a reviewing
-    story (solo flow, or no teammates running).
+    sprint.json story has ``status == "closing"`` — implicit-derivation
+    discovery used by /xp-story-close to know which teammate worktree
+    it's closing without requiring /xp-accept to pass context. Returns
+    ``None`` when no live teammate worktree matches a closing story
+    (solo flow, or no teammate currently mid-close).
 
-    Per /xp-accept's per-story dispatch loop under close-then-done
-    semantics (invokes /xp-story-close while the story is still in
-    `reviewing`; marks done AFTER successful merge), at most ONE
-    reviewing-status story can have a live worktree at /xp-story-close
-    dispatch time. Two or more matches signals a broken iteration
-    model — raise ValueError rather than guess which to close.
+    `closing` is the sprint-singleton in-pipeline state. /xp-accept
+    promotes one reviewing story at a time to `closing` before
+    dispatching /xp-story-close, so at most ONE closing-status story can
+    have a live worktree at dispatch time. Two or more matches signals a
+    broken iteration model — raise ValueError rather than guess which to
+    close. `done` stories are excluded too (mark-done is the FINAL step
+    after the close cycle).
     """
     sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
         return None
-    stories_by_id = {s["id"]: s for s in sprint.get("stories", [])}
+    closing_ids = {
+        s["id"] for s in sprint_status.select_closing_stories(sprint.get("stories", []))
+    }
     skip = len(_WORKTREE_PREFIX)
     matches: list[tuple[str, str]] = []
     for wt_path, branch in _iter_live_teammate_worktrees(cwd):
         story_id = Path(wt_path).name[skip:]
-        story = stories_by_id.get(story_id)
-        if story is None or story.get("status") != "reviewing":
+        if story_id not in closing_ids:
             continue
         matches.append((wt_path, branch))
     if len(matches) > 1:
         ids = sorted(Path(p).name[skip:] for p, _ in matches)
         raise ValueError(
-            "multiple reviewing stories with live teammate worktrees "
-            f"({', '.join(ids)}); /xp-accept iteration is expected to "
-            "dispatch /xp-story-close per story, not in batch"
+            "multiple closing stories with live teammate worktrees "
+            f"({', '.join(ids)}); closing is the singleton lock — "
+            "/xp-accept is expected to promote one reviewing story to "
+            "closing at a time before dispatching /xp-story-close"
         )
     return matches[0] if matches else None
 

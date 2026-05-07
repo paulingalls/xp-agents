@@ -109,12 +109,23 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
             "preload must select reviewing path while A is in reviewing",
         )
 
-        # Phase 5: A close-then-done. xp-story-close preload discovers
-        # the teammate worktree by reviewing-status (story-003's
-        # find_closing_teammate_worktree contract); merge_teammate_branch
-        # runs close_common.py merge from the orchestrator cwd (the
-        # helper enforces the merge-must-not-run-from-teammate-cwd
-        # constraint that story-003 caught).
+        # AC3 (literal close-window placement): fire pre_tool_write
+        # again mid-window with A still in `reviewing`. With A reviewing
+        # and B in-progress, has_reviewing_stories suppresses re-arm.
+        pre_tool_write.run(_make_write_input(), smm_dir=self.smm_dir)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT),
+            ".accept must not arm during the close-then-done window",
+        )
+
+        # Phase 5: A close-then-done. Simulate xp-accept's reviewing→
+        # closing promote before dispatching /xp-story-close (closing is
+        # the singleton in-pipeline lock; the SKILL prose owns this in
+        # production). xp-story-close preload then discovers A's
+        # worktree by closing-status; merge_teammate_branch runs
+        # close_common.py merge from the orchestrator cwd (helper
+        # enforces merge-must-not-run-from-teammate-cwd).
+        sprint_store.update_story_status(self.smm_dir, "story-001", "closing")
         orch_branch = get_current_branch_at(self.tmpdir)
         sc = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
         self.assertEqual(sc.returncode, 0, sc.stderr)
@@ -134,17 +145,6 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
         # worktree — cleanup_teammate.py owns deletion (the sibling
         # test_multi_story_accept_flow exercises that step).
         self.assertIn("skipped delete", merge.stdout)
-
-        # AC3 (literal close-window placement): the AC names "intermediate
-        # Edit before mark-done". Phase 2 already fired pre_tool_write
-        # before the preload; here we fire it AFTER merge but BEFORE
-        # status flip, when A is still `reviewing` and the close-then-done
-        # window is at its widest. .accept must STILL stay absent.
-        pre_tool_write.run(_make_write_input(), smm_dir=self.smm_dir)
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT),
-            ".accept must not arm during the close-then-done window",
-        )
 
         # Mark A done — close-then-done's FINAL step (status flip MUST
         # follow the merge so a failed merge can't accidentally complete
@@ -182,6 +182,9 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
             "reviewing",
             "preload must select reviewing path for B (the only reviewing story)",
         )
+        # Same reviewing→closing promote as Phase 5 so the closing-keyed
+        # discovery finds B.
+        sprint_store.update_story_status(self.smm_dir, "story-002", "closing")
         sc_b = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
         self.assertEqual(sc_b.returncode, 0, sc_b.stderr)
         teammate_branch_b = self._assert_not_none(
