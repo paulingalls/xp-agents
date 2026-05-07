@@ -58,10 +58,8 @@ when /xp-story-close runs against it (Step 2 below).
 close-then-done cycle (Step 2 → Step 4). Fix-cycle Edits during
 /xp-story-close do not arm `.accept` because the story is no longer
 counted as in-progress — close-then-done is the structural protection.
-The `ACCEPT_ACTIVE` marker (written by preload.sh, consumed by
-xp-sprint-close) is now semantically inert — close-then-done provides
-the protection — but remains in place until story-004 removes it
-entirely.
+`pre_tool_write`'s re-arm predicate skips when any story is in
+`reviewing`, so the suppression is automatic for the whole window.
 
 If acceptance later fails and the user picks **Debug and re-run** (Step 1's automated-fail branch), revert the promotion before fixing — the story is no longer under review, it's actively-worked again:
 

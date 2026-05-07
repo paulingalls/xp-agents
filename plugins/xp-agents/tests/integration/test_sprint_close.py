@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import markers
 from _branching_fixtures import seed_plan, write_system_context
 from _close_fixtures import (
     _ClosePreloadCommonTests,
@@ -49,22 +48,9 @@ class TestSprintClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
             _extract_preload_var(result.stdout, "TARGET_BRANCH"), "test/plan-feat"
         )
 
-    def test_consumes_accept_active_marker(self):
-        # End-of-flow safety net: sprint-close preload must consume any
-        # ACCEPT_ACTIVE marker so it never persists across sprint boundaries.
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-
-    def test_idempotent_when_marker_absent(self):
-        # consume_marker is idempotent — preload must succeed when no
-        # ACCEPT_ACTIVE marker is present (the common single-story path).
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+    # [story-004] Removed test_consumes_accept_active_marker +
+    # test_idempotent_when_marker_absent — the marker no longer exists
+    # under close-then-done; sprint-close has no consume to perform.
 
 
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"

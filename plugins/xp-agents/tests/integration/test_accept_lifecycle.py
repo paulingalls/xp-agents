@@ -179,9 +179,10 @@ class TestAcceptCloseThenDoneOrdering(unittest.TestCase):
         )
 
     def test_skill_prose_pins_close_then_done_as_primary_protection(self):
-        # The structural close-then-done ordering IS the primary
-        # protection against fix-cycle .accept re-arm — not the
-        # ACCEPT_ACTIVE marker. Pin that the prose names this.
+        # The structural close-then-done ordering IS the protection
+        # against fix-cycle .accept re-arm. Pin that the prose names
+        # this. (Story-004 deleted the prior ACCEPT_ACTIVE marker
+        # entirely once close-then-done made it structurally moot.)
         lower = self.text.lower()
         self.assertTrue(
             "close-then-done" in lower or "stays in `reviewing`" in lower,

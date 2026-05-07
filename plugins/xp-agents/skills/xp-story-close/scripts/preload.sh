@@ -48,12 +48,6 @@ echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
 emit_hook_guidance "$HOOK_STATUS"
 
-# Note: ACCEPT_ACTIVE marker is NOT consumed here under close-then-done.
-# Earlier consume was a leak hypothesis: consuming in xp-story-close left
-# subsequent /xp-accept fix-cycles unprotected. xp-sprint-close consumes
-# the marker end-of-flow as designed (a future refactor removes the
-# marker entirely once close-then-done makes it structurally moot).
-
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close
 # skills instead of four near-duplicate inlined copies.

@@ -13,7 +13,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -24,30 +23,15 @@ from _branching_fixtures import (
     init_repo_in_spaced_parent,
     seed_sprint_with_stories,
 )
-from conftest import (
-    SPRINT_ALL_DONE,
-    SPRINT_IN_PROGRESS,
-    _IntegrationTestCase,
-    _MixinBase,
-)
+from conftest import _IntegrationTestCase
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_BASE = _PLUGIN_ROOT / "skills" / "_preload_base.sh"
-_XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
-_XP_PLAN_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-plan-close" / "scripts" / "preload.sh"
-)
-_XP_FREE_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh"
-)
 _XP_STORY_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 )
 _XP_QUALITY_REVIEW_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
-)
-_XP_KICKOFF_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 )
 
 
@@ -95,156 +79,17 @@ class TestMarkerShellHelpers(_IntegrationTestCase):
         self.assertFalse(marker_path.exists())
 
 
-class TestXpAcceptPreloadAcceptActive(_IntegrationTestCase):
-    """xp-accept preload arms ACCEPT_ACTIVE iff there are in-progress stories."""
-
-    def test_arms_marker_when_in_progress(self):
-        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
-        result = self._run_preload(_XP_ACCEPT_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertTrue(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=f"stdout={result.stdout}",
-        )
-
-    def test_skips_marker_when_no_in_progress(self):
-        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
-        result = self._run_preload(_XP_ACCEPT_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=f"stdout={result.stdout}",
-        )
-
-
-class _ClosePreloadAcceptActiveMixin(_MixinBase):
-    """Shared assertions for close-skill preloads that consume ACCEPT_ACTIVE.
-
-    Three close-skill preloads (sprint, plan, free) consume ACCEPT_ACTIVE
-    on entry so the marker cannot strand across sessions when an
-    alternate close path fires. Idempotent when the marker is absent.
-
-    NOTE: xp-story-close does NOT consume the marker under close-then-done
-    semantics — pinned separately by `TestXpStoryClosePreloadPreservesAcceptActive`
-    (preservation is the load-bearing inverse contract: consuming early
-    leaves subsequent /xp-accept fix-cycles unprotected).
-
-    Subclasses set `_PRELOAD` and inherit `_IntegrationTestCase` for
-    smm_dir / tmpdir / _run_preload.
-    """
-
-    _PRELOAD: Path
-    if TYPE_CHECKING:
-        smm_dir: Path
-
-        def _run_preload(
-            self,
-            script_path: Path,
-            extra_env: dict | None = None,
-        ) -> subprocess.CompletedProcess: ...
-
-    def test_consumes_marker_when_present(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._run_preload(self._PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=f"marker not consumed; stdout={result.stdout}",
-        )
-
-    def test_idempotent_when_absent(self):
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._run_preload(self._PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-
-
-class TestXpPlanClosePreloadAcceptActive(
-    _ClosePreloadAcceptActiveMixin, _IntegrationTestCase
-):
-    _PRELOAD = _XP_PLAN_CLOSE_PRELOAD
-
-
-class TestXpFreeClosePreloadAcceptActive(
-    _ClosePreloadAcceptActiveMixin, _IntegrationTestCase
-):
-    _PRELOAD = _XP_FREE_CLOSE_PRELOAD
-
-
-class TestXpStoryClosePreloadPreservesAcceptActive(_IntegrationTestCase):
-    """xp-story-close preload PRESERVES ACCEPT_ACTIVE under close-then-done.
-
-    The marker stays armed throughout the per-story close cycle so
-    /xp-accept fix-cycles inside /xp-story-close remain protected
-    against .accept re-arm. xp-sprint-close consumes the marker at
-    end-of-flow. Inverse pin guards against a future regression that
-    re-introduces the early consume in xp-story-close.
-    """
-
-    def test_preserves_marker_when_present(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertTrue(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=f"marker MUST persist; stdout={result.stdout}",
-        )
-
-    def test_idempotent_when_absent(self):
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-
-
-class TestXpKickoffPreloadAcceptActive(_IntegrationTestCase):
-    """xp-kickoff defensively clears ACCEPT_ACTIVE when no in-progress
-    stories remain (catches crash/abandon between xp-accept and a close
-    skill firing). MUST preserve the marker when in-progress stories exist
-    so an active acceptance session resumed mid-flight is not clobbered.
-    """
-
-    def test_consumes_marker_when_no_in_progress(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
-        result = self._run_preload(_XP_KICKOFF_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=f"marker not consumed; stdout={result.stdout}",
-        )
-
-    def test_preserves_marker_when_in_progress(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
-        result = self._run_preload(_XP_KICKOFF_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertTrue(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=(
-                "marker incorrectly consumed while in-progress stories exist; "
-                f"stdout={result.stdout}"
-            ),
-        )
-
-    def test_consumes_marker_when_no_sprint(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-        # No sprint.json at all — sprint completed externally / never started.
-        # in_progress_count must be 0 in this branch and marker should clear.
-        result = self._run_preload(_XP_KICKOFF_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE),
-            msg=f"marker not consumed when no sprint; stdout={result.stdout}",
-        )
-
-    def test_idempotent_when_absent(self):
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
-        result = self._run_preload(_XP_KICKOFF_PRELOAD)
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_ACTIVE))
+# [story-004] Removed ACCEPT_ACTIVE marker test surface entirely.
+# close-then-done makes the marker structurally moot:
+#   - TestXpAcceptPreloadAcceptActive (preload no longer arms)
+#   - _ClosePreloadAcceptActiveMixin + Plan/Free subclasses (preloads
+#     no longer consume — marker doesn't exist)
+#   - TestXpStoryClosePreloadPreservesAcceptActive (story-003 inverse pin
+#     also moot once marker is gone)
+#   - TestXpKickoffPreloadAcceptActive (defensive cleanup removed since
+#     there's no marker to defend against)
+# pre_tool_write re-arm protection now uses sprint_state.has_reviewing_stories
+# directly — pinned in test_pre_tool_write_gates.py.
 
 
 class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
@@ -510,105 +355,10 @@ class TestPreloadHonorsTeammateCwd(unittest.TestCase):
         self.assertIn("orchestrator_only.txt", result.stdout)
         self.assertNotIn("worktree_only.txt", result.stdout)
 
-    def _seed_in_progress_sprint(self, story_ids: list[str]) -> None:
-        seed_sprint_with_stories(
-            self.smm_dir, [(sid, "in-progress") for sid in story_ids]
-        )
-
-    def test_preload_auto_detects_teammate_cwd_in_fix_cycle(self):
-        # Fix-cycle context: ACCEPT_ACTIVE marker present + exactly one
-        # in-progress story with a live teammate worktree → preload sets
-        # TEAMMATE_CWD to that worktree so dump_diff captures the
-        # teammate's diff. Mirrors what /xp-accept's "Debug and re-run"
-        # branch sets up before invoking /xp-quality-review.
-        self._seed_in_progress_sprint(["story-001"])
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-
-        result = subprocess.run(
-            ["bash", str(_XP_QUALITY_REVIEW_PRELOAD)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=self._test_env,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("worktree_only.txt", result.stdout)
-        self.assertNotIn("orchestrator_only.txt", result.stdout)
-
-    def test_preload_skips_auto_detection_without_accept_active(self):
-        # Marker absent → not a fix-cycle, even if a teammate worktree
-        # exists for an in-progress story (e.g. teammate is mid-work and
-        # the orchestrator runs /xp-quality-review on its OWN edits).
-        self._seed_in_progress_sprint(["story-001"])
-
-        result = subprocess.run(
-            ["bash", str(_XP_QUALITY_REVIEW_PRELOAD)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=self._test_env,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("orchestrator_only.txt", result.stdout)
-        self.assertNotIn("worktree_only.txt", result.stdout)
-
-    def test_preload_skips_auto_detection_when_ambiguous(self):
-        # Multiple in-progress stories with live worktrees → cannot
-        # disambiguate which is the fix-cycle target; fall back to
-        # orchestrator's cwd rather than guess.
-        wt2 = self.tmpdir / ".claude" / "worktrees" / "worktree-story-002"
-        subprocess.run(
-            [
-                "git",
-                "worktree",
-                "add",
-                "-b",
-                "u/story-002",
-                str(wt2),
-                "HEAD",
-            ],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        try:
-            self._seed_in_progress_sprint(["story-001", "story-002"])
-            markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-
-            result = subprocess.run(
-                ["bash", str(_XP_QUALITY_REVIEW_PRELOAD)],
-                cwd=self.tmpdir,
-                capture_output=True,
-                text=True,
-                env=self._test_env,
-            )
-            self.assertEqual(result.returncode, 0, msg=result.stderr)
-            self.assertIn("orchestrator_only.txt", result.stdout)
-            self.assertNotIn("worktree_only.txt", result.stdout)
-        finally:
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(wt2)],
-                cwd=self.tmpdir,
-                capture_output=True,
-            )
-
-    def test_preload_explicit_teammate_cwd_wins_over_auto_detection(self):
-        # Even with ACCEPT_ACTIVE marker present, an explicitly-set
-        # TEAMMATE_CWD must not be overwritten by detection — the caller
-        # (orchestrator script, test harness) knows better than the
-        # heuristic.
-        self._seed_in_progress_sprint(["story-001"])
-        markers.marker_write(self.smm_dir, markers.ACCEPT_ACTIVE, "")
-
-        env = self._test_env.copy()
-        env["TEAMMATE_CWD"] = str(self.wt_path)
-        result = subprocess.run(
-            ["bash", str(_XP_QUALITY_REVIEW_PRELOAD)],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("worktree_only.txt", result.stdout)
-        self.assertNotIn("orchestrator_only.txt", result.stdout)
+    # [story-004] Removed 4 auto-detect tests entirely. Per decision
+    # 798a27b425a7: xp-quality-review preload no longer auto-detects
+    # teammate worktree from sprint state — caller sets TEAMMATE_CWD
+    # explicitly when invoking quality-review during a fix-cycle. The
+    # surviving tests (test_xp_quality_review_preload_honors_teammate_cwd
+    # + test_xp_quality_review_preload_default_when_no_teammate_cwd)
+    # pin the explicit-pass-through contract.

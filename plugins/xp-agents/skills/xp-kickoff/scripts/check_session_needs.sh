@@ -45,9 +45,6 @@ elif ! sprint_has_active; then
 fi
 
 # 5. Sprint status (for work selection context)
-# Initialize in_progress_count outside the if block so step 6's
-# defensive ACCEPT_ACTIVE cleanup can read it uniformly when no sprint
-# is active (in which case there cannot be in-progress stories).
 in_progress_count=0
 if sprint_has_active; then
     # One subprocess call gets all status counts; pure-bash parse
@@ -84,17 +81,7 @@ if sprint_has_active; then
     fi
 fi
 
-# 6. Defensive cleanup: clear ACCEPT_ACTIVE when no in-progress stories
-# remain. Catches crash/abandon between /xp-accept arming the marker
-# and a close skill firing — without this, the marker can strand and
-# silently disable .accept re-arm in subsequent sessions. Gated on
-# in_progress_count==0 so an active acceptance session resumed
-# mid-flight is NOT clobbered.
-if [ "${in_progress_count}" -eq 0 ]; then
-    clear_accept_active_marker
-fi
-
-# 7. Orphan free branches — surface unfinished free work for the user
+# 6. Orphan free branches — surface unfinished free work for the user
 # to merge/keep/delete at every kickoff (regardless of session mode).
 ORPHAN_FREE=$(branching_list_free)
 if [ -n "$ORPHAN_FREE" ]; then
@@ -105,7 +92,7 @@ if [ -n "$ORPHAN_FREE" ]; then
     echo ""
 fi
 
-# 8. Orphan story branches — story branches not backed by active sprint stories.
+# 7. Orphan story branches — story branches not backed by active sprint stories.
 ORPHAN_STORY=$(branching_list_story_orphans)
 if [ -n "$ORPHAN_STORY" ]; then
     echo "### ORPHAN_STORY_BRANCHES"
