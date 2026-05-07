@@ -118,7 +118,9 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
 
         self.assertFalse(prompt_file.exists())
 
-    def test_prompt_file_deleted_after_failed_spawn(self):
+    def test_prompt_file_preserved_after_failed_spawn(self):
+        """On subprocess failure, the orchestrator must be able to re-spawn
+        with the same prompt — so the original file must survive."""
         import spawn_teammate
 
         prompt_file = Path(self.tmpdir) / "prompt-fail.txt"
@@ -148,7 +150,7 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
                 ]
             )
 
-        self.assertFalse(prompt_file.exists())
+        self.assertTrue(prompt_file.exists())
 
 
 class TestCleanupTeammateE2E(_IntegrationTestCase):

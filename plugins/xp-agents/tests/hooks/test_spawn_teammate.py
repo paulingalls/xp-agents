@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _IntegrationTestCase, _SMMTestCase
 
 
+def _raise_called_process_error(*_args, **_kwargs):
+    """Side-effect callable that simulates a non-zero subprocess exit."""
+    raise subprocess.CalledProcessError(2, ["fake"])
+
+
 class TestBuildCommand(unittest.TestCase):
     """build_command constructs correct claude -p arguments."""
 
@@ -394,6 +399,46 @@ class TestWorktreePreamble(unittest.TestCase):
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
+    def test_prompt_file_preserved_on_failure(self):
+        """When run_with_tee raises CalledProcessError, the original
+        prompt file must survive so the orchestrator can re-spawn the
+        teammate without reconstructing the prompt."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("body")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(
+                    spawn_teammate,
+                    "run_with_tee",
+                    side_effect=_raise_called_process_error,
+                ),
+                self.assertRaises(subprocess.CalledProcessError),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-005",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+            self.assertTrue(
+                Path(prompt_path).exists(),
+                "prompt_file must survive subprocess failure for re-spawn",
+            )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
 
 class TestRunWithTee(unittest.TestCase):
     """run_with_tee mirrors claude -p stdout to <log_dir>/<name>.log
@@ -622,12 +667,8 @@ class TestMechanicalPromote(_SMMTestCase):
     def test_does_not_promote_on_rc_nonzero(self):
         """Failed teammate (rc!=0) leaves story in-progress for debug —
         the CAS is never invoked because the exception propagates first."""
-
-        def raise_failure(*_args, **_kwargs):
-            raise subprocess.CalledProcessError(2, ["fake"])
-
         with self.assertRaises(subprocess.CalledProcessError):
-            self._run_promote(run_with_tee_side_effect=raise_failure)
+            self._run_promote(run_with_tee_side_effect=_raise_called_process_error)
 
     def test_does_not_promote_when_story_id_absent(self):
         """No --story-id → no CAS attempted (ad-hoc teammates without

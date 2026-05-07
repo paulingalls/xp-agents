@@ -234,14 +234,16 @@ def main(argv: list[str] | None = None) -> None:
             combined_path = tf.name
         with open(combined_path) as combined_stdin:
             run_with_tee(cmd, cwd=wt_path, env=env, stdin=combined_stdin, name=name)
-    finally:
         Path(args.prompt_file).unlink(missing_ok=True)
+    finally:
         if combined_path is not None:
             Path(combined_path).unlink(missing_ok=True)
 
     # rc=0 path: mechanical promote to reviewing under close-then-done.
     # On rc!=0 the run_with_tee call above raised CalledProcessError,
-    # this code never runs, and the story stays in-progress for debug.
+    # this code never runs, the story stays in-progress for debug, and
+    # args.prompt_file is preserved so the orchestrator can re-spawn
+    # without reconstructing the prompt.
     # The CAS guard inside update_story_status_if rejects the promote
     # when the story has already been advanced past in-progress (e.g. an
     # orchestrator flipped it to done mid-run) — closing the TOCTOU
