@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from _bases import _PLUGIN_ROOT
+from _worktree_fixtures import make_teammate_worktree
 from conftest import _IntegrationTestCase
 
 _QR_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
@@ -101,21 +102,12 @@ class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
         )
 
     def _make_teammate_worktree(self, story_id: str) -> Path:
-        # Mirror identity._TEAMMATE_PREFIX naming (`worktree-story-NNN`)
-        # so the preload's awk pattern matches.
-        wt_path = self.tmpdir / ".claude" / "worktrees" / f"worktree-story-{story_id}"
-        wt_path.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["git", "worktree", "add", "-b", f"story-{story_id}", str(wt_path)],
-            cwd=str(self.tmpdir),
-            capture_output=True,
-            text=True,
+        # Adapt the digit-only story_id convention (e.g., "042") to the
+        # canonical helper which expects the full "story-NNN" form so
+        # the resulting worktree dir matches identity._TEAMMATE_PREFIX.
+        return make_teammate_worktree(
+            self.tmpdir, f"story-{story_id}", f"story-{story_id}"
         )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"git worktree add failed: {result.stderr}\n{result.stdout}"
-            )
-        return wt_path
 
     def _stage_change_in(self, path: Path, filename: str = "scratch.py") -> None:
         (path / filename).write_text("x = 1\n")
