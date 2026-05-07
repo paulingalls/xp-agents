@@ -22,7 +22,13 @@ import markers
 import pre_tool_write
 import sprint_state
 import sprint_store
-from _branching_fixtures import get_current_branch_at
+from _branching_fixtures import (
+    branch_exists,
+    create_teammate_worktree_with_commit,
+    get_current_branch_at,
+    git_log_oneline_at,
+    merge_teammate_branch,
+)
 from conftest import (
     _extract_preload_var,
     _IntegrationTestCase,
@@ -33,16 +39,12 @@ from conftest import (
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
-_XP_SPRINT_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
-)
 _XP_STORY_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 )
 _XP_KICKOFF_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 )
-_CLOSE_COMMON = _PLUGIN_ROOT / "scripts" / "close_common.py"
 
 
 # [story-004] Deleted TestMultiStoryAcceptFlow — the ACCEPT_ACTIVE
@@ -70,40 +72,13 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
     """
 
     def _create_teammate_with_commit(self, story_id):
-        """Create a teammate worktree with one real commit ready to merge."""
-        sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
-        import spawn_teammate
-
-        wt_path = spawn_teammate.create_worktree(
-            f"worktree-{story_id}", str(self.tmpdir)
+        """Backward-compatible thin wrapper around the shared fixture."""
+        return create_teammate_worktree_with_commit(
+            str(self.tmpdir), story_id, self._test_env.copy()
         )
-        feature = Path(wt_path) / f"{story_id}-feature.txt"
-        feature.write_text(f"work for {story_id}")
-        env = self._test_env.copy()
-        subprocess.run(
-            ["git", "add", feature.name],
-            cwd=wt_path,
-            env=env,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", f"[{story_id}] add feature"],
-            cwd=wt_path,
-            env=env,
-            capture_output=True,
-            check=True,
-        )
-        return wt_path
 
     def _git_log_oneline(self, branch):
-        return subprocess.run(
-            ["git", "log", "--oneline", branch],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
+        return git_log_oneline_at(str(self.tmpdir), branch)
 
     def test_teammate_close_lifecycle(self):
         # Phase 1: setup — 2 in-progress stories, story-002 in a real
@@ -158,24 +133,11 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         # production gap — close_common.py now skips it when source is
         # held by a teammate worktree (cleanup_teammate.py owns
         # deletion), so the chain must exit 0.
-        teammate_branch = _extract_preload_var(sc.stdout, "CURRENT_BRANCH")
-        assert teammate_branch is not None
-        merge = subprocess.run(
-            [
-                sys.executable,
-                str(_CLOSE_COMMON),
-                "merge",
-                "--cwd",
-                str(self.tmpdir),
-                "--source",
-                teammate_branch,
-                "--target",
-                orch_branch,
-            ],
-            cwd=str(self.tmpdir),
-            env=self._test_env,
-            capture_output=True,
-            text=True,
+        teammate_branch = self._assert_not_none(
+            _extract_preload_var(sc.stdout, "CURRENT_BRANCH")
+        )
+        merge = merge_teammate_branch(
+            str(self.tmpdir), teammate_branch, orch_branch, self._test_env
         )
         self.assertEqual(merge.returncode, 0, merge.stderr)
         self.assertIn(
@@ -214,15 +176,8 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         )
         self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
         # Branch is gone (no orphan ref) — the production gap fix.
-        ref = f"refs/heads/{teammate_branch}"
-        branch_check = subprocess.run(
-            ["git", "rev-parse", "--verify", "--quiet", ref],
-            cwd=self.tmpdir,
-            capture_output=True,
-        )
-        self.assertNotEqual(
-            branch_check.returncode,
-            0,
+        self.assertFalse(
+            branch_exists(str(self.tmpdir), teammate_branch),
             f"teammate branch {teammate_branch} should be deleted after cleanup",
         )
 

@@ -95,6 +95,96 @@ def get_head_sha(cwd: str) -> str:
     ).stdout.strip()
 
 
+def create_teammate_worktree_with_commit(
+    repo_cwd: str,
+    story_id: str,
+    env: dict,
+    *,
+    content: str | None = None,
+) -> str:
+    """Create a teammate worktree under repo_cwd with one real commit.
+
+    Shared shape used by capstone integration tests that need to verify
+    teammate close + merge composition. Returns the absolute worktree path.
+
+    `content` overrides the default body for the teammate's feature file —
+    set distinct content per branch when the test exercises a merge
+    conflict (default content is per-story but identical across branches
+    when caller doesn't specify).
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+    import spawn_teammate
+
+    wt_path = spawn_teammate.create_worktree(f"worktree-{story_id}", repo_cwd)
+    feature = Path(wt_path) / f"{story_id}-feature.txt"
+    feature.write_text(content if content is not None else f"work for {story_id}")
+    subprocess.run(
+        ["git", "add", feature.name],
+        cwd=wt_path,
+        env=env,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", f"[{story_id}] add feature"],
+        cwd=wt_path,
+        env=env,
+        capture_output=True,
+        check=True,
+    )
+    return wt_path
+
+
+def git_log_oneline_at(cwd: str, branch: str) -> str:
+    """Return `git log --oneline <branch>` output at cwd.
+
+    Used by integration tests that need to assert which commits landed on
+    a target branch after merge composition.
+    """
+    return subprocess.run(
+        ["git", "log", "--oneline", branch],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def merge_teammate_branch(
+    repo_cwd: str,
+    source: str,
+    target: str,
+    env: dict,
+) -> subprocess.CompletedProcess:
+    """Run close_common.py merge from the orchestrator cwd.
+
+    Merge MUST run at orchestrator cwd (not at the teammate's worktree
+    cwd) — git merge checks out the target branch which the orchestrator
+    already holds; running from the teammate's cwd fails with "target is
+    already used by worktree at <orch>". close_common skips the
+    post-merge source-branch delete when the source is held by a live
+    teammate worktree (cleanup_teammate.py owns that step).
+    """
+    close_common = Path(__file__).parent.parent / "scripts" / "close_common.py"
+    return subprocess.run(
+        [
+            sys.executable,
+            str(close_common),
+            "merge",
+            "--cwd",
+            repo_cwd,
+            "--source",
+            source,
+            "--target",
+            target,
+        ],
+        cwd=repo_cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
 def make_commit(
     cwd: str,
     branch: str,
