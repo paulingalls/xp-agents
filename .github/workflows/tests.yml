@@ -21,8 +21,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install ruff
+        # Tests require ruff on PATH (story-007's _staged_ruff_findings
+        # invokes it during commit-gate tests via lint_check.run_linter_batch).
+        # Install BEFORE tests so the gate can run, not after.
+        run: pip install ruff
+
       - name: Run tests
         run: python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 
       - name: Lint check
-        run: pip install ruff && ruff check plugins/xp-agents/
+        run: ruff check plugins/xp-agents/

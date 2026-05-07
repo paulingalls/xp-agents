@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.1.11 — sprint-067 incremental teammate accept (5 stories, 5/5 velocity) + CI ordering fix
+
+Sprint-067 ships M-3 (Accept lifecycle ergonomics): incremental teammate accept with **structural elimination of the `ACCEPT_ACTIVE` marker** via close-then-done reorder. 5 planned / 5 delivered.
+
+### Lifecycle reshape (stories 001/002/003/004)
+
+- **`has_reviewing_stories` predicate + Stop-gate widening** (story-001) — `sprint_status.has_reviewing_stories` and `has_in_motion_stories` (consumes `IN_MOTION_STORY_STATUSES` schema constant) join the predicate family with `_data` siblings (single sprint-dict load per Stop hook). `sprint_stop_gate._compute_block_message` Option A: reviewing alone fires the accept gate even without `.accept` marker — teammates self-promote in-progress→reviewing on clean exit, so reviewing-state IS the canonical "needs acceptance" signal.
+- **xp-accept reviewing-first dispatch + close-then-done reorder** (story-002) — preload counts reviewing FIRST, falls back to in-progress; `SELECTED_STATUS=` routes the SKILL prose. SKILL.md restructured: `/xp-story-close` runs FIRST (story stays in `reviewing`), decisions recorded next, mark-done as the FINAL step after merge. Merge-failure leaves story in reviewing for retry. `select_in_motion_stories` widens concern-triage + acceptance-types to the full in-motion set.
+- **`/xp-story-close` discovery flips done→reviewing** (story-003) — `worktree.find_closing_teammate_worktree` keys on `status == "reviewing"` (not `done`). Inverse-regression pins (`test_returns_none_when_done_with_worktree`, `test_empty_stdout_when_only_done_status`) guard against a future flip back. Story stays in `reviewing` while close runs; mark-done is the FINAL step.
+- **`ACCEPT_ACTIVE` marker deleted entirely + mechanical teammate promote** (story-004) — close-then-done makes the marker structurally moot. `pre_tool_write` re-arm predicate uses `has_reviewing_stories` directly. Removed from `markers.py`, `marker_names.py`, `_preload_base.sh`, 4 close-skill preloads, `xp-kickoff` defensive cleanup, and `xp-quality-review` preload's auto-detect heuristic (per decision 798a27b425a7: explicit `TEAMMATE_CWD` env-passthrough only). `spawn_teammate.py` mechanical-promote: post-rc=0 calls `sprint_store.update_story_status(story_id, "reviewing")` with an in-progress guard against silent demotion. PROCESS_GUIDE + `_TASK_CREATION_NUDGE` updated for the incremental loop pattern.
+
+### Capstone (story-005)
+
+- **End-to-end composition pin** — `tests/integration/test_incremental_teammate_accept.py` walks the full two-teammate flow (mechanical promote, reviewing-first dispatch, `pre_tool_write` non-arming during the close window, A close-then-done via `xp-story-close` + `merge_teammate_branch`, B identical flow, final-state checklist) plus `test_merge_failure_leaves_reviewing` for the source-survives + no-auto-rollback contract. Helper extractions to `_branching_fixtures.py` (`create_teammate_worktree_with_commit`, `merge_teammate_branch`, `git_log_oneline_at`) consolidate verbatim duplication with `test_multi_story_accept_flow.py`; `branch_exists` adoption replaces inline `git rev-parse --verify` subprocesses.
+
+### CI ordering fix
+
+- **Workflow installs ruff before tests** — story-007's `_staged_ruff_findings` invokes ruff at test time via `lint_check.run_linter_batch`. The pre-existing `tests.yml` ran tests BEFORE `pip install ruff` (ruff was installed only for the trailing lint step), so commit-gate tests failed in CI with "ruff not on PATH" while passing locally. Move install ahead of the test step.
+
 ## v3.1.10 — sprint-066 R1 signal-quality hardening (8 stories, 8/8 velocity, 8 parallel teammates)
 
 Sprint-066 ships 8 stories at 1.00 velocity / zero carryover — first sprint where every story spawned to its own teammate worktree and shipped in parallel. Six items from R1 feature-requests (#2, #3, #4, #6, #7, #8) plus four sprint-065 retro adoptions (probe_divert classifier blind spot, validate-domain glob drift, run_linter_batch fail-open, /xp-quality-review preload TEAMMATE_CWD routing). M-1 marked delivered.
