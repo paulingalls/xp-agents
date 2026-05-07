@@ -436,20 +436,22 @@ class TestTransitiveActiveDependents(_SMMTestCase):
         # transitive_active_dependents(B) returns A. Proves
         # IN_MOTION_STORY_STATUSES auto-extension covers cascade-defer
         # for the new state — A is in-motion, so the walker treats it
-        # as transitively blocked by B.
+        # as transitively blocked by B. (story-001 is the closing base
+        # here so _write retains base-first ID-ascending convention
+        # symmetric with test_reviewing_dependent_cascades.)
         import sprint_store
 
         self._write(
-            _make_story(id="story-002", status="closing"),
+            _make_story(id="story-001", status="closing"),
             _make_story(
-                id="story-001",
+                id="story-002",
                 status="in-progress",
-                dependencies=["story-002"],
+                dependencies=["story-001"],
             ),
         )
         self.assertEqual(
-            sprint_store.transitive_active_dependents(self.smm_dir, "story-002"),
-            ["story-001"],
+            sprint_store.transitive_active_dependents(self.smm_dir, "story-001"),
+            ["story-002"],
         )
 
     def test_dependency_cycle_terminates(self):
