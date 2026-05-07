@@ -215,25 +215,69 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 # every caller (production scripts and 16+ test files).
 
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
-    has_active_stories,  # noqa: F401  re-export for legacy callers
+    has_active_stories,
     has_active_stories_data,
-    has_closing_stories,  # noqa: F401  re-export for legacy callers
-    has_closing_stories_data,  # noqa: F401  re-export for legacy callers
-    has_in_motion_stories,  # noqa: F401  re-export for legacy callers
-    has_in_motion_stories_data,  # noqa: F401  re-export for legacy callers
-    has_in_progress_stories,  # noqa: F401  re-export for legacy callers
-    has_in_progress_stories_data,  # noqa: F401  re-export for legacy callers
-    has_ready_stories,  # noqa: F401  re-export for legacy callers
-    has_reviewing_stories,  # noqa: F401  re-export for legacy callers
-    has_reviewing_stories_data,  # noqa: F401  re-export for legacy callers
-    has_scheduled_stories,  # noqa: F401  re-export for legacy callers
-    has_stories_with_status,  # noqa: F401  re-export for legacy callers
-    has_stories_with_status_data,  # noqa: F401  re-export for legacy callers
-    is_complete,  # noqa: F401  re-export for legacy callers
-    scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
-    select_closing_stories,  # noqa: F401  re-export for legacy callers
-    select_in_motion_stories,  # noqa: F401  re-export for legacy callers
+    has_closing_stories,
+    has_closing_stories_data,
+    has_in_motion_stories,
+    has_in_motion_stories_data,
+    has_in_progress_stories,
+    has_in_progress_stories_data,
+    has_ready_stories,
+    has_reviewing_stories,
+    has_reviewing_stories_data,
+    has_scheduled_stories,
+    has_stories_with_status,
+    has_stories_with_status_data,
+    is_complete,
+    scheduled_file_domains_overlap,
+    select_closing_stories,
+    select_in_motion_stories,
 )
+
+# Public API contract — listed for pyright (so re-exports aren't flagged
+# "not accessed") and ruff F401 suppression without per-line noqa. Must
+# enumerate ALL public names of this module, both module-defined and
+# re-exported, to be a complete contract.
+__all__ = [
+    "compute_blockers",
+    "compute_velocity",
+    "count_by_status",
+    "edit_story",
+    "get_story",
+    "get_story_branch_name",
+    "has_active_stories",
+    "has_active_stories_data",
+    "has_closing_stories",
+    "has_closing_stories_data",
+    "has_in_motion_stories",
+    "has_in_motion_stories_data",
+    "has_in_progress_stories",
+    "has_in_progress_stories_data",
+    "has_ready_stories",
+    "has_reviewing_stories",
+    "has_reviewing_stories_data",
+    "has_scheduled_stories",
+    "has_stories_with_status",
+    "has_stories_with_status_data",
+    "is_complete",
+    "list_stories",
+    "load_sprint",
+    "load_sprint_required",
+    "next_in_progress_story_id",
+    "next_scheduled_story_id",
+    "next_sprint_id",
+    "save_sprint",
+    "scheduled_file_domains_overlap",
+    "select_closing_stories",
+    "select_in_motion_stories",
+    "set_branch",
+    "set_story_branch",
+    "sprint_exists",
+    "transitive_active_dependents",
+    "update_story_status",
+    "update_story_status_if",
+]
 
 
 def get_story_branch_name(smm_dir: Path, story_id: str) -> str:

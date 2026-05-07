@@ -19,11 +19,11 @@ TERMINAL_STORY_STATUSES = frozenset({"done", "deferred"})
 ACTIVE_STORY_STATUSES = VALID_STORY_STATUSES - TERMINAL_STORY_STATUSES
 # Stories with work currently in motion: branched + actively edited or
 # under acceptance verification. Narrower than ACTIVE (which also covers
-# ready/scheduled — pre-branch states). Drives cascade-deferral and the
-# orphan-branch active-set: a deferred story's in-motion descendants are
-# invalidated; an in-motion story's branch is never orphan. `closing`
+# ready/scheduled — pre-branch states). Drives cascade-deferral: a
+# deferred story's in-motion descendants are invalidated. `closing`
 # is the sprint-singleton state held while a story is inside the
-# /xp-story-close pipeline.
+# /xp-story-close pipeline. Orphan-branch detection uses
+# ACTIVE_STORY_STATUSES, not this set.
 IN_MOTION_STORY_STATUSES = frozenset({"in-progress", "reviewing", "closing"})
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
