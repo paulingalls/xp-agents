@@ -295,9 +295,10 @@ its branch on demand. Two states to handle:
   /xp-assign promoted them all; their branches already exist.
   /xp-story-close has nothing to create.
 - **No in-progress remains, but scheduled stories are queued** — solo
-  mode's normal case under the four-state lifecycle. The next scheduled
-  story is promoted to in-progress here and its branch is created off
-  the just-merged sprint tip, so chained branches are never stale.
+  mode's normal case under the lifecycle (ready → scheduled → in-progress
+  → reviewing → closing → done/deferred). The next scheduled story is
+  promoted to in-progress here and its branch is created off the
+  just-merged sprint tip, so chained branches are never stale.
 
 Wrap each path in an explicit shell guard. If both subcommands exit
 non-zero (no in-progress AND no scheduled), the sprint is complete —
