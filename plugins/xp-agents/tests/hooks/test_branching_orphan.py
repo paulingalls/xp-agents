@@ -134,6 +134,80 @@ class TestListOrphanStoryBranches(unittest.TestCase):
             result = branch_queries.list_orphan_story_branches(td, smm_dir)
             self.assertEqual(result, [])
 
+    def test_closing_story_not_orphan(self):
+        # A closing story is mid-merge — its branch is intentionally alive
+        # for /xp-story-close's merge into the sprint base. Without
+        # widening the active set to include `closing`, kickoff
+        # orphan-triage would offer to delete a branch the close skill is
+        # actively merging.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            smm_dir = Path(td) / "smm"
+            smm_dir.mkdir()
+            _create_branch(td, "test/story-001-nudge")
+            _create_branch(td, "test/story-999-unrelated")
+            self._write_sprint(
+                smm_dir,
+                _sprint_json(
+                    [
+                        _s(
+                            "story-001",
+                            "Add nudge",
+                            "closing",
+                            branch_name="test/story-001-nudge",
+                        )
+                    ]
+                ),
+            )
+            result = branch_queries.list_orphan_story_branches(td, smm_dir)
+            self.assertEqual(result, ["test/story-999-unrelated"])
+
+    def test_all_in_motion_statuses_not_orphan(self):
+        # Every active status (ready, in-progress, reviewing, closing)
+        # must keep its branch out of the orphan list — these are the
+        # statuses where the branch is legitimately alive.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            smm_dir = Path(td) / "smm"
+            smm_dir.mkdir()
+            _create_branch(td, "test/story-001-ready")
+            _create_branch(td, "test/story-002-progress")
+            _create_branch(td, "test/story-003-review")
+            _create_branch(td, "test/story-004-closing")
+            self._write_sprint(
+                smm_dir,
+                _sprint_json(
+                    [
+                        _s(
+                            "story-001",
+                            "Ready",
+                            "ready",
+                            branch_name="test/story-001-ready",
+                        ),
+                        _s(
+                            "story-002",
+                            "In progress",
+                            "in-progress",
+                            branch_name="test/story-002-progress",
+                        ),
+                        _s(
+                            "story-003",
+                            "Reviewing",
+                            "reviewing",
+                            branch_name="test/story-003-review",
+                        ),
+                        _s(
+                            "story-004",
+                            "Closing",
+                            "closing",
+                            branch_name="test/story-004-closing",
+                        ),
+                    ]
+                ),
+            )
+            result = branch_queries.list_orphan_story_branches(td, smm_dir)
+            self.assertEqual(result, [])
+
     def test_done_story_is_orphan(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)

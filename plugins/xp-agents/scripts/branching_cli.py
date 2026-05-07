@@ -168,6 +168,13 @@ def _cmd_list_free(args: argparse.Namespace) -> int:
 
 
 def _cmd_list_story_orphans(args: argparse.Namespace) -> int:
+    """Print story branches not backed by an active sprint story.
+
+    Active = any non-terminal status (see
+    ``sprint_schema.ACTIVE_STORY_STATUSES``); the closing/reviewing
+    branches stay alive for /xp-story-close merge and /xp-accept
+    verification respectively and are NOT orphan.
+    """
     for b in branch_queries.list_orphan_story_branches(args.cwd, Path(args.smm_dir)):
         print(b)
     return 0
