@@ -21,11 +21,15 @@ import sprint_state
 import sprint_store
 from _branching_fixtures import create_teammate_worktree_with_commit
 from conftest import (
+    _PLUGIN_ROOT,
+    _extract_preload_var,
     _IntegrationTestCase,
     _make_write_input,
     _s,
     _sprint_json,
 )
+
+_XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 
 
 class TestIncrementalTeammateAccept(_IntegrationTestCase):
@@ -83,6 +87,20 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
         self.assertFalse(
             markers.marker_exists(self.smm_dir, markers.ACCEPT),
             ".accept must not arm while a story is in reviewing",
+        )
+
+        # Phase 3: xp-accept preload — reviewing-first dispatch picks A
+        # even though B is also active. SELECTED_STATUS=reviewing is the
+        # canonical signal the SKILL prose branches on. (AC2)
+        result = self._run_preload(_XP_ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # SELECTED_STATUS is the machine-readable contract the SKILL
+        # prose branches on. Skip asserting the English summary line —
+        # presentation, not contract; brittle against copy edits.
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "SELECTED_STATUS"),
+            "reviewing",
+            "preload must select reviewing path while A is in reviewing",
         )
 
 
