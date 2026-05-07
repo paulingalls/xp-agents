@@ -144,10 +144,10 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
         return os.path.realpath(str(path))
 
     def test_preload_emits_teammate_cwd_and_branch(self):
-        # Close-then-done: xp-story-close discovers the in-`reviewing`
-        # story (mark-done is the FINAL step after merge).
-        seed_sprint_with_stories(self.smm_dir, [("story-001", "reviewing")])
-        wt_path = self._make_teammate_worktree("story-001", "u/story-001-reviewing")
+        # xp-story-close discovers the in-`closing` story (xp-accept
+        # promotes reviewing→closing before dispatch).
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "closing")])
+        wt_path = self._make_teammate_worktree("story-001", "u/story-001-closing")
         self.assertIn(" ", wt_path)
 
         result = subprocess.run(
@@ -173,7 +173,7 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
         )
         self.assertEqual(
             fields.get("CURRENT_BRANCH"),
-            "u/story-001-reviewing",
+            "u/story-001-closing",
             msg=f"branch parse drift; stdout={result.stdout!r}",
         )
 

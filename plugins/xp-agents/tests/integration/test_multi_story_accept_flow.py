@@ -111,10 +111,15 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         pre_tool_write.run(main_input, smm_dir=self.smm_dir)
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
 
-        # Phase 4: invoke xp-story-close preload. Story-002 is already
-        # in `reviewing` (Phase 3 promote) — preload discovers the
-        # teammate worktree by keying on reviewing-status, emits
-        # TEAMMATE_CWD + CURRENT_BRANCH from the worktree's HEAD.
+        # Phase 3.5: simulate xp-accept's reviewing→closing promote
+        # before /xp-story-close dispatch (closing is the singleton
+        # in-pipeline lock; the SKILL prose owns this in production).
+        sprint_store.update_story_status(self.smm_dir, "story-002", "closing")
+
+        # Phase 4: invoke xp-story-close preload. Story-002 is in
+        # `closing` (Phase 3.5 promote) — preload discovers the teammate
+        # worktree by closing-status, emits TEAMMATE_CWD + CURRENT_BRANCH
+        # from the worktree's HEAD.
         sc = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
         self.assertEqual(sc.returncode, 0, sc.stderr)
         teammate_cwd = _extract_preload_var(sc.stdout, "TEAMMATE_CWD")
