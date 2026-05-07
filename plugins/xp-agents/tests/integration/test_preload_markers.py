@@ -24,12 +24,10 @@ from _branching_fixtures import (
     seed_sprint_with_stories,
 )
 from conftest import _IntegrationTestCase
+from integration.conftest import _XP_STORY_CLOSE_PRELOAD
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_BASE = _PLUGIN_ROOT / "skills" / "_preload_base.sh"
-_XP_STORY_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
-)
 _XP_QUALITY_REVIEW_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
 )

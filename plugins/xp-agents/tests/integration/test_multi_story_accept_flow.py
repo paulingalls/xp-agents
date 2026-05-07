@@ -36,12 +36,9 @@ from conftest import (
     _s,
     _sprint_json,
 )
+from integration.conftest import _XP_ACCEPT_PRELOAD, _XP_STORY_CLOSE_PRELOAD
 
 _PLUGIN_ROOT = Path(__file__).parent.parent.parent
-_XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
-_XP_STORY_CLOSE_PRELOAD = (
-    _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
-)
 _XP_KICKOFF_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 )
