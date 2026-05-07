@@ -287,7 +287,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         stage = branching.get_branching_stage(smm_dir)
         if stage >= 1:
-            branch = identity.get_current_branch(cwd)
+            # `git -C <path>` and `cd <path> && git` retarget cwd — branch-check
+            # the named path, not the input cwd.
+            branch = identity.get_current_branch(
+                commits.parse_effective_cwd(command, cwd)
+            )
             is_escape = commits.is_escape_hatch_commit(command)
             if branching.is_protected_branch(stage, branch) and not is_escape:
                 parts.append(

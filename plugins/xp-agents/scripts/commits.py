@@ -364,6 +364,12 @@ def parse_effective_cwd(
     if not command:
         return fallback
 
+    # Fast-path: skip the strip+regex passes for commands that can't match
+    # either pattern. PreToolUse:Bash fires on every Bash call (pytest, ls,
+    # ruff, …); the strip+two-regex scan is wasted work for the 99% case.
+    if "cd " not in command and "git -C" not in command:
+        return fallback
+
     if scan_target is None:
         scan_target = git_commits.strip_quoted(command)
 
