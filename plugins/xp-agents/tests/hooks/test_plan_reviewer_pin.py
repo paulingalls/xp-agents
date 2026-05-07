@@ -352,5 +352,76 @@ class TestPlanReviewerNewFileRule(unittest.TestCase):
             )
 
 
+_PLAN_SKILL_PATH = (
+    Path(__file__).parent.parent.parent / "skills" / "xp-plan" / "SKILL.md"
+)
+
+
+class TestPlanSkillDiscoveryPassPin(unittest.TestCase):
+    """xp-plan SKILL.md MUST document the discovery-pass step (story-005).
+
+    Sprint-067 logged file_domain drift on ALL 5 stories — 4th consecutive
+    sprint with structural drift (retro Try 7fbdca46a558). The agreed
+    response (decision e2ea588d7d38, Path A): planning grows a discovery
+    pass that grep call-sites of symbols defined in declared change_zones
+    and unions them into the milestone's footprint, so the planner sees the
+    real impact before sprint stories are written.
+
+    These pins keep the prose visible to the LLM at planning time. A
+    future trim that drops the discovery instruction would silently
+    re-open the structural drift; the test then fires on the missing
+    keyword.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Split frontmatter from body — frontmatter `description` mentions
+        # of "discovery"/"call-sites" would false-pass an `assertIn` on the
+        # full file text without the agent ever reading the prose. Mirrors
+        # the canonical `TestPlanReviewerPin` pattern in this same file.
+        _, cls.body = _split_frontmatter_body(_PLAN_SKILL_PATH.read_text())
+        cls.body_lower = cls.body.lower()
+
+    def test_skill_file_exists(self):
+        self.assertTrue(
+            _PLAN_SKILL_PATH.is_file(),
+            f"missing skill file: {_PLAN_SKILL_PATH}",
+        )
+
+    def test_body_documents_discovery_pass(self):
+        # The literal "discovery" token anchors the step — grep-findable
+        # by both reviewers and a future regression.
+        self.assertIn(
+            "discovery",
+            self.body_lower,
+            "xp-plan SKILL.md must document a 'discovery' step so the "
+            "planner unions grepped call-sites into the milestone footprint "
+            "(retro 7fbdca46a558, decision e2ea588d7d38)",
+        )
+
+    def test_body_directs_grep_call_sites(self):
+        # Pin the mechanism: grep call-sites of declared symbols. Without
+        # this the discovery step is a name without a method.
+        self.assertIn(
+            "call-sites",
+            self.body_lower,
+            "xp-plan SKILL.md discovery step must direct the agent to grep "
+            "call-sites of declared symbols (the retro-agreed mechanism)",
+        )
+
+    def test_body_pairs_discovery_with_change_zones_or_file_domain(self):
+        # Discovery must feed back into the planning artifact — either
+        # change_zones (milestone-level) or file_domain (story-level).
+        # Pin via OR so a phrasing that picks one doesn't break the test.
+        has_change_zones = "change_zones" in self.body_lower
+        has_file_domain = "file_domain" in self.body_lower
+        self.assertTrue(
+            has_change_zones or has_file_domain,
+            "xp-plan SKILL.md discovery step must name the planning "
+            "artifact it unions into (change_zones or file_domain) — "
+            "found neither token near the discovery prose",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
