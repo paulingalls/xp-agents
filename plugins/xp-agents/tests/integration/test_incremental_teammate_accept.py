@@ -140,6 +140,17 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
         # test_multi_story_accept_flow exercises that step).
         self.assertIn("skipped delete", merge.stdout)
 
+        # AC3 (literal close-window placement): the AC names "intermediate
+        # Edit before mark-done". Phase 2 already fired pre_tool_write
+        # before the preload; here we fire it AFTER merge but BEFORE
+        # status flip, when A is still `reviewing` and the close-then-done
+        # window is at its widest. .accept must STILL stay absent.
+        pre_tool_write.run(_make_write_input(), smm_dir=self.smm_dir)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT),
+            ".accept must not arm during the close-then-done window",
+        )
+
         # Mark A done — close-then-done's FINAL step (status flip MUST
         # follow the merge so a failed merge can't accidentally complete
         # the story).
@@ -157,6 +168,18 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
         # cycle Edit assertion was folded into Phase 2 (the canonical
         # pre_tool_write fence).
         sprint_store.update_story_status(self.smm_dir, "story-002", "reviewing")
+        # Pin the dispatch discriminator: A is done AND B is reviewing,
+        # so the preload's reviewing-first count must select B (not A).
+        self.assertEqual(
+            sprint_store.get_story(self.smm_dir, "story-001")["status"],
+            "done",
+            "A must remain done after its close cycle",
+        )
+        self.assertEqual(
+            sprint_store.get_story(self.smm_dir, "story-002")["status"],
+            "reviewing",
+            "B must be the only reviewing story when its preload fires",
+        )
         result_b = self._run_preload(_XP_ACCEPT_PRELOAD)
         self.assertEqual(result_b.returncode, 0, result_b.stderr)
         self.assertEqual(
