@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase
+from conftest import _IntegrationTestCase, _SMMTestCase
 
 
 class TestBuildCommand(unittest.TestCase):
@@ -520,7 +520,7 @@ class TestRunWithTee(unittest.TestCase):
             )
 
 
-class TestMechanicalPromote(unittest.TestCase):
+class TestMechanicalPromote(_SMMTestCase):
     """Story-004: spawn_teammate.main() promotes the story to `reviewing`
     after a clean teammate exit (rc=0). On rc!=0 the teammate stays
     `in-progress` for debug. The promote is mechanical — no LLM
@@ -571,7 +571,7 @@ class TestMechanicalPromote(unittest.TestCase):
             "--name",
             "worktree-story-001" if story_id else "worktree-foo",
             "--smm-dir",
-            "/tmp/smm",
+            str(self.smm_dir),
             "--prompt-file",
             prompt_path,
         ]
@@ -603,7 +603,7 @@ class TestMechanicalPromote(unittest.TestCase):
         captured = self._run_promote()
         self.assertEqual(
             captured,
-            [("/tmp/smm", "story-001", "in-progress", "reviewing")],
+            [(str(self.smm_dir), "story-001", "in-progress", "reviewing")],
             f"expected single CAS call (in-progress→reviewing), got: {captured!r}",
         )
 
@@ -615,7 +615,7 @@ class TestMechanicalPromote(unittest.TestCase):
         captured = self._run_promote(cas_return=False)
         self.assertEqual(
             captured,
-            [("/tmp/smm", "story-001", "in-progress", "reviewing")],
+            [(str(self.smm_dir), "story-001", "in-progress", "reviewing")],
             "CAS must still be invoked even when it returns False",
         )
 
