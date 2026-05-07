@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """E2E for the incremental two-teammate accept flow (M-3 capstone).
 
-Built incrementally — this commit pins Phases 1+2+3+5 (mechanical-
-promote state, .accept-suppression while reviewing, xp-accept
-reviewing-first dispatch, xp-story-close + merge for A). Subsequent
-commits will add Phase 6+7 (B identical flow + final state) and a
-separate test_merge_failure_leaves_reviewing.
+Walks the full lifecycle: teammate A self-promotes to reviewing on
+clean exit, orchestrator runs xp-accept on A while B is still
+in-progress, A goes through close-then-done, intermediate Edits
+during the window do NOT arm .accept, B is processed identically
+when it finishes. A separate test_merge_failure_leaves_reviewing
+(planned next commit) covers the merge-failure path.
 
 Composition pin — turns red only when a future change breaks the
 M-3 contract across pieces (mechanical promote, reviewing-first
@@ -22,6 +23,7 @@ import sprint_store
 from _branching_fixtures import (
     create_teammate_worktree_with_commit,
     get_current_branch_at,
+    git_log_oneline_at,
     merge_teammate_branch,
 )
 from conftest import (
@@ -143,6 +145,58 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
         self.assertFalse(
             markers.marker_exists(self.smm_dir, markers.ACCEPT),
             ".accept must still not be armed after A's close",
+        )
+
+        # Phase 6: B self-promotes when its teammate exits — identical
+        # mechanical-promote flow. xp-accept preload now picks B (only
+        # remaining reviewing story); xp-story-close + merge follow the
+        # same dispatch as A. (AC4 — the "identical processing" pin.)
+        # No Phase 4 — what was originally planned as a separate fix-
+        # cycle Edit assertion was folded into Phase 2 (the canonical
+        # pre_tool_write fence).
+        sprint_store.update_story_status(self.smm_dir, "story-002", "reviewing")
+        result_b = self._run_preload(_XP_ACCEPT_PRELOAD)
+        self.assertEqual(result_b.returncode, 0, result_b.stderr)
+        self.assertEqual(
+            _extract_preload_var(result_b.stdout, "SELECTED_STATUS"),
+            "reviewing",
+            "preload must select reviewing path for B (the only reviewing story)",
+        )
+        sc_b = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
+        self.assertEqual(sc_b.returncode, 0, sc_b.stderr)
+        teammate_branch_b = self._assert_not_none(
+            _extract_preload_var(sc_b.stdout, "CURRENT_BRANCH")
+        )
+        merge_b = merge_teammate_branch(
+            str(self.tmpdir), teammate_branch_b, orch_branch, self._test_env
+        )
+        self.assertEqual(merge_b.returncode, 0, merge_b.stderr)
+        sprint_store.update_story_status(self.smm_dir, "story-002", "done")
+
+        # Phase 7: final state — sprint complete, no stranded marker,
+        # both teammate commits landed on the orchestrator's branch.
+        self.assertFalse(
+            sprint_state.has_reviewing_stories(self.smm_dir),
+            "sprint must have no reviewing stories at completion",
+        )
+        self.assertFalse(
+            sprint_state.has_in_progress_stories(self.smm_dir),
+            "sprint must have no in-progress stories at completion",
+        )
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT),
+            ".accept must not be stranded after both teammates close",
+        )
+        log = git_log_oneline_at(str(self.tmpdir), orch_branch)
+        self.assertIn(
+            "[story-001] add feature",
+            log,
+            "A's teammate commit must land on the orchestrator branch",
+        )
+        self.assertIn(
+            "[story-002] add feature",
+            log,
+            "B's teammate commit must land on the orchestrator branch",
         )
 
 

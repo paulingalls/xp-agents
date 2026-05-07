@@ -135,6 +135,21 @@ def create_teammate_worktree_with_commit(
     return wt_path
 
 
+def git_log_oneline_at(cwd: str, branch: str) -> str:
+    """Return `git log --oneline <branch>` output at cwd.
+
+    Used by integration tests that need to assert which commits landed on
+    a target branch after merge composition.
+    """
+    return subprocess.run(
+        ["git", "log", "--oneline", branch],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
 def merge_teammate_branch(
     repo_cwd: str,
     source: str,

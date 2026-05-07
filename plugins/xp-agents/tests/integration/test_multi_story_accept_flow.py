@@ -25,6 +25,7 @@ import sprint_store
 from _branching_fixtures import (
     create_teammate_worktree_with_commit,
     get_current_branch_at,
+    git_log_oneline_at,
     merge_teammate_branch,
 )
 from conftest import (
@@ -76,13 +77,7 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         )
 
     def _git_log_oneline(self, branch):
-        return subprocess.run(
-            ["git", "log", "--oneline", branch],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
+        return git_log_oneline_at(str(self.tmpdir), branch)
 
     def test_teammate_close_lifecycle(self):
         # Phase 1: setup — 2 in-progress stories, story-002 in a real
