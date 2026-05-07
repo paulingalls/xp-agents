@@ -20,7 +20,7 @@ from sprint_status import select_in_motion_stories  # noqa: E402
 
 
 def format_acceptance_types(sprint: dict) -> str:
-    """Format acceptance types for in-motion (in-progress + reviewing) stories.
+    """Format acceptance types for in-motion stories (3 statuses, see IN_MOTION).
 
     Returns empty string if no in-motion stories exist. Sharing the
     select_in_motion_stories filter with concern_triage keeps both

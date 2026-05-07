@@ -33,6 +33,14 @@ verbatim — do not recompute them. `TARGET_BRANCH` is the story base
 for the just-completed story. The shared close pipeline lives in
 `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
+**Story state expectation.** /xp-accept Step 1.5 transitions the story
+to `closing` immediately before dispatching this skill. The close cycle
+operates on a story in `closing`; `find_closing_teammate_worktree`
+keys on this state to discover the singleton in-pipeline worktree.
+If preflight fires while the story is still `reviewing` (transition
+missed), the worktree match returns None and teammate-mode dispatch
+fails — the close-reviewer should flag this as a contract violation.
+
 `TEAMMATE_CWD` is set when /xp-accept dispatched /xp-story-close for a
 teammate story (the orchestrator sits on the sprint branch; the
 teammate's commits live in `.claude/worktrees/worktree-<story-id>`).
@@ -111,8 +119,8 @@ Story-close normally relies on sprint-close's cumulative
 `/security-review` to cover each merged story. That assumption fails
 when **no sprint envelope wraps this close** — either (a) no sprint
 exists at all, or (b) `<CURRENT_BRANCH>` is an orphan story branch
-(not referenced by any active `ready` / `in-progress` / `reviewing`
-story in `sprint.json`). Without the conditional below, the
+(not referenced by any active `ready` / `in-progress` / `reviewing` /
+`closing` story in `sprint.json`). Without the conditional below, the
 cumulative `/security-review` would never fire for the story's diff
 and only commit-time deterministic scans would cover it.
 

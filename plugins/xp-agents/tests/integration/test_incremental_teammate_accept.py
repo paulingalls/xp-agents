@@ -109,15 +109,6 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
             "preload must select reviewing path while A is in reviewing",
         )
 
-        # AC3 (literal close-window placement): fire pre_tool_write
-        # again mid-window with A still in `reviewing`. With A reviewing
-        # and B in-progress, has_reviewing_stories suppresses re-arm.
-        pre_tool_write.run(_make_write_input(), smm_dir=self.smm_dir)
-        self.assertFalse(
-            markers.marker_exists(self.smm_dir, markers.ACCEPT),
-            ".accept must not arm during the close-then-done window",
-        )
-
         # Phase 5: A close-then-done. Simulate xp-accept's reviewing→
         # closing promote before dispatching /xp-story-close (closing is
         # the singleton in-pipeline lock; the SKILL prose owns this in
@@ -126,6 +117,19 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
         # close_common.py merge from the orchestrator cwd (helper
         # enforces merge-must-not-run-from-teammate-cwd).
         sprint_store.update_story_status(self.smm_dir, "story-001", "closing")
+
+        # AC3 (literal close-window placement): fire pre_tool_write
+        # AFTER the closing transition with A in `closing` and B in
+        # `in-progress`. Story-005 extended pre_tool_write's re-arm
+        # suppression to cover `closing` too — this exercises the truer
+        # in-pipeline window (b02c8303e5e9 re-tightened from the
+        # pre-005 workaround that fired before the promote).
+        pre_tool_write.run(_make_write_input(), smm_dir=self.smm_dir)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT),
+            ".accept must not arm during the close-then-done window "
+            "(closing-state suppression, story-005)",
+        )
         orch_branch = get_current_branch_at(self.tmpdir)
         sc = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
         self.assertEqual(sc.returncode, 0, sc.stderr)
