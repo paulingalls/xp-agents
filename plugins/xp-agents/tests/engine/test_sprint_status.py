@@ -388,26 +388,24 @@ class TestStatusChecks(_SMMTestCase):
             "story-002",
         )
 
-    def test_next_scheduled_treat_as_done_does_not_make_target_eligible(self):
-        # Override only satisfies deps; it does NOT promote a story
-        # whose own status doesn't match the requested set.
+    def test_next_scheduled_treat_as_done_does_not_promote_in_progress(self):
+        # Override only satisfies deps; it MUST NOT make a story whose
+        # own status is `in-progress` appear in the scheduled-set query.
+        # Setup: only an in-progress story exists, no scheduled. With or
+        # without the override naming the in-progress id, the
+        # next-scheduled query must return None.
         import sprint_store
 
         sprint = _make_sprint(
-            stories=[
-                _make_story(id="story-001", status="in-progress"),
-                _make_story(id="story-002", status="scheduled"),
-            ]
+            stories=[_make_story(id="story-001", status="in-progress")]
         )
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        # story-002 has no deps so it's already eligible without the override.
-        # The override on story-002 itself must NOT make in-progress story-001
-        # appear in the scheduled-set query.
-        self.assertEqual(
+        # Override naming story-001 must NOT surface it as next-scheduled —
+        # treat_as_done relaxes deps, not the status filter.
+        self.assertIsNone(
             sprint_store.next_scheduled_story_id(
-                self.smm_dir, treat_as_done={"story-002"}
-            ),
-            "story-002",
+                self.smm_dir, treat_as_done={"story-001"}
+            )
         )
 
     def test_scheduled_file_domains_overlap_true_when_shared_file(self):

@@ -264,10 +264,15 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
         # Fast-path skip when no worktrees were created — most
         # integration tests don't touch `.claude/worktrees/`, so
         # spawning `git worktree list` on every tearDown is wasteful.
-        worktrees_dir = self.tmpdir / ".claude" / "worktrees"
-        if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
-            cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
-        super().tearDown()
+        # try/finally so super().tearDown() always runs even if cleanup
+        # raises (cleanup_test_worktrees swallows git errors today, but
+        # a future change shouldn't be able to skip parent teardown).
+        try:
+            worktrees_dir = self.tmpdir / ".claude" / "worktrees"
+            if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
+                cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
+        finally:
+            super().tearDown()
 
     def _run_preload(
         self,
