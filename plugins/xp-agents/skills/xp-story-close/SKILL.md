@@ -305,9 +305,19 @@ non-zero (no in-progress AND no scheduled), the sprint is complete —
 /xp-accept's loop owns the sprint-review dispatch (single source of
 truth lives in /xp-accept).
 
+The just-closed story (`$STORY_ID`) is mid-merge here — its on-disk
+status is `closing` (from xp-accept Step 1.5), not yet `done`
+(/xp-accept Step 4 marks done AFTER this dispatch returns). Pass
+`--treat-as-done "$STORY_ID"` so the dep gate counts the just-closed
+story as satisfied for any next-scheduled candidate that depends on
+it. Without the override, solo dep-chained sprints stall: the next
+story is invisible until the orchestrator round-trips back to
+xp-accept Step 4.
+
 ```bash
 if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-    --smm-dir <SMM_DIR> next-in-progress); then
+    --smm-dir <SMM_DIR> next-in-progress \
+    --treat-as-done "$STORY_ID"); then
   # Parallel-teammate batch: branch was eagerly created at /xp-assign
   # and is already named in sprint.json. Skip JIT-create unless empty
   # (defensive — solo would have created at /xp-assign too).
@@ -320,7 +330,8 @@ if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
       --base <TARGET_BRANCH>
   fi
 elif NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-    --smm-dir <SMM_DIR> next-scheduled); then
+    --smm-dir <SMM_DIR> next-scheduled \
+    --treat-as-done "$STORY_ID"); then
   # Solo-mode fallback: promote the next scheduled story to
   # in-progress, then JIT-create its branch off the merged sprint tip.
   python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
@@ -336,9 +347,10 @@ fi
 ```
 
 `sprint_cli.py next-in-progress` and `next-scheduled` both return the
-lowest-id story with the named status whose deps are ALL done; cascade-
-defer naturally excludes blocked stories. Both exit non-zero when no
-match exists, so the explicit `if/elif` chain reads naturally.
+lowest-id story with the named status whose deps are ALL done (or
+covered by `--treat-as-done`); cascade-defer naturally excludes
+blocked stories. Both exit non-zero when no match exists, so the
+explicit `if/elif` chain reads naturally.
 
 `branching.py create` records `branch_name` in sprint.json
 automatically and checks out the new branch. The orchestrator now

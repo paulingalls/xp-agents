@@ -108,6 +108,58 @@ class TestNextScheduledCommand(_SMMTestCase):
         result = run_cli(_CLI, ["next-scheduled"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_treat_as_done_satisfies_dep(self):
+        # Mirrors xp-story-close Step 8: the just-closed story's
+        # status is `closing` (not yet `done`), so a dep-gated next
+        # story would be invisible without the override.
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="closing"),
+                _make_story(
+                    id="story-002", status="scheduled", dependencies=["story-001"]
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # Without the flag: dep is `closing`, not `done` — exit 1.
+        result = run_cli(_CLI, ["next-scheduled"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        # With the flag: dep treated as satisfied; story-002 surfaces.
+        result = run_cli(
+            _CLI,
+            ["next-scheduled", "--treat-as-done", "story-001"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-002")
+
+    def test_treat_as_done_accepts_multiple_ids(self):
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="closing"),
+                _make_story(id="story-002", status="closing"),
+                _make_story(
+                    id="story-003",
+                    status="scheduled",
+                    dependencies=["story-001", "story-002"],
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            [
+                "next-scheduled",
+                "--treat-as-done",
+                "story-001",
+                "--treat-as-done",
+                "story-002",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "story-003")
+
 
 class TestScheduledOverlapCommand(_SMMTestCase):
     def test_overlap_exit0_when_shared_file(self):

@@ -360,6 +360,56 @@ class TestStatusChecks(_SMMTestCase):
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
 
+    def test_next_scheduled_treats_as_done_satisfies_dep(self):
+        # JIT-next race fix: /xp-story-close Step 8 runs BEFORE
+        # /xp-accept Step 4 marks the just-closed story `done`. With
+        # the dep gate requiring `done`, the next story would never
+        # be promoted in solo mode when it depends on the just-closed
+        # one. treat_as_done lets the caller assert "this id is about
+        # to be done" so the dep check passes.
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="closing"),
+                _make_story(
+                    id="story-002", status="scheduled", dependencies=["story-001"]
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # Without the override: dep is `closing` not `done`, so None.
+        self.assertIsNone(sprint_store.next_scheduled_story_id(self.smm_dir))
+        # With the override: dep treated as satisfied; story-002 surfaces.
+        self.assertEqual(
+            sprint_store.next_scheduled_story_id(
+                self.smm_dir, treat_as_done={"story-001"}
+            ),
+            "story-002",
+        )
+
+    def test_next_scheduled_treat_as_done_does_not_make_target_eligible(self):
+        # Override only satisfies deps; it does NOT promote a story
+        # whose own status doesn't match the requested set.
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="in-progress"),
+                _make_story(id="story-002", status="scheduled"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        # story-002 has no deps so it's already eligible without the override.
+        # The override on story-002 itself must NOT make in-progress story-001
+        # appear in the scheduled-set query.
+        self.assertEqual(
+            sprint_store.next_scheduled_story_id(
+                self.smm_dir, treat_as_done={"story-002"}
+            ),
+            "story-002",
+        )
+
     def test_scheduled_file_domains_overlap_true_when_shared_file(self):
         import sprint_store
 

@@ -37,7 +37,9 @@ def _cmd_is_complete(args: argparse.Namespace) -> int:
 
 
 def _cmd_next_in_progress(args: argparse.Namespace) -> int:
-    story_id = store.next_in_progress_story_id(args.smm_dir)
+    story_id = store.next_in_progress_story_id(
+        args.smm_dir, treat_as_done=set(args.treat_as_done)
+    )
     if story_id is None:
         return 1
     print(story_id)
@@ -45,7 +47,9 @@ def _cmd_next_in_progress(args: argparse.Namespace) -> int:
 
 
 def _cmd_next_scheduled(args: argparse.Namespace) -> int:
-    story_id = store.next_scheduled_story_id(args.smm_dir)
+    story_id = store.next_scheduled_story_id(
+        args.smm_dir, treat_as_done=set(args.treat_as_done)
+    )
     if story_id is None:
         return 1
     print(story_id)
@@ -308,13 +312,32 @@ def main() -> None:
     sub.add_parser("exists", help="Check if sprint exists")
     sub.add_parser("has-active", help="Check for active stories")
     sub.add_parser("is-complete", help="Check if sprint is complete")
-    sub.add_parser(
+    nip_p = sub.add_parser(
         "next-in-progress",
         help="Lowest-id in-progress story whose deps are all done (exit 1 if none)",
     )
-    sub.add_parser(
+    nip_p.add_argument(
+        "--treat-as-done",
+        action="append",
+        default=[],
+        metavar="STORY_ID",
+        help=(
+            "Treat STORY_ID as if its status were 'done' for the dep check. "
+            "Repeatable. Used by /xp-story-close Step 8 to surface a "
+            "next-scheduled story whose dep is the just-closed story "
+            "(still 'closing' at JIT-next time, not yet 'done')."
+        ),
+    )
+    nsc_p = sub.add_parser(
         "next-scheduled",
         help="Lowest-id scheduled story whose deps are all done (exit 1 if none)",
+    )
+    nsc_p.add_argument(
+        "--treat-as-done",
+        action="append",
+        default=[],
+        metavar="STORY_ID",
+        help="Same as next-in-progress: see that subcommand's help.",
     )
     sub.add_parser(
         "scheduled-overlap",
