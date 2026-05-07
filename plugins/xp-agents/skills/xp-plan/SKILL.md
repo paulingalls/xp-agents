@@ -69,8 +69,8 @@ For each milestone:
 - **Goal**: One sentence describing what's delivered. Budget: ≤200 chars.
 - **Definition of Done**: A concrete, testable condition. Budget: ≤300 chars.
 - **Sources**: References into the Sources table with section pointers.
-- **Change Zones**: Files/modules that will be modified, with a brief note on what changes. Note budget: ≤150 chars each.
-- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Note budget: ≤150 chars each.
+- **Change Zones**: Files/modules that will be modified, with a brief note on what changes. Fold call-sites discovered in the discovery pass above that must change to land the milestone. Note budget: ≤150 chars each.
+- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Fold remaining read-only call-sites from the discovery pass here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
 - **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when the project has an automated acceptance surface in `system_context.json`. Format: `{"type": "<harness>", "command": "<run command>"}` for a single command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple commands run in order (fail on first non-zero). Optional `setup` and `notes` fields.
