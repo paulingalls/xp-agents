@@ -217,6 +217,8 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_active_stories,  # noqa: F401  re-export for legacy callers
     has_active_stories_data,
+    has_closing_stories,  # noqa: F401  re-export for legacy callers
+    has_closing_stories_data,  # noqa: F401  re-export for legacy callers
     has_in_motion_stories,  # noqa: F401  re-export for legacy callers
     has_in_motion_stories_data,  # noqa: F401  re-export for legacy callers
     has_in_progress_stories,  # noqa: F401  re-export for legacy callers
@@ -229,6 +231,7 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_stories_with_status_data,  # noqa: F401  re-export for legacy callers
     is_complete,  # noqa: F401  re-export for legacy callers
     scheduled_file_domains_overlap,  # noqa: F401  re-export for legacy callers
+    select_closing_stories,  # noqa: F401  re-export for legacy callers
     select_in_motion_stories,  # noqa: F401  re-export for legacy callers
 )
 

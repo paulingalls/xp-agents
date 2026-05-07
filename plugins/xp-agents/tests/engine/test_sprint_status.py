@@ -40,9 +40,12 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_in_progress_stories_data",
         "has_reviewing_stories",
         "has_reviewing_stories_data",
+        "has_closing_stories",
+        "has_closing_stories_data",
         "has_in_motion_stories",
         "has_in_motion_stories_data",
         "select_in_motion_stories",
+        "select_closing_stories",
         "has_ready_stories",
         "has_scheduled_stories",
         "scheduled_file_domains_overlap",
@@ -181,6 +184,51 @@ class TestStatusChecks(_SMMTestCase):
         import sprint_store
 
         self.assertFalse(sprint_store.has_reviewing_stories(self.smm_dir))
+
+    def test_has_closing_true_when_closing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_closing_stories(self.smm_dir))
+
+    def test_has_closing_false_when_only_reviewing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="reviewing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertFalse(sprint_store.has_closing_stories(self.smm_dir))
+
+    def test_has_closing_false_when_missing_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.has_closing_stories(self.smm_dir))
+
+    def test_has_closing_data_true_and_false(self):
+        import sprint_store
+
+        sprint_yes = _make_sprint(stories=[_make_story(status="closing")])
+        sprint_no = _make_sprint(stories=[_make_story(status="reviewing")])
+        self.assertTrue(sprint_store.has_closing_stories_data(sprint_yes))
+        self.assertFalse(sprint_store.has_closing_stories_data(sprint_no))
+
+    def test_select_closing_stories(self):
+        import sprint_store
+
+        s_closing = _make_story(id="s1", status="closing")
+        s_reviewing = _make_story(id="s2", status="reviewing")
+        s_done = _make_story(id="s3", status="done")
+        result = sprint_store.select_closing_stories([s_closing, s_reviewing, s_done])
+        self.assertEqual([s["id"] for s in result], ["s1"])
+
+    def test_has_in_motion_true_when_closing_only(self):
+        # Regression guard on story-001's IN_MOTION extension: a sprint
+        # with only a closing story still reports in-motion=True.
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_in_motion_stories(self.smm_dir))
 
     def test_has_in_motion_true_when_in_progress(self):
         import sprint_store
@@ -408,6 +456,17 @@ class TestCountByStatus(unittest.TestCase):
         self.assertEqual(counts["in-progress"], 1)
         self.assertEqual(counts["done"], 1)
         self.assertEqual(counts["deferred"], 1)
+
+    def test_counts_includes_closing(self):
+        # Regression guard on story-001's VALID_STORY_STATUSES extension:
+        # count_by_status auto-derives keys from the frozenset, so adding
+        # 'closing' there should make the closing key appear here without
+        # any edit to count_by_status itself.
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        counts = sprint_store.count_by_status(sprint)
+        self.assertEqual(counts.get("closing"), 1)
 
 
 if __name__ == "__main__":
