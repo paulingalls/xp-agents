@@ -431,6 +431,26 @@ class TestTransitiveActiveDependents(_SMMTestCase):
             ["story-002"],
         )
 
+    def test_closing_dependent_cascades(self):
+        # AC #4: a closing dependent is mid-/xp-story-close — if its base
+        # defers, the close pipeline is invalidated and the closing story
+        # must cascade-defer too. Proves IN_MOTION_STORY_STATUSES auto-
+        # extension in story-001 covers cascade-defer for the new state.
+        import sprint_store
+
+        self._write(
+            _make_story(id="story-001", status="in-progress"),
+            _make_story(
+                id="story-002",
+                status="closing",
+                dependencies=["story-001"],
+            ),
+        )
+        self.assertEqual(
+            sprint_store.transitive_active_dependents(self.smm_dir, "story-001"),
+            ["story-002"],
+        )
+
     def test_dependency_cycle_terminates(self):
         # Sprint schema doesn't enforce DAG; a cycle (story depending on
         # itself, or A↔B) must not infinite-loop the walker. Real cycles

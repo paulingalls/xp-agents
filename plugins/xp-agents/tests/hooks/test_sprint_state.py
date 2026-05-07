@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
     SPRINT_ALL_DONE,
+    SPRINT_CLOSING_ONLY,
     SPRINT_IN_PROGRESS,
     SPRINT_MIXED_IN_PROGRESS,
     SPRINT_READY_ONLY,
@@ -49,6 +50,27 @@ class TestHasActiveStories(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_MIXED_IN_PROGRESS)
         self.assertTrue(sprint_state.has_active_stories(self.smm_dir))
+
+
+class TestHasClosingStories(_HookTestCase):
+    """Test has_closing_stories — delegates to sprint_store."""
+
+    def test_closing(self):
+        import sprint_state
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
+        self.assertTrue(sprint_state.has_closing_stories(self.smm_dir))
+
+    def test_no_closing_when_only_reviewing(self):
+        import sprint_state
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        self.assertFalse(sprint_state.has_closing_stories(self.smm_dir))
+
+    def test_missing_sprint(self):
+        import sprint_state
+
+        self.assertFalse(sprint_state.has_closing_stories(self.smm_dir))
 
 
 class TestHasInProgressStories(_HookTestCase):
