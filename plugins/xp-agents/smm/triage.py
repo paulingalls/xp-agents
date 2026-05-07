@@ -110,18 +110,31 @@ def _compile_glob(pattern: str) -> re.Pattern[str]:
 def extract_file_domain_paths(
     file_domain: list[str],
     candidate_files: Iterable[str] | None = None,
+    cwd: Path | str | None = None,
 ) -> set[str]:
     """Extract file paths from file_domain entries, expanding any globs.
 
     Entries are "path — description" or just "path". When the path contains
     glob metacharacters (`*`, `?`, `[...]`) the entry expands to matching
     files: against `candidate_files` via fnmatch-style regex when provided
-    (the cascade-analysis case — historical commits whose files may no longer
-    exist on disk), otherwise via `pathlib.Path(".").glob` (current on-disk
-    files only).
+    (the cascade-analysis case — historical commits whose files may no
+    longer exist on disk), otherwise via `pathlib.Path.glob` rooted at
+    `cwd` if supplied, falling back to `Path(".")` (concern edf2fc993f52:
+    process-cwd-implicit foot-gun). All new and migrated callers MUST
+    pass `cwd=` explicitly; `sprint_status.scheduled_file_domains_overlap`
+    still relies on the implicit fallback at the time of writing — track
+    via concern a4e5c8740a32.
+
+    `candidate_files` takes precedence over `cwd`: when candidates are
+    supplied, glob entries match the in-memory iterable and `cwd` is
+    unused. Cascade-analysis (`story_metrics._attribute_commits`) and
+    concern triage (`concern_triage.find_concerns_for_story`) both ride
+    this path — they are NOT on the implicit-cwd foot-gun even without
+    a `cwd=` argument.
     """
     paths: set[str] = set()
     candidates_list: list[str] | None = None  # materialized lazily on first glob
+    glob_root = Path(cwd) if cwd is not None else Path(".")
     for entry in file_domain:
         path = (
             entry.split(_EM_DASH, 1)[0].strip() if _EM_DASH in entry else entry.strip()
@@ -139,6 +152,8 @@ def extract_file_domain_paths(
                 if regex.fullmatch(cand):
                     paths.add(cand)
         else:
-            for match in Path(".").glob(path):
-                paths.add(str(match))
+            # Normalize to a path RELATIVE TO `glob_root` so result shape
+            # matches the legacy `Path(".").glob` behavior across callers.
+            for match in glob_root.glob(path):
+                paths.add(str(match.relative_to(glob_root)))
     return paths

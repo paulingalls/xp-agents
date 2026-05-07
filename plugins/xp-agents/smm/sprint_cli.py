@@ -220,7 +220,9 @@ def _cmd_validate_domain(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    declared = triage.extract_file_domain_paths(story.get("file_domain") or [])
+    declared = triage.extract_file_domain_paths(
+        story.get("file_domain") or [], cwd=args.cwd
+    )
 
     try:
         proc = subprocess.run(

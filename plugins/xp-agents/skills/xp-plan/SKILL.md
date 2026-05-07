@@ -63,12 +63,14 @@ After gathering sources, scan the codebase to understand what exists:
 
 Based on sources + codebase scan, propose ordered milestones. Each milestone should be roughly one sprint's worth of work.
 
+**Discovery pass for change_zones.** Before finalizing each milestone's `change_zones`, run a discovery pass: for every file you intend to declare, identify the symbols (functions, classes, top-level constants) it exports, then `Grep` for call-sites of those symbols across the repo. Union the call-site files into the milestone footprint — surfacing them as `impact_zones` (read-only impact) or as additional `change_zones` (when the call-site itself must change to land the milestone). This grounds declared scope in actual code coupling instead of agent-intuited boundaries, pre-empting the common drift pattern where stories miss callers the planner did not see. For symbols with too many call-sites to enumerate (e.g., utility helpers with >20 callers), record the count and a representative sample rather than listing all paths.
+
 For each milestone:
 - **Goal**: One sentence describing what's delivered. Budget: ≤200 chars.
 - **Definition of Done**: A concrete, testable condition. Budget: ≤300 chars.
 - **Sources**: References into the Sources table with section pointers.
-- **Change Zones**: Files/modules that will be modified, with a brief note on what changes. Note budget: ≤150 chars each.
-- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Note budget: ≤150 chars each.
+- **Change Zones**: Files/modules that will be modified, with a brief note on what changes. Fold call-sites discovered in the discovery pass above that must change to land the milestone. Note budget: ≤150 chars each.
+- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Fold remaining read-only call-sites from the discovery pass here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
 - **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when the project has an automated acceptance surface in `system_context.json`. Format: `{"type": "<harness>", "command": "<run command>"}` for a single command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple commands run in order (fail on first non-zero). Optional `setup` and `notes` fields.
