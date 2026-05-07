@@ -31,7 +31,7 @@ def has_reviewing_stories(smm_dir: Path) -> bool:
 
 
 def has_in_motion_stories(smm_dir: Path) -> bool:
-    """True if sprint has in-motion (in-progress or reviewing) stories."""
+    """True if sprint has in-motion (in-progress, reviewing, or closing) stories."""
     from sprint_store import has_in_motion_stories as _fn
 
     return _fn(smm_dir)

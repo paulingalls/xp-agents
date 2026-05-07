@@ -48,6 +48,7 @@ class TestValidateSprint(unittest.TestCase):
             "scheduled",
             "in-progress",
             "reviewing",
+            "closing",
             "done",
             "deferred",
         ):
@@ -72,6 +73,34 @@ class TestValidateSprint(unittest.TestCase):
         self.assertIn("reviewing", sprint_schema.VALID_STORY_STATUSES)
         self.assertIn("reviewing", sprint_schema.ACTIVE_STORY_STATUSES)
         self.assertNotIn("reviewing", sprint_schema.TERMINAL_STORY_STATUSES)
+
+    def test_closing_is_active_not_terminal(self):
+        # `closing` sits between reviewing and done — sprint-singleton,
+        # marks the one story currently inside /xp-story-close pipeline.
+        # ACTIVE (not TERMINAL) so cascade-defer + orphan-set treat it
+        # like other in-motion states.
+        self.assertIn("closing", sprint_schema.VALID_STORY_STATUSES)
+        self.assertIn("closing", sprint_schema.ACTIVE_STORY_STATUSES)
+        self.assertNotIn("closing", sprint_schema.TERMINAL_STORY_STATUSES)
+
+    def test_in_motion_membership(self):
+        # IN_MOTION = stories with work in motion: branched + actively
+        # edited or under acceptance verification. Drives cascade-deferral
+        # (transitive_active_dependents) and orphan-branch active-set.
+        # Pre-branch states (ready, scheduled) and terminal states
+        # (done, deferred) are excluded.
+        for in_motion in ("in-progress", "reviewing", "closing"):
+            self.assertIn(
+                in_motion,
+                sprint_schema.IN_MOTION_STORY_STATUSES,
+                f"{in_motion!r} should be in IN_MOTION",
+            )
+        for not_in_motion in ("ready", "scheduled", "done", "deferred"):
+            self.assertNotIn(
+                not_in_motion,
+                sprint_schema.IN_MOTION_STORY_STATUSES,
+                f"{not_in_motion!r} should NOT be in IN_MOTION",
+            )
 
     def test_story_missing_required_fields(self):
         sprint = _make_sprint(stories=[{"id": "story-001"}])
