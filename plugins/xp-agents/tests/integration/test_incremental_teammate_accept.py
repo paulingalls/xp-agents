@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """E2E for the incremental two-teammate accept flow (M-3 capstone).
 
-Built incrementally — this commit pins Phase 1+2 (mechanical-promote
-state + .accept-suppression while reviewing). Subsequent commits will
-add Phase 3 (xp-accept reviewing-first dispatch), Phase 5 (xp-story-
-close + merge for A), Phase 6+7 (B identical flow + final state),
-and a separate test_merge_failure_leaves_reviewing.
+Built incrementally — this commit pins Phases 1+2+3+5 (mechanical-
+promote state, .accept-suppression while reviewing, xp-accept
+reviewing-first dispatch, xp-story-close + merge for A). Subsequent
+commits will add Phase 6+7 (B identical flow + final state) and a
+separate test_merge_failure_leaves_reviewing.
 
 Composition pin — turns red only when a future change breaks the
 M-3 contract across pieces (mechanical promote, reviewing-first
@@ -19,7 +19,11 @@ import markers
 import pre_tool_write
 import sprint_state
 import sprint_store
-from _branching_fixtures import create_teammate_worktree_with_commit
+from _branching_fixtures import (
+    create_teammate_worktree_with_commit,
+    get_current_branch_at,
+    merge_teammate_branch,
+)
 from conftest import (
     _PLUGIN_ROOT,
     _extract_preload_var,
@@ -30,6 +34,9 @@ from conftest import (
 )
 
 _XP_ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
+_XP_STORY_CLOSE_PRELOAD = (
+    _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
+)
 
 
 class TestIncrementalTeammateAccept(_IntegrationTestCase):
@@ -101,6 +108,41 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
             _extract_preload_var(result.stdout, "SELECTED_STATUS"),
             "reviewing",
             "preload must select reviewing path while A is in reviewing",
+        )
+
+        # Phase 5: A close-then-done. xp-story-close preload discovers
+        # the teammate worktree by reviewing-status (story-003's
+        # find_closing_teammate_worktree contract); merge_teammate_branch
+        # runs close_common.py merge from the orchestrator cwd (the
+        # helper enforces the merge-must-not-run-from-teammate-cwd
+        # constraint that story-003 caught).
+        orch_branch = get_current_branch_at(self.tmpdir)
+        sc = self._run_preload(_XP_STORY_CLOSE_PRELOAD)
+        self.assertEqual(sc.returncode, 0, sc.stderr)
+        teammate_branch_a = self._assert_not_none(
+            _extract_preload_var(sc.stdout, "CURRENT_BRANCH")
+        )
+        self.assertNotEqual(
+            teammate_branch_a,
+            orch_branch,
+            "preload must surface A's teammate branch, not orchestrator's",
+        )
+        merge = merge_teammate_branch(
+            str(self.tmpdir), teammate_branch_a, orch_branch, self._test_env
+        )
+        self.assertEqual(merge.returncode, 0, merge.stderr)
+        # close_common skips delete when source is held by a teammate
+        # worktree — cleanup_teammate.py owns deletion (the sibling
+        # test_multi_story_accept_flow exercises that step).
+        self.assertIn("skipped delete", merge.stdout)
+
+        # Mark A done — close-then-done's FINAL step (status flip MUST
+        # follow the merge so a failed merge can't accidentally complete
+        # the story).
+        sprint_store.update_story_status(self.smm_dir, "story-001", "done")
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT),
+            ".accept must still not be armed after A's close",
         )
 
 

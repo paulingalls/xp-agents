@@ -25,6 +25,7 @@ import sprint_store
 from _branching_fixtures import (
     create_teammate_worktree_with_commit,
     get_current_branch_at,
+    merge_teammate_branch,
 )
 from conftest import (
     _extract_preload_var,
@@ -42,7 +43,6 @@ _XP_STORY_CLOSE_PRELOAD = (
 _XP_KICKOFF_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 )
-_CLOSE_COMMON = _PLUGIN_ROOT / "scripts" / "close_common.py"
 
 
 # [story-004] Deleted TestMultiStoryAcceptFlow — the ACCEPT_ACTIVE
@@ -137,24 +137,11 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         # production gap — close_common.py now skips it when source is
         # held by a teammate worktree (cleanup_teammate.py owns
         # deletion), so the chain must exit 0.
-        teammate_branch = _extract_preload_var(sc.stdout, "CURRENT_BRANCH")
-        assert teammate_branch is not None
-        merge = subprocess.run(
-            [
-                sys.executable,
-                str(_CLOSE_COMMON),
-                "merge",
-                "--cwd",
-                str(self.tmpdir),
-                "--source",
-                teammate_branch,
-                "--target",
-                orch_branch,
-            ],
-            cwd=str(self.tmpdir),
-            env=self._test_env,
-            capture_output=True,
-            text=True,
+        teammate_branch = self._assert_not_none(
+            _extract_preload_var(sc.stdout, "CURRENT_BRANCH")
+        )
+        merge = merge_teammate_branch(
+            str(self.tmpdir), teammate_branch, orch_branch, self._test_env
         )
         self.assertEqual(merge.returncode, 0, merge.stderr)
         self.assertIn(

@@ -135,6 +135,41 @@ def create_teammate_worktree_with_commit(
     return wt_path
 
 
+def merge_teammate_branch(
+    repo_cwd: str,
+    source: str,
+    target: str,
+    env: dict,
+) -> subprocess.CompletedProcess:
+    """Run close_common.py merge from the orchestrator cwd.
+
+    Merge MUST run at orchestrator cwd (not at the teammate's worktree
+    cwd) — git merge checks out the target branch which the orchestrator
+    already holds; running from the teammate's cwd fails with "target is
+    already used by worktree at <orch>". close_common skips the
+    post-merge source-branch delete when the source is held by a live
+    teammate worktree (cleanup_teammate.py owns that step).
+    """
+    close_common = Path(__file__).parent.parent / "scripts" / "close_common.py"
+    return subprocess.run(
+        [
+            sys.executable,
+            str(close_common),
+            "merge",
+            "--cwd",
+            repo_cwd,
+            "--source",
+            source,
+            "--target",
+            target,
+        ],
+        cwd=repo_cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
 def make_commit(
     cwd: str,
     branch: str,
