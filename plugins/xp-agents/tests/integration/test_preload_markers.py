@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import markers
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     init_repo,
     init_repo_in_spaced_parent,
@@ -26,7 +27,6 @@ from _branching_fixtures import (
 from conftest import _IntegrationTestCase
 from integration.conftest import _XP_STORY_CLOSE_PRELOAD
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_BASE = _PLUGIN_ROOT / "skills" / "_preload_base.sh"
 _XP_QUALITY_REVIEW_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"

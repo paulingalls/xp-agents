@@ -122,10 +122,9 @@ def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
     if len(scheduled) < 2:
         return False
 
-    # explicit-cwd migration (concern a4e5c8740a32)
+    # No cwd= — sprint stories declare literal paths; glob entries raise.
     path_sets = [
-        extract_file_domain_paths(s.get("file_domain") or [], cwd=Path("."))
-        for s in scheduled
+        extract_file_domain_paths(s.get("file_domain") or []) for s in scheduled
     ]
     return any(a & b for a, b in combinations(path_sets, 2))
 

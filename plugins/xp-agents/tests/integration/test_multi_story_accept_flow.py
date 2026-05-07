@@ -22,6 +22,7 @@ import markers
 import pre_tool_write
 import sprint_state
 import sprint_store
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     branch_exists,
     create_teammate_worktree_with_commit,
@@ -38,7 +39,6 @@ from conftest import (
 )
 from integration.conftest import _XP_ACCEPT_PRELOAD, _XP_STORY_CLOSE_PRELOAD
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _XP_KICKOFF_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 )
