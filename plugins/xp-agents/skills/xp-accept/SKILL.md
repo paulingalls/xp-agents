@@ -54,12 +54,16 @@ without error. When `SELECTED_STATUS=in-progress` (solo path) the call
 performs the actual transition. Either way, the story is in `reviewing`
 when /xp-story-close runs against it (Step 2 below).
 
-**Why reviewing.** The story stays in `reviewing` throughout the
-close-then-done cycle (Step 2 → Step 4). Fix-cycle Edits during
-/xp-story-close do not arm `.accept` because the story is no longer
-counted as in-progress — close-then-done is the structural protection.
+**Why reviewing then closing.** The story enters `reviewing` for AC
+verification + concern triage (Step 1, Step 1b). Step 1.5 transitions
+to `closing` immediately before /xp-story-close dispatch — that
+keeps fix-cycle Edits during the close pipeline from arming `.accept`
+because the story is no longer counted as in-progress.
 `pre_tool_write`'s re-arm predicate skips when any story is in
-`reviewing`, so the suppression is automatic for the whole window.
+`reviewing` OR `closing` (story-005 extended the suppression), so
+both windows are covered. The reviewing→closing transition also lets
+`find_closing_teammate_worktree` (story-003) discover the singleton
+in-pipeline worktree for /xp-story-close routing.
 
 If acceptance later fails and the user picks **Debug and re-run** (Step 1's automated-fail branch), revert the promotion before fixing — the story is no longer under review, it's actively-worked again:
 
@@ -67,6 +71,11 @@ If acceptance later fails and the user picks **Debug and re-run** (Step 1's auto
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN in-progress
 ```
+
+(If acceptance fails AFTER Step 1.5's reviewing→closing transition —
+i.e., the close pipeline aborted — the same revert command applies:
+`closing → in-progress` skips the reviewing middle state since the
+story needs to be actively-worked again.)
 
 ### Automated acceptance (type != "manual")
 
@@ -115,11 +124,11 @@ When `acceptance_execution` is absent or `type` is `"manual"`:
    - **deferred** — incomplete, carry forward to next sprint. **If the story has downstream dependents** (other in-progress stories whose `dependencies` include it, directly or transitively), cascade the deferral — see "Cascading a deferral" below for the mechanics.
 5. Resolve any user questions before marking.
 
-**Manual flow has no debug-and-fix branch.** If the user wants to fix issues mid-acceptance, pick `deferred` and revisit in a future iteration. The story stays in `reviewing` from Step 1.0's promote through Step 2's /xp-story-close and Step 4's mark-done — close-then-done keeps the state coherent across the whole window. If the manual review is abandoned without picking `done` or `deferred`, revert to `in-progress` via `update-story story-NNN in-progress` so the story is correctly tracked as actively-worked again.
+**Manual flow has no debug-and-fix branch.** If the user wants to fix issues mid-acceptance, pick `deferred` and revisit in a future iteration. The story stays in `reviewing` from Step 1.0's promote through Step 1b (concern triage), then Step 1.5 transitions to `closing` for /xp-story-close (Step 2) through Step 4's mark-done — close-then-done + the closing-state lock keep state coherent across the whole window. If the manual review is abandoned without picking `done` or `deferred`, revert to `in-progress` via `update-story story-NNN in-progress` (works from either `reviewing` or `closing`) so the story is correctly tracked as actively-worked again.
 
 ### Cascading a deferral
 
-When a deferred story has in-motion (in-progress or reviewing) downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
+When a deferred story has in-motion (in-progress, reviewing, or closing) downstream dependents, mark them deferred too — running them on the (now-broken) base would waste cycles. `sprint_cli.py find-transitive-dependents` walks `sprint.json` and prints the descendants; loop `update-story` over the failed story plus that list:
 
 ```bash
 DEFERRED="story-NNN"  # the just-deferred story id
@@ -150,21 +159,43 @@ If the preload shows `### Concerns for story-NNN`, review each listed concern ag
 
 File overlap alone does not mean a concern is resolved. Use your judgment based on the concern's content and what the commits actually changed.
 
+## Step 1.5: Transition reviewing → closing
+
+Immediately before dispatching /xp-story-close, transition the story
+from `reviewing` to `closing`. This is sprint-069's singleton
+in-pipeline lock — `closing` marks exactly one story actively inside
+/xp-story-close at any time, while `reviewing` stays plural-safe for
+concurrent teammate finish-bursts.
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+  update-story story-NNN closing
+```
+
+Bare `update-story` (not CAS) is correct here: the orchestrator is
+single-threaded across /xp-accept; no concurrent writer races this
+transition. (Contrast `spawn_teammate.py`'s in-progress→reviewing
+which DOES use CAS because it races with /xp-accept's promote.)
+
+After Step 1.5, `find_closing_teammate_worktree` (story-003) returns
+this story's worktree to /xp-story-close's preload; multi-reviewing
+stories with live worktrees no longer trip the multi-match raise.
+
 ## Step 2: Invoke /xp-story-close (close-then-done)
 
 **Per-story sequence after AC pass: close FIRST, then mark done.** The
-story stays in `reviewing` throughout the close cycle so fix-cycle
-Edits during /xp-story-close don't arm `.accept` (close-then-done is
-the structural protection — story is no longer in-progress, so the
-re-arm predicate doesn't fire). Mark-done (Step 4) is the FINAL step
-— only runs after /xp-story-close returns success and Step 3
-decisions are recorded.
+story sits in `closing` throughout the close cycle (Step 1.5 → Step 4)
+so fix-cycle Edits during /xp-story-close don't arm `.accept`
+(close-then-done + closing-state suppression are the structural
+protection — story is no longer in-progress, so the re-arm predicate
+doesn't fire). Mark-done (Step 4) is the FINAL step — only runs after
+/xp-story-close returns success and Step 3 decisions are recorded.
 
 /xp-story-close auto-discovers teammate worktree state from sprint.json
-+ live worktrees (the in-`reviewing` story whose live teammate
-worktree exists). No explicit context-passing from /xp-accept is
-required — both solo and teammate stories close transparently through
-the same dispatch. /xp-story-close owns the per-story review + merge +
++ live worktrees (the `closing` story whose live teammate worktree
+exists). No explicit context-passing from /xp-accept is required —
+both solo and teammate stories close transparently through the same
+dispatch. /xp-story-close owns the per-story review + merge +
 JIT-create-next pipeline:
 
 - Forks `xp-close-reviewer` in story mode (AC alignment, file_domain,
@@ -178,9 +209,11 @@ JIT-create-next pipeline:
 
 **Merge-failure semantics:** if /xp-story-close aborts (preflight
 fails, reviewer Block, user picks abort, merge conflicts), the story
-stays in `reviewing` — Step 4 (mark-done) never runs and the agent
-can retry without state inconsistency. Today's "done-but-not-merged"
-gap is closed by the close-then-done ordering.
+stays in `closing` — Step 4 (mark-done) never runs and the agent can
+retry without state inconsistency. Revert via Step 1's debug-and-rerun
+flow (`closing → in-progress`) when the user opts to fix and re-AC.
+Today's "done-but-not-merged" gap is closed by the close-then-done
+ordering.
 
 **Stage 0:** at stage 0 there is no branch discipline — the
 orchestrator commits directly on the primary branch — so
@@ -188,8 +221,8 @@ orchestrator commits directly on the primary branch — so
 TARGET_BRANCH) and stop with a clear stderr message. Skip the
 dispatch entirely at stage 0; proceed directly to Step 3 then Step 4.
 
-Loop continues for the next reviewing story (each gets its own
-/xp-story-close invocation). /xp-story-close NEVER fires
+Loop continues for the next reviewing story (each gets its own Step 1.5
+transition + /xp-story-close invocation). /xp-story-close NEVER fires
 /xp-sprint-review — Step 7 below owns that single dispatch after
 the loop completes (single source of truth).
 
@@ -197,7 +230,7 @@ the loop completes (single source of truth).
 
 After /xp-story-close (Step 2) returns success and BEFORE marking
 done in Step 4, record qualifying design decisions while the
-close-review context is fresh. The story is still in `reviewing`
+close-review context is fresh. The story is still in `closing`
 here — finalize the design record before flipping to `done`.
 
 **Criterion:** A "design decision" at story scope is anything another
