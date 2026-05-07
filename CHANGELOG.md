@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.1.15 — free-session: probe instrumentation + 8 cleanup items
+
+Free session bundling 9 user-adopted items from sprint-069 retrospective: 4 retro Trys, 1 debt, and 4 concerns including a real solo-mode bug. 8 implementation commits, all TDD with full review cycle (`/simplify` + `/xp-quality-review`) per commit. 4589 tests pass (was 4561; +28 net). Free-close added security review + cross-cutting close-reviewer pass — both clean before merge.
+
+### Probe signal-quality (Trys #3 + #4)
+
+- **Snapshot/tail-ts telemetry** — `find_probe_candidates` gains an opt-in `out_meta` kwarg (only `pre_tool_bash` opts in initially); captures `probe_snapshot_max_ts` (caller's snapshot newest ts, pinned BEFORE the staleness reread) and `probe_tail_ts` (newest ts after the check). When they differ, the probe re-read disk between caller-snapshot and probe-time. `emit_probe_status` now writes even on zero candidates when `probe_meta` is provided — the zero-candidate emit is the most diagnostic case for `newer-than-snapshot` diverts (33% of recent diverts). Refactored `_is_events_snapshot_stale` to return `(is_stale, max_ts)` so callers don't iterate events twice; extracted `_events_max_ts` helper.
+- **Candidate widening for in-batch close-mode siblings** — adds 6th scoring axis: when `in_sprint_batch == 1 AND close_mode == 1 AND file_overlap == 0`, score +1 and emit `SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP`. Targets the `outside-file-domain` divert observed at 33% of recent diverts (close-mode multi-resolves where a legitimate sibling fell off the top-5 cap because `file_overlap=0` starved its score). Vocabulary cap test bumped 5→6 with the deliberate-review checklist followed.
+
+### Code consolidation (Try #1 + #2 + debt)
+
+- **`UNDER_ACCEPTANCE_STORY_STATUSES` extraction** — `pre_tool_write.py` and `sprint_stop_gate.py` both hand-wired the "reviewing OR closing" check (inverted vs direct). New frozenset constant + `has_under_acceptance_stories(_data)` helpers in the `sprint_schema`/`sprint_status`/`sprint_store` triad, mirroring the existing `IN_MOTION` pattern. Both call sites collapse to one predicate. Strictly better at the hot paths: one iteration with set-membership check vs the prior code's two `any()` calls in worst case.
+- **`IN_MOTION_STORY_STATUSES` docstring drift fix** — claimed it drives the orphan-branch active-set, but `list_orphan_story_branches` actually reads `ACTIVE_STORY_STATUSES`. Docstring corrected to redirect readers. Also fixed pre-existing `select_in_motion_stories` docstring drift ("under acceptance" was the wrong scope — returns IN_MOTION which includes in-progress).
+- **`sprint_store.__all__`** — replaced 18 per-line `noqa: F401` with a complete module-level `__all__` enumerating all 37 public names (18 re-exports + 19 module-defined). Partial `__all__` would mislead pyright/import-* consumers.
+
+### Real bug fixes (concerns)
+
+- **JIT-next dep race** — `/xp-story-close` Step 8 ran BEFORE `/xp-accept` Step 4 marks the just-closed story `done`. With the dep gate requiring `done`, solo dep-chained sprints stalled: the next story was invisible to `next-scheduled` until the orchestrator round-tripped back. Sprint-069 hit this — "sprint complete" printed wrongly while 6 scheduled stories remained. Fix: `--treat-as-done STORY_ID` (repeatable) on both `next-in-progress` and `next-scheduled` subcommands; xp-story-close Step 8 passes `--treat-as-done "$STORY_ID"` so the dep check counts the just-closed (mid-merge) story as satisfied. Symmetric application across both subcommands is defensive.
+- **CAS-guard for `reviewing→closing`** — the AC1 promise that the singleton-lock transition was CAS-guarded was unimplemented in production. xp-accept Step 1.5 called bare `update-story`, leaning on "single-threaded orchestrator" as the safety argument. New `update-story-if` CLI subcommand wraps the existing `update_story_status_if` helper with rc=0/1/2 contract (success/CAS-mismatch/validation-error). xp-accept Step 1.5 prose updated to call the CAS subcommand and to act on rc=1 (race-loss, skip story) vs rc=2 (validation error, halt) distinctly.
+- **Worktree-registry tearDown** — `_IntegrationTestCase` previously leaked `.claude/worktrees/worktree-story-X` registry entries into the next test, breaking reuse-by-id. Sprint-069's capstone hand-picked unique ids (story-A1/B1/C1/D1/E1/E2) as workaround. Per-test tearDown now prunes worktrees via the existing `cleanup_test_worktrees` helper. Fast-path skip when no worktrees were created saves ~10s of subprocess overhead across the full suite. `try/finally` so `super().tearDown()` always runs.
+- **`closing-state-lifecycle` decision event** — emitted with stable `--topic closing-state-lifecycle` so any future divergent decision trips the superseded-decision detector.
+
 ## v3.1.14 — sprint-069 add 'closing' story state (7 stories, 7/7 velocity)
 
 Sprint-069 inserts a new `closing` state between `reviewing` and `done` in the story lifecycle. Resolves the long-standing `xp-story-close` multi-reviewing race (risk a1244ea46e52): concurrent teammate finish-bursts no longer stall the close pipeline because `reviewing` is now plural-safe and `closing` is the sprint-singleton in-pipeline lock. 7 planned / 7 delivered, 4561 tests pass (was 4528; +33 net).
