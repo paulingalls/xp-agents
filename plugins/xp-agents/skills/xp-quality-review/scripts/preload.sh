@@ -7,11 +7,37 @@ source "$(dirname "$0")/../../_preload_base.sh"
 
 # TEAMMATE_CWD is set explicitly by the caller (e.g., /xp-accept's
 # fix-cycle dispatch) when quality-review should grab a teammate
-# worktree's diff. Empty/unset means use the orchestrator's cwd.
-# (Story-004 removed the ACCEPT_ACTIVE-gated auto-detect that used to
-# infer this from sprint state — the heuristic could hijack the
-# orchestrator's diff when a teammate sat in `reviewing` for unrelated
-# work. Per decision 798a27b425a7: explicit pass-through only.)
+# worktree's diff. Explicit pass-through always wins (per decision
+# 798a27b425a7).
+#
+# When unset, narrow auto-detect: route to a teammate worktree ONLY
+# when the orchestrator cwd has zero uncommitted changes AND exactly
+# one teammate worktree has uncommitted changes. The orch-empty trigger
+# is the hijack guard — an orchestrator with its own in-flight work is
+# never overridden. Single-match avoids ambiguity. Closes the gap where
+# the orchestrator edited a teammate worktree directly (close-cycle fix
+# pass) and QR silently reported "no changed files".
+_qr_auto_detect_teammate_cwd() {
+    [ -n "${TEAMMATE_CWD:-}" ] && return 0
+    if ! git diff --quiet HEAD 2>/dev/null \
+       || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
+        return 0
+    fi
+    local matches=()
+    while IFS= read -r wt; do
+        [ -z "$wt" ] && continue
+        if ! git -C "$wt" diff --quiet HEAD 2>/dev/null \
+           || [ -n "$(git -C "$wt" ls-files --others --exclude-standard 2>/dev/null)" ]; then
+            matches+=("$wt")
+        fi
+    done < <(git worktree list --porcelain 2>/dev/null \
+             | awk '/^worktree / { if ($2 ~ /\/\.claude\/worktrees\/worktree-story-/) print $2 }')
+    if [ "${#matches[@]}" -eq 1 ]; then
+        TEAMMATE_CWD="${matches[0]}"
+        export TEAMMATE_CWD
+    fi
+}
+_qr_auto_detect_teammate_cwd
 
 echo "SMM_DIR=${SMM_DIR}"
 echo "TEAMMATE_CWD=${TEAMMATE_CWD:-}"
