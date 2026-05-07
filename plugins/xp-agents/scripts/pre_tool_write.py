@@ -20,9 +20,8 @@ import markers
 import sprint_state
 import worktree
 from sprint_status import (
-    has_closing_stories_data,
     has_in_progress_stories_data,
-    has_reviewing_stories_data,
+    has_under_acceptance_stories_data,
 )
 
 _WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
@@ -316,20 +315,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     # Accept marker — signal "needs acceptance" when writing during an active
     # sprint. Plan files are exempt (writing a plan isn't iteration work).
-    # reviewing/closing suppress re-arm during the close-then-done window:
-    # when ANY story is in `reviewing` or `closing`, we're inside the per-
-    # story accept dispatch (xp-accept → xp-story-close → mark-done), so
-    # Edits during fix-cycles must NOT re-arm .accept even if siblings
-    # remain in-progress. Replaces the prior ACCEPT_ACTIVE marker check.
-    # Load sprint.json once and predicate-check against the dict to avoid
-    # repeated disk reads on this hot Write/Edit/MultiEdit path.
+    # UNDER_ACCEPTANCE (reviewing or closing) suppresses re-arm during the
+    # close-then-done window: when ANY story is under acceptance, we're
+    # inside the per-story accept dispatch (xp-accept → xp-story-close →
+    # mark-done), so Edits during fix-cycles must NOT re-arm .accept even
+    # if siblings remain in-progress. Replaces the prior ACCEPT_ACTIVE
+    # marker check. Load sprint.json once and predicate-check against the
+    # dict to avoid repeated disk reads on this hot Write/Edit/MultiEdit
+    # path.
     if smm_dir and not is_plan_file:
         sprint_data = sprint_state.read_sprint_content(smm_dir)
         if (
             sprint_data is not None
             and has_in_progress_stories_data(sprint_data)
-            and not has_reviewing_stories_data(sprint_data)
-            and not has_closing_stories_data(sprint_data)
+            and not has_under_acceptance_stories_data(sprint_data)
             and not markers.marker_exists(smm_dir, markers.ACCEPT)
         ):
             markers.marker_write(smm_dir, markers.ACCEPT, "done")

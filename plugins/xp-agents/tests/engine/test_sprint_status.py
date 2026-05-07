@@ -42,6 +42,8 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_reviewing_stories_data",
         "has_closing_stories",
         "has_closing_stories_data",
+        "has_under_acceptance_stories",
+        "has_under_acceptance_stories_data",
         "has_in_motion_stories",
         "has_in_motion_stories_data",
         "select_in_motion_stories",
@@ -275,6 +277,47 @@ class TestStatusChecks(_SMMTestCase):
         import sprint_store
 
         self.assertFalse(sprint_store.has_in_motion_stories(self.smm_dir))
+
+    def test_has_under_acceptance_data_true_for_reviewing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="reviewing")])
+        self.assertTrue(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_data_true_for_closing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        self.assertTrue(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_data_false_for_in_progress_only(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="in-progress")])
+        self.assertFalse(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_data_false_for_terminal_only(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="s1", status="done"),
+                _make_story(id="s2", status="deferred"),
+            ]
+        )
+        self.assertFalse(sprint_store.has_under_acceptance_stories_data(sprint))
+
+    def test_has_under_acceptance_disk_true_when_closing(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(status="closing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.has_under_acceptance_stories(self.smm_dir))
+
+    def test_has_under_acceptance_disk_false_when_missing_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.has_under_acceptance_stories(self.smm_dir))
 
     def test_has_in_progress_data_true_and_false(self):
         import sprint_store

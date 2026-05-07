@@ -25,6 +25,14 @@ ACTIVE_STORY_STATUSES = VALID_STORY_STATUSES - TERMINAL_STORY_STATUSES
 # /xp-story-close pipeline. Orphan-branch detection uses
 # ACTIVE_STORY_STATUSES, not this set.
 IN_MOTION_STORY_STATUSES = frozenset({"in-progress", "reviewing", "closing"})
+# Stories inside the per-story accept dispatch window
+# (xp-accept → xp-story-close → mark-done). Subset of IN_MOTION minus
+# in-progress. Used by the .accept marker re-arm guard
+# (pre_tool_write.py) and the stop-gate accept message
+# (sprint_stop_gate.py): both want a single predicate covering the
+# close-then-done window without enumerating reviewing/closing
+# separately at every call site.
+UNDER_ACCEPTANCE_STORY_STATUSES = frozenset({"reviewing", "closing"})
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,

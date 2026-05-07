@@ -34,9 +34,8 @@ import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
 from sprint_status import (
     has_active_stories_data,
-    has_closing_stories_data,
     has_in_progress_stories_data,
-    has_reviewing_stories_data,
+    has_under_acceptance_stories_data,
 )
 
 _ACCEPT_MESSAGE = (
@@ -88,10 +87,11 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
     loaded by the caller is reused — no double-load on the disk for a
     single Stop hook invocation.
     """
-    # Cascade step 1: accept gate. Reviewing or closing alone fires
-    # (Option A): both are mid-accept-window states where the user must
-    # run /xp-accept (or finish the in-flight close) before stopping.
-    if has_reviewing_stories_data(sprint_data) or has_closing_stories_data(sprint_data):
+    # Cascade step 1: accept gate. Any UNDER_ACCEPTANCE story (reviewing
+    # or closing) fires (Option A): both are mid-accept-window states
+    # where the user must run /xp-accept (or finish the in-flight close)
+    # before stopping.
+    if has_under_acceptance_stories_data(sprint_data):
         return _ACCEPT_MESSAGE
     if has_in_progress_stories_data(sprint_data):
         if markers.marker_exists(smm_dir, markers.ACCEPT):

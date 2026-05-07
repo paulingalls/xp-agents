@@ -102,6 +102,22 @@ class TestValidateSprint(unittest.TestCase):
                 f"{not_in_motion!r} should NOT be in IN_MOTION",
             )
 
+    def test_under_acceptance_is_reviewing_and_closing(self):
+        # UNDER_ACCEPTANCE = the close-then-done window: stories that
+        # have left in-progress and are inside the per-story accept
+        # dispatch (xp-accept → xp-story-close → mark-done). Subset of
+        # IN_MOTION (which also includes in-progress).
+        self.assertEqual(
+            sprint_schema.UNDER_ACCEPTANCE_STORY_STATUSES,
+            frozenset({"reviewing", "closing"}),
+        )
+        self.assertTrue(
+            sprint_schema.UNDER_ACCEPTANCE_STORY_STATUSES.issubset(
+                sprint_schema.IN_MOTION_STORY_STATUSES
+            )
+        )
+        self.assertNotIn("in-progress", sprint_schema.UNDER_ACCEPTANCE_STORY_STATUSES)
+
     def test_validate_sprint_accepts_closing_status(self):
         # AC3: sprint.json with a story at status 'closing' validates
         # with no errors. Pinned as a dedicated test (not just iterated
