@@ -28,6 +28,7 @@ from event_schema import (
     METADATA_KEY_PROBE_TAIL_TS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP,
     SELECTION_REASON_IN_SPRINT_BATCH,
     SELECTION_REASON_KEYWORD,
     SELECTION_REASON_RECENCY,
@@ -214,10 +215,10 @@ def _score_candidate(
     """Rank score + the signals that contributed.
 
     Returns `(score, reasons)`. Reasons are emitted in deterministic order
-    (keyword, file_overlap, recency, close_mode, in_sprint_batch) so test
-    assertions can pin shape. A signal contributes a reason iff it
-    contributed non-zero score — score and reasons are built in lockstep
-    so they cannot drift.
+    (keyword, file_overlap, recency, close_mode, in_sprint_batch,
+    in_batch_close_no_overlap) so test assertions can pin shape. A signal
+    contributes a reason iff it contributed non-zero score — score and
+    reasons are built in lockstep so they cannot drift.
 
     haystack_keywords and commit_file_set are pre-computed once per commit by
     the caller — _score_candidate runs per candidate. commit_file_set members
@@ -263,8 +264,16 @@ def _score_candidate(
     if in_sprint_batch:
         reasons.append(SELECTION_REASON_IN_SPRINT_BATCH)
 
+    # Widening for batched close-mode siblings with files=[] — without
+    # the boost they fall off the top-5 cap and the divert classifier
+    # mis-tags them outside-file-domain. Both signals required; gated on
+    # file_overlap==0 to avoid double-counting.
+    widen = 1 if (in_sprint_batch and provenance and file_overlap == 0) else 0
+    if widen:
+        reasons.append(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP)
+
     return (
-        keyword_score + file_overlap + recency + provenance + in_sprint_batch,
+        keyword_score + file_overlap + recency + provenance + in_sprint_batch + widen,
         reasons,
     )
 

@@ -231,6 +231,14 @@ SELECTION_REASON_CLOSE_MODE = "close_mode"
 # probe-divert gap where in-batch siblings were missed because they had no
 # file or keyword tie to the current commit.
 SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
+# Widening for batched close-mode siblings: when in_sprint_batch AND
+# close_mode both fire and file_overlap is 0, score +1 and emit this
+# reason. Targets the outside-file-domain divert observed at 33% of
+# recent diverts (close-mode multi-resolves), where a legitimate
+# sibling fell off the top-5 cap because file_overlap=0 starved its
+# score. Tests for double-counting prevention live in
+# TestInBatchCloseNoOverlapWidening.
+SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP = "in_batch_close_no_overlap"
 
 # Divert-reason vocabulary written by retro_metrics._classify_divert_reason
 # into probe_divert_details[i]["reason"]. Each value names the cause class

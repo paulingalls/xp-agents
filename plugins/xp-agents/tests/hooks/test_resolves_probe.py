@@ -31,6 +31,7 @@ from event_schema import (
     METADATA_KEY_PROBE_TAIL_TS,
     SELECTION_REASON_CLOSE_MODE,
     SELECTION_REASON_FILE_OVERLAP,
+    SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP,
     SELECTION_REASON_IN_SPRINT_BATCH,
     SELECTION_REASON_KEYWORD,
     SELECTION_REASON_RECENCY,
@@ -588,6 +589,74 @@ class TestInSprintBatchAxis(_ScoringHelpers, unittest.TestCase):
         self.assertEqual(with_axis - without_axis, 1)
 
 
+class TestInBatchCloseNoOverlapWidening(_ScoringHelpers, unittest.TestCase):
+    """Widening for batched close-mode siblings without file overlap.
+
+    /xp-story-close batched multi-resolves emit candidates that legitimately
+    have files=[] but belong to the active cycle. Without this widening,
+    the file-overlap signal alone keeps them below the top-5 cap and they
+    fall out — the outside-file-domain divert observed at 33% of recent
+    diverts (retro Try #3). When in_sprint_batch + close_mode both fire
+    and file_overlap is 0, add +1 score and emit the marker reason so
+    the divert classifier doesn't tag them as outside-file-domain.
+    """
+
+    CYCLE = "abc123def456"
+
+    def _close_mode_in_cycle_no_overlap(self):
+        return self._candidate(
+            content="zzz",
+            files=[],
+            metadata={"close_mode": "sprint", "close_cycle_id": self.CYCLE},
+        )
+
+    def test_in_batch_close_no_overlap_adds_one_when_both_signals_fire(self):
+        cand = self._close_mode_in_cycle_no_overlap()
+        with_widening = self._score(cand, active_cycle_id=self.CYCLE)
+        without_widening = self._score(cand, active_cycle_id=None)
+        # Without widening: only close_mode fires (+1).
+        # With widening: in_sprint_batch (+1) + the new widening (+1) on top.
+        self.assertEqual(with_widening - without_widening, 2)
+
+    def test_in_batch_close_no_overlap_emits_marker_reason(self):
+        cand = self._close_mode_in_cycle_no_overlap()
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+    def test_does_not_fire_when_file_overlap_present(self):
+        # If file_overlap is already there, the FILE_OVERLAP signal already
+        # carries this candidate; widening would double-count.
+        cand = self._candidate(
+            content="zzz",
+            files=["scripts/auth.py"],
+            metadata={"close_mode": "sprint", "close_cycle_id": self.CYCLE},
+        )
+        _, reasons = self._score_with_reasons(
+            cand,
+            commit_files=["scripts/auth.py"],
+            active_cycle_id=self.CYCLE,
+        )
+        self.assertNotIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+    def test_does_not_fire_without_close_mode(self):
+        # In-cycle but not close-mode (e.g. an in-progress concern that just
+        # happens to share cycle): widening must not fire.
+        cand = self._candidate(
+            content="zzz",
+            files=[],
+            metadata={"close_cycle_id": self.CYCLE},
+        )
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=self.CYCLE)
+        self.assertNotIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+    def test_does_not_fire_without_in_sprint_batch(self):
+        # Close-mode but no active cycle (or different cycle): widening
+        # must not fire — both signals are required together.
+        cand = self._close_mode_in_cycle_no_overlap()
+        _, reasons = self._score_with_reasons(cand, active_cycle_id=None)
+        self.assertNotIn(SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP, reasons)
+
+
 class TestFindActiveCycleId(unittest.TestCase):
     """_find_active_cycle_id picks the most-recent recent concern's
     close_cycle_id from events.jsonl context."""
@@ -769,7 +838,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
     payload size bounded and force deliberate review when adding a new
     selector signal.
 
-    Adding a 6th constant requires:
+    Adding a 7th constant requires:
       1. Updating _score_candidate to emit it (in deterministic order)
       2. Bumping this expected count
       3. Reviewing the divert-narrative payload size impact (each probe
@@ -778,7 +847,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
          strings per probe event).
     """
 
-    def test_exactly_five_selection_reason_constants(self):
+    def test_exactly_six_selection_reason_constants(self):
         # Substring match catches both public (SELECTION_REASON_*) and
         # private (_SELECTION_REASON_*) — a private constant still grows
         # the divert payload, so it counts toward the cap.
@@ -791,6 +860,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
                 "SELECTION_REASON_RECENCY",
                 "SELECTION_REASON_CLOSE_MODE",
                 "SELECTION_REASON_IN_SPRINT_BATCH",
+                "SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP",
             },
             "Selector-signal vocabulary changed — see this test's docstring "
             "for the deliberate-review checklist before updating the expected set.",
