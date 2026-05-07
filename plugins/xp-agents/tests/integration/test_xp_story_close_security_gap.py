@@ -35,10 +35,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _PLUGIN_ROOT
 from _close_fixtures import _Step4SecurityIncludeTests
 from conftest import _IntegrationTestCase, _split_frontmatter_body
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md"
 _SHARED_MD = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
 

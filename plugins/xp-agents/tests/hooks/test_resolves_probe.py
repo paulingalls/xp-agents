@@ -14,7 +14,12 @@ import _common
 import event_schema
 import resolves_probe
 import worktree
-from conftest import _HookTestCase, _ProbeTestHelpers, make_event
+from conftest import (
+    _HookTestCase,
+    _NormalizePathIdentityMixin,
+    _ProbeTestHelpers,
+    make_event,
+)
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
@@ -1196,7 +1201,7 @@ class TestFindProbeCandidatesDiscovery(_HookTestCase):
         self.assertNotIn(sibling, [c["id"] for c in result])
 
 
-class TestCountFileOverlaps(unittest.TestCase):
+class TestCountFileOverlaps(_NormalizePathIdentityMixin, unittest.TestCase):
     """_count_file_overlaps direct pin — covers list-guard, str-guard, and
     normalize_path raising branches that the discovery-flow tests reach
     only transitively. A future refactor that silently zeros the score
@@ -1205,13 +1210,6 @@ class TestCountFileOverlaps(unittest.TestCase):
     """
 
     CWD = "/tmp/repo"
-
-    def setUp(self):
-        self._original_normalize = worktree.normalize_path
-        worktree.normalize_path = lambda f, _c: f
-
-    def tearDown(self):
-        worktree.normalize_path = self._original_normalize
 
     def test_non_list_returns_zero(self):
         self.assertEqual(

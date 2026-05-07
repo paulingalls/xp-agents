@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from conftest import (
     _IntegrationTestCase,
     _s,
@@ -22,7 +23,6 @@ from conftest import (
     cleanup_test_worktrees,
 )
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 
 
@@ -118,7 +118,9 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
 
         self.assertFalse(prompt_file.exists())
 
-    def test_prompt_file_deleted_after_failed_spawn(self):
+    def test_prompt_file_preserved_after_failed_spawn(self):
+        """On subprocess failure, the orchestrator must be able to re-spawn
+        with the same prompt — so the original file must survive."""
         import spawn_teammate
 
         prompt_file = Path(self.tmpdir) / "prompt-fail.txt"
@@ -148,7 +150,7 @@ class TestSpawnTeammatePromptCleanup(_IntegrationTestCase):
                 ]
             )
 
-        self.assertFalse(prompt_file.exists())
+        self.assertTrue(prompt_file.exists())
 
 
 class TestCleanupTeammateE2E(_IntegrationTestCase):

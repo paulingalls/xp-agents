@@ -9,17 +9,13 @@ sprint_cli.py.
 Follows the same pattern as execution_plan_store.py.
 """
 
-import contextlib
-import fcntl
 import json
-import os
-import signal
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from _append_impl import LOCK_TIMEOUT_SECONDS, _on_alarm, write_text_atomic
+from _append_impl import flock_with_timeout, write_text_atomic
 from sprint_schema import (
     IN_MOTION_STORY_STATUSES,
     SPRINT_FILENAME,
@@ -38,8 +34,9 @@ def _sprint_lock(smm_dir: Path) -> Iterator[None]:
     Used by update_story_status_if to make the load-check-write CAS one
     indivisible critical section — a second CAS caller racing this one
     will see the post-update state when its load runs, not the pre-update
-    snapshot. Mirrors the SIGALRM timeout pattern used by the events.jsonl
-    flock in _append_impl so a deadlocked sibling can't wedge the wrapper.
+    snapshot. The shared `flock_with_timeout` helper provides the
+    SIGALRM-bounded acquire and suppress-OSError-on-release semantics
+    so a deadlocked sibling can't wedge the wrapper.
 
     Other unlocked sprint mutators (update_story_status, set_branch, etc.)
     do NOT take this lock — the CAS only guarantees atomicity against
@@ -47,30 +44,8 @@ def _sprint_lock(smm_dir: Path) -> Iterator[None]:
     spawn_teammate.py is the load-bearing fix; cross-process protection
     against unlocked writers is out of story-002's scope.
     """
-    lock_path = smm_dir / _SPRINT_LOCK_NAME
-    raw_fd = os.open(
-        str(lock_path),
-        os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
-        0o600,
-    )
-    try:
-        lock_fd = os.fdopen(raw_fd, "a")
-    except BaseException:
-        os.close(raw_fd)
-        raise
-    try:
-        old_handler = signal.signal(signal.SIGALRM, _on_alarm)
-        try:
-            signal.alarm(LOCK_TIMEOUT_SECONDS)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            signal.alarm(0)
-        finally:
-            signal.signal(signal.SIGALRM, old_handler)
+    with flock_with_timeout(smm_dir / _SPRINT_LOCK_NAME):
         yield
-    finally:
-        with contextlib.suppress(OSError):
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        lock_fd.close()
 
 
 def sprint_exists(smm_dir: Path) -> bool:

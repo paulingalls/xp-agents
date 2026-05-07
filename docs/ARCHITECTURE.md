@@ -338,7 +338,7 @@ SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees 
 
 ### Teammate Detection and Enforcement
 
-Teammates are detected by `is_worktree_teammate()` — checks if the session's `cwd` contains `/.claude/worktrees/teammate-`. Each teammate is an independent `claude -p` CLI process in a git worktree with full hook lifecycle support.
+Teammates are detected by `is_worktree_teammate()` — checks if the session's `cwd` contains `/.claude/worktrees/worktree-story-`. Each teammate is an independent `claude -p` CLI process in a git worktree with full hook lifecycle support.
 
 **Hooks that fire for teammates:** SessionStart, SessionEnd, Stop, PreToolUse, PostToolUse, UserPromptSubmit (all hooks fire — full session).
 **SessionStart path:** Injects XP Values + TEAMMATE_GUIDE.md + rendered SMM (no kickoff markers, no GUPP).

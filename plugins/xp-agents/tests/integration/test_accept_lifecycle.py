@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _bases import _PLUGIN_ROOT
 from _close_fixtures import _assert_text_ordering
 
-_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-accept" / "SKILL.md"
 _PRELOAD_SH = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
 _PROCESS_GUIDE = _PLUGIN_ROOT / "PROCESS_GUIDE.md"

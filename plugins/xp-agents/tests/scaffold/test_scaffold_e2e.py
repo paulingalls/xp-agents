@@ -17,12 +17,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from _helpers import init_git_with_seed, run_git, valid_system_context
 from conftest import run_cli
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_DECISION
 
-_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 _CLI = _PLUGIN_ROOT / "scripts" / "scaffold_cli.py"
 
 

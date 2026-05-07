@@ -26,8 +26,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import _branching_fixtures as _bf
 import _close_fixtures as _cf
+from _bases import _PLUGIN_ROOT
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _CLOSE_COMMON = _PLUGIN_ROOT / "scripts" / "close_common.py"
 
 

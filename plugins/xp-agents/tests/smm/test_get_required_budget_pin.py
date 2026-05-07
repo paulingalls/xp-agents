@@ -23,9 +23,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _PLUGIN_ROOT
 from conftest import event_schema
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SCAN_DIRS = [
     _PLUGIN_ROOT / "scripts",
     _PLUGIN_ROOT / "tests",

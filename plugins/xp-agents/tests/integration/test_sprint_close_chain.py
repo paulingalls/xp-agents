@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     get_current_branch,
     get_head_sha,
@@ -37,7 +38,6 @@ from _branching_fixtures import (
     make_commit,
 )
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _SPRINT_CLOSE_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
 _SPRINT_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"

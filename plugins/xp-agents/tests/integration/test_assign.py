@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _bases import _PLUGIN_ROOT
 from conftest import (
     _IntegrationTestCase,
     _s,
@@ -20,7 +21,6 @@ from conftest import (
     cleanup_test_worktrees,
 )
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _PRELOAD_SCRIPT = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
 
 

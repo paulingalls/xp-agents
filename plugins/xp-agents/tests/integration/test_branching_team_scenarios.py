@@ -13,7 +13,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from _bases import _PLUGIN_ROOT
+
 _BRANCHING = _PLUGIN_ROOT / "scripts" / "branching.py"
 _PLAN_CLI = _PLUGIN_ROOT / "smm" / "plan_cli.py"
 

@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     get_current_branch_at,
     seed_sprint_with_stories,
@@ -32,8 +33,6 @@ from _branching_fixtures import (
 )
 from _close_fixtures import _ClosePreloadCommonTests, _CloseSkillTextCommonTests
 from conftest import _extract_preload_var, _IntegrationTestCase
-
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 
 
 class TestStoryClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import make_event
+from conftest import _NormalizePathIdentityMixin, make_event
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_STATUS,
@@ -29,18 +29,12 @@ from event_schema import (
 )
 
 
-class TestProbeAdoptionRate(unittest.TestCase):
+class TestProbeAdoptionRate(_NormalizePathIdentityMixin, unittest.TestCase):
     """probe_adoption_rate: how often agents add trailers when probes are shown."""
 
-    def setUp(self):
-        # Stub normalize_path to identity — divert classification calls
-        # _normalize_file_set, which requires cwd: str. Raw test paths
-        # compare set-equal without canonicalization.
-        from unittest.mock import patch as patch_
-
-        patcher = patch_("worktree.normalize_path", side_effect=lambda p, _c: p)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+    # Inherits _NormalizePathIdentityMixin because divert classification calls
+    # _normalize_file_set (cwd: str required) — raw test paths compare
+    # set-equal without canonicalization.
 
     @staticmethod
     def _probe_event(

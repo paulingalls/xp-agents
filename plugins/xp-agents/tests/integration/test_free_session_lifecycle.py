@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import branching
+from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     GIT_ENV,
     get_current_branch,
@@ -26,7 +27,6 @@ from _branching_fixtures import (
 )
 from conftest import _IntegrationTestCase
 
-_PLUGIN_ROOT = Path(__file__).parent.parent.parent
 _KICKOFF_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-kickoff" / "scripts" / "check_session_needs.sh"
 )
