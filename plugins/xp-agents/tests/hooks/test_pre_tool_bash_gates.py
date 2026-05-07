@@ -5,6 +5,7 @@ Split from test_pre_tool_bash.py -- keeps gate-related test classes separate.
 """
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -412,6 +413,46 @@ class TestSprintBranchGate(_HookTestCase):
                 # Mirrors test_escape_hatch_release: with no code files and
                 # no other nudges fired, a successful bypass returns None.
                 self.assertIsNone(result)
+
+
+class TestSprintBranchGateRespectsGitDashC(_HookTestCase):
+    """`git -C <path> commit ...` from a sprint-branch cwd must branch-check
+    <path>'s branch (story branch in a teammate worktree), not the input cwd.
+    """
+
+    @patch("branching.get_branching_stage", return_value=2)
+    @patch("git_commits.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    def test_git_dash_c_routes_branch_check_to_target_path(self, *_mocks):
+        """`git -C <wt> commit ...` from sprint-cwd checks <wt>'s branch."""
+        # Real tmpdir so parse_effective_cwd's is_dir check passes —
+        # without that the parser falls back to the input cwd.
+        with tempfile.TemporaryDirectory() as wt_path:
+            cmd = f"git -C {wt_path} commit -m 'fix bug'"
+
+            def branch_lookup(cwd):
+                # Orchestrator cwd → sprint branch (would trigger nudge).
+                # Worktree cwd → story branch (must NOT trigger nudge).
+                if cwd == wt_path:
+                    return "paul/story-001-feature"
+                return "paul/sprint-027-integration"
+
+            def is_sprint_lookup(branch):
+                return branch == "paul/sprint-027-integration"
+
+            with (
+                patch("identity.get_current_branch", side_effect=branch_lookup),
+                patch("branching.is_sprint_branch", side_effect=is_sprint_lookup),
+            ):
+                result = pre_tool_bash.run(
+                    _make_bash_input(command=cmd), smm_dir=self.smm_dir
+                )
+            # Effective branch is the story branch — no nudge expected.
+            self.assertIsNone(
+                result,
+                "git -C <worktree> must route branch-check to the worktree, "
+                "not the orchestrator's cwd",
+            )
 
 
 class TestSubprocessConsolidation(_HookTestCase):
