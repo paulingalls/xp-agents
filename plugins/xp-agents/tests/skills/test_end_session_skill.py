@@ -87,6 +87,10 @@ class TestEndSessionPreload(_IntegrationTestCase):
                 content="fix(auth): patch a.py",
                 ts="2026-05-08T15:01:00+00:00",
                 files=["a.py"],
+                metadata={
+                    "action": "commit_success",
+                    "commit_hash": "1234567890abcdef1234567890abcdef12345678",
+                },
             ),
             make_event(
                 event_schema.EVENT_TYPE_QUESTION,
