@@ -12,10 +12,11 @@ jointly establish:
 4. Bare ``/security-review`` outside a close cycle never trips the
    gate (the desired sidestep).
 
-Marker writes go through the ``markers.py`` CLI — the same surface the
-close-skill prose drives — so a regression in the CLI write path (e.g.,
-allowlist drift, argparse rename) breaks this suite, not just the
-narrower ``test_markers_cli`` unit tests.
+The capstone drives marker writes through the ``markers.py`` CLI to
+exercise its argparse + allowlist surface end-to-end. Production
+preloads use a sibling wrapper that ultimately calls the same
+primitive — both paths share it, so regressions in either reach
+this suite.
 
 Sprint AC #4 (per-skill ordering pin) is satisfied by the existing
 ``_Step4SecurityIncludeTests`` mixin in ``tests/_close_fixtures.py``
@@ -60,9 +61,12 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
         )
 
-        # Real close-skill path: prose invokes `markers.py write`. A
-        # direct markers.marker_write() call would skip argparse +
-        # _CLI_ALLOWLIST and let CLI regressions slip past the capstone.
+        # Drive the marker write through the markers.py CLI surface to
+        # exercise argparse + _CLI_ALLOWLIST end-to-end. The production
+        # path (close-skill preloads) uses _preload_base.sh:write_marker
+        # which calls markers.marker_write directly; both share the
+        # underlying primitive but only the CLI path catches argparse /
+        # allowlist regressions.
         cli_result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
         self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
@@ -141,10 +145,11 @@ class TestCloseCycleE2E(_IntegrationTestCase):
         """
         import markers
 
-        # Drive marker write through the same CLI surface the close
-        # skill prose invokes. A direct markers.marker_write() call
-        # would bypass argparse + the _CLI_ALLOWLIST gate and silently
-        # paper over a CLI regression.
+        # Drive marker write through the markers.py CLI to exercise
+        # argparse + _CLI_ALLOWLIST end-to-end. Production preloads use
+        # _preload_base.sh:write_marker (calls marker_write directly);
+        # this CLI path stays exercised so allowlist/argparse drift
+        # surfaces here.
         cli_result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
         self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))

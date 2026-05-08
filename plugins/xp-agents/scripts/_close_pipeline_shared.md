@@ -13,14 +13,13 @@ Story-close never runs Step 4: every `/xp-story-close` is dispatched by
 `/xp-accept` inside an active sprint, so the enclosing sprint-close's
 cumulative review already covers each merged story.
 
-First, write the close-cycle marker so the Stop hook holds the agent
-in this cycle until the close-reviewer fork (Step 4.5) runs:
+The close-cycle marker (CLOSE_CYCLE_ACTIVE) is armed by the close
+skill's preload script — see `scripts/markers.py` and each close
+skill's `scripts/preload.sh` for the deterministic write. The Stop
+hook holds the agent in this cycle until the close-reviewer fork
+(Step 4.5) consumes the marker on SubagentStop.
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py --smm-dir <SMM_DIR> write CLOSE_CYCLE_ACTIVE
-```
-
-Then invoke the security review against the cumulative close diff.
+Invoke the security review against the cumulative close diff.
 The close skill is main-agent context, so the PostToolUse:Skill hook
 fires and emits the SECURITY_COMPLETE event automatically.
 

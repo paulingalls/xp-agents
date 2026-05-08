@@ -13,7 +13,6 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
-  - Bash(python3 */scripts/markers.py *)
   - Bash(python3 */smm/plan_cli.py *)
   - Bash(git push *)
   - Bash(gh pr *)
