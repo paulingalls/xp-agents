@@ -77,13 +77,16 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   --cwd ${TEAMMATE_CWD:-.}
 ```
 
-Non-zero exit means the actual diff touches files outside the declared
-`file_domain` — stderr names the drifting paths. Drift is usually a
-courage signal: the teammate found something worth fixing outside the
-strict scope and did it. Record a `concern` event so retros can see the
-pattern, then continue to Step 2 — **do NOT stop or prompt the user
-mid-close**. The retrospective is the right place to discuss drift
-trends; per-story interruption hides the signal in noise.
+Non-zero exit means the actual diff touches MORE files outside the
+declared `file_domain` than the configured tolerance allows (default
+`XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` — a single drifting file is treated
+as expected plumbing/infrastructure overhead and silently passes; set
+to `0` for strict matching). Stderr names the drifting paths. Drift is
+usually a courage signal: the teammate found something worth fixing
+outside the strict scope and did it. Record a `concern` event so retros
+can see the pattern, then continue to Step 2 — **do NOT stop or prompt
+the user mid-close**. The retrospective is the right place to discuss
+drift trends; per-story interruption hides the signal in noise.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \

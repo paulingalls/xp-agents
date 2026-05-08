@@ -7,6 +7,7 @@ Python scripts should import the store directly.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,14 @@ from sprint_schema import VALID_STORY_STATUSES
 # iteration order is not guaranteed). Adding a status to the schema
 # automatically updates every choices array that uses this list.
 _STATUS_CHOICES = sorted(VALID_STORY_STATUSES)
+
+# Shared fixtures, drift-guard configs, and other plumbing files often
+# live outside a story's owned-code file_domain because they're
+# infrastructure, not story scope. K=1 default avoids false positives on
+# this common pattern while still surfacing multi-file drift that
+# signals scope creep. Set XP_FILE_DOMAIN_DRIFT_TOLERANCE=0 to restore
+# strict matching for stories that need a tighter contract.
+FILE_DOMAIN_DRIFT_TOLERANCE = int(os.getenv("XP_FILE_DOMAIN_DRIFT_TOLERANCE", "1"))
 
 
 def _cmd_exists(args: argparse.Namespace) -> int:
@@ -263,7 +272,7 @@ def _cmd_validate_domain(args: argparse.Namespace) -> int:
 
     actual = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
     drift = sorted(actual - declared)
-    if drift:
+    if len(drift) > FILE_DOMAIN_DRIFT_TOLERANCE:
         print(
             f"drift: {len(drift)} file(s) outside declared file_domain: "
             + " ".join(drift),
