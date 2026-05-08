@@ -26,34 +26,22 @@ allowed-tools:
 # Story Close
 
 The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
-`TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values
-verbatim — do not recompute them. `TARGET_BRANCH` is the story base
-(sprint branch at stage 2+, primary otherwise) — the merge destination
-for the just-completed story. The shared close pipeline lives in
+`TARGET_BRANCH`, `GH_AVAILABLE`, `WORKTREE_CLEAN`. `TARGET_BRANCH` is
+the merge destination — the sprint branch at stage 2+, primary
+otherwise. Shared pipeline lives in
 `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
-**Story state expectation.** /xp-accept Step 1.5 transitions the story
-to `closing` immediately before dispatching this skill. The close cycle
-operates on a story in `closing`; `find_closing_teammate_worktree`
-keys on this state to discover the singleton in-pipeline worktree.
-If preflight fires while the story is still `reviewing` (transition
-missed), the worktree match returns None and teammate-mode dispatch
-fails — the close-reviewer should flag this as a contract violation.
-
-`TEAMMATE_CWD` is set when /xp-accept dispatched /xp-story-close for a
-teammate story (the orchestrator sits on the sprint branch; the
-teammate's commits live in `.claude/worktrees/worktree-<story-id>`).
-When non-empty, Steps 1, 2, and 3 route `close_common.py` at the
-teammate's worktree via `--cwd ${TEAMMATE_CWD:-.}` (preflight, push,
-PR creation — operations local to the teammate's branch). Step 7
-(merge) ALWAYS runs at the orchestrator cwd (`--cwd .`) because
-`git merge` checks out the target branch, and the target is already
-held by the orchestrator's worktree — running merge at the teammate's
-cwd would fail with `'<target>' is already used by worktree at '<orch>'`.
-Step 7b's worktree cleanup also always runs at the orchestrator cwd
-because `git worktree list/remove` operate on the parent repo's
-worktree registry. When TEAMMATE_CWD is empty (solo flow), every
-step operates on the orchestrator's cwd as today.
+`TEAMMATE_CWD` is non-empty when closing a teammate story (orchestrator
+sits on the sprint branch; teammate commits live in
+`.claude/worktrees/worktree-<story-id>`). Requires the story in
+`closing` state (set by `/xp-accept` Step 1.5) — the worktree lookup
+keys on it. Steps 1, 2, 3 route `close_common.py` at
+`--cwd ${TEAMMATE_CWD:-.}`. Step 7 (merge) ALWAYS runs at orchestrator
+cwd (`--cwd .`) — `git merge` checks out the target branch held by the
+orchestrator's worktree, so running it from the teammate cwd fails with
+`'<target>' is already used by worktree`. Step 7b also runs at
+orchestrator cwd (`git worktree` operates on the parent registry).
+Solo flow: every step uses orchestrator cwd.
 
 ## Step 1: Pre-flight
 
@@ -62,41 +50,22 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py preflight \
   --cwd ${TEAMMATE_CWD:-.} --current <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-If the exit code is non-zero, **stop**. The script emitted the reason
-on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
+Stop on non-zero exit; the script emitted the reason on stderr.
 
 ## Step 1b: Validate file_domain
 
-Surface file_domain drift before the close-reviewer fork — the structured
-diff catches drift cheaper than a full review pass. Capture stderr so
-both over-budget AND within-tolerance drift are visible:
+Surface file_domain drift before the reviewer fork. Default
+`XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` absorbs a single drifting file
+(set `0` for strict). Record a concern in either drift case (over-budget
+or absorbed) and continue — do NOT prompt mid-close; retros own drift
+trend discussion.
 
 ```bash
 DRIFT_STDERR=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   validate-domain <story-id> --base <TARGET_BRANCH> \
   --cwd ${TEAMMATE_CWD:-.} 2>&1 >/dev/null)
 DRIFT_RC=$?
-```
 
-The default `XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` treats a single drifting
-file as expected plumbing/infrastructure overhead (set to `0` for strict
-matching). Drift is usually a courage signal: the teammate found
-something worth fixing outside the strict scope and did it. Record a
-`concern` event in EITHER drift case so retros can see the pattern,
-then continue to Step 2 — **do NOT stop or prompt the user mid-close**.
-The retrospective is the right place to discuss drift trends; per-story
-interruption hides the signal in noise.
-
-- **`DRIFT_RC != 0`** — over-budget drift. Stderr line begins `drift:`
-  and names the drifting paths.
-- **`DRIFT_RC == 0` with stderr matching `drift (within K=`** —
-  within-tolerance drift was absorbed. The same paths appear on stderr
-  with the `(within K=N)` qualifier. Record a concern with the same
-  shape so retros see absorbed drift alongside over-budget drift.
-- **`DRIFT_RC == 0` with empty stderr** — truly clean, continue to
-  Step 2 without recording.
-
-```bash
 if [ "$DRIFT_RC" -ne 0 ] || echo "$DRIFT_STDERR" | grep -q "^drift"; then
   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
     --type concern --agent xp-story-close \
@@ -124,12 +93,11 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 `PR_OUTPUT` is a PR number or `skipped: no gh on PATH`.
 
-**Step 4 (Security Review) does not apply to story-close.** The
-enclosing sprint-close runs the cumulative `/security-review` for
-all merged stories — see `docs/SECURITY_REVIEW_DOCTRINE.md` Tier 2.
-The `4.5` numbering is preserved so the cross-skill ordering pin in
-`test_plugin_integrity.py::TestCloseSkillStepOrdering` keeps its
-shape across the four close skills.
+## Step 4: Security Review (skipped)
+
+Does not apply to story-close — the enclosing sprint-close runs the
+cumulative `/security-review` for all merged stories. The `4.5`
+numbering below is preserved to align with the sibling close skills.
 
 ## Step 4.5: Fork the close-reviewer
 
@@ -151,42 +119,27 @@ Agent(
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
-the preload at the top of this context — see
-`scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4.5, then continue with Step 7 below.
+The shared close-pipeline reference (Steps 5, 5b, 6) is emitted by the
+preload — see `scripts/_close_pipeline_shared.md`. Apply in order after
+Step 4.5, then continue with Step 7.
 
-**Story-close override for Step 6 (auto-merge gate):** if ALL of these
-hold, skip the shared Step 6's `AskUserQuestion` and proceed directly
-to Step 7:
-1. Step 5c queued zero ask-user items. Verify deterministically via
-   the canonical structured filter:
+**Story-close override for Step 6 (auto-merge gate):** skip the shared
+Step 6 `AskUserQuestion` and proceed to Step 7 when ALL hold:
+
+1. Step 5c queued zero ask-user items, verified via:
    ```bash
    ASK_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-classifications \
      --route ask --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
-   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload
-   above (captured at close-cycle start). `--cycle-id` is the strict
-   scoper — it prevents concurrent close-cycles in other teammate
-   worktrees from leaking concern_classify events into this count
-   (SMM is shared across worktrees). `--since-ts` is belt-and-
-   suspenders defense for the same-worktree resume case. The CLI
-   filters on `metadata.action == "concern_classify"` +
-   `metadata.route == "ask"` + `metadata.close_cycle_id == CLOSE_CYCLE_ID`
-   + `ts >= CLOSE_START_TS` — structured fields, not regex. Test
-   numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared
-   Step 6 prompt.
-2. No Block-severity finding survived in Step 4.5's reviewer summary.
-3. The preload above emitted a non-empty `TEST_COMMAND=...` line
-   (sourced from `system_context.stack.test_command`) AND running
-   that command AFTER all Step 5c fixes landed exits 0. Any non-zero
-   exit means tests aren't green — fall through to the shared Step 6
-   prompt.
+   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` come from the preload.
+   `--cycle-id` scopes by close-cycle (SMM is shared across worktrees).
+   Test `[ "$ASK_COUNT" -gt 0 ]` → fall through to shared Step 6.
+2. No Block-severity finding in Step 4.5's reviewer summary.
+3. Preload emitted a non-empty `TEST_COMMAND=...` AND running it after
+   all Step 5c fixes landed exits 0.
 
-When `TEST_COMMAND` is empty (the project hasn't configured a test
-command), the gate cannot fire. Print this two-line discovery hint
-before falling through to the shared Step 6 prompt:
+When `TEST_COMMAND` is empty, print this hint before falling through:
 
 ```
 Auto-merge disabled — set stack.test_command in system_context.json to enable.
@@ -194,17 +147,10 @@ To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
     printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
 ```
 
-Substitute `<your-test-command>` with the project's test runner
-invocation. The `printf %s` form avoids shell-quoting traps when the
-command itself contains spaces or special characters.
-
-When all three conditions hold, print exactly:
+When all three conditions hold, print:
 "All reviewer findings addressed and tests green — proceeding to merge
 without confirmation."
-then continue to Step 7. Otherwise apply the shared Step 6
-`AskUserQuestion` as written. The deterministic green-tests gate
-matches the auto-accept pattern in `/xp-accept`; LLM judgment from
-Step 5c alone is not sufficient to skip user confirmation.
+then continue to Step 7. Otherwise apply the shared Step 6 prompt.
 
 ## Step 7: Merge
 
@@ -213,28 +159,18 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-Merge ALWAYS runs at the orchestrator cwd (`--cwd .`), even for
-teammate stories. `git merge` checks out the target branch; if the
-orchestrator already holds it (sprint branch), checkout from the
-teammate's worktree fails (`'<target>' is already used by worktree`).
-
-The script chains: merge `--no-ff` → push target (if remote) → delete
-source. Any step failing aborts the chain — the source branch always
-survives a failed step so the user can resolve and retry.
+Always at orchestrator cwd (see intro). Script chains
+`merge --no-ff → push target (if remote) → delete source`; any failure
+aborts the chain leaving the source branch intact for retry.
 
 ## Step 7b: Teammate worktree cleanup (if applicable)
 
-If the story being closed was a teammate's, a worktree exists at
-`.claude/worktrees/worktree-<story-id>`. Solo stories have no
-worktree to clean up. Per-story symmetry puts the cleanup here, not
-bulk-after-loop in /xp-accept.
+If the just-closed story was a teammate's, a worktree exists at
+`.claude/worktrees/worktree-<story-id>`. Solo stories have no worktree
+to clean up.
 
-Use `branching.py` subcommands to derive story id from the
-just-closed `<CURRENT_BRANCH>` and locate the matching live teammate
-worktree. Both subcommands print empty stdout + exit 0 when there's
-no match (story-id from a non-story branch, or no live teammate for
-this story), so an `if [ -n ... ]` shell guard handles solo mode
-without special-casing:
+Both `branching.py` subcommands below print empty stdout + exit 0 when
+there's no match, so the shell guard handles solo mode cleanly:
 
 ```bash
 STORY_ID=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
@@ -242,63 +178,34 @@ STORY_ID=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
 WORKTREE_NAME=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
   --smm-dir <SMM_DIR> find-teammate-worktree \
   --story-id "$STORY_ID" --cwd .)
-```
 
-`extract-story-id` parses `<user>/story-NNN[-<slug>]` (lives in
-`identity.py::extract_story_id`); `find-teammate-worktree` walks
-`git worktree list --porcelain` and matches the exact
-`worktree-<story-id>` directory name (lives in
-`worktree.py::find_teammate_worktree_for_story`, mirrors
-`has_live_teammates`'s real-git-state pattern).
-
-Run cleanup ONLY when `WORKTREE_NAME` is non-empty:
-
-```bash
 if [ -n "$WORKTREE_NAME" ]; then
   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cleanup_teammate.py \
     --name "$WORKTREE_NAME" --smm-dir <SMM_DIR>
 fi
 ```
 
-`cleanup_teammate.py` verifies the branch is merged before removing
-the worktree, branch, markers, and report. The merge in Step 7
-already ran, so the merge check passes.
+`cleanup_teammate.py` verifies the branch is merged (Step 7 just did
+that) before removing the worktree, branch, markers, and report.
 
 ## Step 8: JIT-next dispatch (solo mode)
 
-After the merge, find the next story to work and (in solo mode) create
-its branch on demand. Two states to handle:
+After the merge, dispatch the next story. Two states:
 
-- **Another in-progress story remains** — the parallel-teammate batch at
-  /xp-assign promoted them all; their branches already exist.
-  /xp-story-close has nothing to create.
-- **No in-progress remains, but scheduled stories are queued** — solo
-  mode's normal case under the lifecycle (ready → scheduled → in-progress
-  → reviewing → closing → done/deferred). The next scheduled story is
-  promoted to in-progress here and its branch is created off the
-  just-merged sprint tip, so chained branches are never stale.
+- **An in-progress story remains** (parallel-teammate batch from
+  /xp-assign — branches already exist). Skip JIT-create.
+- **No in-progress, but scheduled stories queued** (solo mode normal
+  case). Promote the next scheduled story to in-progress and JIT-create
+  its branch off the merged tip.
 
-Wrap each path in an explicit shell guard. If both subcommands exit
-non-zero (no in-progress AND no scheduled), the sprint is complete —
-/xp-accept's loop owns the sprint-review dispatch (single source of
-truth lives in /xp-accept).
-
-The just-closed story (`$STORY_ID`) is mid-merge here — its on-disk
-status is `closing` (from xp-accept Step 1.5), not yet `done`
-(/xp-accept Step 4 marks done AFTER this dispatch returns). Pass
-`--treat-as-done "$STORY_ID"` so the dep gate counts the just-closed
-story as satisfied for any next-scheduled candidate that depends on
-it. Without the override, solo dep-chained sprints stall: the next
-story is invisible until the orchestrator round-trips back to
-xp-accept Step 4.
+Pass `--treat-as-done "$STORY_ID"` so the dep gate counts the
+just-closed story as satisfied (its on-disk status is still `closing`
+until /xp-accept Step 4 marks done after this dispatch returns).
 
 ```bash
 if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --smm-dir <SMM_DIR> next-in-progress \
     --treat-as-done "$STORY_ID"); then
-  # Parallel-teammate batch: branch was eagerly created at /xp-assign
-  # and is already named in sprint.json. Skip JIT-create unless empty
-  # (defensive — solo would have created at /xp-assign too).
   NEXT_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --smm-dir <SMM_DIR> get-story-branch "$NEXT_STORY")
   if [ -z "$NEXT_BRANCH" ]; then
@@ -310,8 +217,6 @@ if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
 elif NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --smm-dir <SMM_DIR> next-scheduled \
     --treat-as-done "$STORY_ID"); then
-  # Solo-mode fallback: promote the next scheduled story to
-  # in-progress, then JIT-create its branch off the merged sprint tip.
   python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --smm-dir <SMM_DIR> update-story "$NEXT_STORY" in-progress
   python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
@@ -319,21 +224,14 @@ elif NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --story "$NEXT_STORY" --slug "<next-story-title-slug>" \
     --base <TARGET_BRANCH>
 fi
-# Else: no in-progress AND no scheduled — sprint complete, the
-# sprint-review dispatch is /xp-accept's responsibility (decision
-# e30e9e91e61a — single source of truth lives there).
+# Else: no in-progress AND no scheduled — sprint complete; the
+# sprint-review dispatch is /xp-accept's responsibility.
 ```
 
-`sprint_cli.py next-in-progress` and `next-scheduled` both return the
-lowest-id story with the named status whose deps are ALL done (or
-covered by `--treat-as-done`); cascade-defer naturally excludes
-blocked stories. Both exit non-zero when no match exists, so the
-explicit `if/elif` chain reads naturally.
-
-`branching.py create` records `branch_name` in sprint.json
-automatically and checks out the new branch. The orchestrator now
-sits on the next story's branch with the merged sprint tip as its
-base — ready to begin work.
+Both subcommands return the lowest-id eligible story (deps all done or
+covered by `--treat-as-done`) and exit non-zero when no match exists.
+`branching.py create` records `branch_name` in sprint.json and checks
+out the new branch.
 
 ## Reporting Back
 
