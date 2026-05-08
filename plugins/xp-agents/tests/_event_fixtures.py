@@ -74,6 +74,20 @@ def make_retrospective_with_try(
     )
 
 
+def make_session_history_entry(
+    *,
+    ts: str,
+    summary: str,
+    carry_forward: list[dict] | None = None,
+) -> dict:
+    """Build a session_history.json entry fixture."""
+    return {
+        "ts": ts,
+        "summary": summary,
+        "carry_forward": carry_forward or [],
+    }
+
+
 def file_write_status(path: str, **kwargs) -> dict:
     """Status event matching post_tool_use's file-write emission.
 

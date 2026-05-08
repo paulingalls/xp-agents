@@ -33,6 +33,8 @@ Three link types close events and risk pillar items:
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
 
+**Session close:** `/xp-end-session` — user-invoked at session wrap-up. Emits a `session_summary` event + appends to `session_history.json`; populates the next kickoff's `### LAST_SESSION` block.
+
 **Multi-command AC.** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners — stderr names the failing slot.
 
 **File domain:** Declare `file_domain` per planner intent; over-declaring defeats cascade_size.
