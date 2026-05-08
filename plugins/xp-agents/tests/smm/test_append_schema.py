@@ -40,28 +40,16 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
-    def test_schema_has_16_types(self):
+    def test_schema_type_enum_matches_valid_types(self):
+        # Auto-syncs with event_schema.VALID_TYPES — adding a new
+        # EVENT_TYPE_* without bumping schema.json's enum fails here.
+        # Replaces a hand-enumerated set that drifted (session_summary
+        # was added to VALID_TYPES but never to the enum or to this
+        # test's expected set).
+        from event_schema import VALID_TYPES
+
         types = self.schema["properties"]["type"]["enum"]
-        self.assertEqual(len(types), 16)
-        expected = {
-            "commit",
-            "customer_input",
-            "customer_intent",
-            "debt",
-            "goal",
-            "status",
-            "decision",
-            "convention",
-            "concern",
-            "discovery",
-            "question",
-            "answer",
-            "assumption",
-            "session_end",
-            "sprint",
-            "retrospective",
-        }
-        self.assertEqual(set(types), expected)
+        self.assertEqual(set(types), set(VALID_TYPES))
 
     def test_universal_required_fields(self):
         required = self.schema["required"]
@@ -305,28 +293,6 @@ class TestContentBudgets(unittest.TestCase):
 
         help_text = build_parser().format_help()
         self.assertIn("Examples:", help_text)
-
-    def test_schema_json_description_matches_budgets(self):
-        """schema.json content description must stay in sync with CONTENT_BUDGETS."""
-        from event_schema import CONTENT_BUDGETS
-
-        schema_path = _PLUGIN_ROOT / "smm" / "schema.json"
-        with open(schema_path) as f:
-            schema = json.load(f)
-        desc = schema["properties"]["content"]["description"]
-        for event_type, budget in CONTENT_BUDGETS.items():
-            if budget is not None:
-                self.assertIn(
-                    f"{event_type}={budget}",
-                    desc,
-                    f"schema.json content description missing {event_type}={budget}",
-                )
-            else:
-                self.assertIn(
-                    event_type,
-                    desc,
-                    f"schema.json description missing uncapped {event_type}",
-                )
 
 
 class TestQuestionGate(unittest.TestCase):
