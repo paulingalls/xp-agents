@@ -39,26 +39,22 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 2: Force-close open questions
 
-For each id in `### OPEN_QUESTIONS`, ask the user via `AskUserQuestion`: **answer / defer / drop?**
+For each id in `### OPEN_QUESTIONS`:
 
-Per disposition (using event_schema vocabulary, not work_selection_decide.py — that helper is for retro Try items):
-
-- **answer** — append an answer event referencing the question:
-  ```bash
-  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-    --type answer --agent xp-end-session \
-    --references '["<question_id>"]' \
-    --content "<user's answer>"
-  ```
-- **defer** — leave the question open. No event needed; it surfaces at the next kickoff.
-- **drop** (won't fix) — append a status event closing the question:
-  ```bash
-  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-    --type status --agent xp-end-session \
-    --content "won't fix: <one-line reason>" \
-    --working-on '[]' \
-    --metadata '{"action":"question_close","disposition":"wont_fix","resolves":["<question_id>"]}'
-  ```
+1. Use `AskUserQuestion` with options: **answer / defer / drop**.
+2. If the user picks **answer**, follow up with a second `AskUserQuestion` to capture the free-text answer (or use the `Other` field). Then:
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+     --type answer --agent xp-end-session \
+     --references '["<question_id>"]' \
+     --content "<user's answer>"
+   ```
+3. If the user picks **defer**, leave the question open — no event. It surfaces at next kickoff.
+4. If the user picks **drop** (won't fix), use the canonical CLI helper. It stamps the structured `Closed question {id[:8]} as won't-fix:` content prefix and is idempotent for already-resolved questions:
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> \
+     question close <question_id> --won-fix --rationale "<one-line reason>"
+   ```
 
 ## Step 3: Drop likely-addressed concerns and debts
 
@@ -69,8 +65,11 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type status --agent xp-end-session \
   --content "Resolved by recent commit: <brief>" \
   --working-on '[]' \
-  --metadata '{"resolves":["<concern_or_debt_id>"]}'
+  --metadata '{"action":"end_session_drop","resolves":["<concern_or_debt_id>"]}'
 ```
+
+The `action: "end_session_drop"` lets retro tooling distinguish bulk
+end-of-session drops from organic concern/debt resolutions.
 
 ## Step 4: Honesty signal
 
