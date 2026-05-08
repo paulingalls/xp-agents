@@ -125,45 +125,12 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 `PR_OUTPUT` is a PR number or `skipped: no gh on PATH`.
 
-## Step 4: Conditional Security Review
-
-Story-close normally relies on sprint-close's cumulative
-`/security-review` to cover each merged story. That assumption fails
-when **no sprint envelope wraps this close** — either (a) no sprint
-exists at all, or (b) `<CURRENT_BRANCH>` is an orphan story branch
-(not referenced by any active `ready` / `in-progress` / `reviewing` /
-`closing` story in `sprint.json`). Without the conditional below, the
-cumulative `/security-review` would never fire for the story's diff
-and only commit-time deterministic scans would cover it.
-
-Determine whether Step 4 applies — the gate prints exactly one of
-two literal strings on stdout that the LLM matches verbatim
-(`STEP_4_SECURITY` reflects the semantic intent: Step 4 IS the
-security review, matching the heading above):
-
-```bash
-if ! python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-       --smm-dir <SMM_DIR> exists; then
-  echo "STEP_4_SECURITY: APPLIES (no sprint at all)"
-elif python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
-       --smm-dir <SMM_DIR> list-story-orphans \
-       --cwd ${TEAMMATE_CWD:-.} \
-     | grep -qx "<CURRENT_BRANCH>"; then
-  echo "STEP_4_SECURITY: APPLIES (orphan story branch)"
-else
-  echo "STEP_4_SECURITY: SKIP (sprint envelope wraps this story)"
-fi
-```
-
-If stdout starts with `STEP_4_SECURITY: APPLIES`, apply the shared
-`### Step 4: Security Review` block above with `<close-mode>` →
-`story` and `<close-skill-name>` → `xp-story-close`. Step 4 concerns
-recorded here flow into the shared Step 6 abort-default count exactly
-the same way they do for free/sprint/plan close.
-
-If stdout starts with `STEP_4_SECURITY: SKIP`, skip Step 4 —
-sprint-close's cumulative diff already covers each story. Fall
-through directly to Step 4.5 (Fork the close-reviewer) below.
+**Step 4 (Security Review) does not apply to story-close.** The
+enclosing sprint-close runs the cumulative `/security-review` for
+all merged stories — see `docs/SECURITY_REVIEW_DOCTRINE.md` Tier 2.
+The `4.5` numbering is preserved so the cross-skill ordering pin in
+`test_plugin_integrity.py::TestCloseSkillStepOrdering` keeps its
+shape across the four close skills.
 
 ## Step 4.5: Fork the close-reviewer
 
