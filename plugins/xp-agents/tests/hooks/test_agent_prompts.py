@@ -4,8 +4,13 @@
 Split from test_plugin_integrity.py for file size management.
 """
 
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import system_context_schema
 
 
 class TestHousekeeperPurposeFilters(unittest.TestCase):
@@ -112,6 +117,38 @@ class TestSystemAnalyzerDetectsTestCommand(unittest.TestCase):
             "Step 4 JSON template must include `test_command` in the "
             "stack object so detected values propagate to "
             "system_context.json on create",
+        )
+
+
+class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
+    """Sync check: xp-system-analyzer.md's Step 4 JSON template budgets
+    must match system_context_schema.FIELD_MAXLENGTH. Without this pin,
+    a future schema bump that forgets to update the markdown (or vice
+    versa) would silently feed the analyzer stale guidance — its output
+    would then fail validation downstream with no obvious cause.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
+        cls.content = path.read_text()
+
+    def test_architecture_overview_budget_matches_schema(self):
+        expected = system_context_schema.FIELD_MAXLENGTH["architecture_overview"]
+        self.assertIn(
+            f"max {expected} chars",
+            self.content,
+            f"Step 4 template must say 'max {expected} chars' for "
+            "architecture_overview — schema/markdown drift detected",
+        )
+
+    def test_product_budget_matches_schema(self):
+        expected = system_context_schema.FIELD_MAXLENGTH["product"]
+        self.assertIn(
+            f"max {expected} chars",
+            self.content,
+            f"Step 4 template must say 'max {expected} chars' for "
+            "product — schema/markdown drift detected",
         )
 
 
