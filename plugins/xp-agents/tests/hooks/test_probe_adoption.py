@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _NormalizePathIdentityMixin, make_event
 from event_schema import (
+    DIVERT_REASON_NO_CANDIDATES,
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_CANDIDATES,
@@ -222,6 +223,36 @@ class TestProbeAdoptionRate(_NormalizePathIdentityMixin, unittest.TestCase):
         details = result["probe_divert_details"]
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["selection_reasons"], reasons)
+
+    def test_divert_with_empty_candidates_classified_no_candidates(self):
+        """Probe with EMPTY candidate set + commit with non-empty resolves
+        is a divert (no overlap, by definition), but the root cause is
+        candidate generation NOT ranking/selection. Bucketed as
+        NO_CANDIDATES so retros can act on candidate-gen fixes
+        independently from the per-event miss classifier
+        (NEWER_THAN_SNAPSHOT, PROBE_SELECTION_MISS, etc.).
+
+        Captures the failure mode this session's retro flagged: 9th
+        consecutive sub-50% probe-adoption period, both diverts had
+        empty candidates but were misclassified as snapshot/selection
+        misses — hiding the real root cause.
+        """
+        import retro_metrics
+
+        events = [
+            self._probe_event([], "2026-04-05T10:00:00+00:00", agent_id="paul"),
+            self._code_commit(["zzz"], "2026-04-05T10:01:00+00:00", agent_id="paul"),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
+        self.assertEqual(result["probe_divert"], 1)
+        details = result["probe_divert_details"]
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["reason"], DIVERT_REASON_NO_CANDIDATES)
+        # Empty candidates list still surfaces — consumer can confirm
+        # the bucket cause from the data itself, not just the label.
+        self.assertEqual(details[0]["candidates"], [])
 
     def test_divert_details_backward_read_old_probe_event(self):
         """Archived probe events written before METADATA_KEY_PROBE_SELECTION_REASONS

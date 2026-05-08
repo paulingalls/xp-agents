@@ -276,6 +276,13 @@ DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
 DIVERT_REASON_CROSS_STORY = "cross-story"
 DIVERT_REASON_WRONG_TYPE = "wrong-type"
 DIVERT_REASON_PROBE_SELECTION_MISS = "probe-selection-miss"
+# NO_CANDIDATES is a probe-level signal (the candidate set itself was
+# empty), not an event-level miss. Bucketing here separates candidate-
+# generation failures from ranking misses so retros can act on the
+# right fix domain. Sprint-072 retro flagged 9 consecutive sub-50%
+# adoption periods with diverts that were really empty-candidate cases
+# misattributed as snapshot/selection misses.
+DIVERT_REASON_NO_CANDIDATES = "no-candidates"
 DIVERT_REASON_UNKNOWN = "unknown"
 
 # Retro Try disposition values written to metadata.disposition by

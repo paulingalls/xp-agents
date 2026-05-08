@@ -18,6 +18,7 @@ from event_schema import (
     DIVERT_REASON_CROSS_STORY,
     DIVERT_REASON_MISSING_EVENT,
     DIVERT_REASON_NEWER_THAN_SNAPSHOT,
+    DIVERT_REASON_NO_CANDIDATES,
     DIVERT_REASON_OUTSIDE_FILE_DOMAIN,
     DIVERT_REASON_PROBE_SELECTION_MISS,
     DIVERT_REASON_UNKNOWN,
@@ -511,25 +512,33 @@ def _compute_probe_adoption(
                 METADATA_KEY_PROBE_SELECTION_REASONS
             ) or {}
             sorted_candidates = sorted(candidate_ids)
-            commit_files = commit.get("files") or []
-            commit_story_id = (commit.get("metadata") or {}).get("story_id")
-            # Single dominant reason per divert: multi-id diverts cluster on
-            # one root cause in practice (almost all diverts are 1-id anyway).
-            # Pick the latest-by-ts rejected event — semantically "the agent's
-            # most recent context" — over alphabetic min() which is meaningless
-            # for hex IDs. Missing events sort to the front (empty ts).
-            picked_id = max(
-                resolves,
-                key=lambda rid: (events_by_id.get(rid) or {}).get("ts") or "",
-            )
-            rejected_event = events_by_id.get(picked_id) or {}
-            reason = _classify_divert_reason(
-                rejected_event,
-                probe_ts=probe_ts,
-                commit_files=commit_files,
-                story_id=commit_story_id,
-                cwd=cwd,
-            )
+            if not candidate_ids:
+                # Empty candidate set — root cause is candidate generation,
+                # not ranking. The per-event classifier would inspect the
+                # rejected event and return a misleading reason
+                # (NEWER_THAN_SNAPSHOT, PROBE_SELECTION_MISS, etc.); skip
+                # it and bucket as NO_CANDIDATES.
+                reason = DIVERT_REASON_NO_CANDIDATES
+            else:
+                commit_files = commit.get("files") or []
+                commit_story_id = (commit.get("metadata") or {}).get("story_id")
+                # Single dominant reason per divert: multi-id diverts cluster on
+                # one root cause in practice (almost all diverts are 1-id anyway).
+                # Pick the latest-by-ts rejected event — semantically "the agent's
+                # most recent context" — over alphabetic min() which is meaningless
+                # for hex IDs. Missing events sort to the front (empty ts).
+                picked_id = max(
+                    resolves,
+                    key=lambda rid: (events_by_id.get(rid) or {}).get("ts") or "",
+                )
+                rejected_event = events_by_id.get(picked_id) or {}
+                reason = _classify_divert_reason(
+                    rejected_event,
+                    probe_ts=probe_ts,
+                    commit_files=commit_files,
+                    story_id=commit_story_id,
+                    cwd=cwd,
+                )
             divert_details.append(
                 {
                     "agent_id": agent_id,
