@@ -21,6 +21,9 @@ HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
+# Arm the close-cycle Stop gate deterministically — prose-driven write
+# was unreliable when the LLM skipped or reordered the invocation.
+write_marker CLOSE_CYCLE_ACTIVE ""
 emit_hook_guidance "$HOOK_STATUS"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM

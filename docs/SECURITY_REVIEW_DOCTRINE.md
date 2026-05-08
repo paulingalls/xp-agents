@@ -17,20 +17,18 @@ per-project configuration.
 
 **Security review fires at the boundary that catches the most for the
 least.** Different boundaries catch different classes of issue, so the
-plugin layers three tiers:
+plugin layers two tiers:
 
 - **Per-commit:** deterministic checks only. Fast, blocking, near-zero
   false positive rate on the patterns they target. The right tool for
   "stop this commit if it contains a literal secret."
-- **Per-story:** LLM review against the story diff — but **only when no
-  sprint envelope wraps the close**. Sprint-close's cumulative review
-  already covers stories that ship inside a sprint; story-close fires
-  its own `/security-review` only for orphan story branches and the
-  no-sprint case.
 - **Per-close:** LLM review against the cumulative branch diff at every
   close (sprint, plan, free). The right tool for catching cross-story
   attack patterns and providing a final security gate before code lands
-  on a protected branch.
+  on a protected branch. Story-close defers to its enclosing close —
+  every `/xp-story-close` invocation is dispatched by `/xp-accept`
+  inside an active sprint, so the sprint-close cumulative review
+  already covers each merged story.
 
 The trade-off this accepts: a vulnerability introduced in commit-1 of a
 multi-commit story isn't surfaced until close (potentially hours, not
@@ -44,7 +42,7 @@ knob. Projects with stronger needs add their own tooling on top.
 
 ---
 
-## The Three Tiers
+## The Two Tiers
 
 ### Tier 1 — Deterministic Pre-Commit (every code commit)
 
@@ -77,33 +75,9 @@ message content (passed via `git commit -F file` or HEREDOC) is also
 out of Tier 1 scope — Tier 1 scans the staged diff only, not commit
 metadata.
 
-### Tier 2 — `/security-review` at Story Close (orphan stories only)
+### Tier 2 — `/security-review` at Every Close (sprint, plan, free)
 
-**Where:** `/xp-story-close` Step 4.5 (`skills/xp-story-close/SKILL.md`).
-
-**Gating clause:** Step 4.5 fires from story-close ONLY when no sprint
-envelope wraps the close — either (a) no sprint exists at all, or (b)
-`<CURRENT_BRANCH>` is an orphan story branch (not referenced by any
-active `ready` / `in-progress` / `reviewing` story in `sprint.json`).
-Otherwise story-close defers to sprint-close's cumulative diff (Tier 3),
-which already covers each merged story.
-
-**What:** Invokes `Skill(skill: "security-review", args: "the cumulative
-diff on branch <story-branch> since merge-base with <target>")`.
-
-**Behavior:** Reviewer findings flow back as Keep / Concern / Block
-prose. Block findings file `concern --severity high` events; Concern
-findings file `concern --severity medium` events. Both event kinds
-include `metadata.kind=security` and the close-cycle id for filtering.
-Block findings cause `/xp-story-close`'s merge-confirmation prompt to
-default to "Abort — fix concerns first."
-
-**Cost:** One LLM call per orphan story close. Inside a normal sprint,
-zero — the work is amortized into Tier 3 sprint-close.
-
-### Tier 3 — `/security-review` at Every Close (sprint, plan, free)
-
-**Where:** `/xp-{sprint,plan,free}-close` Step 4.5 (shared template at
+**Where:** `/xp-{sprint,plan,free}-close` Step 4 (shared template at
 `scripts/_close_pipeline_shared.md`). Fires unconditionally for these
 three close modes.
 
@@ -118,12 +92,14 @@ cumulative diff at the close boundary:
   Catches cross-sprint patterns and architectural drift.
 - **Free close:** the free branch diff vs primary.
 
-**Behavior:** Same Block→`severity=high` / Concern→`severity=medium`
-event recording as Tier 2. Block findings cause the close skill's
-merge-confirmation prompt to default to "Abort — fix concerns first";
-the user can still override but the warning is loud.
+**Behavior:** Block findings file `concern --severity high` events;
+Concern findings file `concern --severity medium` events. Both event
+kinds include `metadata.kind=security` and the close-cycle id for
+filtering. Block findings cause the close skill's merge-confirmation
+prompt to default to "Abort — fix concerns first"; the user can still
+override but the warning is loud.
 
-**Critical separation of concerns:** Tier 3 findings do NOT flow to
+**Critical separation of concerns:** Tier 2 findings do NOT flow to
 `xp-close-reviewer` (the quality reviewer agent). Security and quality
 are independent review streams that converge only at the Step 6
 abort-default count. The close-reviewer is quality-only across all
@@ -137,14 +113,14 @@ per-commit-LLM baseline.
 
 ## Findings Recording
 
-All Tier 2 and Tier 3 findings file SMM `concern` events with:
+All Tier 2 findings file SMM `concern` events with:
 
 - `severity`: `high` (Block) or `medium` (Concern)
 - `files`: paths the reviewer pointed at
 - `metadata.kind`: `"security"` (distinguishes from quality concerns)
 - `metadata.close_cycle_id`: the close-cycle id (for deterministic
   filtering at the abort-default count)
-- `metadata.close_mode`: `"free"` / `"sprint"` / `"plan"` / `"story"`
+- `metadata.close_mode`: `"free"` / `"sprint"` / `"plan"`
 
 The events live in the SMM and surface at next session's kickoff for
 triage. Resolved findings auto-link to fix commits via the
@@ -169,17 +145,16 @@ reviewer's prose output back to the user.
 ## Trade-offs Accepted
 
 **Time-to-detection drift.** A vulnerability introduced in commit 1 of a
-4-commit story isn't surfaced until close (Tier 3 for sprint-bound
-stories, Tier 2 for orphans). For typical session cadence that's hours,
-not minutes. **Mitigation:** Tier 1 catches the highest-stakes class
-(literal secrets) at commit time. Multi-step vulnerabilities by
-definition don't manifest as a single commit anyway.
+4-commit story isn't surfaced until close (Tier 2). For typical session
+cadence that's hours, not minutes. **Mitigation:** Tier 1 catches the
+highest-stakes class (literal secrets) at commit time. Multi-step
+vulnerabilities by definition don't manifest as a single commit anyway.
 
 **Tier 1 false positives.** High-confidence regex patterns will still
 occasionally fire on test fixtures or example strings. **Mitigation:**
 explicit `# noqa: secret`-style suppression markers per-line.
 
-**Tier 2/3 blocks merge.** Block findings default the close
+**Tier 2 blocks merge.** Block findings default the close
 confirmation to "Abort." This slows merges when the finding is
 contentious. **Mitigation:** the user can override the default at the
 prompt; the recorded `severity=high` concern carries forward to the
@@ -197,11 +172,11 @@ fix-cycle commits would mostly defeat the per-close cost model.
 
 - **`pre_tool_bash.py`** — runs Tier 1 deterministic patterns from
   `security_patterns.py` on every Bash `git commit` invocation.
-- **`/xp-story-close`** — runs the Step 4.5 gating clause; fires Tier 2
-  `/security-review` only for orphan story branches and the no-sprint
-  case.
 - **`/xp-sprint-close`**, **`/xp-plan-close`**, **`/xp-free-close`** —
-  all fire Tier 3 `/security-review` at Step 4.5 unconditionally.
+  all fire Tier 2 `/security-review` at Step 4 unconditionally.
+- **`/xp-story-close`** — never fires `/security-review`. Story-close is
+  always dispatched by `/xp-accept` inside an active sprint, so the
+  enclosing sprint-close cumulative review covers each merged story.
 - **`xp-close-reviewer`** — quality-only across all modes; never sees
   security findings (separation of concerns).
 
@@ -213,8 +188,7 @@ fix-cycle commits would mostly defeat the per-close cost model.
 |---------|------|
 | Tier 1 patterns | `plugins/xp-agents/scripts/security_patterns.py` |
 | Tier 1 commit gate | `plugins/xp-agents/scripts/pre_tool_bash.py` |
-| Tier 2 gating clause | `plugins/xp-agents/skills/xp-story-close/SKILL.md` (Step 4.5 conditional) |
-| Tier 3 unconditional fire | `plugins/xp-agents/scripts/_close_pipeline_shared.md` (Step 4.5) |
+| Tier 2 unconditional fire | `plugins/xp-agents/scripts/_close_pipeline_shared.md` (Step 4) |
 | Findings event shape | `plugins/xp-agents/smm/event_schema.py` (`metadata.kind=security`) |
 | Quality/security separation | Decision `0fdb19d1995d` ("xp-close-reviewer is quality-only across ALL modes") |
 
