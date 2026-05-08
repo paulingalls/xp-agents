@@ -91,9 +91,9 @@ def prior_session_end_ts(events: list[dict]) -> str:
     the boundary timestamp instead of the post-boundary index. Use when
     callers need a ts comparison (e.g., filter by `e["ts"] > prior_ts`).
     """
-    for event in reversed(events):
-        if event.get("type") == SESSION_END:
-            return event.get("ts", "")
+    for i in range(len(events) - 1, -1, -1):
+        if events[i].get("type") == SESSION_END:
+            return events[i].get("ts", "")
     return ""
 
 

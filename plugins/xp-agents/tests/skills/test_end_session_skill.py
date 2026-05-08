@@ -5,7 +5,6 @@ Pins SKILL.md frontmatter shape, body step structure, and preload.sh
 end-to-end behavior against an empty SMM and a seeded SMM.
 """
 
-import json
 import re
 import sys
 import unittest
@@ -107,8 +106,7 @@ class TestEndSessionPreload(_IntegrationTestCase):
                     working_on=["a.py"],
                 )
             )
-        events_file = self.smm_dir / "events.jsonl"
-        events_file.write_text("".join(json.dumps(e) + "\n" for e in events))
+        self._seed_events(events)
         r = self._run_preload(_PRELOAD_SH)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("qqqqqqqqqqqq", r.stdout)

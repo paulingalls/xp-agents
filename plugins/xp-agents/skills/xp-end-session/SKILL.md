@@ -11,6 +11,7 @@ allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/skills/*/scripts/*)
   - Bash(*/init.sh)
+  - Bash(python3 */smm/smm_cli.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
