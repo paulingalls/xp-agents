@@ -532,14 +532,15 @@ def merge_branch(cwd: str, branch: str, target: str) -> None:
 
 
 def delete_branch(cwd: str, name: str, *, merge_target: str | None = None) -> bool:
-    """Delete a local branch; force-delete iff merged into ``merge_target``.
+    """Delete a branch; try ``-d`` first, fall back to ``-D`` only when proven safe.
 
     ``git branch -d`` refuses when a branch's tip differs from its
     upstream tracking ref, even if it is fully merged to the
     integration target — the case worktree teammates hit every close.
-    With ``merge_target`` set, fall back to ``-D`` only when the branch
-    is provably an ancestor of the target. Without it, the legacy
-    contract (False on -d refusal) is preserved.
+    When ``merge_target`` is provided AND ``-d`` refuses, fall back to
+    ``-D`` iff the branch is provably an ancestor of ``merge_target``.
+    Without ``merge_target`` the legacy contract holds: False on -d
+    refusal, no force-delete attempted.
     """
     if _git(["git", "branch", "-d", name], cwd).returncode == 0:
         return True
