@@ -707,71 +707,9 @@ class TestCloseSkillStepOrdering(unittest.TestCase):
                     f"Fork or close-reviewer (got: {step4_5_heading!r})",
                 )
 
-    def test_close_skills_write_close_cycle_marker_before_security(self):
-        """Each close skill must write the CLOSE_CYCLE_ACTIVE marker
-        before invoking `/security-review`. The marker gates the new
-        Stop hook (story-001) so the agent stays in the close cycle
-        until close-reviewer's SubagentStop consumes the marker.
-
-        Pin both halves: the markers.py invocation is present, AND it
-        lands inside the Step 4 (Security) section (not later).
-        """
-        for mode, path in _CLOSE_SKILL_MDS.items():
-            with self.subTest(mode=mode):
-                # The marker write lives in the shared Step 4 block (the
-                # SKILL.md instructs the LLM to "Apply the shared block")
-                # — the per-skill SKILL.md proper need not duplicate it.
-                # What the SKILL.md MUST carry is the markers.py CLI in
-                # its allowed-tools frontmatter (asserted below).
-                fm, _ = frontmatter_body(path.read_text())
-                self.assertIn(
-                    "markers.py",
-                    fm,
-                    f"{mode}-close SKILL.md must list a markers.py Bash "
-                    f"permission in allowed-tools (Step 4 writes the "
-                    f"CLOSE_CYCLE_ACTIVE marker before /security-review)",
-                )
-
-    def test_shared_close_pipeline_step_4_security_writes_marker(self):
-        """The shared close-pipeline reference's new Step 4 (Security
-        Review) must instruct the LLM to write the CLOSE_CYCLE_ACTIVE
-        marker via markers.py BEFORE invoking `/security-review`. Pin
-        both the marker name and the CLI invocation so a future edit
-        can't drop one half silently.
-        """
-        shared = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
-        text = shared.read_text()
-        step4_idx = text.find("### Step 4: Security Review")
-        self.assertGreater(
-            step4_idx,
-            -1,
-            "shared close-pipeline file must have `### Step 4: Security Review`",
-        )
-        # Scope to the Step 4 section only — find the next `### Step` heading.
-        next_step_idx = text.find("\n### Step", step4_idx + 1)
-        section = text[step4_idx : next_step_idx if next_step_idx != -1 else None]
-        self.assertIn(
-            "CLOSE_CYCLE_ACTIVE",
-            section,
-            "Step 4 (Security Review) must name the CLOSE_CYCLE_ACTIVE marker "
-            "(M-2 marker-gated Stop)",
-        )
-        self.assertIn(
-            "markers.py",
-            section,
-            "Step 4 (Security Review) must invoke scripts/markers.py to write "
-            "the marker before /security-review",
-        )
-        # Marker write must precede the /security-review invocation within
-        # the section so the Stop hook is armed in time.
-        _assert_text_ordering(
-            self,
-            section,
-            "markers.py",
-            "/security-review",
-            msg="markers.py write must appear BEFORE /security-review "
-            "invocation in the Step 4 section",
-        )
+    # Prose-driven marker-write tests removed in story-002. Behavioral
+    # pin moved to tests/integration/test_close_preloads_emit_shared.py
+    # (preload arms the marker, not LLM prose).
 
 
 if __name__ == "__main__":
