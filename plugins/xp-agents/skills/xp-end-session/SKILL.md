@@ -25,7 +25,7 @@ User-invoked. The preload above provides:
 - `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit.
 - `### UNCOMMITTED` — count of SMM events newer than the last commit event.
 
-Run all four steps in order. Do **not** prompt the user before Step 1 — the design is friction-free; the user invoked `/xp-end-session` because they want this work done.
+Run all five steps in order. Do **not** prompt the user before Step 1 — the design is friction-free; the user invoked `/xp-end-session` because they want this work done.
 
 ## Step 1: Append the session_summary event
 
@@ -72,7 +72,20 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 The `action: "end_session_drop"` lets retro tooling distinguish bulk
 end-of-session drops from organic concern/debt resolutions.
 
-## Step 4: Honesty signal
+## Step 4: Persist into session_history.json
+
+Pipe the draft_summary helper's JSON output into write_history.py. The CLI reads stdin, builds a `{ts, summary, carry_forward}` entry, appends it to `session_history.json` (ring-buffer beside `events.jsonl` in `SMM_DIR`), then prunes any carry_forward items whose referenced events are already resolved in the current event log.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/scripts/draft_summary.py --smm-dir <SMM_DIR> \
+  | python3 ${CLAUDE_SKILL_DIR}/scripts/write_history.py --smm-dir <SMM_DIR>
+```
+
+`session_history.json` schema is `{version: 1, entries: [{ts, summary, carry_forward[]}]}`. Retention is **N=5** entries — appending the 6th evicts the oldest. A future kickoff step will render the most recent entry as "Last session at a glance"; long-term truth lives in the SMM Wisdom/Risks pillars, not here.
+
+Run this AFTER Step 1 so the summary text in the event matches the entry on disk. The pipe exits non-zero if the draft is malformed JSON or if the existing history file is corrupt — surface the error and stop rather than silently moving on.
+
+## Step 5: Honesty signal
 
 Surface the `### UNCOMMITTED` value to the user verbatim. If `> 0`, suggest they commit before ending the session — the next session's resolves-trailer probe relies on commit-linked events for accurate suggestions.
 
