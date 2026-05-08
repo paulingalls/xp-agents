@@ -176,7 +176,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         if rc != 0:
             return rc
 
-    if not branching.delete_branch(args.cwd, args.source):
+    if not branching.delete_branch(args.cwd, args.source, merge_target=args.target):
         # Source held by a teammate worktree → cleanup_teammate.py owns
         # deletion (worktree removal frees the branch). Don't abort the
         # chain — the merge + push already succeeded, and Step 7b's
