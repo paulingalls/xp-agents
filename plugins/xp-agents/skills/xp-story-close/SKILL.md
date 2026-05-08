@@ -125,12 +125,12 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 `PR_OUTPUT` is a PR number or `skipped: no gh on PATH`.
 
-(Step 4 — Security Review — does not apply to story-close. The
+**Step 4 (Security Review) does not apply to story-close.** The
 enclosing sprint-close runs the cumulative `/security-review` for
-all merged stories. See `docs/SECURITY_REVIEW_DOCTRINE.md` Tier 2.
+all merged stories — see `docs/SECURITY_REVIEW_DOCTRINE.md` Tier 2.
 The `4.5` numbering is preserved so the cross-skill ordering pin in
 `test_plugin_integrity.py::TestCloseSkillStepOrdering` keeps its
-shape across the four close skills.)
+shape across the four close skills.
 
 ## Step 4.5: Fork the close-reviewer
 

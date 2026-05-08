@@ -659,6 +659,12 @@ class TestCloseSkillStepOrdering(unittest.TestCase):
     files (free/sprint/plan) so a future edit can't silently revert to
     the old order. xp-story-close never runs security-review (defers to
     its enclosing sprint-close) and is excluded from this iteration.
+
+    Cross-doc reference: `skills/xp-story-close/SKILL.md` (just before
+    the `## Step 4.5: Fork the close-reviewer` heading) names this
+    class explicitly when explaining why story-close skips Step 4 yet
+    keeps the `4.5` numbering. If this class is renamed, update that
+    reference too.
     """
 
     def test_close_skills_security_before_close_reviewer(self):
