@@ -37,14 +37,35 @@ _SUMMARY_TYPES = frozenset(
     }
 )
 
+# Fallback cap when no prior SESSION_END exists (first session, corruption
+# recovery, or backfilled events). Without it, an N=10000 backfill would
+# crowd the budget with stale events and discard recent signal.
+_NO_BOUNDARY_TAIL_CAP = 200
+
 
 def _build_summary(events: list[dict], budget: int) -> str:
+    """Format selected events chronologically, capped at *budget* chars.
+
+    On overflow, drop OLDEST lines so the narrative tail (most recent
+    activity) is preserved for the LLM. Truncating the head loses what
+    the user actually wants to remember about the just-finished session.
+    """
     lines = [
         f"[{event.get('type', '')}] {event.get('content', '')}"
         for event in events
         if event.get("type") in _SUMMARY_TYPES
     ]
-    return _common.truncate("\n".join(lines), budget)
+    summary = "\n".join(lines)
+    if len(summary) <= budget:
+        return summary
+    # Reserve 4 chars for the prefix — tail slice may contain no newline
+    # when a single event content exceeds budget (commits have no content cap).
+    prefix = "...\n"
+    tail = summary[-(budget - len(prefix)) :]
+    nl = tail.find("\n")
+    if nl != -1:
+        tail = tail[nl + 1 :]
+    return prefix + tail
 
 
 def run(smm_dir: Path) -> dict:
@@ -54,7 +75,10 @@ def run(smm_dir: Path) -> dict:
         return {"summary": "", "open_questions": [], "likely_addressed": []}
 
     prior_end_ts = _common.prior_session_end_ts(events)
-    session_events = [e for e in events if e.get("ts", "") > prior_end_ts]
+    if prior_end_ts:
+        session_events = [e for e in events if e.get("ts", "") > prior_end_ts]
+    else:
+        session_events = events[-_NO_BOUNDARY_TAIL_CAP:]
 
     budget = event_schema.get_required_budget(event_schema.EVENT_TYPE_SESSION_SUMMARY)
     summary = _build_summary(session_events, budget)

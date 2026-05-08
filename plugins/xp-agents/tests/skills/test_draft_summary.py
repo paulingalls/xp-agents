@@ -162,6 +162,50 @@ class TestDraftSummary(_SMMTestCase):
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(result["open_questions"], ["777777777777"])
 
+    def _seed_long_unbounded_log(self) -> str:
+        # 500 stale commits + 1 recent question, no SESSION_END marker.
+        # Returns the recent question's id for assertions.
+        recent_q_id = "ddd000000001"
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id=f"old{i:09d}",
+                content=f"old commit {i}",
+                ts=f"2026-04-{(i % 28) + 1:02d}T00:00:00+00:00",
+            )
+            for i in range(500)
+        ]
+        events.append(
+            make_event(
+                event_schema.EVENT_TYPE_QUESTION,
+                id=recent_q_id,
+                content="recent open?",
+                ts="2026-05-08T10:00:00+00:00",
+                priority=event_schema.PRIORITY_ASSUMED,
+            )
+        )
+        self._write_events(events)
+        return recent_q_id
+
+    def test_no_prior_session_end_caps_summary_to_recent_window(self):
+        # Backfill / corruption-recovery scenario: cap surfaces the recent
+        # tail of the log in the summary instead of the oldest events.
+        self._seed_long_unbounded_log()
+        result = draft_summary.run(self.smm_dir)
+        self.assertIn(
+            "[commit] old commit 499",
+            result["summary"],
+            "expected last commit in cap window; got tail: "
+            f"{result['summary'][-200:]!r}",
+        )
+
+    def test_no_prior_session_end_preserves_recent_open_questions(self):
+        # Same scenario as above, asserting the cap doesn't drop the
+        # most recent open question even when buried after 500 commits.
+        recent_q_id = self._seed_long_unbounded_log()
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["open_questions"], [recent_q_id])
+
     def test_summary_includes_commit_decision_concern_debt_status(self):
         events = [
             make_event(
@@ -222,9 +266,39 @@ class TestDraftSummary(_SMMTestCase):
         self._write_events(events)
         result = draft_summary.run(self.smm_dir)
         self.assertLessEqual(len(result["summary"]), budget)
+        # Tail-preserving trim: ellipsis goes at the head; the most
+        # recent event line survives at the tail.
         self.assertTrue(
-            result["summary"].endswith("..."),
-            f"expected trim suffix, got tail: {result['summary'][-20:]!r}",
+            result["summary"].startswith("..."),
+            f"expected leading ellipsis, got head: {result['summary'][:40]!r}",
+        )
+        self.assertIn(
+            f"[commit] {'x' * 150}",
+            result["summary"].splitlines()[-1],
+            "expected the last seeded commit to survive the trim",
+        )
+
+    def test_summary_trim_respects_budget_with_giant_single_line(self):
+        # COMMIT has no content budget (event_schema CONTENT_BUDGETS
+        # entry is None) so a single commit content can exceed the
+        # 2000-char SESSION_SUMMARY budget. The trim must not overshoot.
+        budget = event_schema.get_required_budget(
+            event_schema.EVENT_TYPE_SESSION_SUMMARY
+        )
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="giant0000001",
+                content="y" * (budget * 3),
+                ts="2026-05-08T11:00:00+00:00",
+            )
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertLessEqual(
+            len(result["summary"]),
+            budget,
+            f"summary len {len(result['summary'])} > budget {budget}",
         )
 
     def test_e2e_subprocess(self):
