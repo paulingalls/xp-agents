@@ -5,6 +5,7 @@ Extracted from duplicated definitions across engine CLI test files.
 Canonical import surface is via conftest.py.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -36,14 +37,17 @@ def run_cli(
     args: list[str],
     smm_dir: Path,
     stdin_data: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     cmd = [sys.executable, str(cli_path), "--smm-dir", str(smm_dir), *args]
+    env = {**os.environ, **extra_env} if extra_env is not None else None
     return subprocess.run(
         cmd,
         input=stdin_data,
         capture_output=True,
         text=True,
         timeout=10,
+        env=env,
     )
 
 

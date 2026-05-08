@@ -559,7 +559,29 @@ class TestValidateDomainCommand(_SMMTestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("clean", result.stdout.lower())
 
-    def test_drift_exits_nonzero_and_names_file(self):
+    def test_single_drift_at_K0_exits_nonzero_and_names_file(self):
+        self._seed(file_domain=["src/a.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(repo, ["src/a.py", "src/drift.py"])
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+                extra_env={"XP_FILE_DOMAIN_DRIFT_TOLERANCE": "0"},
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("src/drift.py", result.stderr)
+            self.assertNotIn("src/a.py", result.stderr)
+
+    def test_single_drift_at_default_K1_exits_zero(self):
         self._seed(file_domain=["src/a.py — owner"])
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td)
@@ -576,8 +598,30 @@ class TestValidateDomainCommand(_SMMTestCase):
                 ],
                 self.smm_dir,
             )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_two_drift_at_default_K1_exits_nonzero_and_names_both(self):
+        self._seed(file_domain=["src/a.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(
+                repo, ["src/a.py", "src/drift1.py", "src/drift2.py"]
+            )
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+            )
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("src/drift.py", result.stderr)
+            self.assertIn("src/drift1.py", result.stderr)
+            self.assertIn("src/drift2.py", result.stderr)
             self.assertNotIn("src/a.py", result.stderr)
 
     def test_no_commits_on_branch_exits_zero(self):
@@ -600,8 +644,8 @@ class TestValidateDomainCommand(_SMMTestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_e2e_third_commit_drift_in_stderr(self):
-        """E2E: 2-file declared domain + 3rd commit out-of-domain → drift."""
+    def test_e2e_third_commit_drift_at_K0_in_stderr(self):
+        """E2E: 2-file declared domain + 3rd commit out-of-domain → drift at K=0."""
         self._seed(file_domain=["src/a.py — owner", "src/b.py — owner"])
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td)
@@ -617,6 +661,7 @@ class TestValidateDomainCommand(_SMMTestCase):
                     str(repo),
                 ],
                 self.smm_dir,
+                extra_env={"XP_FILE_DOMAIN_DRIFT_TOLERANCE": "0"},
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("src/c.py", result.stderr)
