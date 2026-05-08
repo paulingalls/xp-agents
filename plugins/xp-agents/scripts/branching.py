@@ -33,6 +33,12 @@ def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
 
 
+def _is_merged_into(cwd: str, branch: str, target: str) -> bool:
+    """True iff ``branch`` is reachable from ``target``."""
+    r = _git(["git", "merge-base", "--is-ancestor", branch, target], cwd)
+    return r.returncode == 0
+
+
 def branch_name(user_ns: str, id_: str, slug: str) -> str:
     return f"{user_ns}/{id_}-{_slugify(slug)}"
 
@@ -240,8 +246,7 @@ def _fast_forward_if_safe(cwd: str, branch: str, base: str) -> None:
     Logs a stderr note on a successful fast-forward so the user knows
     the ref moved under them.
     """
-    r = _git(["git", "merge-base", "--is-ancestor", branch, base], cwd)
-    if r.returncode != 0:
+    if not _is_merged_into(cwd, branch, base):
         return
     old_sha = _git(["git", "rev-parse", branch], cwd).stdout.strip()
     new_sha = _git(["git", "rev-parse", base], cwd).stdout.strip()
@@ -526,9 +531,22 @@ def merge_branch(cwd: str, branch: str, target: str) -> None:
     _merge_into_target(cwd, branch, target)
 
 
-def delete_branch(cwd: str, name: str) -> bool:
-    r = _git(["git", "branch", "-d", name], cwd)
-    return r.returncode == 0
+def delete_branch(cwd: str, name: str, *, merge_target: str | None = None) -> bool:
+    """Delete a branch; try ``-d`` first, fall back to ``-D`` only when proven safe.
+
+    ``git branch -d`` refuses when a branch's tip differs from its
+    upstream tracking ref, even if it is fully merged to the
+    integration target — the case worktree teammates hit every close.
+    When ``merge_target`` is provided AND ``-d`` refuses, fall back to
+    ``-D`` iff the branch is provably an ancestor of ``merge_target``.
+    Without ``merge_target`` the legacy contract holds: False on -d
+    refusal, no force-delete attempted.
+    """
+    if _git(["git", "branch", "-d", name], cwd).returncode == 0:
+        return True
+    if merge_target and _is_merged_into(cwd, name, merge_target):
+        return _git(["git", "branch", "-D", name], cwd).returncode == 0
+    return False
 
 
 def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict | None:

@@ -9,7 +9,8 @@ JSON to stdout:
       "summary": "<line-per-event narrative, trimmed to budget>",
       "open_questions": ["<event-id>", ...],
       "likely_addressed": ["<event-id>", ...],
-      "uncommitted_count": <int>
+      "uncommitted_count": <int>,
+      "carry_forward": [{"note", "references", "recommendation"}, ...]
     }
 """
 
@@ -43,6 +44,10 @@ _SUMMARY_TYPES = frozenset(
 # crowd the budget with stale events and discard recent signal.
 _NO_BOUNDARY_TAIL_CAP = 200
 
+# Cap on the carry_forward `note` field. Keeps the persisted ring-buffer
+# entries compact — the full content is still recoverable via `references`.
+_CARRY_FORWARD_NOTE_CAP = 100
+
 
 def _build_summary(events: list[dict], budget: int) -> str:
     """Format selected events chronologically, capped at *budget* chars.
@@ -69,6 +74,41 @@ def _build_summary(events: list[dict], budget: int) -> str:
     return prefix + tail
 
 
+def _carry_entry(item: dict, recommendation: str) -> dict:
+    return {
+        "note": _common.truncate(item.get("content", ""), _CARRY_FORWARD_NOTE_CAP),
+        "references": [item.get("id", "")],
+        "recommendation": recommendation,
+    }
+
+
+def _build_carry_forward(
+    open_questions: list[dict],
+    open_concerns: list[dict],
+    likely_addressed_ids: set[str],
+) -> list[dict]:
+    """Build carry_forward candidates from open questions + unresolved high concerns.
+
+    Recommendations: open questions and most concerns get "triage" (next
+    session should decide). High-severity concerns get "watch" — they're
+    not necessarily actionable next session, but should remain visible
+    until resolved or downgraded. Differentiation lets future kickoff
+    UIs route the two classes differently without re-deriving severity.
+
+    `likely_addressed_ids` filters out concerns whose files were touched by a
+    later commit (see triage.find_overlapping_commits) — those are speculatively
+    closed and shouldn't crowd next session's triage.
+    """
+    carry = [_carry_entry(q, "triage") for q in open_questions]
+    for concern in open_concerns:
+        if concern.get("severity") != "high":
+            continue
+        if concern.get("id", "") in likely_addressed_ids:
+            continue
+        carry.append(_carry_entry(concern, "watch"))
+    return carry
+
+
 def run(smm_dir: Path) -> dict:
     """Compute the draft payload for the SMM at *smm_dir*."""
     events, _ = materialize.parse_events(smm_dir)
@@ -78,6 +118,7 @@ def run(smm_dir: Path) -> dict:
             "open_questions": [],
             "likely_addressed": [],
             "uncommitted_count": 0,
+            "carry_forward": [],
         }
 
     prior_end_ts = _common.prior_session_end_ts(events)
@@ -112,11 +153,14 @@ def run(smm_dir: Path) -> dict:
         if triage.find_overlapping_commits(item, events)
     ]
 
+    carry_forward = _build_carry_forward(open_qs, open_concerns, set(likely_addressed))
+
     return {
         "summary": summary,
         "open_questions": [q.get("id", "") for q in open_qs],
         "likely_addressed": likely_addressed,
         "uncommitted_count": _common.uncommitted_event_count(events),
+        "carry_forward": carry_forward,
     }
 
 

@@ -350,6 +350,38 @@ def branch_exists(cwd: str, name: str) -> bool:
     )
 
 
+def diverge_tracking_ref(td: str, branch: str) -> None:
+    """Point ``refs/remotes/origin/<branch>`` at ``<branch>~1`` and bind
+    the local branch to it as upstream.
+
+    Reproduces the worktree-teammate state that breaks ``git branch -d``:
+    teammate pushed an early commit, then advanced the branch locally;
+    the merge target now holds the merge commit but the local tracking
+    ref still points at the older push. Caller must run
+    :func:`add_bare_remote` first — ``--set-upstream-to`` requires a
+    configured ``origin``.
+    """
+    base_sha = subprocess.run(
+        ["git", "rev-parse", f"{branch}~1"],
+        cwd=td,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "update-ref", f"refs/remotes/origin/{branch}", base_sha],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "branch", f"--set-upstream-to=origin/{branch}", branch],
+        cwd=td,
+        capture_output=True,
+        check=True,
+    )
+
+
 def remote_has_branch(cwd: str, branch: str, remote: str = "origin") -> bool:
     """True iff `branch` exists on `remote` (asks the remote via ls-remote)."""
     r = subprocess.run(

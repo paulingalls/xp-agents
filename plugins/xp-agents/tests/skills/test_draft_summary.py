@@ -41,6 +41,7 @@ class TestDraftSummary(_SMMTestCase):
                 "open_questions": [],
                 "likely_addressed": [],
                 "uncommitted_count": 0,
+                "carry_forward": [],
             },
         )
 
@@ -369,13 +370,44 @@ class TestDraftSummary(_SMMTestCase):
         )
 
     def test_e2e_subprocess(self):
+        # AC5: synthetic session with mixed events — open question + resolved
+        # concern + open high-severity concern + commits — must yield exactly
+        # 2 carry_forward refs (the question and the unresolved high concern)
+        # over the wire. Pin the JSON shape AND the carry_forward content.
         events = [
             make_event(
                 event_schema.EVENT_TYPE_QUESTION,
                 id="e2e000000001",
-                content="e2e?",
+                content="e2e open question?",
                 ts="2026-05-08T09:00:00+00:00",
                 priority=event_schema.PRIORITY_ASSUMED,
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="e2e000000002",
+                content="resolved concern",
+                severity="high",
+                ts="2026-05-08T09:01:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_STATUS,
+                id="e2e000000003",
+                content="resolved by commit",
+                ts="2026-05-08T09:02:00+00:00",
+                metadata={"resolves": ["e2e000000002"]},
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="e2e000000004",
+                content="open high-severity concern",
+                severity="high",
+                ts="2026-05-08T09:03:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="e2e000000005",
+                content="feat: thing",
+                ts="2026-05-08T09:04:00+00:00",
             ),
         ]
         self._write_events(events)
@@ -393,9 +425,152 @@ class TestDraftSummary(_SMMTestCase):
         payload = json.loads(r.stdout)
         self.assertEqual(
             set(payload),
-            {"summary", "open_questions", "likely_addressed", "uncommitted_count"},
+            {
+                "summary",
+                "open_questions",
+                "likely_addressed",
+                "uncommitted_count",
+                "carry_forward",
+            },
         )
         self.assertEqual(payload["open_questions"], ["e2e000000001"])
+        carry_refs = sorted(
+            ref for item in payload["carry_forward"] for ref in item["references"]
+        )
+        self.assertEqual(carry_refs, ["e2e000000001", "e2e000000004"])
+        self.assertEqual(len(payload["carry_forward"]), 2)
+
+
+class TestDraftSummaryCarryForward(_SMMTestCase):
+    """Story-002 of sprint-071: carry_forward candidates surfacing."""
+
+    def test_carry_forward_empty_for_clean_session(self):
+        # Only commits — no open questions, no high-severity concerns.
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="cle000000001",
+                content="feat: thing",
+                ts="2026-05-08T20:00:00+00:00",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["carry_forward"], [])
+
+    def test_carry_forward_includes_open_question(self):
+        question = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="qcf000000001",
+            content="why does X happen?",
+            ts="2026-05-08T20:01:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        self._write_events([question])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(
+            result["carry_forward"],
+            [
+                {
+                    "note": "why does X happen?",
+                    "references": ["qcf000000001"],
+                    "recommendation": "triage",
+                }
+            ],
+        )
+
+    def test_carry_forward_includes_high_severity_unresolved_concern(self):
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="hcf000000001",
+            content="auth bypass possible",
+            ts="2026-05-08T20:02:00+00:00",
+            severity="high",
+        )
+        self._write_events([concern])
+        result = draft_summary.run(self.smm_dir)
+        self.assertIn(
+            {
+                "note": "auth bypass possible",
+                "references": ["hcf000000001"],
+                "recommendation": "watch",
+            },
+            result["carry_forward"],
+        )
+
+    def test_carry_forward_excludes_likely_addressed_concern(self):
+        # High-severity concern with a file overlap commit after it →
+        # appears in likely_addressed → must NOT appear in carry_forward.
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="acf000000001",
+            content="bug in a.py",
+            files=["a.py"],
+            ts="2026-05-08T20:03:00+00:00",
+            severity="high",
+        )
+        commit = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="acf000000002",
+            content="fix(a.py): patch",
+            files=["a.py"],
+            ts="2026-05-08T20:04:00+00:00",
+        )
+        self._write_events([concern, commit])
+        result = draft_summary.run(self.smm_dir)
+        self.assertIn("acf000000001", result["likely_addressed"])
+        self.assertEqual(result["carry_forward"], [])
+
+    def test_existing_keys_unchanged_when_carry_forward_added(self):
+        # Pin the return-shape contract: M-2 must not rename/drop existing keys.
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_QUESTION,
+                id="exi000000001",
+                content="open?",
+                ts="2026-05-08T20:05:00+00:00",
+                priority=event_schema.PRIORITY_ASSUMED,
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(
+            set(result),
+            {
+                "summary",
+                "open_questions",
+                "likely_addressed",
+                "uncommitted_count",
+                "carry_forward",
+            },
+        )
+
+    def test_carry_forward_truncates_note_to_100_chars(self):
+        long_content = "x" * 250
+        question = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="trc000000001",
+            content=long_content,
+            ts="2026-05-08T20:06:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        self._write_events([question])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(len(result["carry_forward"][0]["note"]), 100)
+
+    def test_carry_forward_skips_medium_severity_concern(self):
+        # Only high-severity concerns are carried forward — medium/low
+        # concerns are noise the user can re-triage next session.
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="med000000001",
+            content="minor smell",
+            ts="2026-05-08T20:07:00+00:00",
+            severity="medium",
+        )
+        self._write_events([concern])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["carry_forward"], [])
 
 
 if __name__ == "__main__":
