@@ -196,6 +196,12 @@ METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 # can't drift on the spelling. Pattern matches STATUS_ACTION_* — a small
 # string vocab named at module level, not inlined.
 CONCERN_KIND_CLOSE_CYCLE_BYPASS = "close_cycle_bypass"
+
+# tdd_red: producer (bash_post_tool) tags test_run_complete events when
+# the prior commit was test-only (RED step in TDD); consumer
+# (work_signals) skips them from consecutive_failures so legitimate
+# red TDD doesn't surface as a regression streak.
+METADATA_KEY_TDD_RED = "tdd_red"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
 METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"

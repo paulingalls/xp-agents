@@ -16,6 +16,7 @@ from event_schema import (
     EVENT_TYPE_DECISION,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_STATUS,
+    METADATA_KEY_TDD_RED,
     STATUS_ACTION_COMMIT_SUCCESS,
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
@@ -247,6 +248,29 @@ class TestWorkSignalsM2Actions(unittest.TestCase):
             ),
         ]
         result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_consecutive_test_failures"], 2)
+
+    def test_tdd_red_run_does_not_increment_consecutive_failures(self):
+        """A test_run_complete tagged metadata.tdd_red=True (prior commit
+        was test-only — RED step in TDD cycle) is expected-failure noise,
+        not regression signal. Skip it from the consecutive_failures
+        counter so retros don't flag legitimate red TDD as a problem.
+        Sprint-072 retro flagged 5 consecutive failures that were all
+        red TDD steps — this prevents that misclassification.
+        """
+        import work_signals
+
+        events = [
+            tests_run_status(passed=False),  # red regression — counts
+            tests_run_status(passed=False, metadata_extra={METADATA_KEY_TDD_RED: True}),
+            tests_run_status(passed=False, metadata_extra={METADATA_KEY_TDD_RED: True}),
+            tests_run_status(passed=False),  # red regression again — counts
+        ]
+        result = work_signals.build_work_signals(events)
+        # The 2 tdd_red runs in the middle are skipped — streak is 2
+        # (the first red + the last red, which are NOT contiguous in
+        # the count because tdd_red events are no-ops, leaving the
+        # streak at 1 then incrementing to 2 on the last event).
         self.assertEqual(result["max_consecutive_test_failures"], 2)
 
     def test_parser_failed_run_does_not_reset_consecutive_failures(self):

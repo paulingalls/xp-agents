@@ -442,6 +442,44 @@ class TestM2TestRunActions(_HookTestCase):
         self.assertEqual(metadata.get("test_count"), 2)
         self.assertEqual(metadata.get("test_errors"), 2)
 
+    def test_tdd_red_set_when_prior_commit_was_test_only(self):
+        # RED step in TDD: prior commit added/modified ONLY test files.
+        # Next test_run_complete must carry metadata.tdd_red=True so the
+        # work_signals consumer can skip it from consecutive_failures.
+        prior_commit = make_event(
+            EVENT_TYPE_COMMIT,
+            content="test(auth): add failing test for retry path",
+            files=["tests/test_auth.py", "tests/_helpers.py"],
+            ts="2026-05-08T10:00:00+00:00",
+        )
+        _common.append_safe(self.smm_dir, prior_commit)
+
+        status = self._status("pytest", "===== 1 passed, 1 failed in 0.3s =====")
+        metadata = status.get("metadata") or {}
+        self.assertIs(metadata.get("tdd_red"), True)
+
+    def test_tdd_red_unset_when_prior_commit_had_code(self):
+        # Prior commit included production code → not a RED step. The
+        # tag must NOT appear so failures count as regressions.
+        prior_commit = make_event(
+            EVENT_TYPE_COMMIT,
+            content="feat(auth): retry with backoff",
+            files=["src/auth.py", "tests/test_auth.py"],
+            ts="2026-05-08T10:00:00+00:00",
+        )
+        _common.append_safe(self.smm_dir, prior_commit)
+
+        status = self._status("pytest", "===== 2 passed, 0 failed in 0.3s =====")
+        metadata = status.get("metadata") or {}
+        self.assertNotIn("tdd_red", metadata)
+
+    def test_tdd_red_unset_when_no_prior_commit_in_log(self):
+        # First test run in a fresh session — no prior commit to inspect.
+        # Default behavior is no tag (treat as regression-eligible).
+        status = self._status("pytest", "===== 1 passed in 0.3s =====")
+        metadata = status.get("metadata") or {}
+        self.assertNotIn("tdd_red", metadata)
+
 
 if __name__ == "__main__":
     unittest.main()
