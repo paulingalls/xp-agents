@@ -53,7 +53,7 @@ For each id in `### OPEN_QUESTIONS`:
 4. If the user picks **drop** (won't fix), use the canonical CLI helper. It stamps the structured `Closed question {id[:8]} as won't-fix:` content prefix and is idempotent for already-resolved questions:
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> \
-     question close <question_id> --won-fix --rationale "<one-line reason>"
+     question close --won-fix --event-id <question_id> --rationale "<one-line reason>"
    ```
 
 ## Step 3: Drop likely-addressed concerns and debts

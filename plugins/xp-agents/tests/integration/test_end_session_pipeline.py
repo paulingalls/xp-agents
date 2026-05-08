@@ -102,8 +102,9 @@ class TestEndSessionPipeline(_IntegrationTestCase):
             r.stdout,
             "concern should surface as likely-addressed (file overlap with commit)",
         )
-        # uncommitted_count = 2 questions + 3 status = 5
-        self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n5\s*")
+        # uncommitted_count = 2 questions + 3 status = 5. End-of-line
+        # anchor so "5" matches exactly, not a prefix of 53/500/etc.
+        self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n5\b")
 
     def test_full_pipeline_simulating_llm_append_calls(self):
         # 1. Run preload — confirms the candidates are surfaced.
@@ -174,6 +175,10 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         self.assertEqual(skipped, 0, "no events should be skipped on re-parse")
         summaries = events_of_type(events, event_schema.EVENT_TYPE_SESSION_SUMMARY)
         self.assertEqual(len(summaries), 1, "exactly one session_summary event landed")
+        # Pin authoring + non-empty content so a regression that wrote
+        # an empty/wrongly-attributed summary doesn't pass silently.
+        self.assertEqual(summaries[0]["agent_id"], "xp-end-session")
+        self.assertGreater(len(summaries[0]["content"]), 0)
 
         resolutions = resolution.compute_resolutions(events)
         answered = resolutions["answered_question_ids"]
