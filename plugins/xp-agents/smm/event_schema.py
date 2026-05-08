@@ -173,9 +173,15 @@ def event_action(event: dict) -> str | None:
 #   METADATA_KEY_PROBE_CANDIDATES — ids surfaced by the resolves-trailer
 #                                 probe; paired with the status-content
 #                                 discriminator below.
+#   METADATA_KEY_RESOLVED_BY_COMMITS — commit event IDs that informed an
+#                                 end-session auto-resolve decision (audit
+#                                 trail; orthogonal to RESOLVES which is the
+#                                 STRONG link). Producer: xp-end-session
+#                                 status events with action=end_session_drop.
 METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
+METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
 METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
