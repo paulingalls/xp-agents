@@ -644,7 +644,6 @@ _CLOSE_SKILL_MDS = {
     "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "SKILL.md",
     "sprint": _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md",
     "plan": _PLUGIN_ROOT / "skills" / "xp-plan-close" / "SKILL.md",
-    "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md",
 }
 
 
@@ -656,13 +655,15 @@ class TestCloseSkillStepOrdering(unittest.TestCase):
     when the close-reviewer's SubagentStop consumes the marker, the
     agent's next attention is on the merge.
 
-    Pins the ordering invariant across all four close-skill SKILL.md
-    files so a future edit can't silently revert to the old order.
+    Pins the ordering invariant across the three close-skill SKILL.md
+    files (free/sprint/plan) so a future edit can't silently revert to
+    the old order. xp-story-close never runs security-review (defers to
+    its enclosing sprint-close) and is excluded from this iteration.
     """
 
     def test_close_skills_security_before_close_reviewer(self):
         """`## Step 4: ` (Security) precedes `## Step 4.5: ` (Fork
-        close-reviewer) in each of the 4 close-skill SKILL.md files.
+        close-reviewer) in each of the 3 close-skill SKILL.md files.
         Use frontmatter_body() so frontmatter `name:` literals can't
         false-positive on header-substring searches.
         """

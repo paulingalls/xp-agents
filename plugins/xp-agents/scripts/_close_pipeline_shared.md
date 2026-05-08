@@ -8,11 +8,10 @@ mode-specific tail (Step 7+).
 
 ### Step 4: Security Review
 
-Skills that apply this step: **free, sprint, plan** close unconditionally, plus **story (when no sprint envelope wraps)**.
-Story-close defers to sprint-close's cumulative diff when an active
-sprint wraps the story; otherwise (no sprint, or orphan story branch)
-Step 4 fires from story-close itself. See xp-story-close/SKILL.md
-Step 4 for the gating clause.
+Skills that apply this step: **free, sprint, plan** close unconditionally.
+Story-close never runs Step 4: every `/xp-story-close` is dispatched by
+`/xp-accept` inside an active sprint, so the enclosing sprint-close's
+cumulative review already covers each merged story.
 
 First, write the close-cycle marker so the Stop hook holds the agent
 in this cycle until the close-reviewer fork (Step 4.5) runs:
@@ -48,8 +47,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ```
 
 Substitute `<close-skill-name>` (e.g. `xp-free-close`), `<close-mode>`
-(`free`/`sprint`/`plan`/`story`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>`
-from the preload values at the top of this context.
+(`free`/`sprint`/`plan`), `<CLOSE_CYCLE_ID>`, and `<SMM_DIR>` from the
+preload values at the top of this context.
 
 The shared Step 6 abort-default reads severity=high concerns filtered
 by `close_cycle_id` + `since-ts` (deterministic event count) — Block
