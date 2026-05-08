@@ -2,18 +2,30 @@
 """Capstone E2E for the M-2 session_history.json pipeline.
 
 Story-004 of sprint-071. Renders M-2's done-state into an executable
-test:
+test at the integration scope:
 
     smm/session_history.py module exports load_history/append_entry/
     prune_resolved. Skill writes both event AND history per invocation.
-    Tests cover schema, ring-buffer eviction at N=5, carry_forward drop
-    when references resolve, atomic write rejects symlink.
+    Capstone covers ring-buffer eviction at N=5, carry_forward drop
+    when references resolve (cascade across sessions), corrupt-file
+    rejection, atomic-write symlink rejection through the pipe, and
+    two-layer payload distinction.
 
 The LLM is simulated via direct subprocess calls of draft_summary.py
 piped into write_history.py — the exact pipe SKILL.md Step 4
 instructs the LLM to invoke. Two-session simulation exercises the
 cross-session cascade-prune (open question carried forward, then
 resolved next session, then dropped from history).
+
+AC-5 reconciliation: sprint.json AC-5 says "session_summary events
+AND session_history.json both reflect the same canonical narrative
+without divergence". Under M-2's actual two-layer design (decided in
+story-003, see SKILL.md Step 4), the layers are intentionally
+distinct — events.jsonl carries the agent-refined narrative; the
+history entry carries draft_summary's mechanical scan. The capstone
+tests "both layers fire and carry their respective payloads" which
+honors AC-5's intent (both reflect the session) while staying honest
+about the distinction.
 """
 
 import json
@@ -154,6 +166,28 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         # Chronological order — entries are appended, never reordered.
         timestamps = [e["ts"] for e in history["entries"]]
         self.assertEqual(timestamps, sorted(timestamps))
+
+    def test_symlink_history_file_rejected_through_pipe(self):
+        # session_history.save_history rejects symlink targets per its
+        # docstring contract. Exercise it end-to-end through the CLI
+        # pipe so the symlink protection holds at the integration
+        # boundary, not just in the unit test.
+        path = self.smm_dir / session_history.SESSION_HISTORY_FILENAME
+        sentinel = self.smm_dir / "_sentinel_history.json"
+        sentinel.write_text(
+            '{"version": 1, "entries": [{"ts": "2026-01-01T00:00:00+00:00",'
+            ' "summary": "preexisting", "carry_forward": []}]}'
+        )
+        path.symlink_to(sentinel)
+
+        r = self._run_pipe()
+        self.assertNotEqual(r.returncode, 0)
+        # Pin the failure to the symlink rejection — without this, an
+        # unrelated regression in draft_summary | write_history would
+        # let the test false-pass on any non-zero exit.
+        self.assertIn("symlink", r.stderr)
+        # The symlink target must NOT have been overwritten.
+        self.assertIn("preexisting", sentinel.read_text())
 
     def test_corrupt_history_file_rejected_and_left_unmodified(self):
         # Pre-corrupt the history file with garbage JSON.
