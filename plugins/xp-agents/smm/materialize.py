@@ -237,6 +237,7 @@ _BUCKET_INTENTIONALLY_ABSENT = frozenset(
         event_schema.EVENT_TYPE_GOAL,
         event_schema.EVENT_TYPE_RETROSPECTIVE,
         event_schema.EVENT_TYPE_SESSION_END,
+        event_schema.EVENT_TYPE_SESSION_SUMMARY,
         event_schema.EVENT_TYPE_SPRINT,
         event_schema.EVENT_TYPE_STATUS,
     }

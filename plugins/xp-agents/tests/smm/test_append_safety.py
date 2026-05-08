@@ -142,8 +142,7 @@ class TestConcurrentWrites(_TempRepoTestCase):
         cls.smm_dir = cls._get_smm_dir()
 
     def test_20_concurrent_writes(self):
-        events_file = self.smm_dir / "events.jsonl"
-        events_file.write_text("")
+        self._clear_events()
 
         def do_append(i: int) -> int:
             r = self._run_append(
@@ -164,16 +163,8 @@ class TestConcurrentWrites(_TempRepoTestCase):
 
         self.assertTrue(all(c == 0 for c in codes), f"Some appends failed: {codes}")
 
-        lines = events_file.read_text().strip().split("\n")
-        self.assertEqual(len(lines), 20, f"Expected 20 lines, got {len(lines)}")
-
-        # All valid JSON
-        events = []
-        for i, line in enumerate(lines, 1):
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                self.fail(f"Invalid JSON on line {i}")
+        events = self._read_events()
+        self.assertEqual(len(events), 20, f"Expected 20 events, got {len(events)}")
 
         # All unique agent_ids
         agents = {e["agent_id"] for e in events}
