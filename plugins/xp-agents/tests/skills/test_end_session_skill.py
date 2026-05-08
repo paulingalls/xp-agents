@@ -39,17 +39,17 @@ class TestEndSessionSkillMd(unittest.TestCase):
         self.assertIn("Read", frontmatter)
         self.assertIn("# End Session", body)
 
-    def test_skill_md_has_four_documented_steps_in_order(self):
+    def test_skill_md_has_five_documented_steps_in_order(self):
         _, body = _split_frontmatter_body(_SKILL_MD.read_text())
         positions = [m.start() for m in re.finditer(r"^## Step \d", body, re.MULTILINE)]
         self.assertEqual(
             len(positions),
-            4,
-            f"expected 4 ## Step headings, found {len(positions)}",
+            5,
+            f"expected 5 ## Step headings, found {len(positions)}",
         )
-        # Confirm strict 1→2→3→4 ordering by looking at the digit on each line.
+        # Confirm strict 1→2→3→4→5 ordering by looking at the digit on each line.
         digits = re.findall(r"^## Step (\d)", body, re.MULTILINE)
-        self.assertEqual(digits, ["1", "2", "3", "4"])
+        self.assertEqual(digits, ["1", "2", "3", "4", "5"])
 
 
 class TestEndSessionPreload(_IntegrationTestCase):
