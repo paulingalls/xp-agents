@@ -662,6 +662,8 @@ class TestValidateDomainCommand(_SMMTestCase):
             self.assertIn("src/a.py", over_result.stderr)
             self.assertIn("src/b.py", over_result.stderr)
             self.assertIn("src/drift_x.py", over_result.stderr)
+
+    def test_no_commits_on_branch_exits_zero(self):
         self._seed(file_domain=["src/a.py — owner"])
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td)
