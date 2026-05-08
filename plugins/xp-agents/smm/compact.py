@@ -58,6 +58,9 @@ _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can 
 # fails if a new EVENT_TYPE_* is added without either a `case` arm here
 # or an entry in this allowlist.
 #   SESSION_END    — handled by separate index-based retention (last 3)
+#   SESSION_SUMMARY — sibling-artifact narrative consumed by retro via event scan;
+#                    persistent retention belongs to session_history.json (M2),
+#                    not the SMM-referenced retention path
 #   CUSTOMER_INPUT — superseded by customer_intent in the SMM
 #   STATUS         — transient (hundreds per session); never SMM-referenced
 #   ANSWER         — lifecycle tied to its referenced question; drops with it
@@ -68,6 +71,7 @@ _COMPACT_INTENTIONALLY_ABSENT = frozenset(
         es.EVENT_TYPE_CUSTOMER_INPUT,
         es.EVENT_TYPE_DISCOVERY,
         es.EVENT_TYPE_SESSION_END,
+        es.EVENT_TYPE_SESSION_SUMMARY,
         es.EVENT_TYPE_STATUS,
     }
 )

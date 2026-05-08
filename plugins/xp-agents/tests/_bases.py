@@ -455,6 +455,23 @@ class _TempRepoTestCase(unittest.TestCase):
             cwd=str(cls.tmpdir),
         )
 
+    @classmethod
+    def _events_file(cls) -> Path:
+        return cls._get_smm_dir() / "events.jsonl"
+
+    @classmethod
+    def _read_events(cls) -> list[dict]:
+        """Parse events.jsonl as a list of event dicts; skip blank lines."""
+        return [
+            json.loads(line)
+            for line in cls._events_file().read_text().splitlines()
+            if line.strip()
+        ]
+
+    @classmethod
+    def _clear_events(cls) -> None:
+        cls._events_file().write_text("")
+
 
 def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:
     """Remove all worktrees matching prefix. For test tearDown."""
