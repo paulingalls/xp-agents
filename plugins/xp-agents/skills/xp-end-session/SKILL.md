@@ -83,7 +83,7 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/draft_summary.py --smm-dir <SMM_DIR> \
 
 `session_history.json` schema is `{version: 1, entries: [{ts, summary, carry_forward[]}]}`. Retention is **N=5** entries — appending the 6th evicts the oldest. A future kickoff step will render the most recent entry as "Last session at a glance"; long-term truth lives in the SMM Wisdom/Risks pillars, not here.
 
-Run this AFTER Step 1 so the summary text in the event matches the entry on disk. The pipe exits non-zero if the draft is malformed JSON or if the existing history file is corrupt — surface the error and stop rather than silently moving on.
+Run this AFTER Step 1 so the session_summary event Step 1 just appended is included when `draft_summary.py` re-scans `events.jsonl` here. The persisted summary comes from `draft_summary.run()` (fresh line-per-event scan), not from the agent-refined narrative in Step 1's event — the two are intentionally distinct: the event captures the final narrative, the history entry captures the mechanical scan. The pipe exits non-zero if the draft is malformed JSON or if the existing history file is corrupt — surface the error and stop rather than silently moving on.
 
 ## Step 5: Honesty signal
 
