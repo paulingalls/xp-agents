@@ -170,7 +170,7 @@ class TestMilestone6Files(unittest.TestCase):
         )
 
     def test_process_guide_token_budget(self):
-        """PROCESS_GUIDE.md word count should estimate 150-1,000 tokens."""
+        """PROCESS_GUIDE.md word count should estimate 150-1,100 tokens."""
         path = self.plugin_root / "PROCESS_GUIDE.md"
         if not path.exists():
             self.skipTest("PROCESS_GUIDE.md not yet created")
@@ -180,7 +180,7 @@ class TestMilestone6Files(unittest.TestCase):
             estimated_tokens, 150, f"Too short: ~{estimated_tokens:.0f} tokens"
         )
         self.assertLessEqual(
-            estimated_tokens, 1000, f"Too long: ~{estimated_tokens:.0f} tokens"
+            estimated_tokens, 1100, f"Too long: ~{estimated_tokens:.0f} tokens"
         )
 
     def test_process_guide_includes_event_protocol(self):

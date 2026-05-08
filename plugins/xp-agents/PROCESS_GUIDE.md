@@ -29,11 +29,11 @@ Three link types close events and risk pillar items:
 
 **Plan cycle:** `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Use for multi-file changes (3+ files). Marker-gated: `.plan-awaiting-review` blocks writes until reviewed, `.assign-pending` blocks until assigned.
 
-**Per commit (review cycle):** `/simplify` → `/xp-quality-review` → `git commit`. Deterministic patterns scan staged diffs; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.
+**Per commit (review cycle):** `/simplify` → `/xp-quality-review` → `git commit`. Commit gate blocks if skipped. Deterministic patterns scan staged diffs; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
 
-**Session close:** `/xp-end-session` populates next kickoff.
+**Session close:** `/xp-end-session` — user-invoked at session wrap-up. Emits a `session_summary` event + appends to `session_history.json`; populates the next kickoff's `### LAST_SESSION` block.
 
 **Multi-command AC.** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners — stderr names the failing slot.
 
