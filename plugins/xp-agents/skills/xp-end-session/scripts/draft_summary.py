@@ -8,10 +8,19 @@ JSON to stdout:
     {
       "summary": "<line-per-event narrative, trimmed to budget>",
       "open_questions": ["<event-id>", ...],
-      "likely_addressed": ["<event-id>", ...],
+      "likely_addressed": [
+          {"id": "<concern_id>", "commits": ["<commit_id>", ...]},
+          ...
+      ],
       "uncommitted_count": <int>,
       "carry_forward": [{"note", "references", "recommendation"}, ...]
     }
+
+`likely_addressed` carries only IDs — the agent fetches concern and
+commit content from its conversation history (solo work) or via Read
+on events.jsonl (teammate-authored commits). Keeping the preload
+minimal is intentional: the agent's judgement is the contract, not a
+pre-rendered string.
 """
 
 import argparse
@@ -147,13 +156,17 @@ def run(smm_dir: Path) -> dict:
         session_events, event_schema.EVENT_TYPE_DEBT, all_resolved
     )
 
-    likely_addressed = [
-        item.get("id", "")
-        for item in (open_concerns + open_debts)
-        if triage.find_overlapping_commits(item, events)
-    ]
+    likely_addressed = []
+    for item in open_concerns + open_debts:
+        overlapping = triage.find_overlapping_commits(item, events)
+        if not overlapping:
+            continue
+        likely_addressed.append(
+            {"id": item["id"], "commits": [c["id"] for c in overlapping]}
+        )
 
-    carry_forward = _build_carry_forward(open_qs, open_concerns, set(likely_addressed))
+    likely_addressed_ids = {item["id"] for item in likely_addressed}
+    carry_forward = _build_carry_forward(open_qs, open_concerns, likely_addressed_ids)
 
     return {
         "summary": summary,

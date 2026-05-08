@@ -14,6 +14,7 @@ exact CLI calls SKILL.md instructs the LLM to make.
 """
 
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,9 @@ from conftest import make_event
 from event_helpers import events_of_type
 
 _PRELOAD_SH = _PLUGIN_ROOT / "skills" / "xp-end-session" / "scripts" / "preload.sh"
+sys.path.insert(0, str(_PRELOAD_SH.parent))
+
+import draft_summary  # noqa: E402
 
 
 class TestEndSessionPipeline(_IntegrationTestCase):
@@ -97,11 +101,12 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(self.Q1_ID, r.stdout, "open question Q1 should surface")
         self.assertIn(self.Q2_ID, r.stdout, "open question Q2 should surface")
-        self.assertIn(
-            self.CONCERN_ID,
-            r.stdout,
-            "concern should surface as likely-addressed (file overlap with commit)",
-        )
+        # LIKELY_ADDRESSED renders concern ID at top-level with the
+        # overlapping commit ID(s) indented beneath. The agent uses these
+        # IDs to fetch full content from conversation history (solo
+        # commits) or via Read on events.jsonl (teammate commits).
+        self.assertRegex(r.stdout, re.compile(rf"^- {self.CONCERN_ID}\b", re.M))
+        self.assertRegex(r.stdout, re.compile(rf"^  - {self.COMMIT_ID}\b", re.M))
         # uncommitted_count = 2 questions + 3 status = 5. End-of-line
         # anchor so "5" matches exactly, not a prefix of 53/500/etc.
         self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n5\b")
@@ -150,21 +155,25 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         )
         self.assertEqual(r.returncode, 0, r.stderr)
 
-        # 5. Simulate LLM Step 3 — bulk-drop the likely-addressed concern.
+        # 5. Simulate LLM Step 3 — auto-judge the likely-addressed
+        # concern as resolved by COMMIT_ID. Audit trail records both
+        # the canonical resolves link AND the commit IDs that informed
+        # the decision.
         r = self._run_append(
             "--type",
             "status",
             "--agent",
             "xp-end-session",
             "--content",
-            "Resolved by recent commit: a.py",
+            f"Resolved by {self.COMMIT_ID}: a.py auth fix landed",
             "--working-on",
             "[]",
             "--metadata",
             json.dumps(
                 {
-                    "action": "end_session_drop",
+                    "action": event_schema.STATUS_ACTION_END_SESSION_DROP,
                     event_schema.METADATA_KEY_RESOLVES: [self.CONCERN_ID],
+                    event_schema.METADATA_KEY_RESOLVED_BY_COMMITS: [self.COMMIT_ID],
                 }
             ),
         )
@@ -194,12 +203,53 @@ class TestEndSessionPipeline(_IntegrationTestCase):
             "concern should be resolved via end_session_drop status event",
         )
 
+        # 6b. Audit trail — the end_session_drop status event records
+        # the commit ID that informed the auto-judge decision.
+        statuses = events_of_type(events, event_schema.EVENT_TYPE_STATUS)
+        drops = [
+            s
+            for s in statuses
+            if event_schema.event_action(s)
+            == event_schema.STATUS_ACTION_END_SESSION_DROP
+        ]
+        self.assertEqual(len(drops), 1, "exactly one end_session_drop landed")
+        self.assertEqual(
+            drops[0]["metadata"][event_schema.METADATA_KEY_RESOLVED_BY_COMMITS],
+            [self.COMMIT_ID],
+            "audit trail must cite the commit that informed the resolution",
+        )
+
         # 7. All new events validate cleanly via the schema.
         for event in events:
             errors = event_schema.validate_event(event)
             self.assertEqual(
                 errors, [], f"event {event.get('id')} should validate clean: {errors}"
             )
+
+    def test_pipeline_deferred_concern_resurfaces_in_next_draft(self):
+        # Deferral contract: when the agent judges the cited commits
+        # do NOT clearly fix a concern, it appends NO event. The next
+        # session's preload must re-surface the concern in
+        # LIKELY_ADDRESSED so the user/agent gets another shot at it.
+        # Reframed from the reviewer's "skip step 5 = no-op" weakness:
+        # this test calls draft_summary AGAIN after the deferral and
+        # asserts re-surfacing — proves the contract holds across
+        # session boundaries, not just that nothing changed.
+        first = draft_summary.run(self.smm_dir)
+        self.assertEqual(len(first["likely_addressed"]), 1)
+        self.assertEqual(first["likely_addressed"][0]["id"], self.CONCERN_ID)
+
+        # Agent decides to defer — appends nothing. Simulate by leaving
+        # events.jsonl untouched.
+
+        second = draft_summary.run(self.smm_dir)
+        self.assertEqual(
+            len(second["likely_addressed"]),
+            1,
+            "deferred concern must re-surface on next draft",
+        )
+        self.assertEqual(second["likely_addressed"][0]["id"], self.CONCERN_ID)
+        self.assertEqual(second["likely_addressed"][0]["commits"], [self.COMMIT_ID])
 
 
 if __name__ == "__main__":

@@ -143,6 +143,14 @@ STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 # resolves=[Q]) as a terminal disposition via metadata.resolves alone.
 STATUS_ACTION_QUESTION_CLOSE = "question_close"
 
+# End-of-session bulk-drop discriminator. Producer: xp-end-session skill
+# Step 3 (LLM-judged auto-resolve of LIKELY_ADDRESSED concerns/debts).
+# Companion metadata: METADATA_KEY_RESOLVES (canonical STRONG link to the
+# concern/debt being closed) + METADATA_KEY_RESOLVED_BY_COMMITS (audit
+# trail of which commit IDs informed the auto-judge). Consumer: retro
+# tooling distinguishes end-session bulk drops from organic resolutions.
+STATUS_ACTION_END_SESSION_DROP = "end_session_drop"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
@@ -173,9 +181,27 @@ def event_action(event: dict) -> str | None:
 #   METADATA_KEY_PROBE_CANDIDATES — ids surfaced by the resolves-trailer
 #                                 probe; paired with the status-content
 #                                 discriminator below.
+#   METADATA_KEY_RESOLVED_BY_COMMITS — commit event IDs that informed an
+#                                 end-session auto-resolve decision (audit
+#                                 trail; orthogonal to RESOLVES which is the
+#                                 STRONG link). Producer: xp-end-session
+#                                 status events with action=end_session_drop.
 METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
+METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
+
+# Concern metadata.kind discriminator vocabulary. Centralized so producer
+# (close_cycle_stop_gate hook) and consumer (retros, integration tests)
+# can't drift on the spelling. Pattern matches STATUS_ACTION_* — a small
+# string vocab named at module level, not inlined.
+CONCERN_KIND_CLOSE_CYCLE_BYPASS = "close_cycle_bypass"
+
+# tdd_red: producer (bash_post_tool) tags test_run_complete events when
+# the prior commit was test-only (RED step in TDD); consumer
+# (work_signals) skips them from consecutive_failures so legitimate
+# red TDD doesn't surface as a regression streak.
+METADATA_KEY_TDD_RED = "tdd_red"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
 METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
@@ -256,6 +282,13 @@ DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
 DIVERT_REASON_CROSS_STORY = "cross-story"
 DIVERT_REASON_WRONG_TYPE = "wrong-type"
 DIVERT_REASON_PROBE_SELECTION_MISS = "probe-selection-miss"
+# NO_CANDIDATES is a probe-level signal (the candidate set itself was
+# empty), not an event-level miss. Bucketing here separates candidate-
+# generation failures from ranking misses so retros can act on the
+# right fix domain. Sprint-072 retro flagged 9 consecutive sub-50%
+# adoption periods with diverts that were really empty-candidate cases
+# misattributed as snapshot/selection misses.
+DIVERT_REASON_NO_CANDIDATES = "no-candidates"
 DIVERT_REASON_UNKNOWN = "unknown"
 
 # Retro Try disposition values written to metadata.disposition by

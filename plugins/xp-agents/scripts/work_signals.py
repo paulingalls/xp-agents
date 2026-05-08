@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common
 import code_files
 from event_schema import (
+    METADATA_KEY_TDD_RED,
     STATUS_ACTION_COMMIT_SUCCESS,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
@@ -87,8 +88,14 @@ def build_work_signals(events: list[dict]) -> dict:
             elif is_test_run:
                 # parser_failed carries no signal — skip so a "don't know"
                 # outcome doesn't green-wash an in-flight red streak.
+                # tdd_red is producer-tagged when the prior commit was
+                # test-only (RED step in TDD); skip too — the failure is
+                # expected, not a regression. Same treatment as
+                # parser_failed: don't reset the streak, don't increment.
                 metadata = e.get("metadata") or {}
                 if metadata.get("parser_status") == PARSER_STATUS_FAILED:
+                    continue
+                if metadata.get(METADATA_KEY_TDD_RED):
                     continue
                 # Prefer structured metadata.test_passed when present;
                 # otherwise fall back to parsing failed-count from content.

@@ -14,7 +14,14 @@ SYSTEM_CONTEXT_FILENAME = "system_context.json"
 
 FIELD_MAXLENGTH: dict[str, int] = {
     "product": 400,
-    "architecture_overview": 600,
+    # 750 chars: headroom for multi-component systems with several
+    # persistent files + cross-cutting orchestration. 600 was tight on
+    # repos with 5+ persistent state files (e.g., this plugin: SMM
+    # four-file architecture + session_history.json). xp-system-
+    # analyzer.md's Step 4 JSON template documents the same number —
+    # kept in sync by
+    # test_agent_prompts.TestSystemAnalyzerPromptMaxlengthSync.
+    "architecture_overview": 750,
 }
 
 STACK_FIELD_MAXLENGTH: int = 100

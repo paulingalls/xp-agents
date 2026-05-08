@@ -599,6 +599,75 @@ class TestValidateDomainCommand(_SMMTestCase):
                 self.smm_dir,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            # Absorbed-drift signal is emitted on stderr so retros and
+            # quality-review can see what slipped past the K-budget.
+            self.assertIn("drift (within K=1)", result.stderr)
+            self.assertIn("src/drift.py", result.stderr)
+            # Stdout must NOT claim "clean" when drift was absorbed —
+            # would lie to callers parsing stdout for the clean signal.
+            self.assertNotIn("clean", result.stdout)
+            self.assertIn("absorbed", result.stdout)
+
+    def test_zero_drift_emits_no_absorbed_signal(self):
+        # Clean cases must stay quiet — the absorbed-drift line only
+        # fires when 1 <= len(drift) <= tolerance.
+        self._seed(file_domain=["src/a.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(repo, ["src/a.py"])
+            result = run_cli(
+                _CLI,
+                [
+                    "validate-domain",
+                    "story-001",
+                    "--base",
+                    "main",
+                    "--cwd",
+                    str(repo),
+                ],
+                self.smm_dir,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("drift", result.stderr)
+
+    def test_env_read_per_invocation_not_module_global(self):
+        # Two back-to-back invocations with different tolerance values
+        # against the same story+diff. If XP_FILE_DOMAIN_DRIFT_TOLERANCE
+        # were cached at module-import time, the second invocation would
+        # inherit the first's tolerance and fail. Subprocess re-import
+        # would mask a stale module global, so this test pins the
+        # per-invocation contract for any future caller that imports
+        # sprint_cli as a library and holds the module across env
+        # mutations.
+        self._seed(file_domain=["src/a.py — owner"])
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            self._make_branch_with_changes(repo, ["src/a.py", "src/drift.py"])
+            argv = [
+                "validate-domain",
+                "story-001",
+                "--base",
+                "main",
+                "--cwd",
+                str(repo),
+            ]
+            strict = run_cli(
+                _CLI,
+                argv,
+                self.smm_dir,
+                extra_env={"XP_FILE_DOMAIN_DRIFT_TOLERANCE": "0"},
+            )
+            self.assertNotEqual(strict.returncode, 0)
+            self.assertIn("src/drift.py", strict.stderr)
+
+            permissive = run_cli(
+                _CLI,
+                argv,
+                self.smm_dir,
+                extra_env={"XP_FILE_DOMAIN_DRIFT_TOLERANCE": "2"},
+            )
+            self.assertEqual(permissive.returncode, 0, permissive.stderr)
+            self.assertIn("drift (within K=2)", permissive.stderr)
 
     def test_two_drift_at_default_K1_exits_nonzero_and_names_both(self):
         self._seed(file_domain=["src/a.py — owner"])

@@ -109,6 +109,7 @@ def tests_run_status(
     count: int = 1,
     framework: str = "pytest",
     parser_status: str | None = None,
+    metadata_extra: dict | None = None,
     **kwargs,
 ) -> dict:
     """Status event matching bash_post_tool's test_run_complete emission.
@@ -120,6 +121,9 @@ def tests_run_status(
     When parser_status is set (e.g. PARSER_STATUS_FAILED), test_passed
     and test_count are omitted to match bash_post_tool's no-invented-numbers
     contract for parser_failed runs.
+
+    `metadata_extra` lets callers add producer-tagged keys (e.g. tdd_red)
+    without rebuilding the whole metadata dict.
     """
     metadata: dict = {
         "action": STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -133,6 +137,8 @@ def tests_run_status(
     else:
         content = f"Tests ran ({framework}) — counts not extracted"
         metadata["parser_status"] = parser_status
+    if metadata_extra:
+        metadata.update(metadata_extra)
     return make_event(
         EVENT_TYPE_STATUS,
         content=content,

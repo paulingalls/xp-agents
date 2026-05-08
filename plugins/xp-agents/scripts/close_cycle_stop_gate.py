@@ -9,6 +9,13 @@ subagent_stop.py when xp-close-reviewer completes.
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Review-cycle/teammates deferrals are intentionally NOT applied — the
 close cycle wants to block mid-cycle by design.
+
+stop_hook_active bypass: when Claude Code re-fires Stop with
+stop_hook_active=True (its loop-prevention flag), passing through is
+necessary to avoid an infinite loop if the agent can't follow the
+block directive. To keep the bypass visible (instead of silently
+terminating mid-cycle), the gate records a concern + emits stderr
+when the bypass coincides with an active CLOSE_CYCLE_ACTIVE marker.
 """
 
 import sys
@@ -18,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import event_schema
+import identity
 import markers
 
 _BLOCK_MESSAGE = (
@@ -25,12 +34,41 @@ _BLOCK_MESSAGE = (
     "xp-close-reviewer (Agent tool); then continue Steps 5-7."
 )
 
+_BYPASS_CONCERN_CONTENT = (
+    "Close-cycle gate bypassed: agent terminated via stop_hook_active "
+    "while CLOSE_CYCLE_ACTIVE marker was set. xp-close-reviewer was "
+    "expected to run but never did, leaving the close cycle mid-flight."
+)
+_BYPASS_STDERR = (
+    "close-cycle gate bypassed: stop_hook_active=True with "
+    "CLOSE_CYCLE_ACTIVE marker still set — concern recorded\n"
+)
+
+
+def _record_bypass(smm_dir: Path, input_data: dict) -> None:
+    """Record a concern + emit stderr when the bypass fires.
+
+    `_common.append_safe` swallows LockTimeoutError internally and logs
+    to hook_errors.jsonl, so the bypass record is best-effort by
+    construction — no extra try/except needed. The stderr write is
+    sequenced FIRST so the minimum signal lands even if append_safe is
+    bypassed by a future regression.
+    """
+    sys.stderr.write(_BYPASS_STDERR)
+    agent_id = identity.resolve_agent_id(input_data)
+    concern = _common.make_event(
+        _common.CONCERN,
+        agent_id,
+        _BYPASS_CONCERN_CONTENT,
+        severity="medium",
+        metadata={"kind": event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS},
+    )
+    _common.append_safe(smm_dir, concern)
+
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Return block message if close cycle is mid-flight, else None."""
     if _common.is_xp_agent(input_data):
-        return None
-    if input_data.get("stop_hook_active"):
         return None
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
@@ -39,7 +77,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if markers.marker_exists(smm_dir, markers.ASKING_USER):
         return None
-    if markers.marker_exists(smm_dir, markers.CLOSE_CYCLE_ACTIVE):
+
+    marker_active = markers.marker_exists(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+
+    if input_data.get("stop_hook_active"):
+        if marker_active:
+            _record_bypass(smm_dir, input_data)
+        return None
+
+    if marker_active:
         return _BLOCK_MESSAGE
     return None
 

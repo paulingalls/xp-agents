@@ -181,6 +181,94 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             "never fires — close-cycle MUST NOT auto-resume",
         )
 
+    def test_stop_hook_active_bypass_records_concern_and_emits_stderr(self):
+        """Loud-bypass instrumentation: when Claude Code re-fires Stop
+        with stop_hook_active=True (its loop-prevention flag) AND the
+        CLOSE_CYCLE_ACTIVE marker is still set, the gate intentionally
+        passes through (avoiding infinite loop) BUT records a concern
+        and emits stderr so the bypass is visible in retros instead of
+        silently terminating mid-close-cycle. Captures the failure mode
+        the user observed: agent ignored a prior block, second Stop
+        with stop_hook_active=True escaped the gate, agent terminated
+        with marker still set.
+        """
+        import event_schema
+        import markers
+        import materialize
+        from event_schema import EVENT_TYPE_CONCERN
+
+        cli_result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
+        self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
+
+        result = self._run_script(
+            "close_cycle_stop_gate.py",
+            {
+                "agent_id": "main",
+                "agent_type": "main",
+                "stop_hook_active": True,
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Pass-through, not block — defer-on-stop_hook_active stays for
+        # loop prevention. No JSON decision payload on stdout.
+        self.assertEqual(result.stdout.strip(), "")
+        # Loud signal on stderr names the bypass for debugging.
+        self.assertIn("close-cycle gate bypassed", result.stderr.lower())
+
+        # Concern landed in events.jsonl with the bypass discriminator
+        # so retros surface it instead of the bypass being invisible.
+        events, _ = materialize.parse_events(self.smm_dir)
+        bypass_concerns = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and e.get("metadata", {}).get("kind")
+            == event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS
+        ]
+        self.assertEqual(
+            len(bypass_concerns),
+            1,
+            "exactly one close_cycle_bypass concern must be recorded",
+        )
+
+        # Marker still present — the bypass doesn't consume it.
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "bypass must NOT consume the marker — only xp-close-reviewer "
+            "completion is allowed to do that",
+        )
+
+    def test_stop_hook_active_without_marker_no_concern(self):
+        """Sanity: stop_hook_active=True with NO marker is the normal
+        case (most close cycles never bypass). Must not record a
+        spurious concern.
+        """
+        import event_schema
+        import materialize
+        from event_schema import EVENT_TYPE_CONCERN
+
+        result = self._run_script(
+            "close_cycle_stop_gate.py",
+            {
+                "agent_id": "main",
+                "agent_type": "main",
+                "stop_hook_active": True,
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+        self.assertNotIn("close-cycle gate bypassed", result.stderr.lower())
+
+        events, _ = materialize.parse_events(self.smm_dir)
+        bypass_concerns = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and e.get("metadata", {}).get("kind")
+            == event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS
+        ]
+        self.assertEqual(bypass_concerns, [])
+
     # No event-ordering test: marker-consume IS the close-reviewer
     # completion signal (no completion event emitted). The pass-through
     # assertion in the positive test above already proves the ordering.

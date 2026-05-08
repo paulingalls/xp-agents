@@ -34,11 +34,11 @@ from pathlib import Path
 #   it leaks from a teammate shell into test subprocesses, ~50 hook /
 #   integration tests get True on "non-teammate" paths or assert against
 #   the wrong guide, breaking every teammate's pre-commit downstream.
-# - XP_FILE_DOMAIN_DRIFT_TOLERANCE: read at sprint_cli import time to set
-#   the validate-domain drift threshold. Tests that exercise that knob
-#   pass it explicitly via run_cli's extra_env; a stray export from a dev
-#   shell would silently flip the default-tolerance assertions in
-#   test_sprint_cli.
+# - XP_FILE_DOMAIN_DRIFT_TOLERANCE: read by sprint_cli inside
+#   _cmd_validate_domain (per-invocation) to set the validate-domain
+#   drift threshold. Tests that exercise that knob pass it explicitly
+#   via run_cli's extra_env; a stray export from a dev shell would
+#   silently flip the default-tolerance assertions in test_sprint_cli.
 for _leaked_var in (
     "GIT_DIR",
     "GIT_WORK_TREE",

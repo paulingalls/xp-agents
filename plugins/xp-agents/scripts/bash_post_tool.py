@@ -25,11 +25,13 @@ import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
     METADATA_KEY_RESOLVES,
+    METADATA_KEY_TDD_RED,
     STATUS_ACTION_COMMIT_SUCCESS,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
 )
+from pre_tool_write import is_test_file
 from test_parsing import (
     PARSER_STATUS_PARSED,
     PARSER_STATUS_ZERO,
@@ -300,6 +302,27 @@ def _handle_commit(
     return _check_qr_linkage(events, agent_id, has_code=has_code)
 
 
+def _prior_commit_was_test_only(smm_dir: Path) -> bool:
+    """True iff the most recent commit event in events.jsonl committed
+    only test-layer files (per pre_tool_write.is_test_file — includes
+    test_*.py, tests/ paths, and test infrastructure like conftest.py).
+    Used to tag test_run_complete events so consecutive_failures
+    skips runs where the agent is iterating in the test layer (the
+    canonical RED step in TDD plus adjacent test-infra work). Empty
+    file lists or a missing prior commit return False — defaulting to
+    "treat failures as regressions" is honest about what we don't know.
+    """
+    events = _common.read_events_raw(smm_dir)
+    for e in reversed(events):
+        if e.get("type") != _common.COMMIT:
+            continue
+        files = e.get("files") or []
+        if not files:
+            return False
+        return all(is_test_file(f) for f in files)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
@@ -355,6 +378,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Test run detection
     framework = is_test_run(command)
     if framework:
+        # TDD red-step detection: prior commit added/modified ONLY test
+        # files → next test failures are expected (the canonical RED step
+        # in red-green-refactor). Tag those runs so work_signals doesn't
+        # count them as regressions.
+        tdd_red = _prior_commit_was_test_only(smm_dir)
         results = parse_test_results(response_text, framework)
         parser_status = results["status"]
         passed = results["passed"]
@@ -373,6 +401,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "framework": framework,
             "parser_status": parser_status,
         }
+        if tdd_red:
+            metadata[METADATA_KEY_TDD_RED] = True
         if parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0

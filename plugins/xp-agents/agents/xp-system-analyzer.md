@@ -201,7 +201,7 @@ Build a JSON object matching this schema:
 ```json
 {
   "product": "<What the product is, who it's for, how it works (max 400 chars)>",
-  "architecture_overview": "<How components connect, key patterns (max 600 chars)>",
+  "architecture_overview": "<How components connect, key patterns (max 750 chars)>",
   "stack": {
     "languages": ["Python", "TypeScript"],
     "runtime": "<optional, max 100 chars>",

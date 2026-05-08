@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 # Make smm/ importable so we can use _append_impl as the foundational module
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import event_schema as _es
 from _append_impl import (
     PRIORITY_ASSUMED,  # noqa: F401
     PRIORITY_BLOCKING,  # noqa: F401
@@ -47,23 +48,28 @@ class BlockedError(Exception):
 # Event type and priority constants
 # ---------------------------------------------------------------------------
 
-# Event types — mirrors smm/schema.json enum
-COMMIT = "commit"
-CUSTOMER_INPUT = "customer_input"
-CUSTOMER_INTENT = "customer_intent"
-DEBT = "debt"
-GOAL = "goal"
-STATUS = "status"
-DECISION = "decision"
-CONVENTION = "convention"
-CONCERN = "concern"
-DISCOVERY = "discovery"
-QUESTION = "question"
-ANSWER = "answer"
-ASSUMPTION = "assumption"
-SESSION_END = "session_end"
-SPRINT = "sprint"
-RETROSPECTIVE = "retrospective"
+# Event types — unprefixed aliases for ergonomics in scripts/. Source of
+# truth lives in event_schema.EVENT_TYPE_*; aliasing eliminates the
+# parallel-drift class (a prior hand-maintained mirror missed
+# session_summary entirely until the schema-budget-derivation cleanup
+# caught it).
+COMMIT = _es.EVENT_TYPE_COMMIT
+CUSTOMER_INPUT = _es.EVENT_TYPE_CUSTOMER_INPUT
+CUSTOMER_INTENT = _es.EVENT_TYPE_CUSTOMER_INTENT
+DEBT = _es.EVENT_TYPE_DEBT
+GOAL = _es.EVENT_TYPE_GOAL
+STATUS = _es.EVENT_TYPE_STATUS
+DECISION = _es.EVENT_TYPE_DECISION
+CONVENTION = _es.EVENT_TYPE_CONVENTION
+CONCERN = _es.EVENT_TYPE_CONCERN
+DISCOVERY = _es.EVENT_TYPE_DISCOVERY
+QUESTION = _es.EVENT_TYPE_QUESTION
+ANSWER = _es.EVENT_TYPE_ANSWER
+ASSUMPTION = _es.EVENT_TYPE_ASSUMPTION
+SESSION_END = _es.EVENT_TYPE_SESSION_END
+SESSION_SUMMARY = _es.EVENT_TYPE_SESSION_SUMMARY
+SPRINT = _es.EVENT_TYPE_SPRINT
+RETROSPECTIVE = _es.EVENT_TYPE_RETROSPECTIVE
 
 # Shared data-file name used across the retrospective subsystem:
 # written by scripts/retrospective.py, consumed by the xp-retrospective
