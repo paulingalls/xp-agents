@@ -40,6 +40,27 @@ class TestSchemaJson(unittest.TestCase):
     def test_schema_is_valid_json(self):
         self.assertIsInstance(self.schema, dict)
 
+    def test_content_description_path_reference_resolves(self):
+        # schema.json content description points to CONTENT_BUDGETS in
+        # smm/event_schema.py instead of duplicating the per-type
+        # enumeration. If a future rename moves the constant or the
+        # file, this pin fails loudly — replaces the prior text-sync
+        # test that became unnecessary when the enumeration was dropped
+        # (reviewer concern 7effdc8efd17).
+        from event_schema import CONTENT_BUDGETS  # the named constant
+
+        desc = self.schema["properties"]["content"]["description"]
+        self.assertIn(
+            "CONTENT_BUDGETS in smm/event_schema.py",
+            desc,
+            "content.description must point at CONTENT_BUDGETS in "
+            "smm/event_schema.py — schema.json defers the per-type budget "
+            "enumeration to that constant",
+        )
+        # And the referenced symbol must actually exist (not just the
+        # text — a constant rename would silently rot the prose).
+        self.assertGreater(len(CONTENT_BUDGETS), 0)
+
     def test_schema_type_enum_matches_valid_types(self):
         # Auto-syncs with event_schema.VALID_TYPES — adding a new
         # EVENT_TYPE_* without bumping schema.json's enum fails here.
