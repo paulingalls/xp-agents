@@ -25,9 +25,7 @@ allowed-tools:
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 `GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
 not recompute them. The shared close pipeline lives in
-`${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`; the four mechanical
-steps (preflight, push, create-pr, merge) are subcommand invocations
-below. Detection (no remote, no gh) is internal to the script.
+`${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 ## Step 1: Pre-flight
 
@@ -47,8 +45,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py push \
   --cwd . --branch <CURRENT_BRANCH>
 ```
 
-Stdout is either `pushed: <branch>` or `skipped: no remote configured`
-— surface to the user so they know whether the branch was pushed.
+Stdout is `pushed: <branch>` or `skipped: no remote configured`.
 
 ## Step 3: PR creation
 
@@ -58,9 +55,7 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
   --title "<sprint goal>" --body "<sprint summary>")
 ```
 
-`PR_OUTPUT` is either a PR number (e.g. `4242`) or `skipped: no gh on
-PATH`. The reviewer fork (Step 4.5) chooses its diff command based on
-this value.
+`PR_OUTPUT` is a PR number or `skipped: no gh on PATH`.
 
 ## Step 4: Apply shared Security Review
 
@@ -78,10 +73,6 @@ DIFF_CMD=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py diff-command \
 
 Substitute the captured value as `<DIFF_CMD>` in the agent prompt below.
 
-Invoke the forked review agent. Pass `SMM_DIR` and the four close-review
-fields (mode, source branch, target branch, diff command) inline as
-prompt sections — the agent reads them from the prompt.
-
 ```
 Agent(
   subagent_type: "xp-agents:xp-close-reviewer",
@@ -96,15 +87,6 @@ the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
 steps in order after Step 4.5, then continue with Step 7 below.
 
-**No auto-merge override here.** Sprint-close uses the shared Step 6
-`AskUserQuestion` confirmation as written. Only `/xp-story-close` and
-`/xp-free-close` consume the since-ts gate to skip confirmation when
-all reviewer findings are clean. Sprint merges aggregate every
-story's diff cumulatively; the human checkpoint at sprint boundary is
-load-bearing — confirmation cost is amortized across the whole sprint
-and the customer review of `/xp-sprint-review` is the right place to
-catch any lingering surprise.
-
 ## Step 7: Merge
 
 ```bash
@@ -112,17 +94,11 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-The script chains: merge `--no-ff` → push target (if remote) → delete
-source. Any step failing aborts the chain — the source branch always
-survives a failed step so the user can resolve and retry. Conflicts are
-never auto-resolved; the script's stderr will name the conflict.
+Any failing step aborts the chain — the source branch survives so the user can resolve and retry. Conflicts are never auto-resolved.
 
 ## Step 8: Plan-close chain (if applicable)
 
-After the merge cleanup completes, check whether the sprint just shipped
-the last milestone of a plan-branch plan. The gate fires only when both
-checks succeed — `get-branch` prints non-empty AND `is-plan-complete`
-exits 0:
+After merge cleanup completes, check whether the sprint just shipped the last milestone of a plan-branch plan. The gate fires only when both checks succeed — `get-branch` prints non-empty AND `is-plan-complete` exits 0:
 
 ```bash
 PLAN_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> get-branch) \
@@ -130,18 +106,9 @@ PLAN_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> 
   && python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> is-plan-complete
 ```
 
-- `get-branch` prints the recorded plan branch (empty when the plan
-  is not on a plan branch).
-- `is-plan-complete` exits 0 when every milestone is delivered or
-  deferred, non-zero otherwise.
+If the gate exits 0, invoke `/xp-plan-close` — it pushes the plan branch, forks the close-reviewer in plan mode, merges plan → primary, archives the plan, and cleans up. Runs in the same main agent context; the user confirms each merge inside.
 
-If the gate above exits 0, invoke `/xp-plan-close` to push the plan
-branch, fork the close-reviewer in plan mode, present findings, merge
-plan → primary, archive the plan, and clean up. The chain runs in the
-same main agent context — the user confirms each merge inside.
-
-If the gate exits non-zero, skip the chain and report sprint-close
-complete (the section below).
+If the gate exits non-zero, skip the chain and report sprint-close complete.
 
 ## Reporting Back
 
