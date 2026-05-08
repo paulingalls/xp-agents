@@ -89,10 +89,7 @@ def run(smm_dir: Path, sprint_file: Path) -> str:
         return ""
 
     resolutions = resolution.compute_resolutions(events)
-    resolved_ids: set[str] = set()
-    for key in resolutions:
-        if key.endswith("_ids"):
-            resolved_ids |= resolutions[key]
+    resolved_ids = resolution.collect_all_resolved_ids(resolutions)
 
     open_concerns = triage.find_unresolved(
         events, event_schema.EVENT_TYPE_CONCERN, resolved_ids

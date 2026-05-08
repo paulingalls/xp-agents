@@ -192,6 +192,22 @@ def compute_resolutions(events: list[dict]) -> dict:
     }
 
 
+def collect_all_resolved_ids(resolutions: dict) -> set[str]:
+    """Union every set value at a `*_ids` key in *resolutions*.
+
+    Single source of truth for the "what events have been resolved at all"
+    question. Co-located with `compute_resolutions` so adding a new
+    `*_ids` key here keeps the helper in sync automatically — the suffix
+    scan picks it up. Callers: draft_summary.py, triage_preload.py,
+    concern_triage.py.
+    """
+    resolved: set[str] = set()
+    for key, value in resolutions.items():
+        if key.endswith("_ids"):
+            resolved |= value
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # Desktop notification for blocking questions
 # ---------------------------------------------------------------------------
