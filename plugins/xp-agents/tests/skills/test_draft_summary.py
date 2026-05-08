@@ -370,13 +370,44 @@ class TestDraftSummary(_SMMTestCase):
         )
 
     def test_e2e_subprocess(self):
+        # AC5: synthetic session with mixed events — open question + resolved
+        # concern + open high-severity concern + commits — must yield exactly
+        # 2 carry_forward refs (the question and the unresolved high concern)
+        # over the wire. Pin the JSON shape AND the carry_forward content.
         events = [
             make_event(
                 event_schema.EVENT_TYPE_QUESTION,
                 id="e2e000000001",
-                content="e2e?",
+                content="e2e open question?",
                 ts="2026-05-08T09:00:00+00:00",
                 priority=event_schema.PRIORITY_ASSUMED,
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="e2e000000002",
+                content="resolved concern",
+                severity="high",
+                ts="2026-05-08T09:01:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_STATUS,
+                id="e2e000000003",
+                content="resolved by commit",
+                ts="2026-05-08T09:02:00+00:00",
+                metadata={"resolves": ["e2e000000002"]},
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="e2e000000004",
+                content="open high-severity concern",
+                severity="high",
+                ts="2026-05-08T09:03:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="e2e000000005",
+                content="feat: thing",
+                ts="2026-05-08T09:04:00+00:00",
             ),
         ]
         self._write_events(events)
@@ -403,6 +434,11 @@ class TestDraftSummary(_SMMTestCase):
             },
         )
         self.assertEqual(payload["open_questions"], ["e2e000000001"])
+        carry_refs = sorted(
+            ref for item in payload["carry_forward"] for ref in item["references"]
+        )
+        self.assertEqual(carry_refs, ["e2e000000001", "e2e000000004"])
+        self.assertEqual(len(payload["carry_forward"]), 2)
 
 
 class TestDraftSummaryCarryForward(_SMMTestCase):
@@ -457,7 +493,7 @@ class TestDraftSummaryCarryForward(_SMMTestCase):
             {
                 "note": "auth bypass possible",
                 "references": ["hcf000000001"],
-                "recommendation": "triage",
+                "recommendation": "watch",
             },
             result["carry_forward"],
         )

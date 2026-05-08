@@ -74,11 +74,11 @@ def _build_summary(events: list[dict], budget: int) -> str:
     return prefix + tail
 
 
-def _carry_entry(item: dict) -> dict:
+def _carry_entry(item: dict, recommendation: str) -> dict:
     return {
         "note": _common.truncate(item.get("content", ""), _CARRY_FORWARD_NOTE_CAP),
         "references": [item.get("id", "")],
-        "recommendation": "triage",
+        "recommendation": recommendation,
     }
 
 
@@ -89,17 +89,23 @@ def _build_carry_forward(
 ) -> list[dict]:
     """Build carry_forward candidates from open questions + unresolved high concerns.
 
+    Recommendations: open questions and most concerns get "triage" (next
+    session should decide). High-severity concerns get "watch" — they're
+    not necessarily actionable next session, but should remain visible
+    until resolved or downgraded. Differentiation lets future kickoff
+    UIs route the two classes differently without re-deriving severity.
+
     `likely_addressed_ids` filters out concerns whose files were touched by a
     later commit (see triage.find_overlapping_commits) — those are speculatively
     closed and shouldn't crowd next session's triage.
     """
-    carry = [_carry_entry(q) for q in open_questions]
+    carry = [_carry_entry(q, "triage") for q in open_questions]
     for concern in open_concerns:
         if concern.get("severity") != "high":
             continue
         if concern.get("id", "") in likely_addressed_ids:
             continue
-        carry.append(_carry_entry(concern))
+        carry.append(_carry_entry(concern, "watch"))
     return carry
 
 
