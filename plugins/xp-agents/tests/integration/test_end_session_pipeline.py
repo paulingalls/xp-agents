@@ -43,7 +43,11 @@ class TestEndSessionPipeline(_IntegrationTestCase):
     Q1_ID = "a11111111111"  # answered in test 2
     Q2_ID = "a22222222222"  # closed via won-fix in test 2
     CONCERN_ID = "c33333333333"
-    COMMIT_ID = "c44444444444"
+    COMMIT_ID = "c44444444444"  # SMM commit-event id (NOT a git ref)
+    # Real git SHA — what LIKELY_ADDRESSED surfaces and what
+    # resolved_by_commits should record (post-commit hook writes this
+    # into metadata.commit_hash on every commit event).
+    COMMIT_HASH = "abc1230000000000000000000000000000000010"
 
     def setUp(self):
         super().setUp()
@@ -68,6 +72,10 @@ class TestEndSessionPipeline(_IntegrationTestCase):
                 content="fix(auth): patch a.py",
                 ts="2026-05-08T10:01:00+00:00",
                 files=["a.py"],
+                metadata={
+                    "action": "commit_success",
+                    "commit_hash": self.COMMIT_HASH,
+                },
             ),
             make_event(
                 event_schema.EVENT_TYPE_QUESTION,
@@ -106,7 +114,7 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         # IDs to fetch full content from conversation history (solo
         # commits) or via Read on events.jsonl (teammate commits).
         self.assertRegex(r.stdout, re.compile(rf"^- {self.CONCERN_ID}\b", re.M))
-        self.assertRegex(r.stdout, re.compile(rf"^  - {self.COMMIT_ID}\b", re.M))
+        self.assertRegex(r.stdout, re.compile(rf"^  - {self.COMMIT_HASH}\b", re.M))
         # uncommitted_count = 2 questions + 3 status = 5. End-of-line
         # anchor so "5" matches exactly, not a prefix of 53/500/etc.
         self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n5\b")
@@ -156,16 +164,17 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
         # 5. Simulate LLM Step 3 — auto-judge the likely-addressed
-        # concern as resolved by COMMIT_ID. Audit trail records both
-        # the canonical resolves link AND the commit IDs that informed
-        # the decision.
+        # concern as resolved by the git commit hash surfaced in
+        # LIKELY_ADDRESSED. Audit trail records both the canonical
+        # resolves link AND the git commit hash(es) that informed the
+        # decision (resolvable downstream via `git show`).
         r = self._run_append(
             "--type",
             "status",
             "--agent",
             "xp-end-session",
             "--content",
-            f"Resolved by {self.COMMIT_ID}: a.py auth fix landed",
+            f"Resolved by {self.COMMIT_HASH}: a.py auth fix landed",
             "--working-on",
             "[]",
             "--metadata",
@@ -173,7 +182,7 @@ class TestEndSessionPipeline(_IntegrationTestCase):
                 {
                     "action": event_schema.STATUS_ACTION_END_SESSION_DROP,
                     event_schema.METADATA_KEY_RESOLVES: [self.CONCERN_ID],
-                    event_schema.METADATA_KEY_RESOLVED_BY_COMMITS: [self.COMMIT_ID],
+                    event_schema.METADATA_KEY_RESOLVED_BY_COMMITS: [self.COMMIT_HASH],
                 }
             ),
         )
@@ -215,8 +224,9 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         self.assertEqual(len(drops), 1, "exactly one end_session_drop landed")
         self.assertEqual(
             drops[0]["metadata"][event_schema.METADATA_KEY_RESOLVED_BY_COMMITS],
-            [self.COMMIT_ID],
-            "audit trail must cite the commit that informed the resolution",
+            [self.COMMIT_HASH],
+            "audit trail must cite the git commit hash (not SMM event id) "
+            "that informed the resolution — agents downstream `git show` it",
         )
 
         # 7. All new events validate cleanly via the schema.
@@ -249,7 +259,7 @@ class TestEndSessionPipeline(_IntegrationTestCase):
             "deferred concern must re-surface on next draft",
         )
         self.assertEqual(second["likely_addressed"][0]["id"], self.CONCERN_ID)
-        self.assertEqual(second["likely_addressed"][0]["commits"], [self.COMMIT_ID])
+        self.assertEqual(second["likely_addressed"][0]["commits"], [self.COMMIT_HASH])
 
 
 if __name__ == "__main__":

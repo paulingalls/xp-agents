@@ -34,8 +34,8 @@ def main() -> None:
     print("### LIKELY_ADDRESSED")
     for item in data["likely_addressed"]:
         print(f"- {item['id']}")
-        for commit_id in item["commits"]:
-            print(f"  - {commit_id}")
+        for commit_hash in item["commits"]:
+            print(f"  - {commit_hash}")
     print()
     print("### UNCOMMITTED")
     print(data["uncommitted_count"])

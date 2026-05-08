@@ -149,15 +149,21 @@ class TestDraftSummary(_SMMTestCase):
             content="fix(auth): patch a.py",
             files=["a.py"],
             ts="2026-05-08T02:01:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "abc1230000000000000000000000000000000001",
+            },
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
         # likely_addressed is list[{id, commits: list[str]}] — agent uses the
-        # commit IDs to fetch full content (conversation history for solo
-        # commits, Read on events.jsonl for teammate commits).
+        # git commit hash to fetch full content via `git show`.
         self.assertEqual(len(result["likely_addressed"]), 1)
         self.assertEqual(result["likely_addressed"][0]["id"], "dddddddddddd")
-        self.assertEqual(result["likely_addressed"][0]["commits"], ["eeeeeeeeeeee"])
+        self.assertEqual(
+            result["likely_addressed"][0]["commits"],
+            ["abc1230000000000000000000000000000000001"],
+        )
 
     def test_concern_without_file_overlap_excluded(self):
         concern = make_event(
@@ -193,12 +199,99 @@ class TestDraftSummary(_SMMTestCase):
             content="chore: drop unused",
             files=["c.py"],
             ts="2026-05-08T04:01:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "abc1230000000000000000000000000000000003",
+            },
         )
         self._write_events([debt, commit])
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(len(result["likely_addressed"]), 1)
         self.assertEqual(result["likely_addressed"][0]["id"], "222222222222")
-        self.assertEqual(result["likely_addressed"][0]["commits"], ["333333333333"])
+        self.assertEqual(
+            result["likely_addressed"][0]["commits"],
+            ["abc1230000000000000000000000000000000003"],
+        )
+
+    def test_likely_addressed_filters_commits_missing_commit_hash(self):
+        # Honesty: a commit event without metadata.commit_hash is malformed
+        # (post-commit hook always sets it for valid commits). Filter such
+        # events from `commits[]` rather than falling back to the SMM
+        # event id — the event id is NOT a git ref, and downstream
+        # `git show` would silently fail. Empty commits[] (no overlap
+        # surfaces likely_addressed at all) is honest; wrong refs are not.
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="filtertst001",
+            content="needs patch",
+            files=["h.py"],
+            ts="2026-05-08T07:00:00+00:00",
+            severity="medium",
+        )
+        # Commit event with NO metadata.commit_hash (malformed).
+        commit_bad = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="filtertst002",
+            content="fix(h): patch",
+            files=["h.py"],
+            ts="2026-05-08T07:01:00+00:00",
+        )
+        # Commit event WITH metadata.commit_hash (canonical).
+        commit_good = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="filtertst003",
+            content="fix(h): also patch",
+            files=["h.py"],
+            ts="2026-05-08T07:02:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "def4560000000000000000000000000000000007",
+            },
+        )
+        self._write_events([concern, commit_bad, commit_good])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(
+            result["likely_addressed"][0]["commits"],
+            ["def4560000000000000000000000000000000007"],
+            "commits[] must skip events missing metadata.commit_hash, "
+            "not fall back to the (non-git-ref) SMM event id",
+        )
+
+    def test_likely_addressed_emits_git_commit_hash_not_event_id(self):
+        # The `commits` field is consumed as a git ref (agents `git show`
+        # it to fetch full commit content). The SMM commit-event ID is
+        # NOT a git ref — the real git SHA lives in metadata.commit_hash
+        # (recorded by the post-commit hook). Regression: prior bug
+        # emitted the event ID, which `git show` correctly rejected.
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="hashtest0001",
+            content="needs patch",
+            files=["g.py"],
+            ts="2026-05-08T06:00:00+00:00",
+            severity="medium",
+        )
+        commit = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="hashtest0002",  # SMM event ID — must NOT appear in commits[]
+            content="fix(g): patch g.py",
+            files=["g.py"],
+            ts="2026-05-08T06:01:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "ae995e32f8ec7a299c517a69773e94803b791a87",
+            },
+        )
+        self._write_events([concern, commit])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(
+            result["likely_addressed"][0]["commits"],
+            ["ae995e32f8ec7a299c517a69773e94803b791a87"],
+            "commits[] must carry git commit_hash (resolvable by `git show`),"
+            " not the SMM commit-event ID",
+        )
 
     def test_likely_addressed_carries_multiple_commit_ids_for_audit(self):
         # Two commits both touching the concern's file → both IDs land in
@@ -219,6 +312,10 @@ class TestDraftSummary(_SMMTestCase):
             content="fix(m): part 1",
             files=["m.py"],
             ts="2026-05-08T05:01:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "abc1230000000000000000000000000000000005",
+            },
         )
         commit2 = make_event(
             event_schema.EVENT_TYPE_COMMIT,
@@ -226,13 +323,23 @@ class TestDraftSummary(_SMMTestCase):
             content="fix(m): part 2",
             files=["m.py"],
             ts="2026-05-08T05:02:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "abc1230000000000000000000000000000000006",
+            },
         )
         self._write_events([concern, commit1, commit2])
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(len(result["likely_addressed"]), 1)
         item = result["likely_addressed"][0]
         self.assertEqual(item["id"], "audit0000001")
-        self.assertEqual(item["commits"], ["audit0000002", "audit0000003"])
+        self.assertEqual(
+            item["commits"],
+            [
+                "abc1230000000000000000000000000000000005",
+                "abc1230000000000000000000000000000000006",
+            ],
+        )
 
     def test_session_boundary_filter(self):
         old_q = make_event(
@@ -556,6 +663,10 @@ class TestDraftSummaryCarryForward(_SMMTestCase):
             content="fix(a.py): patch",
             files=["a.py"],
             ts="2026-05-08T20:04:00+00:00",
+            metadata={
+                "action": "commit_success",
+                "commit_hash": "abc1230000000000000000000000000000000009",
+            },
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)

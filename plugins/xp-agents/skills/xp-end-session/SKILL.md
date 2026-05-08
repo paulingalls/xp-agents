@@ -22,7 +22,7 @@ User-invoked. The preload above provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.
-- `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented commit ID(s) for the audit trail.
+- `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented git commit hash(es) for the audit trail (resolvable via `git show`).
 - `### UNCOMMITTED` — count of SMM events newer than the last commit event.
 
 Run all five steps in order. Do **not** prompt the user before Step 1 — the design is friction-free; the user invoked `/xp-end-session` because they want this work done.
@@ -60,7 +60,7 @@ For each id in `### OPEN_QUESTIONS`:
 ## Step 3: Auto-judge likely-addressed concerns and debts
 
 The preload's `### LIKELY_ADDRESSED` section lists each concern/debt
-ID followed by indented commit ID(s) whose files overlap. **Judge
+ID followed by indented git commit hash(es) whose files overlap. **Judge
 each item yourself — do not prompt the user.** For each grouping:
 
 - **Auto-resolve** when the cited commits clearly fix the concern's
@@ -72,15 +72,15 @@ each item yourself — do not prompt the user.** For each grouping:
   When multiple commits are cited, ALL must contribute to the fix —
   if any cited commit is unrelated or only partially addresses the
   concern, defer instead. Append a status event citing both the
-  canonical resolution link AND the commit IDs that informed your
+  canonical resolution link AND the git commit hash(es) that informed your
   judgement:
 
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
     --type status --agent xp-end-session \
-    --content "Resolved by <commit_id>: <one-line rationale>" \
+    --content "Resolved by <commit_hash>: <one-line rationale>" \
     --working-on '[]' \
-    --metadata '{"action":"end_session_drop","resolves":["<concern_id>"],"resolved_by_commits":["<commit_id>"]}'
+    --metadata '{"action":"end_session_drop","resolves":["<concern_id>"],"resolved_by_commits":["<commit_hash>"]}'
   ```
 
 - **Defer** when the file overlap is incidental, intent isn't
@@ -90,20 +90,19 @@ each item yourself — do not prompt the user.** For each grouping:
   this skill on that item). The default is to defer when in doubt.
 
 **Where to find commit content:**
-- For commits you authored this session (solo work), the full commit
-  message is in your conversation history.
-- For commits authored by teammate worktree subagents (sprint mode),
-  the preload's `### CANDIDATES` section may include them, OR you can
-  `Read` `${SMM_DIR}/events.jsonl` and locate the line whose JSON
-  `"id"` field matches the commit ID.
+- The cited values are real git commit hashes — `git show <hash>`
+  reads the full message + diff regardless of author (works for both
+  solo commits and teammate worktree subagent commits).
+- For commits you authored this session (solo work), the message may
+  also be in your conversation history.
 
 After processing all items, print a one-line summary to the user:
 > "Auto-resolved N items: <ids>. Deferred M items: <ids> — <one-line reason>."
 
 The `action: "end_session_drop"` lets retro tooling distinguish
 end-of-session auto-judges from organic concern/debt resolutions;
-`resolved_by_commits` carries the audit trail of which commit(s)
-informed each decision.
+`resolved_by_commits` carries the audit trail of which git commit
+hash(es) informed each decision.
 
 ## Step 4: Persist into session_history.json
 

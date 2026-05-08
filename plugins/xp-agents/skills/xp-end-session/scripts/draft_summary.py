@@ -9,18 +9,18 @@ JSON to stdout:
       "summary": "<line-per-event narrative, trimmed to budget>",
       "open_questions": ["<event-id>", ...],
       "likely_addressed": [
-          {"id": "<concern_id>", "commits": ["<commit_id>", ...]},
+          {"id": "<concern_id>", "commits": ["<git_commit_hash>", ...]},
           ...
       ],
       "uncommitted_count": <int>,
       "carry_forward": [{"note", "references", "recommendation"}, ...]
     }
 
-`likely_addressed` carries only IDs — the agent fetches concern and
-commit content from its conversation history (solo work) or via Read
-on events.jsonl (teammate-authored commits). Keeping the preload
-minimal is intentional: the agent's judgement is the contract, not a
-pre-rendered string.
+`likely_addressed.commits` carries real git commit hashes (resolvable
+via `git show`), not SMM commit-event ids. The agent fetches concern
+content via Read on events.jsonl and commit content via `git show`.
+Keeping the preload minimal is intentional: the agent's judgement is
+the contract, not a pre-rendered string.
 """
 
 import argparse
@@ -161,9 +161,21 @@ def run(smm_dir: Path) -> dict:
         overlapping = triage.find_overlapping_commits(item, events)
         if not overlapping:
             continue
-        likely_addressed.append(
-            {"id": item["id"], "commits": [c["id"] for c in overlapping]}
-        )
+        # Emit git commit_hash (resolvable by `git show`), not the SMM
+        # commit-event id. The post-commit hook records the real SHA in
+        # metadata.commit_hash; agents downstream `git show` it to read
+        # the commit body when judging concern resolution.
+        # Filter (don't fall back) when commit_hash is missing — handing
+        # back the SMM event id would re-introduce the very bug this
+        # path fixes (event id is NOT a git ref).
+        commit_hashes = [
+            h
+            for c in overlapping
+            if (h := c.get("metadata", {}).get(event_schema.METADATA_KEY_COMMIT_HASH))
+        ]
+        if not commit_hashes:
+            continue
+        likely_addressed.append({"id": item["id"], "commits": commit_hashes})
 
     likely_addressed_ids = {item["id"] for item in likely_addressed}
     carry_forward = _build_carry_forward(open_qs, open_concerns, likely_addressed_ids)
