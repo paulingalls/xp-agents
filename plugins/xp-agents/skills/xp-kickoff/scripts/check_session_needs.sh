@@ -26,6 +26,14 @@ if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo ""
 fi
 
+# 2.5. Render last-session history. Gate the subprocess on file presence
+# so first-session and abandoned-history kickoffs don't pay the Python
+# cold-start cost; render_history.py still owns the fail-quiet contract
+# for the corrupt-file path.
+if [ -f "${SMM_DIR}/session_history.json" ]; then
+    python3 "$(dirname "$0")/render_history.py" --smm-dir "$SMM_DIR"
+fi
+
 # 3. Check for execution plan (JSON format, via CLI)
 if ! plan_has_remaining; then
     echo "### NEEDS_EXECUTION_PLAN"
