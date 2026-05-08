@@ -24,10 +24,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
+import markers
 from _bases import _PLUGIN_ROOT
 from _close_fixtures import (
-    _assert_text_ordering,
     _ClosePreloadCommonTests,
     _record_quality_block,
     _record_security_block,
@@ -171,37 +172,44 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
         )
 
     def test_emits_step4_close_cycle_active_marker_write(self):
-        # M-2: before invoking /security-review, the close skill writes
-        # the CLOSE_CYCLE_ACTIVE marker via the markers.py CLI from
-        # story-001. The new Stop hook reads this marker to gate the
-        # agent in the close cycle until close-reviewer's SubagentStop
-        # consumes it. Pin both the marker name and the CLI invocation.
+        # The close-cycle marker MUST be written by the preload script
+        # itself (not LLM prose), so the Stop hook arms regardless of
+        # what the LLM does next. Pin two halves:
+        #  (a) the preload source calls `write_marker CLOSE_CYCLE_ACTIVE`
+        #      BEFORE its `cat _close_pipeline_shared.md` line
+        #      (text inspection — write_marker runs silently, no stdout).
+        #  (b) the marker file actually appears on disk after the
+        #      preload runs (behavioral effect).
+        # Story-close overrides this test with an inverse-pin
+        # (no marker write) — see TestStoryClosePreloadEmitsShared.
+        source = self._PRELOAD.read_text()
+        write_call = "write_marker CLOSE_CYCLE_ACTIVE"
+        cat_call = 'cat "${PLUGIN_ROOT}/scripts/_close_pipeline_shared.md"'
+        write_idx = source.find(write_call)
+        cat_idx = source.find(cat_call)
+        self.assertGreater(
+            write_idx,
+            -1,
+            f"preload must invoke `{write_call}` to arm the close-cycle gate",
+        )
+        self.assertGreater(
+            cat_idx,
+            -1,
+            f"preload must `{cat_call}` to append the shared pipeline",
+        )
+        self.assertLess(
+            write_idx,
+            cat_idx,
+            "preload must arm the marker BEFORE cat'ing the shared "
+            "pipeline (prose-driven marker write was the failure mode)",
+        )
+
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        step4_idx = result.stdout.find("### Step 4: Security Review")
-        self.assertGreater(step4_idx, -1)
-        next_step_idx = result.stdout.find("\n### Step", step4_idx + 1)
-        section = result.stdout[
-            step4_idx : next_step_idx if next_step_idx != -1 else None
-        ]
-        self.assertIn(
-            "CLOSE_CYCLE_ACTIVE",
-            section,
-            "Step 4 (Security Review) must name the CLOSE_CYCLE_ACTIVE marker "
-            "(M-2 marker-gated Stop)",
-        )
-        self.assertIn(
-            "markers.py",
-            section,
-            "Step 4 (Security Review) must invoke scripts/markers.py to write "
-            "the marker",
-        )
-        _assert_text_ordering(
-            self,
-            section,
-            "markers.py",
-            "/security-review",
-            msg="markers.py write must precede /security-review invocation",
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        self.assertTrue(
+            marker_path.is_file(),
+            f"preload must actually write the marker file at {marker_path}",
         )
 
     def test_emits_step4_5_security_concern_metadata_kind(self):
@@ -442,6 +450,26 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
 
 class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
+
+    def test_emits_step4_close_cycle_active_marker_write(self):
+        # Inverse-pin: story-close NEVER runs Step 4 (Security Review) —
+        # the enclosing sprint-close covers it. So the preload source
+        # must NOT invoke `write_marker CLOSE_CYCLE_ACTIVE`, and after
+        # running, no marker file must land on disk.
+        source = self._PRELOAD.read_text()
+        self.assertNotIn(
+            "write_marker CLOSE_CYCLE_ACTIVE",
+            source,
+            "story-close preload must NOT arm the close-cycle marker "
+            "(no security-review, no marker arming)",
+        )
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        self.assertFalse(
+            marker_path.is_file(),
+            f"story-close preload must not create marker at {marker_path}",
+        )
 
 
 class TestSprintClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
