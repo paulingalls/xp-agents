@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.1.16 — sprint-070: /xp-end-session foundation (M-1, 4/4 velocity)
+
+Sprint-070 ships milestone M-1 of the `/xp-end-session` execution plan: a user-invoked skill that drafts a narrative session summary, force-closes/defers open questions, bulk-drops likely-addressed concerns/debts, and prints an honesty-signal count of SMM events not yet linked to a commit. 4 planned / 4 delivered, 4619 tests pass (was 4589; +30 net). Per-story review caught 11 close-reviewer concerns inline; the cumulative sprint-close review caught a missing `Bash(python3 */smm/smm_cli.py *)` allowed-tools glob that per-story coverage missed — the kind of cross-cutting gap the sprint-level safety net is for.
+
+### Schema (story-001)
+
+- **`EVENT_TYPE_SESSION_SUMMARY` (budget=2000)** — new event type registered in 4 sister allowlists: `event_schema.VALID_TYPES` + `CONTENT_BUDGETS` + `_VALIDATE_NO_TYPE_RULES`, `materialize._BUCKET_INTENTIONALLY_ABSENT` (housekeeper sibling, not a curated pillar), `compact._COMPACT_INTENTIONALLY_ABSENT` (M2's `session_history.json` will own persistent retention), and `schema.json` content description. The 3-allowlist tax for new event types is now recorded as debt (`ac06c0a67f34`) for a future `EVENT_CATEGORY` enum refactor.
+- **Helper extraction** (rule-of-three honored) — `_TempRepoTestCase._read_events` / `_clear_events` / `_events_file` consolidated from `test_append.py` + `test_session_summary_event.py` (+ `test_append_safety.py` migrated in the close-reviewer fix cycle).
+
+### Helper (story-002)
+
+- **`skills/xp-end-session/scripts/draft_summary.py`** — pure-stdlib CLI emits JSON `{summary, open_questions, likely_addressed, uncommitted_count}`. Reads events.jsonl from the prior `session_end` boundary forward; tail-preserving truncate (drops OLDEST lines on overflow with `...\n` prefix) so the LLM sees the most recent activity, not the oldest. `_NO_BOUNDARY_TAIL_CAP=200` fallback for backfill / corruption-recovery / first-session paths.
+- **Sister-helper extractions** — `resolution.collect_all_resolved_ids()` consolidates the `*_ids` suffix scan that had landed in 3 call sites (draft + triage_preload + concern_triage); `_common.prior_session_end_ts()` and `_common.uncommitted_event_count()` join `current_session_start_index` as third + fourth members of the boundary-scan family.
+
+### Skill scaffold (story-003)
+
+- **`SKILL.md`** — 4-step body (draft → append → AskUserQuestion-driven question close + concern bulk-drop → honesty signal). Friction-free per design (no confirm prompt before Step 1). Uses `smm_cli.py question close --won-fix --event-id <id> --rationale ...` for the question-drop branch (canonical helper, idempotent for already-resolved questions); status events with `metadata.action=end_session_drop` for concern bulk-drops so retro tooling distinguishes them from organic resolutions.
+- **`preload.sh` + `format_preload.py`** — sourcing `_preload_base.sh`, delegates to a sibling `format_preload.py` that does an in-process import of `draft_summary` (matches the `xp-quality-review` / `xp-work-selection` / `xp-accept` / `xp-sprint-review` precedent of separate `.py` from `preload.sh`; rejected an earlier python heredoc that had no precedent).
+
+### Capstone (story-004)
+
+- **`tests/integration/test_end_session_pipeline.py`** — renders milestone M-1's done-state into an executable pytest. Seeds tmp SMM with realistic events, runs preload subprocess, simulates the LLM by direct subprocess invocation of the 4 CLI calls SKILL.md instructs (session_summary append + answer event + smm_cli question close + end_session_drop status), then re-parses events.jsonl + asserts `compute_resolutions` surfaces both questions in `answered_question_ids` and the concern in `resolved_concern_ids`. Mutation-pass verified: temporarily zeroing `draft_summary.open_questions` filter fired red on both tests; reverted.
+- **`_IntegrationTestCase._run_smm_cli`** — third call site for `python3 smm_cli.py` subprocess wrapping joined `_run_append` on the integration base.
+
+### Real bug fixes (close-reviewer cycle)
+
+- **No-boundary cap missing** (story-002 close) — long backfilled log + first session would funnel every historical event through summary truncate and discard recent signal. Fix: `_NO_BOUNDARY_TAIL_CAP=200` fallback when `prior_session_end_ts` is empty; tail-preserving truncate.
+- **`smm_cli.py question close` flag form** (story-003 → story-004 close) — earlier SKILL.md draft used `question close <id> --won-fix` positional form; the CLI requires `--event-id <id>` flag form. Capstone test correctly followed the CLI; SKILL.md was the wrong source. Fixed.
+- **Allowed-tools glob missing** (sprint close) — Step 2 won-fix branch invokes `python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py ...` but `allowed-tools` only declared `Bash(*/append.sh *)` / `Bash(*/skills/*/scripts/*)` / `Bash(*/init.sh)` — the LLM would have hit a permission prompt mid-skill. Added `Bash(python3 */smm/smm_cli.py *)` (matches `xp-kickoff/SKILL.md` precedent).
+
 ## v3.1.15 — free-session: probe instrumentation + 8 cleanup items
 
 Free session bundling 9 user-adopted items from sprint-069 retrospective: 4 retro Trys, 1 debt, and 4 concerns including a real solo-mode bug. 8 implementation commits, all TDD with full review cycle (`/simplify` + `/xp-quality-review`) per commit. 4589 tests pass (was 4561; +28 net). Free-close added security review + cross-cutting close-reviewer pass — both clean before merge.
