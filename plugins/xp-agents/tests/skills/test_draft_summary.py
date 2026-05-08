@@ -36,8 +36,75 @@ class TestDraftSummary(_SMMTestCase):
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(
             result,
-            {"summary": "", "open_questions": [], "likely_addressed": []},
+            {
+                "summary": "",
+                "open_questions": [],
+                "likely_addressed": [],
+                "uncommitted_count": 0,
+            },
         )
+
+    def test_uncommitted_count_no_commits_returns_total(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_STATUS,
+                id=f"sta{i:09d}",
+                content=f"working {i}",
+                ts=f"2026-05-08T12:00:{i:02d}+00:00",
+                working_on=["x.py"],
+            )
+            for i in range(5)
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["uncommitted_count"], 5)
+
+    def test_uncommitted_count_zero_when_last_event_is_commit(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_STATUS,
+                id="sta000000001",
+                content="working",
+                ts="2026-05-08T13:00:00+00:00",
+                working_on=["x.py"],
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="com000000001",
+                content="feat: thing",
+                ts="2026-05-08T13:01:00+00:00",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["uncommitted_count"], 0)
+
+    def test_uncommitted_count_after_commit(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="com000000002",
+                content="feat: thing",
+                ts="2026-05-08T14:00:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_STATUS,
+                id="sta000000002",
+                content="post-commit work",
+                ts="2026-05-08T14:01:00+00:00",
+                working_on=["y.py"],
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DECISION,
+                id="dec000000001",
+                content="picked X",
+                ts="2026-05-08T14:02:00+00:00",
+                topic="x-choice",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["uncommitted_count"], 2)
 
     def test_open_question_surfaces(self):
         # Open question, plus a resolved question (answer event resolves it).
@@ -325,7 +392,8 @@ class TestDraftSummary(_SMMTestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         payload = json.loads(r.stdout)
         self.assertEqual(
-            set(payload), {"summary", "open_questions", "likely_addressed"}
+            set(payload),
+            {"summary", "open_questions", "likely_addressed", "uncommitted_count"},
         )
         self.assertEqual(payload["open_questions"], ["e2e000000001"])
 

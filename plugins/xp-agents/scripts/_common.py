@@ -97,6 +97,21 @@ def prior_session_end_ts(events: list[dict]) -> str:
     return ""
 
 
+def uncommitted_event_count(events: list[dict]) -> int:
+    """Count events newer than the most recent commit event.
+
+    Third sister of the boundary-scan family (after
+    `current_session_start_index` and `prior_session_end_ts`). Returns 0
+    when the last event IS a commit; len(events) when no commit exists.
+    Used as the /xp-end-session honesty signal — non-zero means the
+    user has SMM events not yet linked to a commit.
+    """
+    for i in range(len(events) - 1, -1, -1):
+        if events[i].get("type") == COMMIT:
+            return len(events) - i - 1
+    return len(events)
+
+
 def subagent_started_content(agent_id: str) -> str:
     """Canonical content string for subagent start events."""
     return f"Subagent {agent_id} started"

@@ -8,7 +8,8 @@ JSON to stdout:
     {
       "summary": "<line-per-event narrative, trimmed to budget>",
       "open_questions": ["<event-id>", ...],
-      "likely_addressed": ["<event-id>", ...]
+      "likely_addressed": ["<event-id>", ...],
+      "uncommitted_count": <int>
     }
 """
 
@@ -72,7 +73,12 @@ def run(smm_dir: Path) -> dict:
     """Compute the draft payload for the SMM at *smm_dir*."""
     events, _ = materialize.parse_events(smm_dir)
     if not events:
-        return {"summary": "", "open_questions": [], "likely_addressed": []}
+        return {
+            "summary": "",
+            "open_questions": [],
+            "likely_addressed": [],
+            "uncommitted_count": 0,
+        }
 
     prior_end_ts = _common.prior_session_end_ts(events)
     if prior_end_ts:
@@ -110,6 +116,7 @@ def run(smm_dir: Path) -> dict:
         "summary": summary,
         "open_questions": [q.get("id", "") for q in open_qs],
         "likely_addressed": likely_addressed,
+        "uncommitted_count": _common.uncommitted_event_count(events),
     }
 
 
