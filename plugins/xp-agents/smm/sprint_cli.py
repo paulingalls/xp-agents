@@ -24,14 +24,6 @@ from sprint_schema import VALID_STORY_STATUSES
 # automatically updates every choices array that uses this list.
 _STATUS_CHOICES = sorted(VALID_STORY_STATUSES)
 
-# Shared fixtures, drift-guard configs, and other plumbing files often
-# live outside a story's owned-code file_domain because they're
-# infrastructure, not story scope. K=1 default avoids false positives on
-# this common pattern while still surfacing multi-file drift that
-# signals scope creep. Set XP_FILE_DOMAIN_DRIFT_TOLERANCE=0 to restore
-# strict matching for stories that need a tighter contract.
-FILE_DOMAIN_DRIFT_TOLERANCE = int(os.getenv("XP_FILE_DOMAIN_DRIFT_TOLERANCE", "1"))
-
 
 def _cmd_exists(args: argparse.Namespace) -> int:
     return 0 if store.sprint_exists(args.smm_dir) else 1
@@ -272,13 +264,36 @@ def _cmd_validate_domain(args: argparse.Namespace) -> int:
 
     actual = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
     drift = sorted(actual - declared)
-    if len(drift) > FILE_DOMAIN_DRIFT_TOLERANCE:
+    # Shared fixtures, drift-guard configs, and other plumbing files
+    # often live outside a story's owned-code file_domain because
+    # they're infrastructure, not story scope. K=1 default avoids false
+    # positives on this common pattern while still surfacing multi-file
+    # drift that signals scope creep. Set XP_FILE_DOMAIN_DRIFT_TOLERANCE=0
+    # to restore strict matching for stories that need a tighter
+    # contract. Read per-invocation so per-sprint or per-story overrides
+    # can slot in without reshaping callers.
+    tolerance = int(os.getenv("XP_FILE_DOMAIN_DRIFT_TOLERANCE", "1"))
+    if len(drift) > tolerance:
         print(
             f"drift: {len(drift)} file(s) outside declared file_domain: "
             + " ".join(drift),
             file=sys.stderr,
         )
         return 1
+    if drift:
+        # Within tolerance — still exit 0, but surface the absorbed
+        # paths so retros and quality-review can see what slipped past
+        # the K-budget. Prefix-matches the over-tolerance line for
+        # grep-friendliness. Stdout reports "absorbed" rather than
+        # "clean" so callers parsing stdout get an honest signal.
+        print(
+            f"drift (within K={tolerance}): {len(drift)} file(s): " + " ".join(drift),
+            file=sys.stderr,
+        )
+        print(
+            f"absorbed: {len(actual)} file(s), {len(drift)} drift within K={tolerance}"
+        )
+        return 0
 
     print(f"clean: {len(actual)} file(s) match declared domain")
     return 0

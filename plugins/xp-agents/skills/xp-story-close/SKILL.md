@@ -69,33 +69,42 @@ on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
 ## Step 1b: Validate file_domain
 
 Surface file_domain drift before the close-reviewer fork — the structured
-diff catches drift cheaper than a full review pass:
+diff catches drift cheaper than a full review pass. Capture stderr so
+both over-budget AND within-tolerance drift are visible:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+DRIFT_STDERR=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   validate-domain <story-id> --base <TARGET_BRANCH> \
-  --cwd ${TEAMMATE_CWD:-.}
+  --cwd ${TEAMMATE_CWD:-.} 2>&1 >/dev/null)
+DRIFT_RC=$?
 ```
 
-Non-zero exit means the actual diff touches MORE files outside the
-declared `file_domain` than the configured tolerance allows (default
-`XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` — a single drifting file is treated
-as expected plumbing/infrastructure overhead and silently passes; set
-to `0` for strict matching). Stderr names the drifting paths. Drift is
-usually a courage signal: the teammate found something worth fixing
-outside the strict scope and did it. Record a `concern` event so retros
-can see the pattern, then continue to Step 2 — **do NOT stop or prompt
-the user mid-close**. The retrospective is the right place to discuss
-drift trends; per-story interruption hides the signal in noise.
+The default `XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` treats a single drifting
+file as expected plumbing/infrastructure overhead (set to `0` for strict
+matching). Drift is usually a courage signal: the teammate found
+something worth fixing outside the strict scope and did it. Record a
+`concern` event in EITHER drift case so retros can see the pattern,
+then continue to Step 2 — **do NOT stop or prompt the user mid-close**.
+The retrospective is the right place to discuss drift trends; per-story
+interruption hides the signal in noise.
+
+- **`DRIFT_RC != 0`** — over-budget drift. Stderr line begins `drift:`
+  and names the drifting paths.
+- **`DRIFT_RC == 0` with stderr matching `drift (within K=`** —
+  within-tolerance drift was absorbed. The same paths appear on stderr
+  with the `(within K=N)` qualifier. Record a concern with the same
+  shape so retros see absorbed drift alongside over-budget drift.
+- **`DRIFT_RC == 0` with empty stderr** — truly clean, continue to
+  Step 2 without recording.
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type concern --agent xp-story-close \
-  --content "file_domain drift on <story-id>: <drifting-paths from stderr>" \
-  --severity medium --metadata '{"kind":"file_domain_drift"}'
+if [ "$DRIFT_RC" -ne 0 ] || echo "$DRIFT_STDERR" | grep -q "^drift"; then
+  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+    --type concern --agent xp-story-close \
+    --content "file_domain drift on <story-id>: $DRIFT_STDERR" \
+    --severity medium --metadata '{"kind":"file_domain_drift"}'
+fi
 ```
-
-Zero exit means clean — continue to Step 2.
 
 ## Step 2: Push the story branch
 
