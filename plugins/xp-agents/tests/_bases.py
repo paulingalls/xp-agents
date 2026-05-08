@@ -378,6 +378,22 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             cwd=self.tmpdir,
         )
 
+    def _run_smm_cli(self, *args: str) -> subprocess.CompletedProcess:
+        """Run smm/smm_cli.py with --smm-dir prefilled. Sister of _run_append."""
+        return subprocess.run(
+            [
+                "python3",
+                str(_PLUGIN_ROOT / "smm" / "smm_cli.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            env=self._env_with_plugin_root(),
+            cwd=self.tmpdir,
+        )
+
 
 class _TempRepoTestCase(unittest.TestCase):
     """Base class: creates an isolated temp git repo per test class.
