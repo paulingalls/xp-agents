@@ -92,6 +92,7 @@ from _event_fixtures import (  # noqa: E402, F401
     file_write_status,
     make_event,
     make_retrospective_with_try,
+    make_session_history_entry,
     passing_tests_status,
     tests_run_status,
     write_events,

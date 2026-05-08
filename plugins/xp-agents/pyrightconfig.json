@@ -6,6 +6,7 @@
     "tests",
     "skills/xp-accept/scripts",
     "skills/xp-end-session/scripts",
+    "skills/xp-kickoff/scripts",
     "skills/xp-quality-review/scripts",
     "skills/xp-sprint-review/scripts",
     "skills/xp-sprint-start/scripts",
