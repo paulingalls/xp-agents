@@ -1,5 +1,51 @@
 # Changelog
 
+## v3.1.17 — sprint-071: /xp-end-session persistent layer (M-2, 5/5 velocity) + branch cleanup hardening
+
+Sprint-071 ships milestone M-2 of the `/xp-end-session` execution plan: a persistent `session_history.json` ring-buffer (last 5 session summaries) with `carry_forward` items that auto-prune via `resolution.compute_resolutions` STRONG/WEAK cascade when their referenced events resolve. Plus an ad-hoc story-005 hardening `branching.delete_branch` against the worktree-teammate orphan-branch failure mode that left 4 dead refs from sprint-070. 5 planned / 5 delivered, 4654 tests pass (was 4619; +35 net). 3-way teammate fan-out for stories 001/002/005 (disjoint file domains), then solo for stories 003 + 004 (chained deps). Per-story close-reviewer caught 11 concerns inline; cumulative sprint-close caught 3 more (2 fixed inline, 1 deferred to debt for next sprint).
+
+### Storage module (story-001)
+
+- **`smm/session_history.py`** — pure-stdlib module mirroring `smm_store.py` / `system_context_store.py`: `load_history` returns `empty_history()` when missing (`{version: 1, entries: []}`), `save_history` validates + atomic-writes via `_append_impl.write_text_atomic`, both reject symlinks at the target path. `append_entry(smm_dir, entry, *, max_entries=5)` evicts oldest beyond cap. `prune_resolved(smm_dir, resolutions)` walks each entry's `carry_forward` and drops items where every `references` id appears in `resolution.collect_all_resolved_ids` — saves only when at least one item dropped (no-op writes avoided).
+- **Schema inline** — `validate_session_history(data)` lives in the same module, not a sibling `*_schema.py`. Schema is `{version, entries: [{ts, summary, carry_forward[]}]}` with the `references` shape pinned (the field `prune_resolved` reads); `note`/`recommendation` left loose for forward compat per inline comment. Plan reviewer concern `389b77dc1df7` flagged premature split — resolved by inlining.
+
+### Producer (story-002)
+
+- **`draft_summary.run()` gains `carry_forward`** — list of `{note, references, recommendation}` items. Open questions get `recommendation="triage"` (next session decides); open high-severity concerns NOT in `likely_addressed` get `recommendation="watch"` (visible until resolved/downgraded). Notes route through `_common.truncate(content, 100)` so persisted ring-buffer entries stay compact (full content recoverable via `references`). Five existing return keys (`summary`, `open_questions`, `likely_addressed`, `uncommitted_count`) preserved.
+- **Recommendation differentiation decided in close-review** — initial implementation hardcoded `"triage"`; reviewer flagged the design context anticipated `"watch"` for high-severity concerns. User confirmed differentiation; now lets future kickoff UIs route the two carry_forward classes without re-deriving severity.
+- **Tests extended in-place** in `test_draft_summary.py` rather than a parallel `test_end_session_draft_summary.py` (resolves plan reviewer concern `52b32723587b` about duplicate test files for one module).
+
+### CLI + skill wiring (story-003)
+
+- **`skills/xp-end-session/scripts/write_history.py`** — thin CLI reads draft JSON from stdin (the dict shape produced by `draft_summary.run()`), builds a `{ts, summary, carry_forward}` entry, calls `session_history.append_entry` then `prune_resolved` against current `events.jsonl` resolutions. Uses `_common.load_events_with_resolutions` helper rather than re-implementing the parse+compute pair. **Fail-loud on missing required draft keys** (KeyError raised, not silent default-fill — defaults would mask a producer regression). `main()` wraps `run()` in try/except for `(KeyError, ValueError, OSError)` printing one-line `write_history failed: <msg>` to stderr instead of letting raw tracebacks escape (sprint-close-reviewer fix).
+- **SKILL.md gains Step 4** — pipes `draft_summary.py | write_history.py` after Step 1's append, documents N=5 retention + the schema. Renumbers the existing "Honesty signal" Step 4 → Step 5; intro updated "four steps" → "five steps". Step ordering rationale corrected after first close-reviewer pass: "AFTER Step 1" exists so Step 1's session_summary event is in events.jsonl when Step 4's mechanical scan runs — not because the persisted summary matches the agent narrative (the two layers are intentionally distinct).
+- **Two-layer design decision** — `session_summary` event (Step 1, agent-refined narrative) and `session_history.json` entry (Step 4, mechanical scan) are decoupled by design. `draft_summary._SUMMARY_TYPES` deliberately excludes `session_summary` so summaries never recurse on prior summaries.
+
+### Capstone (story-004)
+
+- **`tests/integration/test_session_history_pipeline.py`** — renders M-2's done-state into a two-session pytest. Session 1 seeds open Q + open high-severity concern → pipe → asserts 1 history entry with carry_forward refs to both. Session 2 appends answer + status with `metadata.resolves` → pipe again → asserts 2 entries AND session-1's carry_forward got pruned (cascade across the prior-session boundary). Plus 7-invocation eviction (= 5 chronological), corrupt-file rejection, symlink-rejection through the pipe (integration-level coverage of `save_history`'s symlink guard, not just unit), and two-layer payload distinction (separate sentinel markers prove the layers carry different data).
+- **AC-5 reconciliation in test docstring** — sprint.json AC-5 said "session_summary events AND session_history.json both reflect the same canonical narrative without divergence" but story-003's two-layer design intentionally diverges. Test docstring honestly names the gap and points readers at the story-003 decision.
+- **No-traceback contract pinned** — corrupt + symlink tests now `assertNotIn("Traceback", r.stderr)` and `assertIn("write_history failed", r.stderr)` to defend the clean-stderr behavior against future regressions.
+
+### Branch-cleanup hardening (story-005, ad-hoc)
+
+- **`branching.delete_branch` -D fallback** — adds optional `merge_target` kwarg. When `git branch -d` refuses (worktree-teammate case: local tip differs from upstream tracking ref even when fully merged to integration target), falls back to `git branch -D` ONLY when `git merge-base --is-ancestor <branch> <merge_target>` proves the merge. Backward compatible: legacy callers without `merge_target` see the unchanged False-on-refusal contract. `close_common.cmd_merge` passes `merge_target=args.target` so the close pipeline benefits across story/sprint/plan/free-close. Resolves the kickoff-detected concern `0552b1919480` that surfaced 4 orphan branches from sprint-070.
+- **`_is_merged_into` helper** — extracted from the inline ancestry check in `_fast_forward_if_safe` (rule-of-three honored).
+- **`_branching_fixtures.diverge_tracking_ref`** — shared test helper that reproduces the worktree-teammate diverged-ref state via `git update-ref refs/remotes/origin/<branch>` to an older commit + `--set-upstream-to`. Triggers git's "merged-into-upstream" check that refuses `-d` even when HEAD contains the no-ff merge.
+- **Live impact next sprint** — sprint-071 itself ran on the cached v3.1.16 plugin (pre-fix), so its own merges still hit the orphan failure and required manual `git branch -D`; v3.1.17 closes the loop for sprint-072 onward.
+
+### Real bug fixes (close-reviewer cycle)
+
+- **AC5 coverage half-implemented** (story-002 close) — E2E subprocess test added `"carry_forward"` to the expected key set but kept the old single-question event seed; never asserted populated `carry_forward` over the wire. Fix: extended seed to include resolved concern + open high-severity concern + commit; asserted exactly 2 expected refs.
+- **draft_summary defensive defaults** (story-003 close) — `draft.get("summary", "")` masked producer regressions. Replaced with explicit `_REQUIRED_DRAFT_KEYS` check that raises `KeyError` listing missing keys.
+- **SKILL.md ordering rationale** (story-003 close) — claimed "summary text in the event matches the entry on disk" — false. Rewrote to explain the actual reason (Step 1's event must be in events.jsonl when Step 4's scan runs) and the intentional content distinction.
+- **Existing test pinned 4 steps** (story-003 close) — `test_skill_md_has_four_documented_steps_in_order` failed after Step 4 added (renumbered to 5). Updated regex + assertion to expect 5.
+- **PROCESS_GUIDE.md missed new artifact** (sprint close) — `session_history.json` wasn't in the SMM_DIR file list. Added bare filename within the 1000-token budget cap; richer consumer-side docs deferred to M-3 (kickoff preload story) when the file gains a reader.
+
+### Deferred (carry forward to next sprint)
+
+- **`branching.py` over 500-line target** (debt `04d6e605509e`) — file was 567 lines on main pre-sprint; story-005 added 18 → 585. Extract `branch_lifecycle.py` covering `delete_branch` + `merge_branch` + `_is_merged_into` + `_fast_forward_if_safe` in a near-term sprint. Deferred at sprint-close to avoid high-risk refactor at the wire — the cascade across many call sites needs proper TDD scope.
+
 ## v3.1.16 — sprint-070: /xp-end-session foundation (M-1, 4/4 velocity)
 
 Sprint-070 ships milestone M-1 of the `/xp-end-session` execution plan: a user-invoked skill that drafts a narrative session summary, force-closes/defers open questions, bulk-drops likely-addressed concerns/debts, and prints an honesty-signal count of SMM events not yet linked to a commit. 4 planned / 4 delivered, 4619 tests pass (was 4589; +30 net). Per-story review caught 11 close-reviewer concerns inline; the cumulative sprint-close review caught a missing `Bash(python3 */smm/smm_cli.py *)` allowed-tools glob that per-story coverage missed — the kind of cross-cutting gap the sprint-level safety net is for.
