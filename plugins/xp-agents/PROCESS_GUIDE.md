@@ -45,7 +45,7 @@ Three link types close events and risk pillar items:
 
 ## Project Files
 
-Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_plan.json`, `system_context.json`. Resolve via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
+Project state lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_plan.json`, `system_context.json`, `session_history.json`. Resolve via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
 
 ## CLI Tools
 

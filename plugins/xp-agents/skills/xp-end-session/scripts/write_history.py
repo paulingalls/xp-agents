@@ -62,7 +62,16 @@ def main() -> int:
         print("Stdin JSON must be an object", file=sys.stderr)
         return 1
 
-    run(args.smm_dir, draft)
+    try:
+        run(args.smm_dir, draft)
+    except (KeyError, ValueError, OSError) as exc:
+        # KeyError: producer regression (missing required draft key).
+        # ValueError: corrupt history.json or schema-invalid entry.
+        # OSError: symlink rejection or other I/O refusal.
+        # Surface a one-line stderr message instead of a raw traceback
+        # so the SKILL.md pipe failure is legible to the agent.
+        print(f"write_history failed: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

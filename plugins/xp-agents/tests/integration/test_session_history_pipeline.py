@@ -186,6 +186,10 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         # unrelated regression in draft_summary | write_history would
         # let the test false-pass on any non-zero exit.
         self.assertIn("symlink", r.stderr)
+        # write_history.main()'s try/except must produce a one-line
+        # message, not a raw traceback (sprint-close-reviewer 4a2f4ac).
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("write_history failed", r.stderr)
         # The symlink target must NOT have been overwritten.
         self.assertIn("preexisting", sentinel.read_text())
 
@@ -199,6 +203,9 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         self.assertNotEqual(r.returncode, 0)
         # Underlying corrupt file MUST be left untouched.
         self.assertEqual(path.read_bytes(), garbage)
+        # Same no-traceback contract as the symlink path.
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("write_history failed", r.stderr)
 
     def test_two_layers_carry_distinct_payloads(self):
         # M-2 done-state: skill writes both event (Step 1, agent-refined
