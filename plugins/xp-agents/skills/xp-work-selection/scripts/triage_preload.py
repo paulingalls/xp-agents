@@ -61,11 +61,7 @@ def run(smm_dir: Path) -> str:
         return ""
 
     resolutions = resolution.compute_resolutions(events)
-
-    all_resolved: set[str] = set()
-    for key in resolutions:
-        if key.endswith("_ids"):
-            all_resolved |= resolutions[key]
+    all_resolved = resolution.collect_all_resolved_ids(resolutions)
 
     session_end_ts = _collect_session_end_timestamps(events)
 

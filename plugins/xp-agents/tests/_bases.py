@@ -378,6 +378,22 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             cwd=self.tmpdir,
         )
 
+    def _run_smm_cli(self, *args: str) -> subprocess.CompletedProcess:
+        """Run smm/smm_cli.py with --smm-dir prefilled. Sister of _run_append."""
+        return subprocess.run(
+            [
+                "python3",
+                str(_PLUGIN_ROOT / "smm" / "smm_cli.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            env=self._env_with_plugin_root(),
+            cwd=self.tmpdir,
+        )
+
 
 class _TempRepoTestCase(unittest.TestCase):
     """Base class: creates an isolated temp git repo per test class.
@@ -454,6 +470,23 @@ class _TempRepoTestCase(unittest.TestCase):
             env=env,
             cwd=str(cls.tmpdir),
         )
+
+    @classmethod
+    def _events_file(cls) -> Path:
+        return cls._get_smm_dir() / "events.jsonl"
+
+    @classmethod
+    def _read_events(cls) -> list[dict]:
+        """Parse events.jsonl as a list of event dicts; skip blank lines."""
+        return [
+            json.loads(line)
+            for line in cls._events_file().read_text().splitlines()
+            if line.strip()
+        ]
+
+    @classmethod
+    def _clear_events(cls) -> None:
+        cls._events_file().write_text("")
 
 
 def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:

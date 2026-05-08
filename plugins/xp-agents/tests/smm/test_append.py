@@ -21,19 +21,8 @@ from event_schema import EVENT_TYPE_STATUS
 class TestAppendIntegration(_TempRepoTestCase):
     """Integration tests using append.sh subprocess."""
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.smm_dir = cls._get_smm_dir()
-        cls.events_file = cls.smm_dir / "events.jsonl"
-
     def setUp(self):
-        # Clear events before each test
-        self.events_file.write_text("")
-
-    def _read_events(self) -> list[dict]:
-        lines = self.events_file.read_text().strip().split("\n")
-        return [json.loads(line) for line in lines if line]
+        self._clear_events()
 
     def test_append_status(self):
         r = self._run_append(
