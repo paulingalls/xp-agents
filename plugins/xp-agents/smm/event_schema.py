@@ -143,6 +143,14 @@ STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
 # resolves=[Q]) as a terminal disposition via metadata.resolves alone.
 STATUS_ACTION_QUESTION_CLOSE = "question_close"
 
+# End-of-session bulk-drop discriminator. Producer: xp-end-session skill
+# Step 3 (LLM-judged auto-resolve of LIKELY_ADDRESSED concerns/debts).
+# Companion metadata: METADATA_KEY_RESOLVES (canonical STRONG link to the
+# concern/debt being closed) + METADATA_KEY_RESOLVED_BY_COMMITS (audit
+# trail of which commit IDs informed the auto-judge). Consumer: retro
+# tooling distinguishes end-session bulk drops from organic resolutions.
+STATUS_ACTION_END_SESSION_DROP = "end_session_drop"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.

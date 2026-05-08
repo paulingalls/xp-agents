@@ -22,7 +22,7 @@ User-invoked. The preload above provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.
-- `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit.
+- `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented commit ID(s) for the audit trail.
 - `### UNCOMMITTED` — count of SMM events newer than the last commit event.
 
 Run all five steps in order. Do **not** prompt the user before Step 1 — the design is friction-free; the user invoked `/xp-end-session` because they want this work done.
@@ -57,20 +57,53 @@ For each id in `### OPEN_QUESTIONS`:
      question close --won-fix --event-id <question_id> --rationale "<one-line reason>"
    ```
 
-## Step 3: Drop likely-addressed concerns and debts
+## Step 3: Auto-judge likely-addressed concerns and debts
 
-For each id in `### LIKELY_ADDRESSED`, append a status event resolving it. The preload already filtered to items whose files overlap a recent commit, so the default action is "drop" — but ask the user once for the whole batch (`Drop these N items?`) before bulk-appending. If the user disagrees on specific items, skip them and leave open.
+The preload's `### LIKELY_ADDRESSED` section lists each concern/debt
+ID followed by indented commit ID(s) whose files overlap. **Judge
+each item yourself — do not prompt the user.** For each grouping:
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type status --agent xp-end-session \
-  --content "Resolved by recent commit: <brief>" \
-  --working-on '[]' \
-  --metadata '{"action":"end_session_drop","resolves":["<concern_or_debt_id>"]}'
-```
+- **Auto-resolve** when the cited commits clearly fix the concern's
+  intent. All three must hold:
+  - commit message wording matches the concern's stated problem,
+  - the concern's `files` are the obvious target of the change,
+  - no remaining work is implied (no "TODO", "follow-up", or scope
+    deferral in the commit body).
+  When multiple commits are cited, ALL must contribute to the fix —
+  if any cited commit is unrelated or only partially addresses the
+  concern, defer instead. Append a status event citing both the
+  canonical resolution link AND the commit IDs that informed your
+  judgement:
 
-The `action: "end_session_drop"` lets retro tooling distinguish bulk
-end-of-session drops from organic concern/debt resolutions.
+  ```bash
+  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+    --type status --agent xp-end-session \
+    --content "Resolved by <commit_id>: <one-line rationale>" \
+    --working-on '[]' \
+    --metadata '{"action":"end_session_drop","resolves":["<concern_id>"],"resolved_by_commits":["<commit_id>"]}'
+  ```
+
+- **Defer** when the file overlap is incidental, intent isn't
+  clearly fulfilled, or you can't confidently judge from available
+  context. Append nothing — the concern stays open and re-surfaces
+  at next kickoff (same effective behavior as if the user never ran
+  this skill on that item). The default is to defer when in doubt.
+
+**Where to find commit content:**
+- For commits you authored this session (solo work), the full commit
+  message is in your conversation history.
+- For commits authored by teammate worktree subagents (sprint mode),
+  the preload's `### CANDIDATES` section may include them, OR you can
+  `Read` `${SMM_DIR}/events.jsonl` and locate the line whose JSON
+  `"id"` field matches the commit ID.
+
+After processing all items, print a one-line summary to the user:
+> "Auto-resolved N items: <ids>. Deferred M items: <ids> — <one-line reason>."
+
+The `action: "end_session_drop"` lets retro tooling distinguish
+end-of-session auto-judges from organic concern/debt resolutions;
+`resolved_by_commits` carries the audit trail of which commit(s)
+informed each decision.
 
 ## Step 4: Persist into session_history.json
 

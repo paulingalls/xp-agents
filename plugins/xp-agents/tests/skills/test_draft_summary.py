@@ -152,7 +152,12 @@ class TestDraftSummary(_SMMTestCase):
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertIn("dddddddddddd", result["likely_addressed"])
+        # likely_addressed is list[{id, commits: list[str]}] — agent uses the
+        # commit IDs to fetch full content (conversation history for solo
+        # commits, Read on events.jsonl for teammate commits).
+        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(result["likely_addressed"][0]["id"], "dddddddddddd")
+        self.assertEqual(result["likely_addressed"][0]["commits"], ["eeeeeeeeeeee"])
 
     def test_concern_without_file_overlap_excluded(self):
         concern = make_event(
@@ -191,7 +196,43 @@ class TestDraftSummary(_SMMTestCase):
         )
         self._write_events([debt, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertIn("222222222222", result["likely_addressed"])
+        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(result["likely_addressed"][0]["id"], "222222222222")
+        self.assertEqual(result["likely_addressed"][0]["commits"], ["333333333333"])
+
+    def test_likely_addressed_carries_multiple_commit_ids_for_audit(self):
+        # Two commits both touching the concern's file → both IDs land in
+        # the audit-trail list, in chronological order. This is the trail
+        # the agent passes through to metadata.resolved_by_commits when
+        # auto-resolving.
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="audit0000001",
+            content="needs two patches",
+            files=["m.py"],
+            ts="2026-05-08T05:00:00+00:00",
+            severity="medium",
+        )
+        commit1 = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="audit0000002",
+            content="fix(m): part 1",
+            files=["m.py"],
+            ts="2026-05-08T05:01:00+00:00",
+        )
+        commit2 = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="audit0000003",
+            content="fix(m): part 2",
+            files=["m.py"],
+            ts="2026-05-08T05:02:00+00:00",
+        )
+        self._write_events([concern, commit1, commit2])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(len(result["likely_addressed"]), 1)
+        item = result["likely_addressed"][0]
+        self.assertEqual(item["id"], "audit0000001")
+        self.assertEqual(item["commits"], ["audit0000002", "audit0000003"])
 
     def test_session_boundary_filter(self):
         old_q = make_event(
@@ -518,7 +559,8 @@ class TestDraftSummaryCarryForward(_SMMTestCase):
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertIn("acf000000001", result["likely_addressed"])
+        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(result["likely_addressed"][0]["id"], "acf000000001")
         self.assertEqual(result["carry_forward"], [])
 
     def test_existing_keys_unchanged_when_carry_forward_added(self):

@@ -32,7 +32,10 @@ def main() -> None:
     print("\n".join(data["open_questions"]))
     print()
     print("### LIKELY_ADDRESSED")
-    print("\n".join(data["likely_addressed"]))
+    for item in data["likely_addressed"]:
+        print(f"- {item['id']}")
+        for commit_id in item["commits"]:
+            print(f"  - {commit_id}")
     print()
     print("### UNCOMMITTED")
     print(data["uncommitted_count"])

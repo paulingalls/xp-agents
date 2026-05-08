@@ -277,19 +277,28 @@ _DOCTRINE_GAPS: dict[str, str] = {
     # at sprint-retro completion, or remove the constant and rewrite the
     # consumers against retrospective-type events.
     "STATUS_ACTION_SPRINT_RETRO_DONE": "ef03cbc32f1e",
-    # STATUS_ACTION_CONCERN_CLASSIFY is intentionally emitted by the LLM
-    # running close skills' Step 5c (via append.sh from
-    # _close_pipeline_shared.md), NOT by a Python hook. There's no
-    # producer to drive in this canary because the producer is prose
-    # in a SKILL.md that the LLM executes. Consumer is
-    # smm_cli.py count-classifications, exercised by
-    # tests/engine/test_smm_cli_count_classifications.py.
-    # Not a debt — this is an intentional LLM-via-SKILL.md producer
-    # pattern, the first STATUS_ACTION_* of its kind. When the 2nd
-    # LLM-producer constant lands, lift these to _LLM_PRODUCERS:set[str]
-    # so the dict stays single-purpose (debt-id values only). Tracked
-    # by debt 730e9a0dbe9c.
-    "STATUS_ACTION_CONCERN_CLASSIFY": "LLM-via-SKILL.md (not a debt)",
+}
+
+
+# Intentional LLM-via-SKILL.md producers: the action constant is emitted
+# by the LLM running a SKILL.md (via append.sh), NOT by a Python hook.
+# No driver to wire in this canary because the producer is prose. These
+# are NOT debts — separated from _DOCTRINE_GAPS so that dict stays
+# single-purpose (debt-id values). Each entry should cite the SKILL.md
+# producer + a test that exercises the consumer.
+#
+#   STATUS_ACTION_CONCERN_CLASSIFY     — Producer: close skills' Step 5c
+#       (_close_pipeline_shared.md). Consumer: smm_cli count-classifications,
+#       exercised by tests/engine/test_smm_cli_count_classifications.py.
+#       Tracked by debt 730e9a0dbe9c.
+#   STATUS_ACTION_END_SESSION_DROP     — Producer: xp-end-session SKILL.md
+#       Step 3 (LLM-judged auto-resolve). Consumer: retro tooling reads
+#       metadata.action to distinguish bulk drops from organic resolutions;
+#       integration test test_end_session_pipeline asserts the produced
+#       event shape end-to-end.
+_LLM_PRODUCERS: set[str] = {
+    "STATUS_ACTION_CONCERN_CLASSIFY",
+    "STATUS_ACTION_END_SESSION_DROP",
 }
 
 
@@ -303,7 +312,7 @@ class TestActionVocabularySmoke(_HookTestCase):
         with an existing one cannot be silently considered covered.
         """
         constant_names = set(_all_status_action_values())
-        covered = set(_PRODUCER_CASES) | set(_DOCTRINE_GAPS)
+        covered = set(_PRODUCER_CASES) | set(_DOCTRINE_GAPS) | _LLM_PRODUCERS
         missing = sorted(constant_names - covered)
         self.assertEqual(
             missing,
