@@ -5,9 +5,10 @@ Reads session_history.json and prints a `### LAST_SESSION` block with the
 last 1-2 entries' summary plus open carry_forward notes/recommendations.
 Event ids in `references` are NEVER rendered — humans don't read those.
 
-Fail-quiet contract: any exception (missing file, corrupt JSON, schema
-mismatch, symlink) results in exit 0 with empty stdout. The kickoff
-preload must never break because of a malformed history file.
+Fail-quiet contract: errors raised by session_history.load_history are
+swallowed (returns "") so the kickoff preload never breaks on a
+malformed history file. Missing file is not an error — load_history
+returns empty_history.
 """
 
 import argparse
