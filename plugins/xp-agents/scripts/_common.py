@@ -84,6 +84,19 @@ def current_session_start_index(events: list[dict]) -> int:
     return 0
 
 
+def prior_session_end_ts(events: list[dict]) -> str:
+    """Return ts of the most recent SESSION_END event, or "" if none.
+
+    Sister of `current_session_start_index` — same reverse-scan, returns
+    the boundary timestamp instead of the post-boundary index. Use when
+    callers need a ts comparison (e.g., filter by `e["ts"] > prior_ts`).
+    """
+    for event in reversed(events):
+        if event.get("type") == SESSION_END:
+            return event.get("ts", "")
+    return ""
+
+
 def subagent_started_content(agent_id: str) -> str:
     """Canonical content string for subagent start events."""
     return f"Subagent {agent_id} started"

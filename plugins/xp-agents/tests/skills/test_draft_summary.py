@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Tests for plugins/xp-agents/skills/xp-end-session/scripts/draft_summary.py.
+
+Story-002 of sprint-070: pure-stdlib helper that parses events.jsonl
+from the prior session_end boundary forward and emits JSON
+{summary, open_questions, likely_addressed} for the SKILL.md to consume.
+"""
+
+import json
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import event_schema
+from conftest import _SMMTestCase, make_event
+
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
+_DRAFT_SUMMARY_SCRIPT = (
+    _PLUGIN_ROOT / "skills" / "xp-end-session" / "scripts" / "draft_summary.py"
+)
+sys.path.insert(0, str(_DRAFT_SUMMARY_SCRIPT.parent))
+
+import draft_summary  # noqa: E402
+
+
+class TestDraftSummary(_SMMTestCase):
+    """Unit tests for draft_summary.run() against various seeded SMMs."""
+
+    def test_empty_smm(self):
+        self._write_events([])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(
+            result,
+            {"summary": "", "open_questions": [], "likely_addressed": []},
+        )
+
+    def test_open_question_surfaces(self):
+        # Open question, plus a resolved question (answer event resolves it).
+        open_q = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="aaaaaaaaaaaa",
+            content="open?",
+            ts="2026-05-08T01:00:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        resolved_q = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="bbbbbbbbbbbb",
+            content="resolved?",
+            ts="2026-05-08T01:01:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        answer = make_event(
+            event_schema.EVENT_TYPE_ANSWER,
+            id="cccccccccccc",
+            content="yes",
+            ts="2026-05-08T01:02:00+00:00",
+            references=["bbbbbbbbbbbb"],
+        )
+        self._write_events([open_q, resolved_q, answer])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["open_questions"], ["aaaaaaaaaaaa"])
+
+    def test_concern_with_file_overlap_surfaces(self):
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="dddddddddddd",
+            content="auth bug",
+            files=["a.py"],
+            ts="2026-05-08T02:00:00+00:00",
+            severity="medium",
+        )
+        commit = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="eeeeeeeeeeee",
+            content="fix(auth): patch a.py",
+            files=["a.py"],
+            ts="2026-05-08T02:01:00+00:00",
+        )
+        self._write_events([concern, commit])
+        result = draft_summary.run(self.smm_dir)
+        self.assertIn("dddddddddddd", result["likely_addressed"])
+
+    def test_concern_without_file_overlap_excluded(self):
+        concern = make_event(
+            event_schema.EVENT_TYPE_CONCERN,
+            id="ffffffffffff",
+            content="bug in a.py",
+            files=["a.py"],
+            ts="2026-05-08T03:00:00+00:00",
+            severity="medium",
+        )
+        commit = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="111111111111",
+            content="fix(other): touch b.py",
+            files=["b.py"],
+            ts="2026-05-08T03:01:00+00:00",
+        )
+        self._write_events([concern, commit])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["likely_addressed"], [])
+
+    def test_debt_likely_addressed(self):
+        debt = make_event(
+            event_schema.EVENT_TYPE_DEBT,
+            id="222222222222",
+            content="unused fn in c.py",
+            files=["c.py"],
+            ts="2026-05-08T04:00:00+00:00",
+        )
+        commit = make_event(
+            event_schema.EVENT_TYPE_COMMIT,
+            id="333333333333",
+            content="chore: drop unused",
+            files=["c.py"],
+            ts="2026-05-08T04:01:00+00:00",
+        )
+        self._write_events([debt, commit])
+        result = draft_summary.run(self.smm_dir)
+        self.assertIn("222222222222", result["likely_addressed"])
+
+    def test_session_boundary_filter(self):
+        old_q = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="444444444444",
+            content="from prior session?",
+            ts="2026-05-07T01:00:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        boundary = make_event(
+            event_schema.EVENT_TYPE_SESSION_END,
+            id="555555555555",
+            content="session ended",
+            ts="2026-05-07T23:59:00+00:00",
+        )
+        new_q = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="666666666666",
+            content="from current session?",
+            ts="2026-05-08T05:00:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        self._write_events([old_q, boundary, new_q])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["open_questions"], ["666666666666"])
+
+    def test_no_prior_session_end_uses_whole_log(self):
+        only_q = make_event(
+            event_schema.EVENT_TYPE_QUESTION,
+            id="777777777777",
+            content="only event?",
+            ts="2026-05-08T06:00:00+00:00",
+            priority=event_schema.PRIORITY_ASSUMED,
+        )
+        self._write_events([only_q])
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["open_questions"], ["777777777777"])
+
+    def test_summary_includes_commit_decision_concern_debt_status(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="888888888888",
+                content="feat: thing",
+                ts="2026-05-08T07:00:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DECISION,
+                id="999999999999",
+                content="chose X over Y",
+                ts="2026-05-08T07:01:00+00:00",
+                topic="x-vs-y",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="aaabbbcccddd",
+                content="possible regression",
+                ts="2026-05-08T07:02:00+00:00",
+                severity="medium",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DEBT,
+                id="aaabbbcccdde",
+                content="cleanup later",
+                ts="2026-05-08T07:03:00+00:00",
+                files=["x.py"],
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_STATUS,
+                id="aaabbbcccddf",
+                content="working on x",
+                ts="2026-05-08T07:04:00+00:00",
+                working_on=["x.py"],
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        for marker in ("[commit]", "[decision]", "[concern]", "[debt]", "[status]"):
+            self.assertIn(marker, result["summary"])
+
+    def test_summary_trimmed_to_budget(self):
+        budget = event_schema.get_required_budget(
+            event_schema.EVENT_TYPE_SESSION_SUMMARY
+        )
+        # Each commit content ~150 chars; need >> budget total.
+        large_content = "x" * 150
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id=f"cccccccccc{i:02d}",
+                content=large_content,
+                ts=f"2026-05-08T08:00:{i:02d}+00:00",
+            )
+            for i in range(40)
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertLessEqual(len(result["summary"]), budget)
+        self.assertTrue(
+            result["summary"].endswith("..."),
+            f"expected trim suffix, got tail: {result['summary'][-20:]!r}",
+        )
+
+    def test_e2e_subprocess(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_QUESTION,
+                id="e2e000000001",
+                content="e2e?",
+                ts="2026-05-08T09:00:00+00:00",
+                priority=event_schema.PRIORITY_ASSUMED,
+            ),
+        ]
+        self._write_events(events)
+        r = subprocess.run(
+            [
+                sys.executable,
+                str(_DRAFT_SUMMARY_SCRIPT),
+                "--smm-dir",
+                str(self.smm_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        payload = json.loads(r.stdout)
+        self.assertEqual(
+            set(payload), {"summary", "open_questions", "likely_addressed"}
+        )
+        self.assertEqual(payload["open_questions"], ["e2e000000001"])
+
+
+if __name__ == "__main__":
+    unittest.main()
