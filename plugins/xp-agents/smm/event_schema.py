@@ -190,6 +190,12 @@ METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
+
+# Concern metadata.kind discriminator vocabulary. Centralized so producer
+# (close_cycle_stop_gate hook) and consumer (retros, integration tests)
+# can't drift on the spelling. Pattern matches STATUS_ACTION_* — a small
+# string vocab named at module level, not inlined.
+CONCERN_KIND_CLOSE_CYCLE_BYPASS = "close_cycle_bypass"
 METADATA_KEY_DISPOSITION = "disposition"
 METADATA_KEY_CLOSE_MODE = "close_mode"
 METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
