@@ -1,5 +1,64 @@
 # Changelog
 
+## v3.1.19 — free session: 4 retro Trys + 4 concerns/debts shipped in 8 commits
+
+Free session executing the four adopted retro Trys from sprint-072 plus four reviewer-flagged concerns/debts that landed alongside. Headline: `/xp-end-session` Step 3 now auto-judges LIKELY ADDRESSED concerns instead of asking the user (mirrors `/xp-story-close` Step 5b). Plus drift-signal restoration, per-invocation env-var reads, schema-doc derivation, close-cycle bypass instrumentation, probe-divert NO_CANDIDATES bucket, and TDD-red metric tagging. 4680 tests pass (was 4669; +11 net). Solo mode throughout. One concern (`c7600936cd55` security stop-gate) dropped as already-addressed by the existing `CLOSE_CYCLE_ACTIVE` marker — the discovery-by-checking saved a redundant implementation.
+
+### Drift signal restoration (commit `2c32700b`)
+
+- **`smm/sprint_cli.py:_cmd_validate_domain`** — moved `XP_FILE_DOMAIN_DRIFT_TOLERANCE` env-var read from module-import time into the function so per-sprint or per-story overrides can slot in without reshaping callers (closes concern `047c2769a5a2`). Added `drift (within K=N): N file(s): <files>` stderr emission when `1<=len(drift)<=tolerance` so retros and quality-review can see what slipped past the K-budget instead of silent absorption (closes `04fee892ac2c`). Stdout reports `absorbed:` rather than `clean:` when drift was absorbed — honest signal for callers parsing stdout.
+- **`xp-story-close/SKILL.md` Step 1b** — capture stderr and record `file_domain_drift` concern in BOTH over-budget (rc!=0) AND within-K (rc==0 with stderr matching `^drift`) cases. Producer-without-consumer gap caught by `xp-quality-review` reviewer mid-cycle.
+
+### `/xp-end-session` LIKELY ADDRESSED auto-judge (commits `dd47fca4` Phase A + `e5c09dcd` Phase B)
+
+- **Step 3 rewrite** — replaces `AskUserQuestion` "Drop these N items?" with per-item agent judgement. Auto-resolves when commit message wording matches the concern's stated problem AND the concern's `files` are the obvious target AND no remaining work is implied; defers when uncertain (no event, re-surfaces next kickoff). Reports a one-line summary instead of prompting (closes concern `2668d4b09cfd`).
+- **Audit trail** — new `METADATA_KEY_RESOLVED_BY_COMMITS` constant (Phase A standalone schema commit) populated on the `end_session_drop` status event alongside the canonical `metadata.resolves` STRONG link. Retro tooling can distinguish bulk end-session drops from organic resolutions and trace which commit(s) informed each auto-judge.
+- **`draft_summary.likely_addressed` shape change** — `list[str]` → `list[{id, commits: [str]}]` carrying only IDs (no truncated content). Agent fetches concern + commit content from conversation history (solo) or via Read on events.jsonl (teammate-authored commits). Keeps the preload minimal — the agent's judgement is the contract, not a pre-rendered string.
+- **`format_preload.py`** renders `- <concern_id>` at top-level with overlapping commit IDs indented beneath.
+- **New `STATUS_ACTION_END_SESSION_DROP` constant** — added to event_schema's status-action vocabulary alongside the existing review-cycle and tool-action sets. `_LLM_PRODUCERS` set lifted out of `_DOCTRINE_GAPS` in the action-vocab canary per the existing TODO ("when 2nd LLM-producer constant lands, lift to `_LLM_PRODUCERS`") — keeps `_DOCTRINE_GAPS` single-purpose (debt IDs only).
+- **Test coverage** — pipeline integration test now asserts new preload format + `resolved_by_commits` metadata round-trip; new deferral re-surface test (`test_pipeline_deferred_concern_resurfaces_in_next_draft`) calls `draft_summary.run()` twice and asserts the deferred concern re-surfaces, proving the contract holds across session boundaries (reviewer reframe of the original "skip step 5 = no-op" assertion).
+
+### `architecture_overview` budget bump 600 → 750 (commit `c26e1878`)
+
+- User-requested headroom for larger repos: 600 was tight on plugins with 5+ persistent state files. `system_context_schema.FIELD_MAXLENGTH["architecture_overview"]` bumped + matching update to `xp-system-analyzer` agent prompt's Step 4 JSON template ("max 750 chars").
+- **`TestSystemAnalyzerPromptMaxlengthSync` test class** added — pins both `architecture_overview` and `product` budgets to `FIELD_MAXLENGTH` constants. A future schema bump that forgets the markdown (or vice versa) now fails loudly. Reviewer-flagged drift risk closed.
+
+### Schema budget derivation + enum drift fix (commit `dc87c6d4`)
+
+- **`smm/schema.json` content description** — replaced hand-maintained per-type budget enumeration (`status=200, decision=400, ...`) with `"see CONTENT_BUDGETS in smm/event_schema.py for current values"`. The schema is a doc artifact (no Python loads it for validation); the truth is `event_schema.validate_event` reading `CONTENT_BUDGETS`. Closes debt `dd336aa81092`.
+- **Enum drift fix (reviewer-caught while in the file)** — `schema.json` `type.enum` was missing `session_summary` (added to `VALID_TYPES` and `CONTENT_BUDGETS` but never to the enum). The hand-enumerated `test_schema_has_16_types` was complicit. Replaced with `test_schema_type_enum_matches_valid_types` that auto-syncs to `VALID_TYPES` — drift class eliminated.
+- **`scripts/_common.py` event-type constants** — replaced literal strings (`COMMIT = "commit"`, etc.) with delegations (`COMMIT = _es.EVENT_TYPE_COMMIT`). Comment claiming "mirrors smm/schema.json enum" was a lie (same missing `session_summary`); now the source of truth is `event_schema.py` and the unprefixed aliases stay for caller ergonomics. Closes concern `7853b810062a`.
+
+### Close-cycle bypass instrumentation (commit `3b91bbf3`)
+
+- User reported a real failure: agent ended mid-`/security-review` with `CLOSE_CYCLE_ACTIVE` marker still set. Root cause: `close_cycle_stop_gate.py` deferred on `stop_hook_active=True` (Claude Code's loop-prevention flag), letting the agent escape the gate by ignoring one block. Implementation contradicted the docstring's intent ("Review-cycle/teammates deferrals are intentionally NOT applied").
+- **Picked option #2 of three**: keep the defer (avoid infinite loop if the agent literally cannot follow the directive) BUT record a concern + emit stderr on every bypass while the marker is set. We will see how often it happens.
+- **Restructured `run()`** to resolve `smm_dir` + check the marker BEFORE the `stop_hook_active` branch, so both branches share the marker check. On bypass: stderr-first (minimum reliable signal), then a medium-severity concern with `metadata.kind = CONCERN_KIND_CLOSE_CYCLE_BYPASS` (new vocabulary constant). Uses `identity.resolve_agent_id` for correct teammate attribution (reviewer-caught real bug); dropped redundant try/except since `_common.append_safe` already swallows `LockTimeoutError` and logs to `hook_errors.jsonl`.
+- Concern `c7600936cd55` (filed as "add `SECURITY_REVIEW_ACTIVE` Stop-gate marker") was dropped earlier in the session as already-addressed — the existing `CLOSE_CYCLE_ACTIVE` mechanism does what the concern asked for. This commit closes the silent-escape gap that the original mechanism missed.
+
+### Probe-divert `DIVERT_REASON_NO_CANDIDATES` bucket (commit `e0198426`)
+
+- Sprint-072 retro flagged 9 consecutive sub-50% probe-adoption periods where every observed divert had empty candidates but bucketed under per-event reasons (`NEWER_THAN_SNAPSHOT`, `PROBE_SELECTION_MISS`), hiding the candidate-gen gap. Closes concern `c727ba5bab99`.
+- **`DIVERT_REASON_NO_CANDIDATES` constant** in event_schema.py alongside the other 6 DIVERT_REASON_* values. Probe-level signal (the candidate set itself was empty), not event-level miss.
+- **Short-circuit at the call site** in `retro_metrics._compute_probe_adoption` — when `candidate_ids` is empty, bucket as `NO_CANDIDATES` BEFORE invoking `_classify_divert_reason` (which is event-level by contract). Reviewer-flagged dead computation moved into the else branch.
+- **Decision recorded** with topic `divert-reason-classifier-layering` documenting the probe-level vs event-level separation so the superseded-decision detector flags any future drift.
+
+### TDD-red metric tagging (commit `b6552e46`)
+
+- `consecutive_test_failures` conflated red TDD steps with regressions. Sprint-072 retro flagged 5 consecutive failures as a Fix item — all of them legitimate RED steps where the agent had committed failing tests and was iterating to make them pass. Closes concern `d4262732af65`.
+- **Producer (`bash_post_tool`)**: when the most recent commit event in `events.jsonl` had only test-layer files (per `is_test_file` — covers `test_*.py`, `tests/`, `conftest.py`, etc.), tag the next `test_run_complete` event with `metadata.tdd_red=True`. Conservative: a single non-test file in the prior commit kills the tag (default to "treat failures as regressions" when in doubt). Empty file lists / no prior commit → no tag.
+- **Consumer (`work_signals`)**: in the `consecutive_failures` counter, skip events where `metadata.tdd_red=True`. Same treatment as `parser_status=parser_failed` — the run carries no regression signal, don't increment, don't reset.
+- **`METADATA_KEY_TDD_RED` constant** in event_schema.py centralizes the spelling; producer, consumer, and `_event_fixtures.tests_run_status`'s new `metadata_extra` param all reference it.
+
+### Reviewer-flagged secondary fixes folded in mid-cycle
+
+- `/xp-end-session` Step 3 honesty: stdout no longer claims "clean" when drift was absorbed (`2c32700b`).
+- `xp-story-close` SKILL.md producer-without-consumer gap on within-K drift signal (`2c32700b`).
+- `_emit_stderr` helper extraction skipped: would create inconsistency with 5+ existing `print(..., file=sys.stderr)` callsites in the same file.
+- Stop-gate constant `STATUS_ACTION_END_SESSION_DROP` placed in correct grouping (with other `STATUS_ACTION_*`) per reviewer mid-flight refactor (`e5c09dcd`).
+- Producer-guard removal in `draft_summary.py` (trust `validate_event` upstream guarantee, fail-loud doctrine) — reviewer-flagged.
+- Schema constant comment block tightened to honest "5 persistent state files" count after reviewer probed the "SMM quartet" claim (`c26e1878`).
+
 ## v3.1.18 — sprint-072: /xp-end-session kickoff render (M-3, 6/6 velocity) + drift K=1 default + retro-Try follow-throughs
 
 Sprint-072 ships milestone M-3 of the `/xp-end-session` execution plan — kickoff preload now surfaces the most recent session_history entries as a `### LAST_SESSION` block — closing out the three-milestone arc (M-1 skill scaffold sprint-070; M-2 persistent layer sprint-071; M-3 consumption sprint-072). Plus three retro-Try follow-throughs converted into ad-hoc stories: probe-snapshot fix verification, file_domain drift-tolerance K=1 default with env override, and a 6-test-failure cluster investigation that unmasked a metric misclassification (red TDD steps counted as regressions). 6 planned / 6 delivered, 4669 tests pass (was 4664; +5 net). Solo mode throughout — mixed story sizes (3 small/investigation, 3 implementation) made teammate fan-out coordination cost not worth the wall-time savings.
