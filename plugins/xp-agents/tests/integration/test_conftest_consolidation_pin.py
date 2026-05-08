@@ -21,10 +21,10 @@ Three pins:
     story-016 scope.
 
 Behavior of the re-exports themselves is covered by the existing
-test_retro_flag_cascade.py + test_xp_story_close_security_gap.py +
-test_close_cycle.py + test_markers_cli.py suites; they continue to pass
-after the migration. This pin only enforces the no-duplication invariant
-so a future contributor can't silently re-introduce a local copy.
+test_retro_flag_cascade.py + test_close_cycle.py + test_markers_cli.py
+suites; they continue to pass after the migration. This pin only
+enforces the no-duplication invariant so a future contributor can't
+silently re-introduce a local copy.
 """
 
 import re
