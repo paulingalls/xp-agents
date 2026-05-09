@@ -18,7 +18,7 @@ allowed-tools:
 
 # Work Assignment
 
-Analyze the plan and decide how to execute: solo (sequential) or with CLI teammates (parallel). Stories arrive at /xp-assign in the `scheduled` status (xp-work-selection parks them there). xp-assign promotes scheduled → in-progress as it creates each branch — solo creates only the FIRST scheduled, teammates create ALL.
+Decide how to execute the plan: solo (sequential) or with CLI teammates (parallel). Stories arrive in `scheduled` status (xp-work-selection parks them). xp-assign promotes scheduled → in-progress as it creates each branch — solo promotes only the FIRST scheduled, teammates promote ALL.
 
 ## Pre-flight
 
@@ -31,32 +31,21 @@ Analyze the plan and decide how to execute: solo (sequential) or with CLI teamma
 
 **Auto-pick solo without prompting** when EITHER:
 
-- only one scheduled story exists (nothing to parallelize), OR
+- only one scheduled story exists, OR
 - two or more scheduled stories share at least one file in their `file_domain` (parallel teammates would step on each other).
-
-Use the CLI to decide. The two auto-solo signals are checked separately
-for clarity (`scheduled-overlap` exits 0 when overlap exists — i.e.,
-"the conflict condition holds" — same convention as `has-active`/
-`is-complete`):
 
 ```bash
 SCHEDULED_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
   --smm-dir ${SMM_DIR} count-status scheduled)
 
 if [ "$SCHEDULED_COUNT" -eq 0 ]; then
-  # No scheduled stories — nothing to assign. Return without creating
-  # branches. Pre-existing in-progress stories from a prior session
-  # stay on their existing branches; xp-assign acts on the new batch
-  # only.
   echo "No scheduled stories — nothing to assign. Stop."
   exit 0
 elif [ "$SCHEDULED_COUNT" -eq 1 ]; then
-  # One scheduled story — nothing to parallelize.
   MODE=solo
 elif python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
        --smm-dir ${SMM_DIR} scheduled-overlap; then
-  # 2+ scheduled with file_domain overlap — parallel teammates would
-  # step on each other.
+  # 2+ scheduled with file_domain overlap — exits 0 when overlap exists.
   MODE=solo
 else
   # 2+ scheduled with disjoint file_domains — genuinely parallelizable.
@@ -64,18 +53,13 @@ else
 fi
 ```
 
-The predicate intentionally ignores pre-existing in-progress stories
-carried over from a prior session — those already have branches and
-their own xp-accept lifecycle; xp-assign acts on the new scheduled
-batch only.
+The predicate ignores pre-existing in-progress stories carried over from a prior session — those already have branches and their own xp-accept lifecycle. xp-assign acts on the new scheduled batch only.
 
 The plan-driven heuristic still applies: if the plan steps have sequential deps, target overlapping files, or the plan is small (≤3 steps) — favor solo even when not auto-picked. Present the rationale when you ask.
 
 ## Branch Creation (Stage 1+)
 
-After mode selection but before execution, transition scheduled stories
-to `in-progress` and create their branches — JIT in solo mode, eager in
-teammate mode.
+After mode selection but before execution, transition scheduled stories to `in-progress` and create their branches — JIT in solo mode, eager in teammate mode.
 
 1. Read the branching stage:
 ```bash
@@ -89,13 +73,7 @@ If stage < 1, skip branch creation entirely.
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .
 ```
 
-3. **Solo mode** (JIT): promote ONLY the first scheduled story to
-`in-progress` and create its branch. The rest stay `scheduled` —
-/xp-story-close JIT-promotes the next scheduled story to in-progress
-+ creates its branch off the merged sprint tip after each prior story
-ships. JIT story branches eliminate the pre-JIT staleness that an
-`ff-only` post-step in /xp-accept was trying to patch — the just-
-merged-tip base is what the next story needs to build on.
+3. **Solo mode** (JIT): promote ONLY the first scheduled story to `in-progress` and create its branch. The rest stay `scheduled` — `/xp-story-close` JIT-promotes the next scheduled story off the merged sprint tip after each story ships.
 
 ```bash
 FIRST_SCHEDULED=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} next-scheduled)
@@ -110,12 +88,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
   --slug <title-slug> --base <story-base>
 ```
 
-4. **Teammate mode** (eager — parallel-eligible): promote EVERY
-scheduled story to `in-progress` and create its branch now, since each
-teammate needs its own worktree+branch to spawn into. Per design,
-teammates only run parallel work — never chained sequential — so all
-scheduled stories at /xp-assign time are parallel-eligible and
-unblocked. Each branches off the story base.
+4. **Teammate mode** (eager): promote EVERY scheduled story to `in-progress` and create its branch now — each teammate needs its own worktree+branch to spawn into. Per design, teammates run only parallel work, so all scheduled stories at /xp-assign time are parallel-eligible. Each branches off the story base.
 
 ```bash
 git checkout <story-base>
@@ -129,11 +102,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
 
 The `create` command auto-records `branch_name` in sprint.json.
 
-**Teammate-mode only:** after creating all parallel branches, return
-to the story base so subsequent teammate spawns have a clean starting
-point. Solo mode skips this — it stays on the single branch it just
-created (the next section's "Solo Mode" hands off from there for the
-JIT-first-story workflow).
+**Teammate-mode only:** after creating all parallel branches, return to the story base so subsequent teammate spawns have a clean starting point. Solo mode skips this — it stays on the single branch it just created.
 
 ```bash
 # teammate mode only:
@@ -155,7 +124,7 @@ Output "Proceeding with solo execution on `<first-story-branch>`." and stop.
 
 ### 1. Write Prompt Files
 
-Write a self-contained prompt per step group to `/tmp/prompt-step-N.txt`. The teammate has no prior context. Include these sections:
+Write a self-contained prompt per step group to `/tmp/prompt-step-N.txt`. The teammate has no prior context. Include:
 
 - **Milestone Context** — design_details and constraints from execution_plan.json
 - **Story Context** — what THIS story uniquely does (don't restate milestone rationale)
@@ -190,11 +159,7 @@ Spawn all teammates in parallel (multiple Bash calls in one message).
 3. Read report file for summary
 4. Run `/xp-accept` to verify acceptance criteria for each in-progress story
 
-The orchestrator does NOT merge teammate branches. Each story branch
-stays alive on its teammate worktree until its `/xp-story-close`
-invocation merges it (dispatched by `/xp-accept` per accepted story).
-This mirrors solo mode timing: per-story merge belongs to
-`/xp-story-close`, not `/xp-assign`.
+The orchestrator does NOT merge teammate branches. Each story branch stays alive on its teammate worktree until its `/xp-story-close` invocation merges it (dispatched by `/xp-accept` per accepted story).
 
 ## Recording Events
 
