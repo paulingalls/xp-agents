@@ -204,6 +204,7 @@ CTXEOF
 ```bash
 echo '"new value"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-field product
 echo '{"name": "mod", "path": "src/mod", "purpose": "does X"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-module
+echo '{"topic": "auth-strategy", "decision": "JWT over session cookies", "rationale": "stateless API"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-decision
 ```
 
 For large updates, prefer `create` with the full object over many small patches.
