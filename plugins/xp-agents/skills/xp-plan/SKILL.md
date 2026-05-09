@@ -23,24 +23,24 @@ allowed-tools:
 
 # Execution Plan
 
-The preload above shows the current state: milestone counts + `EXECUTION_PLAN=<path>` (update mode), or "No execution plan found" (create mode). It also reports whether system_context.json exists.
+The preload above shows current state: existing plan path (update mode) or "No execution plan found" (create mode), and whether system_context.json exists.
 
 ## Mode Detection
 
-- **Create mode** (preload says "No execution plan found"): Follow the Create flow below.
-- **Update mode** (preload shows existing plan): Follow the Update flow below.
+- **Create mode** (preload says "No execution plan found"): Follow the Create flow.
+- **Update mode** (preload shows existing plan): Follow the Update flow.
 
 ## System Context Check
 
-If the preload shows `NEEDS_SYSTEM_CONTEXT=true`, invoke `/xp-system-context` first using the `Skill` tool. The system context provides the broad product description that every sprint story will reference. Wait for it to complete before proceeding.
+If the preload shows `NEEDS_SYSTEM_CONTEXT=true`, invoke `/xp-system-context` first via the `Skill` tool. Wait for it to complete.
 
-If `SYSTEM_CONTEXT=<path>` is shown, system context already exists. Read it for reference but do not modify it.
+If `SYSTEM_CONTEXT=<path>` is shown, read it for reference but do not modify it.
 
 ## Create Flow
 
 ### Step 1: Source Gathering
 
-Ask the user what they're building or changing. Use `AskUserQuestion`:
+Ask the user via `AskUserQuestion`:
 
 > "What are the sources for this change? Provide file paths, paste content, or describe verbally."
 
@@ -54,8 +54,8 @@ For each source:
 
 ### Step 2: Light Codebase Scan
 
-After gathering sources, scan the codebase to understand what exists:
-- Use `Glob` to find files related to the change areas mentioned in sources.
+After gathering sources:
+- Use `Glob` to find files related to the change areas.
 - Use `Read` on 3-5 key files to understand current architecture and patterns.
 - Identify which files will likely change (change zones) and which are affected indirectly (impact zones).
 
@@ -63,40 +63,34 @@ After gathering sources, scan the codebase to understand what exists:
 
 Based on sources + codebase scan, propose ordered milestones. Each milestone should be roughly one sprint's worth of work.
 
-**Discovery pass for change_zones.** Before finalizing each milestone's `change_zones`, run a discovery pass: for every file you intend to declare, identify the symbols (functions, classes, top-level constants) it exports, then `Grep` for call-sites of those symbols across the repo. Union the call-site files into the milestone footprint — surfacing them as `impact_zones` (read-only impact) or as additional `change_zones` (when the call-site itself must change to land the milestone). This grounds declared scope in actual code coupling instead of agent-intuited boundaries, pre-empting the common drift pattern where stories miss callers the planner did not see. For symbols with too many call-sites to enumerate (e.g., utility helpers with >20 callers), record the count and a representative sample rather than listing all paths.
+**Discovery pass for change_zones.** Before finalizing each milestone's `change_zones`, run a discovery pass: for every file you intend to declare, identify the symbols (functions, classes, top-level constants) it exports, then `Grep` for call-sites of those symbols. Union the call-site files into the milestone footprint — surfacing them as `impact_zones` (read-only impact) or as additional `change_zones` (when the call-site itself must change). For symbols with too many call-sites to enumerate (>20 callers), record the count and a representative sample.
 
 For each milestone:
 - **Goal**: One sentence describing what's delivered. Budget: ≤200 chars.
 - **Definition of Done**: A concrete, testable condition. Budget: ≤300 chars.
 - **Sources**: References into the Sources table with section pointers.
-- **Discovery**: Run the discovery pass described above (`Grep` for call-sites of declared symbols). Its output feeds Change Zones and Impact Zones below — do not hand-roll those bullets without it.
-- **Change Zones**: Files/modules that will be modified, with a brief note on what changes. Union of declared paths and discovery call-sites that must change to land the milestone. Note budget: ≤150 chars each.
-- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Remaining read-only call-sites from the discovery pass land here. Note budget: ≤150 chars each.
+- **Discovery**: Run the discovery pass above. Its output feeds Change Zones and Impact Zones — do not hand-roll those bullets without it.
+- **Change Zones**: Files/modules modified, with a brief note. Union of declared paths and discovery call-sites that must change. Note budget: ≤150 chars each.
+- **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Remaining read-only call-sites land here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
-- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when the project has an automated acceptance surface in `system_context.json`. Format: `{"type": "<harness>", "command": "<run command>"}` for a single command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple commands run in order (fail on first non-zero). Optional `setup` and `notes` fields.
+- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when `system_context.json` has an `acceptance_surfaces` entry with `status: "covered"`. Format: `{"type": "<harness>", "command": "<run command>"}` for one command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple (run in order, fail on first non-zero). Optional `setup` and `notes` fields.
 
 Guidelines:
 - Milestones are ordered — each builds on the previous.
 - Flag milestones with >8 change zone files as "consider splitting".
 - Every milestone gets `[planned]` status.
 - Keep design details specific enough that sprint planning can decompose into stories.
-- **Acceptance execution**: check `system_context.json` for `acceptance_surfaces` with `status: "covered"`. If a milestone's `done` condition is verifiable by a covered surface's harness, populate `acceptance_execution` with the type and a `command` (single) or `commands` (list, run in order). Leave null when no harness matches or the milestone is purely structural (docs, config, refactor).
 
 ### Step 4: User Confirmation
 
-Present the complete plan to the user. Show:
-1. Sources table
-2. Change overview
-3. Each milestone with its details
+Present the complete plan: Sources table, change overview, each milestone with details.
 
-Use `AskUserQuestion`: "Does this plan look right? Any milestones to adjust?"
+Ask via `AskUserQuestion`: "Does this plan look right? Any milestones to adjust?"
 
 Iterate until the user confirms.
 
 ### Step 5: Write execution_plan.json
-
-Assemble the plan as JSON and write via the CLI:
 
 ```bash
 cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> create
@@ -135,20 +129,20 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
 
 A plan branch accumulates multiple sprints before merging to the primary branch — useful when intermediate milestones can't safely land on the primary one-by-one.
 
-Skip this step when any of:
-- Stage 0 (run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage` first).
+Skip when any of:
+- Stage 0 (run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage`).
 - Single-milestone plan.
 - Every milestone is independently shippable to the primary branch.
 
 Otherwise, ask via `AskUserQuestion`: *"Create a plan branch so intermediate milestones don't land on the primary branch until the plan completes?"* — Yes / No.
 
-On **Yes**, create the branch (the CLI records it into the plan):
+On **Yes**:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create-plan --cwd . --slug <plan-title-slug>
 ```
 
-The CLI outputs `created: <branch>` for new branches or `resumed: <branch>` for pre-existing ones. If the output starts with `resumed:`, ask the user via `AskUserQuestion`: "Plan branch `<branch>` already exists. Adopt this branch for the new plan?" Options: "Adopt existing branch", "Choose a different slug". If the user chooses a different slug, re-run with the new slug.
+The CLI outputs `created: <branch>` or `resumed: <branch>`. If `resumed:`, ask via `AskUserQuestion`: "Plan branch `<branch>` already exists. Adopt this branch for the new plan?" Options: "Adopt existing branch", "Choose a different slug". On different slug, re-run.
 
 On **No**, do nothing — sprints will base off the primary branch.
 
@@ -166,9 +160,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 1. Read the full plan from `EXECUTION_PLAN=<path>` using `Read`.
 2. Show the user a summary (milestone counts from preload, titles from file).
-3. Ask what to change via `AskUserQuestion`: "Add milestones", "Refine existing", "Add sources", "Archive and start fresh", "Done".
-4. For archive: run `python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive`, then switch to the **Create Flow** (step 1 above) so the user can start a new plan.
-5. For new milestones, use the CLI to add:
+3. Ask via `AskUserQuestion`: "Add milestones", "Refine existing", "Add sources", "Archive and start fresh", "Done".
+4. For archive: run `python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive`, then switch to the **Create Flow** (step 1 above).
+5. For new milestones:
    ```bash
    cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-milestone
    {"number": N, "name": "...", "status": "planned", "delivered_sprint": null, ...}
@@ -190,13 +184,3 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
    ```
 10. Record a status event describing what changed.
-
-## Guidelines
-
-- Be collaborative — the user brings domain knowledge, you bring codebase knowledge.
-- Scan the codebase before proposing milestones. Ground change zones in real files.
-- Keep milestones focused. If a milestone has >8 change zone files, suggest splitting.
-- Design details should be specific enough for sprint story decomposition.
-- Sources are inputs to planning — once the plan is written, the plan should be self-contained. But milestones reference sources for traceability.
-- Every new milestone gets `[planned]` status. No exceptions.
-- The plan is a living document — start with what's known, refine as understanding grows.
