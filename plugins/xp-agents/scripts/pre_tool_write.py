@@ -24,19 +24,13 @@ from sprint_status import (
     has_under_acceptance_stories_data,
 )
 
-_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
-
-
 # ---------------------------------------------------------------------------
 # Test file detection
 # ---------------------------------------------------------------------------
 
 _TEST_DIRS = {"tests", "__tests__", "test", "spec"}
-_TEST_DIR_SUFFIXES = ("Tests",)  # Xcode: ContactForgeTests/
-# Maven/Gradle: src/test/java/...
-_TEST_PATH_SEGMENTS = {"src/test"}
-# JS/TS lacks a canonical test extension — enumerate the family
-# (.ts/.tsx/.js/.jsx + ESM/CJS module variants).
+_TEST_PATH_SEGMENTS = {"src/test"}  # Maven/Gradle
+# JS/TS lacks a canonical test extension — enumerate the family.
 _JS_TS_TEST_SUFFIXES = (
     "_test.ts",
     "_test.tsx",
@@ -57,42 +51,38 @@ def is_test_file(path: str) -> bool:
     parts = set(p.parts)
     path_str = str(p)
 
-    # Directory-based: exact match
     if parts & _TEST_DIRS:
         return True
 
-    # Directory suffix: *Tests/ (Xcode convention)
+    # *Tests/ directory (Xcode)
     if any(part.endswith("Tests") for part in p.parts):
         return True
 
-    # Path segment: src/test (Maven/Gradle)
     if any(seg in path_str for seg in _TEST_PATH_SEGMENTS):
         return True
 
-    # Name contains .test. or .spec. (JS/TS: app.test.js, app.spec.ts)
+    # JS/TS: app.test.js, app.spec.ts
     if ".test." in name or ".spec." in name:
         return True
 
-    # JS/TS underscore convention (Bun/some monorepos use foo_test.ts
-    # alongside the more common foo.test.ts).
     if name.endswith(_JS_TS_TEST_SUFFIXES):
         return True
 
-    # Python: test_*.py, *_test.py
+    # Python
     if name.startswith("test_") and name.endswith(".py"):
         return True
     if name.endswith("_test.py"):
         return True
 
-    # Go: *_test.go
+    # Go
     if name.endswith("_test.go"):
         return True
 
-    # Swift: *Tests.swift
+    # Swift
     if name.endswith("Tests.swift"):
         return True
 
-    # Java/Kotlin: *Test.java, *Tests.java, *Test.kt, *Tests.kt
+    # Java/Kotlin/Scala
     if (stem.endswith("Test") or stem.endswith("Tests")) and p.suffix in {
         ".java",
         ".kt",
@@ -100,33 +90,33 @@ def is_test_file(path: str) -> bool:
     }:
         return True
 
-    # Ruby: *_spec.rb, *_test.rb
+    # Ruby
     if name.endswith("_spec.rb") or name.endswith("_test.rb"):
         return True
 
-    # Rust: *_test.rs, tests/*.rs (tests/ already caught above)
+    # Rust
     if name.endswith("_test.rs"):
         return True
 
-    # C/C++: test_*.c, test_*.cpp, *_test.c, *_test.cpp
+    # C/C++
     if p.suffix in {".c", ".cpp", ".cc", ".cxx"} and (
         stem.startswith("test_") or stem.endswith("_test")
     ):
         return True
 
-    # C#: *Test.cs, *Tests.cs
+    # C#
     if p.suffix == ".cs" and (stem.endswith("Test") or stem.endswith("Tests")):
         return True
 
-    # PHP: *Test.php
+    # PHP
     if name.endswith("Test.php"):
         return True
 
-    # Dart/Flutter: *_test.dart
+    # Dart
     if name.endswith("_test.dart"):
         return True
 
-    # Elixir: *_test.exs
+    # Elixir
     return bool(name.endswith("_test.exs"))
 
 
@@ -141,7 +131,6 @@ def check_working_on_overlap(
     """Check if another agent is working on the same file.
 
     Reads .coordination.json (O(1)) instead of scanning the event log.
-    Returns conflict message or None.
     """
     coord_data = coordination.read_coordination(smm_dir)
     normalized_target = worktree.normalize_path(file_path, cwd)
@@ -153,9 +142,8 @@ def check_working_on_overlap(
             try:
                 if worktree.normalize_path(f, cwd) == normalized_target:
                     return (
-                        f"CONFLICT: Agent '{aid}' is currently "
-                        f"working on '{f}'. "
-                        f"Coordinate before modifying this file."
+                        f"CONFLICT: Agent '{aid}' is working on '{f}'. "
+                        f"Coordinate before modifying."
                     )
             except (ValueError, OSError):
                 continue
@@ -168,12 +156,8 @@ def check_working_on_overlap(
 # ---------------------------------------------------------------------------
 
 
-def check_tdd_order(
-    smm_dir: Path, agent_id: str, file_path: str | None, tool_name: str
-) -> str | None:
+def check_tdd_order(smm_dir: Path, agent_id: str, file_path: str | None) -> str | None:
     """Track writes and nudge if tests are missing. Returns nudge or None."""
-    if tool_name not in _WRITE_TOOLS:
-        return None
     if file_path is None:
         return None
 
@@ -182,15 +166,9 @@ def check_tdd_order(
     except ValueError:
         return None
 
-    # Load existing tracker
     raw = markers.marker_read(smm_dir, markers.TDD_TRACKER, agent_id)
     tracker: dict = (
-        raw
-        if isinstance(raw, dict)
-        else {
-            "writes": [],
-            "test_written": False,
-        }
+        raw if isinstance(raw, dict) else {"writes": [], "test_written": False}
     )
 
     changed = False
@@ -207,7 +185,6 @@ def check_tdd_order(
     if not code_files.is_code_file(file_path):
         return None
 
-    # Implementation file
     if file_path not in tracker["writes"]:
         tracker["writes"].append(file_path)
         changed = True
@@ -221,9 +198,8 @@ def check_tdd_order(
 
     if not tracker["test_written"]:
         return (
-            "TDD reminder: You've written to "
-            f"{len(tracker['writes'])} implementation files without a test. "
-            "Consider writing a test first."
+            f"TDD reminder: {len(tracker['writes'])} implementation files "
+            f"written without a test. Write a test first."
         )
 
     return None
@@ -248,7 +224,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     parts: list[str] = []
 
-    # Extract target_file (always present for Write/Edit/MultiEdit)
     target_file = _common.extract_file_path(tool_name, tool_input)
 
     # Conflict detection via .coordination.json (O(1), no event log scan)
@@ -268,8 +243,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 "File conflict detected — another agent is working on this file.",
             )
 
-    # Plan review gate — block writes until plan is reviewed.
-    # Plan files (.claude/plans/) are exempt — writing the plan is not implementation.
+    # Plan review gate. Plan files (.claude/plans/) are exempt.
     is_plan_file = target_file and "/.claude/plans/" in target_file
     plan_marker = (
         smm_dir
@@ -278,14 +252,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     if plan_marker:
         raise _common.BlockedError(
-            "Run /xp-review-plan before writing any code. "
-            "The plan review extracts assumptions, decisions, and risks "
-            "that feed the Shared Mental Model.",
+            "Run /xp-review-plan before writing code. "
+            "Plan review extracts assumptions, decisions, and risks for the SMM.",
             "Plan review required before implementation.",
         )
 
-    # Assign gate — block writes until /xp-assign decides execution mode.
-    # Plan files (.claude/plans/) are exempt — same as plan review gate.
+    # Assign gate. Plan files exempt — same as plan review gate.
     assign_marker = (
         smm_dir
         and not is_plan_file
@@ -293,36 +265,28 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     if assign_marker:
         raise _common.BlockedError(
-            "Run /xp-assign to decide execution mode "
-            "(solo vs worktree subagents) before writing code.",
+            "Run /xp-assign to decide execution mode (solo vs worktree subagents) "
+            "before writing code.",
             "Work assignment required before implementation.",
         )
 
-    # Question gate — block writes until blocking question is answered.
+    # Question gate
     question_gate = smm_dir and markers.marker_exists(smm_dir, markers.QUESTION_GATE)
     if question_gate:
         raise _common.BlockedError(
-            "A blocking question needs your answer. "
-            "Use AskUserQuestion to ask the user, then proceed.",
+            "A blocking question needs your answer. Use AskUserQuestion.",
             "Blocking question requires user answer.",
         )
 
-    # TDD order check
     if target_file and smm_dir:
-        tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file, tool_name)
+        tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file)
         if tdd_nudge:
             parts.append(tdd_nudge)
 
     # Accept marker — signal "needs acceptance" when writing during an active
-    # sprint. Plan files are exempt (writing a plan isn't iteration work).
-    # UNDER_ACCEPTANCE (reviewing or closing) suppresses re-arm during the
-    # close-then-done window: when ANY story is under acceptance, we're
-    # inside the per-story accept dispatch (xp-accept → xp-story-close →
-    # mark-done), so Edits during fix-cycles must NOT re-arm .accept even
-    # if siblings remain in-progress. Replaces the prior ACCEPT_ACTIVE
-    # marker check. Load sprint.json once and predicate-check against the
-    # dict to avoid repeated disk reads on this hot Write/Edit/MultiEdit
-    # path.
+    # sprint. Plan files exempt. UNDER_ACCEPTANCE (reviewing/closing) suppresses
+    # re-arm during the close-then-done window so fix-cycle Edits don't re-arm
+    # .accept while the per-story accept dispatch is in flight.
     if smm_dir and not is_plan_file:
         sprint_data = sprint_state.read_sprint_content(smm_dir)
         if (
