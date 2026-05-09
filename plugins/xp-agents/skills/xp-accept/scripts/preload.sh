@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-accept: reviewing-first dispatch with in-progress
-# fallback. Surfaces the in-motion story set the skill iterates.
+# Preload for xp-accept: reviewing-first dispatch with in-progress fallback.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
@@ -16,10 +15,9 @@ if ! sprint_exists; then
     exit 0
 fi
 
-# Reviewing-first dispatch: teammate self-promote (story-004) lands stories
-# in `reviewing`; solo work leaves them in `in-progress`. Picking reviewing
-# first ensures the orchestrator processes finished teammate work before
-# any in-progress fallback even when both states coexist.
+# Reviewing-first: teammate self-promote lands stories in `reviewing`;
+# solo work leaves them in `in-progress`. Process finished teammate work
+# before any in-progress fallback when both coexist.
 reviewing_count=$(sprint_count_status reviewing)
 in_progress_count=$(sprint_count_status in-progress)
 
@@ -35,9 +33,8 @@ else
     exit 0
 fi
 
-# Clear the accept gate marker so update-story done is unblocked.
-# This MUST happen in the preload, not via rm in the SKILL.md — never
-# ask an agent to run rm.
+# Clear the ACCEPT marker here so update-story done is unblocked; the agent
+# is never asked to run rm.
 consume_marker ACCEPT
 
 echo "### STORIES_TO_ACCEPT"
@@ -46,19 +43,16 @@ echo "SELECTED_STATUS=${SELECTED_STATUS}"
 echo "SPRINT_FILE=${SPRINT_FILE}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 
-# Surface open concerns overlapping in-progress stories' file domains
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 python3 "${SKILL_DIR}/scripts/concern_triage.py" --smm-dir "${SMM_DIR}" --sprint-file "${SPRINT_FILE}" || true
 echo ""
 
-# Surface acceptance_execution type per in-progress story
 python3 "${SKILL_DIR}/scripts/acceptance_types.py" --sprint-file "${SPRINT_FILE}" || true
 echo ""
 
-# Detect teammate worktrees — emits `story-id<TAB>abs-path` per live
-# worktree so the SKILL prose can cd into each story's worktree before
-# running its acceptance command (the unmerged teammate edits live
-# there). Tab-delimited — paths can contain spaces on macOS.
+# Tab-delimited `story-id<TAB>abs-path` per live teammate worktree (macOS
+# paths can contain spaces). The SKILL prose cd's into each before
+# running its acceptance command.
 teammate_wts=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" --smm-dir "${SMM_DIR}" \
     list-teammate-worktree-paths --cwd . 2>/dev/null || true)
 if [ -n "$teammate_wts" ]; then

@@ -20,11 +20,10 @@ from sprint_status import select_in_motion_stories  # noqa: E402
 
 
 def format_acceptance_types(sprint: dict) -> str:
-    """Format acceptance types for in-motion stories (3 statuses, see IN_MOTION).
+    """Format acceptance types for in-motion stories.
 
-    Returns empty string if no in-motion stories exist. Sharing the
-    select_in_motion_stories filter with concern_triage keeps both
-    preload helpers in lockstep on the dispatch contract.
+    Shares select_in_motion_stories with concern_triage so both preload
+    helpers stay in lockstep on the dispatch contract.
     """
     in_motion = select_in_motion_stories(sprint.get("stories", []))
     if not in_motion:
