@@ -38,11 +38,11 @@ If `.retro-input.json` is missing, return "Insufficient data for meaningful retr
 
 Analyze through **XP values as lenses**:
 
-- **Honesty** — assumptions stated, concerns proportional to complexity
-- **Communication** — decisions recorded, questions asked and answered
+- **Honesty** — assumptions stated, concerns proportional to complexity, team decisions honored
+- **Communication** — decisions recorded, questions asked and answered, customer inputs acknowledged
 - **Courage** — hard problems addressed directly, concerns addressed in subsequent commits, bad decisions revisited
-- **Simplicity** — solutions kept simple, commits frequent, plans right-sized
-- **Respect** — customer inputs acknowledged, conventions followed, team decisions honored
+- **Simplicity** — solutions kept simple, conventions followed, plans right-sized
+- **Feedback** — tests written before code, /simplify and /xp-quality-review findings acted on, commits small and frequent
 
 ## Pre-Computed Flags
 
