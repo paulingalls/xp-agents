@@ -41,7 +41,6 @@ _PLAN_REVIEWER_AGENT_ID = "xp-plan-reviewer"
 def _append_completion_event(
     smm_dir: Path, agent_id: str, agent_type: str, action: str
 ) -> None:
-    """Append a subagent-completion status event with action discriminator."""
     event = _common.make_event(
         _common.STATUS,
         agent_id,
@@ -53,7 +52,6 @@ def _append_completion_event(
 
 
 def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
-    """Append a generic subagent_complete event from the xp-* dispatch paths."""
     _append_completion_event(
         smm_dir,
         input_data.get("agent_id", "subagent"),
@@ -63,11 +61,7 @@ def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
-    """Set review cycle flags for review-related subagent completions.
-
-    Runs even for xp- agents because we need to detect when
-    xp-quality-review and simplify subagents complete.
-    """
+    """Set review cycle flags. Runs even for xp- agents (xp-quality-review is xp-*)."""
     agent_type = input_data.get("agent_type", "").lower()
     agent_id_val = input_data.get("agent_id", "").lower()
 
@@ -82,13 +76,10 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
-    """Handle xp-housekeeper subagent completion.
+    """Handle xp-housekeeper completion: consume markers, log event, return None.
 
-    Consumes markers and logs a kickoff-done status event. Returns None —
-    SubagentStop does not support additionalContext. The SMM is returned
-    by the housekeeper agent itself (as Agent tool result text), and the
-    process guide is injected via PostToolUse:Skill|Agent in
-    review_cycle_done.py.
+    SubagentStop does NOT support additionalContext — process guide injection
+    happens elsewhere (PostToolUse:Skill|Agent in review_cycle_done.py).
     """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _HOUSEKEEPER_AGENT_TYPES:
@@ -114,12 +105,6 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
-    """Handle xp-sprint-reviewer subagent completion.
-
-    Records a sprint end event with velocity and cleans up the review
-    input file. Returns None — sprint sizing analysis runs at the
-    start of the next session via retrospective.py.
-    """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
         return None
@@ -155,11 +140,10 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
-    """Consume CLOSE_CYCLE_ACTIVE marker after xp-close-reviewer completes.
+    """Consume CLOSE_CYCLE_ACTIVE after xp-close-reviewer completes.
 
-    Must run BEFORE the is_xp_agent skip in run() — xp-close-reviewer is
-    xp-* and would otherwise be silently bypassed, leaving the close-cycle
-    Stop gate blocking forever.
+    Must run BEFORE the is_xp_agent skip — close-reviewer is xp-*, would
+    otherwise be silently skipped and leave the close-cycle gate blocking.
     """
     if input_data.get("agent_type") not in _CLOSE_REVIEWER_AGENT_TYPES:
         return
@@ -167,11 +151,6 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
-    """Handle xp-plan-reviewer completion — nudge /xp-assign.
-
-    Sets .assign-pending marker and returns additionalContext telling
-    the agent to run /xp-assign for execution mode selection.
-    """
     agent_type = input_data.get("agent_type", "")
     if agent_type not in _PLAN_REVIEWER_AGENT_TYPES:
         return None
@@ -190,11 +169,7 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
 
     _emit_subagent_complete(smm_dir, input_data)
 
-    return (
-        "IMPORTANT: Run the /xp-assign skill NOW to decide execution mode "
-        "(solo vs worktree subagents). The skill analyzes the plan's steps "
-        "and spawns teammates if parallel execution is appropriate."
-    )
+    return "Run /xp-assign NOW to decide execution mode (solo vs worktree subagents)."
 
 
 def _record_completion(
@@ -210,23 +185,18 @@ def _record_completion(
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Core SubagentStop logic. Returns context or None."""
-    # Review cycle flags must run before is_xp_agent skip because
-    # xp-quality-review starts with "xp-" but still needs flag set.
+    """Core SubagentStop logic. Returns context or None.
+
+    Review cycle flags + the four xp-* completion handlers run BEFORE the
+    is_xp_agent skip — those agent_types start with "xp-" but still need
+    their handlers to fire.
+    """
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is not None:
         _update_review_cycle_flags(smm_dir, input_data)
-
-        # Housekeeper is an xp-* agent — consume markers and record event.
         _handle_housekeeping_done(smm_dir, input_data)
-
-        # Sprint reviewer is also xp-* — its completion records sprint end.
         _handle_sprint_review_done(smm_dir, input_data)
-
-        # Close reviewer is also xp-* — its completion clears the close-cycle gate.
         _handle_close_reviewer_done(smm_dir, input_data)
-
-        # Plan reviewer completion nudges /xp-assign for execution mode.
         assign_result = _handle_plan_review_done(smm_dir, input_data)
         if assign_result is not None:
             return assign_result
@@ -251,15 +221,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _record_completion(smm_dir, agent_id, agent_type, completion_action)
 
-    # Conflict detection — patterns 2-5 only (no file_path)
     events = _common.read_events_raw(smm_dir)
     concern_events = concerns.detect_conflicts(events, agent_id)
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
 
-    # Plan review gate — Plan subagent (via Agent tool) also needs review.
-    # PostToolUse:ExitPlanMode handles the EnterPlanMode/ExitPlanMode tool flow;
-    # this handles the SubagentStop flow for Plan-type subagents.
+    # Plan-via-Agent-tool flow; ExitPlanMode flow handled in PostToolUse:ExitPlanMode.
     if agent_type == _PLAN_AGENT_TYPE:
         markers.marker_write(smm_dir, markers.PLAN_AWAITING_REVIEW, agent_id)
 
