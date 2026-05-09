@@ -18,7 +18,9 @@ unittest discovery, which lets us import from sibling `_*.py` modules.
 
 import json
 import os
+import re
 import sys
+import unittest
 from pathlib import Path
 
 # Strip environment variables that would leak a parent shell's state into
@@ -241,6 +243,84 @@ SPRINT_MIXED_IN_PROGRESS = _sprint_json(
     sprint_id="sprint-001",
     started="2026-04-01",
 )
+
+
+_HISTORICAL_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
+
+
+def _md_files(dir_path: Path, pattern: str) -> dict[str, Path]:
+    """Map {stem-or-parent-name: path} for shipped *.md files matching pattern.
+
+    Two glob shapes used in this repo:
+    - "*/SKILL.md" → key by parent dir name (skill name)
+    - "*.md" → key by file stem
+    """
+    if pattern.endswith("/SKILL.md"):
+        return {p.parent.name: p for p in dir_path.glob(pattern)}
+    return {p.stem: p for p in dir_path.glob(pattern)}
+
+
+def assert_md_budgets_match(
+    testcase: unittest.TestCase,
+    dir_path: Path,
+    pattern: str,
+    budgets: dict[str, int],
+    label: str,
+) -> None:
+    """Every shipped .md must have a budget entry; every entry must match a .md."""
+    on_disk = set(_md_files(dir_path, pattern))
+    missing = on_disk - set(budgets)
+    extra = set(budgets) - on_disk
+    testcase.assertFalse(
+        missing,
+        f"{label} files without a budget entry: {sorted(missing)}",
+    )
+    testcase.assertFalse(
+        extra,
+        f"budget entries with no matching {label}: {sorted(extra)}",
+    )
+
+
+def assert_md_under_budgets(
+    testcase: unittest.TestCase,
+    dir_path: Path,
+    pattern: str,
+    budgets: dict[str, int],
+    label: str,
+) -> None:
+    """Every shipped .md must be at or below its budget."""
+    files = _md_files(dir_path, pattern)
+    offenders: list[str] = []
+    for name, budget in budgets.items():
+        actual = len(files[name].read_text(encoding="utf-8").splitlines())
+        if actual > budget:
+            offenders.append(f"{name}: {actual} lines (budget {budget})")
+    testcase.assertFalse(
+        offenders,
+        f"{label} files exceed their line budget:\n" + "\n".join(offenders),
+    )
+
+
+def assert_no_12hex_ids_in_md(
+    testcase: unittest.TestCase,
+    dir_path: Path,
+    pattern: str,
+    label: str,
+) -> None:
+    """Shipped .md files must not contain 12-hex SMM event IDs."""
+    offenders: list[str] = []
+    for path in dir_path.glob(pattern):
+        for line_no, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if _HISTORICAL_ID_RE.search(line):
+                rel = path.relative_to(_PLUGIN_ROOT)
+                offenders.append(f"{rel}:{line_no}: {line.strip()[:100]}")
+    testcase.assertFalse(
+        offenders,
+        f"12-hex IDs (decision/concern/event refs) in shipped {label} prose:\n"
+        + "\n".join(offenders[:30]),
+    )
 
 
 class _ProbeTestHelpers:

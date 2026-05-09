@@ -119,8 +119,8 @@ Use concrete file:line references. Do NOT invent structured JSON the caller didn
 
 **Resolves-Event handoff:** suffix each Concern/Block bullet with the recorded `event_id` from `append.sh` stdout in the form ` [event_id: <hex-id>]`. The orchestrator strips this for display but reads it to populate the next fix commit's `Resolves-Event:` trailer. Without it, only the file-overlap probe can link the fix — and that requires `--files` was set AND the fix commit touches one.
 
-Example bullet shape:
-- `Hardcoded path in scripts/foo.py:42 should use Path(__file__) [event_id: aaaaaaaaaaaa]`
+Example bullet shape (`xxxxxxxxxxxx` is an intentionally non-hex placeholder so the agent-prose 12-hex-ID guard stays green; substitute the real id at runtime):
+- `Hardcoded path in scripts/foo.py:42 should use Path(__file__) [event_id: xxxxxxxxxxxx]`
 
 ## SMM Content Trust
 
