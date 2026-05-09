@@ -6,7 +6,7 @@ source "$(dirname "$0")/../../_preload_base.sh"
 
 echo "SMM_DIR=${SMM_DIR}"
 
-# Real file = update; symlink or missing = create
+# Symlink treated as missing → create mode.
 if [ -f "$SYSTEM_CONTEXT_FILE" ] && [ ! -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo "MODE=update"
     echo "SYSTEM_CONTEXT=${SYSTEM_CONTEXT_FILE}"

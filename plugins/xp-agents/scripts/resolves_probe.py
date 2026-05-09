@@ -450,10 +450,10 @@ def build_nudge_lines(candidates: list[dict]) -> list[str]:
         mode = _metadata_field(c, METADATA_KEY_CLOSE_MODE)
         suffix = f" (from {mode}-close-reviewer)" if mode else ""
         # Surface all reasons (vocabulary capped to 5 by SELECTION_REASON_*
-        # contract; ~60 chars worst case fits one line). Concern 684a9d401adc:
-        # capping by position would always occlude `in_sprint_batch` /
-        # `close_mode` (the signals explaining WHY no-file-overlap siblings
-        # surfaced — exactly what sprint-067 retro is targeting).
+        # contract; ~60 chars worst case fits one line). Capping by position
+        # would always occlude `in_sprint_batch` / `close_mode` (the signals
+        # explaining WHY no-file-overlap siblings surfaced — exactly what
+        # sprint-067 retro is targeting).
         reasons = c.get("selection_reasons") or []
         if reasons:
             suffix += f" (why: {', '.join(reasons)})"

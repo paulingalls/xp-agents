@@ -69,6 +69,8 @@ class TestReviewPlanPreload(_IntegrationTestCase):
     def test_preload_outputs_smm_file_path(self):
         """SMM_FILE= path output, NOT full SMM content."""
         _write_sample_smm(self.smm_dir)
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SMM_FILE=", result.stdout)
@@ -89,11 +91,30 @@ class TestReviewPlanPreload(_IntegrationTestCase):
     def test_preload_outputs_sprint_file_path(self):
         """SPRINT_FILE= path when sprint.json exists."""
         (self.smm_dir / "sprint.json").write_text("# Sprint\n- story-001")
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("SPRINT_FILE=", result.stdout)
         # Sprint content should NOT be in stdout
         self.assertNotIn("story-001", result.stdout)
+
+    def test_preload_misfire_skips_smm_and_sprint_renders(self):
+        """No plan marker → SMM_FILE/SPRINT_FILE NOT emitted (token-trim YAGNI prune).
+
+        When there's no plan to review, the SMM and sprint renders are wasted
+        tokens — short-circuit before doing them.
+        """
+        _write_sample_smm(self.smm_dir)
+        (self.smm_dir / "sprint.json").write_text("# Sprint\n- story-001")
+        marker = self.smm_dir / ".plan-awaiting-review"
+        if marker.exists():
+            marker.unlink()
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("SMM_FILE=", result.stdout)
+        self.assertNotIn("SPRINT_FILE=", result.stdout)
+        self.assertIn("PLAN_FILE_ERROR=", result.stdout)
 
     def test_preload_no_sprint_file_omits_path(self):
         """No SPRINT_FILE= when sprint.json doesn't exist."""

@@ -28,11 +28,12 @@ def find_concerns_for_story(
     story: dict,
     open_concerns: list[dict],
 ) -> list[dict]:
-    """Find open concerns whose files overlap a story's file_domain."""
+    """Find open concerns whose files overlap a story's file_domain.
+
+    Pass concern files as candidates so file_domain globs expand against
+    the actual concern paths (mirrors the cascade-analysis drift fix).
+    """
     file_domain = story.get("file_domain") or []
-    # Pass concern files as candidates so glob entries in file_domain expand
-    # to the literal concern paths — same drift shape the cascade-analysis
-    # fix targets, applied symmetrically here.
     concern_file_union: set[str] = set()
     for concern in open_concerns:
         concern_file_union |= set(concern.get("files") or [])

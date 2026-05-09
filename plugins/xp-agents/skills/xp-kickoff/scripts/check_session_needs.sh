@@ -1,65 +1,50 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-kickoff: determine what session-start work is needed.
+# Preload for xp-kickoff: surfaces marker headers the SKILL.md acts on.
+# Prose explanations live in SKILL.md, not here — keep this lean.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-RETRO_INPUT="${SMM_DIR}/.retro-input.json"
-
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
-echo "## Session Review Status"
-echo ""
 
-# 1. Check for retrospective data. Sprint sizing is now included in the
-# session retro input — no separate sprint retro path.
-if [ -f "$RETRO_INPUT" ]; then
+# Sprint sizing is included in the session retro input — no separate path.
+if [ -f "${SMM_DIR}/.retro-input.json" ]; then
     echo "### RETRO_NEEDED"
-    echo "Unanalyzed events from previous session found."
     echo ""
 fi
 
-# 2. Check for system context
 if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo "### NEEDS_SYSTEM_CONTEXT"
-    echo "No system_context.json found. Run /xp-system-context to create one."
     echo ""
 fi
 
-# 2.5. Render last-session history. Gate the subprocess on file presence
-# so first-session and abandoned-history kickoffs don't pay the Python
-# cold-start cost; render_history.py still owns the fail-quiet contract
-# for the corrupt-file path.
+# Gate render_history on file presence so first-session kickoffs skip
+# the Python cold-start cost; render_history.py owns the fail-quiet
+# contract for malformed files.
 if [ -f "${SMM_DIR}/session_history.json" ]; then
     python3 "$(dirname "$0")/render_history.py" --smm-dir "$SMM_DIR"
 fi
 
-# 3. Check for execution plan (JSON format, via CLI)
 if ! plan_has_remaining; then
     echo "### NEEDS_EXECUTION_PLAN"
-    echo "No execution plan with remaining work. Run /xp-plan to create one."
     echo ""
 fi
 
-# 4. Check for sprint (marker OR no active stories)
-if [ -f "${SMM_DIR}/.needs-sprint" ]; then
+# Cache sprint_has_active — one python3 cold-start instead of two.
+sprint_active=0
+sprint_has_active && sprint_active=1
+
+if [ -f "${SMM_DIR}/.needs-sprint" ] || [ "$sprint_active" -eq 0 ]; then
     echo "### NEEDS_SPRINT"
-    echo "No active sprint. Run /xp-sprint-start to plan a sprint."
-    echo ""
-elif ! sprint_has_active; then
-    echo "### NEEDS_SPRINT"
-    echo "No active sprint. Run /xp-sprint-start to plan a sprint."
     echo ""
 fi
 
-# 5. Sprint status (for work selection context)
-in_progress_count=0
-if sprint_has_active; then
-    # One subprocess call gets all status counts; pure-bash parse
-    # avoids per-status subprocess spawns and drift risk if a future
-    # status renames/reorders.
+# Sprint status — surface counts + lists for any non-zero bucket.
+if [ "$sprint_active" -eq 1 ]; then
     ready_count=0
     scheduled_count=0
+    in_progress_count=0
     for kv in $(sprint_count); do
         case "$kv" in
             ready=*) ready_count=${kv#ready=} ;;
@@ -69,48 +54,37 @@ if sprint_has_active; then
     done
     if [ "$ready_count" -gt 0 ] || [ "$scheduled_count" -gt 0 ] || [ "$in_progress_count" -gt 0 ]; then
         echo "### SPRINT_ACTIVE"
-        echo "Sprint counts: ready=${ready_count} scheduled=${scheduled_count} in-progress=${in_progress_count}"
+        echo "ready=${ready_count} scheduled=${scheduled_count} in-progress=${in_progress_count}"
         echo ""
         if [ "$ready_count" -gt 0 ]; then
-            echo "Ready stories:"
+            echo "Ready:"
             sprint_list_stories --status ready
             echo ""
         fi
         if [ "$scheduled_count" -gt 0 ]; then
-            echo "Scheduled stories (queued by xp-work-selection, awaiting xp-assign branch creation):"
+            echo "Scheduled:"
             sprint_list_stories --status scheduled
             echo ""
         fi
         if [ "$in_progress_count" -gt 0 ]; then
-            echo "In-progress stories (branch exists, work underway):"
+            echo "In-progress:"
             sprint_list_stories --status in-progress
             echo ""
         fi
     fi
 fi
 
-# 6. Orphan free branches — surface unfinished free work for the user
-# to merge/keep/delete at every kickoff (regardless of session mode).
+# Orphan branches — SKILL.md drives the merge/keep/delete prompt.
 ORPHAN_FREE=$(branching_list_free)
 if [ -n "$ORPHAN_FREE" ]; then
     echo "### ORPHAN_FREE_BRANCHES"
-    echo "Unfinished free branches detected. Per branch, ask merge/keep/delete."
-    echo ""
     echo "$ORPHAN_FREE"
     echo ""
 fi
 
-# 7. Orphan story branches — story branches not backed by active sprint stories.
 ORPHAN_STORY=$(branching_list_story_orphans)
 if [ -n "$ORPHAN_STORY" ]; then
     echo "### ORPHAN_STORY_BRANCHES"
-    echo "Orphan story branches detected. Per branch, ask merge/keep/delete."
-    echo ""
     echo "$ORPHAN_STORY"
     echo ""
 fi
-
-# .needs-kickoff is cleared by kickoff_gate.py (UserPromptSubmit hook)
-# which runs before this preload. The .needs-housekeeping marker is
-# written later by the xp-work-selection preload (step 5) so the stop
-# gate doesn't block during earlier kickoff steps.

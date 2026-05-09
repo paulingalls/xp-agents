@@ -7,6 +7,8 @@ AskUserQuestion dialogue flow; review-cycle/teammates deferrals are
 intentionally NOT applied (close cycle wants to block mid-cycle).
 """
 
+import contextlib
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -59,6 +61,35 @@ class TestCloseCycleStopGate(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
+
+    def test_bypass_records_high_severity_concern_with_recovery_hint(self):
+        """Bypass (stop_hook_active=True + marker) must escalate to severity=high
+        and include a recovery instruction in both the concern content and
+        stderr — so xp-end-session's high-severity 'watch' surfaces it next
+        session and the terminating agent leaves a visible breadcrumb on
+        stderr right now."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        stderr_buf = io.StringIO()
+        with contextlib.redirect_stderr(stderr_buf):
+            result = close_cycle_stop_gate.run(
+                _make_stop_input(stop_hook_active=True),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIsNone(result)
+
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1, "exactly one bypass concern expected")
+        concern = concerns[0]
+        self.assertEqual(concern["severity"], "high")
+        self.assertIn("Recovery:", concern["content"])
+        self.assertIn("xp-close-reviewer", concern["content"])
+
+        stderr = stderr_buf.getvalue()
+        self.assertIn("Recovery:", stderr)
+        self.assertIn("xp-close-reviewer", stderr)
 
     def test_no_block_when_asking_user(self):
         """Defer when AskUserQuestion dialogue is in flight."""

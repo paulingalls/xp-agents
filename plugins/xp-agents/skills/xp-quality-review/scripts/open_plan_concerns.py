@@ -20,7 +20,7 @@ def main() -> None:
     smm_dir = Path(args.smm_dir)
     events = _common.read_events_raw(smm_dir)
     if not events:
-        print("(no events)")
+        print("(none — SMM empty)")
         return
 
     resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
@@ -39,7 +39,7 @@ def main() -> None:
             print(f"- [{severity}] {content} [{eid}]")
 
     if not found:
-        print("(no open plan review concerns)")
+        print("(none)")
 
 
 if __name__ == "__main__":

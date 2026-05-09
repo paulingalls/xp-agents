@@ -34,14 +34,21 @@ _BLOCK_MESSAGE = (
     "xp-close-reviewer (Agent tool); then continue Steps 5-7."
 )
 
+_BYPASS_RECOVERY = (
+    "Recovery: in next session, manually run /security-review then invoke "
+    "xp-close-reviewer (Agent tool) to complete the close cycle, then "
+    "re-attempt /xp-{sprint,plan,free}-close."
+)
 _BYPASS_CONCERN_CONTENT = (
     "Close-cycle gate bypassed: agent terminated via stop_hook_active "
     "while CLOSE_CYCLE_ACTIVE marker was set. xp-close-reviewer was "
-    "expected to run but never did, leaving the close cycle mid-flight."
+    "expected to run but never did, leaving the close cycle mid-flight. "
+    f"{_BYPASS_RECOVERY}"
 )
 _BYPASS_STDERR = (
     "close-cycle gate bypassed: stop_hook_active=True with "
-    "CLOSE_CYCLE_ACTIVE marker still set — concern recorded\n"
+    f"CLOSE_CYCLE_ACTIVE marker still set — high-severity concern recorded. "
+    f"{_BYPASS_RECOVERY}\n"
 )
 
 
@@ -60,7 +67,7 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
         _common.CONCERN,
         agent_id,
         _BYPASS_CONCERN_CONTENT,
-        severity="medium",
+        severity="high",
         metadata={"kind": event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS},
     )
     _common.append_safe(smm_dir, concern)

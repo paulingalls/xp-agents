@@ -53,25 +53,31 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _emitter_fixtures import EMITTER_FIXTURES
 from conftest import (
     _SCRIPTS_DIR,
-    assert_emitter_budgets_match,
+    assert_budgets_match,
     assert_emitter_under_budgets,
+    discover_emitter_scripts,
 )
 
 # ceil(measured_bytes * 1.125 / 100) * 100, floor at 100.
 EMITTER_BUDGETS: dict[str, int] = {
+    "bash_post_tool.py": 100,
+    "kickoff_gate.py": 100,
+    "lint_check.py": 300,
+    "post_tool_exit_plan.py": 100,
+    "pre_tool_bash.py": 100,
+    "pre_tool_skill.py": 100,
+    "pre_tool_write.py": 100,
     "prompt_nugget.py": 100,
-    "user_prompt_log.py": 100,
+    "retrospective.py": 100,
+    "review_cycle_done.py": 200,
+    "session_end_warning.py": 100,
     "session_start.py": 2100,
     "subagent_start.py": 4700,
     "subagent_stop.py": 300,
-    "pre_tool_write.py": 100,
-    "pre_tool_bash.py": 100,
-    "lint_check.py": 300,
-    "review_cycle_done.py": 200,
-    "retrospective.py": 100,
-    "session_end_warning.py": 100,
+    "user_prompt_log.py": 100,
 }
 
 _LABEL = "scripts/*.py emitter"
@@ -79,10 +85,22 @@ _LABEL = "scripts/*.py emitter"
 
 class TestInjectionBudgets(unittest.TestCase):
     def test_every_emitter_has_budget_entry(self):
-        assert_emitter_budgets_match(self, EMITTER_BUDGETS, _LABEL)
+        assert_budgets_match(self, EMITTER_FIXTURES, EMITTER_BUDGETS, _LABEL)
 
     def test_no_emitter_exceeds_its_budget(self):
         assert_emitter_under_budgets(self, _SCRIPTS_DIR, EMITTER_BUDGETS, _LABEL)
+
+    def test_every_emitter_in_scripts_dir_has_budget_entry(self):
+        """Surface-scan: walk scripts/ for hook_output emitters; fail loud on any
+        that ship without a budget entry. Closes c589e66f9a22 (AC1 enforcement
+        gap) — the symmetric fixture↔budget check passes vacuously when an
+        emitter has neither, this catches it."""
+        on_disk = set(discover_emitter_scripts(_SCRIPTS_DIR))
+        missing = on_disk - set(EMITTER_BUDGETS)
+        self.assertFalse(
+            missing,
+            f"{_LABEL} scripts on disk without a budget entry: {sorted(missing)}",
+        )
 
 
 if __name__ == "__main__":

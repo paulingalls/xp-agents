@@ -41,7 +41,7 @@ def extract_implicit_event_ids(body: str | None, known_ids: set[str]) -> list[st
     """Scan commit body for bare 12-hex event IDs matching open events.
 
     Agents sometimes reference an event ID in prose (e.g., "closes concern
-    a1b2c3d4e5f6") without the formal `Resolves-Event:` trailer. This helper
+    <12-hex-id>") without the formal `Resolves-Event:` trailer. This helper
     surfaces those bare IDs so callers can accept the link and optionally
     nudge for the formal trailer.
 

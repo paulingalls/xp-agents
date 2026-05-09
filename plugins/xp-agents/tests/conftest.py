@@ -117,6 +117,7 @@ from _hook_inputs import (  # noqa: E402, F401
     _make_teammate_idle_input,
     _make_write_input,
 )
+from _preload_fixtures import PRELOAD_FIXTURES  # noqa: E402
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -362,11 +363,14 @@ def _run_emitter(
     stdin_dict = builder()
 
     env = os.environ.copy()
+    # Pop FIRST, set after — _LEAKY_GIT_ENV includes SMM_DIR, so the order
+    # matters: setting before popping silently drops the seeded SMM and
+    # subprocesses fall back to live ~/.claude/plugins/data/<id>/smm/.
+    for ev in _LEAKY_GIT_ENV:
+        env.pop(ev, None)
     env["SMM_DIR"] = str(smm_dir)
     env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
     env["XP_TEAMMATE_NAME"] = ""
-    for ev in _LEAKY_GIT_ENV:
-        env.pop(ev, None)
     proc = subprocess.run(
         ["python3", str(scripts_dir / script_name)],
         input=json.dumps(stdin_dict).encode("utf-8"),
@@ -378,13 +382,14 @@ def _run_emitter(
     return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
 
 
-def assert_emitter_budgets_match(
+def assert_budgets_match(
     testcase: unittest.TestCase,
+    fixtures: dict,
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every entry in budgets must have a fixture; no unbudgeted emitter."""
-    fixture_names = set(EMITTER_FIXTURES)
+    """Symmetric check: every fixture has a budget AND every budget has a fixture."""
+    fixture_names = set(fixtures)
     budget_names = set(budgets)
     missing = fixture_names - budget_names
     extra = budget_names - fixture_names
@@ -434,13 +439,134 @@ def assert_emitter_under_budgets(
     )
 
 
+def discover_emitter_scripts(scripts_dir: Path) -> list[str]:
+    """Walk scripts_dir for .py files that emit context via _common.hook_output.
+
+    Surface-scan helper: returns sorted basenames of every script that calls
+    `_common.hook_output(...)` anywhere in its source. Catches the gap where
+    a new emitter ships without a fixture/budget entry. Substring match —
+    keep the literal `_common.hook_output(` out of non-emitter docstrings.
+    """
+    return sorted(
+        path.name
+        for path in scripts_dir.glob("*.py")
+        if "_common.hook_output(" in path.read_text(encoding="utf-8")
+    )
+
+
+# Single source of truth for preload-equivalent script names per skill.
+# Default is "preload.sh"; only skills with an exception are listed here.
+_PRELOAD_SCRIPT_NAME_OVERRIDES: dict[str, str] = {
+    "xp-kickoff": "check_session_needs.sh",
+}
+
+
+def _preload_script_name(skill_name: str) -> str:
+    return _PRELOAD_SCRIPT_NAME_OVERRIDES.get(skill_name, "preload.sh")
+
+
+def discover_preload_scripts() -> list[str]:
+    """Walk skills/*/scripts/ for preload-emitter scripts.
+
+    Surface-scan helper: returns sorted skill names for every preload-equivalent
+    script under `_PLUGIN_ROOT/skills/<name>/scripts/`. Catches the gap where
+    a new preload ships without a fixture/budget entry.
+    """
+    skills_dir = _PLUGIN_ROOT / "skills"
+    return sorted(
+        skill_dir.name
+        for skill_dir in skills_dir.iterdir()
+        if skill_dir.is_dir()
+        and (skill_dir / "scripts" / _preload_script_name(skill_dir.name)).is_file()
+    )
+
+
+def _preload_script_path(skill_name: str) -> Path:
+    return (
+        _PLUGIN_ROOT
+        / "skills"
+        / skill_name
+        / "scripts"
+        / _preload_script_name(skill_name)
+    )
+
+
+def _run_preload(
+    skill_name: str,
+    smm_dir: Path,
+    cwd: Path,
+) -> tuple[bytes, str, int]:
+    """Run a preload.sh via subprocess against a pre-seeded SMM.
+
+    Caller owns smm_dir + cwd lifecycle so multiple preload invocations
+    can share one bootstrap (the budget test runs all preloads against
+    the same empty SMM). Builder returns env-var dict (preloads read
+    env vars set by the orchestrator); base SMM_DIR + CLAUDE_PLUGIN_ROOT
+    + XP_TEAMMATE_NAME are injected here, builder additions merge on top.
+    """
+    import subprocess
+
+    builder = PRELOAD_FIXTURES.get(skill_name)
+    if builder is None:
+        raise KeyError(f"no fixture builder registered for {skill_name}")
+
+    env = os.environ.copy()
+    # Pop FIRST, set after — see _run_emitter for the SMM_DIR ordering rationale.
+    for ev in _LEAKY_GIT_ENV:
+        env.pop(ev, None)
+    env["SMM_DIR"] = str(smm_dir)
+    env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
+    env["XP_TEAMMATE_NAME"] = ""
+    env.update(builder())
+    proc = subprocess.run(
+        [str(_preload_script_path(skill_name))],
+        capture_output=True,
+        cwd=cwd,
+        env=env,
+        timeout=15,
+    )
+    return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
+
+
+def assert_preload_under_budgets(
+    testcase: unittest.TestCase,
+    budgets: dict[str, int],
+    label: str,
+) -> None:
+    """Every preload's stdout (run via fixture) must be at or below budget.
+
+    Bootstraps one SMM per call and reuses it across all preloads.
+    """
+    import tempfile
+
+    offenders: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
+        for name, budget in sorted(budgets.items()):
+            stdout_bytes, stderr, rc = _run_preload(name, smm_dir, repo)
+            if rc != 0:
+                offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
+                continue
+            actual = len(stdout_bytes)
+            if actual > budget:
+                offenders.append(f"{name}: {actual} bytes (budget {budget})")
+    testcase.assertFalse(
+        offenders,
+        f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
+    )
+
+
 def assert_no_12hex_ids_in_md(
     testcase: unittest.TestCase,
     dir_path: Path,
     pattern: str,
     label: str,
 ) -> None:
-    """Shipped .md files must not contain 12-hex SMM event IDs."""
+    """Shipped text files must not contain 12-hex SMM event IDs.
+
+    Generic across file types — `_in_md` is the historical name (M-1
+    skills, M-2 agents); M-3 emitters call this with a `*.py` glob.
+    """
     offenders: list[str] = []
     for path in dir_path.glob(pattern):
         for line_no, line in enumerate(

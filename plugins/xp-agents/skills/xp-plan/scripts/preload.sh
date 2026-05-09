@@ -10,20 +10,17 @@ echo ""
 PLAN_FILE="${SMM_DIR}/execution_plan.json"
 
 if plan_exists; then
-    counts=$(plan_count)
     echo "## Existing Execution Plan"
-    echo "${counts}"
+    plan_count
     echo "EXECUTION_PLAN=${PLAN_FILE}"
 else
     echo "## No execution plan found"
-    echo "Create mode: gather sources and decompose into milestones."
 fi
 
-# Check system context availability — xp-plan needs the NEEDS flag
+# xp-plan needs the NEEDS flag — check_system_context only emits the path.
+echo ""
 if [ -f "$SYSTEM_CONTEXT_FILE" ] && [ ! -L "$SYSTEM_CONTEXT_FILE" ]; then
-    echo ""
     echo "SYSTEM_CONTEXT=${SYSTEM_CONTEXT_FILE}"
 else
-    echo ""
     echo "NEEDS_SYSTEM_CONTEXT=true"
 fi

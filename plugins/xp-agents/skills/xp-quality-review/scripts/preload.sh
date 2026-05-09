@@ -1,22 +1,13 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-quality-review: changed files + debt for changed files.
-# SMM is already in context (inline skill, not forked).
+# Preload for xp-quality-review: changed files + debt + open plan concerns.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-# TEAMMATE_CWD is set explicitly by the caller (e.g., /xp-accept's
-# fix-cycle dispatch) when quality-review should grab a teammate
-# worktree's diff. Explicit pass-through always wins (per decision
-# 798a27b425a7).
-#
-# When unset, narrow auto-detect: route to a teammate worktree ONLY
-# when the orchestrator cwd has zero uncommitted changes AND exactly
-# one teammate worktree has uncommitted changes. The orch-empty trigger
-# is the hijack guard — an orchestrator with its own in-flight work is
-# never overridden. Single-match avoids ambiguity. Closes the gap where
-# the orchestrator edited a teammate worktree directly (close-cycle fix
-# pass) and QR silently reported "no changed files".
+# Auto-detect: when explicit TEAMMATE_CWD is unset AND orchestrator cwd is
+# clean AND exactly one teammate worktree has uncommitted changes, route
+# to that worktree. Orch-empty + single-match guards prevent hijacking
+# orchestrator's own work or ambiguous multi-worktree cases.
 _qr_auto_detect_teammate_cwd() {
     [ -n "${TEAMMATE_CWD:-}" ] && return 0
     if ! git diff --quiet HEAD 2>/dev/null \
@@ -44,20 +35,18 @@ echo "TEAMMATE_CWD=${TEAMMATE_CWD:-}"
 echo ""
 dump_diff
 
-# Surface debt events for changed files
 echo ""
-echo "## Technical Debt and Concerns for Changed Files"
+echo "## Debt for Changed Files"
 changed_files=$(get_changed_files)
 if [ -z "$changed_files" ]; then
-    echo "(no changed files detected)"
+    echo "(none)"
 else
     # shellcheck disable=SC2086
     python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/debt_for_files.py" \
-        --smm-dir "$SMM_DIR" $changed_files 2>/dev/null || echo "(debt lookup unavailable)"
+        --smm-dir "$SMM_DIR" $changed_files 2>/dev/null || echo "(lookup unavailable)"
 fi
 
-# Surface unresolved plan review concerns
 echo ""
-echo "## Open Plan Review Concerns"
+echo "## Open Plan Concerns"
 python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/open_plan_concerns.py" \
-    --smm-dir "$SMM_DIR" 2>/dev/null || echo "(concern lookup unavailable)"
+    --smm-dir "$SMM_DIR" 2>/dev/null || echo "(lookup unavailable)"
