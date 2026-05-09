@@ -385,7 +385,7 @@ def assert_budgets_match(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every fixture key must have a budget entry; no orphan budgets."""
+    """Symmetric check: every fixture has a budget AND every budget has a fixture."""
     fixture_names = set(fixtures)
     budget_names = set(budgets)
     missing = fixture_names - budget_names
