@@ -37,6 +37,10 @@ PRELOAD_BUDGETS: dict[str, int] = {
     "xp-kickoff": 200,
     "xp-work-selection": 200,
     "xp-end-session": 200,
+    "xp-story-close": 7100,
+    "xp-sprint-close": 7100,
+    "xp-plan-close": 7100,
+    "xp-free-close": 7100,
 }
 
 _LABEL = "skills/*/scripts/preload.sh"

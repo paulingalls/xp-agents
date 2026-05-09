@@ -30,4 +30,8 @@ PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {
     "xp-kickoff": _no_env,
     "xp-work-selection": _no_env,
     "xp-end-session": _no_env,
+    "xp-story-close": _no_env,
+    "xp-sprint-close": _no_env,
+    "xp-plan-close": _no_env,
+    "xp-free-close": _no_env,
 }
