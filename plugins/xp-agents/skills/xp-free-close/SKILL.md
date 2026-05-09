@@ -22,11 +22,7 @@ allowed-tools:
 
 # Free Close
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
-not recompute them. `TARGET_BRANCH` is the primary integration branch
-(free-close merges a free branch → primary). The shared close pipeline
-lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary integration branch (free-close merges a free branch → primary). Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 ## Step 1: Pre-flight
 
@@ -35,8 +31,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py preflight \
   --cwd . --current <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-If the exit code is non-zero, **stop**. The script emitted the reason
-on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
+If the exit code is non-zero, **stop** — script emitted the reason on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
 
 ## Step 2: Push the free branch
 
@@ -44,8 +39,6 @@ on stderr (dirty worktree or `<CURRENT_BRANCH>` IS `<TARGET_BRANCH>`).
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py push \
   --cwd . --branch <CURRENT_BRANCH>
 ```
-
-Stdout is `pushed: <branch>` or `skipped: no remote configured`.
 
 ## Step 3: PR creation
 
@@ -59,8 +52,7 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 ## Step 4: Apply shared Security Review
 
-Apply the shared `### Step 4: Security Review` block above with
-`<close-mode>` → `free` and `<close-skill-name>` → `xp-free-close`.
+Apply the shared `### Step 4: Security Review` block above with `<close-mode>` → `free` and `<close-skill-name>` → `xp-free-close`.
 
 ## Step 4.5: Fork the close-reviewer
 
@@ -82,55 +74,31 @@ Agent(
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
-the preload at the top of this context — see
-`scripts/_close_pipeline_shared.md` for the source. Apply those three
-steps in order after Step 4.5, then continue with Step 7 below.
+The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by the preload at the top of this context — see `scripts/_close_pipeline_shared.md` for the source. Apply those three steps in order after Step 4.5, then continue with Step 7 below.
 
-**Free-close override for Step 6 (auto-merge gate):** if ALL of these
-hold, skip the shared Step 6's `AskUserQuestion` and proceed directly
-to Step 7:
-1. Step 5c queued zero ask-user items. Verify deterministically via
-   the canonical structured filter:
+**Free-close override for Step 6 (auto-merge gate):** if ALL of these hold, skip the shared Step 6's `AskUserQuestion` and proceed directly to Step 7:
+
+1. Step 5c queued zero ask-user items. Verify via the canonical structured filter:
    ```bash
    ASK_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-classifications \
      --route ask --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
-   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload
-   above (captured at close-cycle start). `--cycle-id` is the strict
-   scoper — it prevents concurrent close-cycles in other teammate
-   worktrees from leaking concern_classify events into this count
-   (SMM is shared across worktrees). `--since-ts` is belt-and-
-   suspenders defense for the same-worktree resume case. The CLI
-   filters on `metadata.action == "concern_classify"` +
-   `metadata.route == "ask"` + `metadata.close_cycle_id == CLOSE_CYCLE_ID`
-   + `ts >= CLOSE_START_TS` — structured fields, not regex. Test
-   numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared
-   Step 6 prompt.
+   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload (captured at close-cycle start). `--cycle-id` is the strict scoper — it prevents concurrent close-cycles in other teammate worktrees from leaking concern_classify events into this count (SMM is shared across worktrees). Test numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
+
 2. No Block-severity finding survived in Step 4.5's reviewer summary.
-3. The preload above emitted a non-empty `TEST_COMMAND=...` line
-   (sourced from `system_context.stack.test_command`) AND running
-   that command AFTER all Step 5c fixes landed exits 0. Any non-zero
-   exit means tests aren't green — fall through to the shared Step 6
-   prompt.
-4. Step 5c classified zero `design_decision` findings — even if the
-   classifier routed one to `fix`. Free-close merges to primary, and
-   architectural calls deserve a human checkpoint regardless of the
-   classifier's route choice. Verify via the same CLI:
+
+3. The preload emitted a non-empty `TEST_COMMAND=...` line (sourced from `system_context.stack.test_command`) AND running that command AFTER all Step 5c fixes landed exits 0. Any non-zero exit means tests aren't green — fall through to the shared Step 6 prompt.
+
+4. Step 5c classified zero `design_decision` findings — even if the classifier routed one to `fix`. Free-close merges to primary, and architectural calls deserve a human checkpoint regardless of the classifier's route choice. Verify via:
    ```bash
    DESIGN_DECISION_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-classifications \
      --category design_decision --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
-   Test numerically: `[ "$DESIGN_DECISION_COUNT" -gt 0 ]` → fall
-   through to the shared Step 6 prompt. (Story-close + sprint/plan
-   close don't need this guard — story-close merges into the sprint
-   branch, not primary; sprint+plan always confirm.)
+   Test numerically: `[ "$DESIGN_DECISION_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
-When `TEST_COMMAND` is empty (the project hasn't configured a test
-command), the gate cannot fire. Print this two-line discovery hint
-before falling through to the shared Step 6 prompt:
+When `TEST_COMMAND` is empty (the project hasn't configured a test command), the gate cannot fire. Print this two-line discovery hint before falling through to the shared Step 6 prompt:
 
 ```
 Auto-merge disabled — set stack.test_command in system_context.json to enable.
@@ -138,18 +106,11 @@ To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
     printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
 ```
 
-Substitute `<your-test-command>` with the project's test runner
-invocation. The `printf %s` form avoids shell-quoting traps when the
-command itself contains spaces or special characters.
+The `printf %s` form avoids shell-quoting traps when the command contains spaces or special characters.
 
 When all four conditions hold, print exactly:
-"All reviewer findings addressed and tests green — proceeding to merge
-without confirmation."
-then continue to Step 7. Otherwise apply the shared Step 6
-`AskUserQuestion` as written. Free-close merges directly into primary,
-so the deterministic green-tests gate AND the design_decision guard
-are load-bearing — LLM judgment from Step 5c alone is not sufficient.
-This matches the auto-accept pattern in `/xp-accept`.
+"All reviewer findings addressed and tests green — proceeding to merge without confirmation."
+then continue to Step 7. Otherwise apply the shared Step 6 `AskUserQuestion` as written. Free-close merges directly into primary, so the deterministic green-tests gate AND the design_decision guard are load-bearing — LLM judgment from Step 5c alone is not sufficient.
 
 ## Step 7: Merge
 
@@ -158,12 +119,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-The script chains: merge `--no-ff` → push target (if remote) → delete
-source. Any step failing aborts the chain — the source branch always
-survives a failed step so the user can resolve and retry. Conflicts
-are never auto-resolved; the script's stderr will name the conflict.
+Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Reporting Back
 
-Tell the user: free branch merged into primary, PR (if created) merged,
-local branch deleted. Free-close is complete.
+Tell the user: free branch merged into primary, PR (if created) merged, local branch deleted. Free-close is complete.

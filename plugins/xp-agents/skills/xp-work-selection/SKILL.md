@@ -28,9 +28,8 @@ If the preload shows "### Previous Try Items", present them to the user.
 Ask via AskUserQuestion for each: **adopt, defer, or drop?**
 
 Pass the Try item text **verbatim, including any trailing `[refs: ...]`
-suffix** — the helper extracts the refs, wires `metadata.resolves`, and
-strips the suffix from the stored content. Do NOT craft `--metadata` JSON
-by hand.
+suffix** — the helper extracts the refs and strips the suffix. Do NOT
+craft `--metadata` JSON by hand.
 
 **Adopt** (decision event with a slugged topic):
 ```bash
@@ -40,7 +39,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
   --content "<item text including any [refs: ...] suffix>"
 ```
 
-Example topic: `retro-try-commit-after-green`, `retro-try-fix-gate-coverage`.
+Example topics: `retro-try-commit-after-green`, `retro-try-fix-gate-coverage`.
 Never use bare `retro-try-adopted` — always include a descriptive slug.
 
 **Defer** (status event, `disposition=deferred`):
@@ -50,13 +49,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
   --content "<item text including any [refs: ...] suffix>"
 ```
 
-**FORCE-CLOSE gate.** Carrying a Try across 3+ retros without adoption is
-dishonest. The defer command refuses with a non-zero exit
-once the same Try has been deferred 3 times. When that happens, do NOT loop
-back to the user with another defer-or-drop AskUserQuestion — present the
-FORCE-CLOSE choice instead, picking exactly one of the three escape flags
-below and re-running the command. The Try id named in the error tells you
-which item is gated.
+**FORCE-CLOSE gate.** The defer command refuses with a non-zero exit
+once the same Try has been deferred 3 times — carrying a Try across 3+
+retros without adoption is dishonest. When the defer fails, present
+the FORCE-CLOSE choice instead, picking exactly one of the three
+escape flags below and re-running. The Try id named in the error tells
+you which item is gated.
 
 ```bash
 # Adopt: convert to a decision event with a slugged topic.
@@ -77,8 +75,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
   --content "<item text including any [refs: ...] suffix>" \
   --force-defer-with-date YYYY-MM-DD
 ```
-
-The three flags are mutually exclusive — argparse will reject any combination.
 
 **Drop** (status event, `disposition=dropped` — retro agent will **never
 re-propose** this Try):
@@ -143,9 +139,7 @@ the question's event-id.
    ```
 4. For selected stories: mark each as `scheduled` (queued for this
    iteration). xp-assign promotes the first scheduled story to
-   `in-progress` when it creates the branch — the lifecycle keeps
-   "queued" and "actively worked" distinct so the stop gate and
-   /xp-accept only fire on stories that have a branch.
+   `in-progress` when it creates the branch.
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
      update-story story-NNN scheduled

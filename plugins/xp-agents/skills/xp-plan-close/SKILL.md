@@ -25,10 +25,9 @@ allowed-tools:
 # Plan Close
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
-not recompute them. `TARGET_BRANCH` is the primary integration branch
-(plan-close merges plan → primary). The shared close pipeline lives in
-`${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+`GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary
+integration branch (plan-close merges plan → primary). Shared pipeline
+lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 ## Step 1: Pre-flight
 
@@ -89,16 +88,7 @@ the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
 steps in order after Step 4.5, then continue with Step 7 below.
 
-**Plan-close addendum to Step 6:** the shared Step 6's "stop here on
-abort" rule means the plan stays unarchived — Step 7 below is the
-archive step and only runs on a confirmed merge.
-
-**No auto-merge override here.** Plan-close always prompts via the
-shared Step 6 `AskUserQuestion`. Only `/xp-story-close` and
-`/xp-free-close` consume the since-ts gate to skip confirmation; plan
-merges (and sprint merges) cross too many in-flight stories to safely
-auto-accept. Step 7 archives the plan as a one-shot side effect — the
-human checkpoint before that side effect lands is load-bearing.
+**Plan-close addendum to Step 6:** if the user aborts at the shared Step 6 prompt, the plan stays unarchived — Step 7 below only runs on a confirmed merge.
 
 ## Step 7: Merge and archive
 
@@ -108,10 +98,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive
 ```
 
-The merge script chains merge `--no-ff` → push target (if remote) →
-delete source. The `&&` after it ensures `plan_cli.py archive` only
-runs after a clean merge — a failed merge leaves the plan intact and
-the branch alive for the user to resolve.
+Any failing step aborts the chain — plan stays unarchived and the branch alive for retry.
 
 ## Step 8: Update System Context
 
