@@ -10,7 +10,6 @@ resolves link rate) lives in retro_metrics.py.
 """
 
 import os
-import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -208,10 +207,9 @@ def _build_context_summary(
 
     parts.append(
         "\n\n---\n"
-        "**ACTION REQUIRED:** Run /xp-kickoff to process this data. "
-        "It handles retrospective, questions, goals, and housekeeping. "
-        "Do NOT analyze these events yourself -- the kickoff skill "
-        "delegates to dedicated subagents."
+        "**ACTION REQUIRED:** Run /xp-kickoff. "
+        "Do NOT analyze these events yourself -- kickoff delegates "
+        "to dedicated subagents."
     )
     return "\n".join(parts)
 
@@ -221,10 +219,13 @@ def _build_context_summary(
 # ---------------------------------------------------------------------------
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
+def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None:
     """Core retrospective data preparation logic.
 
-    Returns additionalContext string when retro is needed, None otherwise.
+    Returns (additionalContext, unanalyzed_count) when retro is needed,
+    None otherwise. The count is also embedded in the context prose, but
+    callers needing the int (e.g. CLI systemMessage) get it directly to
+    avoid regex round-tripping our own output.
     """
     if _common.is_xp_agent(input_data):
         return None
@@ -267,11 +268,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     (smm_dir / ".sprint-retro-input.json").unlink(missing_ok=True)
 
-    return _build_context_summary(
+    context = _build_context_summary(
         unanalyzed_count,
         retro_input["event_type_counts"],
         retro_input.get("session_stats"),
     )
+    return context, unanalyzed_count
 
 
 # ---------------------------------------------------------------------------
@@ -281,15 +283,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    context = run(input_data)
-    if context is not None:
-        _match = re.search(r"(\d+) (?:events|stories)", context)
-        _count = _match.group(1) if _match else "some"
-        _matched = _match.group(0) if _match else ""
-        _label = "stories" if "stories" in _matched else "events"
+    result = run(input_data)
+    if result is not None:
+        context, count = result
         _common.hook_output(
             "SessionStart",
             context,
-            f"Kickoff data prepared -- {_count} {_label} to review.",
+            f"Kickoff data prepared -- {count} events to review.",
         )
     sys.exit(0)

@@ -219,64 +219,42 @@ class TestCheckWorkingOnOverlap(_HookTestCase):
 
 class TestCheckTddOrder(_HookTestCase):
     def test_first_impl_no_nudge(self):
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "src/app.ts", "Write"
-        )
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.ts")
         self.assertIsNone(result)
 
     def test_second_impl_nudge(self):
-        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.ts", "Write")
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "src/utils.ts", "Write"
-        )
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.ts")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/utils.ts")
         result = self._assert_not_none(result)
         self.assertIn("TDD", result)
 
     def test_test_file_clears_nudge(self):
-        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.ts", "Write")
-        pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "tests/test_app.py", "Write"
-        )
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "src/utils.ts", "Write"
-        )
-        self.assertIsNone(result)
-
-    def test_non_write_tool_no_tracking(self):
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "src/app.ts", "Read"
-        )
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.ts")
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "tests/test_app.py")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/utils.ts")
         self.assertIsNone(result)
 
     def test_none_file_path(self):
-        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None, "Write")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", None)
         self.assertIsNone(result)
 
     def test_markdown_no_tracking(self):
         """Non-code files should not trigger TDD nudge."""
-        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md", "Write")
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "docs/DESIGN.md", "Write"
-        )
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/DESIGN.md")
         self.assertIsNone(result)
 
     def test_execution_plan_no_tracking(self):
         """execution_plan.json should not trigger TDD nudge."""
-        pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "execution_plan.json", "Write"
-        )
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "sprint.json", "Write"
-        )
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "execution_plan.json")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", "sprint.json")
         self.assertIsNone(result)
 
     def test_code_after_markdown_still_nudges(self):
         """Markdown writes don't count, but code writes after them do."""
-        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md", "Write")
-        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.py", "Write")
-        result = pre_tool_write.check_tdd_order(
-            self.smm_dir, "main", "src/utils.py", "Write"
-        )
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "docs/README.md")
+        pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/app.py")
+        result = pre_tool_write.check_tdd_order(self.smm_dir, "main", "src/utils.py")
         result = self._assert_not_none(result)
         self.assertIn("TDD", result)
 

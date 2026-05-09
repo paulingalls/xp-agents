@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""PostToolUse:Skill|Agent hook: set review cycle flags, emit canonical
-lifecycle events, and inject post-completion context after review skills
-or the xp-housekeeper agent run.
+"""PostToolUse:Skill|Agent hook: set review-cycle flags, emit canonical
+lifecycle events, inject post-completion context after review skills or
+the xp-housekeeper agent.
 
 Detects /simplify, /xp-quality-review, /security-review, /xp-review-plan,
-/xp-assign skill completions via tool_input.skill, and the xp-housekeeper
-inline agent via tool_input.subagent_type. For each, appends a canonical
-status event with metadata.action so consumers can detect skill completions
-without regex-matching LLM-authored content. Per-commit review-cycle flags
-are set only for /simplify and /xp-quality-review (security review fires
-at the close-skill Step 4.5, not per-commit).
+/xp-assign via tool_input.skill, and xp-housekeeper via subagent_type.
+Each appends a canonical status event with metadata.action so consumers
+can detect completions without regex-matching LLM-authored content. The
+per-commit review flag is set only for /simplify and /xp-quality-review.
 
-The TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
-execution mode (solo vs teammates) is decided by xp-assign — the nudge can
-then describe mode-appropriate task shapes (per-step vs coordination).
+TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
+execution mode (solo vs teammates) is decided by xp-assign — only then
+can the nudge describe mode-appropriate task shapes.
 """
 
 import sys
@@ -28,7 +26,7 @@ import identity
 import markers
 import plugin_loader
 
-# Canonical target names — derived from skill/agent names via _detect_target.
+# Canonical target names; mapped from skill/agent names by _detect_target.
 _TARGET_SIMPLIFY = "simplify"
 _TARGET_QUALITY_REVIEW = "quality-review"
 _TARGET_SECURITY_REVIEW = "security-review"
@@ -54,12 +52,10 @@ def _detect_target(target_name: str) -> str | None:
     return None
 
 
-# Single dispatch table — target → (action, content) for the canonical
-# lifecycle event. Hook is the single producer; consumers match
-# metadata.action exactly so LLM-authored content drift cannot zero the
-# counters. The event's agent_id is the teammate-resolved attribution
-# (see agent-id-semantics ADR): skill identity lives in metadata.action.
-# See docs/ideas/deterministic-event-emission.md.
+# Single dispatch table — target → (action, content). Hook is the sole
+# producer; consumers match metadata.action exactly so LLM-authored content
+# drift can't zero the counters. agent_id is teammate-resolved attribution
+# (skill identity lives in metadata.action per agent-id-semantics ADR).
 _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
     _TARGET_SIMPLIFY: (
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,
@@ -88,9 +84,8 @@ _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
 }
 
 
-# Targets that participate in the per-commit review cycle (set the marker
-# flag that clears the commit gate). plan-review and housekeeping are
-# lifecycle-only — they don't gate commits.
+# Per-commit review-cycle targets — set the marker flag that clears the
+# commit gate. plan-review/housekeeping are lifecycle-only, don't gate commits.
 _TARGET_FLAG: dict[str, str] = {
     _TARGET_SIMPLIFY: "simplify_done",
     _TARGET_QUALITY_REVIEW: "quality_review_done",
@@ -114,13 +109,11 @@ _TASK_CREATION_NUDGE = (
 )
 
 
-# /security-review's skill prompt ends with "reply must contain markdown
-# report and nothing else" — correct for direct user invocations, but it
-# stops orchestrated callers (close-skill Step 4.5) mid-flight. This nudge
-# is delivered as PostToolUse:Skill additionalContext next to the tool
-# result so the next model call sees both the skill's stop clause and this
-# override; the calling agent has full context to decide whether to honor
-# it (orchestrated → continue, direct user → stop).
+# /security-review's prompt ends with a stop clause ("reply must contain
+# markdown report and nothing else") — fine for direct user invocations,
+# but it halts orchestrated callers (close-skill Step 4.5) mid-flight.
+# This nudge ships next to the tool result so the calling agent sees both
+# the stop clause and the override and decides which applies in context.
 _SECURITY_CONTINUATION_NUDGE = (
     "/security-review's 'reply with markdown report only' clause is intended "
     "for direct user invocations. If this call was part of an orchestrated "
@@ -145,20 +138,17 @@ def _emit_action_event(smm_dir: Path, action: str, content: str, agent_id: str) 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Set review cycle flags and emit canonical lifecycle events."""
     tool_input = input_data.get("tool_input", {})
-    # Skill calls carry the target in tool_input.skill; Agent calls carry it
-    # in tool_input.subagent_type. Both paths converge here so the housekeeper
-    # can be invoked either way. Target detection runs BEFORE the recursion-
-    # prevention skip below so /security-review can be carved out as the one
-    # exception — orchestrated callers (close-skill Step 4.5) need both the
+    # Skill carries target in tool_input.skill; Agent in tool_input.subagent_type.
+    # Detection runs BEFORE recursion-prevention so /security-review can be
+    # carved out — orchestrated callers (close-skill Step 4.5) need both the
     # SECURITY_COMPLETE event and the continuation nudge to proceed.
     target_name = tool_input.get("skill") or tool_input.get("subagent_type") or ""
     target = _detect_target(target_name)
     if target is None:
         return None
 
-    # Recursion-prevention: xp-* agents don't trigger our review-cycle flag
-    # setting or simplify/QR/plan-review/housekeeping lifecycle events on
-    # themselves. /security-review is excepted (see comment above).
+    # Recursion-prevention: xp-* agents don't trigger flag-setting or lifecycle
+    # events on themselves. /security-review is excepted (see comment above).
     if _common.is_xp_agent(input_data) and target != _TARGET_SECURITY_REVIEW:
         return None
 
@@ -168,19 +158,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = identity.resolve_agent_id(input_data)
 
-    # Per-commit review-cycle targets: set the marker flag that clears
-    # the commit gate.
     flag = _TARGET_FLAG.get(target)
     if flag:
         markers.set_review_flag(smm_dir, agent_id, flag)
 
-    # Emit canonical lifecycle event (single dispatch — producer determinism).
-    # agent_id is the teammate-resolved attribution; skill identity lives
-    # in metadata.action per the agent-id-semantics ADR.
     action, content = _TARGET_LIFECYCLE[target]
     _emit_action_event(smm_dir, action, content, agent_id)
 
-    # Return appropriate context.
     if target == _TARGET_HOUSEKEEPING:
         return plugin_loader.load_process_guide() or None
     if target == _TARGET_ASSIGN:
