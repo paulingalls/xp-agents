@@ -148,7 +148,8 @@ def _staged_ruff_findings(
     to lint_check.EDIT_DEFERRED_CODES (F401/F811). Other ruff codes already
     surface as concerns at edit time — do NOT broaden the commit-time block
     beyond the deferral policy. ``staged_files`` is reused from the caller to
-    avoid a second `git diff --cached --name-only` invocation.
+    avoid a second `git diff --cached --name-only` invocation
+    (invariant: `test_common_path_at_most_one_name_only_call`).
 
     Fail-closed when the batch is missing any staged .py path so unverified
     F401/F811 cannot ship.
