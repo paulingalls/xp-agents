@@ -436,6 +436,21 @@ def assert_emitter_under_budgets(
     )
 
 
+def discover_emitter_scripts(scripts_dir: Path) -> list[str]:
+    """Walk scripts_dir for .py files that emit context via _common.hook_output.
+
+    Surface-scan helper: returns sorted basenames of every script that calls
+    `_common.hook_output(...)` anywhere in its source. Catches the gap where
+    a new emitter ships without a fixture/budget entry. Substring match —
+    keep the literal `_common.hook_output(` out of non-emitter docstrings.
+    """
+    return sorted(
+        path.name
+        for path in scripts_dir.glob("*.py")
+        if "_common.hook_output(" in path.read_text(encoding="utf-8")
+    )
+
+
 def _preload_script_path(skill_name: str) -> Path:
     """Resolve a skill name to its preload-emitter script path.
 

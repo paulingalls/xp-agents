@@ -77,16 +77,54 @@ def session_end_warning() -> dict:
     return {"session_id": "t", "agent_id": "main", "stop_hook_active": False}
 
 
+def pre_tool_skill() -> dict:
+    return _make_skill_input(skill="unrelated-skill")
+
+
+def post_tool_exit_plan() -> dict:
+    # agent_type "xp-*" → is_xp_agent True → no-trigger path (no marker written).
+    return {
+        "session_id": "t",
+        "agent_id": "xp-test",
+        "agent_type": "xp-test",
+        "tool_name": "ExitPlanMode",
+        "tool_input": {},
+        "tool_response": {},
+    }
+
+
+def kickoff_gate() -> dict:
+    return {
+        "session_id": "t",
+        "agent_id": "main",
+        "prompt": "what is the current sprint status",
+    }
+
+
+def bash_post_tool() -> dict:
+    return {
+        "session_id": "t",
+        "agent_id": "main",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"stdout": "", "stderr": "", "exit_code": 0},
+    }
+
+
 EMITTER_FIXTURES: dict[str, FixtureBuilder] = {
+    "bash_post_tool.py": bash_post_tool,
+    "kickoff_gate.py": kickoff_gate,
+    "lint_check.py": lint_check,
+    "post_tool_exit_plan.py": post_tool_exit_plan,
+    "pre_tool_bash.py": pre_tool_bash,
+    "pre_tool_skill.py": pre_tool_skill,
+    "pre_tool_write.py": pre_tool_write,
     "prompt_nugget.py": prompt_nugget,
-    "user_prompt_log.py": user_prompt_log,
+    "retrospective.py": retrospective,
+    "review_cycle_done.py": review_cycle_done,
+    "session_end_warning.py": session_end_warning,
     "session_start.py": session_start,
     "subagent_start.py": subagent_start,
     "subagent_stop.py": subagent_stop,
-    "pre_tool_write.py": pre_tool_write,
-    "pre_tool_bash.py": pre_tool_bash,
-    "lint_check.py": lint_check,
-    "review_cycle_done.py": review_cycle_done,
-    "retrospective.py": retrospective,
-    "session_end_warning.py": session_end_warning,
+    "user_prompt_log.py": user_prompt_log,
 }
