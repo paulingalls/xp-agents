@@ -11,9 +11,9 @@
 ## Pillars
 
 - **Intent** — what we're building. Cap 2-5.
-- **Constraints** — architectural/process bounds. Implementation details belong in code comments. Cap ~20.
+- **Constraints** — architectural/process bounds. Implementation details belong in code comments. Cap 15-20.
 - **Risks** — what could go wrong. Cap 2-5.
-- **Wisdom** — durable lessons. Cap 3-7.
+- **Wisdom** — durable lessons. Cap 5-10.
 
 Read Intent and Risks at plan or sprint start; check Constraints when choosing an approach; apply Wisdom continuously.
 

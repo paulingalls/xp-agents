@@ -80,7 +80,7 @@ For each new customer input: deliverable outcome or task?
 Actions:
 - Remove items whose goal IDs are in `resolutions`.
 - Add new intents (deliverable outcomes only) with `type: "goal"` or `type: "customer_intent"`.
-- **Cap: ~10 items.** Over cap → prune oldest with no recent references.
+- **Cap: 2-5 items.** Over cap → prune oldest with no recent references.
 
 ## Constraints
 
@@ -93,7 +93,7 @@ Constraints are **architectural boundaries** other agents must respect. Not ever
 Actions:
 - For each new decision: would another agent need to know this to avoid a conflicting choice? Yes → add with `type: "decision"` + `topic`. No → skip.
 - **Prune actively** — remove constraints superseded, absorbed by linting/tests/CI, or stale.
-- **Cap: ~20 items.**
+- **Cap: 15-20 items.**
 
 ## Risks
 
@@ -106,7 +106,7 @@ Actions:
 - For each remaining unresolved risk, verify still relevant — read content, check the underlying condition. Remove if no longer applicable.
 - Add only systemic concerns/assumptions with appropriate `type` and `severity` (problem/uncertainty/debt).
 - Aging 6+ sessions: keep visible, record a `question` event.
-- **Cap: ~10 items.**
+- **Cap: 2-5 items.**
 
 ## Wisdom
 
@@ -124,11 +124,11 @@ Each item is a **behavioral rule**: "do X because Y" or "don't do Y because Z".
 Actions:
 - Keep existing items still relevant.
 - Demote items unreferenced for 10+ sessions (record status event).
-- **Hard cap: 10 items.**
+- **Cap: 5-10 items.**
 
 ## Health Check
 
-Healthy / Warning thresholds: Intent 2-5 / 0=no direction, 10+=scope creep. Constraints 5-15 / 0=no decisions, 20+=over-specified. Risks 2-5 / 0=false confidence, 10+=unmanaged risk. Wisdom 3-7 / 0=not learning, 10=cap reached. Include warnings in your return summary.
+Healthy / Warning thresholds: Intent 2-5 / 0=no direction, 10+=scope creep. Constraints 15-20 / 0=no decisions, 21+=over cap. Risks 2-5 / 0=false confidence, 10+=unmanaged risk. Wisdom 5-10 / 0=not learning, 11+=over cap. Include warnings in your return summary.
 
 ## Actions (you MUST complete 2 and 3 before returning)
 
