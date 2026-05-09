@@ -1,5 +1,53 @@
 # Changelog
 
+## v3.1.23 — sprint-076 (token audit M-3: trim 11 hook-injection emitters, -8.4% lines; per-script byte-budget regression test)
+
+Sprint-076 shipped 6/6 stories delivering Milestone 3 of the token-audit plan. The 11 hook-injection emitter scripts (`prompt_nugget`, `user_prompt_log`, `session_start`, `subagent_start`, `subagent_stop`, `pre_tool_write`, `pre_tool_bash`, `lint_check`, `review_cycle_done`, `retrospective`, `session_end_warning`) trim from 2748 → 2516 source lines (-232, -8.4%); a new `tests/hooks/test_injection_budgets.py` enforces per-script byte budgets at `ceil(measured * 1.125 / 100) * 100` (floor 100). The capstone shipped twice — the first version was caught as test-theatre by the sprint close-reviewer (silent-by-short-circuit, not silent-by-trim, because `_run_emitter` set `SMM_DIR` to a non-existent path and 9/11 emitters short-circuited at `get_validated_smm_dir`). The fix bootstraps a real seeded SMM via `seed_smm.py` directly + a git-repo cwd, recalibrates budgets to honest measurements, and amortizes one bootstrap across all 11 emitters per assert call. 4679 tests pass (+2 new).
+
+### Runtime byte savings (per-fire, on prose-heavy nudges)
+
+| Emitter | Pre-trim B | Post-trim B | Δ |
+|---|---:|---:|---|
+| `subagent_stop` plan-reviewer nudge | 280 | 156 | **-124B (-44%)** |
+| `retrospective` preload | 607 | 514 | **-93B (-15%)** |
+| `session_end_warning` | 157 | 135 | **-22B (-14%)** |
+
+### Honest framing on the budget test
+
+The capstone test is an **empty-SMM baseline regression guard**, not a load measurement. With seeded-but-empty SMM and a git-repo cwd:
+- `subagent_start` (4096 B), `session_start` (1793 B): always-on XP_VALUES.md framing
+- `subagent_stop` (248 B), `lint_check` (235 B), `review_cycle_done` (110 B), `session_end_warning` (81 B): always-emit nudges
+- `prompt_nugget`, `retrospective` (0 B): no signals to nugget on empty SMM
+- `pre_tool_write`, `pre_tool_bash` (0 B): sprint-state-gated, silent without sprint
+- `user_prompt_log` (0 B): returns None by design
+
+The test catches: growth in always-on framing; new unconditional output sneaking into a previously-silent emitter; regression past per-script budgets on the four always-emit nudges. The test does NOT catch: growth in dynamic per-event content (rendered SMM, file paths, signal counts) — those scale with SMM size and are validated by the per-script unit tests in `tests/hooks/`.
+
+### Behavioral changes (verified safe)
+
+- `pre_tool_write.check_tdd_order` dropped its `tool_name` parameter — three layers of redundancy collapsed (`_WRITE_TOOLS` frozenset + `if tool_name not in _WRITE_TOOLS` branch were dead given `hooks.json` matcher pins `Write|Edit|MultiEdit` and `_common.extract_file_path` already gates the `run()` path). 7 test sites updated; the dead-branch test removed.
+- `retrospective.run()` return type changed from `str | None` to `tuple[str, int] | None` — eliminates a regex-round-trip-our-own-prose anti-pattern at the CLI; drops `import re` from the SessionStart hot path. Verified safe: only production caller is the same-file `__main__`.
+- Dead `(?:events|stories)` regex branch removed in `retrospective.py` CLI — its former producer (`sprint_retro_detection.py`) is gone.
+
+### Process notes
+
+- The sprint close-reviewer caught the test-theatre on the cumulative diff after the per-story close-reviewers had already passed it (twice). Per-story reviewers see the test framework cohere internally; cross-cutting reviewer caught it lying about what it tests. Confirms the value of the dual-review pipeline.
+- Story-005 dropped two `test_retrospective.py` lines (signature update for the tuple return) and story-003 dropped 22 lines from `test_pre_tool_write.py` (signature update for the dead-branch removal). Both were file_domain drift within K=1 tolerance and necessary collateral of the production refactor.
+- Investigation deliverable: discovery `66385dde8b25` quantified the teammate-commit-event gap that triggered debt `55039b905824`. Actual post-May-1 miss rate is ~6%, not the implied ~100% the original concern suggested. The historical ~62% comes from April when the bash_post_tool wiring wasn't reliably active. 97084b28 (the smoking gun) was misattributed: its merge is `9a5fe47b`, not `83ddb486`. Concrete leads filed for next sprint.
+
+### Open follow-up debts (deferred to next sprint)
+
+- `59e14037d671`: 12-hex-ID grep guard for emitter scripts (parity with skill/agent shipped-md guards)
+- `c589e66f9a22`: Capstone AC1 enforces fixture↔budget cross-check but doesn't scan `scripts/` directory; a new emitter could be silently unbudgeted
+- `04d6e605509e`: branching.py at 585 lines — extract `branch_lifecycle.py`
+- `ac06c0a67f34`: New event types pay 3-entry tax across 3 modules; refactor with EVENT_CATEGORY enum
+
+### Next milestone
+
+M-4: Preload.sh audit + budgets (14 preload.sh files). Final milestone of the token-audit plan.
+
+---
+
 ## v3.1.22 — sprint-075 (token audit M-2: trim 7 agent .md, -13%; SessionStart marker sweep; teammate-commit-event bug filed)
 
 Sprint-075 shipped 5/7 stories delivering Milestone 2 of the token-audit plan (4/4 milestone stories at 1.0 velocity; 2 ad-hoc carry-forward Try items deferred). The 7 agent prompts that fire on every commit/close/plan/kickoff trim from 1248 → 1083 lines (-13%); a new capstone test enforces per-agent line budgets at `round(trimmed * 1.125 / 10) * 10` and a 12-hex-ID grep prevents historical references from creeping back in. The shared budget+ID test scaffolding consolidates into three `conftest.py` helpers (`assert_md_budgets_match`, `assert_md_under_budgets`, `assert_no_12hex_ids_in_md`) used by both the new agent tests and the existing skill tests. A new "trim-restoration criteria" constraint codifies the lesson surfaced across stories 001 and 002: trim work must preserve concrete calibration anchors (char counts, before/after numerics) alongside the negative-directive principle from sprint-074. Story-005 ad-hoc landed a SessionStart sweep that clears stale `CLOSE_CYCLE_ACTIVE` and `.accept` markers — but the sweep is gated to fresh-start sources only after close-reviewer caught the original implementation would silently wipe load-bearing markers on `/compact` or `/resume`. 4678 tests pass (+6 new).
