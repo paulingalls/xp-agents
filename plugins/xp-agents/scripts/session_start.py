@@ -113,12 +113,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return "SMM init failed — xp-agents disabled."
 
+    # Sweep stuck markers from prior sessions (CLOSE_CYCLE_ACTIVE, ACCEPT)
+    # before any logic that branches on them. Idempotent no-op when clean.
+    markers.sweep_stale_session_markers(smm_dir)
+
     # Write .needs-kickoff marker on fresh starts. "startup" blocks until
     # kickoff; "clear" nudges only (mid-session reset, work may be in
     # progress). "resume"/"compact" fire mid-session — no marker needed.
     if _is_fresh_start(source):
         markers.marker_write(smm_dir, markers.KICKOFF, source)
-        markers.marker_consume(smm_dir, markers.ACCEPT)
         if not sprint_state.has_remaining_work(smm_dir):
             execution_plan_store.archive(smm_dir)
             markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)

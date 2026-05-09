@@ -379,6 +379,46 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 
 
 # ===========================================================================
+# Stale marker sweep tests (story-005)
+# ===========================================================================
+
+
+class TestSessionStartStaleMarkerSweep(_HookTestCase):
+    """SessionStart sweeps stuck markers from prior sessions (story-005).
+
+    See ``markers._STALE_SESSION_MARKERS`` for the marker set and the leak
+    sources that motivate the sweep.
+    """
+
+    def test_clears_stale_markers_across_sources(self):
+        import session_start
+
+        cases = [
+            (".close-cycle-active", "resume"),
+            (".accept", "resume"),
+            (".close-cycle-active", "compact"),
+            (".accept", "startup"),
+        ]
+        for marker_name, source in cases:
+            with self.subTest(marker=marker_name, source=source):
+                marker = self.smm_dir / marker_name
+                marker.write_text("stale")
+                session_start.run(
+                    {"session_id": "test", "source": source},
+                    smm_dir=self.smm_dir,
+                )
+                self.assertFalse(marker.exists())
+
+    def test_sweep_is_idempotent_when_no_markers(self):
+        import session_start
+
+        session_start.run(
+            {"session_id": "test", "source": "resume"},
+            smm_dir=self.smm_dir,
+        )
+
+
+# ===========================================================================
 # session_start XP values injection tests
 # ===========================================================================
 
