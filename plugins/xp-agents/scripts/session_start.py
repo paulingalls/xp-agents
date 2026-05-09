@@ -45,9 +45,11 @@ GUPP_STARTUP = (
 def _is_fresh_start(source: str) -> bool:
     """True when the SessionStart source represents a fresh start.
 
-    ``startup`` is a brand-new session; ``clear`` is a mid-session reset.
-    Both warrant a kickoff nudge. ``resume`` and ``compact`` are continuations
-    of an in-flight session — re-running kickoff would redo work just done.
+    ``startup`` is a brand-new session (kickoff_gate hard-blocks until
+    /xp-kickoff runs); ``clear`` is a mid-session reset (nudge only).
+    Both arm the KICKOFF marker. ``resume`` and ``compact`` are
+    continuations of an in-flight session — re-running kickoff would
+    redo work just done.
     """
     return source in ("startup", "clear")
 
@@ -91,11 +93,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     source = input_data.get("source", "")
 
-    # Ensure SMM exists via init.sh
     if smm_dir is None or not smm_dir.exists():
         plugin_root = plugin_loader.resolve_plugin_root()
         init_script = plugin_root / "smm" / "init.sh"
-        # Validate script path before executing
+        # Refuse to exec unless the script is owned by the current user.
         if init_script.is_file() and init_script.stat().st_uid == os.getuid():
             try:
                 result = subprocess.run(
@@ -113,12 +114,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return "SMM init failed — xp-agents disabled."
 
-    # Write .needs-kickoff marker on fresh starts. "startup" blocks until
-    # kickoff; "clear" nudges only (mid-session reset, work may be in
-    # progress). "resume"/"compact" fire mid-session — no marker needed.
-    # Sweep stuck markers (CLOSE_CYCLE_ACTIVE, ACCEPT) on fresh starts ONLY —
-    # resume/compact are mid-session continuations where these markers may
-    # be load-bearing for in-flight close-skills or pending /xp-accept.
+    # Sweep stale CLOSE_CYCLE_ACTIVE/ACCEPT markers only on fresh starts —
+    # resume/compact mid-session may have a close-skill or /xp-accept in
+    # flight that legitimately holds them.
     if _is_fresh_start(source):
         markers.sweep_stale_session_markers(smm_dir)
         markers.marker_write(smm_dir, markers.KICKOFF, source)
@@ -131,11 +129,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if needs_sprint:
             markers.marker_write(smm_dir, markers.NEEDS_SPRINT, source)
 
-    # Build context: GUPP (source-dependent) + skills + XP values.
     gupp = GUPP_STARTUP if _is_fresh_start(source) else GUPP_RESUME
-    parts: list[str] = []
-    parts.append(gupp)
-    # XP values are always available from the first prompt.
+    parts: list[str] = [gupp]
     values = plugin_loader.load_xp_values()
     if values:
         parts.append("\n\n" + values)
@@ -143,8 +138,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # PROCESS_GUIDE.md is injected by kickoff_done.py after /xp-kickoff
     # completes, together with the fresh SMM.
 
-    # M10: Reinject SMM + sprint.md + process guide after compaction
-    # so the lead's context retains project state and workflow rules.
+    # Reinject SMM + process guide after compaction so the lead's
+    # context retains project state and workflow rules.
     if source == "compact":
         smm_data = smm_store.load_smm(smm_dir)
         rendered = smm_cli.render_markdown(smm_data)
@@ -175,12 +170,7 @@ def _get_version() -> str:
 
 
 def _system_message(source: str, version: str) -> str:
-    """Build the SessionStart systemMessage.
-
-    The kickoff nudge fires only on fresh starts (``startup``/``clear``).
-    Continuations (``resume``/``compact``) drop it — re-running kickoff
-    would redo work already done in this session.
-    """
+    """SessionStart systemMessage; kickoff nudge only on fresh starts."""
     base = f"XP agents (v{version}) active."
     if _is_fresh_start(source):
         return f"{base} Run /xp-kickoff."

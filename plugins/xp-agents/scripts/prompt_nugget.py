@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Prompt nugget: prioritized delta injection at UserPromptSubmit time.
+"""Prompt nugget: prioritized delta injection at UserPromptSubmit.
 
-Uses watermark-based read_delta to show only NEW signal events since
-the last injection. Picks the top 3 by priority (concerns > questions >
-assumptions > discoveries > debt > decisions). ~100 tokens max.
-If nothing new, no injection (exit 0 with no output).
+Reads NEW signal events since last injection (watermark) and surfaces
+the top 3 by priority (concerns > questions > assumptions > discoveries
+> debt > decisions). ~100 tokens max. No output when nothing is new.
 """
 
 import sys
@@ -17,8 +16,8 @@ import _common
 import concerns
 import read_delta
 
-# Signal types worth surfacing, in priority order.
-# Higher priority = more likely to affect the agent's current work.
+# Signal types worth surfacing, in priority order — higher priority is
+# more likely to affect the agent's current work.
 _NUGGET_PRIORITY = {
     _common.CONCERN: 0,
     _common.QUESTION: 1,
@@ -44,10 +43,7 @@ _NUGGET_CONTENT_MAX = 120
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Build a prompt nugget from new events since last injection.
-
-    Returns nugget string for additionalContext, or None if nothing new.
-    """
+    """Return additionalContext nugget, or None if nothing new since last injection."""
     if _common.is_xp_agent(input_data):
         return None
 
@@ -63,7 +59,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     except Exception:
         return None
 
-    _all_events, resolved = _common.load_events_with_resolutions(smm_dir)
+    _, resolved = _common.load_events_with_resolutions(smm_dir)
     resolved_ids = (
         resolved.get("resolved_concern_ids", set())
         | resolved.get("resolved_debt_ids", set())
@@ -86,9 +82,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not signals:
         return None
 
-    # Sort by priority (type), then by recency (position in list = chronological).
-    # For events of the same type, most recent comes last in the original list,
-    # so we reverse to get most recent first, then stable-sort by priority.
+    # read_delta returns events in chronological order; reverse so most-recent
+    # comes first within each priority group after the stable sort by type.
     signals.reverse()
     signals.sort(key=lambda e: _NUGGET_PRIORITY.get(e.get("type", ""), 99))
 
