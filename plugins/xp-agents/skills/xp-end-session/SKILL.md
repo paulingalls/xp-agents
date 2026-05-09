@@ -61,7 +61,9 @@ For each id in `### OPEN_QUESTIONS`:
 
 The preload's `### LIKELY_ADDRESSED` section lists each concern/debt
 ID followed by indented git commit hash(es) whose files overlap. **Judge
-each item yourself — do not prompt the user.** For each grouping:
+each item yourself — do not prompt the user.** Inspect any cited commit
+via `git show <hash>` (works for both solo and teammate worktree commits).
+For each grouping:
 
 - **Auto-resolve** when the cited commits clearly fix the concern's
   intent. All three must hold:
