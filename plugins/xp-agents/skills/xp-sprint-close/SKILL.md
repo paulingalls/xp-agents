@@ -23,8 +23,7 @@ allowed-tools:
 # Sprint Close
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
-not recompute them. The shared close pipeline lives in
+`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Shared pipeline lives in
 `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 ## Step 1: Pre-flight
@@ -94,7 +93,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-Any failing step aborts the chain — the source branch survives so the user can resolve and retry. Conflicts are never auto-resolved.
+Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Step 8: Plan-close chain (if applicable)
 

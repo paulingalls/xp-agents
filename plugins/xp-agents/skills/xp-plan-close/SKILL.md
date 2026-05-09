@@ -25,10 +25,9 @@ allowed-tools:
 # Plan Close
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
-`GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim — do
-not recompute them. `TARGET_BRANCH` is the primary integration branch
-(plan-close merges plan → primary). The shared close pipeline lives in
-`${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+`GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary
+integration branch (plan-close merges plan → primary). Shared pipeline
+lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 ## Step 1: Pre-flight
 
@@ -99,7 +98,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive
 ```
 
-A failed merge leaves the plan and branch alive for the user to resolve.
+Any failing step aborts the chain — plan stays unarchived and the branch alive for retry.
 
 ## Step 8: Update System Context
 

@@ -159,9 +159,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-Always at orchestrator cwd (see intro). Script chains
-`merge --no-ff → push target (if remote) → delete source`; any failure
-aborts the chain leaving the source branch intact for retry.
+Always at orchestrator cwd (see intro). Any failing step aborts the
+chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Step 7b: Teammate worktree cleanup (if applicable)
 

@@ -22,7 +22,7 @@ allowed-tools:
 
 # Free Close
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. Use these values verbatim. `TARGET_BRANCH` is the primary integration branch (free-close merges a free branch → primary). The shared close pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary integration branch (free-close merges a free branch → primary). Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 ## Step 1: Pre-flight
 
@@ -119,7 +119,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
 ```
 
-The script chains: merge `--no-ff` → push target (if remote) → delete source. Any step failing aborts the chain — the source branch always survives a failed step so the user can resolve and retry. Conflicts are never auto-resolved; stderr names the conflict.
+Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Reporting Back
 
