@@ -1,10 +1,8 @@
 # Teammate Guide
 
-You are a worktree-isolated teammate. The lead coordinates the project; you implement your assigned story independently with full TDD and review cycle support.
+You are a worktree-isolated teammate. The lead coordinates the project; you implement your assigned story independently with full TDD and review cycle.
 
 ## TDD Workflow
-
-Follow strict TDD for every change:
 
 1. **Red** — Write a failing test that captures the requirement
 2. **Green** — Write the minimal code to make it pass
@@ -15,34 +13,23 @@ Take small steps. Don't try to implement everything at once.
 
 ## Review Cycle
 
-Run before each commit:
+Before each commit: `/simplify` (reuse, quality, efficiency) → `/xp-quality-review` (courage, drift, debt) → `git commit` (pre-commit hooks enforce tests + format).
 
-1. `/simplify` — code reuse, quality, and efficiency review
-2. `/xp-quality-review` — courage accountability, drift check, debt awareness
-3. Commit — pre-commit hooks enforce test-passing and formatting
-
-Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff. There is no on-demand triage skill — the layered gates own security.
+Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff. There is no on-demand triage skill.
 
 ## Commit Conventions
 
-- One logical change per commit
-- Run `ruff format` before staging
-- Write commit messages that explain *why*, not *what*
-- When a commit closes a recorded SMM item (most commonly `debt`, `concern`, `question`, or `goal` — also works for `assumption` and `decision`), add a `Resolves-Event: <12-hex-id>[, <id>...]` trailer at the bottom of the commit body (same mechanism as `Co-Authored-By:`). The commit hook extracts the IDs into `metadata.resolves` on the commit event.
-- Use `git -C <worktree>` to commit from a worktree — never `cd <wt> && git commit && cd -` (the cd-back fires before the PostToolUse trailer-extract hook, so it reads the wrong HEAD and the `Resolves-Event:` auto-link silently breaks).
-- Run `verify_acceptance.py --story <id>` before flipping a story to `reviewing` — it executes every `acceptance_execution` command in order and exits non-zero on the first red, so you confirm acceptance is green before handoff.
+- One logical change per commit; `ruff format` before staging
+- Commit messages explain *why*, not *what*
+- When a commit closes a recorded SMM item (`debt`, `concern`, `question`, `goal`, `assumption`, `decision`), add a `Resolves-Event: <12-hex-id>[, <id>...]` trailer at the bottom of the commit body. The PostToolUse hook extracts IDs into `metadata.resolves`.
+- Use `git -C <worktree>` to commit from a worktree — never `cd <wt> && git commit && cd -` (the cd-back fires before the trailer-extract hook, breaking the auto-link).
+- Run `verify_acceptance.py --story <id>` before flipping a story to `reviewing` — it executes every `acceptance_execution` command in order and exits non-zero on the first red.
 
 ## File Domain
 
-Stay in your assigned file domain for work you initiate. If you need to step outside to complete your story, raise a concern — collision with parallel teammates is the risk.
+Stay in your assigned domain for work you initiate. If you must step outside to complete your story, raise a concern — collision with parallel teammates is the risk.
 
-**Reviewer-suggested edits are different.** When `xp-code-reviewer` proposes an edit outside your domain (e.g., consolidating a duplicated helper in a sibling test), KEEP it by default — reviewers see the whole diff, and any conflict is cheap to resolve at story-close merge.
-
-Raise a concern instead only when the reviewer's edit:
-
-- Is large (restructures, not polishes)
-- Is off-topic for the diff
-- Touches files clearly owned by another in-progress story
+**Reviewer-suggested edits are different.** When `xp-code-reviewer` proposes an edit outside your domain (e.g., consolidating a duplicated helper in a sibling test), KEEP it by default — reviewers see the whole diff, and any conflict is cheap to resolve at story-close merge. Raise a concern instead only when the reviewer's edit is large (restructures, not polishes), off-topic for the diff, or touches files clearly owned by another in-progress story.
 
 ## Code Quality
 
@@ -52,28 +39,7 @@ Raise a concern instead only when the reviewer's edit:
 
 ## Event Recording
 
-Record decisions, assumptions, and concerns to the SMM:
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "decision" --agent "<your-agent-id>" \
-  --content "Description of what was decided" \
-  --topic "topic-slug"
-```
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "assumption" --agent "<your-agent-id>" \
-  --content "What you assumed and why"
-```
-
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "concern" --agent "<your-agent-id>" \
-  --content "What might go wrong" \
-  --severity "medium" \
-  --files '["path/to/affected/file.py"]'
-```
+Record decisions, assumptions, and concerns to the SMM via `${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> --type <T> --agent <id> --content "..."`. Common types: `decision` (with `--topic`), `assumption`, `concern` (with `--severity`, `--files`). Run `append.sh --help` for full flag set and budgets.
 
 ## When Done
 
