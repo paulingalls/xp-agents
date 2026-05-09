@@ -31,11 +31,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     unresolved = _common.count_unresolved_concerns(events)
     if unresolved:
-        parts.append(
-            f"{unresolved} unresolved concern(s) — review before ending session."
-        )
+        parts.append(f"{unresolved} unresolved concern(s) — resolve before ending.")
 
-    parts.append("Summarize what was accomplished this session for the user.")
+    parts.append("Summarize this session's work for the user.")
 
     return "Session-end checklist: " + " ".join(parts)
 
