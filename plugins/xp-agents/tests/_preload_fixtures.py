@@ -31,13 +31,17 @@ def _no_env() -> dict:
 
 PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {
     "xp-accept": _no_env,
+    "xp-assign": _no_env,
     "xp-end-session": _no_env,
     "xp-free-close": _no_env,
     "xp-kickoff": _no_env,
+    "xp-plan": _no_env,
     "xp-plan-close": _no_env,
     "xp-quality-review": _no_env,
     "xp-review-plan": _no_env,
     "xp-sprint-close": _no_env,
+    "xp-sprint-review": _no_env,
+    "xp-sprint-start": _no_env,
     "xp-story-close": _no_env,
     "xp-system-context": _no_env,
     "xp-work-selection": _no_env,

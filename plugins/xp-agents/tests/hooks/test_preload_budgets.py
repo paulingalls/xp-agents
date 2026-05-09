@@ -35,13 +35,17 @@ from conftest import (
 # ceil(measured_bytes * 1.125 / 100) * 100, floor at 100.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 200,
+    "xp-assign": 400,
     "xp-end-session": 200,
     "xp-free-close": 7100,
     "xp-kickoff": 200,
+    "xp-plan": 200,
     "xp-plan-close": 7100,
     "xp-quality-review": 300,
     "xp-review-plan": 200,
     "xp-sprint-close": 7100,
+    "xp-sprint-review": 100,
+    "xp-sprint-start": 200,
     "xp-story-close": 7100,
     "xp-system-context": 200,
     "xp-work-selection": 200,
