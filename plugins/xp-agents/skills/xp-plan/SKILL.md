@@ -40,6 +40,8 @@ If `SYSTEM_CONTEXT=<path>` is shown, read it for reference but do not modify it.
 
 ### Step 1: Source Gathering
 
+Sources are inputs to planning — once the plan is written, the plan must stand on its own. Milestones reference sources for traceability, but the plan should not depend on re-reading them.
+
 Ask the user via `AskUserQuestion`:
 
 > "What are the sources for this change? Provide file paths, paste content, or describe verbally."

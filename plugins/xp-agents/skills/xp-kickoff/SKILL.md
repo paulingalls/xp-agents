@@ -66,7 +66,7 @@ If `DISMISSED_AT` is non-empty, **skip the prompt** and log to the user: *"Stage
 
 Otherwise prompt via `AskUserQuestion`, substituting the stage value: **"This project is on branching Stage <N>. Stage 2 is the v3.1 plugin floor (sprint branches required for production-grade discipline). Migrate now via /xp-sprint-start, or continue at Stage <N> for this session?"**
 
-If the user picks **migrate**, invoke `/xp-sprint-start` immediately. After it completes, proceed to Step 2.5 — which re-reads stage fresh, so do not cache.
+If the user picks **migrate**, invoke `/xp-sprint-start` immediately. Do NOT record a dismissal — migration is the non-dismissed branch. After it completes, proceed to Step 2.5 — which re-reads stage fresh, so do not cache.
 
 If the user picks **continue**, record the dismissal:
 ```bash
