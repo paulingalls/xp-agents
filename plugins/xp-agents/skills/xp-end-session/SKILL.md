@@ -25,7 +25,7 @@ User-invoked. The preload above provides:
 - `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented git commit hash(es) for the audit trail (resolvable via `git show`).
 - `### UNCOMMITTED` — count of SMM events newer than the last commit event.
 
-Run all five steps in order. Do **not** prompt the user before Step 1 — the design is friction-free; the user invoked `/xp-end-session` because they want this work done.
+Run all five steps in order. Do **not** prompt the user before Step 1 — the user invoked `/xp-end-session` because they want this work done.
 
 ## Step 1: Append the session_summary event
 
@@ -51,7 +51,7 @@ For each id in `### OPEN_QUESTIONS`:
      --content "<user's answer>"
    ```
 3. If the user picks **defer**, leave the question open — no event. It surfaces at next kickoff.
-4. If the user picks **drop** (won't fix), use the canonical CLI helper. It stamps the structured `Closed question {id[:8]} as won't-fix:` content prefix and is idempotent for already-resolved questions:
+4. If the user picks **drop** (won't fix):
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py --smm-dir <SMM_DIR> \
      question close --won-fix --event-id <question_id> --rationale "<one-line reason>"
@@ -61,7 +61,9 @@ For each id in `### OPEN_QUESTIONS`:
 
 The preload's `### LIKELY_ADDRESSED` section lists each concern/debt
 ID followed by indented git commit hash(es) whose files overlap. **Judge
-each item yourself — do not prompt the user.** For each grouping:
+each item yourself — do not prompt the user.** Inspect any cited commit
+via `git show <hash>` (works for both solo and teammate worktree commits).
+For each grouping:
 
 - **Auto-resolve** when the cited commits clearly fix the concern's
   intent. All three must hold:
@@ -83,39 +85,26 @@ each item yourself — do not prompt the user.** For each grouping:
     --metadata '{"action":"end_session_drop","resolves":["<concern_id>"],"resolved_by_commits":["<commit_hash>"]}'
   ```
 
+  `action` distinguishes auto-judges from organic resolutions; `resolved_by_commits` is the audit trail.
+
 - **Defer** when the file overlap is incidental, intent isn't
   clearly fulfilled, or you can't confidently judge from available
   context. Append nothing — the concern stays open and re-surfaces
-  at next kickoff (same effective behavior as if the user never ran
-  this skill on that item). The default is to defer when in doubt.
-
-**Where to find commit content:**
-- The cited values are real git commit hashes — `git show <hash>`
-  reads the full message + diff regardless of author (works for both
-  solo commits and teammate worktree subagent commits).
-- For commits you authored this session (solo work), the message may
-  also be in your conversation history.
+  at next kickoff. Default to defer when in doubt.
 
 After processing all items, print a one-line summary to the user:
 > "Auto-resolved N items: <ids>. Deferred M items: <ids> — <one-line reason>."
 
-The `action: "end_session_drop"` lets retro tooling distinguish
-end-of-session auto-judges from organic concern/debt resolutions;
-`resolved_by_commits` carries the audit trail of which git commit
-hash(es) informed each decision.
-
 ## Step 4: Persist into session_history.json
 
-Pipe the draft_summary helper's JSON output into write_history.py. The CLI reads stdin, builds a `{ts, summary, carry_forward}` entry, appends it to `session_history.json` (ring-buffer beside `events.jsonl` in `SMM_DIR`), then prunes any carry_forward items whose referenced events are already resolved in the current event log.
+Run AFTER Step 1 so the just-appended session_summary event is included in the re-scan:
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/draft_summary.py --smm-dir <SMM_DIR> \
   | python3 ${CLAUDE_SKILL_DIR}/scripts/write_history.py --smm-dir <SMM_DIR>
 ```
 
-`session_history.json` schema is `{version: 1, entries: [{ts, summary, carry_forward[]}]}`. Retention is **N=5** entries — appending the 6th evicts the oldest. A future kickoff step will render the most recent entry as "Last session at a glance"; long-term truth lives in the SMM Wisdom/Risks pillars, not here.
-
-Run this AFTER Step 1 so the session_summary event Step 1 just appended is included when `draft_summary.py` re-scans `events.jsonl` here. The persisted summary comes from `draft_summary.run()` (fresh line-per-event scan), not from the agent-refined narrative in Step 1's event — the two are intentionally distinct: the event captures the final narrative, the history entry captures the mechanical scan. The pipe exits non-zero if the draft is malformed JSON or if the existing history file is corrupt — surface the error and stop rather than silently moving on.
+Retention is **N=5** entries — appending the 6th evicts the oldest. The pipe exits non-zero if the draft is malformed JSON or the existing history file is corrupt — surface the error and stop.
 
 ## Step 5: Honesty signal
 
