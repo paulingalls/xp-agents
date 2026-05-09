@@ -42,7 +42,7 @@ SKILL_BUDGETS: dict[str, int] = {
 }
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
-_LABEL = "SKILL.md"
+_LABEL = "skills/*/SKILL.md"
 
 
 class TestSkillBudgets(unittest.TestCase):

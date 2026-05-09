@@ -22,7 +22,7 @@ from conftest import _PLUGIN_ROOT, assert_no_12hex_ids_in_md
 class TestNoHistoricalIDsInSkills(unittest.TestCase):
     def test_no_12hex_ids_in_skill_md(self):
         assert_no_12hex_ids_in_md(
-            self, _PLUGIN_ROOT / "skills", "*/SKILL.md", "SKILL.md"
+            self, _PLUGIN_ROOT / "skills", "*/SKILL.md", "skills/*/SKILL.md"
         )
 
 
