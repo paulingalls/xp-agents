@@ -451,17 +451,41 @@ def discover_emitter_scripts(scripts_dir: Path) -> list[str]:
     )
 
 
-def _preload_script_path(skill_name: str) -> Path:
-    """Resolve a skill name to its preload-emitter script path.
+# Single source of truth for preload-equivalent script names per skill.
+# Default is "preload.sh"; only skills with an exception are listed here.
+_PRELOAD_SCRIPT_NAME_OVERRIDES: dict[str, str] = {
+    "xp-kickoff": "check_session_needs.sh",
+}
 
-    xp-kickoff is a special case: its preload-equivalent is named
-    `check_session_needs.sh` rather than `preload.sh`. Every other
-    skill follows the `preload.sh` convention.
+
+def _preload_script_name(skill_name: str) -> str:
+    return _PRELOAD_SCRIPT_NAME_OVERRIDES.get(skill_name, "preload.sh")
+
+
+def discover_preload_scripts() -> list[str]:
+    """Walk skills/*/scripts/ for preload-emitter scripts.
+
+    Surface-scan helper: returns sorted skill names for every preload-equivalent
+    script under `_PLUGIN_ROOT/skills/<name>/scripts/`. Catches the gap where
+    a new preload ships without a fixture/budget entry.
     """
-    skill_dir = _PLUGIN_ROOT / "skills" / skill_name / "scripts"
-    if skill_name == "xp-kickoff":
-        return skill_dir / "check_session_needs.sh"
-    return skill_dir / "preload.sh"
+    skills_dir = _PLUGIN_ROOT / "skills"
+    return sorted(
+        skill_dir.name
+        for skill_dir in skills_dir.iterdir()
+        if skill_dir.is_dir()
+        and (skill_dir / "scripts" / _preload_script_name(skill_dir.name)).is_file()
+    )
+
+
+def _preload_script_path(skill_name: str) -> Path:
+    return (
+        _PLUGIN_ROOT
+        / "skills"
+        / skill_name
+        / "scripts"
+        / _preload_script_name(skill_name)
+    )
 
 
 def _run_preload(

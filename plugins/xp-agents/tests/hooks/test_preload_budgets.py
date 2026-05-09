@@ -30,6 +30,7 @@ from _preload_fixtures import PRELOAD_FIXTURES
 from conftest import (
     assert_budgets_match,
     assert_preload_under_budgets,
+    discover_preload_scripts,
 )
 
 # ceil(measured_bytes * 1.125 / 100) * 100, floor at 100.
@@ -60,6 +61,18 @@ class TestPreloadBudgets(unittest.TestCase):
 
     def test_no_preload_exceeds_its_budget(self):
         assert_preload_under_budgets(self, PRELOAD_BUDGETS, _LABEL)
+
+    def test_every_preload_in_skills_dir_has_budget_entry(self):
+        """Surface-scan: walk skills/*/scripts/ for preload-emitter scripts; fail
+        loud on any without a budget entry. Mirror of story-008's emitter-side
+        scan — closes the new-preload-ships-unbudgeted gap that the symmetric
+        fixture↔budget check passes vacuously."""
+        on_disk = set(discover_preload_scripts())
+        missing = on_disk - set(PRELOAD_BUDGETS)
+        self.assertFalse(
+            missing,
+            f"{_LABEL} skills on disk without a budget entry: {sorted(missing)}",
+        )
 
 
 if __name__ == "__main__":
