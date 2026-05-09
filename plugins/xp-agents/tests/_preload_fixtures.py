@@ -21,4 +21,18 @@ from collections.abc import Callable
 PreloadBuilder = Callable[[], dict]
 
 
-PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {}
+def _empty() -> dict:
+    """Builder for preloads that exercise the no-state early-exit branch.
+
+    Bootstrap SMM has no sprint.json / system_context.json / .plan-awaiting-review
+    marker, so these preloads route to their no-state branch with no extra env.
+    """
+    return {}
+
+
+PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {
+    "xp-accept": _empty,
+    "xp-quality-review": _empty,
+    "xp-review-plan": _empty,
+    "xp-system-context": _empty,
+}

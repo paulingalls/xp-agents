@@ -20,12 +20,12 @@ def main() -> None:
 
     smm_dir = Path(args.smm_dir)
     if not args.files:
-        print("(no files to check)")
+        print("(none)")
         return
 
     events = _common.read_events_raw(smm_dir)
     if not events:
-        print("(no events)")
+        print("(none — SMM empty)")
         return
 
     found = False
@@ -38,7 +38,7 @@ def main() -> None:
             print(f"- **{file_path}**: {content} [{eid}]")
 
     if not found:
-        print("(no matching debt)")
+        print("(none)")
 
 
 if __name__ == "__main__":
