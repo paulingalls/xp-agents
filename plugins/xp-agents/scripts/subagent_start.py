@@ -5,9 +5,8 @@ Tiered injection via dispatch table (measured sizes):
 - Explore: Intent + Constraints + XP values (~5 KB)
 - xp-code-reviewer / Default: Full SMM + XP values (~10 KB)
 - xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values (~1.6 KB)
-- xp-close-reviewer: XP values only (close skill embeds review fields
-  inline in the Agent prompt)
-- xp-housekeeper: curation input path + work selection + XP values (~1.5-3 KB)
+- xp-close-reviewer: XP values only (close skill embeds review fields)
+- xp-housekeeper: curation path + work selection + XP values (~1.5-3 KB)
 - xp-* forked agents: XP values only (~1.4 KB)
 """
 
@@ -46,11 +45,7 @@ def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
 
 
 def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """xp-retrospective (inline-agent): inject SMM_DIR and RETRO_INPUT paths.
-
-    .retro-input.json is written by scripts/retrospective.py at SessionStart,
-    so the handler only advertises the paths the agent prompt expects.
-    """
+    """xp-retrospective: advertise paths (retrospective.py writes RETRO_INPUT)."""
     return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
 
 
@@ -61,9 +56,7 @@ _RETRO_TRY_TOPIC_PREFIX = "retro-try-"
 def _gather_work_selection_events(smm_dir: Path) -> str | None:
     """Current-session work-selection events as a markdown block, or None.
 
-    Boundary is the last session_end event; earlier events belong to prior
-    sessions. Three categories are surfaced so the housekeeper can weigh
-    the user's in-session choices during Intent/Risk curation.
+    Boundary is the last session_end event.
     """
     import materialize
 
@@ -111,14 +104,7 @@ def _gather_work_selection_events(smm_dir: Path) -> str | None:
 
 
 def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """xp-housekeeper (inline-agent): write curation input + inject paths.
-
-    Writes .curation-input.json via materialize.prepare_curation_data,
-    advertises SMM_DIR + CURATION_INPUT, and appends an optional
-    ## Session Work Selection block capturing adopted/deferred/dropped
-    retro Tries and session goals so the housekeeper sees the user's
-    in-session disposition signals directly.
-    """
+    """xp-housekeeper: write curation input + inject paths + work-selection block."""
     import materialize
 
     curation_path = smm_dir / _CURATION_INPUT_FILENAME
@@ -131,10 +117,6 @@ def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]
     return parts
 
 
-# ---------------------------------------------------------------------------
-# Dispatch table
-# ---------------------------------------------------------------------------
-
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
     "xp-code-reviewer": _inject_full,
@@ -146,11 +128,6 @@ _DISPATCH: dict[str, Callable[..., list[str]]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Core logic
-# ---------------------------------------------------------------------------
-
-
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core subagent_start logic. Returns additionalContext or None."""
     agent_type = input_data.get("agent_type", "")
@@ -159,21 +136,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if injector is None:
         injector = _inject_xp_agent if agent_type.startswith("xp-") else _inject_full
 
-    # Resolve SMM dir
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
-        # Even without SMM, inject values for all subagents
         values = plugin_loader.load_xp_values()
         return values if values else None
 
     agent_id = input_data.get("agent_id", "subagent")
 
-    # Read curated SMM from JSON
     import smm_store
 
     smm_data = smm_store.load_smm(smm_dir)
 
-    # Record start event
     start_event = _common.make_event(
         _common.STATUS,
         agent_id,
@@ -182,10 +155,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _common.append_safe(smm_dir, start_event)
 
-    # Run the selected injector (tier-specific context)
     parts = injector(smm_data, smm_dir, input_data)
 
-    # Universal: XP values injected for ALL subagents
     values = plugin_loader.load_xp_values()
     if values:
         parts.append(values)
@@ -193,11 +164,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not parts:
         return None
     return "\n\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":
