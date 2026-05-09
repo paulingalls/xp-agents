@@ -380,8 +380,8 @@ def _classify_divert_reason(
     worktree.normalize_path — mirrors the canonical pattern at
     resolves_probe._score_candidate so abs/rel/'./' forms match.
 
-    cross-story is dormant in practice today (spike decision 4f62e2ada08d:
-    0/84 concern/debt/discovery events carried metadata.story_id) but we
+    cross-story is dormant in practice today (spike: 0/84
+    concern/debt/discovery events carried metadata.story_id) but we
     keep the rule for forward-compat — once teammates start tagging, it
     lights up without a code change.
     """

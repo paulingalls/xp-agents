@@ -519,7 +519,11 @@ def assert_no_12hex_ids_in_md(
     pattern: str,
     label: str,
 ) -> None:
-    """Shipped .md files must not contain 12-hex SMM event IDs."""
+    """Shipped text files must not contain 12-hex SMM event IDs.
+
+    Generic across file types — `_in_md` is the historical name (M-1
+    skills, M-2 agents); M-3 emitters call this with a `*.py` glob.
+    """
     offenders: list[str] = []
     for path in dir_path.glob(pattern):
         for line_no, line in enumerate(
