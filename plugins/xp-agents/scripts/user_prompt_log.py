@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """UserPromptSubmit hook: log user prompts as customer_input events.
 
-Records what the user said into the SMM so all agents can see it.
 Truncates to 10,000 chars to prevent event bloat.
 """
 
