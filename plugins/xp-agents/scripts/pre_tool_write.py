@@ -257,10 +257,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "Plan review required before implementation.",
         )
 
-    # Assign gate. Plan files exempt — same as plan review gate.
+    # Assign gate. Plan files exempt. Teammates also exempt — they were
+    # dispatched BY /xp-assign and share the SMM dir holding the marker.
     assign_marker = (
         smm_dir
         and not is_plan_file
+        and not identity.is_worktree_teammate(input_data)
         and markers.marker_exists(smm_dir, markers.ASSIGN_PENDING)
     )
     if assign_marker:
