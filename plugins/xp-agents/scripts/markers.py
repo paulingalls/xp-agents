@@ -195,7 +195,12 @@ _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (CLOSE_CYCLE_ACTIVE, ACCEPT)
 
 
 def sweep_stale_session_markers(smm_dir: Path) -> None:
-    """Clear markers that should never survive across sessions."""
+    """Clear markers that should never survive across a session boundary.
+
+    Caller must gate to fresh-start SessionStart sources only — resume
+    and compact are mid-session continuations where these markers may
+    be load-bearing for in-flight close-skills or pending /xp-accept.
+    """
     for marker in _STALE_SESSION_MARKERS:
         marker_consume(smm_dir, marker)
 
