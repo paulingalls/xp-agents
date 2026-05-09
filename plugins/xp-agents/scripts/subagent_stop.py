@@ -169,7 +169,11 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
 
     _emit_subagent_complete(smm_dir, input_data)
 
-    return "Run /xp-assign NOW to decide execution mode (solo vs worktree subagents)."
+    return (
+        "IMPORTANT: Run /xp-assign NOW. Do NOT skip — it analyzes plan steps "
+        "for parallelization, picks solo vs worktree-subagent mode, and "
+        "spawns teammates when warranted."
+    )
 
 
 def _record_completion(
