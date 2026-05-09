@@ -45,63 +45,46 @@ One sprint = one milestone. If a milestone has >8 change zone files, suggest spl
 
 ### Step 2: Deep Codebase Dive
 
-This is the key step that makes stories self-contained for parallel execution.
+For the selected milestone's **Change Zones** and **Impact Zones**: `Read` each change-zone file (structure + interfaces), `Read` impact-zone files (dependencies), and `Glob`/`Grep` for related files not listed (tests, imports).
 
-For the selected milestone, read its **Change Zones** and **Impact Zones**:
-1. Use `Read` to examine each file in the change zones. Understand current structure, key functions, interfaces.
-2. Use `Read` on impact zone files to understand dependency relationships.
-3. Use `Glob` and `Grep` to find related files not listed in the milestone (tests, imports).
-
-From this analysis, identify:
-- **Natural story boundaries** — cohesive groups of files that can be changed independently
-- **Shared interfaces** — functions, types, or contracts that multiple stories will touch
-- **File domains** — which files each story exclusively owns (no overlap between stories)
+Identify natural story boundaries (cohesive file groups changeable independently), shared interfaces, and file domains (each story exclusively owns its files — no overlap).
 
 ### Step 3: Story Decomposition
 
-For each story, produce the enhanced format:
+For each story:
 
 - **Unique ID**: `story-001`, `story-002`, etc.
-- **Title**: Clear, descriptive name using the milestone's technical language.
+- **Title**: Clear, milestone-aligned name.
 - **Dependencies**: Other story IDs, or "none".
-- **Milestone**: `execution_plan.md §Milestone N` — traces back to the milestone.
-- **Design Sources**: Direct references to the original design documents (from the milestone's Sources field) with section pointers. Preserves the connection to the full design work.
-
-Then the enriched sections:
-
-- **Context**: 2+ sentences of what THIS story uniquely does — mechanical specifics, file-count scope, AC summary. **Story context must NOT copy text from milestone design_details or constraints — reference the milestone by number only.** The context field describes WHAT this story uniquely does, not WHY the milestone exists. Open with: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
-- **File Domain**: Files this story exclusively owns, with a note on what changes. No overlap between stories. Always include corresponding test files alongside source files (e.g., if `scripts/foo.py` is in the domain, include `tests/hooks/test_foo.py` too). This prevents domain accuracy issues where stories touch test files outside their declared domain. For investigation, verification, or research stories with no expected code changes, use an empty list `[]` — this marks the story as code-free and prevents false pipeline-gap noise in retro metrics.
-- **Interface Contracts**: Shared boundaries with other stories. Format: `file:symbol — shared with story-NNN, constraint`. Advisory, not enforced.
-- **Acceptance Criteria**: 3-5 testable conditions in **Given/When/Then prose** (per `docs/completed/ACCEPTANCE_TESTING_DOCTRINE.md §BDD Prose as the Universal Acceptance Format`). Use `And`/`But` to extend any clause. At least one criterion is an end-to-end scenario; mark it with the canonical `"E2E:"` prefix (the doctrine's signal for cross-cutting acceptance). Examples:
+- **Milestone**: `execution_plan.md §Milestone N`.
+- **Design Sources**: Direct refs to original design docs (from the milestone's Sources field) with section pointers.
+- **Context**: 2+ sentences of what THIS story uniquely does. **Do NOT copy text from milestone design_details or constraints — reference the milestone by number only.** Open: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
+- **File Domain**: Files this story exclusively owns. No overlap between stories. Always include corresponding test files alongside source files. For investigation/research stories with no expected code changes, use `[]` to mark the story code-free and prevent false pipeline-gap noise.
+- **Interface Contracts**: Shared boundaries. Format: `file:symbol — shared with story-NNN, constraint`. Advisory.
+- **Acceptance Criteria**: 3-5 testable conditions in **Given/When/Then prose** (per `docs/completed/ACCEPTANCE_TESTING_DOCTRINE.md`). Use `And`/`But` to extend. At least one is end-to-end, marked with the canonical `"E2E:"` prefix. Examples:
   - `"Given a registered user with a valid session, When they click 'Export', Then a CSV download starts within 2 seconds"`
   - `"Given the install command fails, When the workflow returns, Then phase is 'install' And the prior manifest is restored"`
   - `"E2E: Given the customer approves the preview, When the skill drives the full pipeline, Then the project's test runner reports green"`
 
-  **BDD runner recommendation**: if the project's `system_context.json` lists a BDD harness (Cucumber, behave, SpecFlow, etc.) under `acceptance_surfaces`, write the criteria as executable `.feature` Gherkin and point `acceptance_execution.type` at that runner. Otherwise prose Given/When/Then plus the project's native test runner is the default.
-- **Acceptance Execution** (optional): How `/xp-accept` runs this story's acceptance test. Only include when the project has an automated acceptance surface (test runner, CLI, HTTP endpoint). Omit for stories without automated acceptance — `/xp-accept` defaults to manual walkthrough.
-  - `type`: Runner name (e.g., `pytest`, `playwright`, `bash`, `bats`, `cargo`).
-  - `command`: Exact invocation (single command). Exit code 0 = pass.
-  - `commands`: List of invocations run in order, fail on first non-zero (xor with `command`). Use when one AC needs multiple distinct verifications (e.g., `pytest` + a separate `grep`); `verify_acceptance.py --story <id>` handles the iteration and names the failing command in stderr.
-  - `setup` (optional): Prerequisite commands (e.g., `docker compose up -d`).
-  - `notes` (optional): Anything the agent needs to know before running.
+  **BDD runner recommendation**: if `system_context.json` lists a BDD harness (Cucumber, behave, SpecFlow, etc.) under `acceptance_surfaces`, write criteria as executable `.feature` Gherkin and point `acceptance_execution.type` at that runner.
+- **Acceptance Execution** (optional): How `/xp-accept` runs the test. Include only when the project has an automated acceptance surface; omit for manual walkthrough.
+  - `type`: Runner name (`pytest`, `playwright`, `bash`, `bats`, `cargo`).
+  - `command`: Single invocation. Exit code 0 = pass.
+  - `commands`: List run in order, fail on first non-zero (xor with `command`). Prefer `verify_acceptance.py --story <id>` for multi-command iteration + first-red stderr.
+  - `setup` (optional): Prerequisites (e.g., `docker compose up -d`).
+  - `notes` (optional): Anything the agent needs before running.
 
-Include deferred stories from the previous sprint, renumbered to fit.
+Include deferred stories from the previous sprint, renumbered.
 
 ### Step 3b: Capstone Story Proposal
 
-When a milestone has **composition surface** — multiple stories that interact and whose seams could break without integration testing — propose a **capstone story** as the final story in the sprint.
+When a milestone has **composition surface** (multiple interacting stories whose seams could break without integration testing), propose a **capstone story** as the final story.
 
-**When to propose:** The project's `system_context.json` has `acceptance_surfaces` with a harness, or the milestone has 3+ stories with interface contracts between them.
+**When to propose:** `system_context.json` has `acceptance_surfaces` with a harness, OR the milestone has 3+ stories with interface contracts.
 
-**Capstone story structure:**
-- **Last story** in sprint ordering, depends on all other stories
-- **Deliverable** is the cross-cutting acceptance test file (e.g., `tests/acceptance/milestone-03.spec.ts`)
-- **Acceptance criteria** render the milestone's prose `done` field into Given/When/Then — making the milestone's done-state executable
-- **File domain** owns the cross-cutting test file exclusively
-- **Acceptance execution** points at that test file
-- If `system_context.json` has a matching `acceptance_surfaces` entry, the capstone story's `acceptance_execution` should use that surface's harness and conventions
+**Structure:** last story, depends on all others; deliverable is the cross-cutting acceptance test file (e.g., `tests/acceptance/milestone-03.spec.ts`); acceptance criteria render the milestone's prose `done` into Given/When/Then; file domain owns the cross-cutting test; `acceptance_execution` points at that file (use the matching `acceptance_surfaces` harness when present).
 
-**The capstone is optional.** Present it in the confirmation table and let the customer decline for small milestones, refactors, or surfaces where feature-level testing is impractical.
+**Optional.** Present in the confirmation table; let the customer decline for small milestones, refactors, or impractical surfaces.
 
 ### Step 4: Sprint Goal
 
@@ -121,7 +104,7 @@ Do not write files until the customer confirms.
 
 ### Step 6: Write sprint.json
 
-After confirmation, assemble as JSON and write via the CLI. The example below shows GWT prose criteria — when the project uses a BDD harness (per Step 3's runner recommendation), substitute Gherkin `.feature`-style scenarios into each criterion string instead.
+After confirmation, assemble as JSON and write via the CLI (substitute Gherkin scenarios for the GWT prose if a BDD harness applies — see Step 3).
 
 ```bash
 cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> create
@@ -179,28 +162,24 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ### Step 8: Create Sprint Branch (Stage 2+)
 
-Read the branching stage:
+Read the branching stage; if >= 2, create the sprint branch:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
-```
-
-If stage >= 2, create the sprint branch:
-```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create-sprint --cwd . --sprint <sprint_id> --slug <goal-slug>
 ```
 
-`create-sprint` forks off the plan branch when `execution_plan.json` has `branch` set, otherwise off the primary branch. It records the created branch name into `sprint.json`'s `branch_name` field, which downstream lookups read directly.
+Forks off the plan branch when `execution_plan.json` has `branch` set, otherwise the primary. Records `branch_name` into `sprint.json`.
 
-The CLI outputs `created: <branch>` for new branches or `resumed: <branch>` for pre-existing ones. If the output starts with `resumed:`, ask the user via `AskUserQuestion`: "Sprint branch `<branch>` already exists. Adopt this branch for the new sprint, or start fresh?" Options: "Adopt existing branch", "Delete and recreate". If "Delete and recreate", delete the branch first, then re-run the create-sprint command.
+CLI outputs `created: <branch>` (new) or `resumed: <branch>` (pre-existing). On `resumed:`, ask via `AskUserQuestion` ("Adopt existing branch" / "Delete and recreate"); on "Delete and recreate", delete then re-run.
 
-After creating the sprint branch, check for plan-branch divergence from primary:
+Then check for plan-branch divergence from primary:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   check-divergence --cwd .
 ```
 
-If the output JSON contains a `warning` field, the plan branch has fallen behind primary. Record a concern event with the warning text and the suggested merge command:
+If the output JSON has a `warning` field, record a concern:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-sprint-start" \
@@ -213,13 +192,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Guidelines
 
-- Every story needs at least one E2E acceptance criterion
 - No XL stories — split during decomposition
+- 5-10 stories per sprint, achievable in scope
 - Stories ordered by priority (first = highest)
 - No circular dependencies
-- File domains must not overlap between stories — this enables parallel execution
-- Interface contracts are advisory — they document shared boundaries, not enforce them
-- Context must not restate milestone rationale — reference it. Each layer has a job: system_context=WHERE, milestone=WHY, story=WHAT uniquely, design doc=FULL RATIONALE
 - Keep acceptance criteria testable — no vague conditions
-- Recommend 5-10 stories per sprint
-- The sprint should be achievable in scope
+- Layer separation when authoring context: system_context=WHERE, milestone=WHY, story=WHAT uniquely, design doc=FULL RATIONALE
