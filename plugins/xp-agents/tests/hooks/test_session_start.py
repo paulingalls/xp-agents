@@ -379,6 +379,71 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 
 
 # ===========================================================================
+# Stale marker sweep tests (story-005)
+# ===========================================================================
+
+
+class TestSessionStartStaleMarkerSweep(_HookTestCase):
+    """SessionStart sweeps stuck markers from prior sessions (story-005).
+
+    See ``markers._STALE_SESSION_MARKERS`` for the marker set and the leak
+    sources that motivate the sweep.
+    """
+
+    def test_fresh_starts_clear_stale_markers(self):
+        import session_start
+
+        # Fresh-start sources (startup, clear) sweep stale markers from
+        # prior sessions before any logic branches on them.
+        cases = [
+            (".close-cycle-active", "startup"),
+            (".accept", "startup"),
+            (".close-cycle-active", "clear"),
+            (".accept", "clear"),
+        ]
+        for marker_name, source in cases:
+            with self.subTest(marker=marker_name, source=source):
+                marker = self.smm_dir / marker_name
+                marker.write_text("stale")
+                session_start.run(
+                    {"session_id": "test", "source": source},
+                    smm_dir=self.smm_dir,
+                )
+                self.assertFalse(marker.exists())
+
+    def test_continuations_preserve_markers(self):
+        import session_start
+
+        # resume/compact are mid-session continuations — wiping these
+        # markers would silently drop work-in-progress (.accept nudge) or
+        # defeat the close-cycle stop gate (CLOSE_CYCLE_ACTIVE).
+        cases = [
+            (".close-cycle-active", "resume"),
+            (".accept", "resume"),
+            (".close-cycle-active", "compact"),
+            (".accept", "compact"),
+        ]
+        for marker_name, source in cases:
+            with self.subTest(marker=marker_name, source=source):
+                marker = self.smm_dir / marker_name
+                marker.write_text("in-flight")
+                session_start.run(
+                    {"session_id": "test", "source": source},
+                    smm_dir=self.smm_dir,
+                )
+                self.assertTrue(marker.exists())
+                self.assertEqual(marker.read_text(), "in-flight")
+
+    def test_sweep_is_idempotent_when_no_markers(self):
+        import session_start
+
+        session_start.run(
+            {"session_id": "test", "source": "startup"},
+            smm_dir=self.smm_dir,
+        )
+
+
+# ===========================================================================
 # session_start XP values injection tests
 # ===========================================================================
 

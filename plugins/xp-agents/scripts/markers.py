@@ -184,6 +184,28 @@ def set_review_flag(
 
 
 # ---------------------------------------------------------------------------
+# Session-start sweep
+# ---------------------------------------------------------------------------
+
+# Markers that should never survive across SessionStart. CLOSE_CYCLE_ACTIVE
+# leaks when a close-skill aborts before the xp-close-reviewer fork; ACCEPT
+# leaks after teammate-worktree close-cycle Edits when /xp-accept's
+# no-reviewing-stories path skips the consume.
+_STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (CLOSE_CYCLE_ACTIVE, ACCEPT)
+
+
+def sweep_stale_session_markers(smm_dir: Path) -> None:
+    """Clear markers that should never survive across a session boundary.
+
+    Caller must gate to fresh-start SessionStart sources only — resume
+    and compact are mid-session continuations where these markers may
+    be load-bearing for in-flight close-skills or pending /xp-accept.
+    """
+    for marker in _STALE_SESSION_MARKERS:
+        marker_consume(smm_dir, marker)
+
+
+# ---------------------------------------------------------------------------
 # Agent cleanup
 # ---------------------------------------------------------------------------
 

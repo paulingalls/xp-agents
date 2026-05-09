@@ -16,7 +16,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT
+from conftest import (
+    _PLUGIN_ROOT,
+    assert_md_budgets_match,
+    assert_md_under_budgets,
+)
 
 SKILL_BUDGETS: dict[str, int] = {
     "xp-accept": 300,
@@ -37,38 +41,16 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-work-selection": 190,
 }
 
+_SKILLS_DIR = _PLUGIN_ROOT / "skills"
+_LABEL = "skills/*/SKILL.md"
+
 
 class TestSkillBudgets(unittest.TestCase):
     def test_every_skill_has_budget_entry(self):
-        """Every shipped SKILL.md must have a budget entry. New skills must add one."""
-        skills_dir = _PLUGIN_ROOT / "skills"
-        on_disk = {p.parent.name for p in skills_dir.glob("*/SKILL.md")}
-        missing = on_disk - set(SKILL_BUDGETS)
-        extra = set(SKILL_BUDGETS) - on_disk
-        self.assertFalse(
-            missing,
-            f"SKILL.md files without a SKILL_BUDGETS entry: {sorted(missing)}",
-        )
-        self.assertFalse(
-            extra,
-            f"SKILL_BUDGETS entries with no matching SKILL.md: {sorted(extra)}",
-        )
+        assert_md_budgets_match(self, _SKILLS_DIR, "*/SKILL.md", SKILL_BUDGETS, _LABEL)
 
     def test_no_skill_exceeds_its_budget(self):
-        """Every SKILL.md must be at or below its budget."""
-        skills_dir = _PLUGIN_ROOT / "skills"
-        offenders: list[str] = []
-        for skill_name, budget in SKILL_BUDGETS.items():
-            skill_md = skills_dir / skill_name / "SKILL.md"
-            actual = len(skill_md.read_text(encoding="utf-8").splitlines())
-            if actual > budget:
-                offenders.append(
-                    f"{skill_name}/SKILL.md: {actual} lines (budget {budget})"
-                )
-        self.assertFalse(
-            offenders,
-            "SKILL.md files exceed their line budget:\n" + "\n".join(offenders),
-        )
+        assert_md_under_budgets(self, _SKILLS_DIR, "*/SKILL.md", SKILL_BUDGETS, _LABEL)
 
 
 if __name__ == "__main__":
