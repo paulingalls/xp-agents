@@ -363,11 +363,14 @@ def _run_emitter(
     stdin_dict = builder()
 
     env = os.environ.copy()
+    # Pop FIRST, set after — _LEAKY_GIT_ENV includes SMM_DIR, so the order
+    # matters: setting before popping silently drops the seeded SMM and
+    # subprocesses fall back to live ~/.claude/plugins/data/<id>/smm/.
+    for ev in _LEAKY_GIT_ENV:
+        env.pop(ev, None)
     env["SMM_DIR"] = str(smm_dir)
     env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
     env["XP_TEAMMATE_NAME"] = ""
-    for ev in _LEAKY_GIT_ENV:
-        env.pop(ev, None)
     proc = subprocess.run(
         ["python3", str(scripts_dir / script_name)],
         input=json.dumps(stdin_dict).encode("utf-8"),
@@ -508,11 +511,12 @@ def _run_preload(
         raise KeyError(f"no fixture builder registered for {skill_name}")
 
     env = os.environ.copy()
+    # Pop FIRST, set after — see _run_emitter for the SMM_DIR ordering rationale.
+    for ev in _LEAKY_GIT_ENV:
+        env.pop(ev, None)
     env["SMM_DIR"] = str(smm_dir)
     env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
     env["XP_TEAMMATE_NAME"] = ""
-    for ev in _LEAKY_GIT_ENV:
-        env.pop(ev, None)
     env.update(builder())
     proc = subprocess.run(
         [str(_preload_script_path(skill_name))],
