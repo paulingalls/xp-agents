@@ -76,7 +76,7 @@ class TestSprintStartPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("ERROR", result.stdout)
-        self.assertIn("execution_plan", result.stdout.lower())
+        self.assertIn("execution plan", result.stdout.lower())
 
     def test_preload_no_planned_milestones(self):
         """Outputs error when plan has only delivered milestones."""

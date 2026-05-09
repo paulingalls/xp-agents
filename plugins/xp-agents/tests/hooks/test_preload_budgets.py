@@ -33,7 +33,12 @@ from conftest import (
 )
 
 # ceil(measured_bytes * 1.125 / 100) * 100, floor at 100.
-PRELOAD_BUDGETS: dict[str, int] = {}
+PRELOAD_BUDGETS: dict[str, int] = {
+    "xp-assign": 400,
+    "xp-plan": 200,
+    "xp-sprint-review": 100,
+    "xp-sprint-start": 200,
+}
 
 _LABEL = "skills/*/scripts/preload.sh"
 

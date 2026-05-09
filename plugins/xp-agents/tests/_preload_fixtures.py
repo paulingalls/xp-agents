@@ -21,4 +21,14 @@ from collections.abc import Callable
 PreloadBuilder = Callable[[], dict]
 
 
-PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {}
+def _no_env() -> dict:
+    """Preload reads only base env (SMM_DIR, CLAUDE_PLUGIN_ROOT, XP_TEAMMATE_NAME)."""
+    return {}
+
+
+PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {
+    "xp-assign": _no_env,
+    "xp-plan": _no_env,
+    "xp-sprint-review": _no_env,
+    "xp-sprint-start": _no_env,
+}
