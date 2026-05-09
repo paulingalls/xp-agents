@@ -116,9 +116,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Write .needs-kickoff marker on fresh starts. "startup" blocks until
     # kickoff; "clear" nudges only (mid-session reset, work may be in
     # progress). "resume"/"compact" fire mid-session — no marker needed.
+    # Sweep stuck markers (CLOSE_CYCLE_ACTIVE, ACCEPT) on fresh starts ONLY —
+    # resume/compact are mid-session continuations where these markers may
+    # be load-bearing for in-flight close-skills or pending /xp-accept.
     if _is_fresh_start(source):
+        markers.sweep_stale_session_markers(smm_dir)
         markers.marker_write(smm_dir, markers.KICKOFF, source)
-        markers.marker_consume(smm_dir, markers.ACCEPT)
         if not sprint_state.has_remaining_work(smm_dir):
             execution_plan_store.archive(smm_dir)
             markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)
