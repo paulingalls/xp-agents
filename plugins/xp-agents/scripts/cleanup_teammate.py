@@ -2,8 +2,7 @@
 """Clean up a CLI teammate's worktree, branch, markers, and report.
 
 Verifies the teammate's branch is fully merged before removing anything.
-Called by /xp-story-close per closed teammate story (per-story symmetry,
-decision 9029c07ae198).
+Called by /xp-story-close per closed teammate story (per-story symmetry).
 
 `--name` is the worktree DIR name (e.g. ``worktree-story-001``); the actual
 branch (e.g. ``<user>/story-001-<slug>``) is derived from the worktree's
