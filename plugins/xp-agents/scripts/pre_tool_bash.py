@@ -29,38 +29,33 @@ from event_schema import METADATA_KEY_RESOLVES
 # ---------------------------------------------------------------------------
 
 _FILE_MODIFY_PATTERNS = [
-    re.compile(r">\s*(\S+)"),  # redirect: echo > file
-    re.compile(r"tee\s+(\S+)"),  # tee file
-    re.compile(r"sed\s+-i\S*\s+\S+\s+(\S+)"),  # sed -i expr file
-    re.compile(r"mv\s+\S+\s+(\S+)"),  # mv src dest
-    re.compile(r"cp\s+\S+\s+(\S+)"),  # cp src dest
+    re.compile(r">\s*(\S+)"),  # echo > file
+    re.compile(r"tee\s+(\S+)"),
+    re.compile(r"sed\s+-i\S*\s+\S+\s+(\S+)"),
+    re.compile(r"mv\s+\S+\s+(\S+)"),
+    re.compile(r"cp\s+\S+\s+(\S+)"),
 ]
 
 # ---------------------------------------------------------------------------
 # cd-into-worktree-then-git advisory
 # ---------------------------------------------------------------------------
 
-# Re-export for back-compat with story-002's contract — the canonical
-# home is identity.WORKTREE_PATH_FRAGMENT (worktree.py also re-exports).
-# pre_tool_bash is a hook module, not a natural home for shared constants.
+# Re-exported so tests can pin the constant; canonical home is identity.
 WORKTREE_PATH_FRAGMENT = identity.WORKTREE_PATH_FRAGMENT
 
+# Single non-greedy `[^\n]*?` — one quantifier, no nesting — avoids
+# catastrophic backtracking when the trailing `git` never appears.
 _CD_WORKTREE_GIT_PATTERN = re.compile(
     r"cd\s+\S*"
     + re.escape(WORKTREE_PATH_FRAGMENT)
     + r"\S+"
-    # Single non-greedy `[^\n]*?` allows arbitrary intervening text on the
-    # same logical line (catches `cd <wt> && pytest && git commit`). Bounded
-    # by `[^\n]` to scope to one statement; one quantifier (no nesting)
-    # avoids catastrophic backtracking when the trailing `git` never appears.
     + r"[^\n]*?\bgit\s+(?:commit|add|merge|push)\b"
 )
 
 _CD_WORKTREE_GIT_WARNING = (
     "Avoid `cd <worktree> && git ...` — it poisons the orchestrator's cwd, "
     "so the PostToolUse trailer-extract reads the wrong HEAD and "
-    "Resolves-Event auto-link silently breaks. Use "
-    "`git -C <worktree> ...` instead."
+    "Resolves-Event auto-link silently breaks. Use `git -C <worktree> ...` instead."
 )
 
 
@@ -86,8 +81,8 @@ _MAX_NUDGE_FIRES = 2
 def _open_questions_context(smm_dir: Path, agent_id: str) -> str | None:
     """Build a nudge listing open questions, or None when none remain.
 
-    Tracks per-(question_id, agent_id) fire count via QUESTION_NUDGED marker.
-    After _MAX_NUDGE_FIRES fires, that question is muted for this agent.
+    Tracks per-(question_id, agent_id) fire count via QUESTION_NUDGED marker;
+    after _MAX_NUDGE_FIRES fires, that question is muted for this agent.
     """
     events, resolutions = _common.load_events_with_resolutions(smm_dir)
     if not events:
@@ -140,7 +135,7 @@ def _decision_metadata_has_resolves(metadata_value: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Staged ruff gate (story-007)
+# Staged ruff gate
 # ---------------------------------------------------------------------------
 
 
@@ -151,17 +146,12 @@ def _staged_ruff_findings(
 
     Returns [(path, codes), ...] for files with non-empty findings, narrowed
     to lint_check.EDIT_DEFERRED_CODES (F401/F811). Other ruff codes already
-    surface as concerns at edit time and are not in this story's scope —
-    don't broaden the commit-time block beyond the deferral policy.
+    surface as concerns at edit time — do NOT broaden the commit-time block
+    beyond the deferral policy. ``staged_files`` is reused from the caller to
+    avoid a second `git diff --cached --name-only` invocation
+    (invariant: `test_common_path_at_most_one_name_only_call`).
 
-    ``staged_files`` is passed in (never re-derived) so the caller's single
-    `git diff --cached --name-only` invocation is reused — pinned by
-    test_common_path_at_most_one_name_only_call. Single source of truth
-    for the ruff invocation is lint_check.run_linter_batch — one fork
-    per commit instead of one per staged .py file.
-
-    Raises BlockedError when the batch is missing any staged .py path
-    (timeout, missing binary, partial run) — fail-closed so unverified
+    Fail-closed when the batch is missing any staged .py path so unverified
     F401/F811 cannot ship.
     """
     py_paths = [p for p in staged_files if p.endswith(".py")]
@@ -176,8 +166,7 @@ def _staged_ruff_findings(
                     "Staged ruff check could not verify these files:",
                     *(f"  - {p}" for p in missing),
                     "",
-                    "Common causes: ruff not on PATH, timeout, or subprocess error.",
-                    "Resolve and retry the commit.",
+                    "Resolve (ruff on PATH? timeout?) and retry the commit.",
                 ]
             ),
             "Staged ruff fail-closed: incomplete batch coverage.",
@@ -210,18 +199,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     parts: list[str] = []
 
-    # Commit gate: review cycle enforcement
-    # Above threshold (3+ code files): simplify → quality review.
-    # Below threshold: no per-commit security gate (close-skill Step 4
-    # covers the cumulative diff at sprint/plan/free close).
+    # Commit gate: review cycle + tier-1 security + ruff. Below the
+    # 3+ code-files threshold there is no per-commit security gate
+    # (close-skill Step 4 covers the cumulative diff at close).
     if smm_dir is not None and git_commits.is_git_commit(command):
-        # Tier 1 fires before the review-cycle gate so deterministic patterns
-        # block even when /simplify and /xp-quality-review have been satisfied.
+        # Tier 1 fires before the review-cycle gate so deterministic
+        # patterns block even when /simplify and /xp-quality-review are done.
         diff = commits.get_staged_diff(cwd)
         if diff is None:
             raise _common.BlockedError(
-                "Tier 1 security scan could not run: `git diff --cached`"
-                " failed. Resolve the git issue and retry the commit.",
+                "Tier 1 security scan could not run: `git diff --cached` failed. "
+                "Resolve and retry the commit.",
                 "Tier 1 fail-closed: git diff failure.",
             )
         if diff:
@@ -237,19 +225,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                             "Tier 1 security scan blocked this commit:",
                             *lines,
                             "",
-                            "Fix the flagged lines or add `# noqa: secret`"
-                            " on each intentional line.",
+                            "Fix the flagged lines or add `# noqa: secret`.",
                         ]
                     ),
                     "Tier 1 security pattern detected.",
                 )
 
-        # Single name-only call shared by the staged ruff gate, the probe,
-        # and the trailer reminder. Pinned by
-        # test_common_path_at_most_one_name_only_call.
+        # Single name-only call shared by the ruff gate, the probe, and
+        # the trailer reminder — one fork instead of three.
         staged = commits.get_staged_files(cwd)
 
-        # Staging-time ruff gate (story-007); see _staged_ruff_findings.
         ruff_findings = _staged_ruff_findings(staged, cwd)
         if ruff_findings:
             raise _common.BlockedError(
@@ -287,8 +272,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         stage = branching.get_branching_stage(smm_dir)
         if stage >= 1:
-            # `git -C <path>` and `cd <path> && git` retarget cwd — branch-check
-            # the named path, not the input cwd.
+            # `git -C <path>` retargets cwd — branch-check the named path.
             branch = identity.get_current_branch(
                 commits.parse_effective_cwd(command, cwd)
             )
@@ -296,17 +280,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if branching.is_protected_branch(stage, branch) and not is_escape:
                 parts.append(
                     f"You're committing directly to {branch} "
-                    f"(branching stage {stage}). Use a story "
-                    f"branch, or prefix with [release]/[chore]/"
-                    f"[sprint-direct] for legitimate main commits."
+                    f"(branching stage {stage}). Use a story branch, or prefix "
+                    f"with [release]/[chore]/[sprint-direct] for legitimate "
+                    f"main commits."
                 )
             elif stage >= 2 and branching.is_sprint_branch(branch) and not is_escape:
                 parts.append(
-                    f"You're committing directly to sprint branch "
-                    f"{branch}. Sprint branches accept merges "
-                    f"only. Use a story branch, or prefix with "
-                    f"[release]/[chore]/[sprint-direct] "
-                    f"for legitimate post-merge work."
+                    f"You're committing directly to sprint branch {branch}. "
+                    f"Sprint branches accept merges only. Use a story branch, "
+                    f"or prefix with [release]/[chore]/[sprint-direct] for "
+                    f"legitimate post-merge work."
                 )
 
         if staged:
@@ -335,19 +318,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             )
             if story_nudge:
                 parts.append(story_nudge)
-            # Emit even on zero candidates when probe_meta carries snapshot/
-            # tail telemetry — the empty-candidate emit is the diagnostic
-            # signal for newer-than-snapshot diverts.
+            # Empty-candidate emit when probe_meta carries snapshot/tail
+            # telemetry — diagnostic signal for newer-than-snapshot diverts.
             if candidates or probe_meta:
                 resolves_probe.emit_probe_status(
                     smm_dir, candidates, agent_id, probe_meta=probe_meta
                 )
             if candidates:
-                # Concern a47dda9f00bd: advisory nudge → block when no
-                # trailer present. `Resolves-Event: none` is the universal
-                # escape. Any trailer (even mismatched IDs) is treated as
-                # good-faith discharge — we don't compare trailer IDs to
-                # candidate IDs because the agent's intent is opaque.
+                # Block when no trailer present. `Resolves-Event: none` is the
+                # universal escape. Any trailer (even mismatched IDs) is
+                # treated as good-faith discharge — the agent's intent is
+                # opaque to us.
                 if not has_trailer:
                     nudge = resolves_probe.build_nudge_lines(candidates)[0]
                     body = (
