@@ -65,7 +65,7 @@ Three link strengths: **STRONG** `metadata.resolves=[id]` (closes target — dec
 
 ## Content Budgets
 
-Per-pillar `content` budgets enforced by `smm_cli.py`: intent=200, constraints=150, risks=200, wisdom=150 chars. Write tight: *"TDD — red, green, refactor, commit"* (38 chars), not a 116-char paraphrase.
+Per-pillar `content` budgets enforced by `smm_cli.py`: intent=200, constraints=150, risks=200, wisdom=150 chars. Write tight: *"TDD — red, green, refactor, commit"* (38 chars), not a 116-char paraphrase like *"Always do test-driven development by writing a failing test first, then making it pass, then refactoring, then committing."*
 
 ## Intent
 

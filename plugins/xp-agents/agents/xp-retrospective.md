@@ -76,7 +76,7 @@ Attach `references` and `files` structurally — don't encode links in the conte
 
 ## Output
 
-**Whiteboard discipline: sticky notes, not paragraphs.** State observation, name IDs, stop. Use comma-separated tag structure, not prose. Drop narrative recap; keep the hash + classification.
+**Whiteboard discipline: sticky notes, not paragraphs.** State observation, name IDs, stop. Use comma-separated tag structure, not prose. Drop narrative recap; keep the hash + classification. Calibration: a Fix bullet is ~360 chars (hash, classification, 1 short sentence), not ~860 chars of context-restating prose.
 
 ### Session Accomplishments
 
