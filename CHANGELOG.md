@@ -1,5 +1,57 @@
 # Changelog
 
+## v3.1.22 — sprint-075 (token audit M-2: trim 7 agent .md, -13%; SessionStart marker sweep; teammate-commit-event bug filed)
+
+Sprint-075 shipped 5/7 stories delivering Milestone 2 of the token-audit plan (4/4 milestone stories at 1.0 velocity; 2 ad-hoc carry-forward Try items deferred). The 7 agent prompts that fire on every commit/close/plan/kickoff trim from 1248 → 1083 lines (-13%); a new capstone test enforces per-agent line budgets at `round(trimmed * 1.125 / 10) * 10` and a 12-hex-ID grep prevents historical references from creeping back in. The shared budget+ID test scaffolding consolidates into three `conftest.py` helpers (`assert_md_budgets_match`, `assert_md_under_budgets`, `assert_no_12hex_ids_in_md`) used by both the new agent tests and the existing skill tests. A new "trim-restoration criteria" constraint codifies the lesson surfaced across stories 001 and 002: trim work must preserve concrete calibration anchors (char counts, before/after numerics) alongside the negative-directive principle from sprint-074. Story-005 ad-hoc landed a SessionStart sweep that clears stale `CLOSE_CYCLE_ACTIVE` and `.accept` markers — but the sweep is gated to fresh-start sources only after close-reviewer caught the original implementation would silently wipe load-bearing markers on `/compact` or `/resume`. 4678 tests pass (+6 new).
+
+### Token savings
+
+| Story | Files | Lines saved | % |
+|---|---|---|---|
+| story-001 | 3 high-freq reviewers: `xp-code-reviewer` (84→83), `xp-close-reviewer` (137→127), `xp-plan-reviewer` (187→157) | -41 | 10% |
+| story-002 | 2 kickoff agents: `xp-housekeeper` (229→192), `xp-retrospective` (246→219) | -64 | 14% |
+| story-003 | 2 bulk-review agents: `xp-sprint-reviewer` (81→73), `xp-system-analyzer` (284→233, biggest agent) | -60 | 17% |
+| story-004 | capstone: `tests/agents/test_agent_budgets.py` + `test_no_historical_ids_in_agents.py`; refactored shared helpers into conftest | locks the gains | — |
+| **Total** | **7 trimmed + helpers consolidated + capstone tests** | **-165** | **-13%** |
+
+### Sprint-075 / stories 001-003: agent .md trims (parallel teammates)
+
+Stories 1-3 dispatched as parallel CLI worktree teammates with non-overlapping `file_domain`. Each independent close-reviewer cycle caught real over-trims that fix-cycle commits restored:
+
+- `xp-close-reviewer.md`: example bullet was self-referential `[event_id: <hex-id>]`; replaced with literal placeholder `xxxxxxxxxxxx` (non-hex so the new 12-hex regex stays green) — commit `86581069` resolves `d41a664e26bb`, refined to `xxxx` form in commit `d917389c` to dodge the regex.
+- `xp-housekeeper.md` + `xp-retrospective.md`: restored two calibration anchors lost in trim — the 116-char bad-paraphrase example next to the good 38-char TDD example, and the ~360 vs ~860 char Fix-bullet calibration. Commit `89cbd40f` resolves `cac2afcad308, 37676ae36b09`.
+- `xp-system-analyzer.md`: restored the `add-decision` example dropped from Step 5; first attempt used wrong field schema (`content` vs file's documented `topic`/`decision`/`rationale`), caught by simplify code-quality agent against the file's own JSON template at line 178. Commit `43aa6a5b` resolves `dcd9601e8752`.
+
+### Sprint-075 / story-004: capstone enforcement + helper consolidation (commit `d917389c`)
+
+- **`tests/agents/test_agent_budgets.py`** — `AGENT_BUDGETS` dict caps each of the 7 agent .md files at `round(trimmed * 1.125 / 10) * 10` (close=140, code=90, housekeeper=220, plan=180, retro=250, sprint=80, system-analyzer=260). Two test methods mirror the proven SKILL.md pattern.
+- **`tests/agents/test_no_historical_ids_in_agents.py`** — same `\b[0-9a-f]{12}\b` regex from the SKILL.md sister test.
+- **`tests/conftest.py`** — extracted `assert_md_budgets_match`, `assert_md_under_budgets`, and `assert_no_12hex_ids_in_md` helpers. `tests/skills/test_skill_budgets.py` and `test_no_historical_ids_in_skills.py` refactored to call the helpers (eliminates pre-existing duplication per refactor-before-adding wisdom). Reuse-agent recommendation surfaced exactly when the second mirror appeared.
+- New decision `shipped-md-prose-guards`: each shipped .md directory pairs a budget dict + 12-hex-ID grep, both built on shared conftest helpers. Future M-3 hook-injection audit should mirror this shape.
+
+### Sprint-075 / story-005: SessionStart marker sweep (commits `ffb165eb` + `ea0b720d`)
+
+Two stuck-marker classes seen across recent sprints — `CLOSE_CYCLE_ACTIVE` leaks when a close-skill aborts before the reviewer fork; `.accept` leaks after teammate-worktree close-cycle Edits — generalized into `markers.sweep_stale_session_markers(smm_dir)` reusing the existing `marker_consume` primitive. Initial implementation ran the sweep on every SessionStart source, which xp-close-reviewer caught as a Block: `resume`/`compact` are mid-session continuations where these markers may be load-bearing (e.g. `/compact` mid-close-skill would wipe `CLOSE_CYCLE_ACTIVE` and defeat the resumed conversation's stop gate). Fix-cycle gated the sweep on `_is_fresh_start(source)` — only `startup`/`clear` sweep; `resume`/`compact` preserve. Resolves `5b8e455efbdd, 2b3a4413b5b0, f3196e38ac33, d874e1210e92, 4d565bf753b5, e69e29188af0, 74e88928ccad`.
+
+### Stories deferred (carry-forward Try items)
+
+- **story-006** (heredoc apostrophe-safety): adopted Try item turned out to be already shipped — commit `97084b28` from sprint-074's session resolved the underlying concern `f30412be6059` before this kickoff's retro analyzed the data. Decision `story-006-already-fixed` records the no-op.
+- **story-007** (probe-ranking adoption): adopted Try item references decision `1a3b807c8e85` which was compacted out of `events.jsonl`. Investigation of `find_probe_candidates` and `build_nudge_lines` showed both already do what the Try summary describes (rank by score+ts, emit content prefix). Decision `probe-ranking-already-implemented` records the no-op.
+
+### Honesty signal: teammate-worktree commit events missing from events.jsonl
+
+Diagnosing the story-006 false positive surfaced a real bug in the resolution pipeline: commit `97084b28` carried `Resolves-Event: f30412be6059` trailer but never produced a `commit` event in `events.jsonl` — only the orchestrator's subsequent merge commit was recorded. The `PostToolUse:Bash` hook that scrapes `Resolves-Event:` trailers and records the event apparently doesn't fire for individual teammate-worktree commits. Effect: teammate-commit resolves trailers silently lost; concerns stay "open" forever in subsequent kickoff preloads and retro Fix lists. Same root family as the marker-leak class (hook didn't fire / state didn't propagate). Filed concern `a43fc9577867` (severity high) + investigation debt `55039b905824` queued for next sprint with a 5-step playbook: empirical reproduction, instrumentation, root-cause fix, historical backfill, retrospective contradiction-detection.
+
+### New constraints
+
+- `shipped-md-prose-guards` — pair budget dict + 12-hex grep for every shipped .md directory; share helpers via conftest.
+- `trim-restoration-criteria` — broaden the negative-directives restoration principle from sprint-074 to cover quantitative calibration anchors (char counts, before/after numerics).
+- `marker-sweep-gating` — `sweep_stale_session_markers` is gated at the call site (not inside the helper) on `_is_fresh_start(source)`; resume/compact preserve in-flight markers.
+
+### Bottom line
+
+7 agent .md → 1083 lines (1442 → 1083 raw, **-25%** by `wc -l`; 1248 → 1083 by milestone count, **-13%**). Capstone tests prevent regrowth. SessionStart sweep clears two classes of stuck markers (gated correctly after reviewer Block). Conftest helper consolidation eliminates pre-existing duplication. Real bug filed against teammate-worktree commit-event recording — investigation queued.
+
 ## v3.1.21 — sprint-074 (token audit M-1: trim 16 SKILL.md files, ~8636 tokens, ~25%)
 
 Sprint-074 shipped 4/4 stories (1.0 velocity) delivering Milestone 1 of the new 3-milestone token-usage audit plan. 12 of the 16 shipped SKILL.md files were trimmed (4 were already at the ~700-token floor); 2 new pytest-enforced tests now lock the gains so re-growth fails commits. The trim discipline applies six lenses: paragraph-length "why X" rationale prose, historical story/sprint/12-hex IDs in shipped guidance, non-actionable cross-references, dead-branch logic for preload-prevented states, defensive prose restating bash semantics, and repetition of `PROCESS_GUIDE.md` / `CLAUDE.md` content. Every functional step, bash invocation, conditional on a real runtime state, and error handler is preserved verbatim. 4672 tests pass (+3 new). M-2 (Agents audit) and M-3 (Hook-injection audit) remain planned for future sprints.
