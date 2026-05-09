@@ -117,6 +117,7 @@ from _hook_inputs import (  # noqa: E402, F401
     _make_teammate_idle_input,
     _make_write_input,
 )
+from _preload_fixtures import PRELOAD_FIXTURES  # noqa: E402
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -378,13 +379,14 @@ def _run_emitter(
     return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
 
 
-def assert_emitter_budgets_match(
+def assert_budgets_match(
     testcase: unittest.TestCase,
+    fixtures: dict,
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every entry in budgets must have a fixture; no unbudgeted emitter."""
-    fixture_names = set(EMITTER_FIXTURES)
+    """Symmetric check: every fixture has a budget AND every budget has a fixture."""
+    fixture_names = set(fixtures)
     budget_names = set(budgets)
     missing = fixture_names - budget_names
     extra = budget_names - fixture_names
@@ -422,6 +424,83 @@ def assert_emitter_under_budgets(
         repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
         for name, budget in items:
             stdout_bytes, stderr, rc = _run_emitter(name, scripts_dir, smm_dir, repo)
+            if rc != 0:
+                offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
+                continue
+            actual = len(stdout_bytes)
+            if actual > budget:
+                offenders.append(f"{name}: {actual} bytes (budget {budget})")
+    testcase.assertFalse(
+        offenders,
+        f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
+    )
+
+
+def _preload_script_path(skill_name: str) -> Path:
+    """Resolve a skill name to its preload-emitter script path.
+
+    xp-kickoff is a special case: its preload-equivalent is named
+    `check_session_needs.sh` rather than `preload.sh`. Every other
+    skill follows the `preload.sh` convention.
+    """
+    skill_dir = _PLUGIN_ROOT / "skills" / skill_name / "scripts"
+    if skill_name == "xp-kickoff":
+        return skill_dir / "check_session_needs.sh"
+    return skill_dir / "preload.sh"
+
+
+def _run_preload(
+    skill_name: str,
+    smm_dir: Path,
+    cwd: Path,
+) -> tuple[bytes, str, int]:
+    """Run a preload.sh via subprocess against a pre-seeded SMM.
+
+    Caller owns smm_dir + cwd lifecycle so multiple preload invocations
+    can share one bootstrap (the budget test runs all preloads against
+    the same empty SMM). Builder returns env-var dict (preloads read
+    env vars set by the orchestrator); base SMM_DIR + CLAUDE_PLUGIN_ROOT
+    + XP_TEAMMATE_NAME are injected here, builder additions merge on top.
+    """
+    import subprocess
+
+    builder = PRELOAD_FIXTURES.get(skill_name)
+    if builder is None:
+        raise KeyError(f"no fixture builder registered for {skill_name}")
+
+    env = os.environ.copy()
+    env["SMM_DIR"] = str(smm_dir)
+    env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
+    env["XP_TEAMMATE_NAME"] = ""
+    for ev in _LEAKY_GIT_ENV:
+        env.pop(ev, None)
+    env.update(builder())
+    proc = subprocess.run(
+        [str(_preload_script_path(skill_name))],
+        capture_output=True,
+        cwd=cwd,
+        env=env,
+        timeout=15,
+    )
+    return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
+
+
+def assert_preload_under_budgets(
+    testcase: unittest.TestCase,
+    budgets: dict[str, int],
+    label: str,
+) -> None:
+    """Every preload's stdout (run via fixture) must be at or below budget.
+
+    Bootstraps one SMM per call and reuses it across all preloads.
+    """
+    import tempfile
+
+    offenders: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
+        for name, budget in sorted(budgets.items()):
+            stdout_bytes, stderr, rc = _run_preload(name, smm_dir, repo)
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue

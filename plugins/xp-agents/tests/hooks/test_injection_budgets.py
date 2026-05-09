@@ -53,9 +53,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _emitter_fixtures import EMITTER_FIXTURES
 from conftest import (
     _SCRIPTS_DIR,
-    assert_emitter_budgets_match,
+    assert_budgets_match,
     assert_emitter_under_budgets,
 )
 
@@ -79,7 +80,7 @@ _LABEL = "scripts/*.py emitter"
 
 class TestInjectionBudgets(unittest.TestCase):
     def test_every_emitter_has_budget_entry(self):
-        assert_emitter_budgets_match(self, EMITTER_BUDGETS, _LABEL)
+        assert_budgets_match(self, EMITTER_FIXTURES, EMITTER_BUDGETS, _LABEL)
 
     def test_no_emitter_exceeds_its_budget(self):
         assert_emitter_under_budgets(self, _SCRIPTS_DIR, EMITTER_BUDGETS, _LABEL)
