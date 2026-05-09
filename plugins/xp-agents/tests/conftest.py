@@ -302,34 +302,79 @@ def assert_md_under_budgets(
     )
 
 
-def _run_emitter(script_name: str, scripts_dir: Path) -> tuple[bytes, str, int]:
-    """Run an emitter via subprocess with its registered fixture.
+_LEAKY_GIT_ENV = (
+    "SMM_DIR",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+)
 
-    Returns (stdout_bytes, stderr_text, returncode). Each call gets its
-    own SMM tmpdir so side-effect markers (e.g. subagent_stop's
-    .assign-pending on xp-plan-reviewer input) stay contained.
+
+def _bootstrap_seeded_smm(tmp: Path) -> tuple[Path, Path]:
+    """Create + seed an empty SMM with a git repo cwd. Returns (repo, smm).
+
+    Production-like: scripts run from a git repo (many call `git rev-parse`
+    or read repo state), against a seeded SMM. Bypasses init.sh because we
+    own SMM_DIR — call seed_smm.py directly to write
+    shared_mental_model.json.
     """
     import subprocess
-    import tempfile
+
+    repo = tmp / "repo"
+    repo.mkdir()
+    for cmd in (
+        ["git", "init", "-b", "main"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+    ):
+        subprocess.run(cmd, cwd=repo, capture_output=True, check=True)
+    smm = tmp / "smm"
+    (smm / "retrospectives").mkdir(parents=True)
+    (smm / "events.jsonl").touch()
+    (smm / "events.lock").touch()
+    subprocess.run(
+        ["python3", str(_PLUGIN_ROOT / "smm" / "seed_smm.py"), str(smm)],
+        check=True,
+        capture_output=True,
+    )
+    return repo, smm
+
+
+def _run_emitter(
+    script_name: str,
+    scripts_dir: Path,
+    smm_dir: Path,
+    cwd: Path,
+) -> tuple[bytes, str, int]:
+    """Run an emitter via subprocess against a pre-seeded SMM.
+
+    Caller owns smm_dir + cwd lifecycle so multiple emitter invocations
+    can share one bootstrap (the budget test runs all 11 against the
+    same empty SMM). XP_TEAMMATE_NAME="" forces solo-mode framing —
+    `pop` would let a parent shell's leak through.
+    """
+    import subprocess
 
     builder = EMITTER_FIXTURES.get(script_name)
     if builder is None:
         raise KeyError(f"no fixture builder registered for {script_name}")
     stdin_dict = builder()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        env = os.environ.copy()
-        env["SMM_DIR"] = str(Path(tmp) / "smm")
-        env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
-        env["XP_TEAMMATE_NAME"] = ""
-        proc = subprocess.run(
-            ["python3", str(scripts_dir / script_name)],
-            input=json.dumps(stdin_dict).encode("utf-8"),
-            capture_output=True,
-            cwd=tmp,
-            env=env,
-            timeout=10,
-        )
+    env = os.environ.copy()
+    env["SMM_DIR"] = str(smm_dir)
+    env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
+    env["XP_TEAMMATE_NAME"] = ""
+    for ev in _LEAKY_GIT_ENV:
+        env.pop(ev, None)
+    proc = subprocess.run(
+        ["python3", str(scripts_dir / script_name)],
+        input=json.dumps(stdin_dict).encode("utf-8"),
+        capture_output=True,
+        cwd=cwd,
+        env=env,
+        timeout=15,
+    )
     return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
 
 
@@ -359,16 +404,30 @@ def assert_emitter_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every emitter's stdout (run via fixture) must be at or below budget."""
+    """Every emitter's stdout (run via fixture) must be at or below budget.
+
+    Bootstraps one SMM per call and reuses it across all emitters.
+    `subagent_stop.py` runs LAST because its xp-plan-reviewer fixture
+    writes a real .assign-pending marker; running it last keeps the
+    marker out of any sibling emitter's view.
+    """
+    import tempfile
+
     offenders: list[str] = []
-    for name, budget in sorted(budgets.items()):
-        stdout_bytes, stderr, rc = _run_emitter(name, scripts_dir)
-        if rc != 0:
-            offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
-            continue
-        actual = len(stdout_bytes)
-        if actual > budget:
-            offenders.append(f"{name}: {actual} bytes (budget {budget})")
+    items = sorted(
+        budgets.items(),
+        key=lambda kv: (kv[0] == "subagent_stop.py", kv[0]),
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
+        for name, budget in items:
+            stdout_bytes, stderr, rc = _run_emitter(name, scripts_dir, smm_dir, repo)
+            if rc != 0:
+                offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
+                continue
+            actual = len(stdout_bytes)
+            if actual > budget:
+                offenders.append(f"{name}: {actual} bytes (budget {budget})")
     testcase.assertFalse(
         offenders,
         f"{label} stdout exceeds budget:\n" + "\n".join(offenders),

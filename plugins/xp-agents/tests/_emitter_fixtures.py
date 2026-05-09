@@ -9,8 +9,10 @@ Edge-case branches are validated by per-script unit tests in
 `tests/hooks/`; this registry drives the cross-cutting byte-budget test.
 
 `subagent_stop.py` writes a real `.assign-pending` marker when fed an
-`xp-plan-reviewer` subagent. The budget runner gives every emitter its
-own SMM tmpdir, so the marker is contained.
+`xp-plan-reviewer` subagent. The budget runner amortizes one SMM across
+all emitters; subagent_stop runs LAST in the sweep so the marker stays
+out of any sibling emitter's view (see the order-coupling note in
+test_injection_budgets.py).
 """
 
 from collections.abc import Callable
