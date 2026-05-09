@@ -1,6 +1,49 @@
 # Changelog
 
-## v3.1.20 — sprint-073 (close-cycle marker hook-write + story-close YAGNI) + LIKELY_ADDRESSED commit-hash fix
+## v3.1.21 — sprint-074 (token audit M-1: trim 16 SKILL.md files, ~8636 tokens, ~25%)
+
+Sprint-074 shipped 4/4 stories (1.0 velocity) delivering Milestone 1 of the new 3-milestone token-usage audit plan. 12 of the 16 shipped SKILL.md files were trimmed (4 were already at the ~700-token floor); 2 new pytest-enforced tests now lock the gains so re-growth fails commits. The trim discipline applies six lenses: paragraph-length "why X" rationale prose, historical story/sprint/12-hex IDs in shipped guidance, non-actionable cross-references, dead-branch logic for preload-prevented states, defensive prose restating bash semantics, and repetition of `PROCESS_GUIDE.md` / `CLAUDE.md` content. Every functional step, bash invocation, conditional on a real runtime state, and error handler is preserved verbatim. 4672 tests pass (+3 new). M-2 (Agents audit) and M-3 (Hook-injection audit) remain planned for future sprints.
+
+### Token savings
+
+| Story | Files | Tokens saved | % |
+|---|---|---|---|
+| story-001 | 4 biggest logic-heavy: `xp-scaffold-acceptance` (422→401, -35%), `xp-story-close` (342→240, -37%), `xp-accept` (312→267, -37%), `xp-sprint-start` (225→200, -22%) | -5,801 | 34% |
+| story-002 | 5 medium: `xp-assign` (213→178), `xp-plan` (202→186), `xp-work-selection` (176→170), `xp-kickoff` (169→158, -30% tokens), `xp-free-close` (169→126) | -1,910 | 17% |
+| story-003 | 3 smaller: `xp-sprint-close` (149→116), `xp-plan-close` (137→125), `xp-end-session` (127→114). `xp-quality-review` (94) and `xp-system-context` (24) deliberately left at baseline — already at the token floor | -925 | 16% |
+| story-004 | capstone: 2 tiny skills (`xp-sprint-review`, `xp-review-plan`) verified already minimal; new enforcement tests committed | locks the gains | — |
+| **Total** | **12 trimmed + 4 at floor + 2 new tests** | **~8,636** | **~25%** |
+
+### Sprint-074 / story-001-003: SKILL.md trims (parallel teammates)
+
+Stories 1-3 ran as parallel CLI worktree teammates (non-overlapping `file_domain`, no inter-story deps); each merged to the sprint branch via `/xp-story-close`'s auto-merge gate after independent close-reviewer cycles. Five reviewer concerns were caught and fixed in-cycle (decision recorded `skill-trim-restoration-pattern`: when a trim removes a NEGATIVE directive — "Do NOT X", "never Y" — restore it explicitly; surrounding flow does not encode negative imperatives reliably):
+
+- `xp-end-session/SKILL.md` Step 3: restored `git show <hash>` operational hint (commit `cb2578e8`, resolves `559cc9ba5804`).
+- `xp-kickoff/SKILL.md` Step 2.4: restored "Do NOT record a dismissal" on the migrate branch (commit `9136d381`, resolves `bcc7648a2801`).
+- `xp-plan/SKILL.md` Step 1: restored "sources are inputs / plan must stand on its own" guidance (same commit, resolves `200aa34f704a`).
+- `xp-scaffold-acceptance/SKILL.md` Step 2: aligned `assess-tool` heredoc example with the apostrophe-safety advisory below (`--tool '<tool>'` → `--tool="<tool>"`) (commit `97084b28`, resolves `f30412be6059`).
+
+### Sprint-074 / story-004: capstone enforcement tests (commit `ed25199a`)
+
+- **`tests/skills/test_skill_budgets.py`** — `SKILL_BUDGETS` dict caps each of the 16 SKILL.md files at `round(trimmed_lines * 1.125 / 10) * 10`, giving ~10-15% headroom before failure. Two test methods: `test_every_skill_has_budget_entry` (drift check — new skills can't sneak in unbudgeted) and `test_no_skill_exceeds_its_budget` (regression check). Mirrors `tests/smm/test_append_schema.py:TestContentBudgets`.
+- **`tests/skills/test_no_historical_ids_in_skills.py`** — regex scan for 12-hex SMM event IDs (`\b[0-9a-f]{12}\b`) in shipped SKILL.md prose. `story-NNN`/`sprint-NNN` deliberately excluded (pedagogical placeholders in JSON template examples), mirroring the same exclusion in `tests/integration/test_no_project_local_ids.py`.
+- New decision `skill-md-budgets`: SKILL.md per-file budgets enforced by `tests/skills/test_skill_budgets.py` (`SKILL_BUDGETS` dict). Adding a new skill requires computing and adding the budget entry; re-trim if over budget; bump deliberately if not.
+- New decision `skill-budget-test-shape`: budget tests use the two-method form (drift + regression) — same pattern recommended for M-2 (agents) and M-3 (hook injections).
+
+### Sprint-074 close-reviewer: cross-skill alignment (commit `9a807d0d`)
+
+The sprint-mode close-reviewer caught two consistency drifts that emerged because stories 1-3 trimmed independently:
+
+- **Close-skill intros** had three variants of "Use these values verbatim" (full sentence, short, dropped). Settled on dropped uniformly across all four close skills — the variable list itself is the imperative.
+- **Step 7 merge-chain prose** had three fidelity levels for the same shared `close_common.py` contract. Settled on uniform "Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved." `xp-plan-close` keeps its archive-specific note ("plan stays unarchived").
+
+### Notes for future sessions
+
+- Stuck `.accept` marker concern recorded (`8b5b0b80a59c`): the post-close fix-cycle Edit on a teammate worktree re-armed `.accept`, and `/xp-accept`'s preload skip-when-no-reviewing-stories path didn't consume it — blocking `update-story <id> done`. Workaround: `rm .accept` manually. The suppression check in `pre_tool_write` may need to extend to teammate-worktree paths during `closing` state.
+- M-2 priority: trim agent .md files starting with the always-on reviewers (`xp-code-reviewer`, `xp-close-reviewer`) since they fire on every commit/close. Same three-phase rhythm (trim → measure → budget at trimmed*1.125).
+- M-3 introduces measure-by-execution: subprocess fixtures rather than `wc -l`, since hook injection payloads vary by input.
+
+
 
 Sprint-073 shipped 2/2 stories (1.0 velocity) plus a post-sprint free-session bug fix discovered during `/xp-end-session`. Headline: `CLOSE_CYCLE_ACTIVE` marker arming moves from LLM-prose in `_close_pipeline_shared.md` to deterministic preload writes via the existing `_preload_base.sh:write_marker` helper — the prose path was unreliable when the LLM skipped/reordered the invocation or invoked `/security-review` standalone. Plus YAGNI removal of `xp-story-close`'s dead conditional Step 4 security-review branch (no codepath produces a story-without-sprint), 3-tier→2-tier collapse of `SECURITY_REVIEW_DOCTRINE.md`, and a bug fix where the `/xp-end-session` LIKELY_ADDRESSED probe emitted SMM commit-event ids labeled as "commit IDs" (not git refs — `git show` correctly rejected them). 4669 tests pass (was 4680; -2 from removing dead conditional tests, +2 new regression tests, net of 4 fixture updates).
 
