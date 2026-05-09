@@ -121,6 +121,19 @@ class TestAssignPendingGate(_HookTestCase):
         if result:
             self.assertNotIn("xp-assign", result)
 
+    def test_teammate_worktree_exempt_from_assign_gate(self):
+        """Teammate Edit not blocked by stale .assign-pending in shared SMM."""
+        marker = self.smm_dir / ".assign-pending"
+        marker.write_text("xp-plan-reviewer")
+        teammate_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        result = pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("xp-assign", result)
+
 
 class TestQuestionGate(_HookTestCase):
     """PreToolUse blocks writes when a blocking question is unanswered."""
