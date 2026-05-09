@@ -94,6 +94,7 @@ from _cli_helpers import (  # noqa: E402, F401
     make_story_dict,
     run_cli,
 )
+from _emitter_fixtures import EMITTER_FIXTURES  # noqa: E402
 from _event_fixtures import (  # noqa: E402, F401
     commit_event,
     failing_tests_concern,
@@ -298,6 +299,79 @@ def assert_md_under_budgets(
     testcase.assertFalse(
         offenders,
         f"{label} files exceed their line budget:\n" + "\n".join(offenders),
+    )
+
+
+def _run_emitter(script_name: str, scripts_dir: Path) -> tuple[bytes, str, int]:
+    """Run an emitter via subprocess with its registered fixture.
+
+    Returns (stdout_bytes, stderr_text, returncode). Each call gets its
+    own SMM tmpdir so side-effect markers (e.g. subagent_stop's
+    .assign-pending on xp-plan-reviewer input) stay contained.
+    """
+    import subprocess
+    import tempfile
+
+    builder = EMITTER_FIXTURES.get(script_name)
+    if builder is None:
+        raise KeyError(f"no fixture builder registered for {script_name}")
+    stdin_dict = builder()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        env = os.environ.copy()
+        env["SMM_DIR"] = str(Path(tmp) / "smm")
+        env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
+        env["XP_TEAMMATE_NAME"] = ""
+        proc = subprocess.run(
+            ["python3", str(scripts_dir / script_name)],
+            input=json.dumps(stdin_dict).encode("utf-8"),
+            capture_output=True,
+            cwd=tmp,
+            env=env,
+            timeout=10,
+        )
+    return proc.stdout, proc.stderr.decode("utf-8", errors="replace"), proc.returncode
+
+
+def assert_emitter_budgets_match(
+    testcase: unittest.TestCase,
+    budgets: dict[str, int],
+    label: str,
+) -> None:
+    """Every entry in budgets must have a fixture; no unbudgeted emitter."""
+    fixture_names = set(EMITTER_FIXTURES)
+    budget_names = set(budgets)
+    missing = fixture_names - budget_names
+    extra = budget_names - fixture_names
+    testcase.assertFalse(
+        missing,
+        f"{label} fixtures without a budget entry: {sorted(missing)}",
+    )
+    testcase.assertFalse(
+        extra,
+        f"budget entries with no matching {label} fixture: {sorted(extra)}",
+    )
+
+
+def assert_emitter_under_budgets(
+    testcase: unittest.TestCase,
+    scripts_dir: Path,
+    budgets: dict[str, int],
+    label: str,
+) -> None:
+    """Every emitter's stdout (run via fixture) must be at or below budget."""
+    offenders: list[str] = []
+    for name, budget in sorted(budgets.items()):
+        stdout_bytes, stderr, rc = _run_emitter(name, scripts_dir)
+        if rc != 0:
+            offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
+            continue
+        actual = len(stdout_bytes)
+        if actual > budget:
+            offenders.append(f"{name}: {actual} bytes (budget {budget})")
+    testcase.assertFalse(
+        offenders,
+        f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
     )
 
 
