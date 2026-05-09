@@ -335,6 +335,9 @@ def run_linter_batch(
             cwd=cwd,
         )
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        # Do NOT normalize to {p: [] for p in eligible} on failure — callers
+        # gating on F401/F811 must distinguish "not verified" (missing key)
+        # from "clean" (key with []), or the gate silently reopens.
         return {}
 
     raw = proc.stdout or proc.stderr or ""
