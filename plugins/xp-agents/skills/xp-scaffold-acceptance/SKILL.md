@@ -156,15 +156,14 @@ config format, minimal verification command. Pass the guidance to
 
 ```bash
 cat <<'GUIDANCE_EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
-    assess-tool --tool '<tool>'
+    assess-tool --tool="<tool>"
 <guidance text — apostrophes, quotes, backslashes, newlines all safe>
 GUIDANCE_EOF
 ```
 
 If the CLI prints `{"decline": true, "reason": "..."}`, emit the reason
-verbatim and exit. `'GUIDANCE_EOF'` quoting disables shell expansion.
-If the tool name contains an apostrophe, pass it via a shell variable
-and `--tool="$tool"`.
+verbatim and exit. `'GUIDANCE_EOF'` quoting disables shell expansion;
+`--tool="<tool>"` (double-quoted) is apostrophe-safe in tool names.
 
 **Still no writes.** Web-refresh produces in-memory variables only.
 
