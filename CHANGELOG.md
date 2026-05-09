@@ -1,5 +1,52 @@
 # Changelog
 
+## v3.1.24 — sprint-077 (token audit M-4: trim 14 preloads + check_session_needs + 3 top-level guides + close-pipeline shared md, ~9.1KB per-fire savings)
+
+Sprint-077 closes Milestone 4 of the token-audit plan and folds in 5 sprint-076 retro/concern/debt fix-stories. **Per-fire savings on shipped surfaces: ~9,094 bytes (~2,200 tokens).** 11/11 stories done.
+
+### Runtime byte savings (per-fire)
+
+| Surface | Pre | Post | Saved | % |
+|---|---:|---:|---:|---:|
+| `_close_pipeline_shared.md` (cat'd by 4 close skills) | 9201 | 5777 | **-3424B** | -37% |
+| `check_session_needs.sh` (every kickoff) | 4123 | 2723 | **-1400B** | -33% |
+| `TEAMMATE_GUIDE.md` (every teammate session) | 3694 | 2991 | -703B | -19% |
+| `xp-quality-review/preload.sh` | 2503 | 1887 | -616B | -24% |
+| `xp-review-plan/preload.sh` | 1639 | 1080 | -559B | -34% |
+| `XP_VALUES.md` (every SubagentStart) | 1545 | 1033 | -512B | -33% |
+| `xp-accept/preload.sh` | 2476 | 2050 | -426B | -17% |
+| `PROCESS_GUIDE.md` | 5745 | 5331 | -414B | -7% |
+| `xp-sprint-start/preload.sh` | 1231 | 826 | -405B | -32% |
+| `xp-sprint-review/preload.sh` | 966 | 658 | -308B | -31% |
+| `xp-assign/preload.sh` | 908 | 690 | -218B | -24% |
+| `xp-plan/preload.sh` | 794 | 685 | -109B | -13% |
+
+XP_VALUES + check_session_needs are the highest-leverage cuts (every session/subagent fire).
+
+### New test infrastructure
+
+- `tests/hooks/test_preload_budgets.py` — 3 methods covering 15 preloads (subprocess byte-budget + surface-scan)
+- `tests/test_guide_budgets.py` — 3 methods covering top-level guides (line-budget + 12-hex-ID grep)
+- `tests/hooks/test_no_historical_ids_in_emitters.py` — sister to skill/agent ID guards (caught 4 real leaked IDs in shipped scripts)
+- `tests/hooks/test_close_cycle_stop_gate.py` — regression for severity-bump fix
+- Surface-scan validation now in BOTH `test_injection_budgets.py` (15 emitters) and `test_preload_budgets.py` (15 preloads) — catches new emitter/preload shipping unbudgeted
+
+### Fix-stories
+
+- **story-008** (closes c589e66f9a22): emitter scripts/ surface-scan + 4 LIVE unbudgeted emitters discovered (`pre_tool_skill`, `post_tool_exit_plan`, `kickoff_gate`, `bash_post_tool`) — fixtures + budgets added
+- **story-009** (closes 6fc8450069c6): CLOSE_CYCLE_ACTIVE bypass severity bump (medium→high) + recovery nudge to both concern content and stderr — surfaces in xp-end-session high-severity watch
+- **story-010** (closes 22b746e75653): teammate worktree exemption from `.assign-pending` gate — `pre_tool_write` now uses `identity.is_worktree_teammate()` to skip the marker check for teammates (sprint-076 soft-loss class fixed)
+- **story-011** (closes 59e14037d671): 12-hex ID grep guard for emitters — caught 4 real leaked decision/concern IDs in shipped scripts and scrubbed them
+
+### Bug fix landing in close cycle
+
+- `_run_emitter` / `_run_preload` were popping `SMM_DIR` AFTER setting it (loop included it in `_LEAKY_GIT_ENV`), so all 30 budget measurements ran against the dev's live SMM not the seeded one. Caught by sprint-close-reviewer; fixed inline (pop first, set after). Test premise now matches its docstring.
+
+### Honesty calls
+
+- Story-002's first attempt only registered budgets without trimming — deferred and re-spawned with sharper prompt; v2 delivered the 37% trim on the dominant cost driver.
+- Two teammates (003, 008) hung post-result event; killed and finished manually. Root cause filed as debt: `teammate_output_filter.py` reads all stdin into list before processing, blocks indefinitely if `claude -p` stalls before EOF.
+
 ## v3.1.23 — sprint-076 (token audit M-3: trim 11 hook-injection emitters, -8.4% lines; per-script byte-budget regression test)
 
 Sprint-076 shipped 6/6 stories delivering Milestone 3 of the token-audit plan. The 11 hook-injection emitter scripts (`prompt_nugget`, `user_prompt_log`, `session_start`, `subagent_start`, `subagent_stop`, `pre_tool_write`, `pre_tool_bash`, `lint_check`, `review_cycle_done`, `retrospective`, `session_end_warning`) trim from 2748 → 2516 source lines (-232, -8.4%); a new `tests/hooks/test_injection_budgets.py` enforces per-script byte budgets at `ceil(measured * 1.125 / 100) * 100` (floor 100). The capstone shipped twice — the first version was caught as test-theatre by the sprint close-reviewer (silent-by-short-circuit, not silent-by-trim, because `_run_emitter` set `SMM_DIR` to a non-existent path and 9/11 emitters short-circuited at `get_validated_smm_dir`). The fix bootstraps a real seeded SMM via `seed_smm.py` directly + a git-repo cwd, recalibrates budgets to honest measurements, and amortizes one bootstrap across all 11 emitters per assert call. 4679 tests pass (+2 new).
