@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import commits
+import marker_names
 import worktree
 from duplicate_debt_probe import STOPWORDS
 from event_schema import (
@@ -47,12 +48,11 @@ _TOKEN_RE = re.compile(r"[^a-z0-9_]+")
 # windows without triggering reload churn for normal load-and-pass-down.
 _SNAPSHOT_STALENESS_THRESHOLD_SECONDS = 5
 
-# Sentinel filename under SMM_DIR used by writers (e.g. xp-work-selection's
+# marker_names.PROBE_REFRESH is touched by writers (e.g. xp-work-selection's
 # adopt path) to signal that a decision event has just been appended. The
 # probe reads its mtime and treats the snapshot as stale when the sentinel
 # postdates the snapshot's max_ts — closing the fast-commit gap where the
 # 5s wall-clock threshold misses an adopt+commit landing within the window.
-_REFRESH_SENTINEL_NAME = ".probe_refresh"
 
 # Shared trailer-reminder text used by pre_tool_bash in both the soft-nudge
 # (parts.append) and hard-block (BlockedError body) paths. Centralized so
@@ -85,10 +85,10 @@ def refresh_sentinel_path(smm_dir: Path) -> Path:
     """Path to the probe-refresh sentinel under smm_dir.
 
     Public seam so callers (and tests) can locate the sentinel without
-    reaching into _REFRESH_SENTINEL_NAME. smm_dir must exist; the path
+    reaching into marker_names.PROBE_REFRESH. smm_dir must exist; the path
     is not created by this function.
     """
-    return smm_dir / _REFRESH_SENTINEL_NAME
+    return smm_dir / marker_names.PROBE_REFRESH
 
 
 def signal_probe_refresh(smm_dir: Path) -> None:
@@ -111,7 +111,7 @@ def signal_probe_refresh(smm_dir: Path) -> None:
 
 
 def _refresh_sentinel_postdates(smm_dir: Path | None, max_ts: str) -> bool:
-    """True iff smm_dir/.probe_refresh exists and its mtime is after max_ts.
+    """True iff smm_dir/.probe-refresh exists and its mtime is after max_ts.
 
     Returns False on any of: smm_dir not given, sentinel missing, mtime
     or max_ts unparseable. Fail-safe degrades to "trust the snapshot" so
