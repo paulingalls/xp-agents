@@ -193,7 +193,7 @@ Each pillar has a natural size that signals project health. **Healthy ranges and
 
 Coordination health is tracked separately via `.coordination.json` (bounded by active agent count, not curated).
 
-An agent reads the entire mental model in 2 seconds. The unhealthy states themselves become signals — if Risks hits its cap, the SMM itself should flag: "Risk register at capacity — resolve items before adding more."
+A healthy curated SMM totals roughly 12-30 items and ~300-600 tokens — small enough that an agent reads the entire mental model in about 2 seconds. The unhealthy states themselves become signals — if Risks hits its cap, the SMM itself should flag: "Risk register at capacity — resolve items before adding more."
 
 ---
 
