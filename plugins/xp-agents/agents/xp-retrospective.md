@@ -36,7 +36,7 @@ If `.retro-input.json` is missing, take the **Seed Retrospective** branch below 
 
 ## Seed Retrospective (empty/missing RETRO_INPUT)
 
-When `.retro-input.json` is missing, emit a seed retro instead of analyzing events. Skip every section that depends on input data (Pre-Computed Flags, Stale-Flag Concerns, Work Analysis, Sprint Analysis, Cross-Session Trends) and produce:
+When `.retro-input.json` is missing OR contains fewer than 5 events, emit a seed retro instead of analyzing events. Skip every section that depends on input data (Pre-Computed Flags, Stale-Flag Concerns, Work Analysis, Sprint Analysis, Cross-Session Trends) and produce:
 
 - **Keep** items framed around adopting the XP process — values commitment, the decision to use this plugin, the discipline of running session retros at all. 1-3 items.
 - **Try** items framed as "try running `<skill>`" suggestions — concrete next-step skills the user has not yet exercised (e.g., "try running `/xp-system-context` to anchor the project's architecture", "try running `/xp-plan` to lay out a milestone roadmap"). 2-4 items.
