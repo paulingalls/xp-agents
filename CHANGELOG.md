@@ -1,5 +1,47 @@
 # Changelog
 
+## v3.1.26 — sprint-080 (Milestone 3 docs refresh + sister-test SPIKE + probe sentinel cleanup)
+
+Sprint-080 closes execution-plan Milestone 3 (top-level docs refresh against sprint-074..077 doctrine), redesigns the sprint-079 deferred sister-test validator as a project-generic SPIKE, and resolves a sprint-079 close-reviewer concern. **5/5 stories delivered**.
+
+### Sister-test discovery SPIKE (story-001)
+
+- **`docs/ideas/SISTER_TEST_DISCOVERY.md`** — design doc for project-generic sister-test discovery, replacing sprint-079 story-001's hardcoded Python+pytest validator. Covers four conventions (Python pytest, Go `_test.go`, JS/TS Jest, Rust Cargo) with marker-file detection, source→test mapping rules, and worked examples per language. Recommends a new top-level `test_layout` field in `system_context.json` with auto-discovery + customer override; honestly weighs the alternative of extending the existing `acceptance_surfaces` shape and concedes it as defensible. Specifies a pluggable `discover_sister_tests(source_path, layout, project_root)` validator API with a closed extractor registry, plus the wiring plan that routes `sprint_cli.py` mutating subcommands through `save_sprint.run()` (closing the dead-code defect that deferred sprint-079 story-001). Open-questions section captures three deferred decisions for the future implementation milestone.
+- **AC4 self-assertion caveat** — the doc explicitly notes that "this doc is the only design source needed" is judged by the doc about itself; the implementation milestone should open with a doc-vs-reality pass and escalate if substantive gaps exceed three.
+
+### Top-level docs refresh
+
+- **`README.md`** — skills table dropped two agent-only rows misclassified as slash commands (`/xp-run-retrospective`, `/xp-housekeeping`); added `/xp-end-session`, `/xp-scaffold-acceptance`, `/xp-story-close`. New "Plugin Subagents (auto-invoked)" subsection lists all seven shipped subagents with their triggers. New "Token Budgets and Honesty Guards" subsection documents the byte-budget framework + 12-hex-ID grep guard with honest scope (plugin-shipped guides only; repo-level `docs/` is out of scope for design-window ID anchors). Hook table updated for `[release]`/`[chore]`/`[sprint-direct]` bypass prefixes, `.assign-pending` exemption, CLOSE_CYCLE_ACTIVE Stop block. Pillar caps now defer to `PROCESS_GUIDE.md §Pillars` (single source of truth).
+- **`docs/ARCHITECTURE.md`** — hook map matches `hooks/hooks.json` row-for-row (added `close_cycle_stop_gate.py`; corrected `PostToolUse:Skill` → `Skill|Agent`; expanded SubagentStop with all four xp-* completion handlers). Re-attributed process-guide injection from SubagentStop to `PostToolUse:Skill|Agent` (`review_cycle_done.py`) — verified against the scripts before editing. New doctrine sections: Marker Write Locality, Sprint state vs sprint events, CLI teammates as sprint-default execution mode (with when-to-prefer-Agent-Teams contrast).
+- **`docs/SMM_DESIGN.md`** — pillar caps now defer to `PROCESS_GUIDE.md §Pillars` (no inline numbers restated). New Mutable State Files (ring-buffer pattern) section documents `{version, entries[]}` atop `smm_store` atomic-write as the canonical shape for new mutable SMM state files (`session_history.py` named as the reference implementation). New Per-item content limits section points at `event_schema.CONTENT_BUDGETS` and `materialize._CUSTOMER_INPUT_TRUNCATE_LIMIT`. New SMM_DIR resolution section codifies `init.sh` + `CLAUDE_PLUGIN_DATA`. Closing principle: events.jsonl is transient; `system_context.json` owns stack config.
+- **`docs/completed/CLI_TEAMMATE_DESIGN.md`** (sprint-direct) — documented `XP_TEAMMATE_FILTER_TIMEOUT` (default 600s, env override) per adopted retro Try `fc555090d81b`. Original draft prose claimed the filter "writes a hung-teammate report"; simplify caught the inaccuracy against the code (filter exits 1 with stderr diagnostic, no report on the timeout path) and the doc now matches.
+
+### Probe sentinel cleanup (story-005)
+
+- **`.probe-refresh` sentinel now consumed on first successful reload** (`scripts/resolves_probe.py`): closes sprint-079 close-reviewer concern `d7d2b2f7475d`. The sentinel file persisted indefinitely after first adopt, costing every probe call an extra `stat()`+ISO-parse and silently leaving probes marked stale if SMM_DIR was restored from backup with future-dated mtime. The cleanup fires after any successful `_common.load_events_with_resolutions` (covering both the staleness branch AND the cold-load `events=None` branch that production callers in `pre_tool_bash` and `pre_tool_skill` always take). Sentinel persists across reload failures so the next probe retries — silent cleanup would re-open the missing-event divert class sprint-079 closed.
+- **Mid-review course-correction**: first cut gated the unlink on `if is_stale:` which narrowly satisfied the AC text but left the production path uncleaned. Reviewer caught it (concern `c130abd6d655`); the broader cleanup addresses the actual underlying defect. Honesty over clever-AC-reading.
+- **`signal_probe_refresh` docstring rewritten** — old "self-clearing via fresher snapshots" wording was factually wrong post-cleanup. Now states the consume-on-success / persist-on-failure contract directly. Closes plan-review concern `14e0f07c6a4c`.
+
+### Cross-story drift fixes (sprint-direct)
+
+- README.md cross-story drift caught by sprint-close-reviewer: `PostToolUse` matcher updated `Skill` → `Skill|Agent` to match story-003's ARCHITECTURE refresh and trimmed to what `review_cycle_done.py` actually dispatches (housekeeper / `/xp-assign` nudge / security-review continuation — NOT sprint-review or close-reviewer routing). SubagentStop (Plan) row hedged with "fallback for Plan subagent flow when PostToolUse:Agent doesn't fire" so the two rows don't read as contradictory. "Two regression suites" → "Three" (off-by-one). 12-hex-ID grep guard scope claim narrowed to the actual test-coverage scope (plugins/xp-agents/ only, with explicit honest note that repo-level `docs/` is out of scope for design-window ID anchors).
+
+### Refactors
+
+- **4 duplicate `_seed_concern` test helpers consolidated** into a single `_ProbeTestHelpers` mixin in `tests/conftest.py` with optional `ts` arg. Two more no-ts variants (`TestFindProbeCandidates`, `TestFindProbeCandidatesDiscovery`) joined the mixin in the close-cycle fix; the two genuinely-distinct helpers (cycle_id metadata, custom default `ts`) stay in place.
+
+### Test count
+
+- Full suite: 4737 passed, 1 skipped (was 4734 in v3.1.25)
+- New tests: TestSentinelCleanup (3 tests covering staleness-triggered reload, cold-load `events=None` production path, reload-raises persistence)
+
+### New decisions
+
+- `1b73873e5105` — SMM_DESIGN.md defers per-pillar cap numbers to PROCESS_GUIDE.md; aggregate item/token orientation cue stays in SMM_DESIGN as it has no PROCESS_GUIDE home
+- `acae12b89b07` — Process-guide injection lives in `PostToolUse:Skill|Agent` (`review_cycle_done.py`), NOT SubagentStop — SubagentStop additionalContext is platform-dropped
+- `280e6ece3c41` — Probe sentinel unlinked AFTER successful `load_events_with_resolutions` inside `find_probe_candidates`; persists across reload failures so signal isn't silently lost
+- `3021cef2a074` — SPIKE design docs land in `docs/ideas/` until adopted; graduate to `docs/completed/` when the implementation milestone ships
+
 ## v3.1.25 — sprint-079 (signal ergonomics M-2 + adopted debts: probe sentinel freshness, always-run retro + seed fallback, prompt_nugget single locked read, branch_lifecycle extract)
 
 Sprint-079 ships Milestone 2 (signal ergonomics) and folds in three sprint-077 adopted debts. **5/6 stories delivered**; story-001 deferred for project-generic redesign.
