@@ -411,6 +411,27 @@ class TestKnownInstalls(_AssertNotNoneMixin, unittest.TestCase):
                 )
 
 
+class TestRenderPreviewIdentityProbe(unittest.TestCase):
+    """Customer preview must surface verify_identity_cmd so Step 5
+    confirmation isn't blind to the extra --version assertion."""
+
+    def test_identity_cmd_appears_in_preview_when_set(self) -> None:
+        plan = _sample_plan(
+            verify_identity_cmd="maestro --version",
+            expected_version_pattern=r"^Maestro \d+\.",
+        )
+        preview = render_preview(plan)
+        self.assertIn("maestro --version", preview)
+        # Rendered via !r so backslashes show as-stored (honest about escapes).
+        self.assertIn(repr(r"^Maestro \d+\."), preview)
+
+    def test_identity_cmd_omitted_from_preview_when_empty(self) -> None:
+        # Back-compat: plans without identity probe render unchanged.
+        plan = _sample_plan()
+        preview = render_preview(plan)
+        self.assertNotIn("must match", preview)
+
+
 class TestScaffoldPlanIdentityFields(unittest.TestCase):
     """Bug 1 (cont.): ScaffoldPlan carries the optional identity-verify
     fields so the apply pipeline can assert the installed binary

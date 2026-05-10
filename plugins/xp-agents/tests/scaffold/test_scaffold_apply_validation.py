@@ -402,20 +402,22 @@ class TestRunVerifyIdentity(_ApplyTestBase):
         self._track_snapshot(result)
         self.assertTrue(result.ok, result.reason)
 
-    def test_cmd_set_but_pattern_empty_raises(self) -> None:
-        # Honest refusal: hand-rolled plan with cmd but no pattern would
-        # silently accept any --version output. ValueError surfaces the bug
-        # to the caller instead of letting the guard silently degrade.
-        from scaffold_apply import ApplySnapshot, create_snapshot, run_verify_identity
-
-        plan = _plan()
+    def test_apply_plan_rejects_cmd_without_pattern_pre_snapshot(self) -> None:
+        # validate_plan must reject the cmd-without-pattern combination
+        # BEFORE create_snapshot runs — otherwise the orphan-snapshot bug
+        # surfaced by close-reviewer Block b1672394c237 returns: write+install
+        # complete their side-effects, then ValueError escapes uncaught.
+        plan = _plan(install_cmds=["true"], verify_cmd="true")
         plan["verify_identity_cmd"] = "true"
         plan["expected_version_pattern"] = ""
-        snap: ApplySnapshot = create_snapshot(plan, repo_root=self.repo)
-        self._snapshots_to_clean.append(snap.snapshot_dir)
-        with self.assertRaises(ValueError) as cm:
-            run_verify_identity(snap)
-        self.assertIn("expected_version_pattern", str(cm.exception))
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+        self.assertIn("expected_version_pattern", result.reason or "")
+        # No snapshot created (validate_plan fires pre-snapshot).
+        self.assertIsNone(result.snapshot_id)
+        self.assertIsNone(result.snapshot_dir)
 
 
 if __name__ == "__main__":

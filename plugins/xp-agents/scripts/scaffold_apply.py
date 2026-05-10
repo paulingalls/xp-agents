@@ -64,6 +64,13 @@ SNAPSHOT_PREFIX = "scaffold-snap-"
 BACKUP_SUBDIR = "backup"
 PLAN_FILE = "plan.json"
 
+# Single source of truth for the cmd↔pattern coupling error — validate_plan
+# is the only enforcer, but the message is referenced by tests too.
+IDENTITY_PATTERN_REQUIRED_MSG = (
+    "verify_identity_cmd set but expected_version_pattern is empty; "
+    "either supply both or leave verify_identity_cmd empty to skip"
+)
+
 
 @dataclass
 class ApplyResult:
@@ -141,6 +148,8 @@ def validate_plan(plan: dict, *, repo_root: Path) -> str | None:
             "files_to_create or remove them from the plan. Refusing to "
             "create files via the modify path (no backup means no revert)."
         )
+    if plan.get("verify_identity_cmd") and not plan.get("expected_version_pattern"):
+        return IDENTITY_PATTERN_REQUIRED_MSG
     return None
 
 
@@ -239,24 +248,18 @@ def run_verify_identity(snap: ApplySnapshot) -> None:
     failure shape as a non-zero install.
 
     Skipped (no-op) when ``verify_identity_cmd`` is empty (back-compat
-    for plans built before the identity probe existed). stdout is
-    captured in-memory (``--version`` payload is small) and then mirrored
-    to ``snapshot_dir/verify-identity.log`` so failure diagnostics carry
-    a log-pointer symmetric with install/verify; stderr stays in-memory
-    for the failure summary.
+    for plans built before the identity probe existed). The cmd↔pattern
+    coupling (cmd set ⇒ pattern required) is enforced by ``validate_plan``
+    pre-snapshot — direct callers must run plans through ``apply_plan`` /
+    ``validate_plan`` first. stdout is captured in-memory (``--version``
+    payload is small) and then mirrored to ``snapshot_dir/verify-identity.log``
+    so failure diagnostics carry a log-pointer symmetric with install/verify;
+    stderr stays in-memory for the failure summary.
     """
     cmd = snap.plan.get("verify_identity_cmd")
     pattern = snap.plan.get("expected_version_pattern", "")
     if not cmd:
         return
-    if not pattern:
-        # Honest refusal: a non-empty cmd with empty pattern would silently
-        # accept any --version output (defeats the guard). The known_installs
-        # map always pairs both; hand-rolled plans must too.
-        raise ValueError(
-            "verify_identity_cmd set but expected_version_pattern is empty; "
-            "either supply both or leave verify_identity_cmd empty to skip"
-        )
     completed = subprocess.run(
         shlex.split(cmd),
         cwd=snap.repo_root,

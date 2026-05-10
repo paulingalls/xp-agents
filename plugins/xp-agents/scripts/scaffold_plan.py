@@ -137,6 +137,11 @@ def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
     lines.append("Install + verify:")
     for cmd in plan.install_cmds:
         lines.append(f"  {cmd}")
+    if plan.verify_identity_cmd:
+        lines.append(
+            f"  {plan.verify_identity_cmd}    "
+            f"# must match {plan.expected_version_pattern!r}"
+        )
     lines.append(f"  {plan.verify_cmd}{VERIFY_SUFFIX}")
     lines.append("")
     lines.append(f"Commit branch: {plan.branch_name} {BRANCH_NEW_SUFFIX}")
