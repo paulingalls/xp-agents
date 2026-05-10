@@ -39,7 +39,11 @@ _ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
 _DEFAULT_NO_PROGRESS_TIMEOUT = 600.0
 _TIMEOUT_ENV_VAR = "XP_TEAMMATE_FILTER_TIMEOUT"
 # Brief drain after the result event so any final lines (warnings, hook
-# diagnostics) make it into the lines list before EOF.
+# diagnostics) make it into the lines list before EOF. 0.1s suits the
+# common case where claude -p closes stdout immediately after `result`;
+# on a contended host a slower trailing line could be lost, but stream-
+# json treats `result` as terminal so the diagnostic value of any tail
+# is low enough that env-overriding this would be overkill.
 _POST_RESULT_DRAIN_TIMEOUT = 0.1
 _READ_CHUNK_BYTES = 65536
 
