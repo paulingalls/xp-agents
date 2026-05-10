@@ -48,6 +48,14 @@ def read_events_from(smm_dir: Path, start_line: int) -> tuple[list[dict], int]:
     if not raw:
         return [], 0
 
+    if start_line == 0:
+        # Hot path (read_delta_full, full-history reads): skip the offset-walk
+        # entirely. splitlines() is a single linear pass and shares the
+        # tail-path linebreak semantics exactly (handles CR/LS/PS line terminators),
+        # so cross-caller `total` cannot diverge.
+        events, _ = parse_jsonl(raw)
+        return events, len(raw.splitlines())
+
     lines = raw.splitlines()
     total = len(lines)
 
@@ -87,3 +95,30 @@ def read_delta(
         write_watermark(smm_dir, agent_id, total_lines)
 
     return events
+
+
+def read_delta_full(
+    smm_dir: Path,
+    agent_id: str,
+    update_watermark: bool = True,
+) -> tuple[list[dict], list[dict]]:
+    """Locked single-read variant: returns (full_events, new_events).
+
+    Reads ALL events under shared flock (not unlocked read_events_raw),
+    derives the post-watermark slice in memory, and advances watermark
+    using the same total_lines snapshot that produced full_events.
+    Callers needing both full history (for resolution chain completeness)
+    and the post-watermark delta get them from a single locked read.
+    """
+    try:
+        validate_smm_dir(smm_dir)
+    except ValueError:
+        return [], []
+
+    watermark = read_watermark(smm_dir, agent_id)
+    full_events, total_lines = read_events_from(smm_dir, 0)
+
+    if update_watermark and total_lines > watermark:
+        write_watermark(smm_dir, agent_id, total_lines)
+
+    return full_events, full_events[watermark:]
