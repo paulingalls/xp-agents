@@ -32,7 +32,7 @@ What the customer wants, in their words, distilled to deliverable outcomes.
 
 **Leave:** Agent marks it delivered when the work ships. Or customer supersedes it.
 
-**Cap:** ~10 items. Oldest undelivered intents get flagged: "still wanted?"
+**Cap:** see [PROCESS_GUIDE.md §Pillars](../plugins/xp-agents/PROCESS_GUIDE.md#pillars) — that file is the single source of truth for cap numbers (don't restate inline). Oldest undelivered intents get flagged: "still wanted?"
 
 **Empty = no direction.** If no intents exist, the agent should ask what to build next.
 
@@ -55,7 +55,7 @@ Decisions and conventions that bound the solution space.
 
 **Leave:** Only when explicitly superseded by a new constraint that references the old one. Constraints don't age out — "use Postgres" doesn't become less true over time. Decisions age after 3 sessions in the event log (compacted if confirmed and curated into the SMM).
 
-**Cap:** ~20 items. Beyond this, some are too granular (move to code/linting).
+**Cap:** see [PROCESS_GUIDE.md §Pillars](../plugins/xp-agents/PROCESS_GUIDE.md#pillars). Beyond the cap, some are too granular (move to code/linting).
 
 ---
 
@@ -81,7 +81,7 @@ Three severities, one category:
 
 **Escalate:** Risks not addressed get louder. After 3 sessions: ⚠️. After 6 sessions: 🔴. A 🔴 risk appears first in the section.
 
-**Cap:** ~10 items. More than 10 active risks is itself a 🔴 risk.
+**Cap:** see [PROCESS_GUIDE.md §Pillars](../plugins/xp-agents/PROCESS_GUIDE.md#pillars). Exceeding the cap is itself a 🔴 risk.
 
 **Same-session rule:** Assumptions from plan reviews must be verified or dropped in the session they're created. They don't linger as "unverified" indefinitely.
 
@@ -89,7 +89,7 @@ Three severities, one category:
 
 ### Coordination (separate from SMM)
 
-Coordination is **not a pillar of the curated SMM**. It operates at a fundamentally different cadence — real-time per-tool-call updates vs once-per-session curation. It lives in `.coordination.json` (see M4 milestone).
+Coordination is **not a pillar of the curated SMM**. It operates at a fundamentally different cadence — real-time per-tool-call updates vs once-per-session curation. It lives in `.coordination.json`.
 
 ```json
 {
@@ -121,6 +121,37 @@ Sprint and planning state live in separate files, not in the curated SMM pillars
 
 ---
 
+### Mutable State Files (ring-buffer pattern)
+
+New mutable SMM state files (anything besides the four pillars and the append-only event log) follow a single canonical shape:
+
+```json
+{
+  "version": <int>,
+  "entries": [ {...}, {...} ]
+}
+```
+
+`session_history.json` is the concrete reference implementation — see `plugins/xp-agents/smm/session_history.py`. Every new mutable state file inherits this shape because it gets you four properties for free:
+
+- **Schema versioning** — the top-level `version` field lets future migrations introspect the on-disk shape without sniffing entry contents.
+- **Atomic write + symlink rejection** — both go through `smm_store`-style helpers (`write_text_atomic` + `path.is_symlink()` check). Never partial-write, never follow a malicious symlink out of `SMM_DIR`.
+- **Fail-loud on corrupt JSON or schema-invalid entries** — `load_*` functions raise `ValueError` rather than silently returning empty, so a corrupted file surfaces immediately at the next read instead of erasing user data on the next write.
+- **Bounded growth** — `entries` is sliced to the most-recent N at append time (`session_history` defaults to 5). The "ring buffer" framing is logical: oldest-out, newest-in, no unbounded accumulation.
+
+When adding a new mutable state file, copy the `session_history.py` template (`validate_*`, `empty_*`, `load_*`, `save_*`, `append_entry`) before authoring a bespoke shape. The constraint is the feature — every state file looking the same makes the next migration trivial.
+
+**Constraint reference:** SMM constraint `83297d6921d4` codifies this pattern.
+
+### SMM_DIR resolution (separate from SMM)
+
+All scripts resolve the SMM directory via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` (single canonical source). The shell helper honors a `$SMM_DIR` environment override; otherwise it derives `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/`.
+
+- **SMM is at user level, not project level** — `${CLAUDE_PLUGIN_DATA}` lives outside the working tree, so worktrees share the same SMM (intentional — it's the broadcast bus).
+- **Never hardcode SMM paths** — every script and hook calls `init.sh` (or accepts `--smm-dir DIR` from CLIs). Tests stand up a temp `SMM_DIR` env var and run scripts unmodified.
+
+---
+
 ### Wisdom
 
 Behavioral rules learned from experience. The institutional memory.
@@ -143,7 +174,7 @@ Each item is a **behavioral rule** phrased as "do X" or "don't do Y" with a brie
 
 **Leave:** Relevance decay. Not referenced for 10+ sessions → demoted. Or explicitly dropped by the team.
 
-**Cap:** Hard cap of 10. Adding one at cap requires removing one. The constraint is the feature — only the most important lessons survive.
+**Cap:** see [PROCESS_GUIDE.md §Pillars](../plugins/xp-agents/PROCESS_GUIDE.md#pillars). Adding one at cap requires removing one. The constraint is the feature — only the most important lessons survive.
 
 **Not a diary.** "Session 5 was hard" is not Wisdom. "Always run tests before claiming done" is Wisdom.
 
@@ -151,20 +182,18 @@ Each item is a **behavioral rule** phrased as "do X" or "don't do Y" with a brie
 
 ## Health Signals
 
-Each pillar has a natural size that signals project health:
+Each pillar has a natural size that signals project health. **Healthy ranges and caps are owned by [PROCESS_GUIDE.md §Pillars](../plugins/xp-agents/PROCESS_GUIDE.md#pillars)** — refer there rather than restating numbers here. The asymmetric warning shape per pillar:
 
-| Pillar | Healthy | Warning Signs |
+| Pillar | Below-range signal | Over-cap signal |
 |---|---|---|
-| Intent | 2-5 items | 0 = no direction, 10+ = scope creep |
-| Constraints | 5-15 items | 0 = no decisions made, 20+ = over-specified |
-| Risks | 2-5 items | 0 = false confidence, 10+ = unmanaged risk |
-| Wisdom | 3-7 items | 0 = not learning, 10 = cap reached, prune |
-
-**Total SMM at healthy state: 12-30 items, ~300-600 tokens.**
+| Intent | no direction | scope creep |
+| Constraints | no decisions made | over-specified (move some to code/linting) |
+| Risks | false confidence | unmanaged risk |
+| Wisdom | not learning | cap reached, prune |
 
 Coordination health is tracked separately via `.coordination.json` (bounded by active agent count, not curated).
 
-An agent reads the entire mental model in 2 seconds. The unhealthy states themselves become signals — if Risks hits 10, the SMM itself should flag: "Risk register at capacity — resolve items before adding more."
+A healthy curated SMM totals roughly 12-30 items and ~300-600 tokens — small enough that an agent reads the entire mental model in about 2 seconds. The unhealthy states themselves become signals — if Risks hits its cap, the SMM itself should flag: "Risk register at capacity — resolve items before adding more."
 
 ---
 
@@ -225,6 +254,15 @@ Conflicts are handled by PreToolUse hooks (blocking for Write, advisory for Bash
 - Outputs structured JSON that housekeeping can reason about
 
 The `shared_mental_model.json` is written by housekeeping (with judgment) via `smm_cli.py save`, not by the materializer.
+
+### Per-item content limits
+
+Two layers enforce per-item content size so callers don't author oversized payloads:
+
+- **At write time (`event_schema.CONTENT_BUDGETS`)** — `validate_event` rejects events whose `content` exceeds the per-type budget. Authoritative table lives in `plugins/xp-agents/smm/event_schema.py:CONTENT_BUDGETS`; read it for current numbers rather than restating here. A few types are uncapped (`customer_input`, `commit`) because the source bounds their size — a user prompt, a commit body.
+- **At materialization (`materialize._CUSTOMER_INPUT_TRUNCATE_LIMIT`)** — uncapped `customer_input` events are truncated when bucketed into the housekeeping preload, with a `content_truncated` flag on the summary so housekeeping can chase the original if needed. Summary-side only — the raw event in `events.jsonl` is unchanged.
+
+Hard ceilings (`MAX_CONTENT_LENGTH`, `MAX_EVENT_BYTES`, same module) cap unbounded growth from any single write — the safety net beneath the per-type budget.
 
 ---
 
@@ -396,11 +434,13 @@ Subagent hex-ID watermarks (`.watermark-abf63d10...`) are eliminated. No per-too
 
 ### Event log compaction — housekeeping compacts after curation
 
-The event log is a staging buffer, not an archive. Compaction runs at three points: after SMM curation (`smm_cli.py save`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy:
+The event log is a staging buffer, not an archive. Compaction runs at three points: after SMM curation (`smm_cli.py save`), at session end (`SessionEnd` hook), and during context compaction (`PostCompact` hook). All use the same watermark-based policy.
 
-1. Housekeeping curates events into the SMM
-2. Writes its curation watermark (event count)
-3. Compaction prunes events before the watermark, with these rules:
+**Sequence per curation cycle:**
+
+1. Housekeeping reads the materializer's preload, curates the four pillars, and writes the updated `shared_mental_model.json` via `smm_cli.py save`.
+2. The save signals the materializer via the agent's curation watermark (event count + agent_id).
+3. Compaction reads the **oldest** still-valid watermark across all active agents and prunes events strictly before it, applying per-type retention:
    - **Status events**: compacted freely (counts preserved in session summaries)
    - **Customer inputs**: compacted freely (captured in Intent pillar)
    - **Decisions**: retained for 3 sessions, then compacted (live in Constraints pillar)
@@ -409,7 +449,8 @@ The event log is a staging buffer, not an archive. Compaction runs at three poin
    - **Retrospectives**: capped at 2 in the event log (archived in `retrospectives/` directory)
    - **Resolved items**: pruned (goals, concerns, debt with resolution events)
    - **Session_end events**: last 3 retained (needed for aging calculations)
-4. For teams: compacts only events before the **oldest** agent's curation watermark
+
+**Multi-teammate graceful degradation.** If a teammate crashes before writing its curation watermark, the oldest still-valid watermark wins; compaction conservatively retains the extra events that the missing teammate had not yet curated. The next successful curation by any agent advances the oldest watermark and lets compaction catch up.
 
 The SMM is the durable record. The event log is the working buffer that feeds it. Once curated, raw events have served their purpose.
 
@@ -455,3 +496,5 @@ This is O(1) per check — read one small JSON file, check for `working_on` over
 **Ephemeral vs durable.** Coordination is ephemeral (clears each session). Intent, Constraints, and Wisdom are durable (persist across sessions). Risks are in between (persist but escalate and eventually force resolution).
 
 **The SMM is not a history.** It's a snapshot of current state. The event log is the history. The SMM is the briefing derived from that history.
+
+**Events.jsonl is transient — never the source of truth for stack config.** The event log is a working buffer that compaction may prune at any time. Anything that must survive (product/architecture/tooling decisions, conventions, language/runtime choices) belongs in `system_context.json`, which owns stack config and is the durable source of truth that survives sprints, plans, and event-log compaction. A `decision` event is fine for the in-flight signal, but if it codifies stack config, promote it into `system_context.json` so a future agent reading only the durable files doesn't lose it.
