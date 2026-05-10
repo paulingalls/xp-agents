@@ -101,6 +101,15 @@ class TestRecordScaffoldRequiresCommitSha(_RecordTestBase):
 
 class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
     def test_flips_matching_surface_to_covered(self) -> None:
+        # Pin the canonical scaffold subject through the happy path so the
+        # subject-orthogonal gate doesn't regress accidentally for the
+        # convention apply-commit emits (Resolves-Event: 970cd39c55a0).
+        canonical_sha = init_git_with_seed(
+            self.repo,
+            "README",
+            "seed\n",
+            subject="[chore] Scaffold acceptance browser via playwright",
+        )
         result = record_scaffold(
             self._snap(),
             smm_dir=self.smm_dir,
@@ -108,7 +117,7 @@ class TestRecordScaffoldSurfaceFlip(_RecordTestBase):
             verify_cmd="npx playwright test tests/acceptance",
             concern_id=None,
             agent_id="test-agent",
-            commit_sha=self._seed_commit(),
+            commit_sha=canonical_sha,
         )
         self.assertTrue(result.ok, result.reason)
         ctx = self._ctx()
