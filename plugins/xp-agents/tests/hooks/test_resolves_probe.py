@@ -41,13 +41,8 @@ from event_schema import (
 )
 
 
-class TestFindProbeCandidates(_HookTestCase):
+class TestFindProbeCandidates(_ProbeTestHelpers, _HookTestCase):
     """find_probe_candidates returns open concerns matching commit files."""
-
-    def _seed_concern(self, content: str, files: list[str]) -> str:
-        concern = make_event(EVENT_TYPE_CONCERN, content=content, files=files)
-        _common.append_safe(self.smm_dir, concern)
-        return concern["id"]
 
     def test_empty_commit_files_returns_empty(self):
         self._seed_concern("Auth leaks", ["scripts/auth.py"])
@@ -869,7 +864,7 @@ class TestSelectionReasonVocabularyCap(unittest.TestCase):
         )
 
 
-class TestFindProbeCandidatesSnapshotFreshness(_HookTestCase):
+class TestFindProbeCandidatesSnapshotFreshness(_ProbeTestHelpers, _HookTestCase):
     """Story-003 (B): when caller passes an `events` snapshot that is
     meaningfully older than `now_ts`, find_probe_candidates re-loads
     events from disk so newer events appear in the candidate set.
@@ -880,11 +875,6 @@ class TestFindProbeCandidatesSnapshotFreshness(_HookTestCase):
     when the agent commits with a Resolves-Event id that the freshness
     reload would have surfaced as a candidate.
     """
-
-    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
-        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
 
     def test_stale_events_snapshot_triggers_disk_reload(self):
         """Caller passes events snapshot whose newest ts is well before
@@ -1114,7 +1104,7 @@ class TestEmitProbeStatus(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(meta[METADATA_KEY_PROBE_TAIL_TS], "2026-04-29T10:00:00+00:00")
 
 
-class TestFindProbeCandidatesOutMeta(_HookTestCase):
+class TestFindProbeCandidatesOutMeta(_ProbeTestHelpers, _HookTestCase):
     """find_probe_candidates populates out_meta with snapshot/tail timestamps.
 
     Reinforces the newer-than-snapshot divert diagnosis by capturing both
@@ -1122,11 +1112,6 @@ class TestFindProbeCandidatesOutMeta(_HookTestCase):
     so retro_metrics (and humans) can see whether a divert was caused by
     snapshot lag or by something else.
     """
-
-    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
-        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
 
     def test_out_meta_populated_with_snapshot_and_tail_ts(self):
         ts = "2026-04-29T10:00:00+00:00"
@@ -1190,7 +1175,7 @@ class TestFindProbeCandidatesOutMeta(_HookTestCase):
         self.assertEqual(len(result), 1)
 
 
-class TestFindProbeCandidatesDiscovery(_HookTestCase):
+class TestFindProbeCandidatesDiscovery(_ProbeTestHelpers, _HookTestCase):
     """Discovery events surface as probe candidates the same way concerns
     and debts do, so commits closing a discovery don't force the agent to
     hand-edit a Resolves-Event trailer."""
@@ -1218,11 +1203,6 @@ class TestFindProbeCandidatesDiscovery(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, e)
         return e["id"]
-
-    def _seed_concern(self, content: str, files: list[str]) -> str:
-        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files)
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
 
     def _seed_debt(self, content: str, files: list[str]) -> str:
         d = make_event(EVENT_TYPE_DEBT, content=content, files=files)
@@ -1509,16 +1489,11 @@ class TestProbeRefreshSentinel(_HookTestCase):
         self.assertFalse(is_stale)
 
 
-class TestFindProbeCandidatesSentinelReload(_HookTestCase):
+class TestFindProbeCandidatesSentinelReload(_ProbeTestHelpers, _HookTestCase):
     """Story-002 AC#1: find_probe_candidates reloads from disk when the
     refresh sentinel postdates the caller's snapshot, even when the 5s
     wall-clock threshold would not trip.
     """
-
-    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
-        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
 
     def test_sentinel_signaled_reload_surfaces_fresh_concern_within_5s(self):
         # Old concern in caller's snapshot.
@@ -1555,6 +1530,127 @@ class TestFindProbeCandidatesSentinelReload(_HookTestCase):
             "5s window — closes the fast-commit gap.",
         )
         self.assertIn(old_id, ids, "Old concern must still surface after reload.")
+
+
+class TestSentinelCleanup(_ProbeTestHelpers, _HookTestCase):
+    """Story-005: sentinel is consumed on successful reload, persists on failure.
+
+    Without cleanup the sentinel inode persists indefinitely after first
+    adopt — every subsequent probe pays a stat()+ISO parse and a backup-
+    restore with future-dated mtime would mark all probes stale until the
+    snapshot's max_ts caught up. Failure-path persistence is load-bearing:
+    if a reload raises and we drop the sentinel anyway, the next probe
+    silently misses the refresh signal — re-opening the divert class
+    sprint-079 just closed.
+    """
+
+    def test_sentinel_unlinked_after_successful_reload(self):
+        # Snapshot has an old concern; a fresh concern lands on disk after
+        # the snapshot, and the sentinel is signaled with mtime postdating
+        # snapshot max_ts → forces reload via the sentinel path (not the
+        # 5s wall-clock threshold). After the successful reload, the
+        # sentinel must be gone.
+        old_ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Old auth concern", ["scripts/auth.py"], old_ts)
+        snapshot, snapshot_resolutions = _common.load_events_with_resolutions(
+            self.smm_dir
+        )
+        fresh_ts = "2026-04-29T10:00:01+00:00"
+        self._seed_concern("Fresh auth concern", ["scripts/auth.py"], fresh_ts)
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        _pin_sentinel_mtime(self.smm_dir, fresh_ts)
+        sentinel = resolves_probe.refresh_sentinel_path(self.smm_dir)
+        self.assertTrue(sentinel.exists(), "precondition: sentinel exists pre-probe")
+
+        resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=snapshot,
+            resolutions=snapshot_resolutions,
+            now_ts="2026-04-29T10:00:01+00:00",
+        )
+
+        self.assertFalse(
+            sentinel.exists(),
+            "Sentinel MUST be unlinked after a successful staleness-triggered "
+            "reload — otherwise the inode persists indefinitely and every "
+            "subsequent probe pays an extra stat() + ISO parse.",
+        )
+
+    def test_sentinel_unlinked_on_cold_load_with_events_none(self):
+        # Production callers (pre_tool_bash, pre_tool_skill) invoke with
+        # events=None — the cold-load branch. is_stale is False (no
+        # snapshot to evaluate), but the load runs unconditionally and
+        # the sentinel must be cleaned up so it doesn't persist across
+        # subsequent probes. Without this, the d7d2b2f7475d defect
+        # ("sentinel persists indefinitely after first adopt") survives
+        # in production despite the staleness-branch cleanup.
+        self._seed_concern(
+            "Auth concern", ["scripts/auth.py"], "2026-04-29T10:00:00+00:00"
+        )
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        sentinel = resolves_probe.refresh_sentinel_path(self.smm_dir)
+        self.assertTrue(sentinel.exists(), "precondition: sentinel exists pre-probe")
+
+        resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            now_ts="2026-04-29T10:00:01+00:00",
+        )
+
+        self.assertFalse(
+            sentinel.exists(),
+            "Sentinel MUST be unlinked after the cold-load branch (events=None) "
+            "completes — production callers always take this path; without "
+            "cleanup here the sentinel persists indefinitely.",
+        )
+
+    def test_sentinel_persists_when_reload_raises(self):
+        # Same setup as above, but force the reload path to raise. The
+        # sentinel must remain so the NEXT probe call retries the reload
+        # — silently dropping the refresh signal would re-open the
+        # missing-event divert class sprint-079 just closed.
+        from unittest.mock import patch
+
+        old_ts = "2026-04-29T10:00:00+00:00"
+        self._seed_concern("Old auth concern", ["scripts/auth.py"], old_ts)
+        snapshot, snapshot_resolutions = _common.load_events_with_resolutions(
+            self.smm_dir
+        )
+        fresh_ts = "2026-04-29T10:00:01+00:00"
+        self._seed_concern("Fresh auth concern", ["scripts/auth.py"], fresh_ts)
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        _pin_sentinel_mtime(self.smm_dir, fresh_ts)
+        sentinel = resolves_probe.refresh_sentinel_path(self.smm_dir)
+
+        with (
+            patch.object(
+                _common,
+                "load_events_with_resolutions",
+                side_effect=OSError("simulated read failure"),
+            ),
+            self.assertRaises(OSError),
+        ):
+            resolves_probe.find_probe_candidates(
+                self.smm_dir,
+                ["scripts/auth.py"],
+                [],
+                cwd=str(self.smm_dir),
+                events=snapshot,
+                resolutions=snapshot_resolutions,
+                now_ts="2026-04-29T10:00:01+00:00",
+            )
+
+        self.assertTrue(
+            sentinel.exists(),
+            "Sentinel MUST persist when the reload raises — otherwise the "
+            "next probe call silently misses the refresh signal and the "
+            "missing-event divert class sprint-079 closed re-opens.",
+        )
 
 
 if __name__ == "__main__":

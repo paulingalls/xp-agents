@@ -6,6 +6,7 @@ Called by:
 - pre_tool_skill.run (quality-review pre-skill probe)
 """
 
+import contextlib
 import re
 import subprocess
 import sys
@@ -101,9 +102,12 @@ def signal_probe_refresh(smm_dir: Path) -> None:
     disk — closing the fast-commit gap where the 5s wall-clock threshold
     alone misses adopt+commit pairs landing within the window.
 
-    Safe to call repeatedly; the sentinel is not consumed by reads.
-    Subsequent fresh snapshots whose max_ts postdates the sentinel
-    self-clear the staleness signal without an explicit cleanup.
+    Safe to call repeatedly. The sentinel is consumed by the next probe
+    whose load_events_with_resolutions returns successfully — covers
+    both the cold-load branch (production callers pass events=None)
+    and the staleness-triggered branch (caller passed a stale snapshot).
+    It persists across reload failures so the next probe retries —
+    never silently dropping a refresh signal.
 
     Caller must have created smm_dir (raises FileNotFoundError otherwise).
     """
@@ -428,6 +432,14 @@ def find_probe_candidates(
         )
     if events is None or is_stale:
         events, resolutions = _common.load_events_with_resolutions(smm_dir)
+        # Consume the sentinel after any successful reload — covers both
+        # the staleness branch (caller passed a stale snapshot) and the
+        # cold-load branch (events=None, the production callers in
+        # pre_tool_bash + pre_tool_skill). A raising load leaves the
+        # sentinel in place so the NEXT probe retries — silent cleanup
+        # would re-open the missing-event divert class sprint-079 closed.
+        with contextlib.suppress(OSError):
+            refresh_sentinel_path(smm_dir).unlink()
     elif resolutions is None:
         import resolution
 
