@@ -272,6 +272,17 @@ class _ProbeTestHelpers:
         _common.append_safe(self.smm_dir, c)
         return c["id"]
 
+    def _seed_concern(
+        self, content: str, files: list[str], ts: str | None = None
+    ) -> str:
+        """Append a concern event; optional ts overrides make_event's default."""
+        kwargs: dict = {"content": content, "files": files}
+        if ts is not None:
+            kwargs["ts"] = ts
+        c = make_event(EVENT_TYPE_CONCERN, **kwargs)
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
     def _probes(self) -> list[dict]:
         return [
             e
