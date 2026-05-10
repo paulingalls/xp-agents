@@ -1,5 +1,44 @@
 # Changelog
 
+## v3.1.25 — sprint-079 (signal ergonomics M-2 + adopted debts: probe sentinel freshness, always-run retro + seed fallback, prompt_nugget single locked read, branch_lifecycle extract)
+
+Sprint-079 ships Milestone 2 (signal ergonomics) and folds in three sprint-077 adopted debts. **5/6 stories delivered**; story-001 deferred for project-generic redesign.
+
+### Reliability + signal-quality fixes
+
+- **Probe snapshot freshness** (`resolves_probe.py`): new sentinel-file mechanism (`marker_names.PROBE_REFRESH`) closes the fast-commit gap where the existing 5s wall-clock staleness threshold misses adopt+commit pairs landing within the window. `signal_probe_refresh()` is touched by writers (xp-work-selection's adopt path); the probe re-reads disk when sentinel mtime postdates the snapshot's `max_ts`. Targets the 100% `missing-event` divert class observed in sprint-078.
+- **Always-run session retro** (xp-kickoff Step 1, xp-retrospective agent): made retro invocation unconditional. The `### RETRO_NEEDED` preload marker was easy to skim past, so retros got silently skipped on fresh projects. The agent now handles missing/sparse `.retro-input.json` (<5 events) by emitting a seed retro — Keep items framed around adopting XP, Try items framed as `try running <skill>`, zero Fix items. Supersedes the v3.1.24 action-hint band-aid.
+- **prompt_nugget single locked read** (`scripts/prompt_nugget.py`, `smm/read_delta.py`): collapsed the read_delta + load_events_with_resolutions double-read into a single locked call via the new `read_delta.read_delta_full(smm_dir, agent_id) -> tuple[list[dict], list[dict]]`. Resolution chains stay complete across the watermark; full read happens under shared flock. `read_events_from(start_line=0)` short-circuits the offset-walk for the new hot-path caller.
+
+### Refactors
+
+- **`branch_lifecycle.py` extracted** from `branching.py`: `_is_merged_into`, `_fast_forward_if_safe`, `_merge_into_target`, `merge_branch`, `delete_branch`. branching.py 585 → 499 lines (back under the 500-line per-file target). Re-exports preserve every existing caller. Wisdom `ab40b12643ab` honored: shim-import smoke test landed first.
+- **3 .py preload helpers trimmed** (sprint-077 cleanup): `render_history.py` 69→61, `triage_preload.py` 109→96, `format_preload.py` 45→43 — all under per-file budgets. New `tests/skills/test_format_preload.py` pins the 4-section stdout shape.
+
+### Close-cycle hygiene fixes
+
+- `question_answered.py`: replaced inline `read_text + unlink` with `markers.marker_consume(smm_dir, markers.QUESTION_GATE)` — symlink-safe, kills duplicate-literal anti-pattern.
+- Sentinel filename moved into the canonical `marker_names.py` constants module + renamed `.probe_refresh` → `.probe-refresh` (kebab-case per convention).
+- xp-retrospective agent: harmonized Seed branch trigger across opener + Guidelines (missing OR <5 events).
+
+### Deferred
+
+- **story-001** (sister-test auto-inclusion in save_sprint validator): implementation baked in xp-agents-repo conventions (`xp-` skill prefix strip, `tests/test_<x>.py` layout, `scripts/` dir). Branch + commits intact for next sprint; needs redesign with `system_context.json`-driven project-generic source→test mapping so the validator works for any plugin user, not only this repo.
+
+### Test count
+
+- Full suite: 4734 passed, 1 skipped (was 4701 in v3.1.24)
+- New tests: TestProbeRefreshSentinel + TestAdoptSignalsProbeRefresh, TestRetrospectiveSeedPath, TestSingleLockedReadPath + TestPostWatermarkAppendPickedUpNextCall + TestResolutionChainCompleteness, TestBranchLifecycleShimImports + 5 behavioral classes in test_branch_lifecycle, test_format_preload contract suite
+
+### New decisions
+
+- `bcb882d63c85` — probe-refresh-sentinel-mechanism (sentinel-file mtime over events-table reread)
+- `dcbc4a8f9764` — read_delta_full canonical helper for locked-read+watermark-advance hot-path consumers
+- `371fb41cd334` — kickoff Step 1 unconditional gating
+- `4b323bbe66d4` — probe-sentinel persistence is the freshness signal across multiple probe calls (no cleanup)
+- `1a64e9ff2165` — skill→scripts coupling permitted when signaling a hook (probe_refresh case)
+- `7ace060b9dc9` — sister-test overlap policy: validator stays loose, xp-assign overlap-check is the safety net (story-001 dep, but recorded for the eventual redesign)
+
 ## v3.1.24 — sprint-077 (token audit M-4: trim 14 preloads + check_session_needs + 3 top-level guides + close-pipeline shared md, ~9.1KB per-fire savings)
 
 Sprint-077 closes Milestone 4 of the token-audit plan and folds in 5 sprint-076 retro/concern/debt fix-stories. **Per-fire savings on shipped surfaces: ~9,094 bytes (~2,200 tokens).** 11/11 stories done.
