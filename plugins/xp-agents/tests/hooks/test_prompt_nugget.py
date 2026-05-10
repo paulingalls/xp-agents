@@ -4,6 +4,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -302,6 +303,79 @@ class TestPromptNugget(_HookTestCase):
         )
         assert result is not None
         self.assertIn("Commit touches", result)
+
+    def test_single_read_path(self):
+        """Reads events.jsonl once via read_events_raw, never read_delta."""
+        import _common
+        import prompt_nugget
+        import read_delta
+
+        self._write_events(
+            [make_event(EVENT_TYPE_CONCERN, content="X", severity="high")]
+        )
+
+        real_raw = _common.read_events_raw
+
+        with (
+            patch("_common.read_events_raw", side_effect=real_raw) as mock_raw,
+            patch.object(read_delta, "read_delta") as mock_rd,
+        ):
+            result = prompt_nugget.run(
+                {"session_id": "s1", "agent_id": "main"},
+                smm_dir=self.smm_dir,
+            )
+
+        mock_rd.assert_not_called()
+        self.assertEqual(
+            mock_raw.call_count,
+            1,
+            f"read_events_raw called {mock_raw.call_count} times, expected 1",
+        )
+        assert result is not None
+        self.assertIn("X", result)
+
+    def test_resolution_chain_completeness(self):
+        """Pre-watermark resolver still cascade-filters post-watermark dependents."""
+        import prompt_nugget
+
+        # Pre-watermark: root concern AND its resolver. A delta-only resolution
+        # path would miss the resolver and fail to cascade-filter the dependent.
+        old_concern = make_event(
+            EVENT_TYPE_CONCERN, content="Old root concern", severity="high"
+        )
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="Root concern fixed",
+            working_on=[],
+            metadata={"resolves": [old_concern["id"]]},
+        )
+        self._write_events([old_concern, resolver])
+        prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+
+        # Post-watermark: dependent (WEAK ref to pre-watermark root) + control.
+        cascading_concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Cascading dependent concern",
+            severity="high",
+            references=[old_concern["id"]],
+        )
+        # Independent post-watermark concern guarantees a non-None nugget so the
+        # negative assertion on cascading_concern is meaningful.
+        control = make_event(
+            EVENT_TYPE_CONCERN, content="Independent live concern", severity="high"
+        )
+        self._write_events([old_concern, resolver, cascading_concern, control])
+
+        result = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        assert result is not None
+        self.assertIn("Independent live concern", result)
+        self.assertNotIn("Cascading dependent concern", result)
 
     def test_resolved_debt_excluded(self):
         """Debt resolved by a later event should not appear."""

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import read_delta
+import resolution
 
 # Signal types worth surfacing, in priority order — higher priority is
 # more likely to affect the agent's current work.
@@ -52,22 +53,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     try:
-        new_events = read_delta.read_delta(
-            smm_dir,
-            _WATERMARK_ID,
-        )
+        # Resolutions need FULL history (cascade chains span the watermark);
+        # slice locally for the post-watermark delta.
+        events = _common.read_events_raw(smm_dir)
+        resolved = resolution.compute_resolutions(events)
+        total = len(events)
+        watermark = read_delta.read_watermark(smm_dir, _WATERMARK_ID)
+        new_events = events[watermark:]
+        if total > watermark:
+            read_delta.write_watermark(smm_dir, _WATERMARK_ID, total)
     except Exception:
         return None
 
-    _, resolved = _common.load_events_with_resolutions(smm_dir)
-    resolved_ids = (
-        resolved.get("resolved_concern_ids", set())
-        | resolved.get("resolved_debt_ids", set())
-        | resolved.get("resolved_decision_ids", set())
-        | resolved.get("resolved_goal_ids", set())
-        | resolved.get("resolved_assumption_ids", set())
-        | resolved.get("answered_question_ids", set())
-    )
+    resolved_ids = resolution.collect_all_resolved_ids(resolved)
 
     signals = [
         e
