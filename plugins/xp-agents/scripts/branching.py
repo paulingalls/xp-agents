@@ -109,6 +109,9 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         _common.append_safe(smm_dir, event)
         return 2
     except OSError as e:
+        # Narrow on purpose: schema-validation ValueError is intentionally NOT
+        # caught — it signals corrupt input or a code bug and deserves to crash
+        # loud. Only OSError (filesystem race / disk failure) degrades silently.
         _common.log_hook_error(
             f"branching auto-promote failed: {e}",
             error_class=type(e).__name__,
