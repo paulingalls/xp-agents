@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """Render the LAST_SESSION block for the xp-kickoff preload.
 
-Reads session_history.json and prints a `### LAST_SESSION` block with the
-last 1-2 entries' summary plus open carry_forward notes/recommendations.
+Reads session_history.json and prints `### LAST_SESSION` with the last
+1-2 entries' summary plus open carry_forward notes/recommendations.
 Event ids in `references` are NEVER rendered — humans don't read those.
 
-Fail-quiet contract: errors raised by session_history.load_history are
-swallowed (returns "") so the kickoff preload never breaks on a
-malformed history file. Missing file is not an error — load_history
-returns empty_history.
+Fail-quiet: load_history errors → return ""; missing file → empty history.
 """
 
 import argparse
@@ -21,7 +18,6 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 import session_history  # noqa: E402
 
 _RENDER_LIMIT = 2
-_SECTION_HEADER = "### LAST_SESSION"
 
 
 def run(smm_dir: Path) -> str:
@@ -35,18 +31,15 @@ def run(smm_dir: Path) -> str:
     if not entries:
         return ""
 
-    lines: list[str] = [_SECTION_HEADER, ""]
+    lines: list[str] = ["### LAST_SESSION", ""]
     for entry in entries[-_RENDER_LIMIT:]:
-        summary = entry.get("summary", "")
-        if summary:
+        if summary := entry.get("summary", ""):
             lines.append(summary)
         for item in entry.get("carry_forward", []):
-            note = item.get("note", "")
-            recommendation = item.get("recommendation", "")
-            if note:
+            if note := item.get("note", ""):
                 lines.append(f"- {note}")
-            if recommendation:
-                lines.append(f"  → {recommendation}")
+            if rec := item.get("recommendation", ""):
+                lines.append(f"  → {rec}")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -59,8 +52,7 @@ def main() -> int:
     parser.add_argument("--smm-dir", type=Path, required=True, help="SMM directory")
     args = parser.parse_args()
 
-    block = run(args.smm_dir)
-    if block:
+    if block := run(args.smm_dir):
         print(block, end="")
     return 0
 
