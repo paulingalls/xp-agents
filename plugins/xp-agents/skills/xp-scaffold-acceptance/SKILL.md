@@ -147,6 +147,23 @@ tool's latest stable version and current best practices. Search
 Pin the version as `tool_version` — Step 4 records it in the plan,
 Step 8 writes it to the commit message and manifest.
 
+**Known-installs map (consult FIRST).** Some tool names collide with
+unrelated packages (`brew install --cask maestro` lands the GUI app
+Maestro.app, not the mobile e2e CLI). Before WebSearch, look up the
+tool in the curated map:
+
+```bash
+KNOWN=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/known_installs.py "<tool>")
+KNOWN_RC=$?
+```
+
+Exit 0 → `KNOWN` is JSON `{install_cmds, verify_identity_cmd,
+expected_version_pattern}`; bind those fields verbatim and pass them
+into Step 4's `build-plan` input JSON. Exit 2 → no curated entry; fall
+through to the WebSearch flow below. Initial map covers `maestro`,
+`playwright`, `cypress`, `detox`. Add new entries via PR when a real
+collision shows up — do not pre-populate speculatively.
+
 **Canonical tools** (`scaffold_detect.canonical_tools_for(surface)`):
 proceed with web-refreshed knowledge.
 
@@ -232,6 +249,8 @@ Wrap with `sh -c` when shell features are needed
 
 Required keys: `surface`, `tool`, `tool_version`, `files_to_create`,
 `files_to_modify`, `install_cmds`, `verify_cmd`, `branch_name`.
+Optional keys (identity probe — bind from Step 2's known-installs
+JSON when available): `verify_identity_cmd`, `expected_version_pattern`.
 File-list entries need `path` + `description` (+ optional `line_count`
 on creates). Capture JSON output into `$PLAN_JSON` for Step 5:
 
@@ -326,6 +345,14 @@ revert success; the snapshot leaks otherwise.
 INSTALL_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-install --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
 # Parse: if .ok is false, surface .reason verbatim and exit.
+
+# Identity-verify (name-collision guard): no-op when verify_identity_cmd is empty;
+# else asserts tool's --version output matches expected_version_pattern.
+# Mismatch triggers the same auto-revert as install/verify failure.
+IDENTITY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    apply-verify-identity --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
+# Parse: if .ok is false (phase=verify-identity), surface .reason verbatim and exit.
+
 VERIFY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-verify --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
 ```
