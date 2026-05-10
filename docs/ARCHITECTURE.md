@@ -31,6 +31,15 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 
 `CLAUDE_PLUGIN_DATA` is the plugin ecosystem's persistent data directory (defaults to `~/.claude/plugins/data/xp-agents-xp-agents/`). Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and Agent Team teammates.
 
+### Marker Write Locality
+
+State markers (`.needs-kickoff`, `.plan-awaiting-review`, `.close-cycle-active`, etc.) are written from exactly two places:
+
+- **Skills** call the `write_marker` / `consume_marker` Bash helpers in `plugins/xp-agents/skills/_preload_base.sh`. These wrap `markers.py` and pass values via `sys.argv` so content with quotes/backslashes is safe.
+- **Hooks** call `markers.marker_write` / `markers.marker_consume` directly in Python.
+
+Skills MUST NOT write markers inline (`echo > .marker`, `python3 -c 'import markers; ...'`) — the helpers carry the safe-quoting and SMM-path-resolution discipline, and centralizing the call sites keeps marker semantics inspectable. The `markers.py` CLI exists for test fixtures (constructing a known marker state in unit tests); production code paths must go through the helpers. New markers must be declared as constants in `markers.py` before any caller references them.
+
 ### Four-File Architecture
 
 Beyond `events.jsonl`, three persistent files live in the SMM directory:
@@ -42,6 +51,8 @@ Beyond `events.jsonl`, three persistent files live in the SMM directory:
 | `sprint.json` | `/xp-sprint-start` | `/xp-accept` (story status) | Active sprint stories with context gradient — file domains, interface contracts |
 
 All three are JSON with schema validation and CLI tools (`system_context_cli.py`, `plan_cli.py`, `sprint_cli.py`). System context and execution plan are stable across sprints; sprint.json is ephemeral (one active at a time).
+
+**Sprint state vs. sprint events.** `sprint.json` holds only the *current* sprint's stories and their statuses (planning / in_progress / reviewing / done / deferred) — it is a mutable snapshot of the active sprint, replaced wholesale by `/xp-sprint-start` each cycle. Sprint *lifecycle transitions* (start/end with velocity data) are append-only records in `events.jsonl` as `type: sprint`, written by `subagent_stop._handle_sprint_review_done` after `xp-sprint-reviewer` completes. Historical sprint outcomes survive in events.jsonl after sprint.json is rewritten.
 
 ## Event Types
 
@@ -97,16 +108,17 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
-| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing. `async: true` |
-| **PostToolUse** | `Skill` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done) when review skills complete. Nudges next step via `additionalContext` |
+| **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing |
+| **PostToolUse** | `Skill\|Agent` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done) when review skills complete; emit canonical lifecycle events (simplify/quality-review/security-review/plan-review/assign/housekeeping). Nudges next step via `additionalContext`; injects PROCESS_GUIDE.md after `xp-housekeeper` completes |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **PostToolUse** | `AskUserQuestion` | `question_answered.py` | Record user answer to clarification question |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **PostToolUseFailure** | `AskUserQuestion` | `question_answered.py` | Record clarification when question is dismissed |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + process guide) + watermark |
-| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (inject SMM after xp-housekeeper), `_handle_sprint_review_done` (record sprint end). Writes `.plan-awaiting-review` marker file for Plan subagent. |
+| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT markers, emit completion event — does NOT inject context; SubagentStop has no `additionalContext` support), `_handle_sprint_review_done` (record sprint end + velocity), `_handle_close_reviewer_done` (consume CLOSE_CYCLE_ACTIVE), `_handle_plan_review_done` (write ASSIGN_PENDING marker, nudge `/xp-assign`). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
 | **Stop** | | `sprint_stop_gate.py` | Sprint lifecycle cascade (accept → review): blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review |
+| **Stop** | | `close_cycle_stop_gate.py` | Block when CLOSE_CYCLE_ACTIVE marker present — nudges agent to run /security-review then invoke xp-close-reviewer. Defers on ASKING_USER. Records a high-severity concern + emits stderr if `stop_hook_active` bypass coincides with an active marker |
 | **Stop** | | `housekeeping_stop_gate.py` | Block if housekeeping hasn't run (defers when ASKING_USER set) |
 | **Stop** | | `session_end_warning.py` | Soft warning: unresolved concerns, missing final status |
 | **Stop** | | `teammate_stop_gate.py` | Block teammates from stopping with uncommitted changes or incomplete review cycle |
@@ -164,7 +176,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 |---|---|
 | Session start | GUPP + skills only (NO SMM, NO process guide — deferred to kickoff) |
 | After housekeeping | Agent Reads curated SMM file directly (housekeeping step 8) |
-| After housekeeping | Process guide via SubagentStop handler (`subagent_stop._handle_housekeeping_done`) |
+| After housekeeping | PROCESS_GUIDE.md via PostToolUse:Skill\|Agent (`review_cycle_done.py`) when `xp-housekeeper` completes |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
 | Before Bash | Commit-gated review cycle (blocks until simplify/quality-review done; Tier 2/3 carry security), file-modification conflict heuristic (advisory) |
@@ -175,12 +187,12 @@ Injection order in SessionStart `additionalContext`:
 1. GUPP ("Resume immediately")
 2. Skills list
 
-After the forked `xp-housekeeper` subagent finishes, `subagent_stop._handle_housekeeping_done` injects:
-1. PROCESS_GUIDE.md (SMM already in context from housekeeping file Read)
+After the forked `xp-housekeeper` subagent finishes, the post-completion injection split is:
 
-SubagentStop is used instead of PostToolUse:Skill because PostToolUse:Skill fires unreliably for both forked and inline skills — SubagentStop is the only reliable signal for "forked subagent finished."
+- **SubagentStop** (`subagent_stop._handle_housekeeping_done`) consumes the KICKOFF and NEEDS_HOUSEKEEPING markers and emits a status event. **It does NOT inject context** — SubagentStop's `additionalContext` is silently dropped by the platform.
+- **PostToolUse:Skill\|Agent** (`review_cycle_done.py`) fires for the same Agent-tool completion, detects `subagent_type == xp-housekeeper`, and returns PROCESS_GUIDE.md as `additionalContext`. The curated SMM is already in context because housekeeping step 8 has the agent Read the file.
 
-All injection via `additionalContext` except SMM (Read by agent during housekeeping).
+All injection is via `additionalContext` except the curated SMM file (Read by agent during housekeeping).
 
 ## Conflict Detection
 
@@ -227,13 +239,14 @@ Tool executes
 PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
              → lint_check.py: linter (Write/Edit)
              → bash_post_tool.py: commit/test analysis (Bash)
-             → review_cycle_done.py: set review cycle flags when review skills complete (Skill)
+             → review_cycle_done.py: set review-cycle flags + canonical lifecycle events; inject PROCESS_GUIDE.md after xp-housekeeper (Skill|Agent)
 ```
 
 ### Stop
 ```
 Stop         → tdd_stop_gate.py: block if tests failing
              → sprint_stop_gate.py: sprint lifecycle cascade (accept → review)
+             → close_cycle_stop_gate.py: block while CLOSE_CYCLE_ACTIVE marker present
              → housekeeping_stop_gate.py: block if housekeeping hasn't run
              → session_end_warning.py: soft warning (unresolved concerns)
              → teammate_stop_gate.py: block teammates with uncommitted changes
@@ -251,7 +264,12 @@ SubagentStart → subagent_start.py: tiered context injection + watermark
                 Default (Plan/general-purpose): full SMM + process guide
                 xp-* agents not in dispatch: skipped (use own preloads)
 SubagentStop  → subagent_stop.py: record completion, conflict detection
-              → Write .plan-awaiting-review marker file for Plan
+              → Forked-xp-* handlers (consume markers, emit lifecycle events):
+                  housekeeping → consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT
+                  sprint-reviewer → record sprint end + velocity
+                  close-reviewer → consume CLOSE_CYCLE_ACTIVE
+                  plan-reviewer → write ASSIGN_PENDING marker, nudge /xp-assign
+              → Write .plan-awaiting-review marker file for Plan subagent
 ```
 
 ## Plugin Structure
@@ -266,7 +284,7 @@ plugins/xp-agents/
 ├── agents/                          ← plugin subagents (full tool access)
 ├── skills/                          ← skills (inline + forked), each with SKILL.md + scripts/
 │   └── _preload_base.sh             ← shared preload helpers (dump_smm, dump_guide, dump_diff)
-├── scripts/                         ← command hooks + shared modules (Python 3.10+, stdlib only)
+├── scripts/                         ← command hooks + shared modules (Python 3.11+, stdlib only)
 └── smm/                             ← SMM engine modules (append, compact, materialize, schema, CLI tools)
 ```
 
@@ -327,6 +345,10 @@ Compaction runs at three points: after the curated SMM is written (`smm_cli.py s
 Only events before the curation watermark are eligible. Events after the watermark are retained unconditionally.
 
 ## CLI Teammates
+
+CLI teammates are the **sprint-default parallel execution mode** for v2.0. When `/xp-assign` recommends parallel work for a sprint, it spawns CLI teammates (independent `claude -p` processes in git worktrees), not Claude Code's `Agent Teams` feature. Each teammate runs the full hook lifecycle (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd), writes its own commits with its own TDD + review cycle, and shares the same SMM as the lead.
+
+**When Agent Teams is preferred instead:** ad-hoc multi-agent research or analysis where teammates need to be co-tenant in a single Claude Code session — e.g., one agent researching while another summarizes for the user, with shared conversation context. CLI teammates can't share conversation state; Agent Teams can't isolate file domains in worktrees. Sprint-driven parallel implementation of stories with non-overlapping file domains is always CLI teammates; everything else stays in Agent Teams (or solo).
 
 SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global:
 
