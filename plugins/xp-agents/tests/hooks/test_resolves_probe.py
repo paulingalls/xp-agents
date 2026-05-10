@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Tests for resolves_probe.py — pure probe-candidate extraction module."""
 
+import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1423,6 +1425,136 @@ class TestCountFileOverlaps(_NormalizePathIdentityMixin, unittest.TestCase):
         self.assertEqual(
             resolves_probe._count_file_overlaps(["a.py"], {"a.py"}, self.CWD), 0
         )
+
+
+def _pin_sentinel_mtime(smm_dir: Path, iso_ts: str) -> None:
+    """Pin the probe-refresh sentinel's mtime to an ISO timestamp.
+
+    Shared by the sentinel-staleness unit tests and the find_probe_candidates
+    reload integration test so both assert against deterministic mtime
+    arithmetic instead of wall-clock timing.
+    """
+    epoch = datetime.fromisoformat(iso_ts).timestamp()
+    os.utime(resolves_probe.refresh_sentinel_path(smm_dir), (epoch, epoch))
+
+
+class TestProbeRefreshSentinel(_HookTestCase):
+    """Story-002: sentinel-based staleness signal closes the fast-commit gap.
+
+    The 5s wall-clock threshold misses the case where adopt records a
+    decision and the user commits within 5s — the snapshot's max_ts is
+    near now_ts so the threshold doesn't trip, yet the just-written
+    decision is missing from the snapshot. signal_probe_refresh writes
+    a sentinel file that the staleness predicate sees, forcing a disk
+    reload regardless of the 5s window.
+    """
+
+    def test_signal_probe_refresh_creates_sentinel(self):
+        sentinel = resolves_probe.refresh_sentinel_path(self.smm_dir)
+        self.assertFalse(sentinel.exists())
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        self.assertTrue(sentinel.exists())
+
+    def test_no_sentinel_means_only_5s_threshold_applies(self):
+        # Snapshot fresh (2s old, well under 5s threshold), no sentinel → not stale.
+        now_ts = "2026-05-09T10:00:00+00:00"
+        events = [{"ts": "2026-05-09T09:59:58+00:00", "type": EVENT_TYPE_CONCERN}]
+        is_stale, _ = resolves_probe._is_events_snapshot_stale(
+            events, now_ts, smm_dir=self.smm_dir
+        )
+        self.assertFalse(is_stale)
+
+    def test_sentinel_postdating_snapshot_marks_stale(self):
+        # Snapshot fresh (2s old → 5s threshold won't trip), but sentinel
+        # mtime postdates the snapshot's max_ts → must mark stale.
+        now_ts = "2026-05-09T10:00:00+00:00"
+        max_ts = "2026-05-09T09:59:58+00:00"
+        events = [{"ts": max_ts, "type": EVENT_TYPE_CONCERN}]
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        # 1s after max_ts → sentinel postdates snapshot.
+        _pin_sentinel_mtime(self.smm_dir, "2026-05-09T09:59:59+00:00")
+
+        is_stale, _ = resolves_probe._is_events_snapshot_stale(
+            events, now_ts, smm_dir=self.smm_dir
+        )
+        self.assertTrue(
+            is_stale,
+            "Sentinel mtime postdating snapshot max_ts MUST mark stale even "
+            "when 5s wall-clock threshold is not tripped — closes the "
+            "fast-commit gap where adopt-written decisions land within 5s.",
+        )
+
+    def test_sentinel_predating_snapshot_does_not_mark_stale(self):
+        # Sentinel mtime predates the snapshot's max_ts (e.g. snapshot taken
+        # AFTER the last refresh signal) → snapshot is fresh, not stale.
+        now_ts = "2026-05-09T10:00:00+00:00"
+        max_ts = "2026-05-09T09:59:58+00:00"
+        events = [{"ts": max_ts, "type": EVENT_TYPE_CONCERN}]
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        # 1s before max_ts → sentinel predates snapshot.
+        _pin_sentinel_mtime(self.smm_dir, "2026-05-09T09:59:57+00:00")
+
+        is_stale, _ = resolves_probe._is_events_snapshot_stale(
+            events, now_ts, smm_dir=self.smm_dir
+        )
+        self.assertFalse(is_stale)
+
+    def test_smm_dir_none_falls_back_to_threshold_only(self):
+        # Backward compat: callers that don't pass smm_dir get the original
+        # 5s-threshold-only behavior. Sentinel cannot be checked without a
+        # directory to look in.
+        now_ts = "2026-05-09T10:00:00+00:00"
+        events = [{"ts": "2026-05-09T09:59:58+00:00", "type": EVENT_TYPE_CONCERN}]
+        is_stale, _ = resolves_probe._is_events_snapshot_stale(events, now_ts)
+        self.assertFalse(is_stale)
+
+
+class TestFindProbeCandidatesSentinelReload(_HookTestCase):
+    """Story-002 AC#1: find_probe_candidates reloads from disk when the
+    refresh sentinel postdates the caller's snapshot, even when the 5s
+    wall-clock threshold would not trip.
+    """
+
+    def _seed_concern(self, content: str, files: list[str], ts: str) -> str:
+        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
+        _common.append_safe(self.smm_dir, c)
+        return c["id"]
+
+    def test_sentinel_signaled_reload_surfaces_fresh_concern_within_5s(self):
+        # Old concern in caller's snapshot.
+        old_ts = "2026-04-29T10:00:00+00:00"
+        old_id = self._seed_concern("Old auth concern", ["scripts/auth.py"], old_ts)
+        snapshot, snapshot_resolutions = _common.load_events_with_resolutions(
+            self.smm_dir
+        )
+        # Fresh concern arrives on disk after snapshot (within 5s window so
+        # the wall-clock threshold alone would NOT trigger reload).
+        fresh_ts = "2026-04-29T10:00:01+00:00"
+        fresh_id = self._seed_concern(
+            "Fresh auth concern", ["scripts/auth.py"], fresh_ts
+        )
+        # Adopt-style refresh signal.
+        resolves_probe.signal_probe_refresh(self.smm_dir)
+        # Sentinel postdates snapshot max_ts.
+        _pin_sentinel_mtime(self.smm_dir, fresh_ts)
+
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            events=snapshot,
+            resolutions=snapshot_resolutions,
+            now_ts="2026-04-29T10:00:01+00:00",  # only 1s after snapshot max_ts
+        )
+        ids = {c["id"] for c in result}
+        self.assertIn(
+            fresh_id,
+            ids,
+            "Sentinel-signaled refresh MUST trigger disk reload within the "
+            "5s window — closes the fast-commit gap.",
+        )
+        self.assertIn(old_id, ids, "Old concern must still surface after reload.")
 
 
 if __name__ == "__main__":

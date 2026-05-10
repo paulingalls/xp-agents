@@ -28,10 +28,12 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
 import identity  # noqa: E402
+import resolves_probe  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,
+    EVENT_TYPE_DECISION,
     METADATA_KEY_DEFER_UNTIL,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
@@ -232,6 +234,13 @@ def run(
     if errors:
         raise ValueError(f"Event validation failed: {'; '.join(errors)}")
     _common.append_safe(smm_dir, event)
+    # Decision events (adopt + force-adopt) signal probe refresh so the
+    # next pre-commit probe re-reads disk and sees the just-written
+    # decision even when the 5s wall-clock staleness threshold doesn't
+    # trip (the fast-commit gap). Status events (defer/drop/triage-*)
+    # don't affect probe candidate selection, so no refresh needed.
+    if event["type"] == EVENT_TYPE_DECISION:
+        resolves_probe.signal_probe_refresh(smm_dir)
     return event["id"]
 
 
