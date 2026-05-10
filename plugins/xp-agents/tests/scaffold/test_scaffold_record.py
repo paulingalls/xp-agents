@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import scaffold_apply
 from _branching_fixtures import GIT_ENV
-from _helpers import valid_system_context
+from _helpers import init_git_with_seed, valid_system_context
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_DECISION
 from scaffold_post import record_scaffold
@@ -73,14 +73,14 @@ class _RecordTestBase(unittest.TestCase):
         )
 
     def _seed_commit(self) -> str:
-        """Seed a [chore] Scaffold commit in self.repo and return its SHA.
+        """Seed a commit in self.repo and return its SHA.
 
         Tests that don't directly exercise the gate still need to pass
-        ``commit_sha`` (now required) to drive past the 3-stage check —
+        ``commit_sha`` (now required) to drive past the 2-stage check —
         any flip / decision / save-error scenario downstream needs a
         real seeded commit so the gate clears.
         """
-        return _seed_scaffold_commit(self.repo)
+        return init_git_with_seed(self.repo, "README", "seed\n")
 
 
 class TestRecordScaffoldRequiresCommitSha(_RecordTestBase):
@@ -308,7 +308,7 @@ class TestRecordScaffoldCommitShaGate(_RecordTestBase):
         self.assertEqual(browser["status"], "gap")
 
     def test_decision_event_carries_snapshot_id_and_commit_sha(self) -> None:
-        head = _seed_scaffold_commit(self.repo)
+        head = init_git_with_seed(self.repo, "README", "seed\n")
         result = record_scaffold(
             self._snap(),
             smm_dir=self.smm_dir,
@@ -327,7 +327,10 @@ class TestRecordScaffoldCommitShaGate(_RecordTestBase):
 
 class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
     """Step 8/9 atomicity: record_scaffold refuses unless HEAD points at
-    commit_sha AND the HEAD commit subject starts with ``[chore] Scaffold ``.
+    commit_sha (the SHA-match gate). Subject-prefix is no longer checked
+    so user-facing commit conventions (conventional-commits, plain prose,
+    custom prefix) work for manual recovery flows where the user committed
+    the scaffold themselves with a non-canonical subject.
 
     Closes the gap where HEAD might be the scaffold commit's sha (existence
     check passed) but the user has since added another commit on top, OR the
@@ -336,12 +339,12 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
     """
 
     def _seed_with_advanced_head(self) -> str:
-        """Seed a scaffold commit, then advance HEAD with an unrelated commit.
+        """Seed a commit, then advance HEAD with an unrelated commit.
 
-        Returns the scaffold commit's SHA — HEAD now points past it. Drives
-        the head-mismatch leg of the 3-stage gate.
+        Returns the original commit's SHA — HEAD now points past it. Drives
+        the head-mismatch leg of the 2-stage gate.
         """
-        scaffold_sha = _seed_scaffold_commit(self.repo)
+        scaffold_sha = init_git_with_seed(self.repo, "README", "seed\n")
         (self.repo / "extra.txt").write_text("unrelated\n", encoding="utf-8")
         subprocess.run(
             ["git", "add", "extra.txt"],
@@ -410,65 +413,41 @@ class TestRecordScaffoldHeadAdvancementGate(_RecordTestBase):
         self.assertIn(scaffold_sha[:7], reason)
         self.assertNotIn(scaffold_sha[:12], reason)
 
-    def test_subject_mismatch_returns_failure(self) -> None:
-        """HEAD == commit_sha but subject is not '[chore] Scaffold ...'."""
-        from _helpers import init_git_with_seed
+    def test_arbitrary_subject_succeeds_when_sha_matches(self) -> None:
+        """Manual-recovery commits with non-canonical subjects must work
+        when the SHA-match gate passes. Conventional-commits, plain prose,
+        and custom prefixes are all accepted because the user's commit
+        convention is orthogonal to record's gating."""
+        subjects = [
+            "feat(scaffold): add maestro acceptance harness",
+            "Add scaffold for browser acceptance tests",
+            "[chore] custom-prefix scaffold landing",
+        ]
+        for subject in subjects:
+            with self.subTest(subject=subject):
+                # Per-subtest tempdir reset isolates git history + system_context.
+                self.tearDown()
+                self.setUp()
+                head = init_git_with_seed(
+                    self.repo, "README", "seed\n", subject=subject
+                )
 
-        # init_git_with_seed creates a commit with subject "[chore] seed" —
-        # passes existence check but fails the scaffold-subject prefix check.
-        init_git_with_seed(self.repo, "README", "seed\n")
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.repo,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout.strip()
+                result = record_scaffold(
+                    self._snap(),
+                    smm_dir=self.smm_dir,
+                    surface="browser",
+                    verify_cmd="npx playwright test",
+                    concern_id=None,
+                    agent_id="test-agent",
+                    commit_sha=head,
+                )
 
-        result = record_scaffold(
-            self._snap(),
-            smm_dir=self.smm_dir,
-            surface="browser",
-            verify_cmd="npx playwright test",
-            concern_id="abc123def456",
-            agent_id="test-agent",
-            commit_sha=head,
-        )
-
-        self.assertFalse(result.ok)
-        self.assertIn("[chore] Scaffold", result.reason or "")
-        ctx = self._ctx()
-        browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
-        self.assertEqual(browser["status"], "gap")
-
-
-def _seed_scaffold_commit(repo: Path) -> str:
-    """Init a git repo with a single ``[chore] Scaffold ...`` commit; return HEAD sha.
-
-    The HEAD-advancement gate requires the scaffold commit's subject to start
-    with ``[chore] Scaffold ``; tests in this module that exercise the happy
-    path use this helper instead of generic seed helpers (whose subjects
-    don't satisfy the gate).
-    """
-    from _helpers import init_git_identity
-
-    init_git_identity(repo)
-    (repo / "README").write_text("seed\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README"], cwd=repo, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "[chore] Scaffold acceptance browser via playwright"],
-        cwd=repo,
-        capture_output=True,
-        check=True,
-        env=GIT_ENV,
-    )
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    ).stdout.strip()
+                self.assertTrue(result.ok, result.reason)
+                ctx = self._ctx()
+                browser = next(
+                    s for s in ctx["acceptance_surfaces"] if s["name"] == "browser"
+                )
+                self.assertEqual(browser["status"], "covered")
 
 
 if __name__ == "__main__":

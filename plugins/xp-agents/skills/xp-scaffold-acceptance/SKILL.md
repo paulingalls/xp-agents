@@ -398,3 +398,9 @@ RECORD_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
 real event ID, not `none`) appends a `decision` event with
 `metadata.resolves=[concern_id]` so the gap concern cascades closed.
 Snapshot is auto-cleaned on success.
+
+The HEAD-advancement gate checks that (1) the commit exists and (2) HEAD
+matches `--commit-sha`. Subject convention is **not** gated, so manual
+recovery flows where the user committed the scaffold themselves with a
+non-canonical subject (conventional-commits, plain prose, custom prefix)
+still work — the SHA-match alone binds record to the exact commit.
