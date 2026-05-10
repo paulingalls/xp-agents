@@ -9,7 +9,7 @@ Called by:
 import re
 import subprocess
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -47,6 +47,13 @@ _TOKEN_RE = re.compile(r"[^a-z0-9_]+")
 # windows without triggering reload churn for normal load-and-pass-down.
 _SNAPSHOT_STALENESS_THRESHOLD_SECONDS = 5
 
+# Sentinel filename under SMM_DIR used by writers (e.g. xp-work-selection's
+# adopt path) to signal that a decision event has just been appended. The
+# probe reads its mtime and treats the snapshot as stale when the sentinel
+# postdates the snapshot's max_ts — closing the fast-commit gap where the
+# 5s wall-clock threshold misses an adopt+commit landing within the window.
+_REFRESH_SENTINEL_NAME = ".probe_refresh"
+
 # Shared trailer-reminder text used by pre_tool_bash in both the soft-nudge
 # (parts.append) and hard-block (BlockedError body) paths. Centralized so
 # wording stays in lockstep with the trailer-extraction conventions in
@@ -74,16 +81,71 @@ def _events_max_ts(events: list[dict]) -> str:
     return max((e.get("ts") or "" for e in events), default="")
 
 
-def _is_events_snapshot_stale(events: list[dict], now_ts: str) -> tuple[bool, str]:
+def refresh_sentinel_path(smm_dir: Path) -> Path:
+    """Path to the probe-refresh sentinel under smm_dir.
+
+    Public seam so callers (and tests) can locate the sentinel without
+    reaching into _REFRESH_SENTINEL_NAME. smm_dir must exist; the path
+    is not created by this function.
+    """
+    return smm_dir / _REFRESH_SENTINEL_NAME
+
+
+def signal_probe_refresh(smm_dir: Path) -> None:
+    """Touch the probe-refresh sentinel under smm_dir.
+
+    Called by writers (e.g. xp-work-selection's adopt path) right after
+    appending a decision event the next pre-commit probe must see. The
+    next find_probe_candidates call whose snapshot max_ts predates the
+    sentinel's mtime will treat its snapshot as stale and re-read from
+    disk — closing the fast-commit gap where the 5s wall-clock threshold
+    alone misses adopt+commit pairs landing within the window.
+
+    Safe to call repeatedly; the sentinel is not consumed by reads.
+    Subsequent fresh snapshots whose max_ts postdates the sentinel
+    self-clear the staleness signal without an explicit cleanup.
+
+    Caller must have created smm_dir (raises FileNotFoundError otherwise).
+    """
+    refresh_sentinel_path(smm_dir).touch()
+
+
+def _refresh_sentinel_postdates(smm_dir: Path | None, max_ts: str) -> bool:
+    """True iff smm_dir/.probe_refresh exists and its mtime is after max_ts.
+
+    Returns False on any of: smm_dir not given, sentinel missing, mtime
+    or max_ts unparseable. Fail-safe degrades to "trust the snapshot" so
+    a malformed sentinel never blocks the probe.
+    """
+    if smm_dir is None or not max_ts:
+        return False
+    try:
+        mtime = datetime.fromtimestamp(
+            refresh_sentinel_path(smm_dir).stat().st_mtime, tz=timezone.utc
+        )
+        max_dt = datetime.fromisoformat(max_ts)
+    except (OSError, ValueError):
+        return False
+    return mtime > max_dt
+
+
+def _is_events_snapshot_stale(
+    events: list[dict], now_ts: str, smm_dir: Path | None = None
+) -> tuple[bool, str]:
     """Return (is_stale, max_ts).
 
     is_stale: True when the newest event in `events` is meaningfully older
     than now_ts. Caller-supplied `events` snapshots can drift behind disk
     between the caller's load and probe time (other agents writing to
     events.jsonl, pre-commit hook latency between subagent emission and
-    commit). When that drift exceeds _SNAPSHOT_STALENESS_THRESHOLD_SECONDS,
-    the probe re-reads from disk so the candidate set covers events the
-    agent plausibly saw on disk by commit time.
+    commit). Two signals trigger staleness:
+      1. Wall-clock threshold: now_ts - max_ts(events) >
+         _SNAPSHOT_STALENESS_THRESHOLD_SECONDS. Catches snapshots taken
+         well before probe time.
+      2. Refresh sentinel postdates max_ts(events). Catches the
+         fast-commit case (adopt + commit within 5s) where the wall-clock
+         threshold alone misses a just-written decision because the
+         snapshot's max_ts is close to now_ts.
 
     max_ts: the newest event ts (also returned so callers don't iterate
     events a second time for the same value). "" when events is empty.
@@ -100,6 +162,8 @@ def _is_events_snapshot_stale(events: list[dict], now_ts: str) -> tuple[bool, st
     except ValueError:
         return (False, max_ts)
     is_stale = (now_dt - max_dt).total_seconds() > _SNAPSHOT_STALENESS_THRESHOLD_SECONDS
+    if not is_stale:
+        is_stale = _refresh_sentinel_postdates(smm_dir, max_ts)
     return (is_stale, max_ts)
 
 
@@ -359,7 +423,9 @@ def find_probe_candidates(
     if events is None:
         is_stale, snapshot_max_ts = False, ""
     else:
-        is_stale, snapshot_max_ts = _is_events_snapshot_stale(events, resolved_now)
+        is_stale, snapshot_max_ts = _is_events_snapshot_stale(
+            events, resolved_now, smm_dir
+        )
     if events is None or is_stale:
         events, resolutions = _common.load_events_with_resolutions(smm_dir)
     elif resolutions is None:

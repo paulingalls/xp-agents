@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(
     0,
     str(
@@ -20,6 +21,7 @@ sys.path.insert(
     ),
 )
 
+import resolves_probe
 import work_selection_decide
 from conftest import _HookTestCase
 from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
@@ -734,6 +736,58 @@ class TestTriageCliArgparse(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["metadata"]["disposition"], "dropped")
         self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+
+
+class TestAdoptSignalsProbeRefresh(_DecideTestCase):
+    """Story-002 AC#2: adopt path must signal probe refresh after recording
+    the decision so subsequent fast pre-commit probes (within the 5s
+    wall-clock window) re-read disk and see the just-written decision."""
+
+    def _sentinel(self) -> Path:
+        return resolves_probe.refresh_sentinel_path(self.smm_dir)
+
+    def test_adopt_signals_probe_refresh(self):
+        self.assertFalse(self._sentinel().exists())
+        self.mod.run(
+            action="adopt",
+            smm_dir=self.smm_dir,
+            content="Try with refs [refs: abc123def456]",
+            topic="retro-try-some-slug",
+        )
+        self.assertTrue(
+            self._sentinel().exists(),
+            "adopt path MUST signal probe refresh after appending the "
+            "decision so subsequent fast pre-commit probes see it.",
+        )
+
+    def test_force_adopt_via_defer_signals_probe_refresh(self):
+        # force-adopt under defer also writes a decision event → must signal.
+        self.assertFalse(self._sentinel().exists())
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Try [refs: abc123def456]",
+            force_adopt_topic="retro-try-foo",
+        )
+        self.assertTrue(self._sentinel().exists())
+
+    def test_drop_does_not_signal_probe_refresh(self):
+        # drop is a status event, not a decision — no probe refresh needed.
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content="Drop this Try [refs: abc123def456]",
+        )
+        self.assertFalse(self._sentinel().exists())
+
+    def test_plain_defer_does_not_signal_probe_refresh(self):
+        # defer is a status event → no refresh.
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Defer this Try [refs: abc123def456]",
+        )
+        self.assertFalse(self._sentinel().exists())
 
 
 if __name__ == "__main__":
