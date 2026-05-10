@@ -60,6 +60,8 @@ For each story:
 - **Design Sources**: Direct refs to original design docs (from the milestone's Sources field) with section pointers.
 - **Context**: 2+ sentences of what THIS story uniquely does. **Do NOT copy text from milestone design_details or constraints — reference the milestone by number only.** Open: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
 - **File Domain**: Files this story exclusively owns. No overlap between stories. Always include corresponding test files alongside source files. For investigation/research stories with no expected code changes, use `[]` to mark the story code-free and prevent false pipeline-gap noise.
+
+  **Sister-test heuristic.** When a story declares `*/scripts/<x>.py` or `skills/<name>/preload.sh`, also include any pre-existing `tests/**/test_<x>*.py` (preload: strip `xp-`, dashes→`_`). Omitting an on-disk sister test trips FILE_DOMAIN_DRIFT_TOLERANCE during execution. Do NOT scaffold what's missing — only include tests already on disk.
 - **Interface Contracts**: Shared boundaries. Format: `file:symbol — shared with story-NNN, constraint`. Advisory.
 - **Acceptance Criteria**: 3-5 testable conditions in **Given/When/Then prose** (per `docs/completed/ACCEPTANCE_TESTING_DOCTRINE.md`). Use `And`/`But` to extend. At least one is end-to-end, marked with the canonical `"E2E:"` prefix. Examples:
   - `"Given a registered user with a valid session, When they click 'Export', Then a CSV download starts within 2 seconds"`
