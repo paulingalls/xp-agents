@@ -22,6 +22,16 @@ import identity
 import sprint_store
 import system_context_store
 
+# Re-exports preserve `from branching import {merge,delete}_branch` callers
+# after the lifecycle island moved to branch_lifecycle.py.
+from branch_lifecycle import (  # noqa: F401
+    _fast_forward_if_safe,
+    _is_merged_into,
+    _merge_into_target,
+    delete_branch,
+    merge_branch,
+)
+
 
 def _slugify(s: str) -> str:
     s = s.lower()
@@ -31,12 +41,6 @@ def _slugify(s: str) -> str:
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
-
-
-def _is_merged_into(cwd: str, branch: str, target: str) -> bool:
-    """True iff ``branch`` is reachable from ``target``."""
-    r = _git(["git", "merge-base", "--is-ancestor", branch, target], cwd)
-    return r.returncode == 0
 
 
 def branch_name(user_ns: str, id_: str, slug: str) -> str:
@@ -105,11 +109,9 @@ def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
         _common.append_safe(smm_dir, event)
         return 2
     except OSError as e:
-        # Filesystem failure (read-only SMM, missing dir, lock contention).
-        # Fail-soft: log and return original stage so the next call retries.
-        # Schema-validation ValueError is intentionally NOT caught — it
-        # signals a corrupt input or a code bug, both of which deserve to
-        # crash loud rather than silently mask the contract.
+        # Narrow on purpose: schema-validation ValueError is intentionally NOT
+        # caught — it signals corrupt input or a code bug and deserves to crash
+        # loud. Only OSError (filesystem race / disk failure) degrades silently.
         _common.log_hook_error(
             f"branching auto-promote failed: {e}",
             error_class=type(e).__name__,
@@ -185,13 +187,10 @@ def get_merge_target(smm_dir: Path, cwd: str) -> str:
 def get_primary_branch(smm_dir: Path) -> str:
     """Return the repo's primary integration branch.
 
-    Stage 0-2: always 'main'. Stage 3 reads system_context's
-    branching_strategy.integration_branch, defaulting to 'main' when
-    missing or null.
-
-    Routes through ``get_branching_stage`` so reads of the primary
-    branch also fire the Stage 1 -> 2 auto-promote side-effect — single
-    chokepoint guarantees stage progression regardless of entry path.
+    Stage 0-2: 'main'. Stage 3: branching_strategy.integration_branch,
+    defaulting to 'main' when missing/null. Routes through
+    ``get_branching_stage`` so primary-branch reads also fire the
+    Stage 1 -> 2 auto-promote — single chokepoint for progression.
     """
     if get_branching_stage(smm_dir) < 3:
         return _DEFAULT_PRIMARY
@@ -217,52 +216,16 @@ def branch_exists(cwd: str, name: str) -> bool:
 
 
 def _try_checkout(cwd: str, branch: str) -> bool:
-    """Attempt to check out ``branch``. Return True on success, False on failure.
+    """Check out ``branch``; return True on success, False (with stderr) on failure.
 
-    On failure, the git stderr is forwarded to the caller's stderr so the user
-    sees the same diagnostic ``_checkout_or_exit`` previously printed before
-    its sys.exit. Callers decide whether to escalate to sys.exit (legacy
-    story/sprint/free helpers) or surface the failure as a structured ``None``
-    return (scaffold helper, which feeds ``commit_scaffold``'s
-    ``CommitResult(ok=False, reason=...)`` contract).
+    Bool return lets callers escalate (sys.exit for legacy story/sprint/free
+    helpers) or surface the failure as ``None`` (scaffold's CommitResult).
     """
     r = _git(["git", "checkout", branch], cwd)
     if r.returncode != 0:
         print(f"Failed to checkout {branch}: {r.stderr}", file=sys.stderr)
         return False
     return True
-
-
-def _checkout_or_exit(cwd: str, branch: str) -> None:
-    if not _try_checkout(cwd, branch):
-        sys.exit(1)
-
-
-def _fast_forward_if_safe(cwd: str, branch: str, base: str) -> None:
-    """Fast-forward `branch` to `base` when `branch` is an ancestor of `base`.
-
-    No-op when `branch` has unique commits or has diverged — silent
-    rebase could lose work. The branch must already be checked out.
-    Logs a stderr note on a successful fast-forward so the user knows
-    the ref moved under them.
-    """
-    if not _is_merged_into(cwd, branch, base):
-        return
-    old_sha = _git(["git", "rev-parse", branch], cwd).stdout.strip()
-    new_sha = _git(["git", "rev-parse", base], cwd).stdout.strip()
-    if old_sha == new_sha:
-        return
-    ff = _git(["git", "merge", "--ff-only", base], cwd)
-    if ff.returncode != 0:
-        print(
-            f"note: fast-forward of {branch} to {base} failed: {ff.stderr.strip()}",
-            file=sys.stderr,
-        )
-        return
-    print(
-        f"note: fast-forwarded {branch} to {base} ({old_sha[:7]}..{new_sha[:7]})",
-        file=sys.stderr,
-    )
 
 
 def _create_or_resume_branch(
@@ -277,35 +240,26 @@ def _create_or_resume_branch(
 ) -> str | None:
     """Create `name` or resume it if it already exists locally.
 
-    Returns the branch name, or None when the configured branching
-    stage is below `min_stage`. The base argument forks the new branch
-    from a specific ref instead of HEAD; on resume, the existing branch
-    fast-forwards to `base` when its tip is an ancestor of `base` so
-    sprint-start scaffolds don't snap to a stale base mid-sprint.
-    Branches with unique commits ahead of base are left alone.
+    Returns None when stage < min_stage. ``base`` forks new branches
+    from that ref and fast-forwards resumed branches whose tip is an
+    ancestor of ``base`` (branches with unique commits are left alone),
+    so sprint-start scaffolds don't snap to a stale base mid-sprint.
 
-    ``allow_dirty=True`` skips the worktree-clean precondition for cases
-    where the dirty state IS the work being branched (e.g., scaffold-
-    acceptance has just written files and now needs to land them on a
-    fresh branch). git checkout -b preserves uncommitted changes when
-    the new branch starts at the same commit.
-
-    ``honest_errors=True`` surfaces checkout/create failures as ``None``
-    instead of ``sys.exit(1)``, so callers wrapping this in a structured
-    error contract (scaffold-acceptance's ``CommitResult``) can map the
-    failure to ``ok=False`` rather than have the process die mid-pipeline.
-    Worktree-dirty failures still ``sys.exit`` — the user must clean up
-    before retrying. Stage gating still returns ``None`` regardless.
+    ``allow_dirty=True`` skips the worktree-clean precondition — needed
+    by scaffold-acceptance, which has already written the files this
+    branch will host. ``honest_errors=True`` returns ``None`` on git
+    checkout/create failure instead of ``sys.exit(1)`` so scaffold's
+    ``CommitResult`` contract can map it to ``ok=False`` rather than
+    die mid-pipeline. Worktree-dirty failures still ``sys.exit``.
     """
     if get_branching_stage(smm_dir) < min_stage:
         return None
 
     if branch_exists(cwd, name):
-        if honest_errors:
-            if not _try_checkout(cwd, name):
+        if not _try_checkout(cwd, name):
+            if honest_errors:
                 return None
-        else:
-            _checkout_or_exit(cwd, name)
+            sys.exit(1)
         if base is not None:
             _fast_forward_if_safe(cwd, name, base)
         return name
@@ -510,43 +464,6 @@ def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
         return name
 
     return primary
-
-
-def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
-    _checkout_or_exit(cwd, target)
-    r = _git(
-        ["git", "merge", "--no-ff", source_branch, "-m", f"Merge {source_branch}"],
-        cwd,
-    )
-    if r.returncode != 0:
-        details = (r.stderr or "") + (r.stdout or "")
-        print(
-            f"Merge of {source_branch} into {target} failed: {details.strip()}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-
-def merge_branch(cwd: str, branch: str, target: str) -> None:
-    _merge_into_target(cwd, branch, target)
-
-
-def delete_branch(cwd: str, name: str, *, merge_target: str | None = None) -> bool:
-    """Delete a branch; try ``-d`` first, fall back to ``-D`` only when proven safe.
-
-    ``git branch -d`` refuses when a branch's tip differs from its
-    upstream tracking ref, even if it is fully merged to the
-    integration target — the case worktree teammates hit every close.
-    When ``merge_target`` is provided AND ``-d`` refuses, fall back to
-    ``-D`` iff the branch is provably an ancestor of ``merge_target``.
-    Without ``merge_target`` the legacy contract holds: False on -d
-    refusal, no force-delete attempted.
-    """
-    if _git(["git", "branch", "-d", name], cwd).returncode == 0:
-        return True
-    if merge_target and _is_merged_into(cwd, name, merge_target):
-        return _git(["git", "branch", "-D", name], cwd).returncode == 0
-    return False
 
 
 def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict | None:
