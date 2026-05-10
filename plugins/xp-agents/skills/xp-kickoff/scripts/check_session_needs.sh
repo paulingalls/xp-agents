@@ -8,14 +8,16 @@ source "$(dirname "$0")/../../_preload_base.sh"
 echo "SMM_DIR=${SMM_DIR}"
 echo ""
 
-# Sprint sizing is included in the session retro input — no separate path.
+# Empty-body marker headers carry their action inline so they read like a
+# directive rather than skimmable structure — visual heaviness is the
+# load-bearing affordance for the consumer, not body content.
 if [ -f "${SMM_DIR}/.retro-input.json" ]; then
-    echo "### RETRO_NEEDED"
+    echo "### RETRO_NEEDED → invoke xp-retrospective"
     echo ""
 fi
 
 if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
-    echo "### NEEDS_SYSTEM_CONTEXT"
+    echo "### NEEDS_SYSTEM_CONTEXT → invoke /xp-system-context"
     echo ""
 fi
 
@@ -27,7 +29,7 @@ if [ -f "${SMM_DIR}/session_history.json" ]; then
 fi
 
 if ! plan_has_remaining; then
-    echo "### NEEDS_EXECUTION_PLAN"
+    echo "### NEEDS_EXECUTION_PLAN → invoke /xp-plan"
     echo ""
 fi
 
@@ -36,7 +38,7 @@ sprint_active=0
 sprint_has_active && sprint_active=1
 
 if [ -f "${SMM_DIR}/.needs-sprint" ] || [ "$sprint_active" -eq 0 ]; then
-    echo "### NEEDS_SPRINT"
+    echo "### NEEDS_SPRINT → invoke /xp-sprint-start"
     echo ""
 fi
 

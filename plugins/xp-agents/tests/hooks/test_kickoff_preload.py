@@ -190,6 +190,25 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
 
+    def test_empty_marker_headers_carry_action_hint(self):
+        """Empty-body markers must include the action they trigger inline.
+
+        Why: an empty `### MARKER` heading reads as document structure and
+        is easy to skim past, especially when the rest of the preload is
+        heavy. Pinning the action hint into the heading keeps the trigger
+        visually inseparable from its consequence.
+        """
+        (self.smm_dir / ".retro-input.json").write_text('{"unanalyzed_count": 6}')
+        (self.smm_dir / ".needs-sprint").write_text("startup")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("### RETRO_NEEDED → invoke xp-retrospective", result.stdout)
+        self.assertIn(
+            "### NEEDS_SYSTEM_CONTEXT → invoke /xp-system-context", result.stdout
+        )
+        self.assertIn("### NEEDS_EXECUTION_PLAN → invoke /xp-plan", result.stdout)
+        self.assertIn("### NEEDS_SPRINT → invoke /xp-sprint-start", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
