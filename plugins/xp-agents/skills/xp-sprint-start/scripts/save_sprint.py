@@ -20,7 +20,7 @@ import json
 import os
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
@@ -116,15 +116,102 @@ def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
         )
 
 
-def run(data: dict, smm_dir: Path) -> None:
+def _file_domain_path(entry: str) -> str:
+    """Parse the path part from a file_domain entry.
+
+    Entries follow `<path> — <description>` per SKILL.md §Step 3.
+    Path-only entries are returned unchanged (after strip).
+    """
+    return entry.split(" — ", 1)[0].strip()
+
+
+def _sister_test_stem(source_path: str) -> str | None:
+    """Return the test-name stem to glob for, or None if no rule matches.
+
+    - `*/scripts/<x>.py`         → `<x>` (basename without `.py`)
+    - `skills/<name>/preload.sh` → `<name>` with `xp-` stripped, dashes→`_`
+    """
+    p = PurePosixPath(source_path)
+    parts = p.parts
+    if len(parts) >= 2 and parts[-2] == "scripts" and p.suffix == ".py":
+        return p.stem
+    if len(parts) >= 2 and parts[-1] == "preload.sh" and "skills" in parts:
+        idx = parts.index("skills")
+        # Need at least one segment between `skills` and `preload.sh`.
+        if idx + 1 < len(parts) - 1:
+            return parts[idx + 1].removeprefix("xp-").replace("-", "_")
+    return None
+
+
+def _find_sister_tests(source_path: str, project_root: Path) -> list[str]:
+    """Glob existing sister tests for a source path; relative POSIX strings."""
+    stem = _sister_test_stem(source_path)
+    if stem is None:
+        return []
+    matches = sorted(project_root.glob(f"tests/**/test_{stem}*.py"))
+    return [m.relative_to(project_root).as_posix() for m in matches]
+
+
+def _auto_include_sister_tests(data: dict, smm_dir: Path, project_root: Path) -> None:
+    """Append existing sister-test entries to each story's file_domain.
+
+    NEVER scaffolds; only includes tests that already exist on disk.
+    Records additions as a status event so the mutation is visible.
+    """
+    additions: list[tuple[str, str, str]] = []  # (story_id, test, source)
+
+    for story in data.get("stories", []) or []:
+        file_domain = story.get("file_domain") or []
+        if not file_domain:
+            continue
+        existing = {_file_domain_path(e) for e in file_domain}
+        new_entries: list[str] = []
+        for entry in file_domain:
+            source = _file_domain_path(entry)
+            for test in _find_sister_tests(source, project_root):
+                if test in existing:
+                    continue
+                existing.add(test)
+                new_entries.append(f"{test} — sister test for {source}")
+                additions.append((story.get("id", "?"), test, source))
+        if new_entries:
+            story["file_domain"] = file_domain + new_entries
+
+    if not additions:
+        return
+
+    summary = "; ".join(f"{sid}: {test} (for {src})" for sid, test, src in additions)
+    agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
+    event = _common.make_event(
+        EVENT_TYPE_STATUS,
+        agent_id,
+        f"save_sprint auto-included sister tests: {summary}",
+        working_on=["sprint.json"],
+    )
+    _common.append_safe(smm_dir, event)
+
+
+def run(
+    data: dict,
+    smm_dir: Path,
+    *,
+    project_root: Path | None = None,
+) -> None:
     """Write sprint.json and run the acceptance-flow side effects.
 
     Args:
         data: Sprint data dict (validated by sprint_store).
         smm_dir: SMM directory path.
+        project_root: Root used for sister-test discovery. Defaults to
+            the current working directory (where the skill invokes the
+            script). Tests pass an explicit tmpdir for hermetic globs.
     """
     accept_marker = smm_dir / marker_names.ACCEPT
     accept_marker_existed = accept_marker.exists()
+
+    if project_root is None:
+        project_root = Path.cwd()
+    _auto_include_sister_tests(data, smm_dir, project_root)
 
     sprint_store.save_sprint(smm_dir, data)
 
