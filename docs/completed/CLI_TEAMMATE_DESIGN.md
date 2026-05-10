@@ -311,6 +311,15 @@ The lead's workflow after task notification:
 
 This keeps the lead free — no Monitor needed.
 
+### No-Progress Timeout (`XP_TEAMMATE_FILTER_TIMEOUT`)
+
+The filter uses a non-blocking `select`-driven read loop with a no-progress timeout. If the teammate produces no stdout for the timeout window — typical of a hung session that never reached `result` and never closed stdout — the filter prints a `Timeout after Ns with no teammate output` diagnostic to stderr and exits with code 1. No report file is written on the timeout path; the lead sees the non-zero exit and the stderr diagnostic in the Bash task output.
+
+After a successful `result` event the loop drains briefly (≈0.1s) so any trailing diagnostic lines reach the report before EOF; this drain is not env-overridable.
+
+- **Default**: `600` seconds (sized for long sprint-story stints).
+- **Override**: set `XP_TEAMMATE_FILTER_TIMEOUT` to a value parseable as a float (seconds) before launching `claude -p`. Tests shrink it to milliseconds; operations may raise it for slow sandboxes.
+
 ## Documentation Updates Required
 
 These docs need updating as part of the implementation:
