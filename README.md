@@ -110,8 +110,8 @@ $ claude
 
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
-- **Before every write** — conflict detection via `.coordination.json`, TDD order check, plan review gate blocks writes until `/xp-review-plan` runs
-- **Before every commit** — review cycle gate blocks until `/simplify` and `/xp-quality-review` complete (for commits with code changes); security review runs at story (`/xp-accept`, Tier 2) and close (Tier 3) boundaries
+- **Before every write** — conflict detection (via `.coordination.json`), TDD order check, plan-review gate (`/xp-review-plan`), and assign gate (`/xp-assign`, worktree teammates exempt)
+- **Before every commit** — review cycle gate (`/simplify` then `/xp-quality-review`) for code-changing commits; `[release]`/`[chore]`/`[sprint-direct]`-prefixed messages bypass for legitimate maintenance; security review at story (`/xp-accept`, Tier 2) and close (Tier 3) boundaries
 - **After every write** — status auto-updated, linter runs
 - **After plan mode exits** — `PostToolUse:ExitPlanMode` nudges `/xp-review-plan` to extract assumptions, decisions, and risks
 - **At stop** — TDD gate blocks if tests failing
@@ -166,7 +166,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | Hook Event | What Fires | XP Practice |
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
-| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, plan review gate blocks writes until `/xp-review-plan` clears marker | TDD, Planning Game |
+| **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, `.plan-awaiting-review` gate blocks writes until `/xp-review-plan` clears it, `.assign-pending` gate blocks writes until `/xp-assign` clears it (worktree teammates exempt) | TDD, Planning Game |
 | **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
@@ -179,7 +179,15 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 | **PostCompact** | Compact event log (age decisions, cap retros, prune resolved items) | Sustainable Pace |
-| **Stop** | Block if tests failing (`tdd_stop_gate.py`), block if housekeeping hasn't run (`housekeeping_stop_gate.py`) | TDD, Feedback |
+| **Stop** | Block if tests failing, block if housekeeping hasn't run, block if a close skill is mid-cycle (CLOSE_CYCLE_ACTIVE marker) | TDD, Feedback |
+
+### Token Budgets and Honesty Guards
+
+Two regression suites keep the plugin's hot paths honest as it grows:
+
+- **Byte-budget framework (emitters + preloads)** — every shipping hook-injection emitter and forked-skill preload has a per-script byte budget. Suites measure each script against a seeded SMM and fail if output grows past `ceil(measured * 1.125 / 100) * 100` bytes. New emitters or preloads must register a budget; the surface scan refuses to ship anything unbudgeted.
+- **Byte-budget framework (in-context guides)** — `PROCESS_GUIDE.md`, `XP_VALUES.md`, and `TEAMMATE_GUIDE.md` carry per-file line budgets so prose growth is caught before it ships.
+- **12-hex-ID grep guard** — SMM event IDs are 12-hex strings, and they age out of the log as sessions roll over. Sister suites scan all shipped emitters and the in-context guides for stray IDs in prose (decisions, concerns, retros referenced inline) and refuse to ship any — a hard-coded ID rots the moment its event ages out.
 
 ### Plan Review — Two Entry Points
 
@@ -195,20 +203,35 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | Skill | Purpose | When It Runs |
 |---|---|---|
 | `/xp-kickoff` | Session start orchestrator — sequences retro, work selection, housekeeping | Every session start |
-| `/xp-run-retrospective` | Keep/Fix/Try analysis with XP values as lenses | Kickoff step 1 (when retro data exists) |
 | `/xp-work-selection` | Triage open questions, retro Try items, and select session goals | Kickoff step 2 |
-| `/xp-housekeeping` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | Kickoff step 3 |
 | `/xp-plan` | Execution planning — transforms design sources into ordered milestones with change zones | Before implementation |
 | `/xp-system-context` | Autonomous codebase analysis — produces system description, architecture, constraints | Before planning or on demand |
 | `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
+| `/xp-scaffold-acceptance` | Interactive scaffold of an acceptance test harness (pytest/playwright/bats/cargo/etc.) for a `system_context.json` surface | On demand when adding an automated AC surface |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
+| `/xp-story-close` | Per-accepted-story merge into the sprint base; in solo mode, JIT-creates the next scheduled story's branch off the merged tip | Auto-invoked by `/xp-accept` per accepted story |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
 | `/xp-sprint-close` | Push sprint branch, fork close-reviewer, merge into target, cleanup | After sprint review |
 | `/xp-plan-close` | Push plan branch, fork close-reviewer, merge into primary, archive | After last milestone's sprint-close |
 | `/xp-free-close` | Push free branch, fork close-reviewer, merge into primary, cleanup | End of free session |
+| `/xp-end-session` | Emit `session_summary`, force-close open questions, bulk-drop addressed concerns/debts, append to `session_history.json` | End of session |
+
+### Plugin Subagents (auto-invoked)
+
+These are subagents shipped by the plugin under `agents/`, not slash commands. They're spawned by skills or hooks; you don't call them directly.
+
+| Subagent | Purpose | Triggered By |
+|---|---|---|
+| `xp-retrospective` | Keep/Fix/Try analysis with XP values as lenses | `/xp-kickoff` step 1 (always; emits a seed retro on fresh projects) |
+| `xp-housekeeper` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | `/xp-kickoff` step 3 |
+| `xp-plan-reviewer` | Plan-quality analysis — size, TDD ordering, milestone boundaries, decision conflicts | `/xp-review-plan` |
+| `xp-code-reviewer` | Independent code reviewer; holds `/simplify` accountable for skipped findings | `/xp-quality-review` |
+| `xp-sprint-reviewer` | Reviews what shipped vs planned; updates milestone delivery state | `/xp-sprint-review` |
+| `xp-close-reviewer` | Cross-cutting diff review of the full close source branch vs its merge target | `/xp-{free,sprint,plan,story}-close` |
+| `xp-system-analyzer` | Reads codebase + CLAUDE.md to produce `system_context.json` | `/xp-system-context` |
 
 ### The Shared Mental Model
 
@@ -235,6 +258,8 @@ The curated view uses a four-pillar model, written by housekeeping (LLM judgment
 - **Constraints** — confirmed decisions, conventions, and architectural boundaries
 - **Risks** — concerns, blocking questions, unverified assumptions, technical debt (with severity aging)
 - **Wisdom** — lessons learned, retrospective insights, behavioral conventions
+
+Per-pillar size caps and resolution discipline live in [PROCESS_GUIDE.md §Pillars](plugins/xp-agents/PROCESS_GUIDE.md#pillars) — the single source of truth.
 
 Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + process guide). The main agent gets the SMM during housekeeping and the process guide via PostToolUse:Skill hook.
 
@@ -312,10 +337,10 @@ brew install pipx                    # if not already installed
 pipx install pytest
 pipx inject pytest pytest-xdist      # parallel test execution
 
-# Run all 3326 tests in parallel (~13s on 16 cores):
+# Run the full suite in parallel (~13s on 16 cores; ~4700 tests as of v3.1.25):
 pytest -n auto
 
-# Or sequentially via unittest (no pytest required, ~89s):
+# Or sequentially via unittest (no pytest required, ~90s):
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
 ```
 
@@ -378,17 +403,17 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 
 | Practice | Enforcement | Mechanism |
 |---|---|---|
-| **TDD** | Deterministic: Stop blocks if tests fail (`tdd_stop_gate.py`). TDD order check in PreToolUse. unittest/pytest/jest/go/swift/bun/xcodebuild test detection. | `tdd_stop_gate.py`, `pre_tool_write.py`, `bash_post_tool.py` |
-| **Pair Programming** | Skill: quality review after simplify (courage + drift + debt awareness). | `/xp-quality-review` |
-| **Planning Game** | Subagent: plan reviewer checks size, TDD ordering, decision conflicts. Three-layer enforcement via PostToolUse:ExitPlanMode, SubagentStop:Plan, and PreToolUse write block. Skill: work selection (goals, questions, Try items). | `xp-plan-reviewer`, `/xp-work-selection` |
-| **Small Releases** | Deterministic: commit size check. | `bash_post_tool.py` |
-| **Coding Standards** | Deterministic: lint after every write, convention tracking, conflict detection, Tier 1 secret-pattern scan on staged diffs. | `lint_check.py`, `post_tool_use.py`, `pre_tool_write.py`, `pre_tool_bash.py` |
-| **Continuous Integration** | Deterministic: test results parsed (success + failure). Stop blocks on failure. | `bash_post_tool.py`, `bash_failure.py`, `tdd_stop_gate.py` |
-| **Refactoring** | Commit gate: `/simplify` required before commit if code files changed, quality review checks skipped recommendations. Enforced by `pre_tool_bash.py` + `markers.py`. | `/xp-quality-review`, `pre_tool_bash.py` |
-| **Simple Design** | Subagent: plan reviewer flags oversized plans. `/simplify` required at commit for code changes. | `xp-plan-reviewer`, `pre_tool_bash.py` |
-| **Collective Code Ownership** | Deterministic: prompt nuggets at each prompt, tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + process guide). Global hooks. | `prompt_nugget.py`, `subagent_start.py` |
-| **On-Site Customer** | Deterministic: prompts logged. Skill: work selection (goals, questions, Try items). | `user_prompt_log.py`, `/xp-work-selection` |
-| **Retrospective** | Subagent: Keep/Fix/Try at session start with XP values as analytical lenses. | `xp-retrospective` |
+| **TDD** | Deterministic: Stop hook blocks if tests are failing; TDD order check on every Write/Edit; unittest/pytest/jest/go/swift/bun/xcodebuild test results parsed from Bash output | Stop hook, PreToolUse:Write, PostToolUse:Bash |
+| **Pair Programming** | Quality review after `/simplify` — independent code reviewer checks courage, drift, and debt awareness | `/xp-quality-review`, `xp-code-reviewer` |
+| **Planning Game** | Plan reviewer checks size, TDD ordering, milestone boundaries, decision conflicts. Three-layer marker enforcement: PostToolUse:ExitPlanMode and SubagentStop:Plan write the gate; PreToolUse:Write blocks until cleared | `/xp-review-plan`, `xp-plan-reviewer`, `/xp-work-selection` |
+| **Small Releases** | Deterministic: commit size check on `git commit` | PostToolUse:Bash |
+| **Coding Standards** | Lint after every write; convention tracking; cross-agent conflict detection; deterministic secret-pattern scan on staged diffs at commit | PostToolUse:Write, PreToolUse:Bash |
+| **Continuous Integration** | Test success and failure parsed from Bash output and PostToolUseFailure; Stop hook blocks on failing tests | PostToolUse:Bash, PostToolUseFailure:Bash, Stop hook |
+| **Refactoring** | Commit gate blocks until `/simplify` runs (when code files changed); `/xp-quality-review` then checks skipped recommendations. `[release]`/`[chore]`/`[sprint-direct]`-prefixed messages bypass for legitimate maintenance | PreToolUse:Bash, `/simplify`, `/xp-quality-review` |
+| **Simple Design** | Plan reviewer flags oversized plans; `/simplify` required at commit for code changes | `xp-plan-reviewer`, PreToolUse:Bash |
+| **Collective Code Ownership** | Prompt nuggets inject new signal events at each user prompt; tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + process guide); CLI teammates share the same SMM across worktrees | UserPromptSubmit, SubagentStart |
+| **On-Site Customer** | Every user prompt logged as a `customer_input` event; work selection triages questions, Try items, and goals | UserPromptSubmit, `/xp-work-selection` |
+| **Retrospective** | Keep/Fix/Try at session start with XP values as analytical lenses; runs unconditionally (seed retro on fresh projects) | SessionStart, `xp-retrospective` |
 
 ### Token Cost Model
 
