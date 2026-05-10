@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.1.28 — fix(draft_summary): persist refined session_summary, not mechanical scan
+
+Free-mode bug fix surfaced at /xp-end-session validation. Step 1 has the agent author a refined past-tense `session_summary` event, but `write_history.py` (via `draft_summary._build_summary`) ignored that event and persisted the raw mechanical `[type] content` event-log dump instead. Effect: next kickoff's `### LAST_SESSION` block surfaced messy event-log lines (commit message bodies, `[status]`/`[concern]`/`[commit]` markers) rather than the refined narrative the agent had just written. The "Refine the CANDIDATES text into a 1-2 paragraph narrative" rule in SKILL.md Step 1 was effectively unenforced — the refined content existed in `events.jsonl` but never reached the layer the next session reads.
+
+Intended design (per customer): `events.jsonl` and `session_history.json` both carry the SAME refined narrative. The mechanical synthesis only serves the `format_preload` CANDIDATES draft (raw material the agent reads BEFORE Step 1), never the persisted history layer.
+
+`_build_summary` now fast-paths to the latest `session_summary` event content when one exists; synthesis remains as the fallback for the pre-Step-1 case.
+
+End-to-end validation: simulated a session, ran the Step 4 pipe, confirmed the persisted `session_history.json` summary matches the agent-authored narrative verbatim — no `[type]` markers leak.
+
+### Test contract correction
+
+Integration test `test_two_layers_carry_distinct_payloads` explicitly enforced the OLD (incorrect) two-layer-distinct contract — rewritten as `test_history_carries_refined_summary_not_mechanical_scan`, plus a new `test_history_falls_back_to_mechanical_scan_when_no_summary` that guards the synthesis fallback (still load-bearing for the CANDIDATES preload).
+
+### Refactors
+
+`test_draft_summary.py` 775 → 833 lines with the two new tests, then split into `test_draft_summary_likely_addressed.py` (concern/debt → file_overlap → commit-hash audit-trail tests, 241 lines) and `test_draft_summary_carry_forward.py` (carry_forward surfacing tests, 166 lines). Original now 491 lines (under 500 target). Per project memory `feedback_proactive_file_splits`: split AT the commit that pushes the file over, not after.
+
+### Test count
+
+- Full suite: 4742 passed, 1 skipped (was 4739 in v3.1.27)
+- New tests: trivial-summary-survives, latest-of-multiple-summaries, history-carries-refined-narrative, history-fallback-when-no-summary
+
 ## v3.1.27 — fix(_common): exclude session_summary from uncommitted_event_count
 
 Free-mode bug fix surfaced at /xp-end-session. The honesty signal was structurally always >=1: Step 1 appends a session_summary event, Step 5 reports the count. Every session ended with the prompt "Consider committing before ending so the next session's probe has fresh data" even when there was no real outstanding work. The advice value of the signal collapsed to zero — the whole point is to flag forgotten user work, not to remind the user that /xp-end-session just did its job.
