@@ -6,10 +6,8 @@ branching doctrine's stage-based workflow.
 """
 
 import json
-import re
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
@@ -32,38 +30,23 @@ from branch_lifecycle import (  # noqa: F401
     merge_branch,
 )
 
-
-def _slugify(s: str) -> str:
-    s = s.lower()
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    return s.strip("-")
+# Pure-string naming helpers split into branch_names.py — re-export so
+# existing `from branching import branch_name` (and the
+# `branching._utc_today_iso` patch sites in tests) keep working.
+from branch_names import (  # noqa: F401
+    _SPRINT_BRANCH_RE,
+    _slugify,
+    _utc_today_iso,
+    branch_name,
+    free_branch_name,
+    is_sprint_branch,
+    plan_branch_name,
+    sprint_branch_name,
+)
 
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
-
-
-def branch_name(user_ns: str, id_: str, slug: str) -> str:
-    return f"{user_ns}/{id_}-{_slugify(slug)}"
-
-
-def sprint_branch_name(user_ns: str, sprint_id: str, slug: str) -> str:
-    return branch_name(user_ns, sprint_id, slug)
-
-
-def plan_branch_name(user_ns: str, slug: str) -> str:
-    return f"{user_ns}/plan-{_slugify(slug)}"
-
-
-def free_branch_name(user_ns: str, slug: str) -> str:
-    return f"{user_ns}/free-{_utc_today_iso()}-{_slugify(slug)}"
-
-
-_SPRINT_BRANCH_RE = re.compile(r"^[^/]+/sprint-\d{3}-[a-z0-9-]+$")
-
-
-def is_sprint_branch(name: str) -> bool:
-    return bool(_SPRINT_BRANCH_RE.match(name))
 
 
 _DEFAULT_PRIMARY = "main"
@@ -349,18 +332,31 @@ def create_sprint_branch(
     return result
 
 
-def _utc_today_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
-    """Create or resume ``<user>/scaffold-<surface>`` off the primary branch.
+def create_scaffold_branch(
+    cwd: str,
+    surface: str,
+    smm_dir: Path,
+    *,
+    stage: int | None = None,
+    current_branch: str | None = None,
+) -> str | None:
+    """Create or resume ``<user>/scaffold-<surface>`` off the current branch.
 
     Scaffold branches host the commit landed by /xp-scaffold-acceptance
     Step 8. Returns None below the plugin floor (stage < 2).
     Passes ``allow_dirty=True`` because the scaffold flow has already
     written files to disk before this call — the dirty state is the
     work being branched, not stale uncommitted changes.
+
+    Base: current branch when non-protected (free / sprint / plan /
+    generic feature), otherwise primary. Forking off primary would
+    strand user work that lives on the feature branch.
+
+    ``stage`` and ``current_branch`` are optional caller-supplied
+    overrides; ``commit_scaffold`` passes the values it already has so
+    we don't re-shell-out to git or re-read system_context.json. Lazy
+    fallback keeps the public signature usable from contexts that
+    don't have the cache.
 
     Pairs with ``commit_scaffold``'s ``CommitResult`` error contract:
     ``honest_errors=True`` returns ``None`` on git checkout/create failure
@@ -369,12 +365,20 @@ def create_scaffold_branch(cwd: str, surface: str, smm_dir: Path) -> str | None:
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, "scaffold", surface)
+    if stage is None:
+        stage = get_branching_stage(smm_dir)
+    if current_branch is None:
+        current_branch = identity.get_current_branch(cwd)
+    if is_protected_branch(stage, current_branch):
+        base = get_primary_branch(smm_dir)
+    else:
+        base = current_branch
     return _create_or_resume_branch(
         cwd,
         name,
         smm_dir,
         min_stage=BRANCH_MIN_STAGE["scaffold"],
-        base=get_primary_branch(smm_dir),
+        base=base,
         allow_dirty=True,
         honest_errors=True,
     )
