@@ -14,6 +14,8 @@ Usage:
 
 import argparse
 import json
+import os
+import select
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -29,6 +31,46 @@ import worktree
 get_current_branch = identity.get_current_branch
 
 _DECISION_BLOCK = "block"
+_ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
+
+# Default no-progress timeout (seconds) before declaring the teammate hung.
+# Sized for long sprint-story stints; per-call override via env so tests
+# can shrink it without re-importing the module.
+_DEFAULT_NO_PROGRESS_TIMEOUT = 600.0
+_TIMEOUT_ENV_VAR = "XP_TEAMMATE_FILTER_TIMEOUT"
+# Brief drain after the result event so any final lines (warnings, hook
+# diagnostics) make it into the lines list before EOF.
+_POST_RESULT_DRAIN_TIMEOUT = 0.1
+_READ_CHUNK_BYTES = 65536
+
+
+def _read_timeout() -> float:
+    """Read the no-progress timeout from env each call, so tests can override."""
+    return float(os.environ.get(_TIMEOUT_ENV_VAR, str(_DEFAULT_NO_PROGRESS_TIMEOUT)))
+
+
+def _iter_lines_with_timeout(fd: int, timeout: float) -> Iterator[str]:
+    """Yield decoded lines from fd; raise TimeoutError on no progress.
+
+    Drives os.read directly (NOT sys.stdin.readline) because select on a
+    buffered TextIOWrapper deadlocks: bytes can sit in Python's read-ahead
+    buffer with the OS pipe empty, so select reports "not ready" and the
+    caller hangs.
+    """
+    buf = b""
+    while True:
+        ready, _, _ = select.select([fd], [], [], timeout)
+        if not ready:
+            raise TimeoutError(f"no stdin activity for {timeout}s")
+        chunk = os.read(fd, _READ_CHUNK_BYTES)
+        if not chunk:
+            if buf:
+                yield buf.decode("utf-8", errors="replace")
+            return
+        buf += chunk
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            yield line.decode("utf-8", errors="replace")
 
 
 def _iter_json_objects(lines: list[str]) -> Iterator[dict]:
@@ -65,7 +107,6 @@ def extract_diagnostics(lines: list[str]) -> str:
     if blocks:
         return "Blocked by hook: " + "; ".join(blocks)
 
-    _ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
     errors = [
         line
         for line in lines
@@ -115,13 +156,51 @@ def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
     return f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
 
 
+def _consume_stream(fd: int, timeout: float) -> tuple[list[str], dict | None, bool]:
+    """Read until a result event arrives, EOF, or no-progress timeout.
+
+    Returns (lines_seen, result_event_or_None, timed_out_flag).
+    On result-event hit, drains briefly so trailing lines are captured
+    without risking another full-timeout wait.
+    """
+    lines: list[str] = []
+    result: dict | None = None
+    timed_out = False
+
+    try:
+        for line in _iter_lines_with_timeout(fd, timeout):
+            lines.append(line)
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if data.get("type") == "result":
+                result = data
+                # Drain any trailing lines briefly; ignore another timeout here.
+                try:
+                    for extra in _iter_lines_with_timeout(
+                        fd, _POST_RESULT_DRAIN_TIMEOUT
+                    ):
+                        lines.append(extra)
+                except TimeoutError:
+                    pass
+                break
+    except TimeoutError:
+        timed_out = True
+
+    return lines, result, timed_out
+
+
 def process_stream(smm_dir: Path, teammate_id: str) -> None:
-    """Read stdin stream-json, capture result, write report."""
-    lines = [line.rstrip("\n") for line in sys.stdin]
-    result = parse_result_event(lines)
+    """Read stdin stream-json with progress timeout, capture result, write report."""
+    timeout = _read_timeout()
+    fd = sys.stdin.fileno()
+    lines, result, timed_out = _consume_stream(fd, timeout)
 
     if result is None:
         diag = extract_diagnostics(lines)
+        if timed_out:
+            diag = f"Timeout after {timeout}s with no teammate output. {diag}"
         print(diag, file=sys.stderr)
         sys.exit(1)
 
@@ -141,17 +220,16 @@ def main(
     smm_dir: Path | None = None,
     teammate_id: str | None = None,
 ) -> None:
-    """Entry point — parse args or use provided values."""
-    if smm_dir is None or teammate_id is None:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--smm-dir", required=True)
-        parser.add_argument("--teammate-id", required=True)
-        args = parser.parse_args()
-        smm_dir = Path(args.smm_dir)
-        teammate_id = args.teammate_id
+    """Entry point — use provided values, else parse CLI args."""
+    if smm_dir is not None and teammate_id is not None:
+        process_stream(smm_dir, teammate_id)
+        return
 
-    assert smm_dir is not None and teammate_id is not None
-    process_stream(smm_dir, teammate_id)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--smm-dir", required=True)
+    parser.add_argument("--teammate-id", required=True)
+    args = parser.parse_args()
+    process_stream(Path(args.smm_dir), args.teammate_id)
 
 
 if __name__ == "__main__":

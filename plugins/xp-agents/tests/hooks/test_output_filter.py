@@ -5,8 +5,11 @@ Covers: parse_result_event, write_report, record_completion,
 format_summary, E2E main() pipe.
 """
 
+import contextlib
 import json
+import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -258,17 +261,75 @@ class TestExtractDiagnostics(unittest.TestCase):
         self.assertIn("fatal:", diags)
 
 
-class TestMainE2E(_HookTestCase):
-    """E2E: pipe mock stream-json through main()."""
+class _PipeStdinMixin:
+    """Mixin that gives a test a real-fd stdin via os.pipe().
+
+    Production code calls sys.stdin.fileno() and os.read(); StringIO
+    cannot back that, so tests that exercise the streaming filter must
+    use a real OS pipe. Mixin handles save/restore of sys.stdin and
+    cleanup of fds even when the test raises SystemExit.
+    """
+
+    _saved_stdin: object | None = None
+    _read_fd: int | None = None
+    _write_fd: int | None = None
+
+    def _open_pipe_stdin(self) -> int:
+        """Allocate pipe; install fake stdin pointing at the read fd.
+
+        Returns the write fd so the test can feed bytes / close to EOF.
+        """
+        r, w = os.pipe()
+        self._read_fd = r
+        self._write_fd = w
+        self._saved_stdin = sys.stdin
+
+        read_fd = r
+
+        class _PipeStdin:
+            def fileno(self) -> int:
+                return read_fd
+
+        sys.stdin = _PipeStdin()  # type: ignore[assignment]
+        return w
+
+    def _close_pipe_stdin(self) -> None:
+        if self._write_fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self._write_fd)
+            self._write_fd = None
+        if self._read_fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(self._read_fd)
+            self._read_fd = None
+        if self._saved_stdin is not None:
+            sys.stdin = self._saved_stdin  # type: ignore[assignment]
+            self._saved_stdin = None
+
+
+class TestMainE2E(_PipeStdinMixin, _HookTestCase):
+    """E2E: pipe mock stream-json through main() via real OS pipe.
+
+    Uses a real pipe (not StringIO) because the streaming filter calls
+    sys.stdin.fileno() + os.read directly — see _PipeStdinMixin.
+    """
+
+    def tearDown(self):
+        self._close_pipe_stdin()
+        super().tearDown()
+
+    def _feed_eof(self, data: str) -> None:
+        """Write data to the pipe and close write end to signal EOF."""
+        write_fd = self._open_pipe_stdin()
+        os.write(write_fd, data.encode("utf-8"))
+        os.close(write_fd)
+        self._write_fd = None
 
     def test_produces_report_and_event(self):
         """main() creates report file and appends SMM event."""
-        import io
-
         import teammate_output_filter
 
-        stdin_data = "\n".join(_MOCK_LINES) + "\n"
-        sys.stdin = io.StringIO(stdin_data)
+        self._feed_eof("\n".join(_MOCK_LINES) + "\n")
 
         with patch(
             "teammate_output_filter.get_current_branch",
@@ -289,12 +350,9 @@ class TestMainE2E(_HookTestCase):
 
     def test_exits_with_error_on_no_result(self):
         """main() raises SystemExit when no result event."""
-        import io
-
         import teammate_output_filter
 
-        stdin_data = _SYSTEM_LINE + "\n"
-        sys.stdin = io.StringIO(stdin_data)
+        self._feed_eof(_SYSTEM_LINE + "\n")
 
         with self.assertRaises(SystemExit) as ctx:
             teammate_output_filter.main(
@@ -305,8 +363,6 @@ class TestMainE2E(_HookTestCase):
 
     def test_clears_coordination_on_completion(self):
         """Teammate coordination entry cleared after stream processing."""
-        import io
-
         import coordination
         import teammate_output_filter
 
@@ -316,8 +372,7 @@ class TestMainE2E(_HookTestCase):
         coord = coordination.read_coordination(self.smm_dir)
         self.assertIn("teammate-step-1", coord)
 
-        stdin_data = "\n".join(_MOCK_LINES) + "\n"
-        sys.stdin = io.StringIO(stdin_data)
+        self._feed_eof("\n".join(_MOCK_LINES) + "\n")
 
         with patch(
             "teammate_output_filter.get_current_branch",
@@ -334,6 +389,71 @@ class TestMainE2E(_HookTestCase):
             coord,
             "Coordination entry should be cleared after completion",
         )
+
+
+class TestStreamingTimeout(_PipeStdinMixin, _HookTestCase):
+    """Filter exits non-zero rather than blocking forever on a silent stdin."""
+
+    def tearDown(self):
+        self._close_pipe_stdin()
+        super().tearDown()
+
+    def test_exits_within_timeout_on_silent_pipe(self):
+        import teammate_output_filter
+
+        write_fd = self._open_pipe_stdin()
+        os.write(write_fd, (_SYSTEM_LINE + "\n").encode("utf-8"))
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "0.2"}):
+            start = time.monotonic()
+            with self.assertRaises(SystemExit) as ctx:
+                teammate_output_filter.process_stream(self.smm_dir, "teammate-step-1")
+            elapsed = time.monotonic() - start
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertLess(
+            elapsed,
+            0.6,
+            f"Filter blocked for {elapsed:.2f}s (>0.2s+0.4s slack) on silent pipe",
+        )
+
+
+class TestStreamingBurst(_PipeStdinMixin, _HookTestCase):
+    """Filter parses a single >8KB bulk write without losing the result event."""
+
+    def tearDown(self):
+        self._close_pipe_stdin()
+        super().tearDown()
+
+    def test_parses_bulk_burst_and_captures_result(self):
+        import teammate_output_filter
+
+        # 200 realistic stream-json lines, ~50B each → ~10KB > 8KB threshold.
+        # Single os.write must fit in pipe buffer (16KB+ on macOS/Linux).
+        filler = json.dumps({"type": "assistant", "message": {"text": "x" * 10}})
+        bulk_lines = [filler] * 200 + [_RESULT_LINE]
+        bulk = ("\n".join(bulk_lines) + "\n").encode("utf-8")
+        self.assertGreater(len(bulk), 8192, "Need >8KB to exercise buffered case")
+
+        write_fd = self._open_pipe_stdin()
+        os.write(write_fd, bulk)
+        os.close(write_fd)
+        self._write_fd = None  # already closed; signals EOF to reader
+
+        with patch(
+            "teammate_output_filter.get_current_branch",
+            return_value="teammate-step-1",
+        ):
+            teammate_output_filter.process_stream(self.smm_dir, "teammate-step-1")
+
+        report = self.smm_dir / ".teammate-report-teammate-step-1.txt"
+        self.assertTrue(report.is_file(), "Report file not written")
+        self.assertIn("story-001", report.read_text())
+
+        events = self._read_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], EVENT_TYPE_STATUS)
+        self.assertIn("0.32", events[0]["content"])
 
 
 if __name__ == "__main__":
