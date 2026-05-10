@@ -41,13 +41,8 @@ from event_schema import (
 )
 
 
-class TestFindProbeCandidates(_HookTestCase):
+class TestFindProbeCandidates(_ProbeTestHelpers, _HookTestCase):
     """find_probe_candidates returns open concerns matching commit files."""
-
-    def _seed_concern(self, content: str, files: list[str]) -> str:
-        concern = make_event(EVENT_TYPE_CONCERN, content=content, files=files)
-        _common.append_safe(self.smm_dir, concern)
-        return concern["id"]
 
     def test_empty_commit_files_returns_empty(self):
         self._seed_concern("Auth leaks", ["scripts/auth.py"])
@@ -1180,7 +1175,7 @@ class TestFindProbeCandidatesOutMeta(_ProbeTestHelpers, _HookTestCase):
         self.assertEqual(len(result), 1)
 
 
-class TestFindProbeCandidatesDiscovery(_HookTestCase):
+class TestFindProbeCandidatesDiscovery(_ProbeTestHelpers, _HookTestCase):
     """Discovery events surface as probe candidates the same way concerns
     and debts do, so commits closing a discovery don't force the agent to
     hand-edit a Resolves-Event trailer."""
@@ -1208,11 +1203,6 @@ class TestFindProbeCandidatesDiscovery(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, e)
         return e["id"]
-
-    def _seed_concern(self, content: str, files: list[str]) -> str:
-        c = make_event(EVENT_TYPE_CONCERN, content=content, files=files)
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
 
     def _seed_debt(self, content: str, files: list[str]) -> str:
         d = make_event(EVENT_TYPE_DEBT, content=content, files=files)
