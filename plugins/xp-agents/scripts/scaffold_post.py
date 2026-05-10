@@ -194,7 +194,7 @@ def record_scaffold(
     schema validation). Other surface entries and their fields are
     untouched.
 
-    Runs a 3-stage HEAD-advancement gate BEFORE the surface flip — closes
+    Runs a 2-stage HEAD-advancement gate BEFORE the surface flip — closes
     the atomicity gap where ``apply-record`` could flip a surface to covered
     even when ``apply-commit`` produced no commit (or the user has since
     moved HEAD elsewhere):
@@ -202,12 +202,14 @@ def record_scaffold(
     1. ``git cat-file -e <sha>`` — sha exists in ``snap.repo_root``.
     2. ``git rev-parse HEAD`` == ``commit_sha`` — HEAD points at the scaffold
        commit (no commits added on top).
-    3. HEAD commit subject starts with ``[chore] Scaffold `` — record runs
-       immediately after the scaffold commit, not over arbitrary HEAD state.
 
-    ``RecordResult(ok=False, reason=...)`` short-circuits on any failure;
-    state would lie about what landed if the gate didn't run. ``commit_sha``
-    is required (no default) so callers can't silently bypass the gate.
+    Subject convention is intentionally NOT gated: manual-recovery flows
+    where the user committed the scaffold themselves (conventional-commits,
+    plain prose, custom prefix) must still be able to flip the surface
+    once they pass the SHA-match gate. ``RecordResult(ok=False, reason=...)``
+    short-circuits on any failure; state would lie about what landed if the
+    gate didn't run. ``commit_sha`` is required (no default) so callers
+    can't silently bypass the gate.
 
     When ``concern_id`` is a 12-hex event ID (not None and not the
     sentinel ``"none"``), also appends a ``decision`` event with
@@ -239,19 +241,6 @@ def record_scaffold(
                 f"({commit_sha[:7]}); refuse to flip surface — the user "
                 "may have added commits since apply-commit, or HEAD has "
                 "moved off the scaffold commit"
-            ),
-        )
-    head_subject = _git(
-        ["git", "log", "-1", "--format=%s", "HEAD"], snap.repo_root
-    ).stdout.strip()
-    if not head_subject.startswith(SCAFFOLD_COMMIT_PREFIX):
-        return RecordResult(
-            ok=False,
-            reason=(
-                f"HEAD subject {head_subject!r} does not start with "
-                f"{SCAFFOLD_COMMIT_PREFIX!r}; refuse to flip surface — "
-                "record should only run immediately after apply-commit's "
-                "scaffold commit, not arbitrary HEAD"
             ),
         )
     ctx = system_context_store.load_system_context(smm_dir)
