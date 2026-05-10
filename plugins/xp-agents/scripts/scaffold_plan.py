@@ -38,6 +38,13 @@ class ScaffoldPlan:
     files_to_create: list[dict] = field(default_factory=list)
     files_to_modify: list[dict] = field(default_factory=list)
     install_cmds: list[str] = field(default_factory=list)
+    # Identity-verify probe: when verify_identity_cmd is set, the apply
+    # pipeline runs it after install and asserts its stdout matches
+    # expected_version_pattern (Python regex, re.search) — guards against
+    # name-collision installs landing the wrong binary. Empty defaults
+    # preserve back-compat for plans built before the field existed.
+    verify_identity_cmd: str = ""
+    expected_version_pattern: str = ""
 
 
 class DeclineResult(NamedTuple):
@@ -55,6 +62,8 @@ def build_plan(
     install_cmds: list[str],
     verify_cmd: str,
     branch_name: str,
+    verify_identity_cmd: str = "",
+    expected_version_pattern: str = "",
 ) -> ScaffoldPlan:
     """Return the structured scaffold plan.
 
@@ -62,6 +71,10 @@ def build_plan(
     least ``path`` and ``description``; files_to_create entries may also
     carry ``line_count``. Lists are defensively copied so caller
     mutation post-build does not leak into the plan.
+
+    ``verify_identity_cmd`` and ``expected_version_pattern`` (default
+    empty) carry the optional tool-identity-probe state — see the
+    ScaffoldPlan field comment.
     """
     return ScaffoldPlan(
         surface=surface,
@@ -72,6 +85,8 @@ def build_plan(
         files_to_create=list(files_to_create),
         files_to_modify=list(files_to_modify),
         install_cmds=list(install_cmds),
+        verify_identity_cmd=verify_identity_cmd,
+        expected_version_pattern=expected_version_pattern,
     )
 
 
@@ -122,6 +137,11 @@ def render_preview(plan: ScaffoldPlan, *, show_files: bool = False) -> str:
     lines.append("Install + verify:")
     for cmd in plan.install_cmds:
         lines.append(f"  {cmd}")
+    if plan.verify_identity_cmd:
+        lines.append(
+            f"  {plan.verify_identity_cmd}    "
+            f"# must match {plan.expected_version_pattern!r}"
+        )
     lines.append(f"  {plan.verify_cmd}{VERIFY_SUFFIX}")
     lines.append("")
     lines.append(f"Commit branch: {plan.branch_name} {BRANCH_NEW_SUFFIX}")

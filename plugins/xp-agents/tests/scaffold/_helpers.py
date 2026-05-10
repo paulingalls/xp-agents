@@ -52,16 +52,25 @@ def init_git_identity(repo: Path) -> None:
     run_git(["git", "config", "user.name", "Test"], repo)
 
 
-def init_git_with_seed(repo: Path, seed_path: str, seed_body: str) -> None:
-    """init_git_identity + write+stage+commit a single seed file.
+def init_git_with_seed(
+    repo: Path,
+    seed_path: str,
+    seed_body: str,
+    *,
+    subject: str = "[chore] seed",
+) -> str:
+    """init_git_identity + write+stage+commit a single seed file; return HEAD sha.
 
     Used by tests that need a non-empty HEAD (e.g. branch creation,
-    revert-to-HEAD). seed_path is repo-relative.
+    revert-to-HEAD). seed_path is repo-relative. ``subject`` lets tests
+    seed commits with arbitrary subject conventions when exercising
+    subject-orthogonal gates (e.g. record_scaffold's SHA-match-only gate).
     """
     init_git_identity(repo)
     (repo / seed_path).write_text(seed_body, encoding="utf-8")
     run_git(["git", "add", seed_path], repo)
-    run_git(["git", "commit", "-m", "[chore] seed"], repo)
+    run_git(["git", "commit", "-m", subject], repo)
+    return run_git(["git", "rev-parse", "HEAD"], repo).stdout.strip()
 
 
 def make_fake_copy_failing_on_backup_restore(

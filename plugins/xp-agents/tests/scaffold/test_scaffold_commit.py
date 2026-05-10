@@ -252,6 +252,43 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
         oneline = run_git(["git", "log", "--oneline"], self.repo).stdout.strip()
         self.assertEqual(len(oneline.splitlines()), 1)
 
+    def test_scaffold_branch_forks_off_current_non_protected_branch(self) -> None:
+        """Bug 2: scaffold launched from a non-protected feature/free/sprint
+        branch must fork off THAT branch, not always primary. The user's
+        prior commits on the feature branch must remain reachable from
+        the new scaffold branch — otherwise apply-commit silently strands
+        their work on a branch the scaffold flow doesn't see."""
+        _write_branching_strategy(self.smm_dir, 2)
+        # Move to a non-protected branch and add a commit that is NOT on main.
+        run_git(["git", "checkout", "-b", "paulingalls/free-feature-work"], self.repo)
+        (self.repo / "FEATURE_SENTINEL").write_text("user work\n", encoding="utf-8")
+        run_git(["git", "add", "FEATURE_SENTINEL"], self.repo)
+        run_git(["git", "commit", "-m", "feat: add feature sentinel"], self.repo)
+        feature_sha = run_git(["git", "rev-parse", "HEAD"], self.repo).stdout.strip()
+
+        result = commit_scaffold(
+            self._snap(),
+            smm_dir=self.smm_dir,
+            stage=2,
+            surface="browser",
+            tool="playwright",
+            tool_version="1.51.0",
+            concern_id=None,
+        )
+
+        self.assertTrue(result.ok, result.reason)
+        assert result.branch is not None
+        # Scaffold branch must contain the feature-branch sentinel commit.
+        log = run_git(
+            ["git", "log", "--format=%H", result.branch], self.repo
+        ).stdout.strip()
+        self.assertIn(
+            feature_sha,
+            log.split("\n"),
+            f"scaffold branch {result.branch!r} forks off primary, stranding "
+            f"feature commit {feature_sha[:7]}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

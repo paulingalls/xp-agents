@@ -147,7 +147,7 @@ class TestCreateFreeBranch(unittest.TestCase):
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
                 patch("branching.get_primary_branch", return_value=primary),
-                patch("branching._utc_today_iso", return_value="2026-04-24"),
+                patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 result = branching.create_free_branch(td, "spike-foo", smm_dir)
 
@@ -167,7 +167,7 @@ class TestCreateFreeBranch(unittest.TestCase):
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
                 patch("branching.get_primary_branch", return_value=primary),
-                patch("branching._utc_today_iso", return_value="2026-04-24"),
+                patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 branching.create_free_branch(td, "spike", smm_dir)
 
@@ -190,7 +190,7 @@ class TestCreateFreeBranch(unittest.TestCase):
 
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
-                patch("branching._utc_today_iso", return_value="2026-04-24"),
+                patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 result = branching.create_free_branch(td, "spike", smm_dir)
 
@@ -215,7 +215,7 @@ class TestCreateFreeBranch(unittest.TestCase):
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
                 patch("branching.get_primary_branch", return_value=primary),
-                patch("branching._utc_today_iso", return_value="2026-04-24"),
+                patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 result = branching.create_free_branch(td, "spike", smm_dir)
 

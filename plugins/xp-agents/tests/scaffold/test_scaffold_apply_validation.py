@@ -344,5 +344,81 @@ class TestApplyResultLifecycleRetained(_RevertTestBase):
         self.assertIsNotNone(result.snapshot_dir)
 
 
+class TestRunVerifyIdentity(_ApplyTestBase):
+    """Bug 1: a successful install can still land the wrong binary
+    (`brew install --cask maestro` → Maestro.app GUI). The apply
+    pipeline runs verify_identity_cmd between install and verify; if
+    its stdout fails expected_version_pattern, the snapshot reverts
+    just like an install failure."""
+
+    def _identity_plan(self, *, cmd: str, pattern: str) -> dict:
+        plan = _plan(install_cmds=["true"], verify_cmd="true")
+        plan["verify_identity_cmd"] = cmd
+        plan["expected_version_pattern"] = pattern
+        return plan
+
+    def test_pattern_matches_returns_ok(self) -> None:
+        # `printf` is POSIX-portable and produces deterministic stdout.
+        plan = self._identity_plan(
+            cmd="printf 'Maestro 2.5.1\\n'",
+            pattern=r"^Maestro \d+\.",
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok, result.reason)
+
+    def test_pattern_mismatch_reverts(self) -> None:
+        plan = self._identity_plan(
+            cmd="printf 'Maestro.app v0.15.4\\n'",
+            pattern=r"^Maestro \d+\.",
+        )
+        # Add a real created file to verify revert removes it.
+        plan["files_to_create"] = [
+            {"path": "tests/sentinel.spec.ts", "description": "sentinel", "body": "x\n"}
+        ]
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "verify-identity")
+        self.assertTrue(result.reverted)
+        # Created file gone (revert ran).
+        self.assertFalse((self.repo / "tests" / "sentinel.spec.ts").exists())
+
+    def test_pattern_mismatch_reason_names_pattern(self) -> None:
+        plan = self._identity_plan(
+            cmd="printf 'Wrong Tool\\n'",
+            pattern=r"^Maestro \d+\.",
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertIn("Maestro", result.reason or "")
+
+    def test_empty_cmd_skips_phase(self) -> None:
+        # No verify_identity_cmd → back-compat: pipeline runs install + verify only.
+        plan = _plan(install_cmds=["true"], verify_cmd="true")
+        # Explicitly leave verify_identity_cmd unset (default empty).
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertTrue(result.ok, result.reason)
+
+    def test_apply_plan_rejects_cmd_without_pattern_pre_snapshot(self) -> None:
+        # validate_plan must reject the cmd-without-pattern combination
+        # BEFORE create_snapshot runs — otherwise the orphan-snapshot bug
+        # surfaced by close-reviewer Block b1672394c237 returns: write+install
+        # complete their side-effects, then ValueError escapes uncaught.
+        plan = _plan(install_cmds=["true"], verify_cmd="true")
+        plan["verify_identity_cmd"] = "true"
+        plan["expected_version_pattern"] = ""
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+        self.assertIn("expected_version_pattern", result.reason or "")
+        # No snapshot created (validate_plan fires pre-snapshot).
+        self.assertIsNone(result.snapshot_id)
+        self.assertIsNone(result.snapshot_dir)
+
+
 if __name__ == "__main__":
     unittest.main()
