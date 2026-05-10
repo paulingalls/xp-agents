@@ -1,5 +1,9 @@
 # Proposal to xp-agents plugin author: test-run-gate
 
+**Resolution:** Tracking-half adopted, gate-half deliberately not. `plugins/xp-agents/scripts/honesty_signals.py` (since sprint-014-ish) tracks `unique_files_since_test` and surfaces it via retro signals. The proposed PreToolUse:Bash blocking gate was intentionally not adopted — the operator-facing decision was to surface the pattern via retro feedback rather than block at commit time. Closing as resolved per that direction.
+
+---
+
 > **This is upstream-feedback, not a project rule.** It writes up a 5-sprint
 > Try-carry pattern in this PoC so the xp-agents plugin author can decide
 > whether to add a hook gate at the plugin layer. Adopting at the plugin

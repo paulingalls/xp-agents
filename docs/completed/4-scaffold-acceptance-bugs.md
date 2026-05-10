@@ -1,5 +1,9 @@
 # `/xp-scaffold-acceptance` — three bugs from first real-world use
 
+**Resolution:** All three bugs shipped in sprint-081 v3.1.29 (2026-05-10). Bug 1 → known_installs.json + run_verify_identity apply phase. Bug 2 → create_scaffold_branch derives base from current non-protected branch. Bug 3 → dropped HEAD subject prefix gate from apply-record. Sprint-081 also picked up a SPIKE for related probe-quality work (decision 4d181aef4c31, sprint-082 follow-up).
+
+---
+
 **Plugin:** `xp-agents`
 **Origin:** First real-world invocation against an Expo mobile app, 2026-05-04. User ran the skill from a free-branch with 3 prior commits already on it and chose Maestro for the automation surface.
 **Status:** Draft — feed into next `/xp-sprint-start` planning.

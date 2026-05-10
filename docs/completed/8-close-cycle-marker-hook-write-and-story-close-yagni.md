@@ -1,5 +1,9 @@
 # Close-cycle marker: hook-driven write + story-close conditional removal
 
+**Resolution:** Both pieces shipped. xp-story-close/SKILL.md Step 4 now reads "Security Review (skipped)" with the comment "Does not apply to story-close". The `write_marker CLOSE_CYCLE_ACTIVE ""` line is present in xp-{free,sprint,plan}-close/scripts/preload.sh and absent from xp-story-close/scripts/preload.sh — exactly the design proposed here.
+
+---
+
 ## Context
 
 Two related changes that simplify and harden the close-cycle Stop gate:
