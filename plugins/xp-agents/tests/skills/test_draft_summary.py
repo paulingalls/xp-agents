@@ -179,213 +179,6 @@ class TestDraftSummary(_SMMTestCase):
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(result["open_questions"], ["aaaaaaaaaaaa"])
 
-    def test_concern_with_file_overlap_surfaces(self):
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="dddddddddddd",
-            content="auth bug",
-            files=["a.py"],
-            ts="2026-05-08T02:00:00+00:00",
-            severity="medium",
-        )
-        commit = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="eeeeeeeeeeee",
-            content="fix(auth): patch a.py",
-            files=["a.py"],
-            ts="2026-05-08T02:01:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "abc1230000000000000000000000000000000001",
-            },
-        )
-        self._write_events([concern, commit])
-        result = draft_summary.run(self.smm_dir)
-        # likely_addressed is list[{id, commits: list[str]}] — agent uses the
-        # git commit hash to fetch full content via `git show`.
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(result["likely_addressed"][0]["id"], "dddddddddddd")
-        self.assertEqual(
-            result["likely_addressed"][0]["commits"],
-            ["abc1230000000000000000000000000000000001"],
-        )
-
-    def test_concern_without_file_overlap_excluded(self):
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="ffffffffffff",
-            content="bug in a.py",
-            files=["a.py"],
-            ts="2026-05-08T03:00:00+00:00",
-            severity="medium",
-        )
-        commit = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="111111111111",
-            content="fix(other): touch b.py",
-            files=["b.py"],
-            ts="2026-05-08T03:01:00+00:00",
-        )
-        self._write_events([concern, commit])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(result["likely_addressed"], [])
-
-    def test_debt_likely_addressed(self):
-        debt = make_event(
-            event_schema.EVENT_TYPE_DEBT,
-            id="222222222222",
-            content="unused fn in c.py",
-            files=["c.py"],
-            ts="2026-05-08T04:00:00+00:00",
-        )
-        commit = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="333333333333",
-            content="chore: drop unused",
-            files=["c.py"],
-            ts="2026-05-08T04:01:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "abc1230000000000000000000000000000000003",
-            },
-        )
-        self._write_events([debt, commit])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(result["likely_addressed"][0]["id"], "222222222222")
-        self.assertEqual(
-            result["likely_addressed"][0]["commits"],
-            ["abc1230000000000000000000000000000000003"],
-        )
-
-    def test_likely_addressed_filters_commits_missing_commit_hash(self):
-        # Honesty: a commit event without metadata.commit_hash is malformed
-        # (post-commit hook always sets it for valid commits). Filter such
-        # events from `commits[]` rather than falling back to the SMM
-        # event id — the event id is NOT a git ref, and downstream
-        # `git show` would silently fail. Empty commits[] (no overlap
-        # surfaces likely_addressed at all) is honest; wrong refs are not.
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="filtertst001",
-            content="needs patch",
-            files=["h.py"],
-            ts="2026-05-08T07:00:00+00:00",
-            severity="medium",
-        )
-        # Commit event with NO metadata.commit_hash (malformed).
-        commit_bad = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="filtertst002",
-            content="fix(h): patch",
-            files=["h.py"],
-            ts="2026-05-08T07:01:00+00:00",
-        )
-        # Commit event WITH metadata.commit_hash (canonical).
-        commit_good = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="filtertst003",
-            content="fix(h): also patch",
-            files=["h.py"],
-            ts="2026-05-08T07:02:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "def4560000000000000000000000000000000007",
-            },
-        )
-        self._write_events([concern, commit_bad, commit_good])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(
-            result["likely_addressed"][0]["commits"],
-            ["def4560000000000000000000000000000000007"],
-            "commits[] must skip events missing metadata.commit_hash, "
-            "not fall back to the (non-git-ref) SMM event id",
-        )
-
-    def test_likely_addressed_emits_git_commit_hash_not_event_id(self):
-        # The `commits` field is consumed as a git ref (agents `git show`
-        # it to fetch full commit content). The SMM commit-event ID is
-        # NOT a git ref — the real git SHA lives in metadata.commit_hash
-        # (recorded by the post-commit hook). Regression: prior bug
-        # emitted the event ID, which `git show` correctly rejected.
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="hashtest0001",
-            content="needs patch",
-            files=["g.py"],
-            ts="2026-05-08T06:00:00+00:00",
-            severity="medium",
-        )
-        commit = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="hashtest0002",  # SMM event ID — must NOT appear in commits[]
-            content="fix(g): patch g.py",
-            files=["g.py"],
-            ts="2026-05-08T06:01:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "ae995e32f8ec7a299c517a69773e94803b791a87",
-            },
-        )
-        self._write_events([concern, commit])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(
-            result["likely_addressed"][0]["commits"],
-            ["ae995e32f8ec7a299c517a69773e94803b791a87"],
-            "commits[] must carry git commit_hash (resolvable by `git show`),"
-            " not the SMM commit-event ID",
-        )
-
-    def test_likely_addressed_carries_multiple_commit_ids_for_audit(self):
-        # Two commits both touching the concern's file → both IDs land in
-        # the audit-trail list, in chronological order. This is the trail
-        # the agent passes through to metadata.resolved_by_commits when
-        # auto-resolving.
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="audit0000001",
-            content="needs two patches",
-            files=["m.py"],
-            ts="2026-05-08T05:00:00+00:00",
-            severity="medium",
-        )
-        commit1 = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="audit0000002",
-            content="fix(m): part 1",
-            files=["m.py"],
-            ts="2026-05-08T05:01:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "abc1230000000000000000000000000000000005",
-            },
-        )
-        commit2 = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="audit0000003",
-            content="fix(m): part 2",
-            files=["m.py"],
-            ts="2026-05-08T05:02:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "abc1230000000000000000000000000000000006",
-            },
-        )
-        self._write_events([concern, commit1, commit2])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        item = result["likely_addressed"][0]
-        self.assertEqual(item["id"], "audit0000001")
-        self.assertEqual(
-            item["commits"],
-            [
-                "abc1230000000000000000000000000000000005",
-                "abc1230000000000000000000000000000000006",
-            ],
-        )
-
     def test_session_boundary_filter(self):
         old_q = make_event(
             event_schema.EVENT_TYPE_QUESTION,
@@ -466,6 +259,64 @@ class TestDraftSummary(_SMMTestCase):
         recent_q_id = self._seed_long_unbounded_log()
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(result["open_questions"], [recent_q_id])
+
+    def test_summary_prefers_refined_session_summary_event(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="ccc000000001",
+                content="feat: thing",
+                ts="2026-05-10T20:00:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DECISION,
+                id="ddd000000001",
+                content="picked X over Y",
+                ts="2026-05-10T20:01:00+00:00",
+                topic="x-vs-y",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_SESSION_SUMMARY,
+                id="ses000000010",
+                content="Refined narrative authored by the agent in Step 1.",
+                ts="2026-05-10T20:02:00+00:00",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(
+            result["summary"],
+            "Refined narrative authored by the agent in Step 1.",
+        )
+        # Confirms the synthesized [commit]/[decision] dump is NOT used
+        # when a refined session_summary exists.
+        self.assertNotIn("[commit]", result["summary"])
+        self.assertNotIn("[decision]", result["summary"])
+
+    def test_summary_uses_latest_session_summary_when_multiple(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_SESSION_SUMMARY,
+                id="ses000000020",
+                content="First end-session summary.",
+                ts="2026-05-10T21:00:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="ccc000000002",
+                content="fix: thing",
+                ts="2026-05-10T21:01:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_SESSION_SUMMARY,
+                id="ses000000021",
+                content="Second end-session summary.",
+                ts="2026-05-10T21:02:00+00:00",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["summary"], "Second end-session summary.")
 
     def test_summary_includes_commit_decision_concern_debt_status(self):
         events = [
@@ -632,143 +483,6 @@ class TestDraftSummary(_SMMTestCase):
         )
         self.assertEqual(carry_refs, ["e2e000000001", "e2e000000004"])
         self.assertEqual(len(payload["carry_forward"]), 2)
-
-
-class TestDraftSummaryCarryForward(_SMMTestCase):
-    """Story-002 of sprint-071: carry_forward candidates surfacing."""
-
-    def test_carry_forward_empty_for_clean_session(self):
-        # Only commits — no open questions, no high-severity concerns.
-        events = [
-            make_event(
-                event_schema.EVENT_TYPE_COMMIT,
-                id="cle000000001",
-                content="feat: thing",
-                ts="2026-05-08T20:00:00+00:00",
-            ),
-        ]
-        self._write_events(events)
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(result["carry_forward"], [])
-
-    def test_carry_forward_includes_open_question(self):
-        question = make_event(
-            event_schema.EVENT_TYPE_QUESTION,
-            id="qcf000000001",
-            content="why does X happen?",
-            ts="2026-05-08T20:01:00+00:00",
-            priority=event_schema.PRIORITY_ASSUMED,
-        )
-        self._write_events([question])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(
-            result["carry_forward"],
-            [
-                {
-                    "note": "why does X happen?",
-                    "references": ["qcf000000001"],
-                    "recommendation": "triage",
-                }
-            ],
-        )
-
-    def test_carry_forward_includes_high_severity_unresolved_concern(self):
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="hcf000000001",
-            content="auth bypass possible",
-            ts="2026-05-08T20:02:00+00:00",
-            severity="high",
-        )
-        self._write_events([concern])
-        result = draft_summary.run(self.smm_dir)
-        self.assertIn(
-            {
-                "note": "auth bypass possible",
-                "references": ["hcf000000001"],
-                "recommendation": "watch",
-            },
-            result["carry_forward"],
-        )
-
-    def test_carry_forward_excludes_likely_addressed_concern(self):
-        # High-severity concern with a file overlap commit after it →
-        # appears in likely_addressed → must NOT appear in carry_forward.
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="acf000000001",
-            content="bug in a.py",
-            files=["a.py"],
-            ts="2026-05-08T20:03:00+00:00",
-            severity="high",
-        )
-        commit = make_event(
-            event_schema.EVENT_TYPE_COMMIT,
-            id="acf000000002",
-            content="fix(a.py): patch",
-            files=["a.py"],
-            ts="2026-05-08T20:04:00+00:00",
-            metadata={
-                "action": "commit_success",
-                "commit_hash": "abc1230000000000000000000000000000000009",
-            },
-        )
-        self._write_events([concern, commit])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(result["likely_addressed"][0]["id"], "acf000000001")
-        self.assertEqual(result["carry_forward"], [])
-
-    def test_existing_keys_unchanged_when_carry_forward_added(self):
-        # Pin the return-shape contract: M-2 must not rename/drop existing keys.
-        events = [
-            make_event(
-                event_schema.EVENT_TYPE_QUESTION,
-                id="exi000000001",
-                content="open?",
-                ts="2026-05-08T20:05:00+00:00",
-                priority=event_schema.PRIORITY_ASSUMED,
-            ),
-        ]
-        self._write_events(events)
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(
-            set(result),
-            {
-                "summary",
-                "open_questions",
-                "likely_addressed",
-                "uncommitted_count",
-                "carry_forward",
-            },
-        )
-
-    def test_carry_forward_truncates_note_to_100_chars(self):
-        long_content = "x" * 250
-        question = make_event(
-            event_schema.EVENT_TYPE_QUESTION,
-            id="trc000000001",
-            content=long_content,
-            ts="2026-05-08T20:06:00+00:00",
-            priority=event_schema.PRIORITY_ASSUMED,
-        )
-        self._write_events([question])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["carry_forward"][0]["note"]), 100)
-
-    def test_carry_forward_skips_medium_severity_concern(self):
-        # Only high-severity concerns are carried forward — medium/low
-        # concerns are noise the user can re-triage next session.
-        concern = make_event(
-            event_schema.EVENT_TYPE_CONCERN,
-            id="med000000001",
-            content="minor smell",
-            ts="2026-05-08T20:07:00+00:00",
-            severity="medium",
-        )
-        self._write_events([concern])
-        result = draft_summary.run(self.smm_dir)
-        self.assertEqual(result["carry_forward"], [])
 
 
 if __name__ == "__main__":

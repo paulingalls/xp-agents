@@ -59,12 +59,21 @@ _CARRY_FORWARD_NOTE_CAP = 100
 
 
 def _build_summary(events: list[dict], budget: int) -> str:
-    """Format selected events chronologically, capped at *budget* chars.
+    """Return the latest session_summary event content if present; else
+    synthesize a chronological event-log narrative capped at *budget*.
 
-    On overflow, drop OLDEST lines so the narrative tail (most recent
-    activity) is preserved for the LLM. Truncating the head loses what
-    the user actually wants to remember about the just-finished session.
+    /xp-end-session Step 1 authors a refined past-tense session_summary;
+    write_history must persist that, not the mechanical CANDIDATES dump.
+    Fallback synthesis serves the CANDIDATES preload (no summary yet).
+    On overflow of the synthesized path, drop OLDEST lines so the tail
+    (most recent activity) is preserved for the LLM.
     """
+    summaries = [
+        e for e in events if e.get("type") == event_schema.EVENT_TYPE_SESSION_SUMMARY
+    ]
+    if summaries:
+        return _common.truncate(summaries[-1].get("content", ""), budget)
+
     lines = [
         f"[{event.get('type', '')}] {event.get('content', '')}"
         for event in events

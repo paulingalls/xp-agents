@@ -19,13 +19,13 @@ resolved next session, then dropped from history).
 
 AC-5 reconciliation: sprint.json AC-5 says "session_summary events
 AND session_history.json both reflect the same canonical narrative
-without divergence". Under M-2's actual two-layer design (decided in
-story-003, see SKILL.md Step 4), the layers are intentionally
-distinct — events.jsonl carries the agent-refined narrative; the
-history entry carries draft_summary's mechanical scan. The capstone
-tests "both layers fire and carry their respective payloads" which
-honors AC-5's intent (both reflect the session) while staying honest
-about the distinction.
+without divergence". The fix in concern b7cc0664c2e6 made this literal:
+draft_summary._build_summary now prefers the latest session_summary
+event's content over the mechanical event-log scan when a summary
+exists. Mechanical synthesis remains as the fallback for the
+format_preload CANDIDATES draft (which runs BEFORE Step 1 has
+authored anything). Net: events.jsonl and session_history.json carry
+the SAME canonical narrative — fully honoring AC-5's intent.
 """
 
 import json
@@ -207,15 +207,12 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         self.assertNotIn("Traceback", r.stderr)
         self.assertIn("write_history failed", r.stderr)
 
-    def test_two_layers_carry_distinct_payloads(self):
-        # M-2 done-state: skill writes both event (Step 1, agent-refined
-        # narrative) AND history (Step 4, mechanical scan). The two
-        # layers are intentionally decoupled — draft_summary's scan
-        # filter excludes session_summary events so summaries don't
-        # recurse on prior summaries. This test simulates the LLM
-        # doing both: appending the narrative event AND running the
-        # pipe, then asserting each layer carries its own payload.
-        # Step 1 narrative event:
+    def test_history_carries_refined_summary_not_mechanical_scan(self):
+        # AC-5 contract (post b7cc0664c2e6 fix): both the events.jsonl
+        # session_summary event AND the session_history.json entry carry
+        # the SAME refined narrative. Mechanical scan only fills in for
+        # the format_preload CANDIDATES draft (raw material the agent
+        # reads BEFORE Step 1) — never persisted.
         narrative_marker = "AGENT_NARRATIVE_MARKER_42"
         r = self._run_append(
             "--type",
@@ -227,8 +224,9 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         )
         self.assertEqual(r.returncode, 0, r.stderr)
 
-        # Some session activity that draft_summary's mechanical scan
-        # WILL include (status is in _SUMMARY_TYPES; session_summary is not).
+        # Append a status event AFTER the narrative — the mechanical scan
+        # would pick it up if write_history were still using the synthesis
+        # path. Asserts the fast-path beats the synthesis path.
         scan_marker = "MECHANICAL_SCAN_MARKER_99"
         r2 = self._run_append(
             "--type",
@@ -242,7 +240,7 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         )
         self.assertEqual(r2.returncode, 0, r2.stderr)
 
-        # Step 4 pipe runs:
+        # Step 4 pipe runs (draft_summary | write_history):
         pipe = self._run_pipe()
         self.assertEqual(pipe.returncode, 0, pipe.stderr)
 
@@ -251,13 +249,51 @@ class TestSessionHistoryPipeline(_IntegrationTestCase):
         self.assertIn(narrative_marker, body)
         self.assertIn("session_summary", body)
 
-        # Layer 2 — session_history.json carries the mechanical scan.
+        # Layer 2 — session_history.json carries the SAME refined narrative.
         history = session_history.load_history(self.smm_dir)
         self.assertEqual(len(history["entries"]), 1)
-        self.assertIn(scan_marker, history["entries"][0]["summary"])
-        # The scan deliberately omits session_summary events (else
-        # summaries would recurse on prior summaries).
-        self.assertNotIn(narrative_marker, history["entries"][0]["summary"])
+        persisted = history["entries"][0]["summary"]
+        self.assertIn(narrative_marker, persisted)
+        # Mechanical scan must NOT leak into the persisted history when a
+        # refined session_summary is available — that's the whole point
+        # of the fast-path. The status-event scan_marker would appear if
+        # the synthesis path had won.
+        self.assertNotIn(scan_marker, persisted)
+        self.assertNotIn("[status]", persisted)
+        self.assertNotIn("[commit]", persisted)
+
+    def test_history_falls_back_to_mechanical_scan_when_no_summary(self):
+        # CANDIDATES preload contract: when no session_summary event
+        # exists yet (i.e., format_preload runs BEFORE Step 1 has
+        # authored anything), draft_summary synthesizes a mechanical
+        # event-log narrative for the agent to refine. write_history
+        # only runs AFTER Step 1 in normal operation, so this case is
+        # rare in the persisted layer — but verifying the fallback path
+        # still works guards against a regression where removing the
+        # synthesis path entirely would break the format_preload draft.
+        scan_marker = "FALLBACK_SCAN_MARKER_77"
+        r = self._run_append(
+            "--type",
+            "status",
+            "--agent",
+            "test",
+            "--content",
+            f"working — {scan_marker}",
+            "--working-on",
+            "[]",
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+        pipe = self._run_pipe()
+        self.assertEqual(pipe.returncode, 0, pipe.stderr)
+
+        # No session_summary event was appended → synthesis path wins,
+        # status event surfaces in the persisted summary.
+        history = session_history.load_history(self.smm_dir)
+        self.assertEqual(len(history["entries"]), 1)
+        persisted = history["entries"][0]["summary"]
+        self.assertIn(scan_marker, persisted)
+        self.assertIn("[status]", persisted)
 
 
 if __name__ == "__main__":
