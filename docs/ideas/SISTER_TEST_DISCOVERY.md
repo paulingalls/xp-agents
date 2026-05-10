@@ -279,7 +279,9 @@ The registry is enumerated. Adding a name requires a code change:
 | `basename_no_ext` | `Path(source).stem` — basename without final extension | python_pytest, go_native, js_jest, rust_cargo (all four built-ins) |
 | `skill_dir_xp_strip` | For `skills/<name>/preload.sh`: returns `<name>` with `xp-` stripped and dashes replaced by `_`. Returns `None` when the path doesn't match the `skills/<name>/preload.sh` shape. | python_pytest (R2 in §2a *as extended for this plugin*; not in the project-generic R1/R2 rules) |
 
-The `skill_dir_xp_strip` extractor exists for backward compatibility with the deferred sprint-079 wiring. It is NOT part of the project-generic built-in rules — this plugin's own `system_context.json` would declare it as an `override`, not the built-in `python_pytest` table. Other plugin users get the two project-generic rules and nothing else.
+The `skill_dir_xp_strip` extractor exists for backward compatibility with the deferred sprint-079 wiring. It is NOT part of the project-generic built-in rules — this plugin's own `system_context.json` would name it via `stem_extractor: "skill_dir_xp_strip"` inside an `override` `TestLayoutRule`. Other plugin users get the two project-generic rules and nothing else.
+
+**Note on extensibility.** Overrides per §4a are `TestLayoutRule` instances; they reference an extractor *by name*. Adding a NEW extractor name (different stem-extraction logic, e.g. `skill_dir_xp_strip` for an unrelated naming convention) requires a code change to this registry — overrides cannot smuggle in new extractor functions via JSON. The registry is intentionally closed so that `system_context.json` data stays inert and reviewable; if a plugin needs a new extractor, it ships a PR against this module along with its override declaration.
 
 If `stem_extractor` returns `None`, the rule does not apply to this source — the validator continues to the next rule.
 
@@ -383,16 +385,14 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
                 stem_extractor="basename_no_ext",
                 test_glob="tests/{stem}.rs",
             ),
-            # Integration test for the library: src/lib.rs → tests/*.rs
-            # (no per-file mapping — Rust convention is one test file per
-            # *capability*, not per source file. This rule globs broadly
-            # and lets the validator append all existing integration tests
-            # whenever a story touches src/lib.rs.)
-            TestLayoutRule(
-                source_pattern="src/lib.rs",
-                stem_extractor="basename_no_ext",  # stem is "lib", not used in glob
-                test_glob="tests/*.rs",
-            ),
+            # NOTE: src/lib.rs is intentionally NOT mapped. Rust integration
+            # tests live under tests/ but their naming is per-capability,
+            # not per-source-file — there is no honest 1:1 mapping. A
+            # blanket tests/*.rs rule would auto-include every integration
+            # test whenever a story touches src/lib.rs and silently blow
+            # up file_domain. Plugins that want lib.rs mapped must declare
+            # an `override` rule with their project-specific naming
+            # convention (e.g. tests/lib_<capability>.rs).
         ),
     ),
 }
@@ -489,3 +489,5 @@ This document is the only design source the implementation milestone needs. It s
 - The validator function signature, where it gets called from, and what was wrong with the sprint-079 wiring (§4, §5)
 
 The implementation milestone may discover edge cases not enumerated here — that's expected. What it should not need to do is re-design the surface, re-litigate Option A vs B, or re-derive the built-in conventions.
+
+**A note on self-assertion.** AC4 ("doc is the only design source needed") is judged by this doc about itself, which is the structural risk inherent to spike acceptance. The implementation milestone should open with a brief doc-vs-reality pass — try to write the validator from this doc alone, log every gap as a question, and if the gap count exceeds, say, three substantive items, bring them back to a customer review before continuing. That pass is the load-bearing AC4 verifier, not the spike author's self-claim.
