@@ -20,8 +20,9 @@ import identity
 import sprint_store
 import system_context_store
 
-# Re-exports preserve `from branching import {merge,delete}_branch` callers
-# after the lifecycle island moved to branch_lifecycle.py.
+# Back-compat re-exports for code split into branch_lifecycle.py (merge/
+# delete) and branch_names.py (pure-string helpers; tests patch
+# branch_names._utc_today_iso since the function lives there).
 from branch_lifecycle import (  # noqa: F401
     _fast_forward_if_safe,
     _is_merged_into,
@@ -29,10 +30,6 @@ from branch_lifecycle import (  # noqa: F401
     delete_branch,
     merge_branch,
 )
-
-# Pure-string naming helpers split into branch_names.py — re-export so
-# existing `from branching import branch_name` (and the
-# `branching._utc_today_iso` patch sites in tests) keep working.
 from branch_names import (  # noqa: F401
     _SPRINT_BRANCH_RE,
     _slugify,
