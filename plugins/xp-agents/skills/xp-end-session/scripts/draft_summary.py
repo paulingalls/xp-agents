@@ -6,7 +6,8 @@ events.jsonl from the prior session_end boundary forward and emits
 JSON to stdout:
 
     {
-      "summary": "<line-per-event narrative, trimmed to budget>",
+      "summary": "<refined session_summary content if present;
+                   else line-per-event narrative; trimmed to budget>",
       "open_questions": ["<event-id>", ...],
       "likely_addressed": [
           {"id": "<concern_id>", "commits": ["<git_commit_hash>", ...]},
