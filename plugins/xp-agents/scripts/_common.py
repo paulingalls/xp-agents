@@ -105,6 +105,7 @@ def prior_session_end_ts(events: list[dict]) -> str:
 
 def uncommitted_event_count(events: list[dict]) -> int:
     """Count real-work events newer than the most recent commit event."""
+    # Sibling boundary-scan helpers: current_session_start_index, prior_session_end_ts.
     # SESSION_SUMMARY is intrinsic to /xp-end-session and always lands
     # after the user's last commit by design; counting it would make the
     # honesty signal structurally always >=1.
