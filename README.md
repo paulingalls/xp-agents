@@ -171,10 +171,10 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
-| **PostToolUse** (Skill) | Review cycle flag updates (simplify, quality review), kickoff completion (process guide injection + compaction) | Coding Standards, Refactoring, Communication |
+| **PostToolUse** (Skill\|Agent) | Review cycle flag updates (simplify, quality review), forked-xp completion routing in `review_cycle_done.py` — process guide injection on housekeeper completion, `/xp-assign` task-creation nudge after assign, security-review continuation nudge | Coding Standards, Refactoring, Communication |
 | **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
 | **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + process guide) | Collective Code Ownership |
-| **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow) | Planning Game |
+| **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow when PostToolUse:Agent doesn't fire) | Planning Game |
 | **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
@@ -183,11 +183,11 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 
 ### Token Budgets and Honesty Guards
 
-Two regression suites keep the plugin's hot paths honest as it grows:
+Three regression suites keep the plugin's hot paths honest as it grows:
 
 - **Byte-budget framework (emitters + preloads)** — every shipping hook-injection emitter and forked-skill preload has a per-script byte budget. Suites measure each script against a seeded SMM and fail if output grows past `ceil(measured * 1.125 / 100) * 100` bytes. New emitters or preloads must register a budget; the surface scan refuses to ship anything unbudgeted.
 - **Byte-budget framework (in-context guides)** — `PROCESS_GUIDE.md`, `XP_VALUES.md`, and `TEAMMATE_GUIDE.md` carry per-file line budgets so prose growth is caught before it ships.
-- **12-hex-ID grep guard** — SMM event IDs are 12-hex strings, and they age out of the log as sessions roll over. Sister suites scan all shipped emitters and the in-context guides for stray IDs in prose (decisions, concerns, retros referenced inline) and refuse to ship any — a hard-coded ID rots the moment its event ages out.
+- **12-hex-ID grep guard** — SMM event IDs are 12-hex strings, and they age out of the log as sessions roll over. Sister suites scan the shipped plugin guides and emitter prose for stray IDs and refuse to ship any — a hard-coded ID rots the moment its event ages out. Repo-level dev docs (`docs/`, `CLAUDE.md`) are out of the guard's scope; spike and design docs there may cite IDs as anchors during the design window.
 
 ### Plan Review — Two Entry Points
 
