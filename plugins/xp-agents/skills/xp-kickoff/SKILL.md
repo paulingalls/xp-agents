@@ -20,9 +20,11 @@ The session status above was preloaded automatically.
 
 **You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 6) MUST always run — it is not optional. Only begin session work after housekeeping completes.**
 
-## Step 1: Retrospective (if RETRO_NEEDED)
+## Step 1: Retrospective (ALWAYS)
 
-If the preload shows **RETRO_NEEDED**, invoke the `xp-retrospective` agent via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). After it completes, render the latest retrospective:
+Invoke the `xp-retrospective` agent via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). The agent handles both populated and empty `.retro-input.json` — on a fresh project with no prior session_end, it emits a seed retrospective (Keep around adopting XP, Try as skill suggestions, no Fix). Do NOT gate this step on the existence of `.retro-input.json`; the agent owns that branch.
+
+After it completes, render the latest retrospective:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/retro_cli.py --smm-dir <SMM_DIR> render
 ```

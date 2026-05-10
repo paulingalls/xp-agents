@@ -154,28 +154,18 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertIn("ready=2", result.stdout)
         self.assertIn("Ready:", result.stdout)
 
-    def test_outputs_retro_needed_when_input_exists(self):
-        """M3: .retro-input.json triggers RETRO_NEEDED flag (covers both
-        session and sprint retros — sprint sizing is in the same file)."""
+    def test_no_retro_marker_emitted(self):
+        """Story-003: Step 1 is now unconditional; the preload no longer
+        emits a RETRO_NEEDED marker for any input state. The action that
+        the marker once gated lives in SKILL.md as 'always invoke', so
+        the marker would only confuse the LLM by suggesting conditionality.
+        """
         (self.smm_dir / ".retro-input.json").write_text('{"unanalyzed_count": 6}')
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertIn("RETRO_NEEDED", result.stdout)
-
-    def test_sprint_retro_input_ignored(self):
-        """M3: .sprint-retro-input.json is a stale artifact from the old
-        separate sprint retro path — preload does not check for it."""
         (self.smm_dir / ".sprint-retro-input.json").write_text('{"sprint_id": "s-1"}')
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("RETRO_NEEDED", result.stdout)
         self.assertNotIn("SPRINT_RETRO_NEEDED", result.stdout)
-
-    def test_no_retro_flag_when_no_input_files(self):
-        """M3: with no .retro-input.json, no retro flag fires."""
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0)
-        self.assertNotIn("RETRO_NEEDED", result.stdout)
 
     def test_outputs_needs_system_context_when_missing(self):
         """Reports NEEDS_SYSTEM_CONTEXT when system_context.json missing."""
@@ -197,12 +187,14 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         is easy to skim past, especially when the rest of the preload is
         heavy. Pinning the action hint into the heading keeps the trigger
         visually inseparable from its consequence.
+
+        Story-003 dropped RETRO_NEEDED entirely (Step 1 is now
+        unconditional), so only the three remaining gated markers are
+        asserted here.
         """
-        (self.smm_dir / ".retro-input.json").write_text('{"unanalyzed_count": 6}')
         (self.smm_dir / ".needs-sprint").write_text("startup")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
-        self.assertIn("### RETRO_NEEDED → invoke xp-retrospective", result.stdout)
         self.assertIn(
             "### NEEDS_SYSTEM_CONTEXT → invoke /xp-system-context", result.stdout
         )

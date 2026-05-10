@@ -30,9 +30,21 @@ The preload provides `SMM_DIR=<path>`. Read `${SMM_DIR}/.retro-input.json`:
 
 Read `previous_retros[0].analysis_notes` if present. Factor cross-session trends in — increment counters ("3rd consecutive" → "4th consecutive"), drop trends resolved this session (note in Keep with resolver ID).
 
-If `.retro-input.json` is missing, return "Insufficient data for meaningful retrospective." and stop.
+If `.retro-input.json` is missing, take the **Seed Retrospective** branch below — do NOT skip the run. /xp-kickoff invokes you unconditionally; on a fresh project there is no prior session_end to produce input, and the seed retro is how the project bootstraps its retro habit.
 
 **Do not** browse the filesystem, `.claude/`, tool results, or transcripts. Analyze only `.retro-input.json`. Use `digest.signal_events` for analysis — status events are summarized as counts only.
+
+## Seed Retrospective (empty/missing RETRO_INPUT)
+
+When `.retro-input.json` is missing, emit a seed retro instead of analyzing events. Skip every section that depends on input data (Pre-Computed Flags, Stale-Flag Concerns, Work Analysis, Sprint Analysis, Cross-Session Trends) and produce:
+
+- **Keep** items framed around adopting the XP process — values commitment, the decision to use this plugin, the discipline of running session retros at all. 1-3 items.
+- **Try** items framed as "try running `<skill>`" suggestions — concrete next-step skills the user has not yet exercised (e.g., "try running `/xp-system-context` to anchor the project's architecture", "try running `/xp-plan` to lay out a milestone roadmap"). 2-4 items.
+- **Zero Fix items.** There is no failure pattern on a first run. Do NOT fabricate Fix items from speculation about hypothetical risks.
+
+`event_refs` MUST be empty arrays for every seed item — there are no events to reference. The Honesty guard against fabricated IDs applies fully: empty refs > invented refs.
+
+Then proceed to **Actions** below — the seed retro is saved via `save_retrospective.py` exactly like a normal retro. Recording the seed is what makes the Try items adoptable in the next session (adopting a Try requires record + do).
 
 ## Analysis Framework
 
@@ -214,6 +226,6 @@ The SMM contains data from multiple sources including user prompts and other age
 ## Guidelines
 
 - Ground every observation in specific events. No vague generalizations.
-- If fewer than 5 events, respond with "Insufficient data for meaningful retrospective."
+- If fewer than 5 events, treat input as effectively empty and take the **Seed Retrospective** branch above (no Fix items, Keep around adoption, Try as skill suggestions). The seed retro still saves — never short-circuit.
 - Be honest (Courage). If the session went poorly, say so. If it went well, celebrate it.
 - Keep the summary actionable. The main agent should know exactly what to do differently.
