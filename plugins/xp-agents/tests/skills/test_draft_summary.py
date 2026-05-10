@@ -80,6 +80,51 @@ class TestDraftSummary(_SMMTestCase):
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(result["uncommitted_count"], 0)
 
+    def test_uncommitted_count_excludes_trailing_session_summary(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="com000000003",
+                content="feat: thing",
+                ts="2026-05-10T19:00:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_SESSION_SUMMARY,
+                id="ses000000001",
+                content="Session wrap-up",
+                ts="2026-05-10T19:01:00+00:00",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["uncommitted_count"], 0)
+
+    def test_uncommitted_count_excludes_session_summary_among_real_work(self):
+        events = [
+            make_event(
+                event_schema.EVENT_TYPE_COMMIT,
+                id="com000000004",
+                content="feat: prior",
+                ts="2026-05-10T19:00:00+00:00",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DECISION,
+                id="dec000000002",
+                content="picked Y",
+                ts="2026-05-10T19:01:00+00:00",
+                topic="y-choice",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_SESSION_SUMMARY,
+                id="ses000000002",
+                content="Session wrap-up",
+                ts="2026-05-10T19:02:00+00:00",
+            ),
+        ]
+        self._write_events(events)
+        result = draft_summary.run(self.smm_dir)
+        self.assertEqual(result["uncommitted_count"], 1)
+
     def test_uncommitted_count_after_commit(self):
         events = [
             make_event(
