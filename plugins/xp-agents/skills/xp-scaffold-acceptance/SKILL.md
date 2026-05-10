@@ -141,16 +141,10 @@ Exit cleanly in both cases. **No writes.**
 
 ## Step 2: Refresh knowledge
 
-After Step 3 collects surface + tool, use `WebSearch` to confirm the
-tool's latest stable version and current best practices. Search
-`<tool> latest stable release` and `<tool> recommended config <year>`.
-Pin the version as `tool_version` — Step 4 records it in the plan,
-Step 8 writes it to the commit message and manifest.
-
-**Known-installs map (consult FIRST).** Some tool names collide with
-unrelated packages (`brew install --cask maestro` lands the GUI app
-Maestro.app, not the mobile e2e CLI). Before WebSearch, look up the
-tool in the curated map:
+After Step 3 collects surface + tool, consult the curated map BEFORE
+WebSearch — some tool names collide with unrelated packages (`brew
+install --cask maestro` lands the GUI app Maestro.app, not the mobile
+e2e CLI):
 
 ```bash
 KNOWN=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/known_installs.py "<tool>")
@@ -160,9 +154,15 @@ KNOWN_RC=$?
 Exit 0 → `KNOWN` is JSON `{install_cmds, verify_identity_cmd,
 expected_version_pattern}`; bind those fields verbatim and pass them
 into Step 4's `build-plan` input JSON. Exit 2 → no curated entry; fall
-through to the WebSearch flow below. Initial map covers `maestro`,
-`playwright`, `cypress`, `detox`. Add new entries via PR when a real
-collision shows up — do not pre-populate speculatively.
+through to WebSearch. Initial map covers `maestro`, `playwright`,
+`cypress`, `detox`. Add new entries via PR when a real collision shows
+up — do not pre-populate speculatively.
+
+Regardless of map hit, **WebSearch always runs** to refresh `tool_version`
+(map entries intentionally omit it — versions move on each release).
+Search `<tool> latest stable release` and `<tool> recommended config
+<year>`. Pin the version as `tool_version` — Step 4 records it in the
+plan, Step 8 writes it to the commit message and manifest.
 
 **Canonical tools** (`scaffold_detect.canonical_tools_for(surface)`):
 proceed with web-refreshed knowledge.

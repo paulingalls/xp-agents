@@ -93,7 +93,10 @@ class ApplySnapshot:
     plan: dict
 
     def log_path(self, phase: str) -> Path:
-        """Path to the streamed-stdout log for a given phase ("install"/"verify")."""
+        """Path to the streamed-stdout log for a given phase.
+
+        Phases: ``install``, ``verify-identity``, ``verify``.
+        """
         return self.snapshot_dir / f"{phase}.log"
 
 
@@ -260,6 +263,10 @@ def run_verify_identity(snap: ApplySnapshot) -> None:
     pattern = snap.plan.get("expected_version_pattern", "")
     if not cmd:
         return
+    # Defense-in-depth: validate_plan pre-checks, but re.search("", stdout)
+    # matches everything — fail fast if a future caller bypasses validation.
+    if not pattern:
+        raise ValueError(IDENTITY_PATTERN_REQUIRED_MSG)
     completed = subprocess.run(
         shlex.split(cmd),
         cwd=snap.repo_root,
