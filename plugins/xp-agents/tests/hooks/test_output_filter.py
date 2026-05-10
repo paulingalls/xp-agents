@@ -50,6 +50,30 @@ _RESULT_LINE = json.dumps(
 _MOCK_LINES = [_SYSTEM_LINE, _ASSISTANT_LINE, _RESULT_LINE]
 
 
+class TestIsResult(unittest.TestCase):
+    """_is_result is the single terminal-event predicate shared by both detection paths.
+
+    (invariant: `parse_result_event` and `_consume_stream` agree on what 'result' means)
+    """
+
+    def test_true_for_result_event(self):
+        import teammate_output_filter
+
+        self.assertTrue(teammate_output_filter._is_result({"type": "result"}))
+
+    def test_false_for_non_result(self):
+        import teammate_output_filter
+
+        self.assertFalse(teammate_output_filter._is_result({"type": "system"}))
+        self.assertFalse(teammate_output_filter._is_result({"type": "assistant"}))
+
+    def test_false_for_missing_type(self):
+        import teammate_output_filter
+
+        self.assertFalse(teammate_output_filter._is_result({}))
+        self.assertFalse(teammate_output_filter._is_result({"reason": "x"}))
+
+
 class TestParseResultEvent(unittest.TestCase):
     """parse_result_event finds type:result in stream-json lines."""
 

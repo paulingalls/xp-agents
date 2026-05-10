@@ -31,6 +31,7 @@ import worktree
 get_current_branch = identity.get_current_branch
 
 _DECISION_BLOCK = "block"
+_STREAM_JSON_RESULT_TYPE = "result"
 _ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
 
 # Default no-progress timeout (seconds) before declaring the teammate hung.
@@ -86,10 +87,20 @@ def _iter_json_objects(lines: list[str]) -> Iterator[dict]:
             continue
 
 
+def _is_result(data: dict) -> bool:
+    """Stream-json terminal-event predicate. Single source of truth.
+
+    Used by parse_result_event (list-based, edge-case unit-tested) AND by
+    _consume_stream (fd-based, integration-tested). Keeps both detection
+    paths in sync.
+    """
+    return data.get("type") == _STREAM_JSON_RESULT_TYPE
+
+
 def parse_result_event(lines: list[str]) -> dict | None:
     """Find the type:result event in stream-json lines."""
     for data in _iter_json_objects(lines):
-        if data.get("type") == "result":
+        if _is_result(data):
             return data
     return None
 
@@ -178,7 +189,7 @@ def _consume_stream(fd: int, timeout: float) -> tuple[list[str], dict | None, bo
                 data = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if data.get("type") == "result":
+            if _is_result(data):
                 result = data
                 # Drain any trailing lines briefly; ignore another timeout here.
                 try:
