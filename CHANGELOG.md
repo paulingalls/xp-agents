@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.1.27 — fix(_common): exclude session_summary from uncommitted_event_count
+
+Free-mode bug fix surfaced at /xp-end-session. The honesty signal was structurally always >=1: Step 1 appends a session_summary event, Step 5 reports the count. Every session ended with the prompt "Consider committing before ending so the next session's probe has fresh data" even when there was no real outstanding work. The advice value of the signal collapsed to zero — the whole point is to flag forgotten user work, not to remind the user that /xp-end-session just did its job.
+
+Filter SESSION_SUMMARY from `_common.uncommitted_event_count`. The count now points only at real outstanding work — events the user appended (decisions, concerns, status, etc.) that haven't been linked to a commit via a Resolves-Event trailer.
+
+TDD red-first: 2 new tests in `test_draft_summary.py` cover the trivial trailing-summary case (commit + summary → 0) and the load-bearing realistic case (commit + decision + summary → 1, ensures the filter doesn't over-exclude and mask actual outstanding work).
+
+### Test count
+
+- Full suite: 4739 passed, 1 skipped (was 4737 in v3.1.26)
+
 ## v3.1.26 — sprint-080 (Milestone 3 docs refresh + sister-test SPIKE + probe sentinel cleanup)
 
 Sprint-080 closes execution-plan Milestone 3 (top-level docs refresh against sprint-074..077 doctrine), redesigns the sprint-079 deferred sister-test validator as a project-generic SPIKE, and resolves a sprint-079 close-reviewer concern. **5/5 stories delivered**.
