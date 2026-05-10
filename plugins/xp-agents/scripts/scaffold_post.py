@@ -122,7 +122,13 @@ def commit_scaffold(
 
     target_branch = current_branch
     if stage >= 1:
-        new_branch = branching.create_scaffold_branch(str(repo_root), surface, smm_dir)
+        new_branch = branching.create_scaffold_branch(
+            str(repo_root),
+            surface,
+            smm_dir,
+            stage=stage,
+            current_branch=current_branch,
+        )
         if new_branch is None:
             return CommitResult(
                 ok=False,

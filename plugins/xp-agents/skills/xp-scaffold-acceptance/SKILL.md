@@ -373,7 +373,10 @@ COMMIT_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
 
 Stage-aware: Stage 0 commits on current HEAD; Stage 1+ creates
 `<user>/scaffold-<surface>` and commits there, refusing if HEAD is on a
-protected branch (`main`/`master`).
+protected branch (`main`/`master`). The scaffold branch forks off the
+current branch when non-protected (free / sprint / plan / generic
+feature branch) so any user work already on that branch stays
+reachable; on a protected branch the refusal fires before forking.
 
 ## Step 9: Record
 
