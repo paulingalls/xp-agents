@@ -304,9 +304,15 @@ class TestPromptNugget(_HookTestCase):
         assert result is not None
         self.assertIn("Commit touches", result)
 
-    def test_single_read_path(self):
-        """Reads events.jsonl once via read_events_raw, never read_delta."""
-        import _common
+    def test_single_locked_read_path(self):
+        """Reads events.jsonl exactly once via the locked read_delta_full path.
+
+        Why: prompt_nugget runs in the UserPromptSubmit hot path. The previous
+        unlocked read_events_raw + separate watermark write left a window where
+        a concurrent append could land between them. read_delta_full performs
+        the read under shared flock and advances watermark using the same
+        total_lines snapshot — closes the gap and keeps the read single.
+        """
         import prompt_nugget
         import read_delta
 
@@ -314,10 +320,13 @@ class TestPromptNugget(_HookTestCase):
             [make_event(EVENT_TYPE_CONCERN, content="X", severity="high")]
         )
 
-        real_raw = _common.read_events_raw
+        real_full = read_delta.read_delta_full
 
         with (
-            patch("_common.read_events_raw", side_effect=real_raw) as mock_raw,
+            patch.object(
+                read_delta, "read_delta_full", side_effect=real_full
+            ) as mock_full,
+            patch("_common.read_events_raw") as mock_unlocked,
             patch.object(read_delta, "read_delta") as mock_rd,
         ):
             result = prompt_nugget.run(
@@ -325,14 +334,56 @@ class TestPromptNugget(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
-        mock_rd.assert_not_called()
         self.assertEqual(
-            mock_raw.call_count,
+            mock_full.call_count,
             1,
-            f"read_events_raw called {mock_raw.call_count} times, expected 1",
+            f"read_delta_full called {mock_full.call_count} times, expected 1",
         )
+        mock_rd.assert_not_called()
+        mock_unlocked.assert_not_called()
         assert result is not None
         self.assertIn("X", result)
+
+    def test_post_watermark_append_picked_up_next_call(self):
+        """Append landing after a read is visible on the next prompt_nugget call.
+
+        Why: the watermark scheme
+        must be invariant across the read→advance window. write_watermark
+        uses total_lines from the locked read; any append after the call sees
+        line index N+ and is picked up on the next invocation. Pin this so a
+        future watermark-scheme change cannot silently drop signals.
+        """
+        import prompt_nugget
+
+        first = make_event(EVENT_TYPE_CONCERN, content="First", severity="high")
+        self._write_events([first])
+
+        result1 = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        assert result1 is not None
+        self.assertIn("First", result1)
+
+        # Second call with no new events: watermark caught up, nothing to surface.
+        self.assertIsNone(
+            prompt_nugget.run(
+                {"session_id": "s1", "agent_id": "main"},
+                smm_dir=self.smm_dir,
+            )
+        )
+
+        # Append a new concern AFTER the watermark-advance window closed.
+        late = make_event(EVENT_TYPE_CONCERN, content="Late arrival", severity="high")
+        self._write_events([first, late])
+
+        result3 = prompt_nugget.run(
+            {"session_id": "s1", "agent_id": "main"},
+            smm_dir=self.smm_dir,
+        )
+        assert result3 is not None
+        self.assertIn("Late arrival", result3)
+        self.assertNotIn("First", result3)
 
     def test_resolution_chain_completeness(self):
         """Pre-watermark resolver still cascade-filters post-watermark dependents."""
