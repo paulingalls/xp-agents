@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Format draft_summary output as preload sections.
+"""Format draft_summary output as preload sections for /xp-end-session.
 
-Thin wrapper that imports draft_summary in-process (no subprocess) and
-prints the four sections preload.sh wants. Matches the 13-other-preload
-convention of calling a sibling .py script from preload.sh rather than
-inlining a python heredoc.
+Thin wrapper: imports draft_summary in-process and prints the four sections
+preload.sh consumes. Matches the convention of calling a sibling .py from
+preload.sh rather than inlining a python heredoc.
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(_SCRIPT_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import draft_summary  # noqa: E402
+import draft_summary
 
 
 def main() -> None:

@@ -56,12 +56,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
             _common.append_safe(smm_dir, event)
         return None
 
-    gate_file = smm_dir / ".question-gate"
-    try:
-        question_id = gate_file.read_text().strip()
-        gate_file.unlink()
-    except FileNotFoundError:
-        question_id = ""
+    consumed = markers.marker_consume(smm_dir, markers.QUESTION_GATE)
+    question_id = consumed.strip() if isinstance(consumed, str) else ""
 
     response_text = _extract_response_text(input_data)
 

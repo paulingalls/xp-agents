@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import read_delta
+import resolution
 
 # Signal types worth surfacing, in priority order — higher priority is
 # more likely to affect the agent's current work.
@@ -52,22 +53,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     try:
-        new_events = read_delta.read_delta(
-            smm_dir,
-            _WATERMARK_ID,
-        )
+        # Locked single-read: full events for resolution chain completeness
+        # (chains span the watermark), new_events slice for the nugget signals.
+        # Watermark advance uses the same total_lines snapshot returned by
+        # read_events_from under shared flock — closes the read/advance gap
+        # that existed when this called the unlocked read_events_raw.
+        events, new_events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID)
+        resolved = resolution.compute_resolutions(events)
     except Exception:
         return None
 
-    _, resolved = _common.load_events_with_resolutions(smm_dir)
-    resolved_ids = (
-        resolved.get("resolved_concern_ids", set())
-        | resolved.get("resolved_debt_ids", set())
-        | resolved.get("resolved_decision_ids", set())
-        | resolved.get("resolved_goal_ids", set())
-        | resolved.get("resolved_assumption_ids", set())
-        | resolved.get("answered_question_ids", set())
-    )
+    resolved_ids = resolution.collect_all_resolved_ids(resolved)
 
     signals = [
         e

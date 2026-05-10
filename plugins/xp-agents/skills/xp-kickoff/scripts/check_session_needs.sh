@@ -11,10 +11,8 @@ echo ""
 # Empty-body marker headers carry their action inline so they read like a
 # directive rather than skimmable structure — visual heaviness is the
 # load-bearing affordance for the consumer, not body content.
-if [ -f "${SMM_DIR}/.retro-input.json" ]; then
-    echo "### RETRO_NEEDED → invoke xp-retrospective"
-    echo ""
-fi
+# (No RETRO_NEEDED marker: Step 1 is unconditional; the agent itself
+# branches between populated and seed retros.)
 
 if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo "### NEEDS_SYSTEM_CONTEXT → invoke /xp-system-context"

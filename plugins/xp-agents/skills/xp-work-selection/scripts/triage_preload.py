@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Scan events.jsonl for unresolved debts, concerns, and questions.
 
-Outputs formatted triage sections for work-selection preload. Replaces
-the Risks-pillar question display with direct event scanning.
+Outputs formatted triage sections for the xp-work-selection preload.
 """
 
 import argparse
@@ -18,15 +17,6 @@ import resolution  # noqa: E402
 import triage  # noqa: E402
 
 
-def _collect_session_end_timestamps(events: list[dict]) -> list[str]:
-    """Extract sorted session_end timestamps from events."""
-    return sorted(
-        e.get("ts", "")
-        for e in events
-        if e.get("type") == event_schema.EVENT_TYPE_SESSION_END
-    )
-
-
 def format_triage_section(
     header: str,
     items: list[dict],
@@ -40,12 +30,11 @@ def format_triage_section(
     lines = [f"### {header}:"]
     for item in items:
         event_id = item.get("id", "")
-        content = item.get("content", "")
         age = event_schema.sessions_since_event(
             session_end_timestamps, item.get("ts", "")
         )
         age_str = f"{age} sessions" if age != 1 else "1 session"
-        lines.append(f"- [id: {event_id}] {content} ({age_str} old)")
+        lines.append(f"- [id: {event_id}] {item.get('content', '')} ({age_str} old)")
         if commit_overlap and event_id in commit_overlap:
             msgs = "; ".join(
                 c.get("content", "")[:80] for c in commit_overlap[event_id][:3]
@@ -60,37 +49,36 @@ def run(smm_dir: Path) -> str:
     if not events:
         return ""
 
-    resolutions = resolution.compute_resolutions(events)
-    all_resolved = resolution.collect_all_resolved_ids(resolutions)
+    all_resolved = resolution.collect_all_resolved_ids(
+        resolution.compute_resolutions(events)
+    )
+    session_end_ts = sorted(
+        e.get("ts", "")
+        for e in events
+        if e.get("type") == event_schema.EVENT_TYPE_SESSION_END
+    )
 
-    session_end_ts = _collect_session_end_timestamps(events)
-
-    concern_items = triage.find_unresolved(
+    debts = triage.find_unresolved(events, event_schema.EVENT_TYPE_DEBT, all_resolved)
+    concerns = triage.find_unresolved(
         events, event_schema.EVENT_TYPE_CONCERN, all_resolved
     )
+    questions = triage.find_unresolved(
+        events, event_schema.EVENT_TYPE_QUESTION, all_resolved
+    )
+
     overlap: dict[str, list[dict]] = {}
-    for concern in concern_items:
-        hits = triage.find_overlapping_commits(concern, events)
-        if hits:
-            overlap[concern.get("id", "")] = hits
+    for c in concerns:
+        if hits := triage.find_overlapping_commits(c, events):
+            overlap[c.get("id", "")] = hits
 
-    sections: list[str] = []
-    for event_type, header in [
-        (event_schema.EVENT_TYPE_DEBT, "Open Debts"),
-        (event_schema.EVENT_TYPE_CONCERN, "Open Concerns"),
-        (event_schema.EVENT_TYPE_QUESTION, "Open Questions"),
-    ]:
-        if event_type == event_schema.EVENT_TYPE_CONCERN:
-            items = concern_items
-            kw: dict = {"commit_overlap": overlap}
-        else:
-            items = triage.find_unresolved(events, event_type, all_resolved)
-            kw = {}
-        section = format_triage_section(header, items, session_end_ts, **kw)
-        if section:
-            sections.append(section)
-
-    return "\n\n".join(sections)
+    sections = [
+        format_triage_section("Open Debts", debts, session_end_ts),
+        format_triage_section(
+            "Open Concerns", concerns, session_end_ts, commit_overlap=overlap
+        ),
+        format_triage_section("Open Questions", questions, session_end_ts),
+    ]
+    return "\n\n".join(s for s in sections if s)
 
 
 def main() -> None:
@@ -100,8 +88,7 @@ def main() -> None:
     parser.add_argument("--smm-dir", type=Path, required=True, help="SMM directory")
     args = parser.parse_args()
 
-    output = run(args.smm_dir)
-    if output:
+    if output := run(args.smm_dir):
         print(output)
 
 

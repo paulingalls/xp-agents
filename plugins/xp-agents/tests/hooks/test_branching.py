@@ -30,6 +30,32 @@ from conftest import _SMMTestCase
 from event_schema import EVENT_TYPE_DECISION
 
 
+class TestBranchLifecycleShimImports(unittest.TestCase):
+    """Catch cascade failure in <1s when branch_lifecycle extraction
+    breaks the backwards-compat re-exports — per wisdom ab40b12643ab,
+    a one-line shim-import test fails fast instead of waiting for
+    80 downstream tests to red.
+    """
+
+    def test_lifecycle_symbols_resolve_via_branching(self):
+        from branching import (
+            _fast_forward_if_safe,
+            _is_merged_into,
+            _merge_into_target,
+            delete_branch,
+            merge_branch,
+        )
+
+        for fn in (
+            delete_branch,
+            merge_branch,
+            _is_merged_into,
+            _fast_forward_if_safe,
+            _merge_into_target,
+        ):
+            self.assertTrue(callable(fn))
+
+
 class TestBranchName(unittest.TestCase):
     def test_basic_format(self):
         result = branching.branch_name("paul", "story-001", "schema-validation")

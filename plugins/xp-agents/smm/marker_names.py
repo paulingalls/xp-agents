@@ -24,6 +24,7 @@ ASSIGN_PENDING = ".assign-pending"
 NEEDS_HOUSEKEEPING = ".needs-housekeeping"
 CLOSE_CYCLE_ACTIVE = ".close-cycle-active"
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
+PROBE_REFRESH = ".probe-refresh"
 
 SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."
 

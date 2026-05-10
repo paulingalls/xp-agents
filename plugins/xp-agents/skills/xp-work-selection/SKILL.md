@@ -42,6 +42,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
 Example topics: `retro-try-commit-after-green`, `retro-try-fix-gate-coverage`.
 Never use bare `retro-try-adopted` — always include a descriptive slug.
 
+Adopt (and the `--force-adopt` escape under `defer`) also touches the
+probe-refresh sentinel under SMM_DIR. The next pre-commit `resolves_probe`
+treats its caller-supplied snapshot as stale and re-reads `events.jsonl`,
+so a commit landing within the 5s wall-clock staleness window still sees
+the just-written decision and won't divert with `missing-event`. No
+manual signaling required — the helper handles it.
+
 **Defer** (status event, `disposition=deferred`):
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py defer \
