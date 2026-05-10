@@ -1,5 +1,42 @@
 # Changelog
 
+## v3.1.29 — sprint-081 (scaffold-acceptance hardening: 3 real-world bug fixes + probe-quality SPIKE)
+
+Sprint-081 closes execution-plan Milestone 1 — three independent fixes from the first real-world `/xp-scaffold-acceptance` invocation on 2026-05-04 (Expo mobile project; ~5 manual recovery prompts), plus a SPIKE adopted from this session's retro Try investigating 18 consecutive sessions of sub-50% probe adoption. **4/4 stories delivered**.
+
+### story-001 — Bug 1: known_installs map + tool-identity verify probe
+
+Curated `plugins/xp-agents/scripts/known_installs.json` (initial map: maestro, playwright, cypress, detox) overrides `WebSearch` for tools where the popular package name collides with an unrelated package (`brew install --cask maestro` lands `Maestro.app` GUI, not the mobile-dev-inc CLI). Map entries provide fully-qualified `install_cmds` + paired `verify_identity_cmd` / `expected_version_pattern`. SKILL.md Step 2 consults the map FIRST; map hits bind those fields verbatim into Step 4's `build-plan` input. WebSearch still always runs to refresh `tool_version` (entries omit it).
+
+New apply phase `run_verify_identity` between `run_install` and `run_verify`: runs `verify_identity_cmd`, asserts `re.search(expected_version_pattern, stdout)`, raises `CalledProcessError` on mismatch so `apply_plan`'s revert engages. `validate_plan` rejects cmd-without-pattern pre-snapshot using a single-source `IDENTITY_PATTERN_REQUIRED_MSG` constant; defense-in-depth `raise ValueError` inside `run_verify_identity` for direct callers. Output mirrored to `verify-identity.log` for symmetric failure diagnostics. `render_preview` surfaces the identity probe in the customer's Step 5 confirmation.
+
+`Phase = Literal["write", "install", "verify-identity", "verify"]` eliminates magic phase strings symmetrically across `scaffold_apply.py` and `scaffold_cli.py`. `known_installs.py` lives standalone (CLI entry for SKILL.md to call via Bash + importable function for tests) — keeps `scaffold_cli.py` at 499/500 and avoids coupling `scaffold_plan.py` to disk I/O.
+
+### story-002 — Bug 2: scaffold branch base derivation from current non-protected branch
+
+`create_scaffold_branch` previously always forked off primary, silently stranding user work that lived on a free / sprint / plan branch. Now reads `identity.get_current_branch(cwd)` + stage; non-protected → use as base, protected (main/master) → fall back to primary. `commit_scaffold` passes its already-cached `stage` and `current_branch` into `create_scaffold_branch` (optional kwargs), eliminating two duplicate subprocess + SMM lookups per scaffold run.
+
+Drive-by extraction: `branching.py` at 499 lines + this story's edits crossed the 500-line budget. Pure-string naming helpers (`_slugify`, `branch_name`, sprint/plan/free/scaffold name builders, `_utc_today_iso`, `_SPRINT_BRANCH_RE`, `is_sprint_branch`) split into `branch_names.py` and re-exported from `branching.py` for back-compat. Mirrors the existing `branch_lifecycle.py` extraction pattern. Tests patching `branching._utc_today_iso` updated to `branch_names._utc_today_iso` (the patch source-module rules apply to the moved function).
+
+### story-003 — Bug 3: drop HEAD subject prefix gate from apply-record
+
+Manual-recovery commits with non-canonical subjects (conventional-commits, plain prose, custom prefix) failed the `[chore] Scaffold ` prefix check at `scaffold_post.py:247` and couldn't flip the surface. The SHA-match gate at lines 234–243 already binds record to the exact commit, so the prefix check was redundant safety with high false-positive cost in real-world recovery scenarios. Dropped lines 244–256 (assignment + gate); SHA-match gate preserved. `SCAFFOLD_COMMIT_PREFIX` still drives `build_commit_message` subject formatting for scaffold-generated commits — only the read gate is relaxed.
+
+Drive-by: extended `tests/scaffold/_helpers.init_git_with_seed` with a `subject` kwarg + return-sha; collapsed the local `_seed_scaffold_commit` helper and the new test's 12-line commit-creation block into a single helper call.
+
+### story-004 SPIKE — probe candidate-set quality
+
+Investigation traced the 18-session probe-adoption regression to pool construction at `resolves_probe.py:460–484`: `open_issues_matching_commit` + `_matching_open_discoveries` are file-overlap-only; `sibling_matches` requires an active close-cycle. Keyword-only matches never enter the pool — `_score_candidate` already keyword-weighted, but it never sees them. Sprint-082 fix scoped at ~30 LOC + 2 tests: add `_matching_open_by_keyword` to the pool builder. Decision event `4d181aef4c31` records the trace and the fix direction.
+
+### Token-audit M-4 closeout (decision)
+
+Pre-existing risk `8e68053a96f0` ("M-4 preload audit incomplete") confirmed stale: sprint-077 v3.1.24 shipped the structural M-4, sprint-079 v3.1.25 self-corrected 3 helpers via existing budget tripwires. Five surface-scan tests (`preload`, `emitter`, `guide`, `agent`, `skill`) catch unbudgeted additions. Decision `ff14a38ab90d` documents the structurally-complete state.
+
+### Test count
+
+- Full suite: 4756 passed, 1 skipped, 377 subtests passed (was 4742 in v3.1.28)
+- New tests: TestKnownInstalls (4), TestScaffoldPlanIdentityFields (2), TestRunVerifyIdentity (5), TestRenderPreviewIdentityProbe (2), test_scaffold_branch_forks_off_current_non_protected_branch, test_arbitrary_subject_succeeds_when_sha_matches (3 subTests)
+
 ## v3.1.28 — fix(draft_summary): persist refined session_summary, not mechanical scan
 
 Free-mode bug fix surfaced at /xp-end-session validation. Step 1 has the agent author a refined past-tense `session_summary` event, but `write_history.py` (via `draft_summary._build_summary`) ignored that event and persisted the raw mechanical `[type] content` event-log dump instead. Effect: next kickoff's `### LAST_SESSION` block surfaced messy event-log lines (commit message bodies, `[status]`/`[concern]`/`[commit]` markers) rather than the refined narrative the agent had just written. The "Refine the CANDIDATES text into a 1-2 paragraph narrative" rule in SKILL.md Step 1 was effectively unenforced — the refined content existed in `events.jsonl` but never reached the layer the next session reads.
