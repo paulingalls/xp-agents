@@ -226,6 +226,16 @@ def _cmd_apply_install(args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_apply_verify_identity(args: argparse.Namespace) -> int:
+    return _run_apply_phase(
+        args,
+        phase="verify-identity",
+        run_fn=scaffold_apply.run_verify_identity,
+        timeout_sec=scaffold_apply.IDENTITY_VERIFY_TIMEOUT_SEC,
+        cleanup_on_success=False,
+    )
+
+
 def _cmd_apply_verify(args: argparse.Namespace) -> int:
     return _run_apply_phase(
         args,
@@ -396,6 +406,10 @@ def main() -> None:
 
     for name, helptext in [
         ("apply-install", "Run install_cmds; auto-revert on failure"),
+        (
+            "apply-verify-identity",
+            "Run verify_identity_cmd, assert version pattern; auto-revert on mismatch",
+        ),
         ("apply-verify", "Run verify_cmd; auto-revert on failure"),
         ("apply-revert", "Explicit cancel — restore the snapshot"),
     ]:
@@ -471,6 +485,7 @@ def main() -> None:
         "render-preview": _cmd_render_preview,
         "apply-write": _cmd_apply_write,
         "apply-install": _cmd_apply_install,
+        "apply-verify-identity": _cmd_apply_verify_identity,
         "apply-verify": _cmd_apply_verify,
         "apply-revert": _cmd_apply_revert,
         "apply-commit": _cmd_apply_commit,

@@ -39,6 +39,7 @@ in-memory as PIPE for the brief reason summary. Timeouts: 300s install,
 
 import contextlib
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -50,6 +51,7 @@ from pathlib import Path
 from typing import Literal
 
 SnapshotState = Literal["cleaned", "retained", "none"]
+Phase = Literal["write", "install", "verify-identity", "verify"]
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
@@ -57,6 +59,7 @@ from _append_impl import write_text_atomic  # noqa: E402
 
 INSTALL_TIMEOUT_SEC = 300
 VERIFY_TIMEOUT_SEC = 60
+IDENTITY_VERIFY_TIMEOUT_SEC = 30
 SNAPSHOT_PREFIX = "scaffold-snap-"
 BACKUP_SUBDIR = "backup"
 PLAN_FILE = "plan.json"
@@ -224,6 +227,58 @@ def run_install(snap: ApplySnapshot) -> None:
             )
 
 
+def run_verify_identity(snap: ApplySnapshot) -> None:
+    """Run verify_identity_cmd and assert stdout matches expected_version_pattern.
+
+    A successful ``install_cmds`` can still land the wrong binary —
+    e.g. ``brew install --cask <name>`` lands an unrelated GUI app
+    when the formula and cask share a name. Between install and verify,
+    invoke the tool's ``--version`` (or equivalent) and use ``re.search``
+    against ``expected_version_pattern``. Mismatch raises
+    ``CalledProcessError`` so apply_plan's revert path engages — same
+    failure shape as a non-zero install.
+
+    Skipped (no-op) when ``verify_identity_cmd`` is empty (back-compat
+    for plans built before the identity probe existed). stdout is
+    captured in-memory (``--version`` payload is small) and then mirrored
+    to ``snapshot_dir/verify-identity.log`` so failure diagnostics carry
+    a log-pointer symmetric with install/verify; stderr stays in-memory
+    for the failure summary.
+    """
+    cmd = snap.plan.get("verify_identity_cmd")
+    pattern = snap.plan.get("expected_version_pattern", "")
+    if not cmd:
+        return
+    if not pattern:
+        # Honest refusal: a non-empty cmd with empty pattern would silently
+        # accept any --version output (defeats the guard). The known_installs
+        # map always pairs both; hand-rolled plans must too.
+        raise ValueError(
+            "verify_identity_cmd set but expected_version_pattern is empty; "
+            "either supply both or leave verify_identity_cmd empty to skip"
+        )
+    completed = subprocess.run(
+        shlex.split(cmd),
+        cwd=snap.repo_root,
+        check=True,
+        timeout=IDENTITY_VERIFY_TIMEOUT_SEC,
+        capture_output=True,
+        text=True,
+    )
+    snap.log_path("verify-identity").write_text(completed.stdout, encoding="utf-8")
+    if not re.search(pattern, completed.stdout):
+        first_line = (completed.stdout.splitlines() or [""])[0][:120]
+        raise subprocess.CalledProcessError(
+            1,
+            cmd,
+            output=completed.stdout,
+            stderr=(
+                f"identity mismatch: pattern {pattern!r} did not match "
+                f"--version output {first_line!r}"
+            ),
+        )
+
+
 def run_verify(snap: ApplySnapshot) -> None:
     """Run verify_cmd in repo_root, streaming stdout to verify.log.
 
@@ -370,6 +425,18 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
                 exc,
                 timeout_sec=INSTALL_TIMEOUT_SEC,
                 log_path=snap.log_path("install"),
+            ),
+            snap,
+        )
+    try:
+        run_verify_identity(snap)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        return failure_result(
+            "verify-identity",
+            phase_failure_reason(
+                exc,
+                timeout_sec=IDENTITY_VERIFY_TIMEOUT_SEC,
+                log_path=snap.log_path("verify-identity"),
             ),
             snap,
         )

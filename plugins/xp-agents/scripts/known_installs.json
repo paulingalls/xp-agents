@@ -1,0 +1,23 @@
+{
+  "_README": "Curated install map for /xp-scaffold-acceptance Step 2 — overrides web-search for tools where the popular package name collides with an unrelated GUI app or the wrong tap. Each entry: install_cmds (argv strings, run via shlex.split), verify_identity_cmd (a `--version`-style invocation), expected_version_pattern (Python regex matched via re.search against stdout). Add an entry only when the web-search-driven install has a documented collision; default flow stays WebSearch.",
+  "maestro": {
+    "install_cmds": ["brew install mobile-dev-inc/tap/maestro"],
+    "verify_identity_cmd": "maestro --version",
+    "expected_version_pattern": "^Maestro \\d+\\."
+  },
+  "playwright": {
+    "install_cmds": ["npm install -D @playwright/test", "npx playwright install"],
+    "verify_identity_cmd": "npx playwright --version",
+    "expected_version_pattern": "Version \\d+\\."
+  },
+  "cypress": {
+    "install_cmds": ["npm install -D cypress"],
+    "verify_identity_cmd": "npx cypress --version",
+    "expected_version_pattern": "Cypress package version: \\d+\\."
+  },
+  "detox": {
+    "install_cmds": ["npm install -D detox"],
+    "verify_identity_cmd": "npx detox --version",
+    "expected_version_pattern": "^\\d+\\."
+  }
+}

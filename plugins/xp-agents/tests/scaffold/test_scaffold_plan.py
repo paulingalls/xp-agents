@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _bases import _AssertNotNoneMixin
+from known_installs import load_known_install
 from scaffold_plan import (
     PROCEED_PROMPT,
     DeclineResult,
@@ -377,6 +380,54 @@ class TestModuleHygiene(unittest.TestCase):
             )
             if isinstance(node, ast.Expr):
                 self.assertIsInstance(node.value, ast.Constant)
+
+
+class TestKnownInstalls(_AssertNotNoneMixin, unittest.TestCase):
+    """Bug 1: web-search-driven install commands hit name collisions
+    (`brew install --cask maestro` lands the wrong tool). Curated map
+    in known_installs.json overrides web-search for tools where the
+    name is ambiguous."""
+
+    def test_load_returns_dict_for_known_tool(self) -> None:
+        entry = self._assert_not_none(load_known_install("maestro"))
+        self.assertIn("install_cmds", entry)
+        self.assertIn("verify_identity_cmd", entry)
+        self.assertIn("expected_version_pattern", entry)
+        # Must use the fully-qualified tap form to avoid the GUI-app collision.
+        joined = " ".join(entry["install_cmds"])
+        self.assertIn("mobile-dev-inc/tap/maestro", joined)
+
+    def test_load_returns_none_for_unknown_tool(self) -> None:
+        self.assertIsNone(load_known_install("totally-not-a-real-tool"))
+
+    def test_load_returns_none_for_empty_string(self) -> None:
+        self.assertIsNone(load_known_install(""))
+
+    def test_initial_map_includes_collision_prone_tools(self) -> None:
+        for tool in ("maestro", "playwright", "cypress", "detox"):
+            with self.subTest(tool=tool):
+                self._assert_not_none(
+                    load_known_install(tool), f"{tool!r} missing from known_installs"
+                )
+
+
+class TestScaffoldPlanIdentityFields(unittest.TestCase):
+    """Bug 1 (cont.): ScaffoldPlan carries the optional identity-verify
+    fields so the apply pipeline can assert the installed binary
+    matches the tool the customer asked for."""
+
+    def test_build_plan_accepts_identity_fields(self) -> None:
+        plan = _sample_plan(
+            verify_identity_cmd="maestro --version",
+            expected_version_pattern=r"^Maestro \d+\.",
+        )
+        self.assertEqual(plan.verify_identity_cmd, "maestro --version")
+        self.assertEqual(plan.expected_version_pattern, r"^Maestro \d+\.")
+
+    def test_identity_fields_default_to_empty(self) -> None:
+        plan = _sample_plan()
+        self.assertEqual(plan.verify_identity_cmd, "")
+        self.assertEqual(plan.expected_version_pattern, "")
 
 
 if __name__ == "__main__":
