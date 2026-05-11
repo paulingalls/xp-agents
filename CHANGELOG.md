@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.1.31 — xp-end-session honesty signal cleanup
+
+Patch release tightening `/xp-end-session`'s `### UNCOMMITTED` count and the Step 5 nag prose so the honesty signal stops drowning real work in orchestration noise.
+
+### What changed
+
+- **`uncommitted_event_count`** (in `plugins/xp-agents/scripts/_common.py`) narrowed from "every event type except SESSION_SUMMARY post-last-commit" to "concern/debt/discovery only" via a new `PROBE_RESOLVABLE_TYPES = (CONCERN, DEBT, DISCOVERY)` constant. The probe (`find_probe_candidates`) only pools those three types as resolvable candidates, so they're the only types whose absence-of-resolution actually matters for the next session's signal quality. Status, goal, retrospective, decision, question, answer, and session_summary are now correctly excluded.
+
+- **Shared `_last_index_of_type(events, etype)` helper** extracted from three sibling reverse-scan callers (`current_session_start_index`, `prior_session_end_ts`, `uncommitted_event_count`) — fourth caller triggered the rule of three. `PROBE_RESOLVABLE_TYPES` is also reused in `resolves_probe.py`'s in-batch sibling pool, eliminating a duplicate inline tuple.
+
+- **Step 5 prose rewritten**: drops the "Consider committing" suggestion. Empty commits to clear the counter were the wrong fix the wrong prose was inviting — the SMM resolution chain (any event with `metadata.resolves`) closes targets without code changes. New prose suggests "drop now via `metadata.resolves`" (mirrors Step 3's auto-judge pattern) or "leave for triage" at next `/xp-work-selection`.
+
+- **Step 1 prose** (manual edit, carried in this commit): clarifies that `### CANDIDATES` is a memory trigger for the agent, not the verbatim refinement source — aligns with the v3.1.28 fix that made `write_history.py` use the refined `session_summary` content for `session_history.json` instead of mechanical synthesis.
+
+- **Step 3 prose** (manual edit, carried in this commit): drops the conservative "When multiple commits are cited, ALL must contribute to the fix — defer if any are unrelated" rule. The detector is purely file-overlap-based, so coincidental file-touches at unrelated commits would have produced false-defers on real resolutions. If any cited commit clearly fixes the concern's intent, auto-resolve and list only the contributing commits in `resolved_by_commits`.
+
+### Tests
+
+- New `TestUncommittedEventCount` (5 unit tests in `tests/hooks/test_common.py`) pins both axes of the new contract: empty list, post-commit count of concern/debt/discovery, exclude-noise post-commit, exclude-pre-commit, no-commit-means-all-actionable, and a mixed scenario (1 commit + 5 noise + 4 actionable = 4).
+- `test_draft_summary.py` (3 tests), `test_end_session_skill.py`, and `test_end_session_pipeline.py` fixtures updated to seed post-commit concerns/debts so the count assertions are meaningful under the new semantics.
+- 4784 tests, 1 skipped, 404 subtests passing.
+
 ## v3.1.30 — sprint-082 (probe-adoption recovery + house cleanup, 6 stories)
 
 Sprint-082 closes execution-plan Milestone 1 — restores probe-adoption signal after 19 consecutive sessions of sub-50% adoption, plus 4 isolated cleanups designed for parallel teammate execution. **6/6 stories delivered, velocity 1.0.**
