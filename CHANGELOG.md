@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.1.32 — teammate liveness watchdog + skill prose audit
+
+Free-session release shipping two cohesive threads: a watchdog that bounds silent-teammate hangs to ~15 min recovery (was 31+ min, manual), and a focused audit of skill prose that cuts ~900 tokens per kickoff and removes 2 mechanical regression-pin tests.
+
+### Teammate liveness watchdog (concern `e1a8f7e17d84`)
+
+Sprint-082 saw a teammate hang silent for 31 minutes overnight before manual kill. Forensic autopsy of `/tmp/worktree-story-006.log` showed the spawned `claude -p` made two successful Read calls in the first 10 seconds, then went completely silent until killed — the next API request to the model after the second tool_result never produced a token.
+
+- **`--include-partial-messages`** added to the spawned `claude -p` command. Without it, `--output-format stream-json` only emits one stdout line per content-block completion (1-4 lines per assistant message), so legitimate text/tool_use generation looks identical to a hang from outside the process. With it, model output streams as 50-500 chunks per block (empirically: 351 `text_delta` events for a ~3500-token answer in 20s), giving the watchdog continuous mtime signal during real work.
+- **`_ActivityWatchdog`** in `plugins/xp-agents/scripts/spawn_teammate.py`: daemon thread, pinged on each line read from the subprocess. After `_WATCHDOG_TIMEOUT_S` (900s = 15 min) of silence sends SIGTERM, waits `_WATCHDOG_KILL_GRACE_S` (10s), then escalates to SIGKILL — the latter because a child blocked in C-level `recv()` on the model API socket (the suspected hang mode) may not respond to SIGTERM. 900s sized at ~1.5x the longest legitimate thinking-on-large-context gap observed historically (~10 min on 256K-token inputs from story-008).
+- **`run_with_tee` integration**: watchdog starts before the stdout-read loop, gets pinged on each line read, stopped in the finally block. Recovery handoff is to the existing `CalledProcessError` rc!=0 path — story stays in-progress, prompt file preserved for re-spawn.
+- **TDD throughout**: 7 new tests across `tests/hooks/test_spawn_teammate_watchdog.py` (split from `test_spawn_teammate.py` to keep the original under the 500-line budget): `_ActivityWatchdog` unit tests for terminate-after-timeout, no-terminate-when-pinged, stop-prevents, terminate-failure-no-propagate, escalate-to-kill-on-TimeoutExpired; `run_with_tee` integration tests for terminates-on-silence and no-terminate-when-streaming.
+- Constructor cleanup landed mid-cycle: switched `timeout_s`/`poll_interval_s`/`kill_grace_s` from default-bound to None sentinels resolved at call time. Prior defaults captured module constants at class-definition time, so `patch.object` in tests didn't reach `run_with_tee`'s construction path.
+
+### Skill prose audit (~900 tokens saved per kickoff)
+
+Used 16 parallel `skill-reviewer` subagents to audit all xp-agents skills with the load-bearing test: *"would removing this prose cause the LLM to make a different (worse) decision about which command to run, what to ask the user, or how to recover from an error?"* Bias was lean keep when unsure. Result: ~25 small cuts of helper-internal narration, restated state, and WHAT-not-WHY explanations across 12 files.
+
+- **`xp-work-selection`**: dropped probe-refresh sentinel internals — the deleted block's own last sentence was "No manual signaling required — the helper handles it." If the LLM doesn't act on it, the LLM doesn't need it loaded into context every kickoff. WHY survives in the helper code comment + 2 tests pinning the contract.
+- **12 other skills**: cuts to `xp-scaffold-acceptance`, `xp-accept`, `xp-story-close`, `xp-sprint-start`, `xp-plan`, `xp-assign`, `xp-kickoff`, `xp-free-close`, `xp-plan-close`, `xp-end-session`, `xp-quality-review`, `xp-stage-migration`. Pattern audit identified 4 recurring anti-patterns: helper-internal narration ("X auto-records Y"), architectural rationale not actioned by LLM, restated preload output, and inverse restatement of conditionals.
+- **2 mechanical regression-pin tests deleted** (`TestAcceptSkillTextDocumentsMarkerConsumption`, `test_skill_skips_when_stage_ge_2`): both pinned prose that captured side-effects agents don't act on; their referenced concerns are no longer in active SMM events. **2 genuine regression-pin tests respected** — the audit broke 4 tests; individually evaluated each before deciding restore-or-delete.
+- Audit method recorded as decision `858868d66d4e` so future audits trip the superseded-decision detector if they diverge.
+
+### Tests
+
+- 4790 unit + integration tests pass, 1 skipped, 404 subtests passing.
+- Lefthook pre-commit (ruff, pyright, tests) green on every commit in the cycle.
+- Empirical verification of `--include-partial-messages` will land at next teammate spawn — `/tmp/worktree-story-NNN.log` should contain hundreds of `stream_event/content_block_delta` lines per assistant message.
+
 ## v3.1.31 — xp-end-session honesty signal cleanup
 
 Patch release tightening `/xp-end-session`'s `### UNCOMMITTED` count and the Step 5 nag prose so the honesty signal stops drowning real work in orchestration noise.
