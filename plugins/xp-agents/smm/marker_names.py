@@ -23,8 +23,16 @@ NEEDS_SYSTEM_CONTEXT = ".needs-system-context"
 ASSIGN_PENDING = ".assign-pending"
 NEEDS_HOUSEKEEPING = ".needs-housekeeping"
 CLOSE_CYCLE_ACTIVE = ".close-cycle-active"
-QUESTION_NUDGED = ".question-nudged-{agent_id}"
 PROBE_REFRESH = ".probe-refresh"
+LINT_WARNED = ".lint-warned"
+SPRINT_RETRO_INPUT = ".sprint-retro-input.json"
+CURATION_INPUT = ".curation-input.json"
+COORDINATION_JSON = ".coordination.json"
+COORDINATION_LOCK = ".coordination.lock"
+
+QUESTION_NUDGED = ".question-nudged-{agent_id}"
+TEAMMATE_REPORT = ".teammate-report-{name}.txt"
+STORY_ASSIGNMENT = ".story-assignment-{name}"
 
 SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."
 

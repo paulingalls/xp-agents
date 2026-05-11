@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import identity
+import marker_names
 import sprint_status
 import sprint_store
 
@@ -258,12 +259,12 @@ def find_teammate_worktree_for_story(story_id: str, cwd: str) -> str | None:
 
 def teammate_report_path(smm_dir: Path, name: str) -> Path:
     """Return the path to a teammate's report file."""
-    return smm_dir / f".teammate-report-{name}.txt"
+    return smm_dir / marker_names.TEAMMATE_REPORT.format(name=name)
 
 
 def story_assignment_path(smm_dir: Path, name: str) -> Path:
     """Return the path to a teammate's story assignment file."""
-    return smm_dir / f".story-assignment-{name}"
+    return smm_dir / marker_names.STORY_ASSIGNMENT.format(name=name)
 
 
 def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:

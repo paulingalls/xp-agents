@@ -13,10 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import marker_names
 from _append_impl import write_json_atomic
 
-_COORDINATION_FILE = ".coordination.json"
-_COORDINATION_LOCK = ".coordination.lock"
 _COORDINATION_MAX_AGE = 1800  # 30 minutes
 
 
@@ -25,8 +24,8 @@ def update_coordination(smm_dir: Path, agent_id: str, working_on: list[str]) -> 
     import fcntl
     import signal
 
-    lock_path = smm_dir / _COORDINATION_LOCK
-    coord_path = smm_dir / _COORDINATION_FILE
+    lock_path = smm_dir / marker_names.COORDINATION_LOCK
+    coord_path = smm_dir / marker_names.COORDINATION_JSON
 
     try:
         lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
@@ -68,7 +67,7 @@ def read_coordination(
     smm_dir: Path, max_age_seconds: int = _COORDINATION_MAX_AGE
 ) -> dict:
     """Read .coordination.json, filtering out stale entries."""
-    coord_path = smm_dir / _COORDINATION_FILE
+    coord_path = smm_dir / marker_names.COORDINATION_JSON
     try:
         data = json.loads(coord_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -104,8 +103,8 @@ def clear_coordination_agent(smm_dir: Path, agent_id: str) -> None:
     import fcntl
     import signal
 
-    coord_path = smm_dir / _COORDINATION_FILE
-    lock_path = smm_dir / _COORDINATION_LOCK
+    coord_path = smm_dir / marker_names.COORDINATION_JSON
+    lock_path = smm_dir / marker_names.COORDINATION_LOCK
 
     try:
         lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)

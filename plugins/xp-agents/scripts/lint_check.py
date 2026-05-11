@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import identity
+import marker_names
 import worktree
 from event_schema import STATUS_ACTION_LINT_RESOLVED
 
@@ -421,7 +422,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if Path(normalized).suffix not in _CODE_EXTENSIONS:
             return None
         # Nudge once per session — atomic create, no symlink follow
-        flag = smm_dir / ".lint-warned"
+        flag = smm_dir / marker_names.LINT_WARNED
         try:
             fd = os.open(
                 str(flag), os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600
