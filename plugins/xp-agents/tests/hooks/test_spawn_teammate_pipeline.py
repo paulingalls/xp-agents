@@ -19,11 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 
-def _raise_called_process_error(*_args, **_kwargs):
-    """Side-effect callable that simulates a non-zero subprocess exit."""
-    raise subprocess.CalledProcessError(2, ["fake"])
-
-
 class TestWorktreePreamble(unittest.TestCase):
     """_worktree_preamble injects worktree-context guidance ahead of the
     teammate prompt body, so the teammate sees the path-rerooting rule
@@ -162,7 +157,7 @@ class TestWorktreePreamble(unittest.TestCase):
                 patch.object(
                     spawn_teammate,
                     "run_with_tee",
-                    side_effect=_raise_called_process_error,
+                    side_effect=subprocess.CalledProcessError(2, ["fake"]),
                 ),
                 self.assertRaises(subprocess.CalledProcessError),
             ):

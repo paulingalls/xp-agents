@@ -20,11 +20,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _IntegrationTestCase, _SMMTestCase
 
 
-def _raise_called_process_error(*_args, **_kwargs):
-    """Side-effect callable that simulates a non-zero subprocess exit."""
-    raise subprocess.CalledProcessError(2, ["fake"])
-
-
 class TestBuildCommand(unittest.TestCase):
     """build_command constructs correct claude -p arguments."""
 
@@ -398,7 +393,9 @@ class TestMechanicalPromote(_SMMTestCase):
         """Failed teammate (rc!=0) leaves story in-progress for debug —
         the CAS is never invoked because the exception propagates first."""
         with self.assertRaises(subprocess.CalledProcessError):
-            self._run_promote(run_with_tee_side_effect=_raise_called_process_error)
+            self._run_promote(
+                run_with_tee_side_effect=subprocess.CalledProcessError(2, ["fake"])
+            )
 
     def test_does_not_promote_when_story_id_absent(self):
         """No --story-id → no CAS attempted (ad-hoc teammates without
