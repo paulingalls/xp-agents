@@ -95,9 +95,7 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 ## Step 4: Security Review (skipped)
 
-Does not apply to story-close — the enclosing sprint-close runs the
-cumulative `/security-review` for all merged stories. The `4.5`
-numbering below is preserved to align with the sibling close skills.
+Skipped — sprint-close runs cumulative `/security-review` for all merged stories.
 
 ## Step 4.5: Fork the close-reviewer
 
@@ -168,9 +166,6 @@ If the just-closed story was a teammate's, a worktree exists at
 `.claude/worktrees/worktree-<story-id>`. Solo stories have no worktree
 to clean up.
 
-Both `branching.py` subcommands below print empty stdout + exit 0 when
-there's no match, so the shell guard handles solo mode cleanly:
-
 ```bash
 STORY_ID=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
   --smm-dir <SMM_DIR> extract-story-id --branch "<CURRENT_BRANCH>")
@@ -183,9 +178,6 @@ if [ -n "$WORKTREE_NAME" ]; then
     --name "$WORKTREE_NAME" --smm-dir <SMM_DIR>
 fi
 ```
-
-`cleanup_teammate.py` verifies the branch is merged (Step 7 just did
-that) before removing the worktree, branch, markers, and report.
 
 ## Step 8: JIT-next dispatch (solo mode)
 
@@ -227,8 +219,6 @@ fi
 # sprint-review dispatch is /xp-accept's responsibility.
 ```
 
-Both subcommands return the lowest-id eligible story (deps all done or
-covered by `--treat-as-done`) and exit non-zero when no match exists.
 `branching.py create` records `branch_name` in sprint.json and checks
 out the new branch.
 

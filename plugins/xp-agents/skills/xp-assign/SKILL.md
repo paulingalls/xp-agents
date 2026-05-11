@@ -100,8 +100,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
   create --cwd . --story <story-id> --slug <title-slug> --base <story-base>
 ```
 
-The `create` command auto-records `branch_name` in sprint.json.
-
 **Teammate-mode only:** after creating all parallel branches, return to the story base so subsequent teammate spawns have a clean starting point. Solo mode skips this — it stays on the single branch it just created.
 
 ```bash

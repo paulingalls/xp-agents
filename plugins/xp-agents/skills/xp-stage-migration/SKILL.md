@@ -16,11 +16,6 @@ allowed-tools:
 
 # Stage 2 Floor Migration
 
-Caller (xp-kickoff Step 2.4) only invokes this skill when stage < 2 (it
-skips at stage >= 2). The skill performs the dismissal check + prompt +
-dispatch, so kickoff carries no per-session prose tax for a step that
-fires at most once per project.
-
 ## Step 1: Check dismissal
 
 ```bash

@@ -23,8 +23,6 @@ allowed-tools:
 
 # Execution Plan
 
-The preload above shows current state: existing plan path (update mode) or "No execution plan found" (create mode), and whether system_context.json exists.
-
 ## Mode Detection
 
 - **Create mode** (preload says "No execution plan found"): Follow the Create flow.
@@ -39,8 +37,6 @@ If `SYSTEM_CONTEXT=<path>` is shown, read it for reference but do not modify it.
 ## Create Flow
 
 ### Step 1: Source Gathering
-
-Sources are inputs to planning — once the plan is written, the plan must stand on its own. Milestones reference sources for traceability, but the plan should not depend on re-reading them.
 
 Ask the user via `AskUserQuestion`:
 
@@ -128,8 +124,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
 ```
 
 ### Step 5b: Plan Branch Recommendation
-
-A plan branch accumulates multiple sprints before merging to the primary branch — useful when intermediate milestones can't safely land on the primary one-by-one.
 
 Skip when any of:
 - Stage 0 (run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage`).

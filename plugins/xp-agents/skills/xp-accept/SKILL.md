@@ -21,8 +21,6 @@ ERROR/NO_STORIES_TO_ACCEPT. Reviewing-first dispatch picks `reviewing`
 stories when present (teammate self-promote path), else `in-progress`
 (solo path) — iterate whichever set was selected.
 
-The preload auto-consumes the `.accept` marker — the gate is open by the time you read this.
-
 **If ERROR or NO_STORIES_TO_ACCEPT**, explain and stop.
 
 If the preload shows a **TEAMMATE_WORKTREES** section, each row is
@@ -179,9 +177,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
 story is no longer at `reviewing` (already advanced — skip and continue
 to the next story), rc=2 on validation errors (halt and surface
 stderr — rc=2 means corrupt sprint.json, not a benign race).
-
-After Step 1.5, /xp-story-close's preload can unambiguously locate the
-in-pipeline teammate worktree.
 
 ## Step 2: Invoke /xp-story-close (close-then-done)
 

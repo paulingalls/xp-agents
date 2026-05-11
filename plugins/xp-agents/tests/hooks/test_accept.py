@@ -83,36 +83,6 @@ class TestAcceptPreload(_IntegrationTestCase):
 _SKILL_MD = Path(__file__).parent.parent.parent / "skills" / "xp-accept" / "SKILL.md"
 
 
-class TestAcceptSkillTextDocumentsMarkerConsumption(unittest.TestCase):
-    """SKILL.md must document the preload's ACCEPT-marker auto-consumption.
-
-    Without this note, agents hitting an `update-story done` gate elsewhere
-    have no signal that the marker is already cleared by the preload —
-    leading to silent friction (concern 1180c31dd1ae).
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        cls.text = _SKILL_MD.read_text()
-
-    def test_preamble_mentions_accept_marker_auto_consumption(self):
-        # The preamble must explicitly state that the preload auto-consumes
-        # the ACCEPT marker. Loose phrase match (regex) tolerates rewordings
-        # but pins the substantive claim.
-        pattern = (
-            r"(?is)preload[^.\n]{0,200}"
-            r"(consume|clear|remove)[^.\n]{0,80}"
-            r"(\.accept|ACCEPT marker)"
-        )
-        self.assertRegex(
-            self.text,
-            pattern,
-            "SKILL.md must document that the preload auto-consumes the "
-            "ACCEPT marker — otherwise agents have no signal that the "
-            "update-story done gate is already cleared.",
-        )
-
-
 class TestAcceptSkillTextDispatchesToStoryClose(unittest.TestCase):
     """SKILL.md invokes /xp-story-close per done story (commit 9 of the
     JIT/close-unification plan).

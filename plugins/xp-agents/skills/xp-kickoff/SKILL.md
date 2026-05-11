@@ -16,8 +16,6 @@ allowed-tools:
 
 # Session Kickoff
 
-The session status above was preloaded automatically.
-
 **You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (step 6) MUST always run — it is not optional. Only begin session work after housekeeping completes.**
 
 ## Step 1: Retrospective (ALWAYS)
@@ -80,7 +78,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create-free --cwd . --slug "<session-goal-slug>"
 ```
 
-The CLI returns `<user>/free-YYYY-MM-DD-<slug>` and checks it out. Tell the user which branch was created.
+Tell the user which branch was created.
 
 ## Step 2.6: Orphan free-branch triage (ALWAYS)
 
