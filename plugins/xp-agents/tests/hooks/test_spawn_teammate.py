@@ -855,5 +855,122 @@ class TestActivityWatchdog(unittest.TestCase):
         self.assertEqual(proc.kill_calls, 1)
 
 
+class TestRunWithTeeWatchdog(unittest.TestCase):
+    """run_with_tee starts the watchdog, pings it on each line read,
+    and stops it on completion. Verifies wiring, not the watchdog
+    itself (covered by TestActivityWatchdog).
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.log_dir = Path(tempfile.mkdtemp())
+
+    def _blocking_iter(self, lines: list[str], block_after: float = 30.0):
+        """Iterator that yields *lines* then blocks for *block_after*
+        seconds before raising StopIteration.
+
+        Simulates a hung subprocess: produces some output, then goes
+        silent. The block must outlast the test's watchdog timeout —
+        otherwise the iterator returns naturally and we're testing the
+        clean-exit path, not the watchdog kill path.
+        """
+        import time as _t
+
+        yield from lines
+        _t.sleep(block_after)
+
+    def _fake_popen(
+        self,
+        lines: list[str],
+        *,
+        returncode: int = 0,
+        block_after: float | None = None,
+    ):
+        """MagicMock subprocess. When *block_after* is set, stdout
+        iterator blocks for that many seconds after yielding *lines*
+        — simulates a hung subprocess. Otherwise yields *lines* and
+        exits cleanly.
+        """
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        if block_after is None:
+            fake.stdout = iter(lines)
+        else:
+            fake.stdout = self._blocking_iter(lines, block_after=block_after)
+        fake.returncode = returncode
+        return fake
+
+    def test_terminates_subprocess_after_silence(self):
+        """run_with_tee starts the watchdog with the production timeout
+        constants; when the subprocess produces output and then blocks,
+        the watchdog terminates it and run_with_tee surfaces the
+        non-zero exit as CalledProcessError. The integration point is:
+        ping → reset silence timer → eventual kill when pings stop."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        # rc=-15 = SIGTERM signal exit; checked after the loop unblocks.
+        # block_after=1.0 outlasts the patched watchdog window
+        # (timeout 0.3 + kill_grace 0.2 = ~0.5s) with 2x safety margin
+        # while keeping wall-clock cost low — the for-loop is parked
+        # inside the iterator's time.sleep(block_after) and only
+        # unblocks when that sleep returns (terminate() is a MagicMock
+        # no-op against the iterator).
+        proc = self._fake_popen(["hello\n"], returncode=-15, block_after=1.0)
+        with (
+            patch("spawn_teammate.subprocess.Popen", return_value=proc),
+            patch.object(spawn_teammate, "_WATCHDOG_TIMEOUT_S", 0.3),
+            patch.object(spawn_teammate, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
+            patch.object(spawn_teammate, "_WATCHDOG_KILL_GRACE_S", 0.2),
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-hung",
+                log_dir=self.log_dir,
+            )
+        self.assertGreaterEqual(
+            proc.terminate.call_count,
+            1,
+            "watchdog must have called terminate() on the silent subprocess",
+        )
+        log = (self.log_dir / "teammate-hung.log").read_text()
+        self.assertIn("hello", log)
+
+    def test_does_not_terminate_when_subprocess_streams(self):
+        """A subprocess that emits all lines and exits cleanly within
+        the watchdog window must NOT be terminated — pings reset the
+        silence timer on every line read."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        proc = self._fake_popen(["a\n", "b\n", "c\n"])
+        with (
+            patch("spawn_teammate.subprocess.Popen", return_value=proc),
+            patch.object(spawn_teammate, "_WATCHDOG_TIMEOUT_S", 0.5),
+            patch.object(spawn_teammate, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
+        ):
+            spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-clean",
+                log_dir=self.log_dir,
+            )
+        self.assertEqual(
+            proc.terminate.call_count,
+            0,
+            "watchdog must not fire when subprocess completes within timeout",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

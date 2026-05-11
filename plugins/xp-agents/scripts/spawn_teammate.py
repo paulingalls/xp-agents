@@ -125,22 +125,24 @@ class _ActivityWatchdog:
     existing rc!=0 recovery path in main() takes over (story stays
     in-progress, prompt file preserved for re-spawn).
 
-    *timeout_s* and *poll_interval_s* are constructor args purely so
-    tests can use tight values; production callers always pass the
-    module constants.
+    *timeout_s* and *poll_interval_s* default to ``None`` and resolve
+    to the module constants at call time. Tests patch the constants;
+    production callers omit both args.
     """
 
     def __init__(
         self,
         proc,
         name: str,
-        timeout_s: float = _WATCHDOG_TIMEOUT_S,
-        poll_interval_s: float = _WATCHDOG_POLL_INTERVAL_S,
+        timeout_s: float | None = None,
+        poll_interval_s: float | None = None,
     ):
         self._proc = proc
         self._name = name
-        self._timeout = timeout_s
-        self._poll = poll_interval_s
+        self._timeout = _WATCHDOG_TIMEOUT_S if timeout_s is None else timeout_s
+        self._poll = (
+            _WATCHDOG_POLL_INTERVAL_S if poll_interval_s is None else poll_interval_s
+        )
         self._last_activity = time.monotonic()
         self._stop = threading.Event()
         self._thread = threading.Thread(
@@ -200,15 +202,23 @@ def run_with_tee(
     (e.g. ``worktree-story-001``) so the log file lands at
     ``<log_dir>/worktree-story-001.log``.
 
-    The on-disk log preserves output up to a hang point so a stuck teammate
-    can be inspected forensically. Note: while the teammate is producing no
-    output (the hang case), the log will not grow — ``tail -f`` shows prior
-    state, not live progress. If the log file can't be opened, the spawn
-    proceeds without teeing — investigation aid is best-effort, not
-    load-bearing.
+    The on-disk log preserves output up to the termination point so a
+    stuck teammate can be inspected forensically. If the log file
+    can't be opened, the spawn proceeds without teeing — investigation
+    aid is best-effort, not load-bearing.
 
     Re-spawns of the same teammate name *append* with a session header so
     the forensic record from a prior hang survives a kill + retry.
+
+    A liveness watchdog runs in a daemon thread alongside this loop:
+    each line read pings it; if pings stop for ``_WATCHDOG_TIMEOUT_S``
+    seconds, the watchdog terminates the subprocess (SIGTERM, then
+    SIGKILL after a grace period). The main loop then sees stdout
+    EOF, ``proc.wait()`` returns the signal exit code, and this
+    function raises ``CalledProcessError`` — same recovery shape as
+    any other non-zero exit. Without the watchdog, a child blocked
+    indefinitely inside an HTTPS POST to the model API could keep
+    the orchestrator waiting forever.
 
     Raises ``subprocess.CalledProcessError`` on non-zero exit so callers
     keep the prior ``check=True`` failure semantics.
@@ -236,15 +246,19 @@ def run_with_tee(
         bufsize=1,
         text=True,
     )
+    watchdog = _ActivityWatchdog(proc, name)
+    watchdog.start()
     try:
         assert proc.stdout is not None
         for line in proc.stdout:
+            watchdog.ping()
             sys.stdout.write(line)
             sys.stdout.flush()
             if log_file is not None:
                 log_file.write(line)
                 log_file.flush()
     finally:
+        watchdog.stop()
         if log_file is not None:
             log_file.close()
         proc.wait()
