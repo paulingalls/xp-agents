@@ -170,6 +170,38 @@ class TestAnnotateTryDisposition(_HookTestCase):
         status = retros[0]["try_status"][0]
         self.assertEqual(status["disposition"], "adopted")
 
+    def test_resolves_via_try_own_id_when_content_lacks_token(self):
+        """Try with id field set resolves even when content has no hex token.
+
+        Pins the bridge where save_retrospective.py writes the Try's own id
+        and work_selection_decide.py adopts it via metadata.resolves keyed on
+        that id — without this id-as-token path, adopted Tries silently come
+        back as resolved_this_session=False on the next retro.
+        """
+        try_id = "aabbccdd2222"
+        resolver_id = "eeffaabb6666"
+        resolutions_map = self._make_resolutions_map(
+            try_id, resolver_id, "Adopt try wrapped without hex token in content"
+        )
+        retros = [
+            {
+                "try": [
+                    {
+                        "content": "Carry forward retro improvement",
+                        "event_refs": [],
+                        "id": try_id,
+                    }
+                ],
+                "keep": [],
+                "fix": [],
+            }
+        ]
+        retro_history.annotate_try_status(retros, resolutions_map)
+        status = retros[0]["try_status"][0]
+        self.assertTrue(status["resolved_this_session"])
+        self.assertEqual(status["resolver_id"], resolver_id)
+        self.assertEqual(status["disposition"], "adopted")
+
 
 class TestBuildResolutionsMapDisposition(_HookTestCase):
     """build_resolutions_map should propagate disposition from resolver metadata."""

@@ -373,6 +373,38 @@ def _matching_open_discoveries(
     ]
 
 
+def _matching_open_by_keyword(
+    events: list[dict],
+    resolutions: dict,
+    haystack_keywords: set[str],
+    matched_ids: set[str],
+) -> list[dict]:
+    """Open concerns/debts whose content keywords overlap haystack_keywords.
+
+    Pool source for keyword-only matches; dedups against matched_ids so
+    candidates already added by file-overlap or discovery passes don't
+    double-count.
+    """
+    if not haystack_keywords:
+        return []
+    resolved_by_type = {
+        _common.CONCERN: resolutions.get("resolved_concern_ids", set()),
+        _common.DEBT: resolutions.get("resolved_debt_ids", set()),
+    }
+    matches = []
+    for e in events:
+        etype = e.get("type")
+        if etype not in resolved_by_type:
+            continue
+        eid = e.get("id")
+        if eid in matched_ids or eid in resolved_by_type[etype]:
+            continue
+        candidate_keywords = _extract_keywords(e.get("content") or "")
+        if candidate_keywords & haystack_keywords:
+            matches.append(e)
+    return matches
+
+
 def changed_files(cwd: str) -> list[str]:
     """Return all changed files: staged, unstaged, and untracked new."""
     files: set[str] = set()
@@ -457,6 +489,10 @@ def find_probe_candidates(
         except (ValueError, OSError):
             continue
 
+    # Single tokenization shared by the keyword-pool helper and per-candidate scoring.
+    haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
+    haystack_keywords = _extract_keywords(" ".join(haystack_parts))
+
     open_matches = commits.open_issues_matching_commit(
         smm_dir, commit_files, cwd, events=events, resolutions=resolutions
     )
@@ -465,6 +501,10 @@ def find_probe_candidates(
         events, resolutions, commit_file_set, cwd
     )
     matched_ids.update(d["id"] for d in discovery_matches)
+    keyword_matches = _matching_open_by_keyword(
+        events, resolutions, haystack_keywords, matched_ids
+    )
+    matched_ids.update(c["id"] for c in keyword_matches)
     sibling_matches: list[dict] = []
     if active_cycle_id:
         resolved_set = (
@@ -484,11 +524,9 @@ def find_probe_candidates(
 
     unresolved = [
         c
-        for c in (open_matches + discovery_matches + sibling_matches)
+        for c in (open_matches + discovery_matches + keyword_matches + sibling_matches)
         if c["id"] not in resolves
     ]
-    haystack_parts = [commit_message] + [Path(f).name for f in commit_files]
-    haystack_keywords = _extract_keywords(" ".join(haystack_parts))
     scored = []
     for c in unresolved:
         score, reasons = _score_candidate(

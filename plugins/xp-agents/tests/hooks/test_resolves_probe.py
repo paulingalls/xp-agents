@@ -94,6 +94,44 @@ class TestFindProbeCandidates(_ProbeTestHelpers, _HookTestCase):
         self.assertIn(SELECTION_REASON_FILE_OVERLAP, cand["selection_reasons"])
         self.assertIn(SELECTION_REASON_KEYWORD, cand["selection_reasons"])
 
+    def test_keyword_only_match_enters_pool(self):
+        """Concern matches commit by keyword alone (no file overlap)."""
+        cid = self._seed_concern(
+            "Auth middleware leaks tokens", ["different/path/file.py"]
+        )
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/unrelated.py"],
+            [],
+            cwd=str(self.smm_dir),
+            commit_message="fix auth middleware tokens",
+        )
+        ids = [c["id"] for c in result]
+        self.assertIn(cid, ids, "keyword-only match must enter the pool")
+        cand = next(c for c in result if c["id"] == cid)
+        self.assertIn(SELECTION_REASON_KEYWORD, cand["selection_reasons"])
+        self.assertNotIn(
+            SELECTION_REASON_FILE_OVERLAP,
+            cand["selection_reasons"],
+            "file-overlap reason must not attach when no files overlap",
+        )
+
+    def test_keyword_match_does_not_duplicate_file_overlap(self):
+        """Concern matching by both file AND keyword appears exactly once."""
+        cid = self._seed_concern("Auth middleware leaks tokens", ["scripts/auth.py"])
+        result = resolves_probe.find_probe_candidates(
+            self.smm_dir,
+            ["scripts/auth.py"],
+            [],
+            cwd=str(self.smm_dir),
+            commit_message="fix auth middleware tokens",
+        )
+        ids = [c["id"] for c in result]
+        self.assertEqual(ids.count(cid), 1, "candidate must not appear twice in pool")
+        cand = next(c for c in result if c["id"] == cid)
+        self.assertIn(SELECTION_REASON_FILE_OVERLAP, cand["selection_reasons"])
+        self.assertIn(SELECTION_REASON_KEYWORD, cand["selection_reasons"])
+
 
 class TestBuildNudgeLines(unittest.TestCase):
     """build_nudge_lines formats grouped nudge with header and trailer."""
