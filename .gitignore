@@ -6,3 +6,9 @@ __pycache__/
 docs/handoffs/
 .claude/worktrees/
 /.claude/scheduled_tasks.lock
+# Teammate handoff artifact written by xp-agents teammate prompt.
+# The canonical machine-managed report is at smm_dir/.teammate-report-{name}.txt
+# (see plugins/xp-agents/scripts/worktree.py:teammate_report_path); the
+# worktree-root variant is a transient human-readable summary the
+# orchestrator reads in-place and should never be committed.
+.teammate-report
