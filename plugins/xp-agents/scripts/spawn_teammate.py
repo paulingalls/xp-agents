@@ -19,6 +19,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -97,6 +99,92 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
 
 
 _DEFAULT_LOG_DIR = Path("/tmp")
+
+# Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,
+# sized to clear the longest legitimate thinking-on-large-context gap
+# observed historically (~10 min on 256K-token inputs). Hard-coded;
+# the next retro recalibrates if 900s false-positives or proves slow.
+_WATCHDOG_TIMEOUT_S = 900
+_WATCHDOG_POLL_INTERVAL_S = 5
+# Grace period between SIGTERM and SIGKILL — SIGTERM may be ignored
+# while the child is blocked in a C-level recv() on the API socket
+# (the suspected hang mode); SIGKILL guarantees recovery fires.
+_WATCHDOG_KILL_GRACE_S = 10
+
+
+class _ActivityWatchdog:
+    """Terminates *proc* when no .ping() arrives for *timeout_s* seconds.
+
+    The run_with_tee main loop calls .ping() on each line read from the
+    subprocess. If pings stop (because the spawned ``claude -p`` has
+    gone silent), the watchdog calls ``proc.terminate()``, waits up to
+    ``_WATCHDOG_KILL_GRACE_S`` for it to exit, then escalates to
+    ``proc.kill()``. The main loop then sees stdout EOF, ``proc.wait()``
+    returns a non-zero rc, and ``run_with_tee`` raises
+    ``CalledProcessError`` as it does on any non-zero exit. The
+    existing rc!=0 recovery path in main() takes over (story stays
+    in-progress, prompt file preserved for re-spawn).
+
+    *timeout_s* and *poll_interval_s* are constructor args purely so
+    tests can use tight values; production callers always pass the
+    module constants.
+    """
+
+    def __init__(
+        self,
+        proc,
+        name: str,
+        timeout_s: float = _WATCHDOG_TIMEOUT_S,
+        poll_interval_s: float = _WATCHDOG_POLL_INTERVAL_S,
+    ):
+        self._proc = proc
+        self._name = name
+        self._timeout = timeout_s
+        self._poll = poll_interval_s
+        self._last_activity = time.monotonic()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name=f"watchdog-{name}"
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        # Bound test-process thread accumulation; daemon=True still keeps
+        # production exits clean if join misses.
+        self._thread.join(timeout=self._poll + 0.1)
+
+    def ping(self) -> None:
+        # Single attribute write — atomic under the GIL; no lock needed.
+        # Worst case is one extra poll cycle before termination.
+        self._last_activity = time.monotonic()
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._poll):
+            if time.monotonic() - self._last_activity > self._timeout:
+                sys.stderr.write(
+                    f"WATCHDOG: {self._name} silent >{self._timeout}s — terminating\n"
+                )
+                try:
+                    self._proc.terminate()
+                    try:
+                        self._proc.wait(timeout=_WATCHDOG_KILL_GRACE_S)
+                    except subprocess.TimeoutExpired:
+                        sys.stderr.write(
+                            f"WATCHDOG: {self._name} did not exit on SIGTERM "
+                            f"within {_WATCHDOG_KILL_GRACE_S}s — SIGKILL\n"
+                        )
+                        self._proc.kill()
+                except (OSError, subprocess.SubprocessError):
+                    # Expected failure modes: process already exited
+                    # (terminate/kill OSError), or wait raises a
+                    # SubprocessError. Don't catch broader exceptions —
+                    # an AttributeError from a bogus proc must crash
+                    # visibly in tests rather than silently leak.
+                    pass
+                return
 
 
 def run_with_tee(

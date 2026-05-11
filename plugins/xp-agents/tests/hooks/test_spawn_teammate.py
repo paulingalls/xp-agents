@@ -733,5 +733,127 @@ class TestNoSysPathInsert(unittest.TestCase):
         )
 
 
+class TestActivityWatchdog(unittest.TestCase):
+    """_ActivityWatchdog terminates a subprocess that goes silent.
+
+    Why this exists: a spawned `claude -p` can block indefinitely inside
+    an HTTPS POST to the model API (observed in concern e1a8f7e17d84
+    where a teammate produced zero output for 31 minutes overnight).
+    The watchdog runs in a thread alongside the run_with_tee main loop,
+    which calls .ping() on each line read; if pings stop for longer
+    than the timeout, the watchdog terminates the subprocess so the
+    main loop sees stdout EOF and the existing CalledProcessError
+    recovery path takes over.
+
+    Tests use a tiny FakeProc with terminate/kill/wait counters rather
+    than MagicMock — the assertions are about which methods were called
+    and in what order, which is easier to verify with explicit fields.
+    """
+
+    class _FakeProc:
+        """Minimal stand-in for subprocess.Popen."""
+
+        def __init__(
+            self,
+            *,
+            terminate_raises: bool = False,
+            wait_raises_timeout: bool = False,
+        ):
+            self.terminate_calls = 0
+            self.kill_calls = 0
+            self.wait_calls = 0
+            self._terminate_raises = terminate_raises
+            self._wait_raises_timeout = wait_raises_timeout
+
+        def terminate(self) -> None:
+            self.terminate_calls += 1
+            if self._terminate_raises:
+                raise OSError("simulated terminate failure")
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.wait_calls += 1
+            if self._wait_raises_timeout:
+                raise subprocess.TimeoutExpired(cmd=["fake"], timeout=timeout or 0)
+            return 0
+
+        def kill(self) -> None:
+            self.kill_calls += 1
+
+    def _make_watchdog(self, proc, timeout_s: float = 1.0):
+        import spawn_teammate
+
+        return spawn_teammate._ActivityWatchdog(
+            proc, name="test", timeout_s=timeout_s, poll_interval_s=0.05
+        )
+
+    def test_terminates_after_timeout_with_no_ping(self):
+        """No pings → watchdog calls proc.terminate() once after timeout
+        elapses. This is the core failure-detection path."""
+        import time as _t
+
+        proc = self._FakeProc()
+        wd = self._make_watchdog(proc, timeout_s=0.3)
+        wd.start()
+        _t.sleep(0.6)
+        wd.stop()
+        self.assertEqual(proc.terminate_calls, 1)
+
+    def test_does_not_terminate_when_pinged_within_timeout(self):
+        """Steady pings keep the watchdog quiet — covers the legitimate
+        long-thinking case where the spawned subprocess is producing
+        stream-event lines and the main loop pings on each one."""
+        import time as _t
+
+        proc = self._FakeProc()
+        wd = self._make_watchdog(proc, timeout_s=0.3)
+        wd.start()
+        for _ in range(8):
+            _t.sleep(0.1)
+            wd.ping()
+        wd.stop()
+        self.assertEqual(proc.terminate_calls, 0)
+
+    def test_stop_prevents_termination(self):
+        """Calling .stop() before the timeout fires — the normal
+        completion path — must not call terminate()."""
+        import time as _t
+
+        proc = self._FakeProc()
+        wd = self._make_watchdog(proc, timeout_s=0.3)
+        wd.start()
+        wd.stop()
+        _t.sleep(0.6)
+        self.assertEqual(proc.terminate_calls, 0)
+        self.assertEqual(proc.kill_calls, 0)
+
+    def test_terminate_failure_does_not_propagate(self):
+        """If proc.terminate() raises (e.g. process already exited), the
+        watchdog thread must not crash — it has no exception channel
+        back to the parent and a crash would leak the silence
+        condition."""
+        import time as _t
+
+        proc = self._FakeProc(terminate_raises=True)
+        wd = self._make_watchdog(proc, timeout_s=0.3)
+        wd.start()
+        _t.sleep(0.6)
+        wd.stop()
+        self.assertEqual(proc.terminate_calls, 1)
+
+    def test_escalates_to_kill_when_terminate_does_not_exit(self):
+        """SIGTERM may be ignored when the child is blocked in a C-level
+        recv() (the suspected hang mode). After a 10s grace, the
+        watchdog must escalate to SIGKILL or the recovery never fires."""
+        import time as _t
+
+        proc = self._FakeProc(wait_raises_timeout=True)
+        wd = self._make_watchdog(proc, timeout_s=0.3)
+        wd.start()
+        _t.sleep(0.6)
+        wd.stop()
+        self.assertEqual(proc.terminate_calls, 1)
+        self.assertEqual(proc.kill_calls, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
