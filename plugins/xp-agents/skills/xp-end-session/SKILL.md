@@ -79,8 +79,6 @@ Append a status event citing both the canonical resolution link AND the git comm
     --metadata '{"action":"end_session_drop","resolves":["<concern_id>"],"resolved_by_commits":["<commit_hash>"]}'
   ```
 
-  `action` distinguishes auto-judges from organic resolutions; `resolved_by_commits` is the audit trail.
-
 - **Defer** when the file overlap is incidental, intent isn't
   clearly fulfilled, or you can't confidently judge from available
   context. Append nothing — the concern stays open and re-surfaces

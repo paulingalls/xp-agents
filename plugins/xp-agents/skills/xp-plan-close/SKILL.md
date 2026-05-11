@@ -46,8 +46,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py push \
   --cwd . --branch <CURRENT_BRANCH>
 ```
 
-Stdout is `pushed: <branch>` or `skipped: no remote configured`.
-
 ## Step 3: PR creation
 
 ```bash

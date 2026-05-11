@@ -83,12 +83,11 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 4: Report Back
 
-Briefly summarize what was fixed, what was deferred as debt, and what was already clean. The PostToolUse:Skill hook records the lifecycle event (`metadata.action=qr_complete`); do not append a duplicate status event.
+Briefly summarize what was fixed, what was deferred as debt, and what was already clean. Do NOT append a status event — the PostToolUse hook records the lifecycle event.
 
 ## Guidelines
 
 - **Independence is the point.** The xp-code-reviewer subagent has fresh context — it didn't write the code. Trust its judgment.
 - **Courage over comfort.** If the subagent says a skipped finding should be applied, default to applying it.
-- **Don't repeat work.** The subagent handles simplify accountability, drift management, debt awareness, and XP-lens review. You handle plan concerns and act on findings.
 - **Run tests** after any changes to verify nothing breaks.
 - If the subagent reports all code is clean, record the summary and move on.

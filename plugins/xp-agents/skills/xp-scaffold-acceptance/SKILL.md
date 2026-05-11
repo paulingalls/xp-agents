@@ -22,8 +22,7 @@ allowed-tools:
 Entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.**
 
 **Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9** — Step 3 picks
-tool before Step 2 web-refreshes its version. Sections follow doctrine
-numbering, not execution order.
+tool before Step 2 web-refreshes its version.
 
 `$REPO_ROOT` is the customer's repository root, resolved once:
 
@@ -182,8 +181,6 @@ If the CLI prints `{"decline": true, "reason": "..."}`, emit the reason
 verbatim and exit. `'GUIDANCE_EOF'` quoting disables shell expansion;
 `--tool="<tool>"` (double-quoted) is apostrophe-safe in tool names.
 
-**Still no writes.** Web-refresh produces in-memory variables only.
-
 ## Step 3: Ask
 
 If detection finds no existing tooling and surfaces are present, use
@@ -280,8 +277,6 @@ PLANEOF
 )
 ```
 
-Plan is in-memory only at this point.
-
 ## Step 5: Confirm
 
 Pipe `$PLAN_JSON` into `render-preview`, show the preview verbatim,
@@ -368,9 +363,6 @@ failures self-heal):
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-revert --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT"
 ```
-
-After a green verify, the snapshot is retained for Steps 8–9; the
-terminal `apply-record` cleans up.
 
 ## Step 8: Commit
 

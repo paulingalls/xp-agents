@@ -106,11 +106,9 @@ To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
     printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
 ```
 
-The `printf %s` form avoids shell-quoting traps when the command contains spaces or special characters.
-
 When all four conditions hold, print exactly:
 "All reviewer findings addressed and tests green — proceeding to merge without confirmation."
-then continue to Step 7. Otherwise apply the shared Step 6 `AskUserQuestion` as written. Free-close merges directly into primary, so the deterministic green-tests gate AND the design_decision guard are load-bearing — LLM judgment from Step 5c alone is not sufficient.
+then continue to Step 7. Otherwise apply the shared Step 6 `AskUserQuestion` as written.
 
 ## Step 7: Merge
 

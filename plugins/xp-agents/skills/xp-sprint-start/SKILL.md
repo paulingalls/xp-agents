@@ -67,7 +67,7 @@ For each story:
   - `"E2E: Given the customer approves the preview, When the skill drives the full pipeline, Then the project's test runner reports green"`
 
   **BDD runner recommendation**: if `system_context.json` lists a BDD harness (Cucumber, behave, SpecFlow, etc.) under `acceptance_surfaces`, write criteria as executable `.feature` Gherkin and point `acceptance_execution.type` at that runner.
-- **Acceptance Execution** (optional): How `/xp-accept` runs the test. Include only when the project has an automated acceptance surface; omit for manual walkthrough.
+- **Acceptance Execution** (optional): How `/xp-accept` runs the test.
   - `type`: Runner name (`pytest`, `playwright`, `bash`, `bats`, `cargo`).
   - `command`: Single invocation. Exit code 0 = pass.
   - `commands`: List run in order, fail on first non-zero (xor with `command`). Prefer `verify_acceptance.py --story <id>` for multi-command iteration + first-red stderr.
@@ -83,8 +83,6 @@ When a milestone has **composition surface** (multiple interacting stories whose
 **When to propose:** `system_context.json` has `acceptance_surfaces` with a harness, OR the milestone has 3+ stories with interface contracts.
 
 **Structure:** last story, depends on all others; deliverable is the cross-cutting acceptance test file (e.g., `tests/acceptance/milestone-03.spec.ts`); acceptance criteria render the milestone's prose `done` into Given/When/Then; file domain owns the cross-cutting test; `acceptance_execution` points at that file (use the matching `acceptance_surfaces` harness when present).
-
-**Optional.** Present in the confirmation table; let the customer decline for small milestones, refactors, or impractical surfaces.
 
 ### Step 4: Sprint Goal
 
@@ -135,7 +133,7 @@ cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <S
 SPRINTEOF
 ```
 
-All stories start with `"status": "ready"`. After writing, render and **output as text** for review:
+After writing, render and **output as text** for review:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> render
 ```
@@ -168,8 +166,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   create-sprint --cwd . --sprint <sprint_id> --slug <goal-slug>
 ```
-
-Forks off the plan branch when `execution_plan.json` has `branch` set, otherwise the primary. Records `branch_name` into `sprint.json`.
 
 CLI outputs `created: <branch>` (new) or `resumed: <branch>` (pre-existing). On `resumed:`, ask via `AskUserQuestion` ("Adopt existing branch" / "Delete and recreate"); on "Delete and recreate", delete then re-run.
 

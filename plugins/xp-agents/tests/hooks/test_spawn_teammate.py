@@ -65,6 +65,17 @@ class TestBuildCommand(unittest.TestCase):
         cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertNotIn("--input-file", cmd)
 
+    def test_includes_partial_messages_flag(self):
+        """--include-partial-messages enables per-token streaming so the
+        liveness watchdog sees mtime ticks during real model output;
+        without it, only block-completion events fire (1-4 lines per
+        message) and legitimate text/tool_use generation looks identical
+        to a hang."""
+        import spawn_teammate
+
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
+        self.assertIn("--include-partial-messages", cmd)
+
 
 class TestStoryIdArg(unittest.TestCase):
     """--story-id CLI arg for story attribution."""

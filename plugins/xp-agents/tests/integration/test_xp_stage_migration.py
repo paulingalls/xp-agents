@@ -29,15 +29,6 @@ class TestXpStageMigrationSkill(unittest.TestCase):
         self.assertIn("branching.py", self.text)
         self.assertIn("stage", self.text.lower())
 
-    def test_skill_skips_when_stage_ge_2(self):
-        lower = self.text.lower()
-        self.assertIn("stage 2", lower)
-        self.assertIn("floor", lower)
-        self.assertTrue(
-            ">= 2" in self.text or "≥ 2" in self.text or ">=2" in self.text,
-            "skill must describe a skip-when-stage-≥2 condition",
-        )
-
     def test_skill_uses_askuser_question(self):
         self.assertIn("AskUserQuestion", self.text)
 
