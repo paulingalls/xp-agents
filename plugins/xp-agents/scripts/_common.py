@@ -76,44 +76,60 @@ RETROSPECTIVE = _es.EVENT_TYPE_RETROSPECTIVE
 # agent, cleaned up by scripts/save_retrospective.py.
 RETRO_INPUT_FILENAME = ".retro-input.json"
 
+# Event types `find_probe_candidates` actually pools as resolvable
+# candidates. Single source of truth for "what counts as actionable
+# unresolved work" — used by the honesty signal in /xp-end-session
+# and by sibling matching in resolves_probe.
+PROBE_RESOLVABLE_TYPES = (CONCERN, DEBT, DISCOVERY)
+
+
+def _last_index_of_type(events: list[dict], etype: str) -> int:
+    """Return index of the last event of `etype`, or -1 if none.
+
+    Reverse-scan so complexity is O(events-since-last-match). Foundational
+    helper for boundary scans (last SESSION_END, last COMMIT, etc.).
+    """
+    for i in range(len(events) - 1, -1, -1):
+        if events[i].get("type") == etype:
+            return i
+    return -1
+
 
 def current_session_start_index(events: list[dict]) -> int:
     """Return index of the first event in the current session.
 
     Current session = events after the last SESSION_END event. Returns 0
-    when no SESSION_END has been recorded (everything is the current
-    session). Reverse-scan so complexity is O(events-since-last-end).
+    when no SESSION_END has been recorded (everything is the current session).
     """
-    for i in range(len(events) - 1, -1, -1):
-        if events[i].get("type") == SESSION_END:
-            return i + 1
-    return 0
+    return _last_index_of_type(events, SESSION_END) + 1
 
 
 def prior_session_end_ts(events: list[dict]) -> str:
     """Return ts of the most recent SESSION_END event, or "" if none.
 
-    Sister of `current_session_start_index` — same reverse-scan, returns
-    the boundary timestamp instead of the post-boundary index. Use when
-    callers need a ts comparison (e.g., filter by `e["ts"] > prior_ts`).
+    Sister of `current_session_start_index` — returns the boundary
+    timestamp instead of the post-boundary index. Use when callers need
+    a ts comparison (e.g., filter by `e["ts"] > prior_ts`).
     """
-    for i in range(len(events) - 1, -1, -1):
-        if events[i].get("type") == SESSION_END:
-            return events[i].get("ts", "")
-    return ""
+    idx = _last_index_of_type(events, SESSION_END)
+    return events[idx].get("ts", "") if idx >= 0 else ""
 
 
 def uncommitted_event_count(events: list[dict]) -> int:
-    """Count real-work events newer than the most recent commit event."""
-    # Sibling boundary-scan helpers: current_session_start_index, prior_session_end_ts.
-    # SESSION_SUMMARY is intrinsic to /xp-end-session and always lands
-    # after the user's last commit by design; counting it would make the
-    # honesty signal structurally always >=1.
-    countable = [e for e in events if e.get("type") != SESSION_SUMMARY]
-    for i in range(len(countable) - 1, -1, -1):
-        if countable[i].get("type") == COMMIT:
-            return len(countable) - i - 1
-    return len(countable)
+    """Count probe-resolvable events newer than the most recent commit.
+
+    Only types in PROBE_RESOLVABLE_TYPES (concern/debt/discovery) count.
+    Orchestration events (status, goal, retrospective, sprint, decision,
+    question, answer, session_summary, etc.) are excluded — they aren't
+    probe targets, and counting them turns the honesty signal into noise
+    the user learns to ignore.
+    """
+    last_commit_idx = _last_index_of_type(events, COMMIT)
+    return sum(
+        1
+        for e in events[last_commit_idx + 1 :]
+        if e.get("type") in PROBE_RESOLVABLE_TYPES
+    )
 
 
 def subagent_started_content(agent_id: str) -> str:

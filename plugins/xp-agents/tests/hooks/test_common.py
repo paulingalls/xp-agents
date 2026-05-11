@@ -24,9 +24,17 @@ from conftest import _HookTestCase, make_event
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
 from event_schema import (
+    EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
     EVENT_TYPE_DECISION,
+    EVENT_TYPE_DISCOVERY,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_SUMMARY,
     EVENT_TYPE_STATUS,
+    PRIORITY_ASSUMED,
 )
 
 # ===========================================================================
@@ -469,6 +477,91 @@ class TestParseAppendShArgs(unittest.TestCase):
         append.sh. The token check matches the filename, not a suffix."""
         cmd = "bash /tmp/fake-append.sh --type decision --content x"
         self.assertEqual(_common.parse_append_sh_args(cmd), {})
+
+
+class TestUncommittedEventCount(unittest.TestCase):
+    """uncommitted_event_count counts only probe-resolvable types
+    (concern/debt/discovery) newer than the most recent commit event.
+    Orchestration noise (status/goal/retrospective/session_summary/etc.)
+    is excluded so the honesty signal isn't drowned by routine bookkeeping."""
+
+    def _ev(self, etype: str, **kw) -> dict:
+        kw.setdefault("ts", "2026-05-08T10:00:00+00:00")
+        if etype == EVENT_TYPE_CONCERN:
+            kw.setdefault("severity", "medium")
+            kw.setdefault("files", ["a.py"])
+        if etype == EVENT_TYPE_DEBT:
+            kw.setdefault("files", ["a.py"])
+        if etype == EVENT_TYPE_DISCOVERY:
+            kw.setdefault("references", ["aaaaaaaaaaaa"])
+        if etype == EVENT_TYPE_QUESTION:
+            kw.setdefault("priority", PRIORITY_ASSUMED)
+        if etype == EVENT_TYPE_COMMIT:
+            kw.setdefault("files", ["a.py"])
+            kw.setdefault(
+                "metadata",
+                {"action": "commit_success", "commit_hash": "a" * 40},
+            )
+        return make_event(etype, content=f"{etype} event", **kw)
+
+    def test_returns_zero_for_empty_list(self):
+        self.assertEqual(_common.uncommitted_event_count([]), 0)
+
+    def test_counts_post_commit_concern_debt_discovery(self):
+        events = [
+            self._ev(EVENT_TYPE_COMMIT),
+            self._ev(EVENT_TYPE_CONCERN),
+            self._ev(EVENT_TYPE_DEBT),
+            self._ev(EVENT_TYPE_DISCOVERY),
+        ]
+        self.assertEqual(_common.uncommitted_event_count(events), 3)
+
+    def test_excludes_orchestration_noise_post_commit(self):
+        """status/goal/retrospective/session_summary/question excluded as noise."""
+        events = [
+            self._ev(EVENT_TYPE_COMMIT),
+            self._ev(EVENT_TYPE_STATUS, working_on=[]),
+            self._ev(EVENT_TYPE_GOAL),
+            self._ev(EVENT_TYPE_RETROSPECTIVE),
+            self._ev(EVENT_TYPE_SESSION_SUMMARY),
+            self._ev(EVENT_TYPE_QUESTION),
+            self._ev(EVENT_TYPE_DECISION, topic="x"),
+        ]
+        self.assertEqual(_common.uncommitted_event_count(events), 0)
+
+    def test_excludes_pre_commit_concerns(self):
+        """A concern that lands BEFORE the last commit doesn't count."""
+        events = [
+            self._ev(EVENT_TYPE_CONCERN),
+            self._ev(EVENT_TYPE_COMMIT),
+        ]
+        self.assertEqual(_common.uncommitted_event_count(events), 0)
+
+    def test_no_commit_means_all_actionable_events_count(self):
+        """When events.jsonl has no commit yet, every concern/debt/discovery
+        is counted (none are commit-anchored)."""
+        events = [
+            self._ev(EVENT_TYPE_STATUS, working_on=[]),
+            self._ev(EVENT_TYPE_CONCERN),
+            self._ev(EVENT_TYPE_DEBT),
+        ]
+        self.assertEqual(_common.uncommitted_event_count(events), 2)
+
+    def test_mixed_post_commit_only_actionable_count(self):
+        """1 commit + 5 noise + 2 concerns + 1 debt + 1 discovery = 4."""
+        events = [
+            self._ev(EVENT_TYPE_COMMIT),
+            self._ev(EVENT_TYPE_STATUS, working_on=[]),
+            self._ev(EVENT_TYPE_GOAL),
+            self._ev(EVENT_TYPE_CONCERN),
+            self._ev(EVENT_TYPE_RETROSPECTIVE),
+            self._ev(EVENT_TYPE_DEBT),
+            self._ev(EVENT_TYPE_SESSION_SUMMARY),
+            self._ev(EVENT_TYPE_CONCERN),
+            self._ev(EVENT_TYPE_DECISION, topic="x"),
+            self._ev(EVENT_TYPE_DISCOVERY),
+        ]
+        self.assertEqual(_common.uncommitted_event_count(events), 4)
 
 
 if __name__ == "__main__":

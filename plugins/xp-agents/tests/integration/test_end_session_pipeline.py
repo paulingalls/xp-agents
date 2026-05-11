@@ -102,6 +102,28 @@ class TestEndSessionPipeline(_IntegrationTestCase):
                     working_on=["a.py"],
                 )
             )
+        # Post-commit concern + debt to exercise the probe-resolvable
+        # filter in uncommitted_event_count. The 3 status events above
+        # and 2 questions earlier are excluded as noise.
+        events.append(
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="c55555555555",
+                content="post-commit bug in b.py",
+                ts="2026-05-08T10:05:00+00:00",
+                files=["b.py"],
+                severity="medium",
+            )
+        )
+        events.append(
+            make_event(
+                event_schema.EVENT_TYPE_DEBT,
+                id="c66666666666",
+                content="post-commit cleanup in c.py",
+                ts="2026-05-08T10:06:00+00:00",
+                files=["c.py"],
+            )
+        )
         self._seed_events(events)
 
     def test_preload_surfaces_open_questions_and_likely_addressed_concern(self):
@@ -115,9 +137,11 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         # commits) or via Read on events.jsonl (teammate commits).
         self.assertRegex(r.stdout, re.compile(rf"^- {self.CONCERN_ID}\b", re.M))
         self.assertRegex(r.stdout, re.compile(rf"^  - {self.COMMIT_HASH}\b", re.M))
-        # uncommitted_count = 2 questions + 3 status = 5. End-of-line
-        # anchor so "5" matches exactly, not a prefix of 53/500/etc.
-        self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n5\b")
+        # uncommitted_count = 1 concern + 1 debt = 2 (post-commit only;
+        # questions and status events are noise classes excluded from
+        # the probe-resolvable filter). End-of-line anchor so "2" matches
+        # exactly, not a prefix of 23/200/etc.
+        self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n2\b")
 
     def test_full_pipeline_simulating_llm_append_calls(self):
         # 1. Run preload — confirms the candidates are surfaced.

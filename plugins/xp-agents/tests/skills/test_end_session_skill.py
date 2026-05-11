@@ -67,11 +67,14 @@ class TestEndSessionPreload(_IntegrationTestCase):
         self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n0\s*")
 
     def test_preload_runs_against_seeded_smm(self):
-        # 1 concern likely-addressed by a commit + 1 open question +
-        # 3 status events after the commit. Expected:
+        # Pre-commit concern (likely-addressed) + commit + open question +
+        # post-commit noise (3 status) + 2 post-commit concerns/debts.
+        # Expected:
         #   OPEN_QUESTIONS contains the question id
-        #   LIKELY_ADDRESSED contains the concern id
-        #   UNCOMMITTED == 4 (1 question + 3 status)
+        #   LIKELY_ADDRESSED contains the pre-commit concern id
+        #   UNCOMMITTED == 2 (only post-commit concern/debt/discovery counted;
+        #   status events and questions are noise classes excluded from
+        #   probe-resolvable types)
         events = [
             make_event(
                 event_schema.EVENT_TYPE_CONCERN,
@@ -110,13 +113,33 @@ class TestEndSessionPreload(_IntegrationTestCase):
                     working_on=["a.py"],
                 )
             )
+        events.append(
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="dddddddddde1",
+                content="post-commit bug in b.py",
+                ts="2026-05-08T15:04:00+00:00",
+                files=["b.py"],
+                severity="medium",
+            )
+        )
+        events.append(
+            make_event(
+                event_schema.EVENT_TYPE_DEBT,
+                id="dddddddddde2",
+                content="post-commit cleanup in c.py",
+                ts="2026-05-08T15:05:00+00:00",
+                files=["c.py"],
+            )
+        )
         self._seed_events(events)
         r = self._run_preload(_PRELOAD_SH)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("qqqqqqqqqqqq", r.stdout)
         self.assertIn("dddddddddddd", r.stdout)
-        # Last commit at index 1; total events = 6; uncommitted = 4.
-        self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n4\s*")
+        # Post-commit: 3 status (excluded) + 1 question (excluded) + 1 concern + 1 debt
+        # = 2 probe-resolvable. Status/question are noise classes.
+        self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n2\s*")
 
 
 if __name__ == "__main__":

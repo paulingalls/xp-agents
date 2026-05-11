@@ -45,7 +45,10 @@ class TestDraftSummary(_SMMTestCase):
             },
         )
 
-    def test_uncommitted_count_no_commits_returns_total(self):
+    def test_uncommitted_count_no_commits_returns_actionable_total(self):
+        # When events.jsonl has no commit yet, every probe-resolvable event
+        # (concern/debt/discovery) is counted. Status events are orchestration
+        # noise and excluded — see _common.PROBE_RESOLVABLE_TYPES.
         events = [
             make_event(
                 event_schema.EVENT_TYPE_STATUS,
@@ -54,11 +57,28 @@ class TestDraftSummary(_SMMTestCase):
                 ts=f"2026-05-08T12:00:{i:02d}+00:00",
                 working_on=["x.py"],
             )
-            for i in range(5)
+            for i in range(3)
+        ] + [
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="cnc000000001",
+                content="bug in x.py",
+                ts="2026-05-08T12:00:10+00:00",
+                files=["x.py"],
+                severity="medium",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DEBT,
+                id="dbt000000001",
+                content="cleanup x.py",
+                ts="2026-05-08T12:00:11+00:00",
+                files=["x.py"],
+            ),
         ]
         self._write_events(events)
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(result["uncommitted_count"], 5)
+        # 3 status (excluded) + 1 concern + 1 debt = 2 actionable
+        self.assertEqual(result["uncommitted_count"], 2)
 
     def test_uncommitted_count_zero_when_last_event_is_commit(self):
         events = [
@@ -99,7 +119,9 @@ class TestDraftSummary(_SMMTestCase):
         result = draft_summary.run(self.smm_dir)
         self.assertEqual(result["uncommitted_count"], 0)
 
-    def test_uncommitted_count_excludes_session_summary_among_real_work(self):
+    def test_uncommitted_count_excludes_orchestration_noise_among_real_work(self):
+        # Decision and session_summary are orchestration events, not
+        # probe-resolvable work. Only the post-commit concern counts.
         events = [
             make_event(
                 event_schema.EVENT_TYPE_COMMIT,
@@ -115,6 +137,14 @@ class TestDraftSummary(_SMMTestCase):
                 topic="y-choice",
             ),
             make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="cnc000000002",
+                content="post-commit bug in y.py",
+                ts="2026-05-10T19:01:30+00:00",
+                files=["y.py"],
+                severity="medium",
+            ),
+            make_event(
                 event_schema.EVENT_TYPE_SESSION_SUMMARY,
                 id="ses000000002",
                 content="Session wrap-up",
@@ -123,9 +153,12 @@ class TestDraftSummary(_SMMTestCase):
         ]
         self._write_events(events)
         result = draft_summary.run(self.smm_dir)
+        # 1 decision (excluded) + 1 concern + 1 session_summary (excluded) = 1
         self.assertEqual(result["uncommitted_count"], 1)
 
     def test_uncommitted_count_after_commit(self):
+        # Only post-commit probe-resolvable events count. Status and decision
+        # are orchestration noise — see _common.PROBE_RESOLVABLE_TYPES.
         events = [
             make_event(
                 event_schema.EVENT_TYPE_COMMIT,
@@ -147,9 +180,25 @@ class TestDraftSummary(_SMMTestCase):
                 ts="2026-05-08T14:02:00+00:00",
                 topic="x-choice",
             ),
+            make_event(
+                event_schema.EVENT_TYPE_CONCERN,
+                id="cnc000000003",
+                content="post-commit regression",
+                ts="2026-05-08T14:03:00+00:00",
+                files=["y.py"],
+                severity="medium",
+            ),
+            make_event(
+                event_schema.EVENT_TYPE_DEBT,
+                id="dbt000000002",
+                content="cleanup y.py",
+                ts="2026-05-08T14:04:00+00:00",
+                files=["y.py"],
+            ),
         ]
         self._write_events(events)
         result = draft_summary.run(self.smm_dir)
+        # 1 status + 1 decision (excluded) + 1 concern + 1 debt = 2 actionable
         self.assertEqual(result["uncommitted_count"], 2)
 
     def test_open_question_surfaces(self):

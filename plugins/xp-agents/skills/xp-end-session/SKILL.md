@@ -23,13 +23,13 @@ User-invoked. The preload above provides:
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.
 - `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented git commit hash(es) for the audit trail (resolvable via `git show`).
-- `### UNCOMMITTED` — count of SMM events newer than the last commit event.
+- `### UNCOMMITTED` — count of concerns/debts/discoveries newer than the last commit event.
 
 Run all five steps in order. Do **not** prompt the user before Step 1 — the user invoked `/xp-end-session` because they want this work done.
 
 ## Step 1: Append the session_summary event
 
-Refine the `### CANDIDATES` text into a 1–2 paragraph narrative (≤2000 chars — the schema budget). Keep verbs in past tense, name what shipped and what's open. Append:
+Write a 1–2 paragraph narrative summary of the current session (≤2000 chars — the schema budget). Keep verbs in past tense, name what shipped and what's open. Use the `### CANDIDATES` text to trigger your memory. Append using:
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
@@ -65,17 +65,11 @@ each item yourself — do not prompt the user.** Inspect any cited commit
 via `git show <hash>` (works for both solo and teammate worktree commits).
 For each grouping:
 
-- **Auto-resolve** when the cited commits clearly fix the concern's
-  intent. All three must hold:
+- **Auto-resolve** when the cited commits clearly fix the concern's intent. All three must hold:
   - commit message wording matches the concern's stated problem,
   - the concern's `files` are the obvious target of the change,
-  - no remaining work is implied (no "TODO", "follow-up", or scope
-    deferral in the commit body).
-  When multiple commits are cited, ALL must contribute to the fix —
-  if any cited commit is unrelated or only partially addresses the
-  concern, defer instead. Append a status event citing both the
-  canonical resolution link AND the git commit hash(es) that informed your
-  judgement:
+  - no remaining work is implied (no "TODO", "follow-up", or scope deferral in the commit body).
+Append a status event citing both the canonical resolution link AND the git commit hash(es) that informed your judgement:
 
   ```bash
   ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
@@ -108,9 +102,13 @@ Retention is **N=5** entries — appending the 6th evicts the oldest. The pipe e
 
 ## Step 5: Honesty signal
 
-Surface the `### UNCOMMITTED` value to the user verbatim. If `> 0`, suggest they commit before ending the session — the next session's resolves-trailer probe relies on commit-linked events for accurate suggestions.
+Surface the `### UNCOMMITTED` value to the user verbatim. The count is concerns/debts/discoveries newer than the last commit event — items the next session's resolves-trailer probe will see as open candidates.
+
+If `> 0`, suggest one of:
+- **Drop now** if the items are addressed conceptually but not formally resolved — append a status event with `metadata.resolves: [<id>]` (mirrors Step 3's auto-judge pattern).
+- **Leave for triage** — they re-surface at the next kickoff's `/xp-work-selection` and can be dropped, deferred, or adopted then.
 
 Example output:
-> "Uncommitted SMM events since last commit: **N**. Consider committing before ending so the next session's probe has fresh data."
+> "Open SMM items newer than last commit: **N** (concerns/debts/discoveries). Drop now if addressed, or let next kickoff triage them."
 
 If `N == 0`, no nag needed; report briefly and stop.

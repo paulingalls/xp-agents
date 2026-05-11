@@ -512,9 +512,8 @@ def find_probe_candidates(
             | resolutions["resolved_debt_ids"]
             | resolutions["resolved_other_ids"]
         )
-        sibling_types = (_common.CONCERN, _common.DEBT, _common.DISCOVERY)
         for e in events:
-            if e.get("type") not in sibling_types:
+            if e.get("type") not in _common.PROBE_RESOLVABLE_TYPES:
                 continue
             eid = e.get("id")
             if eid in resolved_set or eid in matched_ids:
