@@ -65,6 +65,7 @@ from conftest import (
 EMITTER_BUDGETS: dict[str, int] = {
     "bash_post_tool.py": 100,
     "kickoff_gate.py": 100,
+    "large_batch_probe.py": 100,
     "lint_check.py": 300,
     "post_tool_exit_plan.py": 100,
     "pre_tool_bash.py": 100,
