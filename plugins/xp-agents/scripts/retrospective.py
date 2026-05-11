@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import marker_names
 import story_metrics
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -266,7 +267,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None
 
     _write_retro_input(smm_dir, retro_input)
 
-    (smm_dir / ".sprint-retro-input.json").unlink(missing_ok=True)
+    (smm_dir / marker_names.SPRINT_RETRO_INPUT).unlink(missing_ok=True)
 
     context = _build_context_summary(
         unanalyzed_count,
