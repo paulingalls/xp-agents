@@ -5,8 +5,11 @@ description: >-
   prompts customer to migrate via /xp-sprint-start or records a dismissal.
   INTERNAL — invoked only by xp-kickoff when stage < 2.
 allowed-tools:
-  - Bash(python3 */smm/system_context_cli.py *)
-  - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */smm/system_context_cli.py get-branching-field *)
+  - Bash(python3 */smm/system_context_cli.py edit-branching-field *)
+  - Bash(python3 */scripts/branching.py *stage)
+  - Bash(python3 -c *datetime*)
+  - Bash(printf *)
   - AskUserQuestion
   - Skill
 ---
