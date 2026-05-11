@@ -125,9 +125,9 @@ class _ActivityWatchdog:
     existing rc!=0 recovery path in main() takes over (story stays
     in-progress, prompt file preserved for re-spawn).
 
-    *timeout_s* and *poll_interval_s* default to ``None`` and resolve
-    to the module constants at call time. Tests patch the constants;
-    production callers omit both args.
+    *timeout_s*, *poll_interval_s*, and *kill_grace_s* default to
+    ``None`` and resolve to the module constants at call time. Tests
+    patch the constants; production callers omit all three args.
     """
 
     def __init__(
@@ -136,12 +136,16 @@ class _ActivityWatchdog:
         name: str,
         timeout_s: float | None = None,
         poll_interval_s: float | None = None,
+        kill_grace_s: float | None = None,
     ):
         self._proc = proc
         self._name = name
         self._timeout = _WATCHDOG_TIMEOUT_S if timeout_s is None else timeout_s
         self._poll = (
             _WATCHDOG_POLL_INTERVAL_S if poll_interval_s is None else poll_interval_s
+        )
+        self._kill_grace = (
+            _WATCHDOG_KILL_GRACE_S if kill_grace_s is None else kill_grace_s
         )
         self._last_activity = time.monotonic()
         self._stop = threading.Event()
@@ -172,11 +176,11 @@ class _ActivityWatchdog:
                 try:
                     self._proc.terminate()
                     try:
-                        self._proc.wait(timeout=_WATCHDOG_KILL_GRACE_S)
+                        self._proc.wait(timeout=self._kill_grace)
                     except subprocess.TimeoutExpired:
                         sys.stderr.write(
                             f"WATCHDOG: {self._name} did not exit on SIGTERM "
-                            f"within {_WATCHDOG_KILL_GRACE_S}s — SIGKILL\n"
+                            f"within {self._kill_grace}s — SIGKILL\n"
                         )
                         self._proc.kill()
                 except (OSError, subprocess.SubprocessError):
