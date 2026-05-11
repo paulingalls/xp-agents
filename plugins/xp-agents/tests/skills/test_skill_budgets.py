@@ -36,6 +36,7 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-sprint-close": 130,
     "xp-sprint-review": 30,
     "xp-sprint-start": 220,
+    "xp-stage-migration": 60,
     "xp-story-close": 270,
     "xp-system-context": 30,
     "xp-work-selection": 190,

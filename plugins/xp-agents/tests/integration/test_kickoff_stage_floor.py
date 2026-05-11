@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Integration tests for xp-kickoff Step 2.4 (Stage 2 floor migration prompt).
 
-M-7 raises the branching-doctrine floor from Stage 1 to Stage 2. Story-001
-auto-promotes Stage 1 -> 2 transparently inside branching.py, so the only
-case where stage<2 persists across kickoffs is explicit Stage 0. This file
-pins the SKILL.md prose contract for the migration prompt that Step 2.4
-shows in that case.
+Step 2.4 originally inlined the migrate/continue/dismiss flow (~430 tokens
+injected at every kickoff). The body was extracted into the xp-stage-migration
+skill so kickoff only carries a slim conditional pointer. These tests pin the
+slim contract: kickoff must conditionally invoke /xp-stage-migration and
+preserve the >= 2 skip + dismissal-already-set short-circuit, but the actual
+prompt prose now lives in test_xp_stage_migration.
 """
 
 import sys
@@ -29,7 +30,7 @@ def _slice_step(text: str, heading: str) -> str:
 
 
 class TestKickoffStageFloorPrompt(unittest.TestCase):
-    """SKILL.md prose pins the new Step 2.4 stage-floor migration contract."""
+    """Kickoff Step 2.4 carries the slim delegation contract."""
 
     @classmethod
     def setUpClass(cls):
@@ -40,37 +41,48 @@ class TestKickoffStageFloorPrompt(unittest.TestCase):
         self.assertIn("## Step 2.4", self.text)
         self.assertTrue(self.step, "Step 2.4 region is empty")
 
-    def test_step_24_describes_stage_floor(self):
-        lower = self.step.lower()
-        self.assertIn("stage 2", lower)
-        self.assertIn("floor", lower)
-
-    def test_step_24_references_sprint_start(self):
-        self.assertIn("/xp-sprint-start", self.step)
-
-    def test_step_24_reads_stage(self):
+    def test_step_24_reads_branching_stage(self):
         self.assertIn("branching.py", self.step)
         self.assertIn("stage", self.step.lower())
 
-    def test_step_24_uses_askuser_question(self):
-        self.assertIn("AskUserQuestion", self.step)
-
     def test_step_24_skips_when_stage_ge_2(self):
-        lower = self.step.lower()
-        self.assertIn("skip this step", lower)
         self.assertTrue(
             ">= 2" in self.step or "≥ 2" in self.step or ">=2" in self.step,
             "Step 2.4 must describe a skip-when-stage-≥2 condition",
         )
 
+    def test_step_24_delegates_to_stage_migration_skill(self):
+        self.assertIn("xp-stage-migration", self.step)
+
     def test_step_24_lives_between_step_2_and_step_25(self):
-        # Migration prompt must fire before any branch-creation work in 2.5+.
         idx_step_2 = self.text.find("## Step 2: Session mode")
         idx_step_24 = self.text.find("## Step 2.4")
         idx_step_25 = self.text.find("## Step 2.5")
         self.assertGreater(idx_step_2, 0)
         self.assertGreater(idx_step_24, idx_step_2)
         self.assertGreater(idx_step_25, idx_step_24)
+
+    def test_step_24_is_slim(self):
+        """The whole point of the extraction: kickoff Step 2.4 should be short."""
+        line_count = len(self.step.splitlines())
+        self.assertLess(
+            line_count,
+            15,
+            f"Step 2.4 is {line_count} lines — extraction goal is < 15 "
+            "(was 33 inline before xp-stage-migration extraction)",
+        )
+
+    def test_step_24_runs_regardless_of_session_mode(self):
+        """Step 2 says 'free session: jump directly to step 5' — Step 2.4
+        must explicitly override that, otherwise free-session users skip the
+        Stage 2 floor prompt entirely (regression caught at commit 89d8727a).
+        """
+        lower = self.step.lower()
+        self.assertTrue(
+            "regardless of" in lower or "always" in lower,
+            "Step 2.4 must declare it runs regardless of session mode "
+            "(free-session users would otherwise skip per Step 2's jump-to-5)",
+        )
 
 
 if __name__ == "__main__":
