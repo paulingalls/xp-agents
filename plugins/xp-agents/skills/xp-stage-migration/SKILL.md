@@ -44,10 +44,10 @@ or continue at Stage <N> for this session?"**
 
 ## Step 3: Act on the choice
 
-If the user picks **migrate**, invoke the `xp-sprint-start` skill via the
-Skill tool (`skill=xp-agents:xp-sprint-start`). Do NOT record a dismissal —
-migration is the non-dismissed branch. After it completes, return control
-to the caller (which re-reads stage fresh, so do not cache).
+If the user picks **migrate**, invoke `/xp-sprint-start`. Do NOT record
+a dismissal — migration is the non-dismissed branch. After it completes,
+return control to the caller (which re-reads stage fresh, so do not
+cache).
 
 If the user picks **continue**, record the dismissal:
 ```bash

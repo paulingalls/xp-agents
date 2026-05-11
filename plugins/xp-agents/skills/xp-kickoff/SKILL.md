@@ -58,10 +58,9 @@ Read the branching stage:
 STAGE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage)
 ```
 
-If `STAGE >= 2`, **skip this step**. Otherwise invoke the
-`xp-stage-migration` skill via the Skill tool
-(`skill=xp-agents:xp-stage-migration`) — it handles the dismissal check,
-the migrate/continue prompt, and the dismissal record. After it returns,
+If `STAGE >= 2`, **skip this step**. Otherwise invoke
+`/xp-stage-migration` — it handles the dismissal check, the
+migrate/continue prompt, and the dismissal record. After it returns,
 proceed to Step 2.5.
 
 ## Step 2.5: Auto-create free branch on protected (free sessions only)
