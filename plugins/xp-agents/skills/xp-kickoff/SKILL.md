@@ -49,35 +49,19 @@ If the user chooses **free session**: skip steps 3 and 4, jump directly to step 
 
 If the user chooses **sprint session**: proceed to step 3.
 
-## Step 2.4: Stage 2 floor migration prompt (ALWAYS)
+## Step 2.4: Stage 2 floor migration prompt (ALWAYS, every kickoff)
+
+This step runs at every kickoff regardless of the session mode chosen in Step 2 — the Stage 2 floor matters for both free and sprint sessions.
 
 Read the branching stage:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage
+STAGE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage)
 ```
 
-If the stage is `>= 2`, **skip this step**.
-
-Otherwise, check whether the user has previously dismissed the prompt:
-```bash
-DISMISSED_AT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> \
-  get-branching-field stage_prompt_dismissed_at)
-```
-
-If `DISMISSED_AT` is non-empty, **skip the prompt** and log to the user: *"Stage 2 migration prompt was dismissed at {DISMISSED_AT}. To re-enable, run `printf null | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-branching-field stage_prompt_dismissed_at`"*.
-
-Otherwise prompt via `AskUserQuestion`, substituting the stage value: **"This project is on branching Stage <N>. Stage 2 is the v3.1 plugin floor (sprint branches required for production-grade discipline). Migrate now via /xp-sprint-start, or continue at Stage <N> for this session?"**
-
-If the user picks **migrate**, invoke `/xp-sprint-start` immediately. Do NOT record a dismissal — migration is the non-dismissed branch. After it completes, proceed to Step 2.5 — which re-reads stage fresh, so do not cache.
-
-If the user picks **continue**, record the dismissal:
-```bash
-TS=$(python3 -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())")
-printf '%s' "\"$TS\"" | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> \
-  edit-branching-field stage_prompt_dismissed_at
-```
-
-Then proceed to Step 2.5.
+If `STAGE >= 2`, **skip this step**. Otherwise invoke
+`/xp-stage-migration` — it handles the dismissal check, the
+migrate/continue prompt, and the dismissal record. After it returns,
+proceed to Step 2.5.
 
 ## Step 2.5: Auto-create free branch on protected (free sessions only)
 

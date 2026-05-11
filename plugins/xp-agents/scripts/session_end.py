@@ -19,6 +19,7 @@ import _common
 import concerns
 import coordination
 import identity
+import marker_names
 import markers
 from event_builder import generate_id
 from event_schema import (
@@ -257,7 +258,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
 
     # Clear session-scoped flags so they re-fire next session
     with contextlib.suppress(OSError):
-        (smm_dir / ".lint-warned").unlink()
+        (smm_dir / marker_names.LINT_WARNED).unlink()
 
     return None
 

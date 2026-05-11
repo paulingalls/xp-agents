@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import marker_names
 import plugin_loader
 import smm_cli
 from event_schema import (
@@ -49,7 +50,6 @@ def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[st
     return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
 
 
-_CURATION_INPUT_FILENAME = ".curation-input.json"
 _RETRO_TRY_TOPIC_PREFIX = "retro-try-"
 
 
@@ -107,7 +107,7 @@ def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]
     """xp-housekeeper: write curation input + inject paths + work-selection block."""
     import materialize
 
-    curation_path = smm_dir / _CURATION_INPUT_FILENAME
+    curation_path = smm_dir / marker_names.CURATION_INPUT
     _common.write_json_atomic(curation_path, materialize.prepare_curation_data(smm_dir))
 
     parts = [f"SMM_DIR={smm_dir}\nCURATION_INPUT={curation_path}"]

@@ -111,9 +111,15 @@ def bash_post_tool() -> dict:
     }
 
 
+def large_batch_probe() -> dict:
+    # Empty SMM → 0 main events since (nonexistent) commit → no nudge.
+    return _make_bash_input(command="ls")
+
+
 EMITTER_FIXTURES: dict[str, FixtureBuilder] = {
     "bash_post_tool.py": bash_post_tool,
     "kickoff_gate.py": kickoff_gate,
+    "large_batch_probe.py": large_batch_probe,
     "lint_check.py": lint_check,
     "post_tool_exit_plan.py": post_tool_exit_plan,
     "pre_tool_bash.py": pre_tool_bash,
