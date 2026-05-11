@@ -84,6 +84,7 @@ def build_command(name: str) -> list[str]:
         _ALLOWED_TOOLS,
         "--output-format",
         "stream-json",
+        "--include-partial-messages",
         "--verbose",
     ]
 
