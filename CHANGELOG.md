@@ -1,5 +1,47 @@
 # Changelog
 
+## v3.1.30 — sprint-082 (probe-adoption recovery + house cleanup, 6 stories)
+
+Sprint-082 closes execution-plan Milestone 1 — restores probe-adoption signal after 19 consecutive sessions of sub-50% adoption, plus 4 isolated cleanups designed for parallel teammate execution. **6/6 stories delivered, velocity 1.0.**
+
+### story-001 (solo) — probe-adoption cluster: pool builder + AC#4 E2E + try_status audit
+
+Three converging touchpoints around probe + retro wiring shipped together. **(a)** New `_matching_open_by_keyword` in `resolves_probe.py` adds keyword-overlap candidates to the pool builder, mirroring `_matching_open_discoveries`. The pool previously unioned only file-overlap matches (`open_matches + discovery_matches + sibling_matches`); `_score_candidate` already used keyword overlap for ranking but never sourced new candidates. Dedups via `matched_ids` so a candidate matching by both file AND keyword appears once with both reasons attached. Hoists `haystack_keywords` computation above pool building so the helper and per-candidate scoring share a single tokenization. Closes the SPIKE-named gap from sprint-081 story-004 (`resolves_probe.py:460-484`). **(b)** New `tests/integration/test_kickoff_adopt_commit_probe_e2e.py` pins debt `23c1a5d62d16`'s long-deferred AC#4: stale-snapshot probe correctly rereads disk after `work_selection_decide.adopt` touches the refresh sentinel. Test pins `now_ts == seed_ts` to isolate the sentinel branch from wall-clock staleness — mutation-verified by commenting out `signal_probe_refresh`. **(c)** Audit confirmed `annotate_try_status` id-as-token resolution path is intact (was always working); new test pins it so `tokens.add(own_id)` at `retro_history.py:103` can't regress silently into the next retro mystery.
+
+### story-002 (teammate) — scaffold_cli.py extraction to scaffold_cli_apply.py
+
+Pre-emptive split before next CLI-touching commit. `scaffold_cli.py` was at 499/500 lines after sprint-081; the 7 `_cmd_apply_*` callables (~120 lines, lines 167-288) plus their two helpers (`_load_snapshot_or_exit`, `_run_apply_phase`) and three CLI utilities (`_emit`, `_require_smm_dir`, `_load_stdin_json`) extracted to `scaffold_cli_apply.py`. `scaffold_cli.py` re-exports each name via shim so callers ("apply-*" dispatch table, tests, downstream stories) keep working with no change. Lands at 351 lines — comfortable margin, not a 499-line cliff. New `tests/scaffold/test_scaffold_cli_split.py` pins both halves: each module stays <500, and `scaffold_cli` still re-exports every `_cmd_apply_*` with `assertIs` identity (catches accidental local re-definition in <1s). Drive-by DRY consolidation: `_require_smm_dir` (3 inline copies → 1 helper), stdin-JSON parse pattern (3 try/except blocks → `_load_stdin_json` raising SystemExit(1)).
+
+### story-003 (teammate) — marker_names centralization (7 dotfile constants across 6 scripts)
+
+Closes debt `6d5683b0b36a`. Adds 5 flat constants (`LINT_WARNED`, `SPRINT_RETRO_INPUT`, `CURATION_INPUT`, `COORDINATION_JSON`, `COORDINATION_LOCK`) and 2 templates (`TEAMMATE_REPORT`, `STORY_ASSIGNMENT`) to `smm/marker_names.py`. Replaces inline literals at all 7 call sites across `lint_check.py`, `retrospective.py`, `worktree.py` (×2), `subagent_start.py`, `coordination.py` (×2), `session_end.py` — the last is a paired-lifecycle drift (clears `.lint-warned` set by `lint_check`; centralizing one half without the other defeats the centralization). Per-site audit preserved raw I/O vs `marker_consume` semantics. Drops two vestigial private aliases (`_COORDINATION_FILE`/`_LOCK`, `_CURATION_INPUT_FILENAME`) per simplify pass.
+
+### story-004 (teammate) — large_batch_probe: checkpoint-nudge probe
+
+Reframes the carry-forward checkpoint Try as **tooling, not discipline**. New `plugins/xp-agents/scripts/large_batch_probe.py` registered on `PostToolUse` (matcher `Write|Edit|MultiEdit|Bash|Skill|Agent`) emits a status nudge "consider committing intermediate green state" when main has emitted >40 events since the last main-agent commit. Filters by `agent_id == "main"` (teammate event flow doesn't trigger), `is_xp_agent` recursion guard for xp-* subagents, dedups within the batch window so rapid tool calls don't spam. Critical correctness fix from xp-code-reviewer: status events alone are functionally invisible (filtered by `prompt_nugget._NUGGET_PRIORITY`); the probe MUST return its text via `additionalContext` for the agent to actually see it. Status event remains the audit trail. Decision `dbace441bca6` captures this as project policy for future advisory probes.
+
+### story-005 (solo) — convention-bundle-pattern decision capstone
+
+Closes concern `073c8694f755`. Decision event `ddb1be281bc1` records the sister-test discovery design pattern: built-in convention bundle (curated likely-test paths) + `system_context.json` overrides for project-specific divergence. Future divergent designs (lint, format, CI conventions) landing a competing decision with the same topic will trip the superseded-decision detector and surface the choice for explicit reconciliation. Originally scoped with a pytest pin for the decision marker; **xp-code-reviewer caught the pin as a CLAUDE.md project-generic-IDs violation** (shipped tests must not reference project-local concern IDs); test deleted, decision event itself is the architectural artifact.
+
+### story-006 (solo, after teammate hang) — xp-kickoff Step 2.4 → xp-stage-migration skill extraction
+
+xp-kickoff/SKILL.md Step 2.4 (~430 tokens) was injected at every session kickoff for a step that fires at most once per project (one-time stage-2 migration prompt + dismissal). Extracted the migrate/continue/dismiss flow into new `xp-stage-migration` skill; kickoff carries only a 9-line conditional pointer (was 33). Net per-session win: ~430 tokens saved in kickoff body; ~80 tokens added via skill description (always loaded). Skill body itself loads on demand only when stage<2 + not dismissed. **Critical regression caught pre-merge:** the slimmed Step 2.4 lost the original `(ALWAYS, every kickoff)` override, which would have caused free-session users to skip Step 2.4 entirely (per Step 2's "jump directly to step 5" path); restored the override + added regression test `test_step_24_runs_regardless_of_session_mode`. Bash globs in xp-stage-migration tightened per-subcommand vs sibling pattern (least-privilege win). Final close-reviewer caught a Block: kickoff Step 2.4 invoked the skill via Skill tool but xp-kickoff allowed-tools doesn't include `Skill`; aligned both files to slash-command form (`/xp-stage-migration`, `/xp-sprint-start`) matching sibling dispatches.
+
+### Notable in-sprint events
+
+- **Teammate worktree-story-006 hung 31min** at 0.1% CPU with no progress — concern `e1a8f7e17d84`. Killed and switched story-006 to solo execution. Worth investigating spawn_teammate hang root cause (possibly waiting on AskUserQuestion in `-p` mode without stdin).
+- **3 file_domain drifts within K=1 tolerance** (all infra-required, no scope creep): story-003 paired-lifecycle session_end edit; story-004 emitter fixture + injection budget entry; story-006 prose-pin test + skill budget entry.
+- **5 plan-reviewer / close-reviewer concerns surfaced + addressed inline** during the sprint: probe pool dict-dispatch (story-001), test fixture noise (story-001 + 002), allowed-tools globs (story-006), Skill-tool dispatch Block (sprint-close).
+
+### Test status
+
+4778 tests, 1 skipped, 404 subtests passing throughout. Test count grew by ~20 (new tests for keyword pool, try_status pin, AC#4 E2E, scaffold split, marker_names, large_batch_probe, kickoff stage-floor + xp-stage-migration prose pins, skill budgets entry).
+
+### Next
+
+**Sprint-083 (Milestone 2)** remains planned: EVENT_CATEGORY enum refactor (collapses 3-entry tax across `event_schema.py` / `materialize.py` / `compact.py`) + `read_events_raw` audit (14 call sites; migrate watermark-semantics ones to `read_delta_full`). Both have high blast radius across SMM engine; deserve their own focused sprint.
+
 ## v3.1.29 — sprint-081 (scaffold-acceptance hardening: 3 real-world bug fixes + probe-quality SPIKE)
 
 Sprint-081 closes execution-plan Milestone 1 — three independent fixes from the first real-world `/xp-scaffold-acceptance` invocation on 2026-05-04 (Expo mobile project; ~5 manual recovery prompts), plus a SPIKE adopted from this session's retro Try investigating 18 consecutive sessions of sub-50% probe adoption. **4/4 stories delivered**.
