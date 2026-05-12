@@ -815,5 +815,41 @@ class TestNormalizeFileSetSignatureTightened(unittest.TestCase):
         self.assertIs(cwd_param.default, inspect.Parameter.empty)
 
 
+class TestSignalEventsFilter(unittest.TestCase):
+    """_build_retro_digest must strip resolved debts from signal_events,
+    symmetric with the existing resolved-concern filter. Without this,
+    dropped Try chains keep resurfacing because the underlying debt
+    stays visible to the retro agent.
+    """
+
+    def test_resolved_debts_excluded_from_signal_events(self):
+        import resolution
+        import retro_metrics
+
+        debt = make_event(EVENT_TYPE_DEBT, content="1Password deploy-key debt")
+        dropper = make_event(
+            EVENT_TYPE_STATUS,
+            content="Drop the debt",
+            working_on=[],
+            metadata={"disposition": "dropped", "resolves": [debt["id"]]},
+        )
+        events = [debt, dropper]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        signal_ids = [e["id"] for e in digest["signal_events"]]
+        self.assertNotIn(debt["id"], signal_ids)
+
+    def test_unresolved_debts_remain_in_signal_events(self):
+        import resolution
+        import retro_metrics
+
+        debt = make_event(EVENT_TYPE_DEBT, content="open debt")
+        events = [debt]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        signal_ids = [e["id"] for e in digest["signal_events"]]
+        self.assertIn(debt["id"], signal_ids)
+
+
 if __name__ == "__main__":
     unittest.main()
