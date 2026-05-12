@@ -1,5 +1,42 @@
 # Changelog
 
+## v3.1.33 — cascade Try-drop to underlying debt/concern/discovery
+
+Free-session fix for a long-standing dishonesty in the retro loop: a "dropped" Try kept resurfacing every session with a fresh ID. Live evidence — SimplyHuman 1Password debt `9c3f5406cacd` spawned 8 consecutive Tries despite repeated drops.
+
+### Root cause
+
+When the user dropped a retro Try via `/xp-work-selection drop`, only the Try IDs (the Try's own id plus chain refs from the `[refs: ...]` suffix) ended up in `metadata.resolves`. The underlying **debt / concern / discovery** the Try was about stayed open — and the retro agent obediently re-proposed a fresh Try about it the next session. Two leaks, one sending-side and one receiving-side:
+
+- **Sending side**: `/xp-work-selection drop` didn't walk the Try's prose for hex IDs pointing at the root.
+- **Receiving side**: `retro_metrics._build_retro_digest` filtered resolved **concerns** out of `signal_events` but not resolved **debts** (asymmetric). Even with sending-side cascade, a dropped debt would still appear in the next retro's input.
+
+### Fix (3 commits, refactor-before-feature TDD)
+
+- **Commit 1 (`cc67b6de`)** — symmetric receiving-side filter. `_build_retro_digest` now also strips resolved debts from `signal_events`. Two-line fix mirroring the existing concern filter, with paired pin tests (resolved → excluded, unresolved → retained).
+- **Commit 2 (`687d5162`)** — pure refactor. Extracted `_build_drop_event` helper from the two duplicate construction sites (`case "drop":` and `if force_drop:`). No behavior change; existing tests cover both call sites unchanged.
+- **Commit 3 (`673bd093`)** — content-scan cascade. `_build_drop_event` now scans post-suffix-strip content for 12+ hex IDs, filters them against `_common.PROBE_RESOLVABLE_TYPES` (`debt | concern | discovery`), and unions matching root IDs into `metadata.resolves` via the new `event_builder.merge_resolves` helper. Perf-guarded: `read_events_raw` is only called when content has hex tokens, and pinned by `test_drop_with_no_hex_tokens_skips_events_read`.
+
+### Reuse / cleanup
+
+- **`merge_resolves(event, ids: Iterable[str])`** extracted to `event_builder.py` from inside `extract_refs_suffix`. Both call sites now delegate — same dedupe semantics, defensive copy.
+- **`HEX_ID_RE`** promoted from private `_HEX_ID_RE` in `retro_history.py`. `work_selection_decide.py` now imports the public name instead of reaching across modules into a `_`-prefixed symbol.
+- **`_common.PROBE_RESOLVABLE_TYPES`** reused for cascade type filter — was duplicated as a local `_CASCADE_TYPES` constant.
+
+### Tests (10 new in `TestDropContentCascade`)
+
+- **Positive**: debt, concern, discovery in content prose all resolve via cascade.
+- **Negative**: question / decision / unknown hex tokens do NOT resolve (type filter pins).
+- **Dedupe**: ID in both content prose AND `[refs: ...]` suffix appears exactly once.
+- **Force-drop parity**: same cascade fires via `defer --force-drop` codepath.
+- **Multi-debt**: two debt IDs in content both cascade.
+- **Perf-guard pin**: `_common.read_events_raw` is NOT called when content has zero hex tokens (mocked).
+
+### Tests overall
+
+- 4802 unit + integration tests pass, 1 skipped, 404 subtests passing.
+- Lefthook pre-commit (ruff, pyright, tests) green on every commit in the cycle.
+
 ## v3.1.32 — teammate liveness watchdog + skill prose audit
 
 Free-session release shipping two cohesive threads: a watchdog that bounds silent-teammate hangs to ~15 min recovery (was 31+ min, manual), and a focused audit of skill prose that cuts ~900 tokens per kickoff and removes 2 mechanical regression-pin tests.
