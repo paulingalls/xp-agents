@@ -93,6 +93,17 @@ def _validate_future_iso_date(value: str) -> None:
         )
 
 
+def _build_drop_event(agent_id: str, content: str) -> dict:
+    """Build the status/dropped event used by both `drop` and `defer --force-drop`."""
+    return _common.make_event(
+        "status",
+        agent_id,
+        content,
+        working_on=[],
+        metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
+    )
+
+
 def _build_defer_event(
     smm_dir: Path,
     agent_id: str,
@@ -124,13 +135,7 @@ def _build_defer_event(
             topic=force_adopt_topic,
         )
     if force_drop:
-        return _common.make_event(
-            "status",
-            agent_id,
-            content,
-            working_on=[],
-            metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
-        )
+        return _build_drop_event(agent_id, content)
     if force_defer_until:
         _validate_future_iso_date(force_defer_until)
         return _common.make_event(
@@ -199,13 +204,7 @@ def run(
                 force_defer_until,
             )
         case "drop":
-            event = _common.make_event(
-                "status",
-                agent_id,
-                content,
-                working_on=[],
-                metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
-            )
+            event = _build_drop_event(agent_id, content)
         case "triage-adopt" | "triage-defer" | "triage-drop":
             if event_id is None:
                 raise ValueError(f"{action} requires --event-id")
