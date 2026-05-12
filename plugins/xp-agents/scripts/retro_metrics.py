@@ -183,6 +183,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     """Build structured digest from unanalyzed events."""
     unanalyzed = events[start_idx:]
     resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
+    resolved_debt_ids = resolutions.get("resolved_debt_ids", set())
 
     signal_events = [
         e
@@ -191,6 +192,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         and not (
             e.get("type") == _common.CONCERN and e.get("id", "") in resolved_concern_ids
         )
+        and not (e.get("type") == _common.DEBT and e.get("id", "") in resolved_debt_ids)
     ]
     status_summary = _classify_lifecycle_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)

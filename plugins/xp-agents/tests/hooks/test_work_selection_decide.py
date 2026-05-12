@@ -23,8 +23,15 @@ sys.path.insert(
 
 import resolves_probe
 import work_selection_decide
-from conftest import _HookTestCase
-from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
+from conftest import _HookTestCase, make_event
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DECISION,
+    EVENT_TYPE_DISCOVERY,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_STATUS,
+)
 
 
 class _DecideTestCase(_HookTestCase):
@@ -788,6 +795,171 @@ class TestAdoptSignalsProbeRefresh(_DecideTestCase):
             content="Defer this Try [refs: abc123def456]",
         )
         self.assertFalse(self._sentinel().exists())
+
+
+class TestDropContentCascade(_DecideTestCase):
+    """drop scans content for debt/concern/discovery hex IDs and cascades.
+
+    When a Try mentions an underlying open debt/concern/discovery event by
+    its 12-hex ID in prose (not just in `[refs: ...]`), dropping the Try
+    must also resolve the root events — otherwise the retro agent sees the
+    root still open and re-proposes a fresh Try every session. Cascade
+    scope mirrors PROBE_RESOLVABLE_TYPES (debt + concern + discovery).
+    """
+
+    def _seed_event(
+        self,
+        event_type: str,
+        event_id: str,
+        extra: dict | None = None,
+    ) -> dict:
+        kwargs: dict = {"id": event_id, "content": f"seeded {event_type}"}
+        if extra:
+            kwargs.update(extra)
+        event = make_event(event_type, **kwargs)
+        existing = self._read_events()
+        self._write_events([*existing, event])
+        return event
+
+    def test_drop_resolves_debt_in_content(self):
+        debt = self._seed_event(EVENT_TYPE_DEBT, "9c3f5406cacd", {"files": ["x.py"]})
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"1Password debt {debt['id']}: close with rationale",
+        )
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["disposition"], "dropped")
+        self.assertIn(debt["id"], event["metadata"].get("resolves", []))
+
+    def test_drop_resolves_concern_in_content(self):
+        concern = self._seed_event(
+            EVENT_TYPE_CONCERN, "aaaaaaaaaaaa", {"severity": "medium", "files": []}
+        )
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"Concern {concern['id']} won't resolve — drop it",
+        )
+        event = self._last_event()
+        self.assertIn(concern["id"], event["metadata"].get("resolves", []))
+
+    def test_drop_resolves_discovery_in_content(self):
+        discovery = self._seed_event(
+            EVENT_TYPE_DISCOVERY, "bbbbbbbbbbbb", {"references": ["referenced-id"]}
+        )
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"Discovery {discovery['id']} no longer relevant",
+        )
+        event = self._last_event()
+        self.assertIn(discovery["id"], event["metadata"].get("resolves", []))
+
+    def test_drop_ignores_question_hex_token(self):
+        question = self._seed_event(
+            EVENT_TYPE_QUESTION, "cccccccccccc", {"priority": "\U0001f534"}
+        )
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"Question {question['id']} mentioned but not for cascade",
+        )
+        event = self._last_event()
+        self.assertNotIn(question["id"], event["metadata"].get("resolves", []))
+
+    def test_drop_ignores_decision_hex_token(self):
+        decision = self._seed_event(
+            EVENT_TYPE_DECISION, "dddddddddddd", {"topic": "some-topic"}
+        )
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"Per decision {decision['id']}, dropping this Try",
+        )
+        event = self._last_event()
+        self.assertNotIn(decision["id"], event["metadata"].get("resolves", []))
+
+    def test_drop_ignores_unknown_hex_token(self):
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content="Drop with stray hex eeeeeeeeeeee not matching any event",
+        )
+        event = self._last_event()
+        self.assertNotIn("eeeeeeeeeeee", event["metadata"].get("resolves", []))
+
+    def test_drop_dedupes_debt_id_in_both_content_and_refs_suffix(self):
+        debt = self._seed_event(EVENT_TYPE_DEBT, "ffffffffffff", {"files": ["x.py"]})
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"Debt {debt['id']} done [refs: {debt['id']}]",
+        )
+        event = self._last_event()
+        resolves = event["metadata"].get("resolves", [])
+        self.assertEqual(resolves.count(debt["id"]), 1)
+
+    def test_force_drop_also_resolves_debt_in_content(self):
+        debt = self._seed_event(EVENT_TYPE_DEBT, "111111111111", {"files": ["x.py"]})
+        # Seed prior defers so force-drop is the only path through.
+        prior_defers = [
+            {
+                "id": f"{i:012x}",
+                "ts": f"2026-01-{i + 1:02d}T00:00:00+00:00",
+                "type": EVENT_TYPE_STATUS,
+                "agent_id": "main",
+                "content": f"Defer {i}",
+                "schema_version": 1,
+                "working_on": [],
+                "metadata": {
+                    "resolves": ["aaaaaaaaaaaa"],
+                    "disposition": "deferred",
+                },
+            }
+            for i in range(3)
+        ]
+        existing = self._read_events()
+        self._write_events([*existing, *prior_defers])
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Drop debt {debt['id']} [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+        )
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["disposition"], "dropped")
+        self.assertIn(debt["id"], event["metadata"]["resolves"])
+
+    def test_drop_resolves_multiple_debts_in_content(self):
+        debt1 = self._seed_event(EVENT_TYPE_DEBT, "222222222222", {"files": ["a.py"]})
+        debt2 = self._seed_event(EVENT_TYPE_DEBT, "333333333333", {"files": ["b.py"]})
+        self.mod.run(
+            action="drop",
+            smm_dir=self.smm_dir,
+            content=f"Drop both: {debt1['id']} and {debt2['id']}",
+        )
+        resolves = self._last_event()["metadata"].get("resolves", [])
+        self.assertIn(debt1["id"], resolves)
+        self.assertIn(debt2["id"], resolves)
+
+    def test_drop_with_no_hex_tokens_skips_events_read(self):
+        """Perf guard: bare prose drops must not scan events.jsonl.
+
+        Protects the `if tokens:` short-circuit so future refactors can't
+        accidentally make every drop O(events). Resolves concern eab4b083f5bf.
+        """
+        from unittest.mock import patch
+
+        with patch.object(
+            work_selection_decide._common, "read_events_raw"
+        ) as mock_read:
+            self.mod.run(
+                action="drop",
+                smm_dir=self.smm_dir,
+                content="Drop forever, no hex tokens in prose",
+            )
+            mock_read.assert_not_called()
 
 
 if __name__ == "__main__":

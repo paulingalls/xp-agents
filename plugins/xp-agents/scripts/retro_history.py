@@ -22,7 +22,7 @@ MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
 
 # 12+ char hex token — matches event IDs in Try text.
 # Dict lookup downstream filters false positives (commit SHAs etc).
-_HEX_ID_RE = re.compile(r"\b[0-9a-f]{12,}\b")
+HEX_ID_RE = re.compile(r"\b[0-9a-f]{12,}\b")
 
 
 def _slim_try_item(item) -> dict:
@@ -98,7 +98,7 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
         content = item.get("content", "") if isinstance(item, dict) else item
         refs = item.get("event_refs", []) if isinstance(item, dict) else []
         own_id = item.get("id", "") if isinstance(item, dict) else ""
-        tokens = set(_HEX_ID_RE.findall(content)) | set(refs)
+        tokens = set(HEX_ID_RE.findall(content)) | set(refs)
         if own_id:
             tokens.add(own_id)
         hit = None
