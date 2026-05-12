@@ -29,6 +29,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 import _common  # noqa: E402
 import identity  # noqa: E402
 import resolves_probe  # noqa: E402
+from event_builder import merge_resolves  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
@@ -39,6 +40,7 @@ from event_schema import (  # noqa: E402
     METADATA_KEY_RESOLVES,
     validate_event,
 )
+from retro_history import HEX_ID_RE  # noqa: E402
 from smm_schema import EVENT_ID_RE  # noqa: E402
 
 # 3 prior deferrals = next plain defer is refused.
@@ -93,15 +95,33 @@ def _validate_future_iso_date(value: str) -> None:
         )
 
 
-def _build_drop_event(agent_id: str, content: str) -> dict:
-    """Build the status/dropped event used by both `drop` and `defer --force-drop`."""
-    return _common.make_event(
+def _build_drop_event(smm_dir: Path, agent_id: str, content: str) -> dict:
+    """Build the status/dropped event used by both `drop` and `defer --force-drop`.
+
+    Cascade: scan the post-suffix-strip content for 12+ hex IDs. Any that
+    resolve to an existing debt/concern/discovery event (the same set as
+    PROBE_RESOLVABLE_TYPES) are unioned into `metadata.resolves` — so
+    dropping a Try also closes the root issue the Try is about, preventing
+    the retro agent from re-proposing a fresh Try every session.
+    """
+    event = _common.make_event(
         "status",
         agent_id,
         content,
         working_on=[],
         metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
     )
+    tokens = set(HEX_ID_RE.findall(event["content"]))
+    if not tokens:
+        return event
+    cascade_ids = {
+        e.get("id", "")
+        for e in _common.read_events_raw(smm_dir)
+        if e.get("type") in _common.PROBE_RESOLVABLE_TYPES and e.get("id", "") in tokens
+    }
+    if cascade_ids:
+        merge_resolves(event, cascade_ids)
+    return event
 
 
 def _build_defer_event(
@@ -135,7 +155,7 @@ def _build_defer_event(
             topic=force_adopt_topic,
         )
     if force_drop:
-        return _build_drop_event(agent_id, content)
+        return _build_drop_event(smm_dir, agent_id, content)
     if force_defer_until:
         _validate_future_iso_date(force_defer_until)
         return _common.make_event(
@@ -204,7 +224,7 @@ def run(
                 force_defer_until,
             )
         case "drop":
-            event = _build_drop_event(agent_id, content)
+            event = _build_drop_event(smm_dir, agent_id, content)
         case "triage-adopt" | "triage-defer" | "triage-drop":
             if event_id is None:
                 raise ValueError(f"{action} requires --event-id")

@@ -12,6 +12,7 @@ import json
 import re
 import secrets
 import sys
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,6 +66,19 @@ def generate_id() -> str:
     return secrets.token_hex(6)
 
 
+def merge_resolves(event: dict, ids: Iterable[str]) -> None:
+    """Append `ids` into event["metadata"]["resolves"], preserving order
+    and skipping duplicates. Defensive copy avoids mutating a list the
+    caller may share across events. Mutates event in place.
+    """
+    metadata = event.setdefault("metadata", {})
+    resolves = list(metadata.get("resolves", []))
+    for tid in ids:
+        if tid not in resolves:
+            resolves.append(tid)
+    metadata["resolves"] = resolves
+
+
 def extract_refs_suffix(event: dict) -> None:
     """Strip a trailing `[refs: id1, id2]` suffix from event["content"] and
     union extracted 12-hex IDs into event["metadata"]["resolves"].
@@ -84,13 +98,7 @@ def extract_refs_suffix(event: dict) -> None:
     if not new_ids:
         event["content"] = cleaned
         return
-    metadata = event.setdefault("metadata", {})
-    # Defensive copy: avoid mutating a list the caller may share across events.
-    resolves = list(metadata.get("resolves", []))
-    for tid in new_ids:
-        if tid not in resolves:
-            resolves.append(tid)
-    metadata["resolves"] = resolves
+    merge_resolves(event, new_ids)
     event["content"] = cleaned
 
 
