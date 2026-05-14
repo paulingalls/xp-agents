@@ -48,7 +48,10 @@ Check the plan against the SMM's **Constraints** pillar. Flag conflicts explicit
 Story context that rehearses milestone rationale (design_details or constraints) is a redundancy concern — story context should reference the milestone, not restate it. Four-layer read path: system_context=WHERE, milestone=WHY, story=WHAT uniquely, design doc=FULL RATIONALE. Flag specific duplicated phrases or concepts between layers.
 
 ### 6. Assumptions
-Record only assumptions that **matter** — where the wrong assumption would cause rework. Do NOT record obvious defaults or restatements of existing SMM constraints.
+
+**Read the plan and identify the implicit assumptions it rests on** — bets about caller behavior, preserved contracts, customer intent, and unenumerated code paths. Surfacing them is your job, not the planner's.
+
+Record only assumptions that **matter** — where the wrong assumption would cause rework. Do NOT record obvious defaults or restatements of existing SMM constraints. Zero is a valid count when the plan genuinely rests on no significant assumptions.
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
