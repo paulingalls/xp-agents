@@ -456,6 +456,26 @@ class TestStatusChecks(_SMMTestCase):
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
 
+    def test_scheduled_file_domains_overlap_true_when_glob_entry(self):
+        # Conservative-overlap=True on glob: rc=1 from a crash was indistinguishable
+        # from "no overlap" and silently masked the failure at xp-assign.
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-006",
+                    status="scheduled",
+                    file_domain=["packages/db/drizzle/meta/*"],
+                ),
+                _make_story(
+                    id="story-007", status="scheduled", file_domain=["src/api.py"]
+                ),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        self.assertTrue(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
+
     def test_sprint_exists(self):
         import sprint_store
 
