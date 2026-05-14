@@ -76,6 +76,25 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
   --force-defer-with-date YYYY-MM-DD
 ```
 
+**Force-drop convention prompt (force-drop only).** After a successful
+`--force-drop`, ask via AskUserQuestion: *"Record a durable convention
+so retros never repropose this kind of Try?"* If yes, re-invoke `defer
+--force-drop` with the flags below — the helper emits a `convention`
+event (visible to future retros via `digest.signal_events`) alongside
+the drop. Idempotent: re-drops against an existing topic skip the
+convention and surface the discarded rationale on stderr. Regular `drop`
+does not offer this — carrying a Try across 3+ retros is the courage
+moment that warrants the durable rule.
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py defer \
+  --smm-dir <SMM_DIR> \
+  --content "<item text including any [refs: ...] suffix>" \
+  --force-drop \
+  --record-convention-topic "retro-drop-<descriptive-slug>" \
+  --record-convention-content "<one-sentence rationale>"
+```
+
 **Drop** (status event, `disposition=dropped` — retro agent will **never
 re-propose** this Try):
 ```bash
