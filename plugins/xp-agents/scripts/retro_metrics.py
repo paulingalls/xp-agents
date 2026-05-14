@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import worktree
 from event_schema import (
+    DISPOSITION_DROPPED,
     DIVERT_REASON_CROSS_STORY,
     DIVERT_REASON_MISSING_EVENT,
     DIVERT_REASON_NEWER_THAN_SNAPSHOT,
@@ -23,6 +24,7 @@ from event_schema import (
     DIVERT_REASON_PROBE_SELECTION_MISS,
     DIVERT_REASON_UNKNOWN,
     DIVERT_REASON_WRONG_TYPE,
+    METADATA_KEY_CLOSE_CYCLE_ID,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
     STATUS_ACTION_FILE_WRITE,
@@ -179,8 +181,33 @@ def build_resolutions_map(resolutions: dict) -> dict[str, dict]:
     return result
 
 
+def _collect_dropped_tries_recent(events: list[dict], limit: int = 10) -> list[dict]:
+    """Last `limit` status-drop events with non-empty metadata.resolves.
+
+    Surfaces cross-session drop memory to the retro agent so it can avoid
+    re-proposing Trys the user has already rejected. Scans the FULL events
+    list (not session-scoped) — prior-session drops MUST be visible.
+    """
+    drops = [
+        {
+            "id": e.get("id", ""),
+            "ts": e.get("ts", ""),
+            "content": e.get("content", "")[:_MAX_RESOLVER_CONTENT],
+        }
+        for e in events
+        if e.get("type") == _common.STATUS
+        and (e.get("metadata") or {}).get(METADATA_KEY_DISPOSITION)
+        == DISPOSITION_DROPPED
+        and (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
+    ]
+    return sorted(drops, key=lambda d: d["ts"], reverse=True)[:limit]
+
+
 def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -> dict:
-    """Build structured digest from unanalyzed events."""
+    """Build structured digest. Most fields cover events[start_idx:] (the
+    unanalyzed slice); `dropped_tries_recent` scans the FULL events list
+    so prior-session drops remain visible across retros.
+    """
     unanalyzed = events[start_idx:]
     resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
     resolved_debt_ids = resolutions.get("resolved_debt_ids", set())
@@ -197,6 +224,10 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     status_summary = _classify_lifecycle_events(unanalyzed)
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = build_honesty_signals(unanalyzed)
+    dropped_tries_recent = _collect_dropped_tries_recent(events)
+    close_cycle_ran = any(
+        (e.get("metadata") or {}).get(METADATA_KEY_CLOSE_CYCLE_ID) for e in unanalyzed
+    )
 
     from work_signals import build_work_signals
 
@@ -209,6 +240,8 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         "honesty_signals": honesty_signals,
         "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
+        "dropped_tries_recent": dropped_tries_recent,
+        "close_cycle_ran": close_cycle_ran,
         "resolutions": build_resolutions_map(resolutions),
     }
 

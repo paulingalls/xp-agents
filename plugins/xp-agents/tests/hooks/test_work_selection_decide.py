@@ -26,6 +26,7 @@ import work_selection_decide
 from conftest import _HookTestCase, make_event
 from event_schema import (
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_CONVENTION,
     EVENT_TYPE_DEBT,
     EVENT_TYPE_DECISION,
     EVENT_TYPE_DISCOVERY,
@@ -960,6 +961,171 @@ class TestDropContentCascade(_DecideTestCase):
                 content="Drop forever, no hex tokens in prose",
             )
             mock_read.assert_not_called()
+
+
+class TestForceDropConventionEmission(_ForceCloseTestCase):
+    """--record-convention-topic + --record-convention-content on a
+    `defer --force-drop` emits a convention event in addition to the drop
+    status event. The convention is a durable suppression record so the
+    retro agent won't re-propose the Try under any signal.
+
+    Force-drop is the canonical "user explicitly rejects, never re-propose"
+    moment — regular drops are one-shot per Wisdom and don't get a
+    convention prompt (per design call).
+    """
+
+    def test_force_drop_with_convention_flags_emits_two_events(self):
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Drop forever [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+            convention_topic="retro-drop-security-review-diff-only",
+            convention_content=(
+                "/security-review is diff-only; never propose for docs-only changes."
+            ),
+        )
+        events = self._read_events()
+        # 3 seeded prior-defers + drop + convention
+        self.assertEqual(len(events), 5)
+        self.assertEqual(events[-2]["type"], EVENT_TYPE_STATUS)
+        self.assertEqual(events[-2]["metadata"]["disposition"], "dropped")
+        convention = events[-1]
+        self.assertEqual(convention["type"], EVENT_TYPE_CONVENTION)
+        self.assertEqual(convention["topic"], "retro-drop-security-review-diff-only")
+        self.assertIn("diff-only", convention["content"])
+
+    def test_force_drop_without_convention_flags_emits_only_drop(self):
+        """Default behavior unchanged: force-drop alone emits one event."""
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Drop forever [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+        )
+        events = self._read_events()
+        self.assertEqual(len(events), 4)
+        self.assertEqual(events[-1]["type"], EVENT_TYPE_STATUS)
+        self.assertEqual(events[-1]["metadata"]["disposition"], "dropped")
+
+    def test_regular_drop_rejects_convention_flags(self):
+        """Convention prompt is force-drop only — plain `drop` rejects."""
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="drop",
+                smm_dir=self.smm_dir,
+                content="Drop now",
+                convention_topic="retro-drop-test",
+                convention_content="rationale",
+            )
+        self.assertIn("force-drop", str(ctx.exception).lower())
+
+    def test_convention_emission_is_idempotent(self):
+        """Second invocation with same topic appends the drop but NOT a
+        second convention. The discarded rationale surfaces on stderr —
+        silent skipping would lose user signal.
+        """
+        import io
+        from contextlib import redirect_stderr
+
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Drop forever [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+            convention_topic="retro-drop-test-foo",
+            convention_content="rationale 1",
+        )
+        # Second force-drop against same topic — convention MUST be skipped
+        # AND the second rationale's loss must surface on stderr (honesty).
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Drop again [refs: aaaaaaaaaaaa]",
+                force_drop=True,
+                convention_topic="retro-drop-test-foo",
+                convention_content="rationale 2",
+            )
+        self.assertIn("retro-drop-test-foo", err.getvalue())
+        self.assertIn("already recorded", err.getvalue())
+
+        events = self._read_events()
+        conventions = [e for e in events if e.get("type") == "convention"]
+        self.assertEqual(len(conventions), 1)
+        # First write wins
+        self.assertIn("rationale 1", conventions[0]["content"])
+        # Two drop events should exist (one per force-drop call)
+        drops = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_STATUS
+            and (e.get("metadata") or {}).get("disposition") == "dropped"
+        ]
+        self.assertEqual(len(drops), 2)
+
+    def test_convention_topic_must_use_retro_drop_prefix(self):
+        """Slug without retro-drop- prefix rejected to avoid collision
+        with retro-try-<slug> adoption topics.
+        """
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Drop forever [refs: aaaaaaaaaaaa]",
+                force_drop=True,
+                convention_topic="security-review-diff-only",
+                convention_content="rationale",
+            )
+        self.assertIn("retro-drop-", str(ctx.exception))
+
+    def test_convention_topic_must_be_kebab_case(self):
+        """Topic must match ^[a-z0-9]+(-[a-z0-9]+)+$ (after prefix)."""
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Drop forever [refs: aaaaaaaaaaaa]",
+                force_drop=True,
+                convention_topic="retro-drop-NotKebab_Case",
+                convention_content="rationale",
+            )
+        self.assertIn("kebab", str(ctx.exception).lower())
+
+    def test_convention_flags_require_both_or_neither(self):
+        """Topic without content (or vice versa) rejected."""
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError):
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Drop forever [refs: aaaaaaaaaaaa]",
+                force_drop=True,
+                convention_topic="retro-drop-foo",
+                # content missing
+            )
+
+    def test_convention_flags_require_force_drop(self):
+        """--force-adopt or --force-defer-with-date must not silently
+        accept the convention flags; only --force-drop honors them.
+        """
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Adopt [refs: aaaaaaaaaaaa]",
+                force_adopt_topic="retro-try-foo",
+                convention_topic="retro-drop-foo",
+                convention_content="rationale",
+            )
+        self.assertIn("force-drop", str(ctx.exception).lower())
 
 
 if __name__ == "__main__":

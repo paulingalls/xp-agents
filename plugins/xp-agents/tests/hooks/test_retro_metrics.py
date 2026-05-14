@@ -851,5 +851,202 @@ class TestSignalEventsFilter(unittest.TestCase):
         self.assertIn(debt["id"], signal_ids)
 
 
+class TestDroppedTriesRecent(unittest.TestCase):
+    """digest.dropped_tries_recent surfaces user-drop events (status with
+    disposition=dropped + non-empty metadata.resolves) so the retro agent
+    has cross-session memory of prior drops and can avoid re-proposing.
+    """
+
+    def _drop(self, *, ts: str, content: str, resolves: list[str] | None) -> dict:
+        meta: dict = {"disposition": "dropped"}
+        if resolves is not None:
+            meta["resolves"] = resolves
+        return make_event(
+            EVENT_TYPE_STATUS,
+            ts=ts,
+            content=content,
+            working_on=[],
+            metadata=meta,
+        )
+
+    def test_surfaces_last_10_drops_by_ts_descending(self):
+        import resolution
+        import retro_metrics
+
+        events: list[dict] = []
+        for i in range(12):
+            events.append(
+                self._drop(
+                    ts=f"2026-04-{i + 1:02d}T10:00:00+00:00",
+                    content=f"drop {i}",
+                    resolves=[f"abc{i:09d}"],
+                )
+            )
+        events.append(
+            self._drop(
+                ts="2026-04-20T10:00:00+00:00",
+                content="no resolves drop A",
+                resolves=None,
+            )
+        )
+        events.append(
+            self._drop(
+                ts="2026-04-21T10:00:00+00:00",
+                content="empty resolves drop",
+                resolves=[],
+            )
+        )
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+
+        drops = digest["dropped_tries_recent"]
+        self.assertEqual(len(drops), 10)
+        tss = [d["ts"] for d in drops]
+        self.assertEqual(tss, sorted(tss, reverse=True))
+        contents = [d["content"] for d in drops]
+        self.assertIn("drop 11", contents)
+        self.assertNotIn("drop 0", contents)
+        self.assertNotIn("no resolves drop A", contents)
+        self.assertNotIn("empty resolves drop", contents)
+
+    def test_includes_pre_session_drops(self):
+        """Drops at events[:start_idx] (prior sessions) MUST appear —
+        proves we scan the full events list, not just `unanalyzed`.
+        """
+        import resolution
+        import retro_metrics
+
+        old_drop = self._drop(
+            ts="2026-01-15T10:00:00+00:00",
+            content="ancient drop",
+            resolves=["deadbeef0001"],
+        )
+        new_drop = self._drop(
+            ts="2026-04-20T10:00:00+00:00",
+            content="recent drop",
+            resolves=["deadbeef0002"],
+        )
+        events = [old_drop, new_drop]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 1, resolutions)
+
+        drop_ids = [d["id"] for d in digest["dropped_tries_recent"]]
+        self.assertIn(old_drop["id"], drop_ids)
+        self.assertIn(new_drop["id"], drop_ids)
+
+    def test_entry_shape_is_slim_with_content_capped(self):
+        import resolution
+        import retro_metrics
+
+        long_content = "x" * 500
+        d = self._drop(
+            ts="2026-04-20T10:00:00+00:00",
+            content=long_content,
+            resolves=["aaaa00000001"],
+        )
+        events = [d]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+
+        drops = digest["dropped_tries_recent"]
+        self.assertEqual(len(drops), 1)
+        entry = drops[0]
+        self.assertEqual(set(entry.keys()), {"id", "ts", "content"})
+        self.assertEqual(len(entry["content"]), 200)
+
+    def test_non_drop_status_events_excluded(self):
+        """Status events without disposition=dropped MUST NOT appear."""
+        import resolution
+        import retro_metrics
+
+        adopted = make_event(
+            EVENT_TYPE_STATUS,
+            ts="2026-04-20T10:00:00+00:00",
+            content="adopt",
+            working_on=[],
+            metadata={"disposition": "adopted", "resolves": ["aaa00000001a"]},
+        )
+        deferred = make_event(
+            EVENT_TYPE_STATUS,
+            ts="2026-04-21T10:00:00+00:00",
+            content="defer",
+            working_on=[],
+            metadata={"disposition": "deferred", "resolves": ["bbb00000001b"]},
+        )
+        events = [adopted, deferred]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+
+        self.assertEqual(digest["dropped_tries_recent"], [])
+
+
+class TestCloseCycleRan(unittest.TestCase):
+    """digest.close_cycle_ran flags whether a close skill actually ran in
+    this session (any event in events[start_idx:] carries
+    metadata.close_cycle_id). The security_checks=0 rule is gated on
+    this so non-close sessions don't trigger spurious Trys.
+    """
+
+    def test_true_when_any_event_has_close_cycle_id(self):
+        """close_cycle_id is stamped on concern events by close-reviewer
+        and on status events by close-pipeline classify steps — seed the
+        realistic concern shape per _close_pipeline_shared.md:31.
+        """
+        import resolution
+        import retro_metrics
+
+        close_concern = make_event(
+            EVENT_TYPE_CONCERN,
+            ts="2026-04-20T10:00:00+00:00",
+            content="security concern raised mid-close",
+            files=["apps/server/src/auth.ts"],
+            metadata={"kind": "security", "close_cycle_id": "cycle-abc"},
+        )
+        events = [close_concern]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertTrue(digest["close_cycle_ran"])
+
+    def test_false_when_no_event_has_close_cycle_id(self):
+        import resolution
+        import retro_metrics
+
+        ordinary_concern = make_event(
+            EVENT_TYPE_CONCERN,
+            ts="2026-04-20T10:00:00+00:00",
+            content="ordinary concern raised outside close",
+            files=["scripts/x.py"],
+        )
+        events = [ordinary_concern]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertFalse(digest["close_cycle_ran"])
+
+    def test_scoped_to_unanalyzed_only(self):
+        """close_cycle_id in prior-session events MUST NOT trip the flag —
+        the rule asks 'did a close cycle run THIS session', not ever.
+        """
+        import resolution
+        import retro_metrics
+
+        old_close = make_event(
+            EVENT_TYPE_CONCERN,
+            ts="2026-01-15T10:00:00+00:00",
+            content="close-time concern from a prior session",
+            files=["scripts/x.py"],
+            metadata={"kind": "security", "close_cycle_id": "ancient-cycle"},
+        )
+        recent = make_event(
+            EVENT_TYPE_CONCERN,
+            ts="2026-04-20T10:00:00+00:00",
+            content="ordinary concern this session",
+            files=["scripts/x.py"],
+        )
+        events = [old_close, recent]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 1, resolutions)
+        self.assertFalse(digest["close_cycle_ran"])
+
+
 if __name__ == "__main__":
     unittest.main()

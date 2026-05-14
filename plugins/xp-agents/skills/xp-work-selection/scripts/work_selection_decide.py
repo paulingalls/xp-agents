@@ -19,6 +19,7 @@ FORCE-CLOSE gate: a plain `defer` is refused once a Try has been deferred
 import argparse
 import datetime
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -45,6 +46,60 @@ from smm_schema import EVENT_ID_RE  # noqa: E402
 
 # 3 prior deferrals = next plain defer is refused.
 _FORCE_CLOSE_THRESHOLD = 3
+
+# Convention topics emitted on force-drop are prefixed to prevent
+# collision with retro-try-<slug> adoption topics. The rest of the slug
+# must be kebab-case so housekeeping + topic-collision detection stay
+# stable.
+_CONVENTION_TOPIC_PREFIX = "retro-drop-"
+_KEBAB_SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)+$")
+
+
+def _validate_convention_args(
+    action: str,
+    force_drop: bool,
+    topic: str | None,
+    content: str | None,
+) -> None:
+    """Validate convention emission preconditions.
+
+    Both flags None → no convention (no-op). Exactly one set → error.
+    Both set → require action="defer" AND force_drop=True, plus topic
+    must carry the retro-drop- prefix with a kebab-case slug.
+    """
+    if topic is None and content is None:
+        return
+    if topic is None or content is None:
+        raise ValueError(
+            "--record-convention-topic and --record-convention-content "
+            "must be passed together"
+        )
+    if not (action == "defer" and force_drop):
+        raise ValueError(
+            "--record-convention-* flags are only honored with `defer --force-drop`"
+        )
+    if not topic.startswith(_CONVENTION_TOPIC_PREFIX):
+        raise ValueError(
+            f"convention topic must start with {_CONVENTION_TOPIC_PREFIX!r} "
+            f"(got {topic!r}); the prefix prevents collision with "
+            "retro-try-<slug> adoption topics"
+        )
+    if not _KEBAB_SLUG_RE.match(topic):
+        raise ValueError(
+            f"convention topic must be kebab-case: {topic!r} does not match "
+            f"{_KEBAB_SLUG_RE.pattern}"
+        )
+
+
+def _convention_topic_exists(smm_dir: Path, topic: str) -> bool:
+    """True if events.jsonl already has a convention event with this topic.
+    Used to make force-drop convention emission idempotent — re-drops of
+    the same Try MUST NOT append a duplicate convention.
+    """
+    for e in _common.read_events_raw(smm_dir):
+        if e.get("type") == _common.CONVENTION and e.get("topic") == topic:
+            return True
+    return False
 
 
 def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
@@ -191,6 +246,8 @@ def run(
     force_adopt_topic: str | None = None,
     force_drop: bool = False,
     force_defer_until: str | None = None,
+    convention_topic: str | None = None,
+    convention_content: str | None = None,
 ) -> str:
     """Append the event and return its id.
 
@@ -201,8 +258,13 @@ def run(
     (event-id-based).
 
     The defer action enforces FORCE-CLOSE on Tries with 3+ prior deferrals;
-    force_* params override.
+    force_* params override. When defer + force_drop is paired with
+    convention_topic + convention_content, a `convention` event is also
+    appended. First-write-wins: a second invocation with the same topic
+    skips the convention emission AND prints a stderr notice surfacing the
+    discarded rationale — the drop event still fires.
     """
+    _validate_convention_args(action, force_drop, convention_topic, convention_content)
     # agent_id is teammate-resolved attribution per the agent-id-semantics
     # ADR; the skill that produced the event lives in metadata or content.
     agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
@@ -260,6 +322,29 @@ def run(
     # don't affect probe candidate selection, so no refresh needed.
     if event["type"] == EVENT_TYPE_DECISION:
         resolves_probe.signal_probe_refresh(smm_dir)
+    if convention_topic and convention_content:
+        if _convention_topic_exists(smm_dir, convention_topic):
+            # Honesty: surface the discard rather than silently dropping the
+            # second rationale. Drop event still fired; only the duplicate
+            # convention is skipped.
+            print(
+                f"Convention {convention_topic!r} already recorded; "
+                "second rationale discarded.",
+                file=sys.stderr,
+            )
+        else:
+            conv_event = _common.make_event(
+                _common.CONVENTION,
+                agent_id,
+                convention_content,
+                topic=convention_topic,
+            )
+            conv_errors = validate_event(conv_event)
+            if conv_errors:
+                raise ValueError(
+                    f"Convention event validation failed: {'; '.join(conv_errors)}"
+                )
+            _common.append_safe(smm_dir, conv_event)
     return event["id"]
 
 
@@ -293,6 +378,23 @@ def main() -> None:
         metavar="YYYY-MM-DD",
         help="Break FORCE-CLOSE gate by deferring with a target date",
     )
+    defer.add_argument(
+        "--record-convention-topic",
+        metavar="SLUG",
+        help=(
+            "With --force-drop only: emit a convention event with this kebab-case "
+            "topic (must start with 'retro-drop-') as a durable suppression record "
+            "so future retros never re-propose this Try."
+        ),
+    )
+    defer.add_argument(
+        "--record-convention-content",
+        metavar="TEXT",
+        help=(
+            "Rationale for the convention "
+            "(required if --record-convention-topic is set)"
+        ),
+    )
 
     drop = sub.add_parser("drop", help="Record drop as a status event")
     drop.add_argument("--smm-dir", type=Path, required=True)
@@ -314,6 +416,8 @@ def main() -> None:
             force_adopt_topic=getattr(args, "force_adopt", None),
             force_drop=getattr(args, "force_drop", False),
             force_defer_until=getattr(args, "force_defer_with_date", None),
+            convention_topic=getattr(args, "record_convention_topic", None),
+            convention_content=getattr(args, "record_convention_content", None),
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)

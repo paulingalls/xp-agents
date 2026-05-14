@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.1.35 — dropped-Try resurfacing fix; xp-accept auto-close + JIT-next continuation
+
+Free session investigating why dropped retro Trys kept resurfacing across sessions in two downstream projects (SimplyHuman, Legacy). Forensic trace identified a single architectural gap: the retrospective agent had **zero memory** of prior drops. Three layers combined to bury them — `signal_events` excluded `status` events, `MAX_RETRO_HISTORY=1` truncated history, and `retro_history.py:125-131` actively stripped dropped Trys from `previous_retros` before the agent saw them. Plus a rule-firing issue: `security_checks=0 → Fix` triggered on non-close sessions, regenerating the same Try every session whether or not a close cycle even ran.
+
+### Commit 1: surface drops via `digest.dropped_tries_recent`
+
+Adds a new digest channel scanning the FULL events list (not session-scoped) for status events with `metadata.disposition="dropped"` AND non-empty `metadata.resolves`. Slimmed to `{id, ts, content[:200]}`, sorted ts-descending, capped at 10. Agent prompt at xp-retrospective.md:28 documents the channel; the Cross-Session Trends rule at line 208 instructs the retro analyst to scan before proposing — matches as Keeps under Courage rather than re-proposing.
+
+### Commit 2: gate `security_checks=0` rule on close-cycle presence
+
+Adds `digest.close_cycle_ran: bool` (any event in `unanalyzed` carrying `metadata.close_cycle_id`). The Security Practices rule at xp-retrospective.md:165 now requires `close_cycle_ran=True` before flagging `security_checks=0` as Fix under Courage. Non-close sessions no longer spawn spurious `/security-review` Trys. Test seeds use the realistic shape (`EVENT_TYPE_CONCERN` with `kind=security` + `close_cycle_id`) per `_close_pipeline_shared.md:31` — close-pipeline never stamps commits with `close_cycle_id` in production. Resolves concerns 9f653bdf1aef + lint debt 4e264fba67b7.
+
+### Commit 3: convention emission on `defer --force-drop`
+
+New `--record-convention-topic SLUG` + `--record-convention-content TEXT` flag pair on the `defer` subparser. When paired with `--force-drop`, the helper atomically appends a `convention` event alongside the drop status event as a durable suppression record — future retros see it via `digest.signal_events` and can suppress same-shape Try proposals. Constraints: topic must use `retro-drop-` prefix + kebab-case slug (prevents collision with `retro-try-<slug>` adoption topics, validated by `_KEBAB_SLUG_RE`); both flags required together; only honored with `--force-drop`. Idempotent — re-drops with the same topic skip the convention emission AND print a stderr notice surfacing the discarded rationale (honesty: silent first-write-wins would lose user signal). Policy "convention on force-drop only" encoded as decision `bcdad3b2ad05` so future re-decisions trip the superseded-detector. Resolves concerns 8584032f0bbb + lint debt bc7b07e9e2ba.
+
+### Commit 4: remove dead strip in `retro_history.py`; expose `disposition="dropped"` on try_status
+
+Removes the 7-line filter that stripped dropped Trys from `previous_retros[0].try` before the agent saw them. The agent prompt rule at xp-retrospective.md:208 ("disposition='dropped' — do not re-propose") is now reachable for the first time. Drop memory is **double-walled**: `digest.dropped_tries_recent` (Commit 1) carries any session's drops; `try_status[i].disposition` carries the most-recent retro's drops in their original Try slot. Inverts FOUR pre-existing tests that pinned the strip contract (across `test_retro_history.py`, `test_retro_history_pipeline.py`, `test_retrospective_wiring.py`) plus two stale prose references. Resolves concern 86821b45ba14.
+
+### Commit 5: xp-accept auto-close on all-E2E-pass + chain into next story
+
+Two SKILL.md ergonomics fixes for the accept flow.
+
+**Manual acceptance auto-close** — When every criterion is E2E-prefixed and all E2E commands exited 0, skip the AskUserQuestion prompt and proceed to Step 1.5 with disposition `done`. Symmetric to the automated path's existing "Auto-proceed without an extra confirmation prompt" rule (d6f54b25). Green tests are the confirmation. The prompt still fires when any non-E2E criterion exists or any E2E failed.
+
+**Chain into next story** — New Step 8: if Step 7 (sprint review) didn't fire and `sprint_cli.py next-in-progress` returns a story id (a fresh JIT-promote from `/xp-story-close`), call `EnterPlanMode` so the plan + TDD cycle starts immediately on the next iteration. Previously the orchestrator stopped here and the user had to re-invoke `/xp-plan` manually.
+
+---
+
 ## v3.1.34 — session_history wired into retro+housekeeper; decision-supersedence nudge; assorted hygiene
 
 Four-track free session driven by an investigation into where `session_summary` is loaded — the answer was "only the main agent's kickoff preload," walling the highest-value consumers (retro analyst + housekeeper) off from cross-session narrative context. Plus three carried retro Trys, addressed in the same pass.

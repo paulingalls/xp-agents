@@ -75,13 +75,17 @@ class TestDecisionTopicsWiring(_HookTestCase):
 
 
 class TestDroppedTryResolution(_HookTestCase):
-    """Dropped Try items should be detected across session boundaries."""
+    """Dropped Try items should be detected across session boundaries
+    and preserved in previous_retros[0].try with disposition="dropped",
+    so the retro agent's no-re-propose rule at xp-retrospective.md:208
+    is reachable.
+    """
 
     def setUp(self):
         super().setUp()
         (self.smm_dir / "retrospectives").mkdir()
 
-    def test_dropped_try_detected_across_session_boundary(self):
+    def test_dropped_try_preserved_across_session_boundary(self):
         import retrospective
 
         old_concern_id = "aabb11223344"
@@ -139,8 +143,13 @@ class TestDroppedTryResolution(_HookTestCase):
             data = json.load(f)
         prev = data.get("previous_retros", [])
         self.assertTrue(len(prev) > 0)
-        self.assertEqual(len(prev[0].get("try", [])), 0)
-        self.assertEqual(len(prev[0].get("try_status", [])), 0)
+        # Dropped Try preserved with disposition recorded — strip-then-
+        # silently-lose semantics has been removed (see retro_history.py).
+        self.assertEqual(len(prev[0].get("try", [])), 1)
+        statuses = prev[0].get("try_status", [])
+        self.assertEqual(len(statuses), 1)
+        self.assertTrue(statuses[0]["resolved_this_session"])
+        self.assertEqual(statuses[0]["disposition"], "dropped")
 
 
 if __name__ == "__main__":
