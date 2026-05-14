@@ -908,7 +908,7 @@ class TestDroppedTriesRecent(unittest.TestCase):
             metadata=meta,
         )
 
-    def test_surfaces_last_10_drops_by_ts_descending(self):
+    def test_surfaces_last_10_matching_drops_in_reverse_file_order(self):
         import resolution
         import retro_metrics
 
@@ -938,15 +938,11 @@ class TestDroppedTriesRecent(unittest.TestCase):
         resolutions = resolution.compute_resolutions(events)
         digest = retro_metrics._build_retro_digest(events, 0, resolutions)
 
+        # File-order contract: reverse-iterate skips non-matching tail
+        # entries, returns the next 10 matches in reverse file-order.
         drops = digest["dropped_tries_recent"]
-        self.assertEqual(len(drops), 10)
-        tss = [d["ts"] for d in drops]
-        self.assertEqual(tss, sorted(tss, reverse=True))
         contents = [d["content"] for d in drops]
-        self.assertIn("drop 11", contents)
-        self.assertNotIn("drop 0", contents)
-        self.assertNotIn("no resolves drop A", contents)
-        self.assertNotIn("empty resolves drop", contents)
+        self.assertEqual(contents, [f"drop {i}" for i in range(11, 1, -1)])
 
     def test_includes_pre_session_drops(self):
         """Drops at events[:start_idx] (prior sessions) MUST appear —
@@ -1017,6 +1013,40 @@ class TestDroppedTriesRecent(unittest.TestCase):
         digest = retro_metrics._build_retro_digest(events, 0, resolutions)
 
         self.assertEqual(digest["dropped_tries_recent"], [])
+
+    def test_filter_works_with_interleaved_non_drop_events(self):
+        # Stress filters with mostly-non-matching events: cap=10 must still
+        # return exactly the 3 real drops without polluting the result set.
+        import resolution
+        import retro_metrics
+
+        events: list[dict] = []
+        drop_tss = []
+        for i in range(50):
+            events.append(
+                make_event(
+                    EVENT_TYPE_STATUS,
+                    ts=f"2026-04-{(i % 28) + 1:02d}T10:00:{i:02d}+00:00",
+                    content=f"non-drop {i}",
+                    working_on=[],
+                )
+            )
+            if i in (10, 25, 40):
+                ts = f"2026-05-{(i // 10) + 1:02d}T10:00:00+00:00"
+                drop_tss.append(ts)
+                events.append(
+                    self._drop(
+                        ts=ts,
+                        content=f"drop {i}",
+                        resolves=[f"deadbeef{i:04d}"],
+                    )
+                )
+        resolutions_map = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions_map)
+
+        drops = digest["dropped_tries_recent"]
+        self.assertEqual(len(drops), 3)
+        self.assertEqual([d["ts"] for d in drops], sorted(drop_tss, reverse=True))
 
 
 class TestCloseCycleRan(unittest.TestCase):

@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.1.37 — scheduled-overlap glob crash, Resolves-Event trailer convention, dropped-Tries cap
+
+Free session addressing one bug report and three carried retro Trys.
+
+### Commit 1: `scheduled_file_domains_overlap` — conservative-overlap=True on glob
+
+`sprint_cli scheduled-overlap` crashed on a real story whose `file_domain` declared a glob (`packages/db/drizzle/meta/*`). `sprint_status.scheduled_file_domains_overlap` called `extract_file_domain_paths` without `cwd=` or `candidate_files=`, hitting the documented `ValueError` raise-on-glob (triage.py:129-132). The crash returned Python rc=1, indistinguishable from the function's intentional rc=1 ("no overlap") — `xp-assign`'s bash predicate treated rc!=0 as "ask user solo/parallel", silently degrading conservative-solo to a parallel prompt.
+
+Fix: catch `ValueError` and return `True`. xp-assign picks solo on uncertainty. Option (b) `cwd=.` was rejected — planned sprint stories often declare paths that don't exist yet, so `Path.glob()` would expand to nothing and miss real overlap. Honest about the uncertainty.
+
+### Commit 2 (Try 1): document Resolves-Event trailer convention in close skills
+
+Adds a brief reminder line near the top of `xp-sprint-close/SKILL.md` and `xp-free-close/SKILL.md` describing the rule for closing carried retro Trys via `Resolves-Event: <try-id-or-ref>` trailers so `try_status` closes the loop. Housekeeping added the constraint (`19aeba3ccd53`) at session start; this commit covers the literal "(xp-free-close/xp-sprint-close templates)" parenthetical the constraint promised. Test catch: shipped SKILL.md must not reference this-project event IDs (the plugin ships to other projects where those IDs are meaningless) — kept the prose project-generic. Resolves Try decision `309e0eeb05ed`.
+
+### Commit 3 (concern adopted): `_collect_dropped_tries_recent` — reverse-iterate with hard cap
+
+Refactor mode. Old impl scanned the full events list, sorted by ts descending, then sliced `[:limit]`. As `events.jsonl` grows in long-lived projects, the scan is wasted work — drops are typically near the tail. Reverse-iterate with hard cap: early-break once `limit` matches are collected. Worst case unchanged (no drops in tail → full scan); best case dramatically improved (10 drops in last K events → K iterations).
+
+Honesty pivot caught by the independent code reviewer: the original docstring claimed events.jsonl writes are "monotonic-ts in production" because ts is assigned inside the flock. Trace showed otherwise — `event_builder.build_event` assigns `ts` BEFORE `append_event` takes the flock, so concurrent writers can land events out of ts order by a microsecond-millisecond window. Updated docstring states "reverse file-order, not strictly ts-descending"; renamed the existing test from `test_surfaces_last_10_drops_by_ts_descending` to `test_surfaces_last_10_matching_drops_in_reverse_file_order` with an assertion verifying the actual file-order contract (the old name/assertion happened to pass because test data had file-order = ts-order). Resolves adopted concern `1a5a7a379467`.
+
+### Investigation (Try 3): probe-selection-miss trace
+
+Traced the divert at 2026-05-14T05:30:52 where probe surfaced only `86821b45ba14` (keyword+recency) but the commit at 05:31:15 resolved `8584032f0bbb` + `bc7b07e9e2ba`. Root cause: the probe fired BEFORE the closer-files were fully staged — `work_selection_decide.py` was modified at 05:31:01, after the probe at 05:30:52. No file-overlap match was possible at probe time. Not a probe bug; staging-timing issue. Follow-up concern `b7bf0f649c3d` recorded for gating probe emission on git-commit bashes only. Resolves Try decision `65ca91ea654b` via status `240cd46c301b`.
+
+---
+
 ## v3.1.36 — carried retro Trys: probe pairing, superseded backstop, _seed_* extraction
 
 Three commits addressing the three carried retro Trys from the prior session.
