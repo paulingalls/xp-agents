@@ -24,6 +24,8 @@ allowed-tools:
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary integration branch (free-close merges a free branch → primary). Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
+**Commit trailer reminder.** When a commit on this free branch closed a carried retro Try (an adopted `retro-try-*` decision from this or a prior session), the commit body should include `Resolves-Event: <try-id-or-ref>` so `try_status` closes the loop. Cascade closure via the adoption decision's `metadata.resolves` covers most cases; explicit trailers cover the rest.
+
 ## Step 1: Pre-flight
 
 ```bash
