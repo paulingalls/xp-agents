@@ -185,28 +185,40 @@ def _collect_dropped_tries_recent(events: list[dict], limit: int = 10) -> list[d
     """Last `limit` status-drop events with non-empty metadata.resolves.
 
     Surfaces cross-session drop memory to the retro agent so it can avoid
-    re-proposing Trys the user has already rejected. Scans the FULL events
-    list (not session-scoped) — prior-session drops MUST be visible.
+    re-proposing Trys the user has already rejected. Iterates in reverse
+    file order and stops once `limit` matches are collected. Returned
+    entries are in reverse file-order, not strictly ts-descending —
+    event_builder assigns `ts` before the flock in append_event, so under
+    concurrent writers two events can land in the file out of ts order
+    (microsecond-millisecond skew). Acceptable here because the use case
+    is "recent drops the user already rejected," not exact ordering.
     """
-    drops = [
-        {
-            "id": e.get("id", ""),
-            "ts": e.get("ts", ""),
-            "content": e.get("content", "")[:_MAX_RESOLVER_CONTENT],
-        }
-        for e in events
-        if e.get("type") == _common.STATUS
-        and (e.get("metadata") or {}).get(METADATA_KEY_DISPOSITION)
-        == DISPOSITION_DROPPED
-        and (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
-    ]
-    return sorted(drops, key=lambda d: d["ts"], reverse=True)[:limit]
+    drops: list[dict] = []
+    for e in reversed(events):
+        if e.get("type") != _common.STATUS:
+            continue
+        meta = e.get("metadata") or {}
+        if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DROPPED:
+            continue
+        if not meta.get(METADATA_KEY_RESOLVES):
+            continue
+        drops.append(
+            {
+                "id": e.get("id", ""),
+                "ts": e.get("ts", ""),
+                "content": e.get("content", "")[:_MAX_RESOLVER_CONTENT],
+            }
+        )
+        if len(drops) >= limit:
+            break
+    return drops
 
 
 def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -> dict:
     """Build structured digest. Most fields cover events[start_idx:] (the
-    unanalyzed slice); `dropped_tries_recent` scans the FULL events list
-    so prior-session drops remain visible across retros.
+    unanalyzed slice); `dropped_tries_recent` reverse-scans the FULL events
+    list (with an early-break at its limit) so prior-session drops remain
+    visible across retros without paying for a full-history scan.
     """
     unanalyzed = events[start_idx:]
     resolved_concern_ids = resolutions.get("resolved_concern_ids", set())
