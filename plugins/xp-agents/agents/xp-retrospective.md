@@ -26,6 +26,7 @@ The preload provides `SMM_DIR=<path>`. Read `${SMM_DIR}/.retro-input.json`:
   - `work_signals` — work-level correlations (see Work Analysis below)
   - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, decision resolved this session via `metadata.resolves`. A previous Try mentioning a short ID present here was resolved.
 - `previous_retros` — last retro summary. Each retro's `try` is a list of `{content, event_refs}` dicts. The most recent retro carries a parallel `try_status` list: `[{resolved_this_session, resolver_id?, disposition?}]`, indexed in the same order as `try`. `disposition` ∈ `"adopted"`, `"dropped"`, `"deferred"` when resolved.
+- `recent_summaries` — last 1-2 entries from `session_history.json` (each carries `ts`, `summary`, `carry_forward`, and `staleness={status, skipped_sessions}`). Use these ONLY for cross-session pattern detection — recurring concerns, drift across sessions, recurring Try resurfacing. **Do NOT retell the narrative.** Your primary analysis source is `digest`; cite a summary only when a pattern genuinely spans sessions. Empty list is normal on fresh installs.
 - `event_type_counts`, `session_stats`
 
 Read `previous_retros[0].analysis_notes` if present. Factor cross-session trends in — increment counters ("3rd consecutive" → "4th consecutive"), drop trends resolved this session (note in Keep with resolver ID).

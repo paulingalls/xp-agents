@@ -13,6 +13,7 @@ from pathlib import Path
 
 import event_schema
 import resolution
+import session_history
 import smm_store
 from _append_impl import (
     now_iso,
@@ -303,6 +304,9 @@ def prepare_curation_data(smm_dir: Path) -> dict:
             "retro_history": _empty_retro_history(),
             "aging": {},
             "health": _health_from_smm(current_smm),
+            "recent_summaries": session_history.gather_recent_summaries(
+                smm_dir, session_end_timestamps=[]
+            ),
         }
 
     watermark = read_curation_watermark(smm_dir)
@@ -352,4 +356,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         "retro_history": retro_history,
         "aging": aging,
         "health": _health_from_smm(current_smm),
+        "recent_summaries": session_history.gather_recent_summaries(
+            smm_dir, session_end_timestamps=session_end_timestamps
+        ),
     }

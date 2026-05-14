@@ -39,12 +39,48 @@ class TestPrepareCurationData(_SMMTestCase):
             "retro_history",
             "aging",
             "health",
+            "recent_summaries",
         ):
             self.assertIn(key, result)
         for pillar in ("intent", "constraints", "risks", "wisdom"):
             self.assertEqual(result["current_smm"][pillar], [])
         for key in ("intent_count", "constraints_count", "risks_count", "wisdom_count"):
             self.assertEqual(result["health"][key], 0)
+        self.assertEqual(result["recent_summaries"], [])
+
+    def test_recent_summaries_populated_from_session_history(self):
+        """When session_history.json exists, prepare_curation_data surfaces
+        the last 1-2 entries with pre-computed staleness so the housekeeper
+        can ground pillar curation in recent narrative."""
+        import session_history
+
+        session_history.save_history(
+            self.smm_dir,
+            {
+                "version": session_history.SCHEMA_VERSION,
+                "entries": [
+                    {
+                        "ts": "2026-05-09T10:00:00+00:00",
+                        "summary": "Earlier session.",
+                        "carry_forward": [],
+                    },
+                    {
+                        "ts": "2026-05-10T10:00:00+00:00",
+                        "summary": "Most recent session.",
+                        "carry_forward": [],
+                    },
+                ],
+            },
+        )
+        result = materialize.prepare_curation_data(self.smm_dir)
+        summaries = result["recent_summaries"]
+        # Last 2 entries surface with staleness annotated on each.
+        self.assertEqual(len(summaries), 2)
+        contents = [e["summary"] for e in summaries]
+        self.assertEqual(contents, ["Earlier session.", "Most recent session."])
+        for entry in summaries:
+            self.assertIn("staleness", entry)
+            self.assertIn("status", entry["staleness"])
 
     def test_no_watermark_all_events_new(self):
         """Without watermark, all events appear in new_since_last_curation."""

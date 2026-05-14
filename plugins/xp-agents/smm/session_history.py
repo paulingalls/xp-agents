@@ -38,6 +38,11 @@ SESSION_HISTORY_FILENAME = "session_history.json"
 SCHEMA_VERSION = 1
 DEFAULT_MAX_ENTRIES = 5
 
+# Number of recent entries to surface to retro and housekeeper agent
+# inputs. Mirrors the kickoff LAST_SESSION render limit so all consumers
+# see the same window.
+RECENT_SUMMARIES_LIMIT = 2
+
 # Staleness status vocabulary — single source of truth for callers
 # (CLI, retro/housekeeper input builders, kickoff preload).
 STALENESS_FRESH = "fresh"
@@ -271,6 +276,44 @@ def render_markdown(
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def gather_recent_summaries(
+    smm_dir: Path,
+    *,
+    session_end_timestamps: list[str] | None = None,
+    limit: int = RECENT_SUMMARIES_LIMIT,
+) -> list[dict]:
+    """Load the last *limit* session_history entries with staleness annotated.
+
+    Used by both ``retrospective.py`` and ``materialize.py`` to surface
+    cross-session narrative context to the retro and housekeeper agents.
+    Fail-quiet on missing / corrupt history — recent_summaries is a hint,
+    not a load-bearing input.
+
+    When *session_end_timestamps* is provided (the materialize path,
+    which already scans events for aging), it's used directly. Otherwise
+    the helper falls back to ``read_session_end_timestamps`` — caller
+    convenience for paths that don't already have the timestamps in hand.
+    """
+    try:
+        data = load_history(smm_dir)
+    except (ValueError, OSError):
+        return []
+    entries = data.get("entries", [])
+    if not entries:
+        return []
+    ses = (
+        session_end_timestamps
+        if session_end_timestamps is not None
+        else read_session_end_timestamps(smm_dir)
+    )
+    annotated: list[dict] = []
+    for entry in entries[-limit:]:
+        item = dict(entry)
+        item["staleness"] = compute_staleness(entry, ses)
+        annotated.append(item)
+    return annotated
 
 
 def prune_resolved(smm_dir: Path, resolutions: dict) -> int:
