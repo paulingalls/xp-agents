@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.1.36 — carried retro Trys: probe pairing, superseded backstop, _seed_* extraction
+
+Three commits addressing the three carried retro Trys from the prior session.
+
+### Commit 1: extract `_seed_*` probe test helpers to `conftest._ProbeTestHelpers`
+
+Consolidates four near-identical test helpers (`_seed_concern`, `_seed_discovery`, `_seed_debt`, `_seed_anchor_in_cycle`) into the `_ProbeTestHelpers` mixin. Eliminates ~80 lines of duplication across `test_resolves_probe_pool.py` and `test_resolves_probe.py`. Cycle-aware variants take `cycle_id` + `close_mode` as keyword-only params; an internal `_seed_event` absorbs the shared kwargs-build + `make_event` + `append_safe` pattern. Resolves debt `0fd6e85c77a4`, adopted Try `4ffc1d86f563`, plus plan-reviewer concerns `b9a27fdd20ae`, `cb22d1f4847b`, `8f04cdd94e82`.
+
+### Commit 2: gate superseded-decision detector on `metadata.resolves` backstop
+
+Extends `concerns.py:detect_conflicts` to treat `metadata.resolves` equivalent to `metadata.supersedes` as a supersedence declaration. Symmetric with the existing `pre_tool_bash._decision_metadata_declares_supersedence` advisory nudge. Rationale: a later decision carrying `metadata.resolves=[prev_id]` triggers the cascade auto-closer (STRONG link), so flagging the prior as unresolved would contradict the link hierarchy. Resolves concerns `266b3a8b42ea` + `404f81ffb2ad`, adopted Try `faab3805afc2`. Bonus: code-reviewer caught + fixed a stale docstring in `pre_tool_bash.py`.
+
+### Commit 3 (Try 1, pivoted): probe-commit pairing fix
+
+The prior session's retro flagged 4/4 `newer-than-snapshot` diverts on sprint-082. Initial diagnosis was incomplete (recorded as discovery `ceef689a6536`); a deeper trace this session found the actual root cause was NOT in the staleness mechanism (which works as designed) but in `retro_metrics._compute_probe_adoption`'s probe-commit pairing.
+
+Algorithm bug: `sorted_probes` iterated oldest-first, each probe consuming its earliest unmatched commit. When two probes by the same agent preceded one commit (probe A at T=0 misses a not-yet-existing concern Z; concern Z created at T=20m; probe B at T=37m sees Z; commit at T=40m references Z), the commit got attributed to probe A. The classifier then asked "did A see Z?" — no — and labeled the divert `newer-than-snapshot` even though the agent had used probe B's candidate set.
+
+Fix is one line: `sorted(probes, ..., reverse=True)`. Probes now iterate newest-first, consuming the earliest still-unmatched commit each preceded — which gives the LATEST probe before each commit the pairing it deserves.
+
+Residual concern `acac09099204` (low severity): the greedy newest-first heuristic is a net improvement but not a true maximum-matching algorithm; n-probe-m-commit cases with m≥2 may still mispair in some configurations. Carried for a future session.
+
+---
+
 ## v3.1.35 — dropped-Try resurfacing fix; xp-accept auto-close + JIT-next continuation
 
 Free session investigating why dropped retro Trys kept resurfacing across sessions in two downstream projects (SimplyHuman, Legacy). Forensic trace identified a single architectural gap: the retrospective agent had **zero memory** of prior drops. Three layers combined to bury them — `signal_events` excluded `status` events, `MAX_RETRO_HISTORY=1` truncated history, and `retro_history.py:125-131` actively stripped dropped Trys from `previous_retros` before the agent saw them. Plus a rule-firing issue: `security_checks=0 → Fix` triggered on non-close sessions, regenerating the same Try every session whether or not a close cycle even ran.
