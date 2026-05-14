@@ -30,11 +30,19 @@ import json
 from pathlib import Path
 
 from _append_impl import write_text_atomic
+from append_validation import parse_jsonl
+from event_schema import EVENT_TYPE_SESSION_END, sessions_since_event
 from resolution import collect_all_resolved_ids
 
 SESSION_HISTORY_FILENAME = "session_history.json"
 SCHEMA_VERSION = 1
 DEFAULT_MAX_ENTRIES = 5
+
+# Staleness status vocabulary — single source of truth for callers
+# (CLI, retro/housekeeper input builders, kickoff preload).
+STALENESS_FRESH = "fresh"
+STALENESS_STALE = "stale"
+STALENESS_UNKNOWN = "unknown"
 
 
 def validate_session_history(data: object) -> list[str]:
@@ -162,6 +170,107 @@ def append_entry(
     if len(data["entries"]) > max_entries:
         data["entries"] = data["entries"][-max_entries:]
     save_history(smm_dir, data)
+
+
+def read_session_end_timestamps(smm_dir: Path) -> list[str]:
+    """Return ascending list of ``session_end`` event timestamps.
+
+    Returns ``[]`` when ``events.jsonl`` is absent or unreadable so the
+    staleness scan stays resilient when consumers run before init.
+    Reuses ``append_validation.parse_jsonl`` for tolerant parsing —
+    same path used by ``compact.py`` and other reader code.
+    """
+    path = smm_dir / "events.jsonl"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    events, _ = parse_jsonl(raw)
+    timestamps = [
+        ts
+        for e in events
+        if e.get("type") == EVENT_TYPE_SESSION_END and (ts := e.get("ts", ""))
+    ]
+    timestamps.sort()
+    return timestamps
+
+
+def compute_staleness(entry: dict, session_end_timestamps: list[str]) -> dict:
+    """Classify *entry* freshness against the sorted *session_end_timestamps*.
+
+    Mechanics: ``/xp-end-session`` writes the summary at ``T1`` and the
+    SessionEnd hook later fires the entry's own session_end event at
+    ``T2 > T1``. So in normal flow exactly one session_end is newer than
+    the entry — that's the fresh case. Each additional newer session_end
+    represents a subsequent session that ended without a summary.
+
+    Returns ``{"status": <fresh|stale|unknown>, "skipped_sessions": int}``.
+
+    * ``count == 0``: ``unknown`` — entry is from the current still-running
+      session, OR older session_ends were archived past retention.
+    * ``count == 1``: ``fresh`` — only the entry's own session_end is newer.
+    * ``count >= 2``: ``stale`` with ``skipped_sessions = count - 1``.
+    """
+    count = sessions_since_event(session_end_timestamps, entry.get("ts", ""))
+    if count == 0:
+        return {"status": STALENESS_UNKNOWN, "skipped_sessions": 0}
+    if count == 1:
+        return {"status": STALENESS_FRESH, "skipped_sessions": 0}
+    return {"status": STALENESS_STALE, "skipped_sessions": count - 1}
+
+
+def render_markdown(
+    entries: list[dict],
+    *,
+    session_end_timestamps: list[str] | None = None,
+) -> str:
+    """Render *entries* as a ``### LAST_SESSION`` markdown block.
+
+    Mirrors the original render_history.py format: summary line per entry
+    plus optional ``carry_forward`` note + recommendation lines. Event ids
+    in ``references`` are NEVER rendered — humans don't read them.
+
+    When *session_end_timestamps* is provided, annotates the header of the
+    most-recent (last) entry with a ``(stale — N sessions ended without
+    /xp-end-session since this summary)`` marker if its staleness is
+    ``stale``. Fresh / unknown render without annotation.
+
+    Returns ``""`` when *entries* is empty so the kickoff preload can
+    skip the section cleanly on first-session installs.
+    """
+    if not entries:
+        return ""
+
+    last_idx = len(entries) - 1
+    stale_idx: int | None = None
+    skipped_for_last = 0
+    if session_end_timestamps is not None:
+        status = compute_staleness(entries[last_idx], session_end_timestamps)
+        if status["status"] == STALENESS_STALE:
+            stale_idx = last_idx
+            skipped_for_last = status["skipped_sessions"]
+
+    lines: list[str] = []
+    for idx, entry in enumerate(entries):
+        header = "### LAST_SESSION"
+        if idx == stale_idx:
+            header += (
+                f" (stale — {skipped_for_last} session"
+                f"{'s' if skipped_for_last != 1 else ''} ended without "
+                f"/xp-end-session since this summary)"
+            )
+        lines.append(header)
+        lines.append("")
+        if summary := entry.get("summary", ""):
+            lines.append(summary)
+        for item in entry.get("carry_forward", []):
+            if note := item.get("note", ""):
+                lines.append(f"- {note}")
+            if rec := item.get("recommendation", ""):
+                lines.append(f"  → {rec}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def prune_resolved(smm_dir: Path, resolutions: dict) -> int:

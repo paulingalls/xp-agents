@@ -202,3 +202,136 @@ class TestPruneResolved(_SMMTestCase):
 
         result = session_history.load_history(self.smm_dir)
         self.assertEqual(len(result["entries"][0]["carry_forward"]), 1)
+
+
+class TestComputeStaleness(_SMMTestCase):
+    """Freshness classification of a session_history entry against the
+    sorted list of session_end timestamps.
+
+    Mechanics: /xp-end-session writes the entry at T1; the SessionEnd
+    hook later fires the entry's own session_end event at T2 > T1.
+    So exactly ONE newer session_end is the expected fresh-case shape.
+    """
+
+    _T1 = "2026-05-10T10:00:00+00:00"
+    _T2 = "2026-05-10T10:00:30+00:00"  # entry's own session_end
+    _T3 = "2026-05-11T09:00:00+00:00"  # next session's session_end (skipped summary)
+
+    def test_no_session_ends_returns_unknown(self):
+        entry = _entry(self._T1, "summary")
+        result = session_history.compute_staleness(entry, [])
+        self.assertEqual(result, {"status": "unknown", "skipped_sessions": 0})
+
+    def test_zero_newer_session_ends_returns_unknown(self):
+        # Entry is newer than every session_end on disk — current session,
+        # or older session_ends archived past retention.
+        older_se = "2026-05-09T00:00:00+00:00"
+        entry = _entry(self._T1, "summary")
+        result = session_history.compute_staleness(entry, [older_se])
+        self.assertEqual(result, {"status": "unknown", "skipped_sessions": 0})
+
+    def test_exactly_one_newer_session_end_is_fresh(self):
+        # Normal flow: entry at T1, entry's own session_end at T2.
+        entry = _entry(self._T1, "summary")
+        result = session_history.compute_staleness(entry, [self._T2])
+        self.assertEqual(result, {"status": "fresh", "skipped_sessions": 0})
+
+    def test_two_newer_session_ends_is_stale_one_skipped(self):
+        # Entry at T1, own session_end at T2, then another session ended at T3
+        # without writing a summary.
+        entry = _entry(self._T1, "summary")
+        result = session_history.compute_staleness(entry, [self._T2, self._T3])
+        self.assertEqual(result, {"status": "stale", "skipped_sessions": 1})
+
+    def test_three_newer_session_ends_is_stale_two_skipped(self):
+        t4 = "2026-05-12T09:00:00+00:00"
+        entry = _entry(self._T1, "summary")
+        result = session_history.compute_staleness(entry, [self._T2, self._T3, t4])
+        self.assertEqual(result, {"status": "stale", "skipped_sessions": 2})
+
+
+class TestRenderMarkdown(_SMMTestCase):
+    """Pure formatter for the LAST_SESSION markdown block."""
+
+    def test_empty_entries_renders_empty_string(self):
+        self.assertEqual(session_history.render_markdown([]), "")
+
+    def test_one_entry_renders_block_with_summary(self):
+        entries = [_entry("2026-05-10T10:00:00+00:00", "Shipped Track 2.")]
+        result = session_history.render_markdown(entries)
+        self.assertIn("### LAST_SESSION", result)
+        self.assertIn("Shipped Track 2.", result)
+
+    def test_entry_with_carry_forward_renders_note_and_recommendation(self):
+        entries = [
+            _entry(
+                "2026-05-10T10:00:00+00:00",
+                "Summary text.",
+                [_cf("Watch this thing", ["abc"], "Investigate next session.")],
+            )
+        ]
+        result = session_history.render_markdown(entries)
+        self.assertIn("Summary text.", result)
+        self.assertIn("Watch this thing", result)
+        self.assertIn("Investigate next session.", result)
+        # Event ids in references are NEVER rendered.
+        self.assertNotIn("abc", result)
+
+    def test_fresh_entry_renders_no_staleness_annotation(self):
+        entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
+        # Exactly one newer SE = fresh.
+        result = session_history.render_markdown(
+            entries, session_end_timestamps=["2026-05-10T10:00:30+00:00"]
+        )
+        self.assertIn("### LAST_SESSION", result)
+        self.assertNotIn("(stale", result)
+        self.assertNotIn("(unknown", result)
+
+    def test_stale_entry_renders_inline_annotation_on_header(self):
+        entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
+        result = session_history.render_markdown(
+            entries,
+            session_end_timestamps=[
+                "2026-05-10T10:00:30+00:00",
+                "2026-05-11T09:00:00+00:00",
+                "2026-05-12T09:00:00+00:00",
+            ],
+        )
+        # Header carries the annotation; "2 sessions" matches skipped_sessions=2.
+        self.assertIn("### LAST_SESSION (stale", result)
+        self.assertIn("2 sessions", result)
+
+    def test_unknown_status_renders_no_annotation(self):
+        # No session_ends at all — annotation suppressed to keep noise low.
+        entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
+        result = session_history.render_markdown(entries, session_end_timestamps=[])
+        self.assertIn("### LAST_SESSION", result)
+        self.assertNotIn("(stale", result)
+        self.assertNotIn("(unknown", result)
+
+    def test_only_most_recent_entry_carries_staleness_annotation(self):
+        # When multiple entries render, only the most-recent (last in list)
+        # gets the annotation — older entries are obviously old.
+        entries = [
+            _entry("2026-05-08T10:00:00+00:00", "Older summary."),
+            _entry("2026-05-10T10:00:00+00:00", "Newer summary."),
+        ]
+        # Both would be "stale" by count, but the older one is rendered first
+        # without annotation in the header — only the newer one's header
+        # carries the marker.
+        result = session_history.render_markdown(
+            entries,
+            session_end_timestamps=[
+                "2026-05-10T10:00:30+00:00",
+                "2026-05-11T09:00:00+00:00",
+                "2026-05-12T09:00:00+00:00",
+            ],
+        )
+        # Only one (stale ...) annotation appears, and it precedes the
+        # newer summary — not the older one.
+        self.assertEqual(result.count("(stale"), 1)
+        stale_pos = result.find("(stale")
+        older_pos = result.find("Older summary.")
+        newer_pos = result.find("Newer summary.")
+        self.assertLess(older_pos, stale_pos)
+        self.assertLess(stale_pos, newer_pos)
