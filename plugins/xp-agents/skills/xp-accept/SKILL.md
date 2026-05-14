@@ -266,11 +266,14 @@ teammate-worktree cleanup is owned by /xp-story-close (Step 2).
 
 ## Step 8: Continue to next story
 
-If Step 7 did not fire and `sprint_cli.py next-in-progress` returns a
-story id (rc=0) — a fresh JIT-promote from /xp-story-close — call
-`EnterPlanMode` (no args; the new story is the planning subject) so
-the plan cycle starts immediately on the next iteration.
+If Step 7 did not fire, run:
 
 ```bash
 NEXT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> next-in-progress)
 ```
+
+If `NEXT` is non-empty (rc=0 — a fresh JIT-promote from
+`/xp-story-close`), call the `EnterPlanMode` tool (no args; the new
+story is the planning subject) so the plan cycle starts immediately
+on the next iteration. If `NEXT` is empty (rc=1), no further work —
+stop.
