@@ -500,7 +500,11 @@ def _compute_probe_adoption(
     if not probes:
         return zero
 
-    sorted_probes = sorted(probes, key=lambda p: p.get("ts") or "")
+    # Newest-first so each probe consumes the earliest still-unmatched
+    # commit it preceded. Oldest-first mis-pairs the commit with a stale
+    # earlier probe whose snapshot lacked the candidate the agent actually
+    # used — silently inflating newer-than-snapshot diverts.
+    sorted_probes = sorted(probes, key=lambda p: p.get("ts") or "", reverse=True)
     sorted_commits = sorted(code_commits, key=lambda c: c.get("ts") or "")
     consumed: set[int] = set()
 
