@@ -177,16 +177,18 @@ class TestTryItemIdResolution(unittest.TestCase):
 
 class TestEndToEndTryDispositionPipeline(unittest.TestCase):
     """Pin the full compute_resolutions → build_resolutions_map →
-    annotate_try_status pipeline. After A1 (resolution.py indexes nested
-    try ids), a status event with metadata.resolves=[try_id]
-    disposition=dropped must propagate to the latest retro's try_status
-    AND strip the try from latest.try.
+    annotate_try_status pipeline. A status event with metadata.resolves=
+    [try_id] disposition=dropped must propagate to the latest retro's
+    try_status with disposition="dropped", AND the try MUST remain in
+    latest.try so the retro agent prompt rule "disposition='dropped' —
+    do not re-propose" at xp-retrospective.md:208 is reachable.
 
-    Pre-A1, this only worked when the try happened to also share an
-    event_ref with a top-level event. This test pins the direct path.
+    Cross-session memory is double-walled: digest.dropped_tries_recent
+    surfaces drops from any session, and try_status[i].disposition
+    surfaces the most-recent retro's drops in their original Try slot.
     """
 
-    def test_drop_via_metadata_resolves_strips_try_end_to_end(self):
+    def test_drop_via_metadata_resolves_preserves_try_with_disposition(self):
         import resolution
         from retro_metrics import build_resolutions_map
 
@@ -203,7 +205,6 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         resolutions = resolution.compute_resolutions(events)
         rmap = build_resolutions_map(resolutions)
 
-        # Simulate the previous_retros list shape annotate_try_status expects.
         retros = [
             {
                 "try": [
@@ -215,15 +216,19 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         ]
         retro_history.annotate_try_status(retros, rmap)
 
-        # Dropped tries are stripped from latest.try
-        self.assertEqual(retros[0]["try"], [])
-        self.assertEqual(retros[0]["try_status"], [])
+        # Dropped tries are PRESERVED with disposition="dropped" so the
+        # agent prompt rule at xp-retrospective.md:208 is reachable.
+        self.assertEqual(len(retros[0]["try"]), 1)
+        self.assertEqual(retros[0]["try"][0]["id"], try_id)
+        self.assertEqual(len(retros[0]["try_status"]), 1)
+        self.assertTrue(retros[0]["try_status"][0]["resolved_this_session"])
+        self.assertEqual(retros[0]["try_status"][0]["disposition"], "dropped")
 
     def test_adopt_via_metadata_resolves_marks_resolved_and_keeps_try(self):
         """When a decision adopts a try via metadata.resolves, the try is
-        kept (not stripped — only dropped tries are stripped), marked
-        resolved_this_session, and gets disposition='adopted' from the
-        resolver_type fallback in annotate_try_status.
+        marked resolved_this_session and gets disposition='adopted' from
+        the resolver_type fallback in annotate_try_status. The try stays
+        in latest.try (no stripping for any disposition).
         """
         import resolution
         from retro_metrics import build_resolutions_map
@@ -250,7 +255,7 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         ]
         retro_history.annotate_try_status(retros, rmap)
 
-        self.assertEqual(len(retros[0]["try"]), 1)  # adopted, not stripped
+        self.assertEqual(len(retros[0]["try"]), 1)
         self.assertTrue(retros[0]["try_status"][0]["resolved_this_session"])
         self.assertEqual(retros[0]["try_status"][0]["disposition"], "adopted")
 

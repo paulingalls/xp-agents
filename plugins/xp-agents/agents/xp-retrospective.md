@@ -207,7 +207,7 @@ If `previous_retros` is present:
 - Note recurring Fix items (same issue across sessions).
 - Handle prior Try items via `try_status[i]`:
   - `resolved_this_session: true` + `disposition: "adopted"` — implemented. Do not re-propose verbatim. If the symptom persists, propose a *refined* Try and reference the `resolver_id` in a Keep item.
-  - `resolved_this_session: true` + `disposition: "dropped"` — user explicitly rejected. Do **not** re-propose.
+  - `resolved_this_session: true` + `disposition: "dropped"` — user explicitly rejected. Do **not** re-propose. (Same Try also appears in `dropped_tries_recent` for cross-session memory beyond the most-recent retro.)
   - `resolved_this_session: true` + `disposition: "deferred"` — user postponed. May re-propose, noting deferral count.
   - `resolved_this_session: false` — not reviewed. Re-propose if the underlying problem still appears.
 - Call out positive trends from Keep items.

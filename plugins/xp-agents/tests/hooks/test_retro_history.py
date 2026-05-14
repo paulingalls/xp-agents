@@ -49,8 +49,11 @@ class TestAnnotateTryDisposition(_HookTestCase):
         self.assertTrue(status["resolved_this_session"])
         self.assertEqual(status.get("disposition"), "adopted")
 
-    def test_dropped_try_gets_disposition_dropped(self):
-        """Dropped Try is stripped — verify via empty lists."""
+    def test_dropped_try_preserved_with_disposition_dropped(self):
+        """Dropped Tries are preserved with disposition="dropped" so the
+        agent prompt rule "disposition='dropped' — do not re-propose" at
+        xp-retrospective.md:208 is reachable.
+        """
         target_id = "aabbccdd1111"
         resolver_id = "eeffaabb5555"
         resolutions_map = self._make_resolutions_map(
@@ -64,8 +67,11 @@ class TestAnnotateTryDisposition(_HookTestCase):
             }
         ]
         retro_history.annotate_try_status(retros, resolutions_map)
-        self.assertEqual(len(retros[0]["try"]), 0)
-        self.assertEqual(len(retros[0]["try_status"]), 0)
+        self.assertEqual(len(retros[0]["try"]), 1)
+        self.assertEqual(len(retros[0]["try_status"]), 1)
+        status = retros[0]["try_status"][0]
+        self.assertTrue(status["resolved_this_session"])
+        self.assertEqual(status["disposition"], "dropped")
 
     def test_deferred_try_gets_disposition_deferred(self):
         target_id = "aabbccdd1111"
@@ -114,8 +120,11 @@ class TestAnnotateTryDisposition(_HookTestCase):
         self.assertEqual(len(retros[0]["try"]), 1)
         self.assertEqual(len(retros[0]["try_status"]), 1)
 
-    def test_mixed_dispositions_only_drops_stripped(self):
-        """Only dropped Tries are stripped; adopted and unresolved remain."""
+    def test_mixed_dispositions_all_preserved_with_status_each(self):
+        """All Tries (adopted, dropped, unresolved) are preserved with
+        their try_status entries — no stripping. The retro agent reads
+        disposition per-Try and decides whether to re-propose.
+        """
         drop_id = "dd0011111111"
         adopt_id = "aa0022222222"
         resolutions_map = {
@@ -145,12 +154,16 @@ class TestAnnotateTryDisposition(_HookTestCase):
             }
         ]
         retro_history.annotate_try_status(retros, resolutions_map)
-        self.assertEqual(len(retros[0]["try"]), 2)
+        self.assertEqual(len(retros[0]["try"]), 3)
         contents = [t["content"] for t in retros[0]["try"]]
         self.assertIn(f"try {adopt_id}", contents)
+        self.assertIn(f"try {drop_id}", contents)
         self.assertIn("unresolved try", contents)
-        self.assertNotIn(f"try {drop_id}", contents)
-        self.assertEqual(len(retros[0]["try_status"]), 2)
+        self.assertEqual(len(retros[0]["try_status"]), 3)
+        dispositions = [s.get("disposition") for s in retros[0]["try_status"]]
+        self.assertEqual(dispositions[0], "adopted")
+        self.assertEqual(dispositions[1], "dropped")
+        self.assertIsNone(dispositions[2])
 
     def test_decision_resolver_without_disposition_defaults_to_adopted(self):
         """A decision event without explicit disposition metadata is an adoption."""

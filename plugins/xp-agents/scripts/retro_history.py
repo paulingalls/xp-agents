@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
-from event_schema import DISPOSITION_ADOPTED, DISPOSITION_DROPPED
+from event_schema import DISPOSITION_ADOPTED
 
 MAX_RETRO_HISTORY = 1
 MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
@@ -79,10 +79,12 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
 
 
 def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> None:
-    """Annotate and filter Try items on previous_retros[0].
+    """Annotate Try items on previous_retros[0] with try_status.
 
-    Attaches a parallel try_status list, then strips dropped Tries from
-    both try and try_status so the retro analyst never sees them.
+    Attaches a parallel try_status list. Dropped Tries are NOT stripped —
+    the agent prompt rule "disposition='dropped' — do not re-propose" at
+    xp-retrospective.md:208 needs to see them. Cross-session drop memory
+    additionally surfaces via digest.dropped_tries_recent.
 
     Only the most recent retro gets annotated — older retros already
     went through a retro cycle, so their Try items are not candidates
@@ -121,11 +123,3 @@ def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> N
         else:
             statuses.append({"resolved_this_session": False})
     latest["try_status"] = statuses
-
-    kept = [
-        (t, s)
-        for t, s in zip(latest["try"], statuses, strict=True)
-        if s.get("disposition") != DISPOSITION_DROPPED
-    ]
-    latest["try"] = [t for t, _ in kept]
-    latest["try_status"] = [s for _, s in kept]
