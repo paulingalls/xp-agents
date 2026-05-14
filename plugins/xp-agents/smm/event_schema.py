@@ -187,6 +187,7 @@ def event_action(event: dict) -> str | None:
 #                                 STRONG link). Producer: xp-end-session
 #                                 status events with action=end_session_drop.
 METADATA_KEY_RESOLVES = "resolves"
+METADATA_KEY_SUPERSEDES = "supersedes"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
 METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"

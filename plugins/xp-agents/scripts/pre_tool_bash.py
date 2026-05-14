@@ -17,12 +17,13 @@ import git_commits
 import identity
 import lint_check
 import markers
+import resolution
 import resolves_probe
 import security_patterns
 import security_scanner
 import story_probe
 import worktree
-from event_schema import METADATA_KEY_RESOLVES
+from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
 # ---------------------------------------------------------------------------
 # Bash file-modification heuristic
@@ -78,13 +79,14 @@ _QUESTION_CONTENT_LIMIT = 80
 _MAX_NUDGE_FIRES = 2
 
 
-def _open_questions_context(smm_dir: Path, agent_id: str) -> str | None:
+def _open_questions_context(
+    smm_dir: Path, agent_id: str, events: list[dict], resolutions: dict
+) -> str | None:
     """Build a nudge listing open questions, or None when none remain.
 
     Tracks per-(question_id, agent_id) fire count via QUESTION_NUDGED marker;
     after _MAX_NUDGE_FIRES fires, that question is muted for this agent.
     """
-    events, resolutions = _common.load_events_with_resolutions(smm_dir)
     if not events:
         return None
     answered = resolutions["answered_question_ids"]
@@ -123,15 +125,80 @@ def _open_questions_context(smm_dir: Path, agent_id: str) -> str | None:
     return header + "\n" + "\n".join(lines)
 
 
-def _decision_metadata_has_resolves(metadata_value: str) -> bool:
-    """True when the --metadata JSON carries a non-empty resolves array."""
+def _parse_metadata_dict(metadata_value: str) -> dict | None:
+    """Parse the --metadata JSON string into a dict; None on absent/invalid."""
     if not metadata_value:
-        return False
+        return None
     try:
         parsed = json.loads(metadata_value)
     except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _decision_metadata_has_resolves(metadata_value: str) -> bool:
+    """True when the --metadata JSON carries a non-empty resolves array."""
+    parsed = _parse_metadata_dict(metadata_value)
+    return bool(parsed and parsed.get(METADATA_KEY_RESOLVES))
+
+
+def _decision_metadata_declares_supersedence(metadata_value: str) -> bool:
+    """True when --metadata declares supersedes OR resolves of any prior id.
+
+    The supersession nudge fires only when the planner has NOT declared
+    supersedence yet — either key (supersedes for flag-suppression, or
+    resolves for cascade-closure) counts as a declaration. Mirrors the
+    skip-condition in concerns.py's superseded-decision detector
+    (which checks metadata.supersedes for the explicit override).
+    """
+    parsed = _parse_metadata_dict(metadata_value)
+    if not parsed:
         return False
-    return bool(isinstance(parsed, dict) and parsed.get(METADATA_KEY_RESOLVES))
+    return bool(
+        parsed.get(METADATA_KEY_RESOLVES) or parsed.get(METADATA_KEY_SUPERSEDES)
+    )
+
+
+_SAME_TOPIC_HEADER_TEMPLATE = (
+    "Same-topic precedent — topic '{topic}' has unresolved prior "
+    "decision(s). If this new decision supersedes one, add "
+    '--metadata \'{{"supersedes":["<id>"]}}\' (declares explicit '
+    "supersedence; suppresses any same-session flag) or "
+    '\'{{"resolves":["<id>"]}}\' (also cascade-closes the prior):'
+)
+
+
+def _same_topic_decisions_context(
+    topic: str, events: list[dict], resolutions: dict
+) -> str | None:
+    """Build a nudge listing unresolved decisions on the same topic, or None.
+
+    Catches silent decision-supersession: planner emits a new decision on
+    a topic that already has an open prior decision. The cascade can't
+    close any future superseded-decision flag concern unless the planner
+    explicitly declares supersedence; this nudge reminds them at the
+    moment they're about to write the new decision.
+    """
+    if not topic or not events:
+        return None
+    resolved = resolution.collect_all_resolved_ids(resolutions)
+
+    lines: list[str] = []
+    for e in events:
+        if e.get("type") != _common.DECISION:
+            continue
+        if e.get("topic", "") != topic:
+            continue
+        did = e.get("id", "")
+        if not did or did in resolved:
+            continue
+        content = e.get("content", "")[:_QUESTION_CONTENT_LIMIT]
+        lines.append(f"{did}: {content}")
+
+    if not lines:
+        return None
+    header = _SAME_TOPIC_HEADER_TEMPLATE.format(topic=topic)
+    return header + "\n" + "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -359,12 +426,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if smm_dir is not None:
         args = _common.parse_append_sh_args(command)
-        if args.get("type") == _common.DECISION and not _decision_metadata_has_resolves(
-            args.get("metadata", "")
-        ):
-            nudge = _open_questions_context(smm_dir, agent_id)
-            if nudge:
-                parts.append(nudge)
+        if args.get("type") == _common.DECISION:
+            metadata = args.get("metadata", "")
+            events, resolutions = _common.load_events_with_resolutions(smm_dir)
+            if not _decision_metadata_has_resolves(metadata):
+                nudge = _open_questions_context(smm_dir, agent_id, events, resolutions)
+                if nudge:
+                    parts.append(nudge)
+            if not _decision_metadata_declares_supersedence(metadata):
+                same_topic = _same_topic_decisions_context(
+                    args.get("topic", ""), events, resolutions
+                )
+                if same_topic:
+                    parts.append(same_topic)
 
     # cd-into-worktree-then-git — advisory only, never blocks
     if _CD_WORKTREE_GIT_PATTERN.search(command):

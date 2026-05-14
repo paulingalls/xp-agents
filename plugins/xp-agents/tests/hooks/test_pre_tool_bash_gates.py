@@ -270,6 +270,156 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestPreToolBashDecisionSameTopic(_HookTestCase):
+    """Decision-time nudge: when emitting on a topic with an existing
+    unresolved decision, suggest metadata.supersedes/.resolves. Mirrors
+    the same-topic check in concerns.py's superseded-decision detector
+    but fires PRE-write so the agent can declare supersedence inline.
+    """
+
+    _APPEND = "bash /plugin/smm/append.sh"
+
+    def _decision_cmd(self, topic: str, *extra: str) -> str:
+        return " ".join(
+            [
+                self._APPEND,
+                "--type",
+                "decision",
+                "--topic",
+                topic,
+                "--content",
+                "bar",
+                *extra,
+            ]
+        )
+
+    def test_unresolved_same_topic_decision_triggers_nudge(self):
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="execution-mode",
+            content="Solo (sequential)",
+        )
+        self._write_events([prior])
+
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._decision_cmd("execution-mode")),
+            smm_dir=self.smm_dir,
+        )
+
+        result = self._assert_not_none(result)
+        self.assertIn("111111111111", result)
+        self.assertIn("execution-mode", result)
+        # Suggestion should mention both metadata keys to give the agent
+        # the choice: supersedes (suppresses the flag) vs resolves
+        # (also cascade-closes the prior decision).
+        self.assertIn("supersedes", result)
+        self.assertIn("resolves", result)
+
+    def test_resolved_same_topic_decision_excluded_from_nudge(self):
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="execution-mode",
+            content="Solo",
+        )
+        superseder = make_event(
+            EVENT_TYPE_DECISION,
+            id="222222222222",
+            topic="execution-mode",
+            content="Teammates",
+            metadata={"resolves": ["111111111111"]},
+        )
+        self._write_events([prior, superseder])
+
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._decision_cmd("execution-mode")),
+            smm_dir=self.smm_dir,
+        )
+
+        # Prior was explicitly superseded; superseder is the open one.
+        result = self._assert_not_none(result)
+        self.assertIn("222222222222", result)
+        self.assertNotIn("111111111111", result)
+
+    def test_metadata_supersedes_suppresses_nudge(self):
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="execution-mode",
+            content="Solo",
+        )
+        self._write_events([prior])
+
+        cmd = self._decision_cmd(
+            "execution-mode",
+            "--metadata",
+            "'" + '{"supersedes":["111111111111"]}' + "'",
+        )
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertIsNone(result)
+
+    def test_metadata_resolves_suppresses_nudge(self):
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="execution-mode",
+            content="Solo",
+        )
+        self._write_events([prior])
+
+        cmd = self._decision_cmd(
+            "execution-mode",
+            "--metadata",
+            "'" + '{"resolves":["111111111111"]}' + "'",
+        )
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertIsNone(result)
+
+    def test_different_topic_no_nudge(self):
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="auth",
+            content="No SSO in v1",
+        )
+        self._write_events([prior])
+
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._decision_cmd("execution-mode")),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertIsNone(result)
+
+    def test_no_topic_arg_no_nudge(self):
+        """Decision without --topic can't have same-topic precedent."""
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="execution-mode",
+            content="Solo",
+        )
+        self._write_events([prior])
+
+        # Decision command without --topic flag.
+        cmd = f"{self._APPEND} --type decision --content 'bar'"
+        result = pre_tool_bash.run(
+            _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertIsNone(result)
+
+
 class TestMainBranchGate(_HookTestCase):
     """Main-branch gate: nudge when committing on protected branch at stage >= 1."""
 

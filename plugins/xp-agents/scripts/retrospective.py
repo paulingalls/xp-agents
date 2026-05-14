@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import marker_names
+import session_history
 import story_metrics
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -115,8 +116,15 @@ def _build_retro_input(
     start_idx: int,
     retro_history: list[dict],
     resolutions: dict | None = None,
+    recent_summaries: list[dict] | None = None,
 ) -> dict:
-    """Build the .retro-input.json structure."""
+    """Build the .retro-input.json structure.
+
+    *recent_summaries* (when provided) carries the most recent
+    session_history.json entries with pre-computed staleness, for
+    cross-session pattern detection. Default ``[]`` keeps the field
+    present so retro-agent prompts can rely on its existence.
+    """
     import resolution
     from retro_flags import evaluate_flags
 
@@ -164,6 +172,7 @@ def _build_retro_input(
     return {
         "unanalyzed_count": len(unanalyzed),
         "previous_retros": retro_history,
+        "recent_summaries": recent_summaries or [],
         "event_type_counts": type_counts,
         "session_stats": session_stats,
         "digest": digest,
@@ -250,7 +259,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None
         return None
 
     retro_history = gather_retro_history(smm_dir)
-    retro_input = _build_retro_input(events, start_idx, retro_history, resolutions)
+    recent_summaries = session_history.gather_recent_summaries(
+        smm_dir,
+        session_end_timestamps=session_history.filter_session_end_timestamps(events),
+    )
+    retro_input = _build_retro_input(
+        events, start_idx, retro_history, resolutions, recent_summaries
+    )
 
     if sprint_id is not None:
         sizing = story_metrics.compute_story_analysis(smm_dir, events)

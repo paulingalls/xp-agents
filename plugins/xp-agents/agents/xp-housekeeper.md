@@ -21,6 +21,7 @@ The preload provides `SMM_DIR=<path>`. Read `${SMM_DIR}/.curation-input.json`:
 - `new_since_last_curation` — new events (customer_inputs, decisions, concerns, assumptions, debt, questions, resolutions). `resolutions` is a flat list of resolved event IDs (use `id in resolutions`). `customer_inputs` may have `content_truncated: true` — fetch the full body via `get-event <id>` if judgment requires. `adopted_tries` capped at 10 most recent.
 - `aging` — risk ID → session count since creation
 - `health` — item counts per pillar
+- `recent_summaries` — last 1-2 entries from `session_history.json` (each carries `ts`, `summary`, `carry_forward`, and `staleness={status, skipped_sessions}`). Use ONLY as narrative context for distinguishing durable wisdom from noise (e.g., "the team has wrestled with X for 3 sessions" → strengthen the related Risk). **Do NOT paraphrase summary content into pillars.** Pillars derive from events; summaries are framing. Empty list is normal on fresh installs.
 
 If a truncated `customer_input` or resolver content is needed:
 ```bash

@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import event_schema as es
 import resolution
+import session_history
 from _append_impl import (
     LockTimeoutError,
     read_with_lock,
@@ -117,10 +118,9 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     resolutions = resolution.compute_resolutions(events)
     referenced: set[str] = set()
 
-    # Build session_end timestamps for decision aging
-    se_timestamps = [
-        e.get("ts", "") for e in events if e.get("type") == es.EVENT_TYPE_SESSION_END
-    ]
+    # Build session_end timestamps for decision aging. Sort is required —
+    # sessions_since_event uses bisect_right on this list.
+    se_timestamps = session_history.filter_session_end_timestamps(events)
 
     pending_retro_sprint_ids = _compute_pending_retro_sprint_ids(events)
 

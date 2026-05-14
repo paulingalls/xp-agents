@@ -160,6 +160,36 @@ class TestRetroDigest(_HookTestCase):
         self.assertIn("status_summary", digest)
         self.assertIn("concern_groups", digest)
 
+    def test_retro_input_includes_recent_summaries_field(self):
+        """_build_retro_input exposes recent_summaries (default empty list).
+
+        The retro agent reads recent_summaries for cross-session pattern
+        context (e.g., 'this is the 3rd session where X kept resurfacing'),
+        complementing previous_retros which carries Keep/Fix/Try outputs
+        but not the work narratives behind them.
+        """
+        import retrospective
+
+        retro_input = retrospective._build_retro_input([], 0, [])
+        self.assertIn("recent_summaries", retro_input)
+        self.assertEqual(retro_input["recent_summaries"], [])
+
+    def test_retro_input_carries_recent_summaries_when_passed(self):
+        import retrospective
+
+        summary_entries = [
+            {
+                "ts": "2026-05-10T10:00:00+00:00",
+                "summary": "Shipped Track 1 CLI.",
+                "carry_forward": [],
+                "staleness": {"status": "fresh", "skipped_sessions": 0},
+            }
+        ]
+        retro_input = retrospective._build_retro_input(
+            [], 0, [], recent_summaries=summary_entries
+        )
+        self.assertEqual(retro_input["recent_summaries"], summary_entries)
+
 
 class TestSaveRetrospective(_HookTestCase):
     """Tests for save_retrospective.py helper script."""
