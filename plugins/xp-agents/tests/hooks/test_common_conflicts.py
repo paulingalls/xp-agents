@@ -29,6 +29,8 @@ from event_schema import (
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_SESSION_END,
     EVENT_TYPE_STATUS,
+    METADATA_KEY_RESOLVES,
+    METADATA_KEY_SUPERSEDES,
 )
 
 
@@ -185,6 +187,57 @@ class TestDetectConflictsCommon(_HookTestCase):
         found = concerns.detect_conflicts([d1, d2], "main")
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 1)
+
+    def test_resolves_metadata_skips_concern(self):
+        """metadata.resolves on the later decision declares supersedence —
+        the cascade auto-closes the prior decision, so suppressing the
+        superseded-flag here is symmetric with the supersedes path and
+        matches the pre_tool_bash advisory nudge's treatment.
+        """
+        d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
+        d2 = make_event(
+            EVENT_TYPE_DECISION,
+            topic="db",
+            content="Use MySQL",
+            metadata={METADATA_KEY_RESOLVES: [d1["id"]]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
+    def test_resolves_metadata_wrong_id_still_fires(self):
+        """Bogus IDs must not silence the check — false-negative would hide
+        real conflicts.
+        """
+        d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
+        d2 = make_event(
+            EVENT_TYPE_DECISION,
+            topic="db",
+            content="Use MySQL",
+            metadata={METADATA_KEY_RESOLVES: ["deadbeef12345678"]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_resolves_and_supersedes_both_set_skips(self):
+        """Pins OR semantics: even with a junk supersedes, a valid resolves
+        still suppresses. Without this, a future refactor to AND or to
+        supersedes-takes-precedence would pass the other two tests silently.
+        """
+        d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
+        d2 = make_event(
+            EVENT_TYPE_DECISION,
+            topic="db",
+            content="Use MySQL",
+            metadata={
+                METADATA_KEY_SUPERSEDES: ["deadbeef12345678"],
+                METADATA_KEY_RESOLVES: [d1["id"]],
+            },
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
 
     def test_assumption_contradicted_concern_references_assumption(self):
         """Flag concern references the assumption event it flags (WEAK link)."""

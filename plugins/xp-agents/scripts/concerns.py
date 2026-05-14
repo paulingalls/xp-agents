@@ -397,14 +397,20 @@ def detect_conflicts(
         prev_pos, prev_dec = decs[-2]
         curr_pos, curr_dec = decs[-1]
 
-        # Explicit override: curr decision's metadata.supersedes references
-        # the prior decision (full ID or 8+ char prefix match, mirroring
-        # resolution.resolve_prefix's short-ID convention).
-        supersedes = curr_dec.get("metadata", {}).get(METADATA_KEY_SUPERSEDES) or []
+        # Explicit override: curr decision's metadata.supersedes OR
+        # metadata.resolves references the prior decision (full ID or 8+
+        # char prefix match, mirroring resolution.resolve_prefix's short-ID
+        # convention). Both keys count: `resolves` triggers the cascade
+        # auto-closer (STRONG link), so flagging the prior as unresolved
+        # would contradict the link hierarchy.
+        meta = curr_dec.get("metadata", {})
+        declarations = (meta.get(METADATA_KEY_SUPERSEDES) or []) + (
+            meta.get(METADATA_KEY_RESOLVES) or []
+        )
         prev_id = prev_dec.get("id", "")
         if prev_id and any(
             prev_id == s or prev_id.startswith(s) or s.startswith(prev_id)
-            for s in supersedes
+            for s in declarations
         ):
             continue
 

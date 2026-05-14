@@ -148,8 +148,8 @@ def _decision_metadata_declares_supersedence(metadata_value: str) -> bool:
     The supersession nudge fires only when the planner has NOT declared
     supersedence yet — either key (supersedes for flag-suppression, or
     resolves for cascade-closure) counts as a declaration. Mirrors the
-    skip-condition in concerns.py's superseded-decision detector
-    (which checks metadata.supersedes for the explicit override).
+    skip-condition in concerns.py's superseded-decision detector, which
+    treats both keys as supersedence declarations.
     """
     parsed = _parse_metadata_dict(metadata_value)
     if not parsed:
