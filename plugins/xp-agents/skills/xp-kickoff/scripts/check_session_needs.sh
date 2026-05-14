@@ -19,11 +19,15 @@ if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo ""
 fi
 
-# Gate render_history on file presence so first-session kickoffs skip
-# the Python cold-start cost; render_history.py owns the fail-quiet
-# contract for malformed files.
+# Gate session_history_cli render on file presence so first-session
+# kickoffs skip the Python cold-start cost. The CLI fails loud on
+# corrupt history (matches the smm/* CLI convention); wrap with
+# `|| true` so a crashed CLI never blocks kickoff.
+# --limit 2: current + prior session for staleness context — mirrors
+# the retro/housekeeper recent_summaries window.
 if [ -f "${SMM_DIR}/session_history.json" ]; then
-    python3 "$(dirname "$0")/render_history.py" --smm-dir "$SMM_DIR"
+    python3 "${PLUGIN_ROOT}/smm/session_history_cli.py" \
+        --smm-dir "$SMM_DIR" render --limit 2 || true
 fi
 
 if ! plan_has_remaining; then

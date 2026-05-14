@@ -231,14 +231,15 @@ def render_markdown(
 ) -> str:
     """Render *entries* as a ``### LAST_SESSION`` markdown block.
 
-    Mirrors the original render_history.py format: summary line per entry
-    plus optional ``carry_forward`` note + recommendation lines. Event ids
-    in ``references`` are NEVER rendered — humans don't read them.
+    Mirrors the original render_history.py format: ONE ``### LAST_SESSION``
+    header followed by each entry's summary and ``carry_forward`` notes.
+    Event ids in ``references`` are NEVER rendered — humans don't read them.
 
-    When *session_end_timestamps* is provided, annotates the header of the
-    most-recent (last) entry with a ``(stale — N sessions ended without
-    /xp-end-session since this summary)`` marker if its staleness is
-    ``stale``. Fresh / unknown render without annotation.
+    When *session_end_timestamps* is provided AND the most-recent entry's
+    staleness is ``stale``, the header is annotated with ``(stale — N
+    sessions ended without /xp-end-session since this summary)``. The
+    annotation reflects the most-recent entry because older entries are
+    obviously older — the block as a whole is "stale" when the latest is.
 
     Returns ``""`` when *entries* is empty so the kickoff preload can
     skip the section cleanly on first-session installs.
@@ -246,26 +247,18 @@ def render_markdown(
     if not entries:
         return ""
 
-    last_idx = len(entries) - 1
-    stale_idx: int | None = None
-    skipped_for_last = 0
+    header = "### LAST_SESSION"
     if session_end_timestamps is not None:
-        status = compute_staleness(entries[last_idx], session_end_timestamps)
+        status = compute_staleness(entries[-1], session_end_timestamps)
         if status["status"] == STALENESS_STALE:
-            stale_idx = last_idx
-            skipped_for_last = status["skipped_sessions"]
-
-    lines: list[str] = []
-    for idx, entry in enumerate(entries):
-        header = "### LAST_SESSION"
-        if idx == stale_idx:
+            n = status["skipped_sessions"]
             header += (
-                f" (stale — {skipped_for_last} session"
-                f"{'s' if skipped_for_last != 1 else ''} ended without "
+                f" (stale — {n} session{'s' if n != 1 else ''} ended without "
                 f"/xp-end-session since this summary)"
             )
-        lines.append(header)
-        lines.append("")
+
+    lines: list[str] = [header, ""]
+    for entry in entries:
         if summary := entry.get("summary", ""):
             lines.append(summary)
         for item in entry.get("carry_forward", []):

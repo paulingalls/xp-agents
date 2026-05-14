@@ -327,11 +327,15 @@ class TestRenderMarkdown(_SMMTestCase):
                 "2026-05-12T09:00:00+00:00",
             ],
         )
-        # Only one (stale ...) annotation appears, and it precedes the
-        # newer summary — not the older one.
+        # Single block header with the (stale ...) annotation; both
+        # entries follow under that one header (matches the original
+        # render_history.py format).
         self.assertEqual(result.count("(stale"), 1)
+        self.assertEqual(result.count("### LAST_SESSION"), 1)
         stale_pos = result.find("(stale")
         older_pos = result.find("Older summary.")
         newer_pos = result.find("Newer summary.")
-        self.assertLess(older_pos, stale_pos)
-        self.assertLess(stale_pos, newer_pos)
+        # Header (with stale annotation) precedes both bodies; bodies
+        # follow in chronological order.
+        self.assertLess(stale_pos, older_pos)
+        self.assertLess(older_pos, newer_pos)

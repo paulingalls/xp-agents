@@ -32,7 +32,7 @@ Three link types close events and risk pillar items:
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
 
-**Session close:** `/xp-end-session` — emits `session_summary` event, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block.
+**Session close:** `/xp-end-session` — emits `session_summary` event, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block AND the `recent_summaries` field of retro + housekeeper inputs. The render annotates the most-recent entry `(stale — N sessions ended without /xp-end-session)` when intervening sessions ended without a summary.
 
 **Multi-command AC:** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners.
 
@@ -48,7 +48,7 @@ Three link types close events and risk pillar items:
 
 State lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_plan.json`, `system_context.json`, `session_history.json`. Resolve via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh`.
 
-CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `append.sh`) accept `--smm-dir DIR`; run `--help` for subcommands. All event writes go through `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` — never write `events.jsonl` directly. Content budgets enforced at write time.
+CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_history_cli.py`, `append.sh`) accept `--smm-dir DIR`; run `--help` for subcommands. All event writes go through `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` — never write `events.jsonl` directly. Content budgets enforced at write time.
 
 ### Event Types
 

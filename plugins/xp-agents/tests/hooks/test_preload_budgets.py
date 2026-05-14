@@ -8,8 +8,8 @@ fixture env. The stdout byte length is asserted against a per-script budget.
 
 Because the runner bootstraps a real SMM (seed_smm.py) inside a git repo,
 preloads execute their FULL logic path — including helpers they invoke
-(render_history.py, triage_preload.py, debt_for_files.py, etc.) whose
-stdout flows into the preload's additionalContext.
+(session_history_cli.py, triage_preload.py, debt_for_files.py, etc.)
+whose stdout flows into the preload's additionalContext.
 
 Story-001 ships an empty PRELOAD_BUDGETS + empty PRELOAD_FIXTURES so both
 tests pass vacuously. Wave-2 trim stories (002-005, 007) APPEND entries

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Integration tests for the LAST_SESSION section in xp-kickoff preload.
 
-Story-002 of sprint-072: check_session_needs.sh invokes render_history.py
-between the NEEDS_SYSTEM_CONTEXT and NEEDS_EXECUTION_PLAN sections so the
-last 1-2 session summaries appear in the kickoff preload when
-session_history.json exists. Section is silent when the file is absent.
+Story-002 of sprint-072: check_session_needs.sh invokes
+session_history_cli.py render between the NEEDS_SYSTEM_CONTEXT and
+NEEDS_EXECUTION_PLAN sections so the last 1-2 session summaries
+appear in the kickoff preload when session_history.json exists.
+Section is silent when the file is absent.
 """
 
 import sys
