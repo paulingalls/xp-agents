@@ -1,5 +1,51 @@
 # Changelog
 
+## v3.1.34 — session_history wired into retro+housekeeper; decision-supersedence nudge; assorted hygiene
+
+Four-track free session driven by an investigation into where `session_summary` is loaded — the answer was "only the main agent's kickoff preload," walling the highest-value consumers (retro analyst + housekeeper) off from cross-session narrative context. Plus three carried retro Trys, addressed in the same pass.
+
+### Track 1: `session_history_cli.py` + freshness + retro/housekeeper wiring (4 commits)
+
+Promotes the read side of `session_history.json` to a canonical CLI alongside `smm/retro_cli.py` / `smm/smm_cli.py`. The renderer that lived inside `skills/xp-kickoff/scripts/render_history.py` was misfiled — session_history is a general SMM artifact. New CLI is fail-loud on corrupt history (matches the smm/*_cli.py convention); kickoff wraps the invocation in `|| true` so a crashed CLI never blocks session start.
+
+- **Freshness annotation**: each render of `### LAST_SESSION` annotates `(stale — N sessions ended without /xp-end-session since this summary)` when intervening sessions skipped `/xp-end-session`. Detection is timestamp-based via the existing `event_schema.sessions_since_event` primitive — `count == 0 → unknown`, `count == 1 → fresh` (the entry's own session_end), `count >= 2 → stale` with `skipped = count - 1`. Mechanically correct given that events.jsonl entries don't carry a `session_id` field; the plan-reviewer's session-id-pairing recommendation was diagnosed against an incorrect mental model.
+- **Public helper**: `session_history.gather_recent_summaries(smm_dir, *, session_end_timestamps=None, limit=RECENT_SUMMARIES_LIMIT)` consolidates the formerly-duplicated retro and housekeeper logic. When `session_end_timestamps` is `None`, falls back to a fresh `read_session_end_timestamps` scan; callers with timestamps already in hand (retro pre-collects from in-memory events; materialize pre-collects from its aging scan) pass them in to eliminate double events.jsonl reads.
+- **Wiring**: `.retro-input.json` gains a `recent_summaries` field adjacent to `previous_retros`; `.curation-input.json` gains the same field alongside `retro_history`. Agent prompts (xp-retrospective, xp-housekeeper) updated with parallel-but-divergent anti-retell guidance: retro emphasizes cross-session pattern detection; housekeeper emphasizes durable-wisdom-vs-noise framing.
+- **Migration**: `render_history.py` (61 lines) and its test (226 lines) deleted; coverage migrated to `tests/smm/test_session_history_cli.py`. `pyrightconfig.json` extra-path entry retired in both root and plugin configs.
+- **Format regression caught + fixed in-cycle**: the new `render_markdown` initially emitted a per-entry `### LAST_SESSION` header (the original emitted ONE header followed by N bodies). Caught by the close-reviewer, fixed before landing T1.C4; test strengthened to pin the single-header contract.
+
+Resolves concerns 13dba721bf75 (freshness diagnosis), 6141441bbcb6 (cleanup gap), and the assorted in-cycle lint debts (06ed20cb1466, 4e54ca27b510, fdb41490825c).
+
+### Track 2: split `test_resolves_probe.py` (1 commit)
+
+Adopts the third-pass split named in the prior retro Try. Extracts three cohesive cluster TestCase classes (`TestFindProbeCandidatesInSprintBatch` + `TestFindProbeCandidatesOutMeta` + `TestFindProbeCandidatesDiscovery`, 387 lines) to a new sibling `tests/hooks/test_resolves_probe_pool.py`. Pure move — no shim required (test classes have no external importers); mirrors the precedent set by `test_resolves_probe_scoring.py` and `test_resolves_probe_staleness.py`.
+
+Source file lands at 561 lines (1.12× the 500-line target — accepted residual; no further cohesive cluster remains, far better than the 1.9× starting point). Helper-extraction follow-up (`_seed_discovery` / `_seed_debt` / `_seed_anchor_in_cycle` + cycle_id-aware `_seed_concern` to `conftest._ProbeTestHelpers`) recorded as debt for a future commit. Resolves debt 4506169502b2.
+
+### Track 3: strengthen plan-reviewer assumption directive (1 commit)
+
+The retro flagged 4 consecutive sessions of zero-assumption plans on multi-story sprints. Root cause was the prompt itself, not a missing mechanical gate: section 6 of `agents/xp-plan-reviewer.md` was defensive ("only assumptions that **matter**") with no proactive directive telling the reviewer that *finding* implicit plan assumptions IS its job.
+
+Rewrites section 6 with an active opener ("Read the plan and identify the implicit assumptions it rests on — bets about caller behavior, preserved contracts, customer intent, and unenumerated code paths. Surfacing them is your job, not the planner's."), keeps the significance filter, adds an explicit release valve ("Zero is a valid count when the plan genuinely rests on no significant assumptions"). No mechanical gate — size proxies don't correlate with assumption need, and the disease is the prompt not the absence of a counter. Resolves retro Try c8542c5f61be.
+
+### Track 4 (pivoted): decision-supersedence nudge (1 commit)
+
+Original retro Try framed the bug as a probe scoring problem (stale flag concerns surfacing in candidate selection). Mid-implementation investigation revealed the cascade in `resolution.py` already excludes flag-style concerns whose root is resolved — the probe filter would be redundant. The actual root cause is **silent decision-supersession**: a new decision emitted on a topic that has an unresolved prior decision, without declaring the supersedence. The cascade can't close the resulting superseded-decision flag because the prior decision stays unresolved.
+
+Pivot: extend the existing `pre_tool_bash.py` decision-emit hook (which already nudges with open questions) to also nudge when the same topic has unresolved prior decisions. Suggests `metadata.supersedes` (suppresses the superseded-decision flag) or `metadata.resolves` (also cascade-closes the prior decision). Advisory only — agents emitting legitimate "split-into-aspects" decisions can ignore the nudge.
+
+Refactor side-effects (per /simplify review):
+- New `event_schema.METADATA_KEY_SUPERSEDES = "supersedes"` constant; replaced bare `"supersedes"` literal in `concerns.py:399`.
+- Extracted `_parse_metadata_dict()` to dedupe JSON parse boilerplate across the two metadata-inspection helpers.
+- Consolidated two adjacent `if args.get("type") == _common.DECISION` guards into a single block; share one events/resolutions load between both nudges (open-questions and same-topic).
+- Extracted `_SAME_TOPIC_HEADER_TEMPLATE` constant; dropped misleading `agent_id` param from `_same_topic_decisions_context`.
+
+Resolves retro Try 87ade402ec4f, concern ebcb854fcc93 (the divert case that proves the filter is needed), partial resolution of 404f81ffb2ad (the new-concern follow-up 266b3a8b42ea tracks the detector-side false-positive that remains for agents who ignore the nudge).
+
+### Tests
+
+4823 unit + integration tests pass, 1 skipped, 404 subtests passing. Each of 8 commits ran `/simplify` (3 review subagents in parallel) and `/xp-quality-review` (independent code-reviewer subagent); lefthook pre-commit (ruff, pyright, shellcheck, tests) green on every commit.
+
 ## v3.1.33 — cascade Try-drop to underlying debt/concern/discovery
 
 Free-session fix for a long-standing dishonesty in the retro loop: a "dropped" Try kept resurfacing every session with a fresh ID. Live evidence — SimplyHuman 1Password debt `9c3f5406cacd` spawned 8 consecutive Tries despite repeated drops.
