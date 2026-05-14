@@ -177,8 +177,25 @@ def append_entry(
     save_history(smm_dir, data)
 
 
+def filter_session_end_timestamps(events: list[dict]) -> list[str]:
+    """Return ascending list of ``session_end`` event timestamps from *events*.
+
+    In-memory filter+sort; callers that already have events loaded
+    (retro, materialize) use this directly to avoid re-reading
+    events.jsonl. Disk-read callers use ``read_session_end_timestamps``
+    which delegates here.
+    """
+    timestamps = [
+        ts
+        for e in events
+        if e.get("type") == EVENT_TYPE_SESSION_END and (ts := e.get("ts", ""))
+    ]
+    timestamps.sort()
+    return timestamps
+
+
 def read_session_end_timestamps(smm_dir: Path) -> list[str]:
-    """Return ascending list of ``session_end`` event timestamps.
+    """Return ascending list of ``session_end`` event timestamps from disk.
 
     Returns ``[]`` when ``events.jsonl`` is absent or unreadable so the
     staleness scan stays resilient when consumers run before init.
@@ -191,13 +208,7 @@ def read_session_end_timestamps(smm_dir: Path) -> list[str]:
     except OSError:
         return []
     events, _ = parse_jsonl(raw)
-    timestamps = [
-        ts
-        for e in events
-        if e.get("type") == EVENT_TYPE_SESSION_END and (ts := e.get("ts", ""))
-    ]
-    timestamps.sort()
-    return timestamps
+    return filter_session_end_timestamps(events)
 
 
 def compute_staleness(entry: dict, session_end_timestamps: list[str]) -> dict:

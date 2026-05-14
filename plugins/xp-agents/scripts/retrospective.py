@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import event_schema
 import marker_names
 import session_history
 import story_metrics
@@ -43,22 +42,6 @@ from retro_metrics import (
 # ---------------------------------------------------------------------------
 
 RETRO_THRESHOLD = 5
-
-
-def _session_end_timestamps_from_events(events: list[dict]) -> list[str]:
-    """Filter sorted session_end timestamps from an in-memory event list.
-
-    Mirrors the materialize.prepare_curation_data inline scan so callers
-    that already have *events* loaded avoid a second events.jsonl pass.
-    """
-    timestamps = [
-        ts
-        for e in events
-        if e.get("type") == event_schema.EVENT_TYPE_SESSION_END
-        and (ts := e.get("ts", ""))
-    ]
-    timestamps.sort()
-    return timestamps
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +261,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None
     retro_history = gather_retro_history(smm_dir)
     recent_summaries = session_history.gather_recent_summaries(
         smm_dir,
-        session_end_timestamps=_session_end_timestamps_from_events(events),
+        session_end_timestamps=session_history.filter_session_end_timestamps(events),
     )
     retro_input = _build_retro_input(
         events, start_idx, retro_history, resolutions, recent_summaries

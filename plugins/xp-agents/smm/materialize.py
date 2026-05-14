@@ -312,15 +312,10 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     watermark = read_curation_watermark(smm_dir)
     wm_count = watermark["event_count"]
 
-    # Single pass — collect the two things prepare_curation_data still needs.
-    retros: list[dict] = []
-    session_end_timestamps: list[str] = []
-    for e in events:
-        etype = e.get("type", "")
-        if etype == event_schema.EVENT_TYPE_RETROSPECTIVE:
-            retros.append(e)
-        elif etype == event_schema.EVENT_TYPE_SESSION_END:
-            session_end_timestamps.append(e.get("ts", ""))
+    retros = [
+        e for e in events if e.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE
+    ]
+    session_end_timestamps = session_history.filter_session_end_timestamps(events)
 
     retro_history = _extract_retro_history(retros)
 

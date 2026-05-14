@@ -204,6 +204,84 @@ class TestPruneResolved(_SMMTestCase):
         self.assertEqual(len(result["entries"][0]["carry_forward"]), 1)
 
 
+class TestFilterSessionEndTimestamps(_SMMTestCase):
+    """filter_session_end_timestamps extracts session_end ts values and
+    sorts ascending. Sort is load-bearing — sessions_since_event uses
+    bisect_right which requires ascending input. Events are normally
+    monotonic on disk but clock skew across teammate worktrees can
+    break the invariant, so the helper enforces it."""
+
+    def test_empty_events_returns_empty_list(self):
+        self.assertEqual(session_history.filter_session_end_timestamps([]), [])
+
+    def test_no_session_end_events_returns_empty_list(self):
+        events = [
+            make_event(
+                EVENT_TYPE_QUESTION, content="Q?", ts="2026-05-10T10:00:00+00:00"
+            ),
+            make_event(EVENT_TYPE_ANSWER, content="A.", ts="2026-05-10T11:00:00+00:00"),
+        ]
+        self.assertEqual(session_history.filter_session_end_timestamps(events), [])
+
+    def test_extracts_ts_from_session_end_events_only(self):
+        from event_schema import EVENT_TYPE_SESSION_END
+
+        events = [
+            make_event(
+                EVENT_TYPE_SESSION_END, content="end1", ts="2026-05-10T10:00:00+00:00"
+            ),
+            make_event(
+                EVENT_TYPE_QUESTION, content="Q?", ts="2026-05-10T11:00:00+00:00"
+            ),
+            make_event(
+                EVENT_TYPE_SESSION_END, content="end2", ts="2026-05-11T09:00:00+00:00"
+            ),
+        ]
+        result = session_history.filter_session_end_timestamps(events)
+        self.assertEqual(
+            result, ["2026-05-10T10:00:00+00:00", "2026-05-11T09:00:00+00:00"]
+        )
+
+    def test_sorts_ascending_even_when_input_out_of_order(self):
+        """Sort is load-bearing; pin it. Append order on disk is
+        normally monotonic but clock skew across teammate worktrees
+        can produce out-of-order timestamps."""
+        from event_schema import EVENT_TYPE_SESSION_END
+
+        events = [
+            make_event(
+                EVENT_TYPE_SESSION_END, content="end3", ts="2026-05-12T09:00:00+00:00"
+            ),
+            make_event(
+                EVENT_TYPE_SESSION_END, content="end1", ts="2026-05-10T10:00:00+00:00"
+            ),
+            make_event(
+                EVENT_TYPE_SESSION_END, content="end2", ts="2026-05-11T09:00:00+00:00"
+            ),
+        ]
+        result = session_history.filter_session_end_timestamps(events)
+        self.assertEqual(
+            result,
+            [
+                "2026-05-10T10:00:00+00:00",
+                "2026-05-11T09:00:00+00:00",
+                "2026-05-12T09:00:00+00:00",
+            ],
+        )
+
+    def test_skips_session_end_events_without_ts(self):
+        from event_schema import EVENT_TYPE_SESSION_END
+
+        events = [
+            make_event(EVENT_TYPE_SESSION_END, content="missing-ts", ts=""),
+            make_event(
+                EVENT_TYPE_SESSION_END, content="end1", ts="2026-05-10T10:00:00+00:00"
+            ),
+        ]
+        result = session_history.filter_session_end_timestamps(events)
+        self.assertEqual(result, ["2026-05-10T10:00:00+00:00"])
+
+
 class TestComputeStaleness(_SMMTestCase):
     """Freshness classification of a session_history entry against the
     sorted list of session_end timestamps.

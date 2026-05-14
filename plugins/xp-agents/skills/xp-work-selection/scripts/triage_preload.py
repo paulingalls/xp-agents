@@ -14,6 +14,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 import event_schema  # noqa: E402
 import materialize  # noqa: E402
 import resolution  # noqa: E402
+import session_history  # noqa: E402
 import triage  # noqa: E402
 
 
@@ -52,11 +53,7 @@ def run(smm_dir: Path) -> str:
     all_resolved = resolution.collect_all_resolved_ids(
         resolution.compute_resolutions(events)
     )
-    session_end_ts = sorted(
-        e.get("ts", "")
-        for e in events
-        if e.get("type") == event_schema.EVENT_TYPE_SESSION_END
-    )
+    session_end_ts = session_history.filter_session_end_timestamps(events)
 
     debts = triage.find_unresolved(events, event_schema.EVENT_TYPE_DEBT, all_resolved)
     concerns = triage.find_unresolved(
