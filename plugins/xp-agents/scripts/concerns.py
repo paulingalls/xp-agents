@@ -31,7 +31,11 @@ from _common import (
     make_event,
     read_events_raw,
 )
-from event_schema import METADATA_KEY_RESOLVES, get_required_budget
+from event_schema import (
+    METADATA_KEY_RESOLVES,
+    METADATA_KEY_SUPERSEDES,
+    get_required_budget,
+)
 from worktree import normalize_path
 
 # ---------------------------------------------------------------------------
@@ -396,7 +400,7 @@ def detect_conflicts(
         # Explicit override: curr decision's metadata.supersedes references
         # the prior decision (full ID or 8+ char prefix match, mirroring
         # resolution.resolve_prefix's short-ID convention).
-        supersedes = curr_dec.get("metadata", {}).get("supersedes") or []
+        supersedes = curr_dec.get("metadata", {}).get(METADATA_KEY_SUPERSEDES) or []
         prev_id = prev_dec.get("id", "")
         if prev_id and any(
             prev_id == s or prev_id.startswith(s) or s.startswith(prev_id)
