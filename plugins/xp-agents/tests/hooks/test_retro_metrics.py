@@ -580,6 +580,45 @@ class TestProbeDivertDetailsReason(_NormalizePathIdentityMixin, unittest.TestCas
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["reason"], DIVERT_REASON_NEWER_THAN_SNAPSHOT)
 
+    def test_two_probes_one_commit_pairs_with_latest_probe(self):
+        """When two probes by the same agent precede one commit, the commit
+        MUST pair with the LATEST probe (whose candidate set the agent
+        actually used), not the earliest. The naive earliest-first pairing
+        attributed every such commit to the earlier probe whose snapshot
+        lacked the new candidate, silently inflating newer-than-snapshot
+        diverts.
+        """
+        import retro_metrics
+
+        # Mid-cycle concern created between two probe events. Latest probe
+        # surfaces it as a candidate; earliest probe did not see it.
+        late_concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Late concern",
+            ts="2026-04-05T10:30:00+00:00",
+            files=["scripts/x.py"],
+        )
+        events = [
+            self._probe(["other-id"], "2026-04-05T10:00:00+00:00"),
+            late_concern,
+            # Second probe at T=10:45 surfaces the new concern.
+            self._probe([late_concern["id"]], "2026-04-05T10:45:00+00:00"),
+            self._commit(
+                [late_concern["id"]],
+                "2026-04-05T11:00:00+00:00",
+                files=["scripts/x.py"],
+            ),
+        ]
+        result = retro_metrics._compute_resolves_link_rate(
+            events, "2026-04-01", cwd="/repo"
+        )
+        # Latest probe HAD the candidate → hit, not divert.
+        self.assertEqual(result["probe_divert"], 0)
+        self.assertEqual(result["probe_adoption_hits"], 1)
+        # Earliest probe is silent (no commit followed by same agent
+        # before the latest probe consumed the commit).
+        self.assertEqual(result["probe_silent"], 1)
+
 
 class TestSprint065DivertScenariosAllNamed(
     _NormalizePathIdentityMixin, unittest.TestCase

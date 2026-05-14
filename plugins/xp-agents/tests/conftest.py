@@ -137,7 +137,12 @@ from _hook_inputs import (  # noqa: E402, F401
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
-from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS  # noqa: E402
+from event_schema import (  # noqa: E402
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_DISCOVERY,
+    EVENT_TYPE_STATUS,
+)
 from resolution import compute_resolutions  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
@@ -272,16 +277,92 @@ class _ProbeTestHelpers:
         _common.append_safe(self.smm_dir, c)
         return c["id"]
 
-    def _seed_concern(
-        self, content: str, files: list[str], ts: str | None = None
+    def _seed_event(
+        self,
+        event_type: str,
+        content: str,
+        files: list[str],
+        ts: str | None = None,
+        *,
+        cycle_id: str | None = None,
+        close_mode: str = "sprint",
     ) -> str:
-        """Append a concern event; optional ts overrides make_event's default."""
+        """Append an event of `event_type`; optional ts overrides make_event's
+        default. When `cycle_id` is set, populates `metadata.close_cycle_id`
+        + `metadata.close_mode` for in-sprint-batch probe pool tests.
+        """
         kwargs: dict = {"content": content, "files": files}
         if ts is not None:
             kwargs["ts"] = ts
-        c = make_event(EVENT_TYPE_CONCERN, **kwargs)
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
+        if cycle_id is not None:
+            kwargs["metadata"] = {
+                "close_cycle_id": cycle_id,
+                "close_mode": close_mode,
+            }
+        e = make_event(event_type, **kwargs)
+        _common.append_safe(self.smm_dir, e)
+        return e["id"]
+
+    def _seed_concern(
+        self,
+        content: str,
+        files: list[str],
+        ts: str | None = None,
+        *,
+        cycle_id: str | None = None,
+        close_mode: str = "sprint",
+    ) -> str:
+        return self._seed_event(
+            EVENT_TYPE_CONCERN,
+            content,
+            files,
+            ts=ts,
+            cycle_id=cycle_id,
+            close_mode=close_mode,
+        )
+
+    def _seed_discovery(
+        self,
+        content: str,
+        files: list[str],
+        ts: str | None = None,
+        *,
+        cycle_id: str | None = None,
+        close_mode: str = "sprint",
+    ) -> str:
+        return self._seed_event(
+            EVENT_TYPE_DISCOVERY,
+            content,
+            files,
+            ts=ts,
+            cycle_id=cycle_id,
+            close_mode=close_mode,
+        )
+
+    def _seed_debt(
+        self,
+        content: str,
+        files: list[str],
+        ts: str | None = None,
+    ) -> str:
+        return self._seed_event(EVENT_TYPE_DEBT, content, files, ts=ts)
+
+    def _seed_anchor_in_cycle(
+        self,
+        cycle_id: str,
+        files: list[str] | None = None,
+        ts: str | None = None,
+    ) -> str:
+        """Seed an in-cycle anchor concern: file-overlap with auth.py by
+        default (matches the pool tests' canonical anchor shape) plus
+        metadata.close_cycle_id to trigger _find_active_cycle_id.
+        """
+        return self._seed_concern(
+            "anchor with cycle",
+            files if files is not None else ["scripts/auth.py"],
+            ts=ts,
+            cycle_id=cycle_id,
+        )
 
     def _probes(self) -> list[dict]:
         return [
