@@ -26,6 +26,7 @@ The preload provides `SMM_DIR=<path>`. Read `${SMM_DIR}/.retro-input.json`:
   - `work_signals` — work-level correlations (see Work Analysis below)
   - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, decision resolved this session via `metadata.resolves`. A previous Try mentioning a short ID present here was resolved.
   - `dropped_tries_recent` — last 10 user-drop events (status events with `metadata.disposition="dropped"` and non-empty `metadata.resolves`), each `{id, ts, content}`, sorted ts-descending. Cross-session memory: surfaces drops from prior sessions, not just this one. **Before proposing any Try, scan this list. If a candidate matches a prior drop by topic/intent (LLM judgment), DO NOT propose it.** Instead surface as a Keep under Courage: *"Respected user drop from `<ts>`: <content slice>"*. Empty list is normal on fresh installs or when the user has never dropped a Try.
+  - `close_cycle_ran` — boolean. `True` if any event in this session carries `metadata.close_cycle_id` (i.e., `/xp-{free,sprint,plan}-close` actually executed). Used to gate metric rules that only make sense on close sessions — see Security Practices below.
 - `previous_retros` — last retro summary. Each retro's `try` is a list of `{content, event_refs}` dicts. The most recent retro carries a parallel `try_status` list: `[{resolved_this_session, resolver_id?, disposition?}]`, indexed in the same order as `try`. `disposition` ∈ `"adopted"`, `"dropped"`, `"deferred"` when resolved.
 - `recent_summaries` — last 1-2 entries from `session_history.json` (each carries `ts`, `summary`, `carry_forward`, and `staleness={status, skipped_sessions}`). Use these ONLY for cross-session pattern detection — recurring concerns, drift across sessions, recurring Try resurfacing. **Do NOT retell the narrative.** Your primary analysis source is `digest`; cite a summary only when a pattern genuinely spans sessions. Empty list is normal on fresh installs.
 - `event_type_counts`, `session_stats`
@@ -163,7 +164,7 @@ Flag anomalies from `session_stats` in Keep/Fix/Try:
 
 Layered model: deterministic patterns at commit time; LLM `/security-review` at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff (close-reviewer follows at Step 4.5, quality-only). `STATUS_ACTION_SECURITY_COMPLETE` events fold into `digest.status_summary.security_checks` as an aggregate count (per-window correlation is not yet exposed):
 
-- **Close-skill security activity** — `digest.status_summary.security_checks` counts all SECURITY_COMPLETE events. Zero with close commits present → Fix under Courage; non-zero is Keep context.
+- **Close-skill security activity** — `digest.status_summary.security_checks` counts all SECURITY_COMPLETE events. Zero AND `digest.close_cycle_ran` is true → Fix under Courage. If `close_cycle_ran` is false, `security_checks=0` is expected (no close cycle ran this session) and MUST NOT be flagged. Non-zero is Keep context regardless.
 - **Proactive security** — voluntary `/security-review` outside close-skill Step 4. Mention in Keep under Courage when commit messages show it.
 - **Commit-time pattern hits** — directional only; no dedicated digest field. Look for security-pattern mentions in commit messages or blocked-action narrative.
 

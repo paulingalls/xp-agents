@@ -24,6 +24,7 @@ from event_schema import (
     DIVERT_REASON_PROBE_SELECTION_MISS,
     DIVERT_REASON_UNKNOWN,
     DIVERT_REASON_WRONG_TYPE,
+    METADATA_KEY_CLOSE_CYCLE_ID,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
     STATUS_ACTION_FILE_WRITE,
@@ -224,6 +225,9 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = build_honesty_signals(unanalyzed)
     dropped_tries_recent = _collect_dropped_tries_recent(events)
+    close_cycle_ran = any(
+        (e.get("metadata") or {}).get(METADATA_KEY_CLOSE_CYCLE_ID) for e in unanalyzed
+    )
 
     from work_signals import build_work_signals
 
@@ -237,6 +241,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
         "dropped_tries_recent": dropped_tries_recent,
+        "close_cycle_ran": close_cycle_ran,
         "resolutions": build_resolutions_map(resolutions),
     }
 
