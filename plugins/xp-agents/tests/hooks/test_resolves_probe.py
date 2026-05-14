@@ -21,14 +21,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import unittest
 
-import _common
 import resolves_probe
 import worktree
 from conftest import (
     _HookTestCase,
     _NormalizePathIdentityMixin,
     _ProbeTestHelpers,
-    make_event,
 )
 from event_schema import (
     EVENT_TYPE_CONCERN,
@@ -381,15 +379,8 @@ class TestFindActiveCycleId(unittest.TestCase):
         self.assertIsNone(resolves_probe._find_active_cycle_id([], self.NOW))
 
 
-class TestFindProbeCandidatesSorting(_HookTestCase):
+class TestFindProbeCandidatesSorting(_ProbeTestHelpers, _HookTestCase):
     """find_probe_candidates sorts by score descending, ts as tiebreak."""
-
-    def _seed_concern(
-        self, content: str, files: list[str], ts: str = "2026-04-01T00:00:00+00:00"
-    ) -> str:
-        concern = make_event(EVENT_TYPE_CONCERN, content=content, files=files, ts=ts)
-        _common.append_safe(self.smm_dir, concern)
-        return concern["id"]
 
     def test_sorts_by_score_descending(self):
         # cid_low: file overlap only (+1)

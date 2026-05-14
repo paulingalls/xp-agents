@@ -41,7 +41,6 @@ from conftest import _HookTestCase, _ProbeTestHelpers, make_event
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
-    EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_STATUS,
     METADATA_KEY_PROBE_SNAPSHOT_MAX_TS,
     METADATA_KEY_PROBE_TAIL_TS,
@@ -50,7 +49,7 @@ from event_schema import (
 )
 
 
-class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
+class TestFindProbeCandidatesInSprintBatch(_ProbeTestHelpers, _HookTestCase):
     """find_probe_candidates surfaces in-cycle siblings even when they have
     no file/keyword overlap with the staged commit (the divert-gap case)."""
 
@@ -59,32 +58,22 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
     CYCLE_ACTIVE = "active01cycle"
     CYCLE_OTHER = "other001cycle"
 
-    def _seed_concern(
-        self,
-        content: str,
-        files: list[str],
-        cycle_id: str | None,
-        ts: str = RECENT,
-    ) -> str:
-        metadata = {}
-        if cycle_id is not None:
-            metadata = {"close_cycle_id": cycle_id, "close_mode": "sprint"}
-        c = make_event(
-            EVENT_TYPE_CONCERN, content=content, files=files, ts=ts, metadata=metadata
-        )
-        _common.append_safe(self.smm_dir, c)
-        return c["id"]
-
     def test_sibling_without_file_overlap_surfaces_via_axis(self):
         # Active cycle established by a concern that ALSO has file overlap
         # with the commit (so the active cycle is detected; this concern
         # itself is excluded by the resolves filter below).
         anchor = self._seed_concern(
-            "anchor concern", ["scripts/auth.py"], self.CYCLE_ACTIVE
+            "anchor concern",
+            ["scripts/auth.py"],
+            ts=self.RECENT,
+            cycle_id=self.CYCLE_ACTIVE,
         )
         # Sibling: same cycle, totally different file, no keyword overlap
         sibling = self._seed_concern(
-            "completely unrelated text", ["docs/unrelated.md"], self.CYCLE_ACTIVE
+            "completely unrelated text",
+            ["docs/unrelated.md"],
+            ts=self.RECENT,
+            cycle_id=self.CYCLE_ACTIVE,
         )
         result = resolves_probe.find_probe_candidates(
             self.smm_dir,
@@ -105,10 +94,18 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
         appears via the new axis."""
         # Anchor: triggers active-cycle detection AND provides the file overlap
         # the existing pipeline needs to start producing candidates.
-        anchor = self._seed_concern("anchor", ["scripts/auth.py"], self.CYCLE_ACTIVE)
-        in_cycle = self._seed_concern("sibling A", ["docs/a.md"], self.CYCLE_ACTIVE)
-        out_b = self._seed_concern("sibling B", ["docs/b.md"], self.CYCLE_OTHER)
-        out_c = self._seed_concern("sibling C", ["docs/c.md"], self.CYCLE_OTHER)
+        anchor = self._seed_concern(
+            "anchor", ["scripts/auth.py"], ts=self.RECENT, cycle_id=self.CYCLE_ACTIVE
+        )
+        in_cycle = self._seed_concern(
+            "sibling A", ["docs/a.md"], ts=self.RECENT, cycle_id=self.CYCLE_ACTIVE
+        )
+        out_b = self._seed_concern(
+            "sibling B", ["docs/b.md"], ts=self.RECENT, cycle_id=self.CYCLE_OTHER
+        )
+        out_c = self._seed_concern(
+            "sibling C", ["docs/c.md"], ts=self.RECENT, cycle_id=self.CYCLE_OTHER
+        )
         result = resolves_probe.find_probe_candidates(
             self.smm_dir,
             ["scripts/auth.py"],
@@ -126,10 +123,16 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
         # without file overlap. An early-return on empty commit_files would
         # defeat the axis entirely for amend-no-files commits.
         anchor = self._seed_concern(
-            "anchor concern", ["scripts/auth.py"], self.CYCLE_ACTIVE
+            "anchor concern",
+            ["scripts/auth.py"],
+            ts=self.RECENT,
+            cycle_id=self.CYCLE_ACTIVE,
         )
         sibling = self._seed_concern(
-            "unrelated text", ["docs/unrelated.md"], self.CYCLE_ACTIVE
+            "unrelated text",
+            ["docs/unrelated.md"],
+            ts=self.RECENT,
+            cycle_id=self.CYCLE_ACTIVE,
         )
         result = resolves_probe.find_probe_candidates(
             self.smm_dir,
@@ -147,13 +150,13 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
         # concern surfaces (via existing pipeline).
         old = "2026-04-01T00:00:00+00:00"  # 28 days ago
         file_match = self._seed_concern(
-            "file match", ["scripts/auth.py"], cycle_id=None, ts=self.RECENT
+            "file match", ["scripts/auth.py"], ts=self.RECENT
         )
         stale_anchor = self._seed_concern(
-            "stale anchor", ["docs/x.md"], self.CYCLE_ACTIVE, ts=old
+            "stale anchor", ["docs/x.md"], ts=old, cycle_id=self.CYCLE_ACTIVE
         )
         stale_sibling = self._seed_concern(
-            "stale sibling", ["docs/y.md"], self.CYCLE_ACTIVE, ts=old
+            "stale sibling", ["docs/y.md"], ts=old, cycle_id=self.CYCLE_ACTIVE
         )
         result = resolves_probe.find_probe_candidates(
             self.smm_dir,
@@ -166,6 +169,54 @@ class TestFindProbeCandidatesInSprintBatch(_HookTestCase):
         self.assertIn(file_match, ids)
         self.assertNotIn(stale_anchor, ids)
         self.assertNotIn(stale_sibling, ids)
+
+
+class TestSeedHelpersExtractedShape(_ProbeTestHelpers, _HookTestCase):
+    """Pin the consolidated _ProbeTestHelpers signatures: _seed_concern,
+    _seed_discovery, _seed_debt, _seed_anchor_in_cycle all live on the
+    mixin and accept cycle_id as a keyword-only param.
+    """
+
+    def test_seed_concern_with_cycle_id_kwarg_writes_close_cycle_metadata(self):
+        cid = self._seed_concern(
+            "anchor", ["scripts/auth.py"], cycle_id="active01cycle"
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        match = next(e for e in events if e.get("id") == cid)
+        meta = match.get("metadata") or {}
+        self.assertEqual(meta.get("close_cycle_id"), "active01cycle")
+        self.assertEqual(meta.get("close_mode"), "sprint")
+
+    def test_seed_concern_without_cycle_id_omits_close_cycle_metadata(self):
+        cid = self._seed_concern("plain", ["scripts/auth.py"])
+        events = _common.read_events_raw(self.smm_dir)
+        match = next(e for e in events if e.get("id") == cid)
+        meta = match.get("metadata") or {}
+        self.assertNotIn("close_cycle_id", meta)
+
+    def test_seed_discovery_with_cycle_id_kwarg_writes_close_cycle_metadata(self):
+        did = self._seed_discovery(
+            "an assumption broke", ["scripts/auth.py"], cycle_id="active01cycle"
+        )
+        events = _common.read_events_raw(self.smm_dir)
+        match = next(e for e in events if e.get("id") == did)
+        meta = match.get("metadata") or {}
+        self.assertEqual(meta.get("close_cycle_id"), "active01cycle")
+
+    def test_seed_debt_writes_files(self):
+        bid = self._seed_debt("known shortcut", ["scripts/legacy.py"])
+        events = _common.read_events_raw(self.smm_dir)
+        match = next(e for e in events if e.get("id") == bid)
+        self.assertEqual(match.get("type"), EVENT_TYPE_DEBT)
+        self.assertEqual(match.get("files"), ["scripts/legacy.py"])
+
+    def test_seed_anchor_in_cycle_writes_concern_with_cycle_metadata(self):
+        aid = self._seed_anchor_in_cycle("active01cycle")
+        events = _common.read_events_raw(self.smm_dir)
+        match = next(e for e in events if e.get("id") == aid)
+        self.assertEqual(match.get("type"), EVENT_TYPE_CONCERN)
+        meta = match.get("metadata") or {}
+        self.assertEqual(meta.get("close_cycle_id"), "active01cycle")
 
 
 class TestFindProbeCandidatesOutMeta(_ProbeTestHelpers, _HookTestCase):
@@ -247,44 +298,6 @@ class TestFindProbeCandidatesDiscovery(_ProbeTestHelpers, _HookTestCase):
     NOW = "2026-04-29T00:00:00+00:00"
     RECENT = "2026-04-27T00:00:00+00:00"
     CYCLE_ACTIVE = "active01cycle"
-
-    def _seed_discovery(
-        self,
-        content: str,
-        files: list[str],
-        cycle_id: str | None = None,
-        ts: str = RECENT,
-    ) -> str:
-        metadata: dict = {}
-        if cycle_id is not None:
-            metadata = {"close_cycle_id": cycle_id, "close_mode": "sprint"}
-        e = make_event(
-            EVENT_TYPE_DISCOVERY,
-            content=content,
-            files=files,
-            ts=ts,
-            metadata=metadata,
-        )
-        _common.append_safe(self.smm_dir, e)
-        return e["id"]
-
-    def _seed_debt(self, content: str, files: list[str]) -> str:
-        d = make_event(EVENT_TYPE_DEBT, content=content, files=files)
-        _common.append_safe(self.smm_dir, d)
-        return d["id"]
-
-    def _seed_anchor_in_cycle(self) -> str:
-        """Seed an in-cycle anchor concern that triggers _find_active_cycle_id
-        and provides the file overlap the upstream pipeline needs."""
-        anchor = make_event(
-            EVENT_TYPE_CONCERN,
-            content="anchor with cycle",
-            files=["scripts/auth.py"],
-            ts=self.RECENT,
-            metadata={"close_cycle_id": self.CYCLE_ACTIVE, "close_mode": "sprint"},
-        )
-        _common.append_safe(self.smm_dir, anchor)
-        return anchor["id"]
 
     # -- AC #1: file-overlap discoveries surface ------------------------------
 
@@ -394,7 +407,7 @@ class TestFindProbeCandidatesDiscovery(_ProbeTestHelpers, _HookTestCase):
         """Sibling-batch loop widening: a discovery carrying the same
         close_cycle_id as the active cycle surfaces as an in-batch sibling
         even without file overlap."""
-        anchor = self._seed_anchor_in_cycle()
+        anchor = self._seed_anchor_in_cycle(self.CYCLE_ACTIVE, ts=self.RECENT)
         sibling = self._seed_discovery(
             "sibling unrelated text",
             ["docs/unrelated.md"],
@@ -416,7 +429,7 @@ class TestFindProbeCandidatesDiscovery(_ProbeTestHelpers, _HookTestCase):
         """A discovery resolved by a prior Resolves-Event MUST NOT surface
         even when its close_cycle_id matches the active cycle — the sibling
         loop's resolved_set must include resolved_other_ids."""
-        anchor = self._seed_anchor_in_cycle()
+        anchor = self._seed_anchor_in_cycle(self.CYCLE_ACTIVE, ts=self.RECENT)
         sibling = self._seed_discovery(
             "sibling unrelated", ["docs/unrelated.md"], cycle_id=self.CYCLE_ACTIVE
         )
