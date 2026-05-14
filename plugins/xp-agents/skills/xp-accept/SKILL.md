@@ -116,7 +116,10 @@ Do **not** retry automatically. Flaky acceptance is information.
 1. Present the story title and all acceptance criteria.
 2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash; report results.
 3. For non-E2E criteria — ask the user to verify.
-4. Ask via `AskUserQuestion`: "Mark **story-NNN** as `done` or `deferred`?"
+4. **If every criterion is E2E-prefixed and all exited 0**, skip the
+   prompt and proceed to Step 1.5 with disposition `done` — the green
+   exits ARE the confirmation. **Otherwise**, ask via `AskUserQuestion`:
+   "Mark **story-NNN** as `done` or `deferred`?"
    - **done** — all criteria verified and passing.
    - **deferred** — incomplete; cascade if there are downstream
      dependents (see "Cascading a deferral").
@@ -260,3 +263,14 @@ teammate-worktree cleanup is owned by /xp-story-close (Step 2).
 ## Step 7: Sprint Review
 
 **If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate.
+
+## Step 8: Continue to next story
+
+If Step 7 did not fire and `sprint_cli.py next-in-progress` returns a
+story id (rc=0) — a fresh JIT-promote from /xp-story-close — call
+`EnterPlanMode` (no args; the new story is the planning subject) so
+the plan cycle starts immediately on the next iteration.
+
+```bash
+NEXT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> next-in-progress)
+```
