@@ -382,11 +382,17 @@ class TestFindActiveCycleId(unittest.TestCase):
 class TestFindProbeCandidatesSorting(_ProbeTestHelpers, _HookTestCase):
     """find_probe_candidates sorts by score descending, ts as tiebreak."""
 
+    # Pre-refactor default — kept explicit at call sites so recency scoring
+    # remains pinned to the same ts the prior local _seed_concern provided.
+    DEFAULT_TS = "2026-04-01T00:00:00+00:00"
+
     def test_sorts_by_score_descending(self):
         # cid_low: file overlap only (+1)
-        cid_low = self._seed_concern("zzz", ["scripts/auth.py"])
+        cid_low = self._seed_concern("zzz", ["scripts/auth.py"], ts=self.DEFAULT_TS)
         # cid_high: file overlap (+1) + keyword 'tokens' match (+2)
-        cid_high = self._seed_concern("tokens leak", ["scripts/auth.py"])
+        cid_high = self._seed_concern(
+            "tokens leak", ["scripts/auth.py"], ts=self.DEFAULT_TS
+        )
         result = resolves_probe.find_probe_candidates(
             self.smm_dir,
             ["scripts/auth.py"],
