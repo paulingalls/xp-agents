@@ -118,6 +118,12 @@ now_iso() {
 # preload omits the helper, so story-close-only sessions correctly
 # leave security_close_ran=False.
 #
+# stdout is suppressed (returned event id is preload noise), but stderr
+# is intentionally left visible: this event gates the security-checks=0
+# Courage rule, so a silent failure here would disable the very rule
+# this helper exists to keep firing. `|| true` keeps preload servo
+# continuity, but the user sees the failure mode in stderr.
+#
 # Usage: emit_close_started_event sprint <CLOSE_CYCLE_ID>
 emit_close_started_event() {
     local close_mode="$1"
@@ -127,7 +133,7 @@ emit_close_started_event() {
         --content "Close-cycle started: ${close_mode}" \
         --working-on '[]' \
         --metadata "{\"action\":\"close_started\",\"close_mode\":\"${close_mode}\",\"close_cycle_id\":\"${close_cycle_id}\"}" \
-        >/dev/null 2>&1 || true
+        >/dev/null || true
 }
 
 # Generate a 12-char hex ID matching event_builder.generate_id() shape.
