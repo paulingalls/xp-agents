@@ -26,9 +26,9 @@ Post-simplify review. `/simplify` just ran (3 agents: code reuse, quality, effic
 
 ## Step 1: Spawn Independent Code Reviewer
 
-### Surface open concerns and debts overlapping the diff
+### Open concerns and debts the reviewer should see
 
-Before spawning the reviewer, scan the SMM for open events whose `files` overlap the changed paths. The xp-code-reviewer should see candidate `Resolves-Event:` IDs so its review covers whether the staged commit actually closes them, not just whether the code is clean in isolation. Run the open-issue lookup and include any matches in the subagent prompt under an `## Open Issues Overlapping Diff` section. When none overlap, say so explicitly — silence reads as missed analysis.
+The reviewer cannot infer which existing concerns or debts the diff might close; pass the relevant ones in the prompt so it can verify whether the staged changes address them and whether a `Resolves-Event:` trailer is warranted on the next commit. Pull candidates from the preload's `## Debt for Changed Files` section (already filtered by file overlap via `concerns.find_issues_for_file`) and from any plan-review concerns the preload lists. If the preload surfaced no overlapping events, state that explicitly — empty context reads as missing analysis, not absence.
 
 ### Gather Simplify Findings
 
