@@ -30,6 +30,10 @@ if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
+if [ -f "${SMM_DIR}/system_context.json" ]; then
+    echo "SYSTEM_CONTEXT_RENDERED=$(system_context_render_to_tempfile_for plan-reviewer)"
+fi
+
 echo "PLAN_FILE=${PLAN_PATH}"
 echo "$PLAN_PATH" > "${SMM_DIR}/.last-plan-path"
 

@@ -18,9 +18,10 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
 }
 
 # Clean up temp files from previous preload runs.
-# These are created by smm_render_to_tempfile/sprint_render_to_tempfile
-# and are safe to remove once the previous skill has finished.
-find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" \) -exec rm -f {} + 2>/dev/null || true
+# These are created by smm_render_to_tempfile/sprint_render_to_tempfile/
+# system_context_render_to_tempfile_for and are safe to remove once the
+# previous skill has finished.
+find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" -o -name ".system-context-rendered.*" \) -exec rm -f {} + 2>/dev/null || true
 
 dump_smm() {
     if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
@@ -45,6 +46,49 @@ sprint_render_to_tempfile() {
     local out
     out=$(mktemp "${SMM_DIR}/.sprint-rendered.XXXXXX")
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" render > "$out" 2>/dev/null
+    echo "$out"
+}
+
+# Render a reviewer-scoped subset of system_context.json to a tempfile.
+# Centralizes the section list so the four close-skill preloads share a
+# single source of truth (no inline --sections literals at call sites).
+#
+# Usage: system_context_render_to_tempfile_for <kind>
+#   kind=plan-reviewer  → product/architecture/stack/modules/conventions/
+#                         branching/acceptance full + key_decisions and
+#                         project_specific topics-only (~1.8K tokens)
+#   kind=close-reviewer → stack/conventions/branching full + key_decisions
+#                         topics-only (~0.9K tokens)
+# Echoes the tempfile path on stdout. Non-zero exit on unknown kind.
+#
+# Adding a new caller? Update the System Context reader list in
+# PROCESS_GUIDE.md in the same commit (the list is user-facing and should
+# stay in sync with actual readers).
+system_context_render_to_tempfile_for() {
+    local kind="$1"
+    local out
+    out=$(mktemp "${SMM_DIR}/.system-context-rendered.XXXXXX")
+    case "$kind" in
+        plan-reviewer)
+            python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
+                render \
+                --sections product,architecture_overview,stack,modules,conventions,branching_strategy,acceptance_surfaces,key_decisions,project_specific \
+                --topics-only key_decisions,project_specific \
+                > "$out" 2>/dev/null
+            ;;
+        close-reviewer)
+            python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
+                render \
+                --sections stack,conventions,branching_strategy,key_decisions \
+                --topics-only key_decisions \
+                > "$out" 2>/dev/null
+            ;;
+        *)
+            echo "system_context_render_to_tempfile_for: unknown kind '$kind'" >&2
+            rm -f "$out"
+            return 1
+            ;;
+    esac
     echo "$out"
 }
 

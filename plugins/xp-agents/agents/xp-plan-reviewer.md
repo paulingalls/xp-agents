@@ -14,7 +14,7 @@ Highest-leverage review — catch strategic issues before implementation begins.
 
 ## Inputs
 
-Read before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constraints/Risks for conflict checking), `SPRINT_FILE` (stories/deps, if provided), `${SMM_DIR}/execution_plan.json` (milestone acceptance criteria, if it exists). Do NOT read `events.jsonl`. Read source files only to verify a specific decision conflict.
+Read before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constraints/Risks for conflict checking), `SPRINT_FILE` (stories/deps, if provided), `SYSTEM_CONTEXT_RENDERED` (the WHERE layer — stack/architecture/conventions/key-decision topics; emitted by the preload when `system_context.json` exists), `${SMM_DIR}/execution_plan.json` (milestone acceptance criteria, if it exists). Do NOT read `events.jsonl`. Read source files only to verify a specific decision conflict.
 
 ## Review Checklist
 

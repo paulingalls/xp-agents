@@ -50,6 +50,10 @@ State lives in `SMM_DIR`: `shared_mental_model.json`, `sprint.json`, `execution_
 
 CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_history_cli.py`, `append.sh`) accept `--smm-dir DIR`; run `--help` for subcommands. All event writes go through `${CLAUDE_PLUGIN_ROOT}/smm/append.sh` — never write `events.jsonl` directly. Content budgets enforced at write time.
 
+### System Context
+
+`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, key decisions, branching stage, and acceptance surfaces. Read by `scripts/session_start.py`, `/xp-plan`, `/xp-sprint-start`, close-skill auto-merge gates, and the `xp-plan-reviewer` agent. Create or refresh via `/xp-system-context`; patch individual fields via `system_context_cli.py edit-stack-field`, `edit-branching-field`, `add-acceptance-surface`, `add-decision`, `add-convention` (`--help` for full list). An empty `stack.test_command` disables the close-skill auto-merge gate.
+
 ### Event Types
 
 | Type | Pillar | When to Use | Required Fields |
