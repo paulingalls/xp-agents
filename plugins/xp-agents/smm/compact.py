@@ -74,13 +74,15 @@ _COMPACT_INDEX_RETENTION_TYPES = frozenset(
 _COMPACT_REFERENCE_TIED_TYPES = frozenset(
     {es.EVENT_TYPE_ANSWER, es.EVENT_TYPE_DISCOVERY, es.EVENT_TYPE_CUSTOMER_INPUT}
 )
+# goal is TRANSIENT but kept as a cross-session intent marker.
+_COMPACT_RETAINED_TRANSIENT_TYPES = frozenset({es.EVENT_TYPE_GOAL})
 _COMPACT_INTENTIONALLY_ABSENT = frozenset(
     t
     for t in es.VALID_TYPES
     if (
         (
             es.event_category_of(t) == es.EVENT_CATEGORY.TRANSIENT
-            and t != es.EVENT_TYPE_GOAL
+            and t not in _COMPACT_RETAINED_TRANSIENT_TYPES
         )
         or t in _COMPACT_INDEX_RETENTION_TYPES
         or t in _COMPACT_REFERENCE_TIED_TYPES
