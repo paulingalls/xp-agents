@@ -28,6 +28,12 @@ STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
 STATUS_ACTION_ASSIGN_COMPLETE = "assign_complete"
 STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
 
+# Emitted by xp-{sprint,free,plan}-close preloads (not story-close — it has
+# no Step 4 security review). Sourced by retro_metrics.security_close_ran
+# to scope the security_checks=0 Courage rule to security-bearing close
+# modes. Carries close_mode + close_cycle_id in metadata.
+STATUS_ACTION_CLOSE_STARTED = "close_started"
+
 # Tool-action lifecycle vocabulary — extends the review-cycle doctrine
 # above with structured tool events. Each constant is emitted by exactly
 # one hook; consumers read

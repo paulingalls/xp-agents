@@ -15,9 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 from event_schema import (
     DISPOSITION_DROPPED,
-    METADATA_KEY_CLOSE_CYCLE_ID,
+    METADATA_KEY_CLOSE_MODE,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_CLOSE_STARTED,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_ITERATION_COMPLETE,
     STATUS_ACTION_LINT_RESOLVED,
@@ -28,6 +29,11 @@ from event_schema import (
     event_action,
 )
 from honesty_signals import build_honesty_signals
+
+# Security-bearing close modes — only these run Step 4 /security-review.
+# Story-close skips Step 4 (sprint-close covers it via cumulative diff),
+# so a story-close session MUST NOT flip security_close_ran.
+_SECURITY_CLOSE_MODES = frozenset({"sprint", "free", "plan"})
 
 # ---------------------------------------------------------------------------
 # Signal event types — full event dicts preserved in digest
@@ -223,8 +229,11 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = build_honesty_signals(unanalyzed)
     dropped_tries_recent = _collect_dropped_tries_recent(events)
-    close_cycle_ran = any(
-        (e.get("metadata") or {}).get(METADATA_KEY_CLOSE_CYCLE_ID) for e in unanalyzed
+    security_close_ran = any(
+        event_action(e) == STATUS_ACTION_CLOSE_STARTED
+        and (e.get("metadata") or {}).get(METADATA_KEY_CLOSE_MODE)
+        in _SECURITY_CLOSE_MODES
+        for e in unanalyzed
     )
 
     from work_signals import build_work_signals
@@ -239,7 +248,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
         "dropped_tries_recent": dropped_tries_recent,
-        "close_cycle_ran": close_cycle_ran,
+        "security_close_ran": security_close_ran,
         "resolutions": build_resolutions_map(resolutions),
     }
 

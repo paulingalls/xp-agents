@@ -428,34 +428,77 @@ class TestDroppedTriesRecent(unittest.TestCase):
         self.assertEqual([d["ts"] for d in drops], sorted(drop_tss, reverse=True))
 
 
-class TestCloseCycleRan(unittest.TestCase):
-    """digest.close_cycle_ran flags whether a close skill actually ran in
-    this session (any event in events[start_idx:] carries
-    metadata.close_cycle_id). The security_checks=0 rule is gated on
-    this so non-close sessions don't trigger spurious Trys.
+class TestSecurityCloseRan(unittest.TestCase):
+    """digest.security_close_ran flags whether a security-bearing close
+    (sprint/free/plan) actually ran in this session — sourced from the
+    close_started status event emitted by each security-bearing
+    close-skill preload. Story-close has no Step 4 security review and
+    does NOT emit close_started; its events MUST NOT flip the gate.
     """
 
-    def test_true_when_any_event_has_close_cycle_id(self):
-        """close_cycle_id is stamped on concern events by close-reviewer
-        and on status events by close-pipeline classify steps — seed the
-        realistic concern shape per _close_pipeline_shared.md:31.
+    @staticmethod
+    def _close_started(close_mode: str, ts: str, cycle_id: str = "cycle-abc") -> dict:
+        return make_event(
+            EVENT_TYPE_STATUS,
+            ts=ts,
+            content=f"Close-cycle started: {close_mode}",
+            working_on=[],
+            metadata={
+                "action": "close_started",
+                "close_mode": close_mode,
+                "close_cycle_id": cycle_id,
+            },
+        )
+
+    def test_true_on_sprint_close_started(self):
+        import resolution
+        import retro_metrics
+
+        events = [self._close_started("sprint", "2026-04-20T10:00:00+00:00")]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertTrue(digest["security_close_ran"])
+
+    def test_true_on_free_close_started(self):
+        import resolution
+        import retro_metrics
+
+        events = [self._close_started("free", "2026-04-20T10:00:00+00:00")]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertTrue(digest["security_close_ran"])
+
+    def test_true_on_plan_close_started(self):
+        import resolution
+        import retro_metrics
+
+        events = [self._close_started("plan", "2026-04-20T10:00:00+00:00")]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertTrue(digest["security_close_ran"])
+
+    def test_false_on_story_close_only(self):
+        """Story-close emits no close_started event. Concern events from
+        xp-close-reviewer that happen to carry close_mode='story' MUST
+        NOT flip the gate either — the rule is scoped to the security-
+        bearing close modes.
         """
         import resolution
         import retro_metrics
 
-        close_concern = make_event(
+        story_reviewer_concern = make_event(
             EVENT_TYPE_CONCERN,
             ts="2026-04-20T10:00:00+00:00",
-            content="security concern raised mid-close",
-            files=["apps/server/src/auth.ts"],
-            metadata={"kind": "security", "close_cycle_id": "cycle-abc"},
+            content="reviewer finding mid-story-close",
+            files=["scripts/x.py"],
+            metadata={"close_cycle_id": "cycle-abc", "close_mode": "story"},
         )
-        events = [close_concern]
+        events = [story_reviewer_concern]
         resolutions = resolution.compute_resolutions(events)
         digest = retro_metrics._build_retro_digest(events, 0, resolutions)
-        self.assertTrue(digest["close_cycle_ran"])
+        self.assertFalse(digest["security_close_ran"])
 
-    def test_false_when_no_event_has_close_cycle_id(self):
+    def test_false_when_no_close_started(self):
         import resolution
         import retro_metrics
 
@@ -468,21 +511,15 @@ class TestCloseCycleRan(unittest.TestCase):
         events = [ordinary_concern]
         resolutions = resolution.compute_resolutions(events)
         digest = retro_metrics._build_retro_digest(events, 0, resolutions)
-        self.assertFalse(digest["close_cycle_ran"])
+        self.assertFalse(digest["security_close_ran"])
 
     def test_scoped_to_unanalyzed_only(self):
-        """close_cycle_id in prior-session events MUST NOT trip the flag —
-        the rule asks 'did a close cycle run THIS session', not ever.
-        """
+        """close_started in prior-session events MUST NOT trip the flag."""
         import resolution
         import retro_metrics
 
-        old_close = make_event(
-            EVENT_TYPE_CONCERN,
-            ts="2026-01-15T10:00:00+00:00",
-            content="close-time concern from a prior session",
-            files=["scripts/x.py"],
-            metadata={"kind": "security", "close_cycle_id": "ancient-cycle"},
+        old_close_started = self._close_started(
+            "sprint", "2026-01-15T10:00:00+00:00", cycle_id="ancient-cycle"
         )
         recent = make_event(
             EVENT_TYPE_CONCERN,
@@ -490,10 +527,10 @@ class TestCloseCycleRan(unittest.TestCase):
             content="ordinary concern this session",
             files=["scripts/x.py"],
         )
-        events = [old_close, recent]
+        events = [old_close_started, recent]
         resolutions = resolution.compute_resolutions(events)
         digest = retro_metrics._build_retro_digest(events, 1, resolutions)
-        self.assertFalse(digest["close_cycle_ran"])
+        self.assertFalse(digest["security_close_ran"])
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import markers
 from _bases import _PLUGIN_ROOT
 from _close_fixtures import _ClosePreloadCommonTests
-from conftest import _IntegrationTestCase
+from conftest import _extract_preload_var, _IntegrationTestCase
 
 
 class _SharedPreloadAssertions(_ClosePreloadCommonTests):
@@ -442,6 +442,28 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
         )
 
 
+def _close_started_events(smm_dir: Path) -> list[dict]:
+    """Return all close_started status events in events.jsonl."""
+    import json as _json
+
+    events_file = smm_dir / "events.jsonl"
+    if not events_file.is_file():
+        return []
+    out: list[dict] = []
+    for line in events_file.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        md = e.get("metadata") or {}
+        if md.get("action") == "close_started":
+            out.append(e)
+    return out
+
+
 class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 
@@ -465,9 +487,41 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
             f"story-close preload must not create marker at {marker_path}",
         )
 
+    def test_does_not_emit_close_started_event(self):
+        # Inverse-pin: story-close has no Step 4 security review, so its
+        # preload MUST NOT emit a close_started event. Sourced by
+        # retro_metrics.security_close_ran to scope the security_checks=0
+        # Courage rule to security-bearing close modes only.
+        source = self._PRELOAD.read_text()
+        self.assertNotIn(
+            "emit_close_started_event",
+            source,
+            "story-close preload must NOT emit close_started",
+        )
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        events = _close_started_events(self.smm_dir)
+        self.assertEqual(
+            events,
+            [],
+            f"story-close preload must not emit close_started events, got {events!r}",
+        )
+
 
 class TestSprintClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
+
+    def test_emits_close_started_event_sprint(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cycle_id = _extract_preload_var(result.stdout, "CLOSE_CYCLE_ID")
+        events = _close_started_events(self.smm_dir)
+        self.assertEqual(
+            len(events), 1, f"expected 1 close_started event, got {events!r}"
+        )
+        md = events[0].get("metadata") or {}
+        self.assertEqual(md.get("close_mode"), "sprint")
+        self.assertEqual(md.get("close_cycle_id"), cycle_id)
 
 
 class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
@@ -483,6 +537,18 @@ class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTest
 
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-plan-close" / "scripts" / "preload.sh"
 
+    def test_emits_close_started_event_plan(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cycle_id = _extract_preload_var(result.stdout, "CLOSE_CYCLE_ID")
+        events = _close_started_events(self.smm_dir)
+        self.assertEqual(
+            len(events), 1, f"expected 1 close_started event, got {events!r}"
+        )
+        md = events[0].get("metadata") or {}
+        self.assertEqual(md.get("close_mode"), "plan")
+        self.assertEqual(md.get("close_cycle_id"), cycle_id)
+
 
 class TestFreeClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
     """Commit 2b: free-close preload now emits the shared content too.
@@ -496,6 +562,18 @@ class TestFreeClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTest
     """
 
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh"
+
+    def test_emits_close_started_event_free(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cycle_id = _extract_preload_var(result.stdout, "CLOSE_CYCLE_ID")
+        events = _close_started_events(self.smm_dir)
+        self.assertEqual(
+            len(events), 1, f"expected 1 close_started event, got {events!r}"
+        )
+        md = events[0].get("metadata") or {}
+        self.assertEqual(md.get("close_mode"), "free")
+        self.assertEqual(md.get("close_cycle_id"), cycle_id)
 
 
 _SKIP_NOTE_TARGETS = {
