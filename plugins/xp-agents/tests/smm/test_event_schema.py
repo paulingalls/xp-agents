@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+import compact
 import event_schema
+import materialize
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing behavior.
@@ -108,10 +110,18 @@ class TestStatusActionConstants(unittest.TestCase):
     }
 
     def test_doc_block_names_emitting_hook(self):
-        """The producer map names each constant on the same line as its hook."""
-        source = event_schema.__file__
-        assert source is not None, "event_schema module has no __file__"
-        text = Path(source).read_text(encoding="utf-8")
+        """The producer map names each constant on the same line as its hook.
+
+        Reads both event_schema.py and event_metadata.py (since story-004
+        split STATUS_ACTION_* and friends into event_metadata.py via the
+        split-shim convention; producer-map comments moved with them).
+        """
+        import event_metadata
+
+        sources = [event_schema.__file__, event_metadata.__file__]
+        text = "\n".join(
+            Path(s).read_text(encoding="utf-8") for s in sources if s is not None
+        )
         for name, expected_hook in self.EXPECTED_PRODUCER.items():
             with self.subTest(constant=name):
                 # Match a comment line that names the constant and its hook
@@ -197,6 +207,78 @@ class TestMetadataResolvesValidation(unittest.TestCase):
     def test_empty_list_accepted(self):
         event = self._event_with_resolves([])
         self.assertEqual(event_schema.validate_event(event), [])
+
+
+class TestEventCategoryCompleteness(unittest.TestCase):
+    """Every EVENT_TYPE_* in VALID_TYPES maps to exactly one EVENT_CATEGORY.
+
+    Adding a new EVENT_TYPE_* without classifying it must fail loud here
+    rather than silently dropping the new type into a default bucket.
+    """
+
+    def test_every_valid_type_has_category(self):
+        for event_type in event_schema.VALID_TYPES:
+            with self.subTest(event_type=event_type):
+                category = event_schema.event_category_of(event_type)
+                self.assertIsInstance(category, event_schema.EVENT_CATEGORY)
+
+    def test_unknown_event_type_raises(self):
+        with self.assertRaises(ValueError):
+            event_schema.event_category_of("bogus_type")
+
+    def test_map_keys_match_valid_types(self):
+        """No stale entries in _EVENT_CATEGORY_MAP, no missing entries."""
+        self.assertEqual(
+            set(event_schema._EVENT_CATEGORY_MAP),
+            set(event_schema.VALID_TYPES),
+        )
+
+
+class TestEventCategoryDerivation(unittest.TestCase):
+    """Byte-equivalence regression pin: derivations in materialize.py and
+    compact.py must produce the exact frozenset contents the project relied
+    on before EVENT_CATEGORY landed. Snapshot the expected contents here
+    as literal sets — if the derivation changes accidentally, this test
+    catches it loudly."""
+
+    EXPECTED_BUCKET_ABSENT: ClassVar[frozenset] = frozenset(
+        {
+            "answer",
+            "commit",
+            "convention",
+            "customer_intent",
+            "discovery",
+            "goal",
+            "retrospective",
+            "session_end",
+            "session_summary",
+            "sprint",
+            "status",
+        }
+    )
+
+    EXPECTED_COMPACT_ABSENT: ClassVar[frozenset] = frozenset(
+        {
+            "answer",
+            "customer_input",
+            "discovery",
+            "session_end",
+            "session_summary",
+            "status",
+        }
+    )
+
+    def test_bucket_intentionally_absent_unchanged(self):
+        self.assertEqual(
+            materialize._BUCKET_INTENTIONALLY_ABSENT,
+            self.EXPECTED_BUCKET_ABSENT,
+        )
+
+    def test_compact_intentionally_absent_unchanged(self):
+        self.assertEqual(
+            compact._COMPACT_INTENTIONALLY_ABSENT,
+            self.EXPECTED_COMPACT_ABSENT,
+        )
 
 
 if __name__ == "__main__":

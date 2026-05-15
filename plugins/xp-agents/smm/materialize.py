@@ -222,26 +222,16 @@ def _normalize_customer_input(summary: dict) -> dict:
 
 
 # Event types intentionally NOT bucketed into new_since_last_curation.
-# Test gate: tests/engine/test_compact.py::TestEventTypeMatchCompleteness
-# fails if a new EVENT_TYPE_* is added without either a `case` arm in
-# _bucket_new_events or an entry here. Each excluded type is handled
-# elsewhere (separate retro_history extraction, sprint metrics,
-# persistent SMM pillars, or transient activity the housekeeper does
-# not curate as a "new since last curation" pillar).
+# Derived from EVENT_CATEGORY as the complement of CURATION_PILLAR:
+# only curation_pillar types are bucketed as new signals; sibling_artifact
+# types live in another file or pillar, transient types are orchestration
+# noise. Test gate: tests/engine/test_compact.py::TestEventTypeMatchCompleteness
+# fails if a new EVENT_TYPE_* lacks a `case` arm in _bucket_new_events AND
+# isn't classified as non-CURATION_PILLAR.
 _BUCKET_INTENTIONALLY_ABSENT = frozenset(
-    {
-        event_schema.EVENT_TYPE_ANSWER,
-        event_schema.EVENT_TYPE_COMMIT,
-        event_schema.EVENT_TYPE_CONVENTION,
-        event_schema.EVENT_TYPE_CUSTOMER_INTENT,
-        event_schema.EVENT_TYPE_DISCOVERY,
-        event_schema.EVENT_TYPE_GOAL,
-        event_schema.EVENT_TYPE_RETROSPECTIVE,
-        event_schema.EVENT_TYPE_SESSION_END,
-        event_schema.EVENT_TYPE_SESSION_SUMMARY,
-        event_schema.EVENT_TYPE_SPRINT,
-        event_schema.EVENT_TYPE_STATUS,
-    }
+    t
+    for t in event_schema.VALID_TYPES
+    if event_schema.event_category_of(t) != event_schema.EVENT_CATEGORY.CURATION_PILLAR
 )
 
 

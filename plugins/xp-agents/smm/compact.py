@@ -55,26 +55,38 @@ _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
 _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can compact
 
 # Event types intentionally NOT collected by _collect_smm_referenced_ids.
+# Derived from EVENT_CATEGORY with two named-set overrides:
+#   - TRANSIENT types EXCEPT goal (goal is retained as a cross-session
+#     intent marker even though it's not curated).
+#   - SESSION_END + SESSION_SUMMARY: sibling_artifact types with separate
+#     index-based retention (session_history.json holds the last 3
+#     summaries; events.jsonl drops them).
+#   - ANSWER + DISCOVERY + CUSTOMER_INPUT: their lifecycle is tied to a
+#     referenced event (answer→question, discovery→assumption) or they're
+#     superseded by another type (customer_input→customer_intent). Not
+#     SMM-referenced on their own, so they compact away.
 # Test gate: tests/engine/test_compact.py::TestEventTypeMatchCompleteness
-# fails if a new EVENT_TYPE_* is added without either a `case` arm here
-# or an entry in this allowlist.
-#   SESSION_END    — handled by separate index-based retention (last 3)
-#   SESSION_SUMMARY — sibling-artifact narrative consumed by retro via event scan;
-#                    persistent retention belongs to session_history.json (M2),
-#                    not the SMM-referenced retention path
-#   CUSTOMER_INPUT — superseded by customer_intent in the SMM
-#   STATUS         — transient (hundreds per session); never SMM-referenced
-#   ANSWER         — lifecycle tied to its referenced question; drops with it
-#   DISCOVERY      — lifecycle tied to its referenced assumption; drops with it
+# fails if a new EVENT_TYPE_* lacks a `case` arm here AND isn't covered
+# by the derivation below.
+_COMPACT_INDEX_RETENTION_TYPES = frozenset(
+    {es.EVENT_TYPE_SESSION_END, es.EVENT_TYPE_SESSION_SUMMARY}
+)
+_COMPACT_REFERENCE_TIED_TYPES = frozenset(
+    {es.EVENT_TYPE_ANSWER, es.EVENT_TYPE_DISCOVERY, es.EVENT_TYPE_CUSTOMER_INPUT}
+)
+# goal is TRANSIENT but kept as a cross-session intent marker.
+_COMPACT_RETAINED_TRANSIENT_TYPES = frozenset({es.EVENT_TYPE_GOAL})
 _COMPACT_INTENTIONALLY_ABSENT = frozenset(
-    {
-        es.EVENT_TYPE_ANSWER,
-        es.EVENT_TYPE_CUSTOMER_INPUT,
-        es.EVENT_TYPE_DISCOVERY,
-        es.EVENT_TYPE_SESSION_END,
-        es.EVENT_TYPE_SESSION_SUMMARY,
-        es.EVENT_TYPE_STATUS,
-    }
+    t
+    for t in es.VALID_TYPES
+    if (
+        (
+            es.event_category_of(t) == es.EVENT_CATEGORY.TRANSIENT
+            and t not in _COMPACT_RETAINED_TRANSIENT_TYPES
+        )
+        or t in _COMPACT_INDEX_RETENTION_TYPES
+        or t in _COMPACT_REFERENCE_TIED_TYPES
+    )
 )
 
 
