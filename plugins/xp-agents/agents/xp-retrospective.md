@@ -130,10 +130,6 @@ Omit if none.
 **Resolution-Link Adoption** — only when `sizing_analysis.resolves_link_rate` is present (otherwise omit entirely):
 
 - **Overall trailer rate** (`resolves_link_rate`): % of all code commits with a Resolves-Event trailer. Print `X% (hits/total)`. Below 0.80 → flag as Fix under Communication.
-- **Probe adoption rate** (`probe_adoption_rate`): when the pre-commit nudge showed overlapping concerns, how often did the agent add a trailer referencing one of those candidates? Print `X% (hits/total)` — the actionable metric measuring nudge effectiveness. Below 0.50 → flag as Fix under Feedback **and name the dominant miss bucket(s)**. List all tied buckets when counts are equal; do not pick arbitrarily — the tie itself is diagnostic ("escapes and diverts equal — both nudge ergonomics and probe candidate quality need attention").
-  - **escape** (`probe_escape`): paired commit had `Resolves-Event: none`. Agent declined to clear the gate. Dominance → suggestions not trusted.
-  - **divert** (`probe_divert`): paired commit used a different ID. Agent had context the probe didn't see. Dominance → candidate set noisy or under-specified. **When `probe_divert > 0`, surface up to 3 examples from `probe_divert_details` (`candidates`, `resolves`, `agent_id`, `probe_ts`, `commit_ts`, `reason`).** `reason` ∈ `newer-than-snapshot` / `outside-file-domain` / `cross-story` / `wrong-type` / `unknown` — name the dominant cause in Fix (e.g., "newer-than-snapshot dominates → probe snapshot is stale"). Counts alone are not actionable; pairing plus dominant reason is.
-  - **silent** (`probe_silent`): probe fired but no commit by the same agent followed in the sprint window. Informational only — does not by itself trigger a Fix.
 
 ## Debt in Retrospectives
 
