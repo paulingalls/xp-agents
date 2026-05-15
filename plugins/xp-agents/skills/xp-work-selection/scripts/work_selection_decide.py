@@ -29,6 +29,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
 import identity  # noqa: E402
+import read_delta  # noqa: E402
 from event_builder import merge_resolves  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
@@ -41,6 +42,8 @@ from event_schema import (  # noqa: E402
 )
 from retro_history import HEX_ID_RE  # noqa: E402
 from smm_schema import EVENT_ID_RE  # noqa: E402
+
+_WATERMARK_ID = "work-selection-decide"
 
 # 3 prior deferrals = next plain defer is refused.
 _FORCE_CLOSE_THRESHOLD = 3
@@ -94,7 +97,10 @@ def _convention_topic_exists(smm_dir: Path, topic: str) -> bool:
     Used to make force-drop convention emission idempotent — re-drops of
     the same Try MUST NOT append a duplicate convention.
     """
-    for e in _common.read_events_raw(smm_dir):
+    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
+        0
+    ]
+    for e in events:
         if e.get("type") == _common.CONVENTION and e.get("topic") == topic:
             return True
     return False
@@ -107,7 +113,10 @@ def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
         return 0
     targets = set(ref_ids)
     count = 0
-    for e in _common.read_events_raw(smm_dir):
+    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
+        0
+    ]
+    for e in events:
         if e.get("type") != "status":
             continue
         meta = e.get("metadata") or {}
@@ -167,9 +176,12 @@ def _build_drop_event(smm_dir: Path, agent_id: str, content: str) -> dict:
     tokens = set(HEX_ID_RE.findall(event["content"]))
     if not tokens:
         return event
+    cascade_events = read_delta.read_delta_full(
+        smm_dir, _WATERMARK_ID, update_watermark=False
+    )[0]
     cascade_ids = {
         e.get("id", "")
-        for e in _common.read_events_raw(smm_dir)
+        for e in cascade_events
         if e.get("type") in _common.PROBE_RESOLVABLE_TYPES and e.get("id", "") in tokens
     }
     if cascade_ids:

@@ -40,6 +40,7 @@ from event_schema import (
 )
 
 _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
+_SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
 
 # Per-site call-site enforcement. Tuples: (test name, script path,
 # optional function-name scope). Scoping concerns.py separates its two
@@ -77,6 +78,21 @@ _MIGRATED_SITES: list[tuple[str, Path, str | None]] = [
         "bash_post_tool",
         _SCRIPTS_DIR / "bash_post_tool.py",
         "_prior_commit_was_test_only",
+    ),
+    (
+        "debt_for_files",
+        _SKILLS_DIR / "xp-quality-review" / "scripts" / "debt_for_files.py",
+        None,
+    ),
+    (
+        "open_plan_concerns",
+        _SKILLS_DIR / "xp-quality-review" / "scripts" / "open_plan_concerns.py",
+        None,
+    ),
+    (
+        "work_selection_decide",
+        _SKILLS_DIR / "xp-work-selection" / "scripts" / "work_selection_decide.py",
+        None,
     ),
 ]
 
