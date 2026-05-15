@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.1.38 — sprint-083: probe surface retired, EVENT_CATEGORY enum, read_events_raw audit, security gate scoping
+
+Sprint-083 shipped 6 stories.
+
+### Story-001: probe surface decision
+
+Retire the resolves-trailer probe surface. Evidence across this project and a downstream peer: 620+ commits, <1% probe firing, 0% adoption, ongoing migrating failure modes that kept producing carried retro Trys. Decision `2bcea1b6ecd0` retires the surface; convention `1b939cc2d4b0` (`probes-retired`) prevents reintroduction.
+
+### Story-002: probe emission removal (PR 288)
+
+Deleted `resolves_probe.py`, `story_probe.py`, `large_batch_probe.py` (~700 LOC) and their hook registrations. Stripped probe-caller blocks from `pre_tool_bash.py`, `pre_tool_skill.py`, `work_selection_decide.py`. Removed emission-side schema constants (`STATUS_ACTION_*`, `METADATA_KEY_PROBE_*`, `METADATA_KEY_STORY_CANDIDATE`, `SELECTION_REASON_*`). `duplicate_debt_probe.py` (different surface — Jaccard dedup at debt-write time) kept.
+
+### Story-003: probe measurement removal (PR 289)
+
+Deleted `_compute_probe_adoption`, `_classify_divert_reason`, `_normalize_file_set`, `_VALID_RESOLVES_TYPES` from `retro_metrics.py`. Removed measurement-side schema constants (`STATUS_ACTION_RESOLVES_PROBE`, `METADATA_KEY_PROBE_*`, `SELECTION_REASON_*`, `DIVERT_REASON_*`). Dropped `cwd` parameter from `_compute_resolves_link_rate` (no consumer). Scrubbed probe narrative from `xp-retrospective.md` and removed 5 project-local IDs from a pin test (project-generic constraint).
+
+### Story-004: EVENT_CATEGORY enum (PR 290)
+
+Introduced `EVENT_CATEGORY` StrEnum (`sibling_artifact`, `curation_pillar`, `transient`) with `_EVENT_CATEGORY_MAP` covering all 17 `EVENT_TYPE_*` values. Derived `_BUCKET_INTENTIONALLY_ABSENT` cleanly from the enum. `_COMPACT_INTENTIONALLY_ABSENT` derivation requires filter + override sets (`_COMPACT_INDEX_RETENTION_TYPES`, `_COMPACT_REFERENCE_TIED_TYPES`, `_COMPACT_RETAINED_TRANSIENT_TYPES`) because compact-absence is orthogonal to event category; orthogonality recorded as concern `410394eff46b` per sprint AC#3. Split-shim convention: `event_metadata.py` extracted at the 500-line trigger; source re-exports preserve every caller's import path.
+
+### Story-005: read_events_raw audit (PR 291)
+
+Audited all 12 `_common.read_events_raw` call sites in `plugins/xp-agents/scripts/`. Per audit-scope decision `981877ecab16` (user-confirmed migrate-all), every site migrated to `read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[0]` — shared flock against single writer, sub-millisecond cost. Module-level `_WATERMARK_ID` constants (kebab-case of script name) per the `prompt_nugget.py` precedent; `concerns.py` has two constants for its two distinct call sites. New `tests/hooks/test_read_events_migration_parity.py`: byte-equal parity test (regression coverage) + per-site AST-walk enforcement (`TestNoReadEventsRawCallers`) pinning the migrate contract. Follow-up debt `ccfd95be6d3c` (helper extraction) and `d25645411b6e` (retire `read_events_raw` — zero non-test callers remain) filed.
+
+### Story-006: security_checks=0 retro gate scoping (PR 292)
+
+Pivots the retro `security_checks=0` Courage rule from "any close cycle ran" to "a security-bearing close ran" (sprint/free/plan). Story-close has no Step 4 `/security-review` (the enclosing sprint-close covers it cumulatively), so story-close-only sessions were producing a spurious Courage Try every session. New `STATUS_ACTION_CLOSE_STARTED` constant; new `emit_close_started_event` helper in `_preload_base.sh` that the three security-bearing close-skill preloads call (story-close preload deliberately omits it). `retro_metrics.close_cycle_ran` → `security_close_ran`, gated on `close_mode in {sprint,free,plan}` via the new lifecycle event. Inverse-pin test asserts story-close emits no `close_started`; per-mode true-positive tests cover sprint/free/plan. Helper stderr is left visible — silent failure on the gate's emit-path would re-introduce the false negative this story exists to fix.
+
+### Suite
+
+4665 → 4687 (+22 net, ~169 probe-test deletions absorbed). Ruff + pyright clean across all 6 stories. Per-commit `Resolves-Event:` trailers link 12 audit decisions + reviewer-resolved concerns to their fixes.
+
 ## v3.1.37 — scheduled-overlap glob crash, Resolves-Event trailer convention, dropped-Tries cap
 
 Free session addressing one bug report and three carried retro Trys.
