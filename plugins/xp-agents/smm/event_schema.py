@@ -8,6 +8,7 @@ Extracted from _append_impl.py for module size management.
 """
 
 import bisect
+from enum import StrEnum
 
 from smm_schema import EVENT_ID_RE
 
@@ -80,247 +81,128 @@ SPRINT_ACTION_END = "end"
 VALID_SPRINT_ACTIONS = frozenset({SPRINT_ACTION_START, SPRINT_ACTION_END})
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
-# Status event metadata.action discriminators — used by cascading gates
-# to identify specific lifecycle events without scanning content strings.
-STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
-STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
-# Review-cycle lifecycle actions — vocabulary for the deterministic-event
-# doctrine. The sole producer is review_cycle_done.py, which
-# sets metadata.action to one of these values so consumers (retro_metrics,
-# bash_post_tool) can detect skill completions without regex-matching
-# LLM-authored content.
-STATUS_ACTION_SIMPLIFY_COMPLETE = "simplify_complete"
-STATUS_ACTION_QR_COMPLETE = "qr_complete"
-STATUS_ACTION_SECURITY_COMPLETE = "security_complete"
-STATUS_ACTION_PLAN_REVIEWED = "plan_reviewed"
-STATUS_ACTION_ASSIGN_COMPLETE = "assign_complete"
-STATUS_ACTION_HOUSEKEEPING_COMPLETE = "housekeeping_complete"
-
-# Tool-action lifecycle vocabulary — extends the review-cycle doctrine
-# above with structured tool events. Each constant is emitted by exactly
-# one hook; consumers read
-# metadata.action so structured fields (files, exit_code, framework, etc.)
-# are not parsed back out of LLM-authored content. Producer map:
-#   STATUS_ACTION_FILE_WRITE        — post_tool_use.py (Write/Edit/MultiEdit)
-#   STATUS_ACTION_TEST_RUN_COMPLETE — bash_post_tool.py (test command success)
-#   STATUS_ACTION_LINT_RESOLVED     — lint_resolution.py (lint resolved on commit)
-#   STATUS_ACTION_BASH_FAILED       — bash_failure.py (Bash exit non-zero)
-#   STATUS_ACTION_COMMIT_SUCCESS    — bash_post_tool.py (git commit, type=commit)
-# Producer/consumer wiring lands in stories 002-004.
-STATUS_ACTION_FILE_WRITE = "file_write"
-STATUS_ACTION_TEST_RUN_COMPLETE = "test_run_complete"
-STATUS_ACTION_LINT_RESOLVED = "lint_resolved"
-STATUS_ACTION_BASH_FAILED = "bash_failed"
-STATUS_ACTION_COMMIT_SUCCESS = "commit_success"
-
-# Subagent + plan lifecycle vocabulary — extends the tool-action wave
-# with subagent stop signals. Closes the cleanup window opened by the
-# prior tool-action vocabulary. Producer map:
-#   STATUS_ACTION_SUBAGENT_COMPLETE     — subagent_stop.py (every subagent)
-#   STATUS_ACTION_PLAN_COMPLETED        — subagent_stop.py (Plan subagent stop)
-#   STATUS_ACTION_PLAN_AWAITING_REVIEW  — subagent_stop.py (Plan subagent gate)
-#   STATUS_ACTION_PLAN_EXITED           — post_tool_exit_plan.py (ExitPlanMode)
-# Producer/consumer wiring lands in stories 003-006.
-STATUS_ACTION_SUBAGENT_COMPLETE = "subagent_complete"
-STATUS_ACTION_PLAN_COMPLETED = "plan_completed"
-STATUS_ACTION_PLAN_AWAITING_REVIEW = "plan_awaiting_review"
-STATUS_ACTION_PLAN_EXITED = "plan_exited"
-
-# Step 5c (close skills) — concern classification per finding.
-# Producer: story-close + free-close at Step 5c (LLM via append.sh).
-# Consumer: count-classifications subcommand for the Step 6 auto-merge
-# gate; retro tooling for prediction-loop validation.
-# Companion metadata fields the producer also sets:
-#   metadata.route       — "fix" | "ask" — which dispatch route the LLM took.
-#   metadata.category    — classification vocabulary (lint, test_failure, ...).
-#   metadata.concern_id  — the 12-hex ID of the concern being classified.
-STATUS_ACTION_CONCERN_CLASSIFY = "concern_classify"
-
-# Question-close (won't-fix) discriminator. Producer: smm_cli question close
-# --won-fix. Consumer: question-aging tooling, which already treats this
-# metadata combination (action=question_close + disposition=wont_fix +
-# resolves=[Q]) as a terminal disposition via metadata.resolves alone.
-STATUS_ACTION_QUESTION_CLOSE = "question_close"
-
-# End-of-session bulk-drop discriminator. Producer: xp-end-session skill
-# Step 3 (LLM-judged auto-resolve of LIKELY_ADDRESSED concerns/debts).
-# Companion metadata: METADATA_KEY_RESOLVES (canonical STRONG link to the
-# concern/debt being closed) + METADATA_KEY_RESOLVED_BY_COMMITS (audit
-# trail of which commit IDs informed the auto-judge). Consumer: retro
-# tooling distinguishes end-session bulk drops from organic resolutions.
-STATUS_ACTION_END_SESSION_DROP = "end_session_drop"
+# ---------------------------------------------------------------------------
+# Event categories
+# ---------------------------------------------------------------------------
+# EVENT_CATEGORY classifies each EVENT_TYPE_* by where its data primarily
+# lives and how the housekeeper treats it. Each type joins exactly one
+# category. Adding a new EVENT_TYPE_* costs a single classification entry
+# in _EVENT_CATEGORY_MAP — bucket/compact behavior follows automatically.
+#
+#   sibling_artifact — data lives primarily in another file or SMM pillar
+#                      (commit→git log, retrospective→retros/*.json,
+#                      sprint→sprint.json, session_end+summary→
+#                      session_history.json, customer_intent→Intent,
+#                      convention+decision→Constraints).
+#   curation_pillar  — housekeeper buckets these as new signals each
+#                      session OR they link (answer→question,
+#                      discovery→assumption) to a bucketed type.
+#   transient        — orchestration / no separate artifact / not curated
+#                      (status, goal).
+#
+# The two derived allowlists below are NOT clean single-category unions —
+# they're filter functions over the category mapping. See decision
+# 3f738430c547: _VALIDATE_NO_TYPE_RULES stays an explicit orthogonal axis
+# ("has type-specific validation rules" is not a category-shaped property).
 
 
-def event_action(event: dict) -> str | None:
-    """Return event.metadata.action, or None when absent.
+class EVENT_CATEGORY(StrEnum):
+    SIBLING_ARTIFACT = "sibling_artifact"
+    CURATION_PILLAR = "curation_pillar"
+    TRANSIENT = "transient"
 
-    Centralized accessor so consumers don't repeat the
-    `e.get("metadata", {}).get("action")` pattern (which also allocates a
-    fresh empty dict on every miss). Returns None for legacy events without
-    metadata or without the action discriminator.
+
+# Categorization is anchored to materialize._bucket_new_events: CURATION_PILLAR =
+# exactly the types bucketed as "new since last curation" (the housekeeper's
+# new-signal inputs). Everything else is SIBLING_ARTIFACT (data lives elsewhere
+# — pillar files, retros/*.json, sprint.json, session_history.json, the
+# referenced question/assumption for answer/discovery) or TRANSIENT
+# (orchestration, no separate artifact).
+_EVENT_CATEGORY_MAP: dict[str, EVENT_CATEGORY] = {
+    EVENT_TYPE_ANSWER: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_ASSUMPTION: EVENT_CATEGORY.CURATION_PILLAR,
+    EVENT_TYPE_COMMIT: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_CONCERN: EVENT_CATEGORY.CURATION_PILLAR,
+    EVENT_TYPE_CONVENTION: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_CUSTOMER_INPUT: EVENT_CATEGORY.CURATION_PILLAR,
+    EVENT_TYPE_CUSTOMER_INTENT: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_DEBT: EVENT_CATEGORY.CURATION_PILLAR,
+    EVENT_TYPE_DECISION: EVENT_CATEGORY.CURATION_PILLAR,
+    EVENT_TYPE_DISCOVERY: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_GOAL: EVENT_CATEGORY.TRANSIENT,
+    EVENT_TYPE_QUESTION: EVENT_CATEGORY.CURATION_PILLAR,
+    EVENT_TYPE_RETROSPECTIVE: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_SESSION_END: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_SESSION_SUMMARY: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_SPRINT: EVENT_CATEGORY.SIBLING_ARTIFACT,
+    EVENT_TYPE_STATUS: EVENT_CATEGORY.TRANSIENT,
+}
+
+
+def event_category_of(event_type: str) -> EVENT_CATEGORY:
+    """Return the EVENT_CATEGORY for `event_type` or raise ValueError.
+
+    Per the `_required` narrowing convention: callers know the type is
+    valid (already passed validate_event), so we return EVENT_CATEGORY
+    not Optional. Adding a new EVENT_TYPE_* without classifying it
+    surfaces here loudly rather than silently dropping to a default
+    bucket.
     """
-    metadata = event.get("metadata")
-    if not metadata:
-        return None
-    return metadata.get("action")
+    try:
+        return _EVENT_CATEGORY_MAP[event_type]
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown event_type {event_type!r}; add to _EVENT_CATEGORY_MAP"
+        ) from exc
 
 
-# Cross-module metadata keys. Centralized here so producer and consumer
-# cannot drift on the spelling.
-#   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this
-#                                 event closes. Shape: list[str] of
-#                                 12-hex-char IDs (validate_event rejects
-#                                 scalars; resolution.py iterates the list).
-#                                 Written by bash_post_tool, concerns,
-#                                 and work_selection_decide; read by
-#                                 pre_tool_bash, retrospective,
-#                                 materialize, resolution.
-#   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit events
-#                                 (bash_post_tool.py).
-#   METADATA_KEY_PROBE_CANDIDATES — ids surfaced by the resolves-trailer
-#                                 probe; paired with the status-content
-#                                 discriminator below.
-#   METADATA_KEY_RESOLVED_BY_COMMITS — commit event IDs that informed an
-#                                 end-session auto-resolve decision (audit
-#                                 trail; orthogonal to RESOLVES which is the
-#                                 STRONG link). Producer: xp-end-session
-#                                 status events with action=end_session_drop.
-METADATA_KEY_RESOLVES = "resolves"
-METADATA_KEY_SUPERSEDES = "supersedes"
-METADATA_KEY_COMMIT_HASH = "commit_hash"
-METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
-METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
-
-# Concern metadata.kind discriminator vocabulary. Centralized so producer
-# (close_cycle_stop_gate hook) and consumer (retros, integration tests)
-# can't drift on the spelling. Pattern matches STATUS_ACTION_* — a small
-# string vocab named at module level, not inlined.
-CONCERN_KIND_CLOSE_CYCLE_BYPASS = "close_cycle_bypass"
-
-# tdd_red: producer (bash_post_tool) tags test_run_complete events when
-# the prior commit was test-only (RED step in TDD); consumer
-# (work_signals) skips them from consecutive_failures so legitimate
-# red TDD doesn't surface as a regression streak.
-METADATA_KEY_TDD_RED = "tdd_red"
-METADATA_KEY_DISPOSITION = "disposition"
-METADATA_KEY_CLOSE_MODE = "close_mode"
-METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
-# Set on a status event with disposition=deferred when the user forces a
-# defer past the FORCE-CLOSE gate via --force-defer-with-date; YYYY-MM-DD.
-METADATA_KEY_DEFER_UNTIL = "defer_until"
-
-# Stale-concern sweep (session_end._sweep_stale_concerns) flag-concern keys.
-# Carried on a NEW concern event with references=[orig_id]; the WEAK cascade
-# (resolution.compute_resolutions) closes the flag when orig_id resolves.
-# Producer: session_end. Consumer: session_end (idempotency check) + retro
-# Fix-lens (xp-retrospective surfaces flagged concerns for human triage).
-METADATA_KEY_FLAGGED_STALE = "flagged_stale"
-METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
-
-# Per-candidate selector signals attached by resolves_probe._score_candidate
-# and persisted on probe status events so retro_metrics can attribute
-# divert events to specific signals (which selector misfired). Shape:
-#   {candidate_id: [reason1, reason2, ...]}
-# Reason vocabulary is the SELECTION_REASON_* constants below. An empty
-# list is ambiguous: it can mean either "old archived probe event predates
-# this metadata key" OR "all four signals scored zero on this candidate";
-# divert-analysis consumers must treat both cases as 'no signal data'.
-METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
-
-# Snapshot-freshness telemetry attached to probe status events. The
-# probe captures both:
-#   probe_snapshot_max_ts — newest ts in the caller's events snapshot at
-#                           probe entry, BEFORE any staleness reread.
-#   probe_tail_ts         — newest ts after the staleness check (post-
-#                           reread when triggered, same as snapshot_max
-#                           when not).
-# When they differ, the probe re-read disk between caller-snapshot and
-# probe-time. Lets retro_metrics distinguish "agent picked an event the
-# probe never saw" from "agent picked an event that arrived after the
-# caller snapshot but before commit" — the second class is closable by
-# the staleness reload, the first needs a different fix. Producer:
-# resolves_probe.find_probe_candidates (out_meta) +
-# resolves_probe.emit_probe_status (probe_meta). Consumers: future
-# divert classifier, retro analysis.
-METADATA_KEY_PROBE_SNAPSHOT_MAX_TS = "probe_snapshot_max_ts"
-METADATA_KEY_PROBE_TAIL_TS = "probe_tail_ts"
-
-# Selector-signal vocabulary for resolves_probe._score_candidate. Each
-# constant names a signal that contributed to a candidate's score and
-# appears in the candidate's selection_reasons list iff that signal
-# scored non-zero. Listed in the order _score_candidate emits them
-# (deterministic for test assertions).
-SELECTION_REASON_KEYWORD = "keyword"
-SELECTION_REASON_FILE_OVERLAP = "file_overlap"
-SELECTION_REASON_RECENCY = "recency"
-SELECTION_REASON_CLOSE_MODE = "close_mode"
-# Siblings axis: events from the same close-reviewer batch as a recent
-# close event surface even without keyword/file overlap. Closes the
-# probe-divert gap where in-batch siblings were missed because they had no
-# file or keyword tie to the current commit.
-SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
-# Widening for batched close-mode siblings: when in_sprint_batch AND
-# close_mode both fire and file_overlap is 0, score +1 and emit this
-# reason. Targets the outside-file-domain divert observed at 33% of
-# recent diverts (close-mode multi-resolves), where a legitimate
-# sibling fell off the top-5 cap because file_overlap=0 starved its
-# score. Tests for double-counting prevention live in
-# TestInBatchCloseNoOverlapWidening.
-SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP = "in_batch_close_no_overlap"
-
-# Divert-reason vocabulary written by retro_metrics._classify_divert_reason
-# into probe_divert_details[i]["reason"]. Each value names the cause class
-# of an agent's resolves choice falling outside the probe candidate set,
-# so retros can act on cause not just count. UNKNOWN is the catch-all so
-# no divert is silently uncategorized. Order matches first-match precedence
-# in the classifier. MISSING_EVENT and PROBE_SELECTION_MISS added by
-# story-005 after sprint-065 retro flagged 8/8 diverts as 'unknown'
-# (4/8 = rejected ID not in events.jsonl, 4/8 = in-domain probe miss).
-DIVERT_REASON_MISSING_EVENT = "missing-event"
-DIVERT_REASON_NEWER_THAN_SNAPSHOT = "newer-than-snapshot"
-DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
-DIVERT_REASON_CROSS_STORY = "cross-story"
-DIVERT_REASON_WRONG_TYPE = "wrong-type"
-DIVERT_REASON_PROBE_SELECTION_MISS = "probe-selection-miss"
-# NO_CANDIDATES is a probe-level signal (the candidate set itself was
-# empty), not an event-level miss. Bucketing here separates candidate-
-# generation failures from ranking misses so retros can act on the
-# right fix domain. Sprint-072 retro flagged 9 consecutive sub-50%
-# adoption periods with diverts that were really empty-candidate cases
-# misattributed as snapshot/selection misses.
-DIVERT_REASON_NO_CANDIDATES = "no-candidates"
-DIVERT_REASON_UNKNOWN = "unknown"
-
-# Retro Try disposition values written to metadata.disposition by
-# work_selection_decide (adopt/defer/drop) and read by retro_history,
-# subagent_start. Centralized to prevent producer/consumer drift.
-DISPOSITION_ADOPTED = "adopted"
-DISPOSITION_DEFERRED = "deferred"
-DISPOSITION_DROPPED = "dropped"
-# question close --won-fix disposition. Paired with
-# STATUS_ACTION_QUESTION_CLOSE on a status event resolving a question id
-# via metadata.resolves.
-DISPOSITION_WONT_FIX = "wont_fix"
-
-# Pre-commit probe status event contracts.
-# Resolves-trailer probe (resolves_probe.emit_probe_status):
-#   content f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates"
-#   metadata {METADATA_KEY_PROBE_CANDIDATES: [ids]}
-# Story-prefix probe (story_probe.emit_probe_status):
-#   content f"{STATUS_CONTENT_STORY_PROBE}: {story_id}"
-#   metadata {METADATA_KEY_STORY_CANDIDATE: story_id}
-STATUS_CONTENT_RESOLVES_PROBE = "resolves_probe_shown"
-STATUS_CONTENT_STORY_PROBE = "story_probe_shown"
-METADATA_KEY_STORY_CANDIDATE = "story_candidate"
-
-# Retrospective event metadata.action discriminators — distinguish session
-# retros from sprint retros so the session-start watermark scanner only
-# advances on session retros. Without this, a sprint retro at end of session
-# poisons the next session's retro detection.
-RETRO_ACTION_SESSION_DONE = "session_retro_done"
-RETRO_ACTION_SPRINT_DONE = "sprint_retro_done"
-
+# Re-exported from event_metadata (split-shim per convention 91fcf9b8744d
+# when this file crossed 500 lines). Definitions live in event_metadata.py;
+# callers keep using `event_schema.STATUS_ACTION_*` / `METADATA_KEY_*` /
+# `DISPOSITION_*` / `RETRO_ACTION_*` / `event_action(...)` unchanged.
+from event_metadata import (  # noqa: E402, F401
+    CONCERN_KIND_CLOSE_CYCLE_BYPASS,
+    DISPOSITION_ADOPTED,
+    DISPOSITION_DEFERRED,
+    DISPOSITION_DROPPED,
+    DISPOSITION_WONT_FIX,
+    METADATA_KEY_CLOSE_CYCLE_ID,
+    METADATA_KEY_CLOSE_MODE,
+    METADATA_KEY_COMMIT_HASH,
+    METADATA_KEY_DEFER_UNTIL,
+    METADATA_KEY_DISPOSITION,
+    METADATA_KEY_FLAGGED_STALE,
+    METADATA_KEY_RESOLVED_BY_COMMITS,
+    METADATA_KEY_RESOLVES,
+    METADATA_KEY_STALE_SESSION_COUNT,
+    METADATA_KEY_SUPERSEDES,
+    METADATA_KEY_TDD_RED,
+    RETRO_ACTION_SESSION_DONE,
+    RETRO_ACTION_SPRINT_DONE,
+    STATUS_ACTION_ASSIGN_COMPLETE,
+    STATUS_ACTION_BASH_FAILED,
+    STATUS_ACTION_CLOSE_STARTED,
+    STATUS_ACTION_COMMIT_SUCCESS,
+    STATUS_ACTION_CONCERN_CLASSIFY,
+    STATUS_ACTION_END_SESSION_DROP,
+    STATUS_ACTION_FILE_WRITE,
+    STATUS_ACTION_HOUSEKEEPING_COMPLETE,
+    STATUS_ACTION_ITERATION_COMPLETE,
+    STATUS_ACTION_LINT_RESOLVED,
+    STATUS_ACTION_PLAN_AWAITING_REVIEW,
+    STATUS_ACTION_PLAN_COMPLETED,
+    STATUS_ACTION_PLAN_EXITED,
+    STATUS_ACTION_PLAN_REVIEWED,
+    STATUS_ACTION_QR_COMPLETE,
+    STATUS_ACTION_QUESTION_CLOSE,
+    STATUS_ACTION_SECURITY_COMPLETE,
+    STATUS_ACTION_SIMPLIFY_COMPLETE,
+    STATUS_ACTION_SPRINT_RETRO_DONE,
+    STATUS_ACTION_SUBAGENT_COMPLETE,
+    STATUS_ACTION_TEST_RUN_COMPLETE,
+    event_action,
+)
 
 MAX_JSON_ARG_SIZE = 65536
 MAX_CONTENT_LENGTH = 50_000

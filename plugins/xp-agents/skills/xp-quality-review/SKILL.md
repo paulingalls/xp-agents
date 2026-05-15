@@ -26,7 +26,9 @@ Post-simplify review. `/simplify` just ran (3 agents: code reuse, quality, effic
 
 ## Step 1: Spawn Independent Code Reviewer
 
-The PreToolUse:Skill hook automatically runs the resolves-trailer probe before this skill loads. If open concerns overlap changed files, the probe results appear in the hook's additionalContext above — relay them to the subagent.
+### Open concerns and debts the reviewer should see
+
+The reviewer cannot infer which existing concerns or debts the diff might close; pass the relevant ones in the prompt so it can verify whether the staged changes address them and whether a `Resolves-Event:` trailer is warranted on the next commit. Pull candidates from the preload's `## Debt for Changed Files` section (already filtered by file overlap via `concerns.find_issues_for_file`) and from any plan-review concerns the preload lists. If the preload surfaced no overlapping events, state that explicitly — empty context reads as missing analysis, not absence.
 
 ### Gather Simplify Findings
 

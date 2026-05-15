@@ -8,8 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 
-import _common
+import read_delta
 import resolution
+
+_WATERMARK_ID = "open-plan-concerns"
 
 
 def main() -> None:
@@ -18,7 +20,9 @@ def main() -> None:
     args = parser.parse_args()
 
     smm_dir = Path(args.smm_dir)
-    events = _common.read_events_raw(smm_dir)
+    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
+        0
+    ]
     if not events:
         print("(none — SMM empty)")
         return

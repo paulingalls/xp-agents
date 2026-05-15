@@ -373,12 +373,6 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
         result = self._run_auth_fix()
         self.assertIsNone(result)
 
-    def test_post_commit_no_probe_event(self):
-        """Post-commit no longer emits probe events (moved to pre-commit)."""
-        self._seed_auth_concern()
-        self._run_auth_fix()
-        self.assertEqual(self._probes(), [])
-
 
 class TestM2TestRunActions(_HookTestCase):
     """sprint-042 M2: bash_post_tool emits metadata.action=test_run_complete

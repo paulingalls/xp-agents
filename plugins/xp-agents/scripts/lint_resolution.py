@@ -13,9 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import concerns
+import read_delta
 import resolution
 import worktree
 from event_schema import STATUS_ACTION_LINT_RESOLVED
+
+_WATERMARK_ID = "lint-resolution"
 
 
 def check_and_resolve_lint(
@@ -88,7 +91,9 @@ def sweep_orphan_lint_concerns(
     edits to the offending file. Files referenced by lint concerns but no
     longer on disk are skipped (manual triage)."""
     if events is None:
-        events = _common.read_events_raw(smm_dir)
+        events = read_delta.read_delta_full(
+            smm_dir, _WATERMARK_ID, update_watermark=False
+        )[0]
     if resolutions is None:
         resolutions = resolution.compute_resolutions(events)
 

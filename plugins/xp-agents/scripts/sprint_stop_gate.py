@@ -29,6 +29,7 @@ import _common
 import coordination
 import identity
 import markers
+import read_delta
 import sprint_state
 import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
@@ -37,6 +38,8 @@ from sprint_status import (
     has_in_progress_stories_data,
     has_under_acceptance_stories_data,
 )
+
+_WATERMARK_ID = "sprint-stop-gate"
 
 _ACCEPT_MESSAGE = (
     "Stories need acceptance. Run /xp-accept to verify "
@@ -106,7 +109,9 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
     if not sprint_id:
         return None
 
-    events = _common.read_events_raw(smm_dir)
+    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
+        0
+    ]
     if not _has_sprint_end_event(events, sprint_id):
         return _REVIEW_MESSAGE
     return None

@@ -280,25 +280,35 @@ _DOCTRINE_GAPS: dict[str, str] = {
 }
 
 
-# Intentional LLM-via-SKILL.md producers: the action constant is emitted
-# by the LLM running a SKILL.md (via append.sh), NOT by a Python hook.
-# No driver to wire in this canary because the producer is prose. These
-# are NOT debts — separated from _DOCTRINE_GAPS so that dict stays
-# single-purpose (debt-id values). Each entry should cite the SKILL.md
-# producer + a test that exercises the consumer.
+# Non-hook producers: the action constant is emitted from somewhere
+# other than a Python hook — either LLM prose running a SKILL.md, or a
+# bash helper invoked deterministically from a shell preload. Either way
+# there is no Python hook to drive via _PRODUCER_CASES. These are NOT
+# debts — separated from _DOCTRINE_GAPS so that dict stays single-purpose
+# (debt-id values). Each entry should cite the producer + a test that
+# exercises the consumer (or producer shape, where the producer is
+# deterministic shell).
 #
 #   STATUS_ACTION_CONCERN_CLASSIFY     — Producer: close skills' Step 5c
-#       (_close_pipeline_shared.md). Consumer: smm_cli count-classifications,
-#       exercised by tests/engine/test_smm_cli_count_classifications.py.
+#       (_close_pipeline_shared.md, LLM prose). Consumer: smm_cli
+#       count-classifications, exercised by
+#       tests/engine/test_smm_cli_count_classifications.py.
 #       Tracked by debt 730e9a0dbe9c.
 #   STATUS_ACTION_END_SESSION_DROP     — Producer: xp-end-session SKILL.md
-#       Step 3 (LLM-judged auto-resolve). Consumer: retro tooling reads
-#       metadata.action to distinguish bulk drops from organic resolutions;
-#       integration test test_end_session_pipeline asserts the produced
-#       event shape end-to-end.
-_LLM_PRODUCERS: set[str] = {
+#       Step 3 (LLM prose, LLM-judged auto-resolve). Consumer: retro
+#       tooling reads metadata.action to distinguish bulk drops from
+#       organic resolutions; integration test test_end_session_pipeline
+#       asserts the produced event shape end-to-end.
+#   STATUS_ACTION_CLOSE_STARTED        — Producer: _preload_base.sh
+#       emit_close_started_event helper (bash, deterministic), invoked
+#       from xp-{sprint,free,plan}-close preloads. Consumer:
+#       retro_metrics.security_close_ran. Integration tests in
+#       test_close_preloads_emit_shared.py per-mode subclasses assert the
+#       emitted event shape; story-close inverse-pin asserts NO emission.
+_NON_HOOK_PRODUCERS: set[str] = {
     "STATUS_ACTION_CONCERN_CLASSIFY",
     "STATUS_ACTION_END_SESSION_DROP",
+    "STATUS_ACTION_CLOSE_STARTED",
 }
 
 
@@ -312,7 +322,7 @@ class TestActionVocabularySmoke(_HookTestCase):
         with an existing one cannot be silently considered covered.
         """
         constant_names = set(_all_status_action_values())
-        covered = set(_PRODUCER_CASES) | set(_DOCTRINE_GAPS) | _LLM_PRODUCERS
+        covered = set(_PRODUCER_CASES) | set(_DOCTRINE_GAPS) | _NON_HOOK_PRODUCERS
         missing = sorted(constant_names - covered)
         self.assertEqual(
             missing,

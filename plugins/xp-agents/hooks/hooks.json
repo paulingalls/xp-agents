@@ -210,17 +210,6 @@
             "statusMessage": "Recording answer..."
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|Bash|Skill|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/large_batch_probe.py",
-            "timeout": 5000,
-            "statusMessage": "Checking batch size..."
-          }
-        ]
       }
     ],
     "PostCompact": [

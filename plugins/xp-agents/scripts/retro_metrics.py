@@ -13,20 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
-import worktree
 from event_schema import (
     DISPOSITION_DROPPED,
-    DIVERT_REASON_CROSS_STORY,
-    DIVERT_REASON_MISSING_EVENT,
-    DIVERT_REASON_NEWER_THAN_SNAPSHOT,
-    DIVERT_REASON_NO_CANDIDATES,
-    DIVERT_REASON_OUTSIDE_FILE_DOMAIN,
-    DIVERT_REASON_PROBE_SELECTION_MISS,
-    DIVERT_REASON_UNKNOWN,
-    DIVERT_REASON_WRONG_TYPE,
-    METADATA_KEY_CLOSE_CYCLE_ID,
+    METADATA_KEY_CLOSE_MODE,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_CLOSE_STARTED,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_ITERATION_COMPLETE,
     STATUS_ACTION_LINT_RESOLVED,
@@ -37,6 +29,11 @@ from event_schema import (
     event_action,
 )
 from honesty_signals import build_honesty_signals
+
+# Security-bearing close modes — only these run Step 4 /security-review.
+# Story-close skips Step 4 (sprint-close covers it via cumulative diff),
+# so a story-close session MUST NOT flip security_close_ran.
+_SECURITY_CLOSE_MODES = frozenset({"sprint", "free", "plan"})
 
 # ---------------------------------------------------------------------------
 # Signal event types — full event dicts preserved in digest
@@ -57,11 +54,6 @@ _SIGNAL_TYPES = frozenset(
         _common.CONVENTION,
     }
 )
-
-# Resolves-eligible event types per the resolves probe contract: agents
-# tag commits with concern/debt/discovery IDs. Used by
-# _classify_divert_reason to flag wrong-type diverts.
-_VALID_RESOLVES_TYPES = frozenset({_common.CONCERN, _common.DEBT, _common.DISCOVERY})
 
 # ---------------------------------------------------------------------------
 # Status classification
@@ -237,8 +229,11 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
     concern_groups = _group_concerns(unanalyzed, resolved_concern_ids)
     honesty_signals = build_honesty_signals(unanalyzed)
     dropped_tries_recent = _collect_dropped_tries_recent(events)
-    close_cycle_ran = any(
-        (e.get("metadata") or {}).get(METADATA_KEY_CLOSE_CYCLE_ID) for e in unanalyzed
+    security_close_ran = any(
+        event_action(e) == STATUS_ACTION_CLOSE_STARTED
+        and (e.get("metadata") or {}).get(METADATA_KEY_CLOSE_MODE)
+        in _SECURITY_CLOSE_MODES
+        for e in unanalyzed
     )
 
     from work_signals import build_work_signals
@@ -253,7 +248,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         "work_signals": work_sigs,
         "resolved_concern_count": len(resolved_concern_ids),
         "dropped_tries_recent": dropped_tries_recent,
-        "close_cycle_ran": close_cycle_ran,
+        "security_close_ran": security_close_ran,
         "resolutions": build_resolutions_map(resolutions),
     }
 
@@ -329,13 +324,8 @@ def _event_in_sprint_window(event: dict, sprint_start_ts: str | None) -> bool:
 def _compute_resolves_link_rate(
     events: list[dict],
     sprint_start_ts: str | None,
-    cwd: str,
 ) -> dict:
-    """Count code commits with Resolves-Event trailers vs total code commits.
-
-    Also computes probe_adoption_rate: when a probe was shown, how often
-    did any code commit resolve one of the probe's candidate IDs?
-    """
+    """Count code commits with Resolves-Event trailers vs total code commits."""
 
     code_commits = [
         e
@@ -374,243 +364,9 @@ def _compute_resolves_link_rate(
             "resolves_trailer_total": agent_total,
         }
 
-    probe_adoption = _compute_probe_adoption(
-        events, code_commits, sprint_start_ts, cwd=cwd
-    )
-
     return {
         "resolves_link_rate": total_hits / total if total > 0 else 0.0,
         "resolves_trailer_hits": total_hits,
         "resolves_trailer_total": total,
         "per_agent": per_agent,
-        **probe_adoption,
-    }
-
-
-def _normalize_file_set(files: list[str], cwd: str) -> set[str]:
-    """Canonicalize a list of file paths via worktree.normalize_path so
-    './scripts/x.py', 'scripts/x.py', and absolute forms intersect on the
-    same git-root-relative key. Mirrors resolves_probe._score_candidate
-    and concerns.find_issues_for_file. Tests stub worktree.normalize_path
-    (see TestFileOverlapNormalization) rather than skipping normalization.
-    """
-    out: set[str] = set()
-    for f in files:
-        if not isinstance(f, str):
-            continue
-        try:
-            out.add(worktree.normalize_path(f, cwd))
-        except (ValueError, OSError):
-            continue
-    return out
-
-
-def _classify_divert_reason(
-    rejected_event: dict,
-    probe_ts: str,
-    commit_files: list[str],
-    story_id: str | None,
-    cwd: str,
-) -> str:
-    """Reason an agent's resolves choice fell outside the probe candidate set.
-
-    First-match precedence per story-006 reason table. The rule order is the
-    contract — callers pin via test fixtures, so reordering here breaks them.
-    DIVERT_REASON_UNKNOWN is the catch-all so no divert is silently
-    uncategorized.
-
-    Precedence (story-005 widened post sprint-065 retro): missing-event,
-    newer-than-snapshot, outside-file-domain, cross-story, wrong-type,
-    probe-selection-miss, unknown.
-
-    File overlap normalizes both rejected_files and commit_files via
-    worktree.normalize_path — mirrors the canonical pattern at
-    resolves_probe._score_candidate so abs/rel/'./' forms match.
-
-    cross-story is dormant in practice today (spike: 0/84
-    concern/debt/discovery events carried metadata.story_id) but we
-    keep the rule for forward-compat — once teammates start tagging, it
-    lights up without a code change.
-    """
-    if not rejected_event:
-        return DIVERT_REASON_MISSING_EVENT
-    rejected_ts = rejected_event.get("ts") or ""
-    if probe_ts and rejected_ts and rejected_ts > probe_ts:
-        return DIVERT_REASON_NEWER_THAN_SNAPSHOT
-
-    rejected_files = rejected_event.get("files") or []
-    rejected_set = _normalize_file_set(rejected_files, cwd)
-    commit_set = _normalize_file_set(commit_files, cwd)
-    files_overlap = bool(rejected_set & commit_set)
-    if (
-        isinstance(rejected_files, list)
-        and rejected_files
-        and commit_files
-        and not files_overlap
-    ):
-        return DIVERT_REASON_OUTSIDE_FILE_DOMAIN
-
-    rejected_meta = rejected_event.get("metadata") or {}
-    rejected_story = (
-        rejected_meta.get("story_id") if isinstance(rejected_meta, dict) else None
-    )
-    if story_id and rejected_story and rejected_story != story_id:
-        return DIVERT_REASON_CROSS_STORY
-
-    if rejected_event.get("type") not in _VALID_RESOLVES_TYPES:
-        return DIVERT_REASON_WRONG_TYPE
-
-    # All exclusionary checks passed AND files clearly overlap → probe
-    # should have surfaced this candidate but didn't. Sprint-065 retro
-    # found 4/8 diverts in this shape, all previously bucketed UNKNOWN.
-    # files_overlap=True implies both lists were non-empty (empty sets
-    # can't intersect), so no need to re-check.
-    if files_overlap:
-        return DIVERT_REASON_PROBE_SELECTION_MISS
-
-    return DIVERT_REASON_UNKNOWN
-
-
-def _compute_probe_adoption(
-    events: list[dict],
-    code_commits: list[dict],
-    sprint_start_ts: str | None,
-    cwd: str,
-) -> dict:
-    """Probe adoption: pair each probe with the next code commit by the
-    same agent_id in the sprint window, then classify into hit / escape /
-    divert / silent.
-
-    - hit: paired commit's metadata.resolves contains a probe candidate id
-    - escape: paired commit's metadata.resolves is empty (Resolves-Event: none)
-    - divert: paired commit's metadata.resolves is non-empty but no overlap
-    - silent: no paired commit (probe fired but no commit by same agent followed)
-    """
-    from event_schema import (
-        METADATA_KEY_PROBE_CANDIDATES,
-        METADATA_KEY_PROBE_SELECTION_REASONS,
-        STATUS_CONTENT_RESOLVES_PROBE,
-    )
-
-    probes = [
-        e
-        for e in events
-        if e.get("type") == _common.STATUS
-        and _event_in_sprint_window(e, sprint_start_ts)
-        and (e.get("content") or "").startswith(STATUS_CONTENT_RESOLVES_PROBE)
-    ]
-
-    zero = {
-        "probe_adoption_rate": 0.0,
-        "probe_adoption_hits": 0,
-        "probe_adoption_total": 0,
-        "probe_escape": 0,
-        "probe_divert": 0,
-        "probe_silent": 0,
-        "probe_divert_details": [],
-    }
-    if not probes:
-        return zero
-
-    # Newest-first so each probe consumes the earliest still-unmatched
-    # commit it preceded. Oldest-first mis-pairs the commit with a stale
-    # earlier probe whose snapshot lacked the candidate the agent actually
-    # used — silently inflating newer-than-snapshot diverts.
-    sorted_probes = sorted(probes, key=lambda p: p.get("ts") or "", reverse=True)
-    sorted_commits = sorted(code_commits, key=lambda c: c.get("ts") or "")
-    consumed: set[int] = set()
-
-    # Lookup map for divert reason classification: rejected resolves IDs
-    # are looked up to inspect ts / files / metadata.story_id / type.
-    events_by_id: dict[str, dict] = {eid: e for e in events if (eid := e.get("id"))}
-
-    hits = 0
-    escape = 0
-    divert = 0
-    silent = 0
-    divert_details: list[dict] = []
-    for probe in sorted_probes:
-        agent_id = probe.get("agent_id")
-        probe_ts = probe.get("ts") or ""
-        candidate_ids = set(
-            (probe.get("metadata") or {}).get(METADATA_KEY_PROBE_CANDIDATES) or []
-        )
-        # Each probe consumes its own next-by-agent commit; two probes by the
-        # same agent before a single commit must NOT both claim that commit.
-        paired_index = next(
-            (
-                i
-                for i, c in enumerate(sorted_commits)
-                if i not in consumed
-                and c.get("agent_id") == agent_id
-                and (c.get("ts") or "") > probe_ts
-            ),
-            None,
-        )
-        if paired_index is None:
-            silent += 1
-            continue
-        consumed.add(paired_index)
-        commit = sorted_commits[paired_index]
-        resolves = (commit.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
-        if any(rid in candidate_ids for rid in resolves):
-            hits += 1
-        elif not resolves:
-            escape += 1
-        else:
-            divert += 1
-            reasons_map = (probe.get("metadata") or {}).get(
-                METADATA_KEY_PROBE_SELECTION_REASONS
-            ) or {}
-            sorted_candidates = sorted(candidate_ids)
-            if not candidate_ids:
-                # Empty candidate set — root cause is candidate generation,
-                # not ranking. The per-event classifier would inspect the
-                # rejected event and return a misleading reason
-                # (NEWER_THAN_SNAPSHOT, PROBE_SELECTION_MISS, etc.); skip
-                # it and bucket as NO_CANDIDATES.
-                reason = DIVERT_REASON_NO_CANDIDATES
-            else:
-                commit_files = commit.get("files") or []
-                commit_story_id = (commit.get("metadata") or {}).get("story_id")
-                # Single dominant reason per divert: multi-id diverts cluster on
-                # one root cause in practice (almost all diverts are 1-id anyway).
-                # Pick the latest-by-ts rejected event — semantically "the agent's
-                # most recent context" — over alphabetic min() which is meaningless
-                # for hex IDs. Missing events sort to the front (empty ts).
-                picked_id = max(
-                    resolves,
-                    key=lambda rid: (events_by_id.get(rid) or {}).get("ts") or "",
-                )
-                rejected_event = events_by_id.get(picked_id) or {}
-                reason = _classify_divert_reason(
-                    rejected_event,
-                    probe_ts=probe_ts,
-                    commit_files=commit_files,
-                    story_id=commit_story_id,
-                    cwd=cwd,
-                )
-            divert_details.append(
-                {
-                    "agent_id": agent_id,
-                    "probe_ts": probe_ts,
-                    "commit_ts": commit.get("ts") or "",
-                    "candidates": sorted_candidates,
-                    "resolves": sorted(resolves),
-                    "selection_reasons": {
-                        cid: reasons_map.get(cid, []) for cid in sorted_candidates
-                    },
-                    "reason": reason,
-                }
-            )
-
-    probe_total = len(probes)
-    return {
-        "probe_adoption_rate": hits / probe_total if probe_total > 0 else 0.0,
-        "probe_adoption_hits": hits,
-        "probe_adoption_total": probe_total,
-        "probe_escape": escape,
-        "probe_divert": divert,
-        "probe_silent": silent,
-        "probe_divert_details": divert_details,
     }

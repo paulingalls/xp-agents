@@ -18,10 +18,8 @@ import identity
 import lint_check
 import markers
 import resolution
-import resolves_probe
 import security_patterns
 import security_scanner
-import story_probe
 import worktree
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
@@ -298,8 +296,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Tier 1 security pattern detected.",
                 )
 
-        # Single name-only call shared by the ruff gate, the probe, and
-        # the trailer reminder — one fork instead of three.
+        # Single name-only call shared by the ruff gate and downstream
+        # checks — one fork instead of two.
         staged = commits.get_staged_files(cwd)
 
         ruff_findings = _staged_ruff_findings(staged, cwd)
@@ -358,61 +356,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"or prefix with [release]/[chore]/[sprint-direct] for "
                     f"legitimate post-merge work."
                 )
-
-        if staged:
-            msg = commits.extract_commit_message(command)
-            already_resolved: list[str] = []
-            has_trailer = False
-            if msg:
-                already_resolved, _, has_trailer = commits.extract_resolves_trailer(msg)
-            story_candidate = story_probe.find_story_candidate(
-                smm_dir, cwd, staged, msg or ""
-            )
-            story_probe.emit_probe_status(smm_dir, story_candidate, agent_id)
-            story_nudge = (
-                story_probe.build_nudge_line(story_candidate)
-                if story_candidate
-                else None
-            )
-            probe_meta: dict = {}
-            candidates = resolves_probe.find_probe_candidates(
-                smm_dir,
-                staged,
-                already_resolved,
-                cwd,
-                commit_message=msg or "",
-                out_meta=probe_meta,
-            )
-            if story_nudge:
-                parts.append(story_nudge)
-            # Empty-candidate emit when probe_meta carries snapshot/tail
-            # telemetry — diagnostic signal for newer-than-snapshot diverts.
-            if candidates or probe_meta:
-                resolves_probe.emit_probe_status(
-                    smm_dir, candidates, agent_id, probe_meta=probe_meta
-                )
-            if candidates:
-                # Block when no trailer present. `Resolves-Event: none` is the
-                # universal escape. Any trailer (even mismatched IDs) is
-                # treated as good-faith discharge — the agent's intent is
-                # opaque to us.
-                if not has_trailer:
-                    nudge = resolves_probe.build_nudge_lines(candidates)[0]
-                    body = (
-                        nudge
-                        + "\n\n"
-                        + resolves_probe.TRAILER_REMINDER
-                        + " before re-trying."
-                    )
-                    if story_nudge:
-                        body = story_nudge + "\n\n" + body
-                    raise _common.BlockedError(
-                        body,
-                        "Resolves-Event trailer required:"
-                        " open candidates overlap your staged files.",
-                    )
-            elif not has_trailer:
-                parts.append(resolves_probe.TRAILER_REMINDER + ".")
 
     if (
         smm_dir is not None

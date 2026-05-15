@@ -137,7 +137,7 @@ from _hook_inputs import (  # noqa: E402, F401
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
-from event_schema import (  # noqa: E402
+from event_schema import (  # noqa: E402, F401
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
     EVENT_TYPE_DISCOVERY,
@@ -363,14 +363,6 @@ class _ProbeTestHelpers:
             ts=ts,
             cycle_id=cycle_id,
         )
-
-    def _probes(self) -> list[dict]:
-        return [
-            e
-            for e in _common.read_events_raw(self.smm_dir)
-            if e.get("type") == EVENT_TYPE_STATUS
-            and e.get("content", "").startswith("resolves_probe_shown:")
-        ]
 
 
 # Rendered markdown sprint — used by preload-based tests (test_assign,

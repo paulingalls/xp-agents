@@ -185,13 +185,13 @@ def open_issues_matching_commit(
 ) -> list[dict]:
     """Return open concerns and debts whose files intersect commit_files.
 
-    Used by bash_post_tool and the pre-commit probe to nudge agents to add
-    `Resolves-Event:` trailers on commits that touch files listed in an
-    unresolved concern or debt. Paths are normalized on both sides so
+    Used by bash_post_tool to nudge agents to add `Resolves-Event:`
+    trailers on commits that touch files listed in an unresolved
+    concern or debt. Paths are normalized on both sides so
     `./scripts/foo.py`, `scripts/foo.py`, and an absolute path all match.
 
     When ``events`` is provided, filters from the given list without reading
-    disk — used by callers that already loaded events (e.g. resolves_probe).
+    disk — used by callers that already loaded events.
     When both ``events`` and ``resolutions`` are provided, skips computing
     resolutions entirely — avoids redundant work when the caller already has
     the resolution map (e.g. from ``load_events_with_resolutions``).
