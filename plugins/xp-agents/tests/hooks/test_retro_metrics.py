@@ -55,9 +55,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit([], "2026-04-05T11:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(
-            events, "2026-04-01", cwd="/repo"
-        )
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         self.assertEqual(result["resolves_trailer_total"], 3)
         self.assertEqual(result["resolves_trailer_hits"], 2)
         self.assertAlmostEqual(result["resolves_link_rate"], 2 / 3, places=6)
@@ -66,9 +64,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [make_event(content="status only")]
-        result = retro_metrics._compute_resolves_link_rate(
-            events, "2026-04-01", cwd="/repo"
-        )
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         self.assertEqual(result["resolves_trailer_total"], 0)
         self.assertEqual(result["resolves_link_rate"], 0.0)
 
@@ -80,9 +76,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit([], "2026-04-05T11:00:00+00:00", "agent-1"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00", "agent-2"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(
-            events, "2026-04-01", cwd="/repo"
-        )
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         pa = result["per_agent"]
         self.assertEqual(pa["agent-1"]["resolves_trailer_total"], 2)
         self.assertEqual(pa["agent-1"]["resolves_trailer_hits"], 1)
@@ -96,9 +90,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             self._code_commit(["aaa"], "2026-03-15T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T10:00:00+00:00"),
         ]
-        result = retro_metrics._compute_resolves_link_rate(
-            events, "2026-04-01", cwd="/repo"
-        )
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
         self.assertEqual(result["resolves_trailer_total"], 1)
         self.assertEqual(result["resolves_trailer_hits"], 1)
 

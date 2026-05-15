@@ -9,7 +9,6 @@ Metrics computation (session stats, status classification, digest building,
 resolves link rate) lives in retro_metrics.py.
 """
 
-import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -270,9 +269,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None
     if sprint_id is not None:
         sizing = story_metrics.compute_story_analysis(smm_dir, events)
         if sizing is not None:
-            link_stats = _compute_resolves_link_rate(
-                events, sizing.get("started"), cwd=os.getcwd()
-            )
+            link_stats = _compute_resolves_link_rate(events, sizing.get("started"))
             if link_stats["resolves_trailer_total"] > 0:
                 link_per_agent = link_stats.pop("per_agent", {})
                 sizing.update(link_stats)
