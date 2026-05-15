@@ -315,6 +315,7 @@ def is_task_notification(prompt: str) -> bool:
 
 
 _MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
+_WATERMARK_ID_LOAD_EVENTS = "load-events-with-resolutions"
 
 
 def read_events_raw(smm_dir: Path) -> list[dict]:
@@ -339,7 +340,7 @@ def load_events_with_resolutions(
     import resolution
 
     events = read_delta.read_delta_full(
-        smm_dir, "load-events-with-resolutions", update_watermark=False
+        smm_dir, _WATERMARK_ID_LOAD_EVENTS, update_watermark=False
     )[0]
     return events, resolution.compute_resolutions(events)
 
