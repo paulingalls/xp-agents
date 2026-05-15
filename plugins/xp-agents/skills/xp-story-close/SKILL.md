@@ -54,24 +54,17 @@ Stop on non-zero exit; the script emitted the reason on stderr.
 
 ## Step 1b: Validate file_domain
 
-Surface file_domain drift before the reviewer fork. Default
+Surface file_domain drift to stderr before the reviewer fork. Default
 `XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` absorbs a single drifting file
-(set `0` for strict). Record a concern in either drift case (over-budget
-or absorbed) and continue — do NOT prompt mid-close; retros own drift
-trend discussion.
+(set `0` for strict). Do NOT emit a concern event — per convention,
+drift is a planning signal that retro surfaces from `cascade_size`;
+emitting per-close concerns pollutes the open-event surface. Continue
+regardless of drift state.
 
 ```bash
-DRIFT_STDERR=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   validate-domain <story-id> --base <TARGET_BRANCH> \
-  --cwd ${TEAMMATE_CWD:-.} 2>&1 >/dev/null)
-DRIFT_RC=$?
-
-if [ "$DRIFT_RC" -ne 0 ] || echo "$DRIFT_STDERR" | grep -q "^drift"; then
-  ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-    --type concern --agent xp-story-close \
-    --content "file_domain drift on <story-id>: $DRIFT_STDERR" \
-    --severity medium --metadata '{"kind":"file_domain_drift"}'
-fi
+  --cwd ${TEAMMATE_CWD:-.} >/dev/null || true
 ```
 
 ## Step 2: Push the story branch
