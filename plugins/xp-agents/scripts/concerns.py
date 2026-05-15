@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent))
 
+import read_delta
 import resolution
 from _common import (
     ASSUMPTION,
@@ -29,7 +30,6 @@ from _common import (
     bulk_append_safe,
     current_session_start_index,
     make_event,
-    read_events_raw,
 )
 from event_schema import (
     METADATA_KEY_RESOLVES,
@@ -145,7 +145,9 @@ def has_unresolved_concerns(
 ) -> bool:
     """Check whether any unresolved concern matches *matcher*."""
     if events is None:
-        events = read_events_raw(smm_dir)
+        events = read_delta.read_delta_full(
+            smm_dir, "concerns-has-unresolved", update_watermark=False
+        )[0]
     return len(_find_unresolved(events, matcher, resolutions)) > 0
 
 
@@ -170,7 +172,9 @@ def resolve_concerns(
     Returns True if any concerns were resolved.
     """
     if events is None:
-        events = read_events_raw(smm_dir)
+        events = read_delta.read_delta_full(
+            smm_dir, "concerns-resolve", update_watermark=False
+        )[0]
 
     unresolved = _find_unresolved(events, matcher, resolutions)
     if not unresolved:

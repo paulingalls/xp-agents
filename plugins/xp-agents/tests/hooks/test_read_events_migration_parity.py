@@ -58,6 +58,17 @@ _MIGRATED_SITES: list[tuple[str, Path, str | None]] = [
     ("session_end_warning", _SCRIPTS_DIR / "session_end_warning.py", None),
     ("sprint_stop_gate", _SCRIPTS_DIR / "sprint_stop_gate.py", None),
     ("lint_resolution", _SCRIPTS_DIR / "lint_resolution.py", None),
+    (
+        "concerns_has_unresolved",
+        _SCRIPTS_DIR / "concerns.py",
+        "has_unresolved_concerns",
+    ),
+    (
+        "concerns_resolve",
+        _SCRIPTS_DIR / "concerns.py",
+        "resolve_concerns",
+    ),
+    ("subagent_stop", _SCRIPTS_DIR / "subagent_stop.py", None),
 ]
 
 
