@@ -38,6 +38,9 @@ from event_schema import (
 )
 from worktree import normalize_path
 
+_WATERMARK_ID_HAS_UNRESOLVED = "concerns-has-unresolved"
+_WATERMARK_ID_RESOLVE = "concerns-resolve"
+
 # ---------------------------------------------------------------------------
 # Test concern pattern (shared by bash_post_tool.py and tdd_stop_gate.py)
 # ---------------------------------------------------------------------------
@@ -146,7 +149,7 @@ def has_unresolved_concerns(
     """Check whether any unresolved concern matches *matcher*."""
     if events is None:
         events = read_delta.read_delta_full(
-            smm_dir, "concerns-has-unresolved", update_watermark=False
+            smm_dir, _WATERMARK_ID_HAS_UNRESOLVED, update_watermark=False
         )[0]
     return len(_find_unresolved(events, matcher, resolutions)) > 0
 
@@ -173,7 +176,7 @@ def resolve_concerns(
     """
     if events is None:
         events = read_delta.read_delta_full(
-            smm_dir, "concerns-resolve", update_watermark=False
+            smm_dir, _WATERMARK_ID_RESOLVE, update_watermark=False
         )[0]
 
     unresolved = _find_unresolved(events, matcher, resolutions)

@@ -69,6 +69,15 @@ _MIGRATED_SITES: list[tuple[str, Path, str | None]] = [
         "resolve_concerns",
     ),
     ("subagent_stop", _SCRIPTS_DIR / "subagent_stop.py", None),
+    ("teammate_idle", _SCRIPTS_DIR / "teammate_idle.py", None),
+    ("tdd_stop_gate", _SCRIPTS_DIR / "tdd_stop_gate.py", None),
+    ("task_completed", _SCRIPTS_DIR / "task_completed.py", None),
+    ("post_tool_use", _SCRIPTS_DIR / "post_tool_use.py", None),
+    (
+        "bash_post_tool",
+        _SCRIPTS_DIR / "bash_post_tool.py",
+        "_prior_commit_was_test_only",
+    ),
 ]
 
 
