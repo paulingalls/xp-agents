@@ -55,6 +55,9 @@ _MIGRATED_SITES: list[tuple[str, Path, str | None]] = [
         _SCRIPTS_DIR / "_common.py",
         "load_events_with_resolutions",
     ),
+    ("session_end_warning", _SCRIPTS_DIR / "session_end_warning.py", None),
+    ("sprint_stop_gate", _SCRIPTS_DIR / "sprint_stop_gate.py", None),
+    ("lint_resolution", _SCRIPTS_DIR / "lint_resolution.py", None),
 ]
 
 
