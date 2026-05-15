@@ -31,6 +31,7 @@ import unittest
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from _system_context_fixtures import write_doc as write_system_context_doc
 from conftest import _extract_preload_var, _MixinBase
 from event_schema import EVENT_TYPE_CONCERN
 
@@ -267,6 +268,39 @@ class _ClosePreloadCommonTests(_MixinBase):
             "preload must not emit REVIEW_INPUT (file pattern removed)",
         )
 
+    def test_emits_system_context_rendered_when_present(self):
+        # Close-reviewer needs stack/conventions/branching/key-decision
+        # topics to judge whether a diff respects project conventions and
+        # prior decisions. The preload renders the close-reviewer subset
+        # via the central helper when system_context.json exists.
+        write_system_context_doc(self.smm_dir)
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = _extract_preload_var(result.stdout, "SYSTEM_CONTEXT_RENDERED")
+        assert rendered is not None, (
+            "close preload must emit SYSTEM_CONTEXT_RENDERED when "
+            "system_context.json exists"
+        )
+        # Subset content: close-reviewer gets stack/conventions/branching/
+        # key_decisions (topics only); NOT product, architecture, modules,
+        # acceptance, or project_specific.
+        rendered_text = Path(rendered).read_text()
+        self.assertIn("## Stack", rendered_text)
+        self.assertIn("## Conventions", rendered_text)
+        self.assertIn("## Key Decisions (topics)", rendered_text)
+        # close-reviewer subset omits product/architecture/modules
+        self.assertNotIn("## Product", rendered_text)
+        self.assertNotIn("## Architecture Overview", rendered_text)
+        self.assertNotIn("## Modules", rendered_text)
+
+    def test_omits_system_context_when_missing(self):
+        # No system_context.json → no SYSTEM_CONTEXT_RENDERED= line.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(
+            _extract_preload_var(result.stdout, "SYSTEM_CONTEXT_RENDERED")
+        )
+
     def test_exits_zero_with_unwritable_smm(self):
         # Override CLAUDE_PLUGIN_DATA to a fresh empty dir so init.sh
         # produces a different SMM path with no shared_mental_model.json.
@@ -424,6 +458,21 @@ class _CloseSkillTextCommonTests(_MixinBase):
         # tool — orchestrator step, can't be in close_common.py.
         self.assertIn("xp-agents:xp-close-reviewer", self.text)
         self.assertIn("subagent_type", self.text)
+
+    def test_reviewer_prompt_passes_system_context_rendered(self):
+        # Close-reviewer needs the rendered system_context tempfile path
+        # to judge whether the diff respects project conventions and
+        # prior decisions. The Agent prompt must thread SYSTEM_CONTEXT_RENDERED
+        # through as a top-level prompt section so the reviewer reads it.
+        self.assertIn(
+            "SYSTEM_CONTEXT_RENDERED",
+            self.text,
+            f"{self._MODE}-close Agent prompt must reference "
+            "SYSTEM_CONTEXT_RENDERED so xp-close-reviewer reads the "
+            "rendered stack/conventions/branching/key-decision-topic "
+            "context — without it the reviewer can't flag convention "
+            "or decision contradictions in the diff.",
+        )
 
     def test_reviewer_prompt_passes_close_cycle_id(self):
         # Critical: xp-close-reviewer's append.sh templates set

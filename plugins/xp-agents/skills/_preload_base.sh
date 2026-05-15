@@ -49,6 +49,17 @@ sprint_render_to_tempfile() {
     echo "$out"
 }
 
+# Emit `SYSTEM_CONTEXT_RENDERED=<tempfile>` to stdout for the given
+# reviewer kind, but only when system_context.json exists. Wraps the
+# file-existence guard + render-to-tempfile + KEY= prefix that
+# previously copy-pasted across 5 preload call sites. Single source of
+# truth for the env-var name plus the file-exists predicate.
+emit_system_context_rendered_for() {
+    local kind="$1"
+    [ -f "${SMM_DIR}/system_context.json" ] || return 0
+    echo "SYSTEM_CONTEXT_RENDERED=$(system_context_render_to_tempfile_for "$kind")"
+}
+
 # Render a reviewer-scoped subset of system_context.json to a tempfile.
 # Centralizes the section list so the four close-skill preloads share a
 # single source of truth (no inline --sections literals at call sites).
