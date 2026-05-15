@@ -178,9 +178,6 @@ def event_action(event: dict) -> str | None:
 #                                 materialize, resolution.
 #   METADATA_KEY_COMMIT_HASH    — git HEAD hash recorded on commit events
 #                                 (bash_post_tool.py).
-#   METADATA_KEY_PROBE_CANDIDATES — ids surfaced by the resolves-trailer
-#                                 probe; paired with the status-content
-#                                 discriminator below.
 #   METADATA_KEY_RESOLVED_BY_COMMITS — commit event IDs that informed an
 #                                 end-session auto-resolve decision (audit
 #                                 trail; orthogonal to RESOLVES which is the
@@ -189,7 +186,6 @@ def event_action(event: dict) -> str | None:
 METADATA_KEY_RESOLVES = "resolves"
 METADATA_KEY_SUPERSEDES = "supersedes"
 METADATA_KEY_COMMIT_HASH = "commit_hash"
-METADATA_KEY_PROBE_CANDIDATES = "probe_candidates"
 METADATA_KEY_RESOLVED_BY_COMMITS = "resolved_by_commits"
 
 # Concern metadata.kind discriminator vocabulary. Centralized so producer
@@ -218,80 +214,6 @@ METADATA_KEY_DEFER_UNTIL = "defer_until"
 METADATA_KEY_FLAGGED_STALE = "flagged_stale"
 METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
 
-# Per-candidate selector signals attached by resolves_probe._score_candidate
-# and persisted on probe status events so retro_metrics can attribute
-# divert events to specific signals (which selector misfired). Shape:
-#   {candidate_id: [reason1, reason2, ...]}
-# Reason vocabulary is the SELECTION_REASON_* constants below. An empty
-# list is ambiguous: it can mean either "old archived probe event predates
-# this metadata key" OR "all four signals scored zero on this candidate";
-# divert-analysis consumers must treat both cases as 'no signal data'.
-METADATA_KEY_PROBE_SELECTION_REASONS = "probe_selection_reasons"
-
-# Snapshot-freshness telemetry attached to probe status events. The
-# probe captures both:
-#   probe_snapshot_max_ts — newest ts in the caller's events snapshot at
-#                           probe entry, BEFORE any staleness reread.
-#   probe_tail_ts         — newest ts after the staleness check (post-
-#                           reread when triggered, same as snapshot_max
-#                           when not).
-# When they differ, the probe re-read disk between caller-snapshot and
-# probe-time. Lets retro_metrics distinguish "agent picked an event the
-# probe never saw" from "agent picked an event that arrived after the
-# caller snapshot but before commit" — the second class is closable by
-# the staleness reload, the first needs a different fix. Producer:
-# resolves_probe.find_probe_candidates (out_meta) +
-# resolves_probe.emit_probe_status (probe_meta). Consumers: future
-# divert classifier, retro analysis.
-METADATA_KEY_PROBE_SNAPSHOT_MAX_TS = "probe_snapshot_max_ts"
-METADATA_KEY_PROBE_TAIL_TS = "probe_tail_ts"
-
-# Selector-signal vocabulary for resolves_probe._score_candidate. Each
-# constant names a signal that contributed to a candidate's score and
-# appears in the candidate's selection_reasons list iff that signal
-# scored non-zero. Listed in the order _score_candidate emits them
-# (deterministic for test assertions).
-SELECTION_REASON_KEYWORD = "keyword"
-SELECTION_REASON_FILE_OVERLAP = "file_overlap"
-SELECTION_REASON_RECENCY = "recency"
-SELECTION_REASON_CLOSE_MODE = "close_mode"
-# Siblings axis: events from the same close-reviewer batch as a recent
-# close event surface even without keyword/file overlap. Closes the
-# probe-divert gap where in-batch siblings were missed because they had no
-# file or keyword tie to the current commit.
-SELECTION_REASON_IN_SPRINT_BATCH = "in_sprint_batch"
-# Widening for batched close-mode siblings: when in_sprint_batch AND
-# close_mode both fire and file_overlap is 0, score +1 and emit this
-# reason. Targets the outside-file-domain divert observed at 33% of
-# recent diverts (close-mode multi-resolves), where a legitimate
-# sibling fell off the top-5 cap because file_overlap=0 starved its
-# score. Tests for double-counting prevention live in
-# TestInBatchCloseNoOverlapWidening.
-SELECTION_REASON_IN_BATCH_CLOSE_NO_OVERLAP = "in_batch_close_no_overlap"
-
-# Divert-reason vocabulary written by retro_metrics._classify_divert_reason
-# into probe_divert_details[i]["reason"]. Each value names the cause class
-# of an agent's resolves choice falling outside the probe candidate set,
-# so retros can act on cause not just count. UNKNOWN is the catch-all so
-# no divert is silently uncategorized. Order matches first-match precedence
-# in the classifier. MISSING_EVENT and PROBE_SELECTION_MISS added by
-# story-005 after sprint-065 retro flagged 8/8 diverts as 'unknown'
-# (4/8 = rejected ID not in events.jsonl, 4/8 = in-domain probe miss).
-DIVERT_REASON_MISSING_EVENT = "missing-event"
-DIVERT_REASON_NEWER_THAN_SNAPSHOT = "newer-than-snapshot"
-DIVERT_REASON_OUTSIDE_FILE_DOMAIN = "outside-file-domain"
-DIVERT_REASON_CROSS_STORY = "cross-story"
-DIVERT_REASON_WRONG_TYPE = "wrong-type"
-DIVERT_REASON_PROBE_SELECTION_MISS = "probe-selection-miss"
-# NO_CANDIDATES is a probe-level signal (the candidate set itself was
-# empty), not an event-level miss. Bucketing here separates candidate-
-# generation failures from ranking misses so retros can act on the
-# right fix domain. Sprint-072 retro flagged 9 consecutive sub-50%
-# adoption periods with diverts that were really empty-candidate cases
-# misattributed as snapshot/selection misses.
-DIVERT_REASON_NO_CANDIDATES = "no-candidates"
-DIVERT_REASON_UNKNOWN = "unknown"
-
 # Retro Try disposition values written to metadata.disposition by
 # work_selection_decide (adopt/defer/drop) and read by retro_history,
 # subagent_start. Centralized to prevent producer/consumer drift.
@@ -302,11 +224,6 @@ DISPOSITION_DROPPED = "dropped"
 # STATUS_ACTION_QUESTION_CLOSE on a status event resolving a question id
 # via metadata.resolves.
 DISPOSITION_WONT_FIX = "wont_fix"
-
-# Resolves-trailer probe status event contract (consumed by retro_metrics):
-#   content f"{STATUS_CONTENT_RESOLVES_PROBE}: {N} candidates"
-#   metadata {METADATA_KEY_PROBE_CANDIDATES: [ids]}
-STATUS_CONTENT_RESOLVES_PROBE = "resolves_probe_shown"
 
 # Retrospective event metadata.action discriminators — distinguish session
 # retros from sprint retros so the session-start watermark scanner only

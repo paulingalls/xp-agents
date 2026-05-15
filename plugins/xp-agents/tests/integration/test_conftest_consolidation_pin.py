@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Pin: conftest re-exports are the single source of truth for shared fixtures.
 
-Story-016 (sprint-065 burndown). Resolves debt cb25d8f8b62b (split_frontmatter
-duplication), concern 102d00cdb802 (_MARKERS_PY duplication), concern
-38c0da52a079 (raw sys.path.insert in test_retro_flag_cascade.py).
+Resolves prior duplication concerns (split_frontmatter, _MARKERS_PY,
+raw sys.path.insert in test files).
 
 Three pins:
 
@@ -122,10 +121,9 @@ class TestConftestConsolidation(unittest.TestCase):
         self.assertEqual(hits[0].name, "_lint_fixtures.py")
 
     def test_single_normalize_path_identity_mixin_definition(self):
-        # Free-session debt-burndown (dab25036311b): the identity stub
+        # Free-session debt-burndown: the identity stub
         # `lambda p, _cwd: p` for `worktree.normalize_path` was inlined
-        # across 8+ test sites (test_retro_metrics, test_probe_adoption,
-        # test_resolves_probe). The setUp-mixin variant lives in
+        # across many test sites. The setUp-mixin variant lives in
         # tests/_worktree_fixtures.py — scoped `with patch(...)` blocks
         # in test_action_vocabulary_smoke / test_bash_commit_qr_linkage
         # are deliberately out of scope (different shape, mixin doesn't
@@ -164,9 +162,9 @@ class TestConftestConsolidation(unittest.TestCase):
             )
 
     def test_single_xp_preload_path_constant_definitions(self):
-        # Story-001 (sprint-068 burndown). Resolves debt d414ec71b89a:
-        # _XP_ACCEPT_PRELOAD and _XP_STORY_CLOSE_PRELOAD path constants
-        # were duplicated across 3 integration test files. Hoist to
+        # Resolves prior duplication: _XP_ACCEPT_PRELOAD and
+        # _XP_STORY_CLOSE_PRELOAD path constants were duplicated across 3
+        # integration test files. Hoist to
         # tests/integration/conftest.py so a single canonical site owns
         # the path. Pin scoped to integration/ — the constants are
         # integration-suite-only by purpose. One regex with alternation
