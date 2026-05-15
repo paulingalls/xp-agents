@@ -49,7 +49,13 @@ _SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
 # its entries alongside the code change so the commit is atomically
 # green. The roadmap is the 12 audit decisions in events.jsonl with
 # topic 'read-events-raw-audit-*'.
-_MIGRATED_SITES: list[tuple[str, Path, str | None]] = []
+_MIGRATED_SITES: list[tuple[str, Path, str | None]] = [
+    (
+        "load_events_with_resolutions",
+        _SCRIPTS_DIR / "_common.py",
+        "load_events_with_resolutions",
+    ),
+]
 
 
 def _function_node(

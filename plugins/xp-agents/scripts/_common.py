@@ -334,10 +334,13 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
 def load_events_with_resolutions(
     smm_dir: Path,
 ) -> tuple[list[dict], dict]:
-    """Read events.jsonl and compute resolutions in one call."""
+    """Read events.jsonl under shared flock and compute resolutions in one call."""
+    import read_delta
     import resolution
 
-    events = read_events_raw(smm_dir)
+    events = read_delta.read_delta_full(
+        smm_dir, "load-events-with-resolutions", update_watermark=False
+    )[0]
     return events, resolution.compute_resolutions(events)
 
 

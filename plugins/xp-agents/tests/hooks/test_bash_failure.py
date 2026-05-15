@@ -165,12 +165,15 @@ class TestResolveTestConcerns(_HookTestCase):
 class TestEventsReadDedup(_HookTestCase):
     """_handle_commit reads events.jsonl exactly once."""
 
-    def test_read_events_raw_called_once(self):
+    def test_events_read_once(self):
+        """Dedup: load_events_with_resolutions reads events.jsonl exactly once."""
+        import read_delta
+
         with (
             patch_commits(files=["src/app.py"], body="Fix"),
             patch(
-                "bash_post_tool._common.read_events_raw",
-                wraps=_common.read_events_raw,
+                "read_delta.read_delta_full",
+                wraps=read_delta.read_delta_full,
             ) as spy,
         ):
             bash_post_tool.run(
