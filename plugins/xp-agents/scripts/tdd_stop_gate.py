@@ -9,10 +9,14 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import coordination
+import read_delta
 import tdd_check
+
+_WATERMARK_ID = "tdd-stop-gate"
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -26,7 +30,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if smm_dir is None:
         return None
 
-    events = _common.read_events_raw(smm_dir)
+    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
+        0
+    ]
     if not events:
         return None
 

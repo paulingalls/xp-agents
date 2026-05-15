@@ -17,6 +17,7 @@ import concerns
 import coordination
 import marker_names
 import markers
+import read_delta
 import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -27,6 +28,8 @@ from event_schema import (
     STATUS_ACTION_PLAN_REVIEWED,
     STATUS_ACTION_SUBAGENT_COMPLETE,
 )
+
+_WATERMARK_ID = "subagent-stop"
 
 _HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
 _SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
@@ -225,7 +228,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _record_completion(smm_dir, agent_id, agent_type, completion_action)
 
-    events = _common.read_events_raw(smm_dir)
+    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
+        0
+    ]
     concern_events = concerns.detect_conflicts(events, agent_id)
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
