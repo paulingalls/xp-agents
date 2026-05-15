@@ -21,7 +21,9 @@ HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 echo "TEST_COMMAND=$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
-echo "CLOSE_CYCLE_ID=$(generate_id)"
+CLOSE_CYCLE_ID=$(generate_id)
+echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
+emit_close_started_event free "${CLOSE_CYCLE_ID}"
 # Arm the close-cycle Stop gate deterministically — prose-driven write
 # was unreliable when the LLM skipped or reordered the invocation.
 write_marker CLOSE_CYCLE_ACTIVE ""

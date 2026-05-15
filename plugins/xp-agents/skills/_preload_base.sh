@@ -110,6 +110,32 @@ now_iso() {
     python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat())"
 }
 
+# Emit a close_started status event for the security-bearing close
+# modes (sprint/free/plan). Sourced by retro_metrics.security_close_ran
+# to detect that a close skill with a Step 4 security review actually
+# ran this session, independent of whether /security-review fired or
+# reviewer concerns landed. Story-close does NOT call this — its
+# preload omits the helper, so story-close-only sessions correctly
+# leave security_close_ran=False.
+#
+# stdout is suppressed (returned event id is preload noise), but stderr
+# is intentionally left visible: this event gates the security-checks=0
+# Courage rule, so a silent failure here would disable the very rule
+# this helper exists to keep firing. `|| true` keeps preload servo
+# continuity, but the user sees the failure mode in stderr.
+#
+# Usage: emit_close_started_event sprint <CLOSE_CYCLE_ID>
+emit_close_started_event() {
+    local close_mode="$1"
+    local close_cycle_id="$2"
+    "${PLUGIN_ROOT}/smm/append.sh" --smm-dir "$SMM_DIR" \
+        --type status --agent "xp-${close_mode}-close" \
+        --content "Close-cycle started: ${close_mode}" \
+        --working-on '[]' \
+        --metadata "{\"action\":\"close_started\",\"close_mode\":\"${close_mode}\",\"close_cycle_id\":\"${close_cycle_id}\"}" \
+        >/dev/null || true
+}
+
 # Generate a 12-char hex ID matching event_builder.generate_id() shape.
 # Used by close-skill preloads to capture CLOSE_CYCLE_ID — the strict
 # scoper for the Step 6 auto-merge gate's count-classifications query.
