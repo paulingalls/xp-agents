@@ -36,9 +36,9 @@ If `SYSTEM_CONTEXT=<path>` is shown, read it for reference but do not modify it.
 
 ## Create Flow
 
-### Step 1: Source Gathering
+### Step 1: Source Gathering (ALWAYS)
 
-Ask the user via `AskUserQuestion`:
+**Unconditional gate — do not skip.** Ask the user via `AskUserQuestion`:
 
 > "What are the sources for this change? Provide file paths, paste content, or describe verbally."
 
