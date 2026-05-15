@@ -76,10 +76,8 @@ RETROSPECTIVE = _es.EVENT_TYPE_RETROSPECTIVE
 # agent, cleaned up by scripts/save_retrospective.py.
 RETRO_INPUT_FILENAME = ".retro-input.json"
 
-# Event types `find_probe_candidates` actually pools as resolvable
-# candidates. Single source of truth for "what counts as actionable
-# unresolved work" — used by the honesty signal in /xp-end-session
-# and by sibling matching in resolves_probe.
+# Event types that count as actionable unresolved work. Used by the
+# honesty signal in /xp-end-session.
 PROBE_RESOLVABLE_TYPES = (CONCERN, DEBT, DISCOVERY)
 
 
@@ -116,13 +114,13 @@ def prior_session_end_ts(events: list[dict]) -> str:
 
 
 def uncommitted_event_count(events: list[dict]) -> int:
-    """Count probe-resolvable events newer than the most recent commit.
+    """Count actionable unresolved events newer than the most recent commit.
 
     Only types in PROBE_RESOLVABLE_TYPES (concern/debt/discovery) count.
     Orchestration events (status, goal, retrospective, sprint, decision,
     question, answer, session_summary, etc.) are excluded — they aren't
-    probe targets, and counting them turns the honesty signal into noise
-    the user learns to ignore.
+    actionable work items, and counting them turns the honesty signal
+    into noise the user learns to ignore.
     """
     last_commit_idx = _last_index_of_type(events, COMMIT)
     return sum(

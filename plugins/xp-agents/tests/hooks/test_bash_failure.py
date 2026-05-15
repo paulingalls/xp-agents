@@ -22,7 +22,6 @@ from conftest import (
     _HookTestCase,
     _make_bash_failure_input,
     _make_bash_input,
-    _ProbeTestHelpers,
     make_event,
 )
 from event_helpers import events_of_type
@@ -226,44 +225,6 @@ class TestResolvesConcernsEventsKwarg(_HookTestCase):
             )
         mock_read.assert_not_called()
         self.assertTrue(result)
-
-
-class TestFindProbeCandidatesEventsKwarg(_ProbeTestHelpers, _HookTestCase):
-    """resolves_probe.find_probe_candidates events= kwarg backward compat."""
-
-    def test_events_none_reads_from_disk(self):
-        """events=None delegates to commits.open_issues_matching_commit."""
-        self._seed_auth_concern()
-        import resolves_probe
-
-        result = resolves_probe.find_probe_candidates(
-            self.smm_dir, ["scripts/auth.py"], [], str(self.smm_dir)
-        )
-        self.assertEqual(len(result), 1)
-
-    def test_events_provided_skips_disk_read(self):
-        """events= provided passes through to commits, skipping disk read.
-
-        now_ts pinned within the snapshot-staleness threshold of the seeded
-        event's default ts (2026-03-12) so the story-003 freshness reload
-        does NOT trigger — that path has its own test coverage in
-        TestFindProbeCandidatesSnapshotFreshness.
-        """
-        self._seed_auth_concern()
-        events = _common.read_events_raw(self.smm_dir)
-        import resolves_probe
-
-        with patch("commits._common.read_events_raw") as mock_read:
-            result = resolves_probe.find_probe_candidates(
-                self.smm_dir,
-                ["scripts/auth.py"],
-                [],
-                str(self.smm_dir),
-                events=events,
-                now_ts="2026-03-12T00:00:01+00:00",
-            )
-        mock_read.assert_not_called()
-        self.assertEqual(len(result), 1)
 
 
 class TestM2BashFailedAction(_HookTestCase):

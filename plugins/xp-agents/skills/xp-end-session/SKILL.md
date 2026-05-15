@@ -100,7 +100,7 @@ Retention is **N=5** entries — appending the 6th evicts the oldest. The pipe e
 
 ## Step 5: Honesty signal
 
-Surface the `### UNCOMMITTED` value to the user verbatim. The count is concerns/debts/discoveries newer than the last commit event — items the next session's resolves-trailer probe will see as open candidates.
+Surface the `### UNCOMMITTED` value to the user verbatim. The count is concerns/debts/discoveries newer than the most recent commit event (per `_common.uncommitted_event_count`).
 
 If `> 0`, suggest one of:
 - **Drop now** if the items are addressed conceptually but not formally resolved — append a status event with `metadata.resolves: [<id>]` (mirrors Step 3's auto-judge pattern).
