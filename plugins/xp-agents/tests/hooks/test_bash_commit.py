@@ -22,47 +22,13 @@ import _common
 import bash_post_tool
 import markers
 from _commit_helpers import patch_commits
-from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
+from conftest import _HookTestCase, _make_bash_input, make_event
 from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_STATUS,
-    STATUS_ACTION_QR_COMPLETE,
 )
-
-
-class TestPostCommitNoProbeEvent(_ProbeTestHelpers, _HookTestCase):
-    """Post-commit no longer emits probe status events (moved to pre-commit)."""
-
-    def _run_auth_commit(self):
-        with patch_commits(files=["scripts/auth.py"], body="Fix auth"):
-            return bash_post_tool.run(
-                _make_bash_input(
-                    command="git commit -m 'Fix auth'",
-                    stdout="[main abc123] Fix auth\n 1 file changed",
-                    cwd=str(self.smm_dir),
-                ),
-                smm_dir=self.smm_dir,
-            )
-
-    def test_no_nudge_text_returned(self):
-        self._seed_auth_concern()
-        _common.append_safe(
-            self.smm_dir,
-            make_event(
-                EVENT_TYPE_STATUS,
-                content="Quality review complete.",
-                metadata={"action": STATUS_ACTION_QR_COMPLETE},
-            ),
-        )
-        result = self._run_auth_commit()
-        self.assertIsNone(result)
-
-    def test_no_probe_event_from_post_commit(self):
-        self._seed_auth_concern()
-        self._run_auth_commit()
-        self.assertEqual(len(self._probes()), 0)
 
 
 class TestCommitRecordingDespiteXpAgentType(_HookTestCase):

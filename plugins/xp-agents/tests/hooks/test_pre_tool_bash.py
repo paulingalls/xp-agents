@@ -22,13 +22,11 @@ import security_scanner  # noqa: F401 - shim import: fail loudly if module renam
 from conftest import (
     _HookTestCase,
     _make_bash_input,
-    _ProbeTestHelpers,
     make_event,
 )
 from event_schema import (
     EVENT_TYPE_DECISION,
     EVENT_TYPE_GOAL,
-    METADATA_KEY_PROBE_CANDIDATES,
 )
 from markers import write_review_cycle
 
@@ -203,52 +201,6 @@ class TestIsCodeFile(_HookTestCase):
         self.assertFalse(code_files.is_code_file("LICENSE"))
         self.assertFalse(code_files.is_code_file("Makefile"))
         self.assertFalse(code_files.is_code_file("Dockerfile"))
-
-
-class TestResolvesTrailerReminder(_HookTestCase):
-    """Always remind about Resolves-Event trailer on commits."""
-
-    @patch("commits.get_staged_files", return_value=["src/app.py"])
-    def test_commit_without_trailer_gets_reminder(self, _mock):
-        result = pre_tool_bash.run(
-            _make_bash_input(command="git commit -m 'fix bug'"),
-            smm_dir=self.smm_dir,
-        )
-        result = self._assert_not_none(result)
-        self.assertIn("Resolves-Event:", result)
-
-    @patch("commits.get_staged_files", return_value=["src/app.py"])
-    def test_commit_with_trailer_no_reminder(self, _mock):
-        result = pre_tool_bash.run(
-            _make_bash_input(command="git commit -m 'fix bug\n\nResolves-Event: none'"),
-            smm_dir=self.smm_dir,
-        )
-        self.assertIsNone(result)
-
-
-class TestPreToolBashPassesCommitMessage(_ProbeTestHelpers, _HookTestCase):
-    """Pre-commit probe scoring uses commit_message for keyword ranking."""
-
-    @patch("commits.get_staged_files", return_value=["scripts/auth.py"])
-    def test_keyword_in_commit_message_ranks_matching_concern_first(self, _mock):
-        cid_no_keyword = self._seed_auth_concern("zzz cleanup")
-        cid_keyword = self._seed_auth_concern("tokens leak")
-
-        with contextlib.suppress(_common.BlockedError):
-            pre_tool_bash.run(
-                _make_bash_input(command="git commit -m 'fix tokens issue'"),
-                smm_dir=self.smm_dir,
-            )
-
-        probes = self._probes()
-        self.assertEqual(len(probes), 1)
-        candidates = probes[0]["metadata"][METADATA_KEY_PROBE_CANDIDATES]
-        self.assertLess(
-            candidates.index(cid_keyword),
-            candidates.index(cid_no_keyword),
-            "keyword-matching concern should rank higher when commit_message"
-            " carries the keyword",
-        )
 
 
 class TestTier1SecurityScan(_HookTestCase):

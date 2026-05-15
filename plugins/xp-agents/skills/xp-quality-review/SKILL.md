@@ -26,7 +26,9 @@ Post-simplify review. `/simplify` just ran (3 agents: code reuse, quality, effic
 
 ## Step 1: Spawn Independent Code Reviewer
 
-The PreToolUse:Skill hook automatically runs the resolves-trailer probe before this skill loads. If open concerns overlap changed files, the probe results appear in the hook's additionalContext above — relay them to the subagent.
+### Surface open concerns and debts overlapping the diff
+
+Before spawning the reviewer, scan the SMM for open events whose `files` overlap the changed paths. The xp-code-reviewer should see candidate `Resolves-Event:` IDs so its review covers whether the staged commit actually closes them, not just whether the code is clean in isolation. Run the open-issue lookup and include any matches in the subagent prompt under an `## Open Issues Overlapping Diff` section. When none overlap, say so explicitly — silence reads as missed analysis.
 
 ### Gather Simplify Findings
 

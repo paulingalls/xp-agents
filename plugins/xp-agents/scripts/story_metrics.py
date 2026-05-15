@@ -21,9 +21,8 @@ import triage
 # Re-export for backward compat — canonical impl lives in smm/triage.py
 extract_file_domain_paths = triage.extract_file_domain_paths
 
-# Canonical regexes for story-prefix detection. Imported by both the
-# post-commit attributor (bash_post_tool._resolve_story_id) and the
-# pre-commit story-prefix probe (story_probe.find_story_candidate).
+# Canonical regexes for story-prefix detection. Imported by the
+# post-commit attributor (bash_post_tool._resolve_story_id).
 STORY_PREFIX_RE = re.compile(r"^\s*\[(story-\d+)\]")
 BRACKET_PREFIX_RE = re.compile(r"^\s*\[")
 
@@ -57,8 +56,7 @@ def resolve_dominant_story(
       - overlap_count: count of files matching the winning story's domain
                        (0 when story_id is None)
 
-    Used by post-commit attribution (`_resolve_story_id` Tier 2b) and the
-    pre-commit story-prefix probe — keeping a single algorithm avoids drift.
+    Used by post-commit attribution (`_resolve_story_id` Tier 2b).
     """
     best_id: str | None = None
     best_overlap = 0
