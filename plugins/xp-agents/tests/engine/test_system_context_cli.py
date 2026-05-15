@@ -233,6 +233,129 @@ class TestRenderCommand(_SMMTestCase):
         self.assertIn("value", result.stdout)
 
 
+# ── render --sections / --topics-only ──────────────────────────
+
+
+class TestRenderSubsetFlags(_SMMTestCase):
+    """Reviewer-scoped render subsets.
+
+    Plan + close reviewers don't need the full ~7K-token document. The
+    `--sections` flag filters which top-level keys are rendered; the
+    `--topics-only` flag (subset of `--sections`) collapses `key_decisions`
+    to topic-bullets and `project_specific` to name-bullets, leaving the
+    rest full.
+    """
+
+    def _write_doc_with_decisions(self) -> None:
+        doc = valid_doc()
+        doc["key_decisions"] = [
+            {"topic": "hooks-first", "decision": "All agents are hooks"},
+            {"topic": "four-file", "decision": "events + sc + plan + sprint"},
+        ]
+        doc["project_specific"] = [
+            {"name": "lifecycle", "content": "story states ..."},
+            {"name": "tiers", "content": "review tiers ..."},
+        ]
+        write_doc(self.smm_dir, doc)
+
+    def test_sections_filter_keeps_only_named(self) -> None:
+        self._write_doc_with_decisions()
+        result = run_cli(
+            _CLI, ["render", "--sections", "stack,conventions"], self.smm_dir
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Stack", result.stdout)
+        self.assertIn("## Conventions", result.stdout)
+        self.assertNotIn("## Product", result.stdout)
+        self.assertNotIn("## Architecture Overview", result.stdout)
+        self.assertNotIn("## Modules", result.stdout)
+        self.assertNotIn("## Key Decisions", result.stdout)
+
+    def test_topics_only_collapses_key_decisions_to_topic_bullets(self) -> None:
+        self._write_doc_with_decisions()
+        result = run_cli(
+            _CLI,
+            [
+                "render",
+                "--sections",
+                "key_decisions",
+                "--topics-only",
+                "key_decisions",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("- hooks-first", result.stdout)
+        self.assertIn("- four-file", result.stdout)
+        self.assertNotIn("All agents are hooks", result.stdout)
+        self.assertNotIn("events + sc + plan + sprint", result.stdout)
+
+    def test_topics_only_collapses_project_specific_to_name_bullets(self) -> None:
+        self._write_doc_with_decisions()
+        result = run_cli(
+            _CLI,
+            [
+                "render",
+                "--sections",
+                "project_specific",
+                "--topics-only",
+                "project_specific",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("- lifecycle", result.stdout)
+        self.assertIn("- tiers", result.stdout)
+        self.assertNotIn("story states", result.stdout)
+        self.assertNotIn("review tiers", result.stdout)
+
+    def test_mixed_topics_only_and_full_section(self) -> None:
+        self._write_doc_with_decisions()
+        result = run_cli(
+            _CLI,
+            [
+                "render",
+                "--sections",
+                "stack,key_decisions",
+                "--topics-only",
+                "key_decisions",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Stack", result.stdout)
+        self.assertIn("Python", result.stdout)  # stack content present
+        self.assertIn("- hooks-first", result.stdout)  # kd as TOC
+        self.assertNotIn("All agents are hooks", result.stdout)  # kd body absent
+
+    def test_unknown_section_errors_with_valid_names(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI, ["render", "--sections", "stack,bogus_name"], self.smm_dir
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("bogus_name", result.stderr)
+        self.assertIn("stack", result.stderr)  # valid names listed
+
+    def test_topics_only_on_non_identifier_section_errors(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["render", "--sections", "stack", "--topics-only", "stack"],
+            self.smm_dir,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stack", result.stderr)
+
+    def test_topics_only_without_sections_errors(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI, ["render", "--topics-only", "key_decisions"], self.smm_dir
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--sections", result.stderr)
+
+
 # ── section ─────────────────────────────────────────────────────
 
 
