@@ -97,6 +97,18 @@ STATUS_ACTION_RETIRE_CONVENTION = "retire_convention"
 STATUS_ACTION_RETIRE_PROJECT_SPECIFIC = "retire_project_specific"
 STATUS_ACTION_RETIRE_ACCEPTANCE_SURFACE = "retire_acceptance_surface"
 
+# system_context_cli.py edit-* subcommands. Producer: system-context-cli
+# (non-hook). Each edit-X CLI patches one entry in a capped list and emits
+# a status event for traceability. Companion metadata: kind (singular) +
+# identifier (lookup key) + patched_keys (list of fields that changed; for
+# edit_convention this is always [] since conventions are bare strings and
+# the whole value is replaced rather than per-key patched).
+STATUS_ACTION_EDIT_PRINCIPLE = "edit_principle"
+STATUS_ACTION_EDIT_MODULE = "edit_module"
+STATUS_ACTION_EDIT_CONVENTION = "edit_convention"
+STATUS_ACTION_EDIT_PROJECT_SPECIFIC = "edit_project_specific"
+STATUS_ACTION_EDIT_ACCEPTANCE_SURFACE = "edit_acceptance_surface"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
