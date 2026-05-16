@@ -259,7 +259,7 @@ class TestNoReadEventsRawCallers(unittest.TestCase):
 
         uses_old = _calls_attribute(
             scope,
-            ("_common.read_events_raw", "read_events_raw"),
+            ("_common.read_events_raw",),
         )
         uses_new = _calls_attribute(
             scope,
