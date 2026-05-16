@@ -18,6 +18,11 @@ import system_context_schema
 # below — bump the window rather than weakening the scoped check.
 _UPDATE_MODE_WINDOW_CHARS = 500
 
+# Window large enough to cover the principles bullet + its 6-row routing
+# table + the "Not in system_context at all" trailing line (~1400 chars
+# today). Bump rather than weaken if the table grows.
+_ROUTING_TABLE_WINDOW_CHARS = 1500
+
 
 class TestHousekeeperPurposeFilters(unittest.TestCase):
     """M5: housekeeper prompt has per-pillar purpose filters."""
@@ -274,6 +279,45 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                     self.content,
                     f"Step 4 missing verbatim {label} phrase — analyzer "
                     "loses its discriminator lens",
+                )
+
+    def test_durability_lens_pinned(self):
+        """Opening sentence must set the durability bar — every entry
+        true a year from now without curation — so the LLM filters
+        ANY field, not just principles."""
+        self.assertIn(
+            "still be true a year from now without curation",
+            self.content,
+            "Top-of-prompt missing durability lens — analyzer loses "
+            "its global filter for transient content",
+        )
+
+    def test_principles_routing_table_pinned(self):
+        """The principles bullet routes misshapen entries to their
+        real destinations via a positive table + a 'nowhere' trailing
+        line. Window-scoped to the reversal-test anchor so unrelated
+        mentions elsewhere can't false-green the pin.
+        """
+        anchor = "reversed, makes this a different project"
+        self.assertIn(anchor, self.content)
+        start = self.content.index(anchor)
+        window = self.content[start : start + _ROUTING_TABLE_WINDOW_CHARS]
+        for needle, why in (
+            ("| Put it in |", "table header marker"),
+            ("`stack` field", "stack route"),
+            ("`architecture_overview`", "architecture_overview route"),
+            ("`modules`", "modules route"),
+            ("`conventions`", "conventions route"),
+            ("`project_specific`", "project_specific route"),
+            ("consolidate", "near-duplicate consolidation"),
+            ("Not in system_context at all", "nowhere trailing line"),
+        ):
+            with self.subTest(needle=why):
+                self.assertIn(
+                    needle,
+                    window,
+                    f"principles bullet missing {why} — routing table "
+                    "drifted or got dropped",
                 )
 
     def test_update_mode_retire_first_pinned(self):

@@ -11,7 +11,7 @@ model: inherit
 
 # System Context Analyst
 
-You produce `system_context.json` — a structured, standalone description of the product/system used by execution plans and sprint stories to provide broad context to every agent working on the codebase.
+You produce `system_context.json` — a durable, identity-shaped description of the product/system, read by execution plans, sprint stories, and reviewers. Every entry must still be true a year from now without curation; transient content (changelogs, status, implementation details that turn over with each refactor) belongs in git history or code comments instead.
 
 ## Before Starting
 
@@ -167,9 +167,20 @@ Before filling each capped list, apply its discriminator test. The test is the *
 
 - **`modules` — navigation-index test.** Could the agent navigate to this directory to find or place code? `where do I put new code` is the keep-test. If the entry describes the system rather than locating code, that belongs in `architecture_overview`. Exclude `docs/`, asset directories, empty placeholders, and implementation counts/tallies ("4490 test methods", "74 hook scripts") — those drift the moment anyone touches a file.
 
-- **`principles` — reversal test.** A principle, `reversed, makes this a different project`. A constraint, reversed, makes the same project behave differently. If reversal flips the project's identity, record it as a principle. If reversal only changes behavior, record it as a convention or an SMM Constraint event instead. Don't record bug fixes, version-stamped behavior changes, CLI flag additions, internal refactors, race-condition resolutions, naming conventions, or "this skill does X" entries — those belong in commit messages, tests, code comments, or SMM Constraints.
-
 - **`project_specific` — session-relevance test.** Would the agent reach for this `within the session` during execution, or is this reference material? Reference material → `docs/`. Operational domain content → here. Don't record registry duplicates (each skill/agent/module self-documents in its own .md), status updates ("current_phase: M3"), content over 500 chars, or architecture retold at section granularity.
+
+- **`principles` — reversal test.** A principle, `reversed, makes this a different project`. A constraint, reversed, makes the same project behave differently. If reversal flips the project's identity, record as a principle. Otherwise route by shape:
+
+  | If the entry is about | Put it in |
+  |---|---|
+  | Specific tech / library / version pick | `stack` field |
+  | Cross-component architectural pattern or data flow | `architecture_overview` |
+  | Navigable code directory the agent might edit | `modules` (apply navigation-index test) |
+  | Code-style or dev-process convention (factory pattern, per-story migrations, review tiers, file layout) | `conventions` |
+  | Operational domain knowledge needed within a session (glossary, lifecycle, layer map) | `project_specific` (apply session-relevance test) |
+  | Near-duplicate of an existing principle | consolidate into that entry |
+
+  Not in system_context at all: implementation details (dimensions, indexes, ID format), current phase or status, bug-fix / refactor / race-condition narratives — those live in code comments, git history, or sprint.json.
 
 ```json
 {
