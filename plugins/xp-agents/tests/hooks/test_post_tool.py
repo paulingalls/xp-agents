@@ -31,6 +31,8 @@ from event_schema import (
     EVENT_TYPE_STATUS,
 )
 
+_WATERMARK_ID = "test-post-tool"
+
 # ===========================================================================
 # post_tool_use.py tests — Milestone 3.3
 # ===========================================================================
@@ -42,7 +44,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(tool_response={"success": True}),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         # Path is normalized against cwd
@@ -60,7 +62,7 @@ class TestPostToolUse(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
 
@@ -76,7 +78,7 @@ class TestPostToolUse(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
 
@@ -85,7 +87,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(tool_response={"success": True}, cwd="/home/user"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(statuses[0]["working_on"], ["/home/user/src/app.ts"])
 
@@ -94,7 +96,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(agent_type="xp-housekeeper"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_graceful_no_smm_dir(self):
@@ -113,7 +115,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(tool_response={"success": True}),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         metadata = statuses[0].get("metadata") or {}
@@ -127,7 +129,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(tool_response={"success": True}, cwd="/home/user"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         normalized = "/home/user/src/app.ts"
         self.assertEqual(statuses[0]["working_on"], [normalized])
@@ -148,7 +150,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("overlap" in c["content"].lower() for c in concerns))
@@ -161,7 +163,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("stale" in c["content"].lower() for c in concerns))
 
@@ -176,7 +178,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("superseded" in c["content"].lower() for c in concerns))
 
@@ -190,7 +192,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
@@ -209,7 +211,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("convention" in c["content"].lower() for c in concerns))
 
@@ -225,7 +227,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(tool_input={"file_path": "src/b.ts", "content": "x"}),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
@@ -242,7 +244,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(tool_input={"file_path": "src/auth.ts", "content": "x"}),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) >= 1)
         refs = statuses[0].get("references", [])
@@ -260,7 +262,7 @@ class TestPostToolUse(_HookTestCase):
             _make_write_input(),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         refs = statuses[0].get("references", [])
         self.assertNotIn(d["id"], refs)
@@ -326,7 +328,7 @@ class TestPostToolExitPlan(_HookTestCase):
             {"session_id": "t", "agent_id": "main", "tool_name": "ExitPlanMode"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         gate = [e for e in events if "plan_awaiting_review" in e.get("content", "")]
         self.assertEqual(len(gate), 1)
         metadata = gate[0].get("metadata") or {}

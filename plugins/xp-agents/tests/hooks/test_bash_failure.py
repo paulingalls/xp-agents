@@ -27,6 +27,8 @@ from conftest import (
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
+_WATERMARK_ID = "test-bash-failure"
+
 
 class TestBashFailure(_HookTestCase):
     """Tests for bash_failure.py PostToolUseFailure handler."""
@@ -40,7 +42,7 @@ class TestBashFailure(_HookTestCase):
             command="pytest", error="exit 1", agent_type="xp-nav"
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_interrupt_skips(self):
@@ -48,7 +50,7 @@ class TestBashFailure(_HookTestCase):
             command="pytest", error="interrupted", is_interrupt=True
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_no_smm_dir_degrades(self):
@@ -58,7 +60,7 @@ class TestBashFailure(_HookTestCase):
     def test_non_test_command_ignored(self):
         inp = _make_bash_failure_input(command="ls -la", error="exit 2")
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_pytest_failure_records_status_and_concern(self):
@@ -67,7 +69,7 @@ class TestBashFailure(_HookTestCase):
             error="Command exited with non-zero status code 1",
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(statuses), 1)
@@ -79,7 +81,7 @@ class TestBashFailure(_HookTestCase):
     def test_jest_failure_records_concern(self):
         inp = _make_bash_failure_input(command="npx jest", error="exit code 1")
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertIn("jest", concerns[0]["content"].lower())
@@ -87,7 +89,7 @@ class TestBashFailure(_HookTestCase):
     def test_go_test_failure_records_concern(self):
         inp = _make_bash_failure_input(command="go test ./...", error="exit 1")
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertIn("go", concerns[0]["content"].lower())
@@ -98,7 +100,7 @@ class TestBashFailure(_HookTestCase):
             error="Command exited with non-zero status code 2",
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertIn("non-zero status code 2", statuses[0]["content"])
 
@@ -110,7 +112,7 @@ class TestBashFailure(_HookTestCase):
             command="pytest", error="x" * 500, framework="pytest"
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) > 0, "No status event written")
         budget = get_required_budget("status")
@@ -133,7 +135,7 @@ class TestBashFailureSecurity(_HookTestCase):
             command="pytest", error="exit 1", agent_id="../../evil"
         )
         self.mod.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
 
@@ -151,14 +153,14 @@ class TestResolveTestConcerns(_HookTestCase):
 
         bash_post_tool._resolve_test_concerns(self.smm_dir, "main")
 
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
         self.assertEqual(len(resolutions), 1)
 
     def test_no_concerns_no_resolution(self):
         """No test concerns -> no resolution events."""
         bash_post_tool._resolve_test_concerns(self.smm_dir, "main")
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
 
@@ -215,7 +217,7 @@ class TestResolvesConcernsEventsKwarg(_HookTestCase):
             severity="high",
         )
         _common.append_safe(self.smm_dir, concern)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         import concerns
 
         with patch("concerns.read_events_locked") as mock_read:
@@ -241,7 +243,7 @@ class TestM2BashFailedAction(_HookTestCase):
             exit_code=1,
         )
         bash_failure.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         metadata = statuses[0].get("metadata") or {}
@@ -255,7 +257,7 @@ class TestM2BashFailedAction(_HookTestCase):
         # Drop exit_code if any default added it (none in _make_bash_failure_input).
         inp.pop("exit_code", None)
         bash_failure.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         metadata = statuses[0].get("metadata") or {}
         self.assertEqual(metadata.get("action"), "bash_failed")

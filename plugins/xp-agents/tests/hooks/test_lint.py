@@ -25,6 +25,8 @@ from conftest import (
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION
 
+_WATERMARK_ID = "test-lint"
+
 # ===========================================================================
 # lint_check.py tests — Milestone 3.3
 # ===========================================================================
@@ -69,7 +71,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
         assert result is not None
         self.assertIn("linter", result.lower())
         # No question events written
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         questions = events_of_type(events, EVENT_TYPE_QUESTION)
         self.assertEqual(len(questions), 0)
         # Flag file should exist
@@ -82,7 +84,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         questions = events_of_type(events, EVENT_TYPE_QUESTION)
         self.assertEqual(len(questions), 0)
 
@@ -96,7 +98,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
@@ -113,7 +115,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
@@ -133,7 +135,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0].get("severity"), "medium")
@@ -154,7 +156,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
             )
             lint_check.run(inp, smm_dir=self.smm_dir)
             lint_check.run(inp, smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1, "Duplicate lint concern appended")
 
@@ -170,7 +172,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
@@ -179,7 +181,7 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
             _make_write_input(agent_type="xp-housekeeper"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_graceful_no_smm_dir(self):
@@ -490,7 +492,7 @@ class TestLintEditContextFilters(_LintTmpDirMixin, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertIsNone(result, "F401 must not surface at edit time")
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0, "F401 must not raise concern at edit time")
 
@@ -516,7 +518,7 @@ class TestLintEditContextFilters(_LintTmpDirMixin, _HookTestCase):
             )
         assert result is not None
         self.assertIn("E302", result)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
 
