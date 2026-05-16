@@ -27,6 +27,8 @@ from event_schema import (
     EVENT_TYPE_STATUS,
 )
 
+_WATERMARK_ID = "test-session-lifecycle"
+
 # ===========================================================================
 # session_end.py tests
 # ===========================================================================
@@ -60,7 +62,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         session_ends = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(session_ends), 1)
 
@@ -72,7 +74,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["event_count"], 2)
 
@@ -85,7 +87,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn(q["id"], se["unresolved_items"])
 
@@ -99,7 +101,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertNotIn(q["id"], se["unresolved_items"])
 
@@ -112,7 +114,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn(c["id"], se["unresolved_items"])
 
@@ -131,7 +133,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertNotIn(c["id"], se["unresolved_items"])
 
@@ -144,7 +146,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn("src/app.ts", se["working_on"])
 
@@ -155,7 +157,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["event_count"], 0)
         self.assertEqual(se["unresolved_items"], [])
@@ -172,7 +174,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn("duration_seconds", se)
         self.assertIsInstance(se["duration_seconds"], (int, float))
@@ -195,7 +197,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se_events = events_of_type(events, EVENT_TYPE_SESSION_END)
         se = se_events[-1]  # Get the one we just appended
         # Duration based on current session (10:00 to now), not 08:00
@@ -210,7 +212,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "user_logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertIn("user_logout", se["content"])
 
@@ -258,7 +260,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "x" * 100},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         budget = get_required_budget(EVENT_TYPE_SESSION_END)
         self.assertLessEqual(
@@ -281,7 +283,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(g1["id"], resolves)
@@ -315,7 +317,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[-1]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(current_goal["id"], resolves)
@@ -337,7 +339,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout", "cwd": "/home/user/project"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(main_goal["id"], resolves)
@@ -368,7 +370,7 @@ class TestSessionEnd(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         resolves = (se.get("metadata") or {}).get("resolves", [])
         self.assertIn(own_goal["id"], resolves)
@@ -385,7 +387,7 @@ class TestSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         meta = se.get("metadata") or {}
         self.assertNotIn("resolves", meta)
@@ -427,7 +429,9 @@ class TestStaleConcernSweep(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        flags = self._flag_concerns(_common.read_events_raw(self.smm_dir))
+        flags = self._flag_concerns(
+            _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        )
         self.assertEqual(len(flags), 1)
         self.assertEqual(flags[0].get("references"), [c["id"]])
         self.assertEqual(flags[0]["metadata"]["stale_session_count"], 4)
@@ -449,7 +453,12 @@ class TestStaleConcernSweep(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        self.assertEqual(self._flag_concerns(_common.read_events_raw(self.smm_dir)), [])
+        self.assertEqual(
+            self._flag_concerns(
+                _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+            ),
+            [],
+        )
 
     def test_resolved_concern_not_flagged(self):
         import session_end
@@ -475,7 +484,12 @@ class TestStaleConcernSweep(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        self.assertEqual(self._flag_concerns(_common.read_events_raw(self.smm_dir)), [])
+        self.assertEqual(
+            self._flag_concerns(
+                _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+            ),
+            [],
+        )
 
     def test_multiple_stale_concerns_all_flagged(self):
         """Given multiple stale concerns, every one gets a flag in one sweep
@@ -498,7 +512,9 @@ class TestStaleConcernSweep(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        flags = self._flag_concerns(_common.read_events_raw(self.smm_dir))
+        flags = self._flag_concerns(
+            _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        )
         flagged_origs = {f.get("references", [None])[0] for f in flags}
         self.assertEqual(flagged_origs, {c1["id"], c2["id"]})
 
@@ -531,7 +547,9 @@ class TestStaleConcernSweep(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        flags = self._flag_concerns(_common.read_events_raw(self.smm_dir))
+        flags = self._flag_concerns(
+            _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        )
         self.assertEqual(len(flags), 1)
         self.assertEqual(flags[0]["id"], existing_flag["id"])
 
@@ -555,7 +573,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["agent_id"], "worktree-story-001")
 
@@ -568,7 +586,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "done", "cwd": "/home/user/project"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
         self.assertEqual(se["agent_id"], "main")
 
@@ -597,7 +615,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = [
             e
             for e in events
@@ -617,7 +635,7 @@ class TestTeammateSessionEnd(_HookTestCase):
             {"session_id": "test", "reason": "done", "cwd": "/home/user/project"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = [
             e
             for e in events
