@@ -10,12 +10,15 @@ Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Review-cycle/teammates deferrals are intentionally NOT applied — the
 close cycle wants to block mid-cycle by design.
 
-stop_hook_active bypass: when Claude Code re-fires Stop with
-stop_hook_active=True (its loop-prevention flag), passing through is
-necessary to avoid an infinite loop if the agent can't follow the
-block directive. To keep the bypass visible (instead of silently
-terminating mid-cycle), the gate records a concern + emits stderr
-when the bypass coincides with an active CLOSE_CYCLE_ACTIVE marker.
+stop_hook_active bypass: Claude Code latches `stop_hook_active=True`
+session-wide once any Stop hook returns a `reason` (e.g.,
+`session_end_warning`'s nudge) — it does NOT reset per-turn. Once the
+flag is True, this gate's block message can no longer reach the agent
+reliably, so the gate records a high-severity concern + emits stderr
+(loud signal) AND consumes the CLOSE_CYCLE_ACTIVE marker
+(abandoned-cycle signal). The concern + recovery prose tells the user
+to manually finish the cycle next session; the marker clear prevents
+the gate from re-firing every subsequent Stop in the session.
 """
 
 import sys
@@ -53,13 +56,19 @@ _BYPASS_STDERR = (
 
 
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
-    """Record a concern + emit stderr when the bypass fires.
+    """Record a concern, emit stderr, and consume the marker on bypass.
 
     `_common.append_safe` swallows LockTimeoutError internally and logs
     to hook_errors.jsonl, so the bypass record is best-effort by
     construction — no extra try/except needed. The stderr write is
     sequenced FIRST so the minimum signal lands even if append_safe is
     bypassed by a future regression.
+
+    Marker consumption is sequenced LAST: by the time we get here, the
+    cycle is empirically abandoned (stop_hook_active=True is latched
+    session-wide). Leaving the marker would make every subsequent Stop
+    in the session re-fire this gate and record duplicate concerns.
+    `marker_consume` swallows OSError internally — best-effort.
     """
     sys.stderr.write(_BYPASS_STDERR)
     agent_id = identity.resolve_agent_id(input_data)
@@ -71,6 +80,7 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
         metadata={"kind": event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS},
     )
     _common.append_safe(smm_dir, concern)
+    markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:

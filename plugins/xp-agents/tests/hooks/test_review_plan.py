@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _system_context_fixtures import write_doc as write_system_context_doc
 from conftest import (
     _IntegrationTestCase,
     write_smm_fixture,
@@ -165,6 +166,59 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         marker = self.smm_dir / ".last-plan-path"
         self.assertTrue(marker.exists())
         self.assertEqual(marker.read_text().strip(), str(plan_path))
+
+    def test_preload_emits_system_context_rendered_when_present(self):
+        """SYSTEM_CONTEXT_RENDERED= path emitted when system_context.json exists.
+
+        Plan-reviewer gets the WHERE layer of the layered read path
+        (system_context=WHERE / milestone=WHY / story=WHAT) — without it
+        the reviewer cites the model conceptually but never sees it.
+        """
+        write_system_context_doc(self.smm_dir)
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SYSTEM_CONTEXT_RENDERED=", result.stdout)
+        # Content should NOT be in stdout — path only.
+        self.assertNotIn("A test product.", result.stdout)
+
+    def test_preload_omits_system_context_when_missing(self):
+        """No SYSTEM_CONTEXT_RENDERED= when system_context.json doesn't exist."""
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("SYSTEM_CONTEXT_RENDERED=", result.stdout)
+
+    def test_preload_system_context_tempfile_carries_plan_reviewer_subset(self):
+        """Rendered tempfile contains the plan-reviewer subset.
+
+        Plan-reviewer needs product+architecture+modules+stack+conventions
+        full, plus key_decisions topics-only. No project_specific bodies.
+        """
+        write_system_context_doc(self.smm_dir)
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Extract the path
+        line = next(
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("SYSTEM_CONTEXT_RENDERED=")
+        )
+        rendered_path = Path(line.split("=", 1)[1])
+        self.assertTrue(rendered_path.exists(), f"tempfile {rendered_path} missing")
+        rendered = rendered_path.read_text()
+        self.assertIn("## Product", rendered)
+        self.assertIn("## Architecture Overview", rendered)
+        self.assertIn("## Stack", rendered)
+        self.assertIn("## Conventions", rendered)
+        self.assertIn("## Key Decisions (topics)", rendered)
+        # key_decisions content collapsed to topic bullet
+        self.assertIn("- language", rendered)
+        self.assertNotIn("Use Python", rendered)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,45 @@
 # Changelog
 
+## v3.1.39 — free session: skill hardening, reviewer-scoped system_context, close-cycle bypass diagnosis
+
+Free-session sprint resolving sprint-083 retro carry-forwards. Eight commits on `paulingalls/free-2026-05-15-harden-skills-tries-context`.
+
+### Skill discipline: autonomy-nudge bypass guard (commit `07495156`)
+
+A Claude Code `<system-reminder>` ("work without stopping for clarifying questions") was mis-applied as license to skip prescribed `AskUserQuestion` gates in `/xp-kickoff` Step 2 (session mode) and `/xp-plan` Step 1 (source gathering). Both gates now carry an inline `**Unconditional gate — do not skip.**` marker; `/xp-plan` Step 1 gains the `(ALWAYS)` header convention used elsewhere. New pin test `test_skill_askuserquestion_discipline.py` asserts the marker is present in the right region of each SKILL.md; tightened to a stable ASCII prefix so an em-dash auto-format normalization doesn't silently break the pin. Discipline lives at the two specific sites that were bypassed — most other `AskUserQuestion` calls are correctly conditional, so no universal rule lands in PROCESS_GUIDE.
+
+### file_domain drift: stop polluting open-event surface (commit `e8e91044`)
+
+`xp-story-close` Step 1b previously appended a `--type concern --kind file_domain_drift` event on every drift, re-polluting the open-concern surface each sprint close. Convention `9074fed13abf` declares drift a planning signal that retro surfaces from `cascade_size`, not from concern events. The Step 1b emission is gone; `validate-domain` runs with stdout silenced (drift writes naturally to stderr); `|| true` keeps the close pipeline non-blocking on drift-over-tolerance. The close-reviewer agent still raises drift as a Concern bullet when severity warrants — independent emission path, unaffected. Pin test ensures the emission can't silently return.
+
+### Reviewer-scoped system_context renders (commits `f5c6754d`, `fd1714ef`, `62bfc19e`)
+
+`system_context.json` is loaded into the main agent's session-start context, but the two highest-leverage reviewers (`xp-plan-reviewer`, `xp-close-reviewer`) previously saw none of it. The plan-reviewer cited the layered "system_context=WHERE / milestone=WHY / story=WHAT" model in its instructions without actually receiving the WHERE; the close-reviewer reviewed diffs without knowing the project's stack, conventions, or prior architectural decisions. Goal #3 wires both with scoped subsets at a fraction of full-file token cost.
+
+**Commit A — CLI foundation:** `system_context_cli.py render` gains `--sections <csv>` and `--topics-only <csv>` flags. `--topics-only` collapses sections with identifier fields (`topic` for `key_decisions`, `name` for `project_specific`) to TOC bullets, leaving other sections full. Renderer consolidated through a single internal `render_subset(data, sections, topics_only, include_doc_header)` entry point; `render_markdown` and `render_section` become explicit thin wrappers. The function raises ValueError on misuse (ineligible `topics_only`) so direct Python callers fail loud.
+
+**Commit B — plan-reviewer wiring + PROCESS_GUIDE:** New `system_context_render_to_tempfile_for <kind>` helper in `_preload_base.sh` centralizes the per-reviewer section subset. `xp-review-plan/scripts/preload.sh` emits `SYSTEM_CONTEXT_RENDERED=<tempfile>` when `system_context.json` exists; `xp-plan-reviewer.md` Inputs section adds the file as the WHERE layer. PROCESS_GUIDE gains a tight `### System Context` section listing the readers, the create/refresh skill, the patch CLI subcommands, and the empty-`test_command` auto-merge consequence. Plan-reviewer subset (~1.8K tokens) renders product/architecture/stack/modules/conventions/branching/acceptance full + key_decisions/project_specific topics-only.
+
+**Commit C — close-reviewer wiring (4 close skills):** All four close-skill preloads (story/sprint/plan/free) emit `SYSTEM_CONTEXT_RENDERED` via a new `emit_system_context_rendered_for <kind>` helper (5 call sites collapse to a one-liner per the simplify rule-of-three). Each close-SKILL's `Agent()` prompt threads `SYSTEM_CONTEXT_RENDERED=<SYSTEM_CONTEXT_RENDERED>` to `xp-close-reviewer`; the reviewer agent is updated to Read the file when present and use it to flag convention/decision contradictions in the diff. Close-reviewer subset (~0.9K tokens) renders stack/conventions/branching full + key_decisions topics-only.
+
+### Design doc: system_context redesign (commit `1780332f`)
+
+`docs/ideas/SYSTEM_CONTEXT_REDESIGN.md` captures the audit + design discussion that ran across this session — drop `sources` (dead field with no consumer), rename `key_decisions` → `principles` with a reversal-test definition, tighten `modules.purpose` cap 200→100ch with a navigation-index discipline, add string-length + count caps on every uncapped leaf, new `retire-*` CLI subcommands + soft/hard cap warnings. Appendix lists 28 retirement candidates from this project's bloated `key_decisions` (42 → 14 architectural principles). Source for next-session's `/xp-plan`.
+
+### close_started literal pin (commit `d38d8e89`)
+
+`_preload_base.sh:emit_close_started_event` hardcodes the literal `"close_started"` in metadata JSON; `retro_metrics.security_close_ran` filters on the `STATUS_ACTION_CLOSE_STARTED` constant. Prior coverage only checked the runtime-emitted shape via another hardcoded literal at the consumer side — a bash-side typo could silently disable the security_checks=0 Courage rule with no test turning red. New pin test scopes its regex to `emit_close_started_event`'s function body (via brace-depth walk) so a future sibling helper adding `"action":"X"` elsewhere in the file can't false-pass. The adjacent consumer helper at `test_close_preloads_emit_shared.py:462` also imports the constant so producer and consumer pins now share a single failure surface.
+
+### Close-cycle bypass: diagnosis + structural fix (commit `af8be2f9`)
+
+Recurring concern `764dbea8d4b7` ("close-cycle gate bypassed: stop_hook_active=True with marker still set") had recurred across two consecutive sessions without root-cause investigation. Transcript analysis of session `136b9973` produced an empirical diagnosis: **Claude Code latches `stop_hook_active=True` session-wide once any Stop hook returns a `reason`** (e.g., `session_end_warning`'s nudge). It does NOT reset per-turn. Evidence: `session_end_warning` fired at 06:19:59 with a "Session-end checklist: 1 unresolved concern" reason; the flag stayed True through 45 minutes of work + many skill invocations until the single `close_cycle_stop_gate` fire at 07:05:49. Once the flag is latched, the gate's block message can no longer reach the agent reliably — the safety net is defeated.
+
+Fix: when the bypass fires, the gate also consumes the `CLOSE_CYCLE_ACTIVE` marker. The cycle is empirically abandoned (the latched flag disables every subsequent gate fire); leaving the marker would cause duplicate concerns on every Stop for the rest of the session. The high-severity concern + stderr recovery prose remain — the user still sees what happened and what to do next session. Test renamed and assertion flipped; module + function docstrings rewritten to explain the structural reasoning without project-local IDs (which the historical-IDs emitter guard would otherwise reject).
+
+### Deferred to next session
+
+Try #3 (retire `_common.read_events_raw`) was deferred — the original Try description estimated "17 sites" but the actual scope is 142 test sites across 35 files. The Try itself said "at next /xp-plan" and naturally pairs with the system_context redesign sprint.
+
 ## v3.1.38 — sprint-083: probe surface retired, EVENT_CATEGORY enum, read_events_raw audit, security gate scoping
 
 Sprint-083 shipped 6 stories.

@@ -18,9 +18,10 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
 }
 
 # Clean up temp files from previous preload runs.
-# These are created by smm_render_to_tempfile/sprint_render_to_tempfile
-# and are safe to remove once the previous skill has finished.
-find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" \) -exec rm -f {} + 2>/dev/null || true
+# These are created by smm_render_to_tempfile/sprint_render_to_tempfile/
+# system_context_render_to_tempfile_for and are safe to remove once the
+# previous skill has finished.
+find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" -o -name ".system-context-rendered.*" \) -exec rm -f {} + 2>/dev/null || true
 
 dump_smm() {
     if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
@@ -45,6 +46,74 @@ sprint_render_to_tempfile() {
     local out
     out=$(mktemp "${SMM_DIR}/.sprint-rendered.XXXXXX")
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" render > "$out" 2>/dev/null
+    echo "$out"
+}
+
+# Emit `SYSTEM_CONTEXT_RENDERED=<tempfile>` to stdout for the given
+# reviewer kind, but only when system_context.json exists. Wraps the
+# file-existence guard + render-to-tempfile + KEY= prefix that
+# previously copy-pasted across 5 preload call sites. Single source of
+# truth for the env-var name plus the file-exists predicate.
+emit_system_context_rendered_for() {
+    local kind="$1"
+    local rendered
+    [ -f "${SMM_DIR}/system_context.json" ] || return 0
+    # Propagate render failure: $() swallows rc otherwise, leaving an
+    # empty `SYSTEM_CONTEXT_RENDERED=` line in preload output that the
+    # downstream Read fails loud on. Skipping emission keeps the failure
+    # signal at the helper's stderr (already loud) instead of downstream.
+    rendered=$(system_context_render_to_tempfile_for "$kind") || return 1
+    echo "SYSTEM_CONTEXT_RENDERED=$rendered"
+}
+
+# Render a reviewer-scoped subset of system_context.json to a tempfile.
+# Centralizes the section list so the four close-skill preloads share a
+# single source of truth (no inline --sections literals at call sites).
+#
+# Usage: system_context_render_to_tempfile_for <kind>
+#   kind=plan-reviewer  → product/architecture/stack/modules/conventions/
+#                         branching/acceptance full + key_decisions and
+#                         project_specific topics-only (~1.8K tokens)
+#   kind=close-reviewer → stack/conventions/branching full + key_decisions
+#                         topics-only (~0.9K tokens)
+# Echoes the tempfile path on stdout. Non-zero exit on unknown kind.
+#
+# Adding a new caller? Update the System Context reader list in
+# PROCESS_GUIDE.md in the same commit (the list is user-facing and should
+# stay in sync with actual readers).
+system_context_render_to_tempfile_for() {
+    local kind="$1"
+    local out rc sections topics_only empty
+    case "$kind" in
+        plan-reviewer)
+            sections="product,architecture_overview,stack,modules,conventions,branching_strategy,acceptance_surfaces,key_decisions,project_specific"
+            topics_only="key_decisions,project_specific"
+            ;;
+        close-reviewer)
+            sections="stack,conventions,branching_strategy,key_decisions"
+            topics_only="key_decisions"
+            ;;
+        *)
+            echo "system_context_render_to_tempfile_for: unknown kind '$kind'" >&2
+            return 1
+            ;;
+    esac
+    out=$(mktemp "${SMM_DIR}/.system-context-rendered.XXXXXX")
+    python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
+        render --sections "$sections" --topics-only "$topics_only" \
+        > "$out" 2>/dev/null
+    rc=$?
+    # Catch silent-empty render: a future schema rename that desyncs the
+    # --sections literals from the renderer would otherwise produce an
+    # empty tempfile with rc=0 (stderr swallowed). Fail loud so callers
+    # don't pass a fake-looking path downstream.
+    empty=1
+    [ -s "$out" ] && empty=0
+    if [ "$rc" -ne 0 ] || [ "$empty" -eq 1 ]; then
+        echo "system_context_render_to_tempfile_for: render failed (rc=$rc empty=$empty)" >&2
+        rm -f "$out"
+        return 1
+    fi
     echo "$out"
 }
 

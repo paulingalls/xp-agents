@@ -13,7 +13,7 @@ model: inherit
 
 # Close-Branch Reviewer
 
-A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary. The invoking prompt carries `SMM_DIR=<path>` plus five sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`, `## Close Cycle ID`).
+A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary. The invoking prompt carries `SMM_DIR=<path>` and (when system_context.json exists) `SYSTEM_CONTEXT_RENDERED=<path>`, plus five sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`, `## Close Cycle ID`).
 
 ## Step 1: Read Review Input
 
@@ -26,6 +26,8 @@ Read these five values from your invoking prompt:
 - `## Close Cycle ID` — 12-hex CLOSE_CYCLE_ID for this cycle (substitute into Step 4 metadata so the abort-default count-concerns query scopes to this cycle)
 
 If any section is missing, return immediately and say so.
+
+If the invoking prompt provides `SYSTEM_CONTEXT_RENDERED=<path>`, Read that file: it carries the project's stack, conventions, branching strategy, and key-decision topics. Use it to evaluate whether the diff respects project conventions and prior decisions — a diff that contradicts a named convention or a key_decisions topic is a Concern (or Block when severity warrants). When the prompt omits the line (`<SYSTEM_CONTEXT_RENDERED>` placeholder unsubstituted, or empty after `=`), no system_context.json exists for this project; review on diff and SMM_DIR alone.
 
 ## Step 2: Capture the Diff
 

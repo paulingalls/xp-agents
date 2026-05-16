@@ -31,7 +31,7 @@ Output the render CLI's stdout to the user before continuing.
 
 ## Step 2: Session mode (ALWAYS)
 
-Ask the user via AskUserQuestion: **"Free session or Sprint session?"**
+**Unconditional gate — do not skip.** Ask the user via AskUserQuestion: **"Free session or Sprint session?"**
 
 - **Free session** — for brainstorming, Q&A, bug fixes, or any work that doesn't need sprint scaffolding.
 - **Sprint session** — for planned work with product spec, sprint stories, and acceptance criteria.

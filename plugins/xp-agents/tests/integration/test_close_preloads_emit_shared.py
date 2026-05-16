@@ -32,6 +32,7 @@ import markers
 from _bases import _PLUGIN_ROOT
 from _close_fixtures import _ClosePreloadCommonTests
 from conftest import _extract_preload_var, _IntegrationTestCase
+from event_metadata import STATUS_ACTION_CLOSE_STARTED
 
 
 class _SharedPreloadAssertions(_ClosePreloadCommonTests):
@@ -459,7 +460,7 @@ def _close_started_events(smm_dir: Path) -> list[dict]:
         except _json.JSONDecodeError:
             continue
         md = e.get("metadata") or {}
-        if md.get("action") == "close_started":
+        if md.get("action") == STATUS_ACTION_CLOSE_STARTED:
             out.append(e)
     return out
 

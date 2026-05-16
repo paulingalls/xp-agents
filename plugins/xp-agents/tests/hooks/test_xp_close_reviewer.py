@@ -94,6 +94,22 @@ class TestCloseReviewerAgent(unittest.TestCase):
         self.assertNotIn("Edit", frontmatter)
         self.assertNotIn("Write", frontmatter)
 
+    def test_body_directs_read_of_system_context_rendered(self):
+        # Close-reviewer must Read SYSTEM_CONTEXT_RENDERED when the
+        # close-skill Agent prompt provides it — gives the reviewer the
+        # stack/conventions/branching/key-decision-topic context it needs
+        # to flag diff contradictions. Pin the variable name in the body
+        # so a refactor that drops the instruction fails loud.
+        body = self.text.split("---", 2)[2]
+        self.assertIn(
+            "SYSTEM_CONTEXT_RENDERED",
+            body,
+            "xp-close-reviewer body must direct the agent to Read the "
+            "SYSTEM_CONTEXT_RENDERED tempfile when the invoking prompt "
+            "provides it — without it the reviewer can't cite project "
+            "conventions or prior decisions in its Concern/Block bullets.",
+        )
+
     def test_metadata_template_includes_close_cycle_id(self):
         # Critical: without close_cycle_id in the metadata template,
         # severity=high quality Blocks recorded by the reviewer fall

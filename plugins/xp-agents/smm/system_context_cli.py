@@ -29,7 +29,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import system_context_store as store
-from system_context_renderer import render_markdown, render_section
+from system_context_renderer import (
+    ALL_SECTIONS,
+    TOPICS_ONLY_ELIGIBLE,
+    render_section,
+    render_subset,
+)
 from system_context_schema import validate_system_context
 
 # ── CLI commands ────────────────────────────────────────────────
@@ -65,8 +70,52 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if data is None:
         print("No system context found.", file=sys.stderr)
         return 1
-    print(render_markdown(data))
+
+    sections = _split_csv(args.sections) if args.sections else None
+    topics_only = _split_csv(args.topics_only) if args.topics_only else None
+
+    if topics_only and not sections:
+        print(
+            "--topics-only requires --sections (each topics-only name must "
+            "also appear in --sections)",
+            file=sys.stderr,
+        )
+        return 1
+
+    if sections:
+        unknown = [s for s in sections if s not in ALL_SECTIONS]
+        if unknown:
+            print(
+                f"Unknown section(s): {', '.join(unknown)}. Valid: "
+                f"{', '.join(ALL_SECTIONS)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    if topics_only:
+        ineligible = [t for t in topics_only if t not in TOPICS_ONLY_ELIGIBLE]
+        if ineligible:
+            print(
+                f"--topics-only not supported for: {', '.join(ineligible)}. "
+                f"Eligible: {', '.join(sorted(TOPICS_ONLY_ELIGIBLE))}",
+                file=sys.stderr,
+            )
+            return 1
+        missing = [t for t in topics_only if t not in (sections or [])]
+        if missing:
+            print(
+                f"--topics-only names must also appear in --sections: "
+                f"{', '.join(missing)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    print(render_subset(data, sections=sections, topics_only=topics_only))
     return 0
+
+
+def _split_csv(raw: str) -> list[str]:
+    return [s.strip() for s in raw.split(",") if s.strip()]
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
@@ -348,7 +397,18 @@ def main() -> None:
 
     sub.add_parser("exists", help="Check if system context exists")
     sub.add_parser("validate", help="Validate system context")
-    sub.add_parser("render", help="Render as markdown")
+    render_p = sub.add_parser("render", help="Render as markdown")
+    render_p.add_argument(
+        "--sections",
+        help="Comma-separated section names to render (default: all)",
+    )
+    render_p.add_argument(
+        "--topics-only",
+        help=(
+            "Comma-separated subset of --sections to render as identifier "
+            "bullets only (eligible: key_decisions, project_specific)"
+        ),
+    )
     sub.add_parser("create", help="Create from stdin JSON")
 
     section_p = sub.add_parser("section", help="Render one section")

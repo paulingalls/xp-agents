@@ -46,6 +46,7 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 echo "TEST_COMMAND=$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
+emit_system_context_rendered_for close-reviewer
 emit_hook_guidance "$HOOK_STATUS"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM

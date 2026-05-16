@@ -36,6 +36,20 @@ class TestPlanReviewerPin(unittest.TestCase):
             f"missing agent file: {_AGENT_PATH}",
         )
 
+    def test_body_directs_read_of_system_context_rendered(self):
+        # Plan-reviewer must Read SYSTEM_CONTEXT_RENDERED when the preload
+        # emits it — that's the WHERE layer of the layered read path. Pin
+        # the variable name in the body so a refactor that drops the
+        # instruction fails loud.
+        self.assertIn(
+            "SYSTEM_CONTEXT_RENDERED",
+            self.body,
+            "xp-plan-reviewer body must direct the agent to Read the "
+            "SYSTEM_CONTEXT_RENDERED tempfile when present — without it "
+            "the reviewer cites the layered read path conceptually but "
+            "never sees the WHERE.",
+        )
+
     def test_body_pairs_acceptance_execution_with_file_domain(self):
         # Both literals must appear in the BODY (not just frontmatter) so the
         # agent prompt actually instructs the coherence check at review time.

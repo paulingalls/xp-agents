@@ -23,6 +23,7 @@ echo "CLOSE_START_TS=$(now_iso)"
 CLOSE_CYCLE_ID=$(generate_id)
 echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
 emit_close_started_event plan "${CLOSE_CYCLE_ID}"
+emit_system_context_rendered_for close-reviewer
 # Arm the close-cycle Stop gate deterministically — prose-driven write
 # was unreliable when the LLM skipped or reordered the invocation.
 write_marker CLOSE_CYCLE_ACTIVE ""
