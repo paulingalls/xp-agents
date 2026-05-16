@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.1.41 — sprint-086 (M-4 read_events_locked migration) + edit-* CLI for capped lists + analyzer principles routing
+
+### M-4: extract `_common.read_events_locked` helper (sprint-086)
+
+`scripts/_common.py` gains `read_events_locked(smm_dir, slug) -> list[dict]` as the canonical wrapper for the locked-read pattern that was duplicated across ~17 sites. Story-001 lands the helper + the AST guard extension that accepts it as a valid migration target. Story-002 migrates 13 canonical sites (8 in `scripts/` + 5 in `skills/*/scripts/`) plus drops the now-unused `import read_delta` at each. Story-003 migrates the 4 atypical multi-line sites (`concerns.py` 2x, `lint_resolution.py`, `_common.load_events_with_resolutions`), documents `prompt_nugget.py:61` as the legitimate exception (advances watermark, uses both tuple elements), and adds a whole-directory AST guard (`TestNoInlineCanonicalReadDeltaFull`) that fails CI on any future re-introduction of the inline pattern outside the helper's own body.
+
+### `edit-*` CLI for capped lists
+
+`system_context_cli.py` gains five `edit-*` subcommands symmetric with `retire-*`: `edit-module`, `edit-principle`, `edit-convention`, `edit-project-specific`, `edit-acceptance-surface` (commit `3e3ba882`). The four object-shaped commands accept a JSON patch on stdin (`{"field": "new value"}`; `null` clears a key); `edit-convention` takes a JSON-encoded replacement string and looks up by index or substring (mirrors `retire-convention`).
+
+Why: `/xp-system-context` had no surface for single-field refinement on an existing capped-list entry — the analyzer fell back to `create` (whole-file rewrite, overwrites every field) or `retire+add` (loses the entry's `ts`/`source` metadata). The new commands merge a patch into the matched entry, re-validate via the whole-doc save path (`ValueError` rolls back without saving or emitting an event), and short-circuit on no-op patches.
+
+Implementation lives in new `smm/system_context_edit_cli.py`, re-exported via the split-shim convention. 5 new `STATUS_ACTION_EDIT_*` constants registered in `_NON_HOOK_PRODUCERS`. Shared `resolve_convention_index` helper extracted from `retire_cli` and consumed by both retire-convention + edit-convention.
+
+Tests: `TestEditCommands` + `TestEditConvention` + `TestEditNullClearsKey` etc., split into a new `test_system_context_cli_edit.py`. `TestRetireCommands` extracted alongside into `test_system_context_cli_retire.py` per the proactive-file-split convention (`test_system_context_cli.py` was 964 lines, now ~768).
+
+### Analyzer prompt: durability lens + principles routing table
+
+`agents/xp-system-analyzer.md` gains two load-bearing additions discovered after auditing the analyzer's output across two real projects (commits `25bd028e`, `c897c6ba`):
+
+1. **Durability lens at top.** New opening sentence: *"Every entry must still be true a year from now without curation; transient content (changelogs, status, implementation details that turn over with each refactor) belongs in git history or code comments instead."* Filters every field, not just principles.
+
+2. **Positive routing table on the principles bullet** replaces the prior negative trailing list. 6 rows route the common misshapen entries to their real destinations (`stack` field, `architecture_overview`, `modules`, `conventions`, `project_specific`, or "consolidate" for near-duplicates). One trailing line names the non-destinations (implementation details, phase status, bug-fix/refactor/race-condition narratives → code comments, git history, sprint.json). Field discipline bullets reordered to `modules` → `project_specific` → `principles` so the table's destinations are already-defined by the time the analyzer reads it.
+
+The analyzer prompt + `PROCESS_GUIDE.md` are also taught about the new `edit-*` subcommands — Update-mode gains a refinement paragraph alongside the existing cap-awareness paragraph. PROCESS_GUIDE's System Context paragraph collapses the per-CLI enumeration to `add-*` / `edit-*` / `retire-*` family references.
+
+### Known issue
+
+Schema validators (`_validate_module`, `_validate_principle`, `_validate_project_specific_entry`, `_validate_acceptance_surface_entry`) accept unknown keys silently — a typo like `{"naem": "x"}` would persist to disk through any of `add-*`, `edit-*`, or `create`. Pre-existing surface; filed as debt `7431a629b4b1`, not addressed in this release.
+
+Tests: 4791 → 4817.
+
 ## v3.1.40 — sprint-084 + sprint-085: system_context redesign (M-1 + M-2) + close-cycle bypass age gate
 
 ### Breaking change: `add-decision` CLI renamed to `add-principle`
