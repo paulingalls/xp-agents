@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.1.40 — sprint-084 + sprint-085: system_context redesign (M-1 + M-2) + close-cycle bypass age gate
+
+### Breaking change: `add-decision` CLI renamed to `add-principle`
+
+The `system_context_cli.py add-decision` subcommand was renamed to `add-principle` as part of the schema field rename `key_decisions` → `principles`. Out-of-tree scripts invoking `add-decision` will fail with `invalid choice: 'add-decision'` at first run after upgrade. There is no alias / deprecation shim — the rename landed atomically (decision `b6107e89b7db`). Migration: replace every `add-decision` invocation with `add-principle`; the stdin JSON schema is unchanged.
+
+### Schema rename + soft/hard count caps + string caps (sprint-084 M-1)
+
+`system_context.json` schema canonicalized: `key_decisions` → `principles`; `sources` field dropped. Existing on-disk files load cleanly via silent canonicalization in `load_system_context` (in-memory only — see issue note below). 9 new string caps and 5 count-cap pairs (soft / hard) land as named constants in `system_context_schema.py`. CLI gates `add-*` writes: at soft cap, stderr warns and write succeeds; at hard cap, the command refuses non-zero and names the matching `retire-*` subcommand. Pattern lives in `_COUNT_CAP_TABLE` as the single source of truth. Schema constants are pinned by `TestCountCaps`.
+
+### Retire-\* CLI subcommands (sprint-084 M-1)
+
+Five new subcommands hard-delete an entry from a capped list and emit a status event for traceability: `retire-principle <topic>`, `retire-module <name>`, `retire-project-specific <name>`, `retire-acceptance-surface <name>`, `retire-convention <index-or-substring>`. Substring path resolves to one entry (0 → not-found, ≥2 → ambiguous). Retire-\* family extracted to `system_context_retire_cli.py` via the documented re-export shim convention. New `STATUS_ACTION_RETIRE_*` event-metadata constants registered in `_NON_HOOK_PRODUCERS`.
+
+### `add-project-specific` CLI gate (sprint-085 M-2)
+
+`project_specific` entries now route through `_COUNT_CAP_TABLE` like the other four capped lists. Sprint-084 added the constants and the `retire-project-specific` CLI but left the add path bypassing the gate — the constants were decorative. Wired as a two-line delegator to `_cmd_append_to_list`. Argparse + dispatch dict reordered so `add-*` entries match `_COUNT_CAP_TABLE` order (modules, conventions, principles, project_specific, acceptance_surfaces) for scan consistency.
+
+### Analyzer prompt + PROCESS_GUIDE: discriminator framing (sprint-085 M-2)
+
+`xp-system-analyzer.md` Step 4 rewritten with per-field discriminator tests and negation framing — keeping principles identity-shaped rather than diary-shaped. Four discriminator phrases (navigation-index for modules, reversal for principles, session-relevance for `project_specific`, retire-first guidance under Update mode) are pinned verbatim by `test_agent_prompts.py` so future prompt drift breaks loudly. `PROCESS_GUIDE.md` §System Context surfaces the reversal-test discriminator + the principles soft/hard caps + `retire-principle` as the over-cap remedy. Preload subset literals (`_preload_base.sh`) flip `key_decisions` → `principles` for plan-reviewer and close-reviewer renders. The analyzer Step 4 JSON template is synced to the actual schema caps with per-field cap annotations; sync-test extension pins 14 string caps + 5 count caps via per-case subTests so per-field drift can't first-fail-mask-rest.
+
+### Close-cycle bypass age gate (sprint-084 M-1 follow-on)
+
+`close_cycle_stop_gate._record_bypass` previously consumed the `CLOSE_CYCLE_ACTIVE` marker unconditionally when `stop_hook_active=True` was observed with the marker present. Claude Code latches `stop_hook_active` session-wide once any Stop hook returns a reason, so an earlier latch BEFORE a genuine close cycle started caused the first Stop after the cycle to burn the just-written marker. Fix: gate marker consumption on marker file mtime age via new `_CLOSE_CYCLE_AGE_THRESHOLD_SEC = 600`. Young markers stay so `xp-close-reviewer` consumes them normally on the same cycle; old (abandoned) markers still get consumed so subsequent Stops don't re-fire the gate.
+
+### Known issue: legacy on-disk format not auto-rewritten
+
+`load_system_context` canonicalizes legacy `key_decisions` / `sources` in-memory but does not auto-save the canonical shape — legacy files stay legacy on disk until an `add-*` / `retire-*` / `edit-*` op triggers `save_system_context`. The planned one-release backward-compat window will silently never close for projects that only read the file. Tracked as concern `ed63c17e572d`; fix lands in a future release (opportunistic write-on-load or a one-shot migration CLI).
+
 ## v3.1.39 — free session: skill hardening, reviewer-scoped system_context, close-cycle bypass diagnosis
 
 Free-session sprint resolving sprint-083 retro carry-forwards. Eight commits on `paulingalls/free-2026-05-15-harden-skills-tries-context`.

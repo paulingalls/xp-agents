@@ -186,22 +186,22 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             "never fires — close-cycle MUST NOT auto-resume",
         )
 
-    def test_stop_hook_active_bypass_records_concern_and_consumes_marker(self):
-        """Loud-bypass instrumentation with marker cleanup.
+    def test_stop_hook_active_bypass_with_young_marker_keeps_safety_net(self):
+        """Loud-bypass instrumentation; young marker preserved.
 
         When Claude Code fires Stop with stop_hook_active=True AND the
         CLOSE_CYCLE_ACTIVE marker is still set, the gate:
           1. Records a high-severity concern + emits stderr (loud signal).
-          2. Consumes the marker so subsequent Stops don't re-fire the
-             gate on what is empirically a session-abandoned cycle.
+          2. Leaves the marker in place IF younger than the cycle-age
+             threshold — protects a genuine in-progress cycle whose
+             stop_hook_active was latched by an unrelated earlier hook.
 
         Root cause: Claude Code latches stop_hook_active=True
         session-wide once any Stop hook returns a 'reason' — does NOT
-        reset per-turn. Once it fires for the first time inside a close
-        cycle, the gate's safety net is permanently disabled for the
-        rest of the session. Clearing the marker is the cleanest "this
-        cycle is abandoned" signal; the concern + recovery prose tells
-        the user what to do next session.
+        reset per-turn. The age gate distinguishes a recently-started
+        (likely genuine) cycle from a truly abandoned one. Unit-level
+        coverage for the old-marker-consumed branch lives in
+        tests/hooks/test_close_cycle_stop_gate.py.
         """
         import event_schema
         import markers
@@ -242,15 +242,14 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             "exactly one close_cycle_bypass concern must be recorded",
         )
 
-        # Marker consumed — the bypass treats the cycle as abandoned so
-        # subsequent Stops don't re-fire the gate on every turn for the
-        # rest of the session (stop_hook_active stays latched).
-        self.assertFalse(
+        # Young marker preserved — likely a genuine in-progress cycle
+        # whose stop_hook_active was latched by an unrelated earlier
+        # hook. xp-close-reviewer will consume it normally when it runs.
+        self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
-            "bypass must consume the marker — the cycle is abandoned, "
-            "and stop_hook_active=True will stay latched session-wide. "
-            "Leaving the marker would cause every subsequent Stop to "
-            "re-fire the gate and record duplicate concerns.",
+            "young marker must be preserved on bypass — the cycle is "
+            "likely still in-flight, and xp-close-reviewer will consume "
+            "the marker normally.",
         )
 
     def test_stop_hook_active_without_marker_no_concern(self):

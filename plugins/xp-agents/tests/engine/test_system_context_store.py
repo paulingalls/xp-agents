@@ -118,5 +118,39 @@ class TestSaveSystemContext(_SMMTestCase):
             save_system_context(self.smm_dir, doc)
 
 
+class TestLoadCanonicalization(_SMMTestCase):
+    def _legacy_doc(self) -> dict:
+        return {
+            "product": "Legacy product.",
+            "architecture_overview": "Legacy architecture.",
+            "stack": {"languages": ["Python"]},
+            "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
+            "conventions": ["Use type hints"],
+            "key_decisions": [{"topic": "language", "decision": "Use Python"}],
+            "sources": ["CLAUDE.md", "README.md"],
+            "project_specific": [],
+        }
+
+    def test_load_canonicalizes_legacy_key_decisions(self) -> None:
+        path = self.smm_dir / SYSTEM_CONTEXT_FILENAME
+        legacy = self._legacy_doc()
+        path.write_text(json.dumps(legacy))
+        result = load_system_context(self.smm_dir)
+        assert result is not None
+        self.assertIn("principles", result)
+        self.assertNotIn("key_decisions", result)
+        self.assertNotIn("sources", result)
+        self.assertEqual(result["principles"], legacy["key_decisions"])
+
+    def test_load_legacy_sources_only_fails_missing_principles(self) -> None:
+        path = self.smm_dir / SYSTEM_CONTEXT_FILENAME
+        legacy = self._legacy_doc()
+        del legacy["key_decisions"]
+        path.write_text(json.dumps(legacy))
+        with self.assertRaises(ValueError) as ctx:
+            load_system_context(self.smm_dir)
+        self.assertIn("Missing required field: principles", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

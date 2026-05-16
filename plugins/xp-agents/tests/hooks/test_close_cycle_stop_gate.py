@@ -91,6 +91,80 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIn("Recovery:", stderr)
         self.assertIn("xp-close-reviewer", stderr)
 
+    def test_bypass_keeps_young_marker(self):
+        """Young marker (< threshold) stays put on bypass — preserves
+        the safety net for a genuine in-progress cycle when
+        stop_hook_active was latched by an unrelated earlier hook
+        (concern 07ab750a5487)."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "young marker must be preserved on bypass",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+
+    def test_bypass_consumes_old_marker(self):
+        """Old marker (>= threshold) is consumed — cycle empirically
+        abandoned, avoids re-firing the gate on every subsequent Stop."""
+        import os
+
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        backdate_sec = close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC + 60
+        old_mtime = marker_path.stat().st_mtime - backdate_sec
+        os.utime(marker_path, (old_mtime, old_mtime))
+
+        close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "old marker must be consumed on bypass",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+
+    def test_bypass_handles_stat_race_without_crashing(self):
+        """If the marker vanishes between marker_exists() and stat()
+        (theoretical race; rare in practice), the gate still records the
+        concern + stderr but skips the consume cleanly. Simulated by
+        making marker_exists lie 'present' for CLOSE_CYCLE_ACTIVE only
+        (ASKING_USER must still return False) — stat() then raises
+        FileNotFoundError because no file was written to disk."""
+        from unittest.mock import patch
+
+        import close_cycle_stop_gate
+        import markers
+
+        def _selective_marker_exists(_smm_dir, marker, _agent_id=""):
+            return marker == markers.CLOSE_CYCLE_ACTIVE
+
+        with patch(
+            "close_cycle_stop_gate.markers.marker_exists",
+            side_effect=_selective_marker_exists,
+        ):
+            close_cycle_stop_gate.run(
+                _make_stop_input(stop_hook_active=True),
+                smm_dir=self.smm_dir,
+            )
+
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+
     def test_no_block_when_asking_user(self):
         """Defer when AskUserQuestion dialogue is in flight."""
         import close_cycle_stop_gate

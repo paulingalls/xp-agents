@@ -34,7 +34,8 @@ import scaffold_detect
 import scaffold_plan
 
 # Re-export shim — `from scaffold_cli import _cmd_apply_*` keeps working
-# for callers that imported from here before the sprint-082 split.
+# for callers that imported from here before the apply-* family was
+# extracted into scaffold_cli_apply.
 from scaffold_cli_apply import (
     _cmd_apply_commit,
     _cmd_apply_install,

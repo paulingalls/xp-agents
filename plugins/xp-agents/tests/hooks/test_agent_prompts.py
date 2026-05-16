@@ -12,6 +12,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import system_context_schema
 
+# Window large enough to cover the entire 'Update-mode cap awareness'
+# paragraph (~480 chars today). If the paragraph grows past this, the
+# pin will report 'soft cap' or 'retire-' missing even when present
+# below — bump the window rather than weakening the scoped check.
+_UPDATE_MODE_WINDOW_CHARS = 500
+
 
 class TestHousekeeperPurposeFilters(unittest.TestCase):
     """M5: housekeeper prompt has per-pillar purpose filters."""
@@ -149,6 +155,200 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
             self.content,
             f"Step 4 template must say 'max {expected} chars' for "
             "product — schema/markdown drift detected",
+        )
+
+    def test_field_string_caps_pinned_in_template(self):
+        """Every leaf string cap from system_context_schema must appear
+        in the analyzer template as 'max N chars'."""
+        cases = (
+            (
+                "stack.languages item",
+                system_context_schema.STACK_LANGUAGE_ITEM_MAXLENGTH,
+            ),
+            ("stack field", system_context_schema.STACK_FIELD_MAXLENGTH),
+            ("modules.name", system_context_schema.MODULE_NAME_MAXLENGTH),
+            ("modules.path", system_context_schema.MODULE_PATH_MAXLENGTH),
+            (
+                "modules.purpose",
+                system_context_schema.MODULE_FIELD_MAXLENGTH["purpose"],
+            ),
+            ("conventions item", system_context_schema.CONVENTION_MAXLENGTH),
+            ("principles.topic", system_context_schema.PRINCIPLE_TOPIC_MAXLENGTH),
+            (
+                "principles.decision",
+                system_context_schema.PRINCIPLE_FIELD_MAXLENGTH["decision"],
+            ),
+            (
+                "principles.rationale",
+                system_context_schema.PRINCIPLE_FIELD_MAXLENGTH["rationale"],
+            ),
+            (
+                "project_specific.name",
+                system_context_schema.PROJECT_SPECIFIC_NAME_MAXLENGTH,
+            ),
+            (
+                "project_specific.content",
+                system_context_schema.PROJECT_SPECIFIC_CONTENT_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.name",
+                system_context_schema.ACCEPTANCE_SURFACE_NAME_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.harness",
+                system_context_schema.ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.signal",
+                system_context_schema.ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
+            ),
+        )
+        for field, expected in cases:
+            with self.subTest(field=field):
+                self.assertIn(
+                    f"max {expected} chars",
+                    self.content,
+                    f"Step 4 template missing 'max {expected} chars' for "
+                    f"{field} — schema/markdown drift detected",
+                )
+
+    def test_count_caps_pinned_in_template(self):
+        """Soft/hard count caps for capped lists must appear in the
+        template as 'N soft / M hard'. Bullet-formatted for scanability.
+        """
+        cases = (
+            (
+                "modules",
+                system_context_schema.MODULES_SOFT_CAP,
+                system_context_schema.MODULES_HARD_CAP,
+            ),
+            (
+                "conventions",
+                system_context_schema.CONVENTIONS_SOFT_CAP,
+                system_context_schema.CONVENTIONS_HARD_CAP,
+            ),
+            (
+                "principles",
+                system_context_schema.PRINCIPLES_SOFT_CAP,
+                system_context_schema.PRINCIPLES_HARD_CAP,
+            ),
+            (
+                "project_specific",
+                system_context_schema.PROJECT_SPECIFIC_SOFT_CAP,
+                system_context_schema.PROJECT_SPECIFIC_HARD_CAP,
+            ),
+            (
+                "acceptance_surfaces",
+                system_context_schema.ACCEPTANCE_SURFACES_SOFT_CAP,
+                system_context_schema.ACCEPTANCE_SURFACES_HARD_CAP,
+            ),
+        )
+        for field, soft, hard in cases:
+            with self.subTest(field=field):
+                self.assertIn(
+                    f"{soft} soft / {hard} hard",
+                    self.content,
+                    f"Step 4 template missing '{soft} soft / {hard} hard' "
+                    f"for {field} — schema/markdown drift detected",
+                )
+
+    def test_discriminator_phrases_pinned(self):
+        """Verbatim discriminator-test phrases from SYSTEM_CONTEXT_REDESIGN
+        §2/§3 must appear in Step 4. Without these the rename to
+        `principles` and the tightened field definitions lose the
+        analytical lens that resists diary-shaped accumulation.
+        """
+        cases = (
+            (
+                "negation framing",
+                "Record what defines this project, not what was decided along the way",
+            ),
+            ("reversal test", "reversed, makes this a different project"),
+            ("navigation-index test", "where do I put new code"),
+            ("session-relevance test", "within the session"),
+        )
+        for label, phrase in cases:
+            with self.subTest(phrase=label):
+                self.assertIn(
+                    phrase,
+                    self.content,
+                    f"Step 4 missing verbatim {label} phrase — analyzer "
+                    "loses its discriminator lens",
+                )
+
+    def test_update_mode_retire_first_pinned(self):
+        # Scope substring check to the "Update-mode cap awareness" anchor
+        # so an unrelated `retire-module` mention elsewhere can't satisfy
+        # the pin — without the window, the assertion is decorative.
+        anchor = "Update-mode cap awareness"
+        self.assertIn(
+            anchor,
+            self.content,
+            "Step 4 must contain the 'Update-mode cap awareness' "
+            "anchor so cap-aware retire-first guidance is locatable",
+        )
+        start = self.content.index(anchor)
+        window = self.content[start : start + _UPDATE_MODE_WINDOW_CHARS]
+        for needle, why in (
+            ("retire-", "cite a retire-* subcommand"),
+            ("soft cap", "reference 'soft cap' for the trigger"),
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(
+                    needle,
+                    window,
+                    f"Update-mode cap awareness paragraph must {why}",
+                )
+
+
+class TestProcessGuideSystemContext(unittest.TestCase):
+    """PROCESS_GUIDE.md's System Context section must surface the
+    reversal-test discriminator so contributors learn the principle-vs-
+    convention discipline without opening the analyzer prompt. Also
+    pin the principle cap numbers and the retire-principle CLI mention
+    so the guide stays in sync with the schema. All pins scope to the
+    "### System Context" section — caps like "15" appear elsewhere in
+    the guide (Constraints pillar), so a file-wide substring would
+    false-green if the section dropped the principles-specific text.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = Path(__file__).parent.parent.parent / "PROCESS_GUIDE.md"
+        cls.content = path.read_text()
+        anchor = "### System Context"
+        start = cls.content.index(anchor)
+        end = cls.content.index("###", start + len(anchor))
+        cls.section = cls.content[start:end]
+
+    def test_reversal_test_phrase_present(self):
+        self.assertIn(
+            "reversed, makes this a different project",
+            self.section,
+            "PROCESS_GUIDE.md §System Context must cite the reversal "
+            "test so contributors learn the discriminator without "
+            "opening the analyzer prompt",
+        )
+
+    def test_principles_caps_present(self):
+        soft = system_context_schema.PRINCIPLES_SOFT_CAP
+        hard = system_context_schema.PRINCIPLES_HARD_CAP
+        for value in (str(soft), str(hard)):
+            with self.subTest(cap=value):
+                self.assertIn(
+                    value,
+                    self.section,
+                    f"PROCESS_GUIDE.md §System Context must mention "
+                    f"the principles cap value {value} so the guide "
+                    "stays in sync with system_context_schema",
+                )
+
+    def test_retire_principle_cited(self):
+        self.assertIn(
+            "retire-principle",
+            self.section,
+            "PROCESS_GUIDE.md §System Context must cite "
+            "retire-principle so contributors know the over-cap remedy",
         )
 
 
