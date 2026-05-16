@@ -12,6 +12,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import system_context_schema
 
+# Window large enough to cover the entire 'Update-mode cap awareness'
+# paragraph (~480 chars today). If the paragraph grows past this, the
+# pin will report 'soft cap' or 'retire-' missing even when present
+# below — bump the window rather than weakening the scoped check.
+_UPDATE_MODE_WINDOW_CHARS = 500
+
 
 class TestHousekeeperPurposeFilters(unittest.TestCase):
     """M5: housekeeper prompt has per-pillar purpose filters."""
@@ -245,6 +251,105 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                     f"Step 4 template missing '{soft} soft / {hard} hard' "
                     f"for {field} — schema/markdown drift detected",
                 )
+
+    def test_discriminator_phrases_pinned(self):
+        """Verbatim discriminator-test phrases from SYSTEM_CONTEXT_REDESIGN
+        §2/§3 must appear in Step 4. Without these the rename to
+        `principles` and the tightened field definitions lose the
+        analytical lens that resists diary-shaped accumulation.
+        """
+        cases = (
+            (
+                "negation framing",
+                "Record what defines this project, not what was decided along the way",
+            ),
+            ("reversal test", "reversed, makes this a different project"),
+            ("navigation-index test", "where do I put new code"),
+            ("session-relevance test", "within the session"),
+        )
+        for label, phrase in cases:
+            with self.subTest(phrase=label):
+                self.assertIn(
+                    phrase,
+                    self.content,
+                    f"Step 4 missing verbatim {label} phrase — analyzer "
+                    "loses its discriminator lens",
+                )
+
+    def test_update_mode_retire_first_pinned(self):
+        # Scope substring check to the "Update-mode cap awareness" anchor
+        # so an unrelated `retire-module` mention elsewhere can't satisfy
+        # the pin — without the window, the assertion is decorative.
+        anchor = "Update-mode cap awareness"
+        self.assertIn(
+            anchor,
+            self.content,
+            "Step 4 must contain the 'Update-mode cap awareness' "
+            "anchor so cap-aware retire-first guidance is locatable",
+        )
+        start = self.content.index(anchor)
+        window = self.content[start : start + _UPDATE_MODE_WINDOW_CHARS]
+        for needle, why in (
+            ("retire-", "cite a retire-* subcommand"),
+            ("soft cap", "reference 'soft cap' for the trigger"),
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(
+                    needle,
+                    window,
+                    f"Update-mode cap awareness paragraph must {why}",
+                )
+
+
+class TestProcessGuideSystemContext(unittest.TestCase):
+    """PROCESS_GUIDE.md's System Context section must surface the
+    reversal-test discriminator so contributors learn the principle-vs-
+    convention discipline without opening the analyzer prompt. Also
+    pin the principle cap numbers and the retire-principle CLI mention
+    so the guide stays in sync with the schema. All pins scope to the
+    "### System Context" section — caps like "15" appear elsewhere in
+    the guide (Constraints pillar), so a file-wide substring would
+    false-green if the section dropped the principles-specific text.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = Path(__file__).parent.parent.parent / "PROCESS_GUIDE.md"
+        cls.content = path.read_text()
+        anchor = "### System Context"
+        start = cls.content.index(anchor)
+        end = cls.content.index("###", start + len(anchor))
+        cls.section = cls.content[start:end]
+
+    def test_reversal_test_phrase_present(self):
+        self.assertIn(
+            "reversed, makes this a different project",
+            self.section,
+            "PROCESS_GUIDE.md §System Context must cite the reversal "
+            "test so contributors learn the discriminator without "
+            "opening the analyzer prompt",
+        )
+
+    def test_principles_caps_present(self):
+        soft = system_context_schema.PRINCIPLES_SOFT_CAP
+        hard = system_context_schema.PRINCIPLES_HARD_CAP
+        for value in (str(soft), str(hard)):
+            with self.subTest(cap=value):
+                self.assertIn(
+                    value,
+                    self.section,
+                    f"PROCESS_GUIDE.md §System Context must mention "
+                    f"the principles cap value {value} so the guide "
+                    "stays in sync with system_context_schema",
+                )
+
+    def test_retire_principle_cited(self):
+        self.assertIn(
+            "retire-principle",
+            self.section,
+            "PROCESS_GUIDE.md §System Context must cite "
+            "retire-principle so contributors know the over-cap remedy",
+        )
 
 
 class TestWorkSelectionUsesScheduledStatus(unittest.TestCase):
