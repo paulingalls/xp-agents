@@ -29,7 +29,6 @@ import _common
 import coordination
 import identity
 import markers
-import read_delta
 import sprint_state
 import worktree
 from event_schema import EVENT_TYPE_SPRINT, SPRINT_ACTION_END
@@ -109,9 +108,7 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
     if not sprint_id:
         return None
 
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     if not _has_sprint_end_event(events, sprint_id):
         return _REVIEW_MESSAGE
     return None

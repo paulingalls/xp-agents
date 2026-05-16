@@ -21,7 +21,6 @@ import git_commits
 import identity
 import lint_resolution
 import markers
-import read_delta
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
@@ -315,9 +314,7 @@ def _prior_commit_was_test_only(smm_dir: Path) -> bool:
     file lists or a missing prior commit return False — defaulting to
     "treat failures as regressions" is honest about what we don't know.
     """
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     for e in reversed(events):
         if e.get("type") != _common.COMMIT:
             continue
