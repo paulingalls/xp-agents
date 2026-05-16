@@ -159,6 +159,18 @@ Detect the project's full automated-test command and populate `stack.test_comman
 
 ### Step 4: Build system_context JSON
 
+**Record what defines this project, not what was decided along the way.**
+
+#### Field discipline
+
+Before filling each capped list, apply its discriminator test. The test is the *keep* rule — anything that doesn't pass goes to a code comment, a convention, an SMM Constraint event, or `docs/` instead.
+
+- **`modules` — navigation-index test.** Could the agent navigate to this directory to find or place code? `where do I put new code` is the keep-test. If the entry describes the system rather than locating code, that belongs in `architecture_overview`. Exclude `docs/`, asset directories, empty placeholders, and implementation counts/tallies ("4490 test methods", "74 hook scripts") — those drift the moment anyone touches a file.
+
+- **`principles` — reversal test.** A principle, `reversed, makes this a different project`. A constraint, reversed, makes the same project behave differently. If reversal flips the project's identity, record it as a principle. If reversal only changes behavior, record it as a convention or an SMM Constraint event instead. Don't record bug fixes, version-stamped behavior changes, CLI flag additions, internal refactors, race-condition resolutions, naming conventions, or "this skill does X" entries — those belong in commit messages, tests, code comments, or SMM Constraints.
+
+- **`project_specific` — session-relevance test.** Would the agent reach for this `within the session` during execution, or is this reference material? Reference material → `docs/`. Operational domain content → here. Don't record registry duplicates (each skill/agent/module self-documents in its own .md), status updates ("current_phase: M3"), content over 500 chars, or architecture retold at section granularity.
+
 ```json
 {
   "product": "<What the product is, who it's for, how it works (max 400 chars)>",
@@ -194,6 +206,8 @@ Detect the project's full automated-test command and populate `stack.test_comman
 - `acceptance_surfaces`: 5 soft / 8 hard
 
 Aim for ~70% of soft on first write so future curation has headroom without immediately hitting warnings.
+
+**Update-mode cap awareness.** When a capped list is at or above its soft cap, identify a retirement candidate via the field's discriminator test BEFORE adding a new entry — run `retire-principle`, `retire-module`, `retire-convention`, `retire-project-specific`, or `retire-acceptance-surface` first. At hard cap the `add-*` CLI refuses with non-zero exit; the soft cap is the courage threshold to prune rather than accumulate.
 
 **Guidelines:**
 - Focus on **product/domain context** — what the system IS, not how to develop in it. Reference CLAUDE.md rather than duplicating dev practices. Be thorough on domain concepts developers need.
