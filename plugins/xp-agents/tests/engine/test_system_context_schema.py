@@ -14,6 +14,7 @@ from system_context_schema import (
     FIELD_MAXLENGTH,
     MODULE_FIELD_MAXLENGTH,
     PRINCIPLE_FIELD_MAXLENGTH,
+    PROJECT_SPECIFIC_CONTENT_MAXLENGTH,
     STACK_FIELD_MAXLENGTH,
     SYSTEM_CONTEXT_FILENAME,
     empty_system_context,
@@ -152,9 +153,22 @@ class TestFieldBudgets(unittest.TestCase):
         )
         doc["conventions"] = ["x" * (CONVENTION_MAXLENGTH + 100)]
         doc["modules"][0]["purpose"] = "x" * (MODULE_FIELD_MAXLENGTH["purpose"] + 100)
+        doc["modules"][0]["name"] = "x" * 200
+        doc["modules"][0]["path"] = "x" * 500
         doc["principles"][0]["decision"] = "x" * (
             PRINCIPLE_FIELD_MAXLENGTH["decision"] + 100
         )
+        doc["principles"][0]["topic"] = "x" * 200
+        doc["stack"]["languages"] = ["x" * 200]
+        doc["project_specific"] = [{"name": "x" * 200, "content": "x" * 1000}]
+        doc["acceptance_surfaces"] = [
+            {
+                "name": "x" * 200,
+                "signals": ["x" * 500],
+                "status": "covered",
+                "harness": "x" * 200,
+            }
+        ]
         errors = validate_system_context(doc, enforce_budget=False)
         self.assertEqual(errors, [])
 
@@ -196,6 +210,12 @@ class TestStackValidation(unittest.TestCase):
         errors = validate_system_context(doc)
         self.assertTrue(any("runtime" in e and "budget" in e for e in errors))
 
+    def test_stack_language_item_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["languages"] = ["x" * 31]
+        errors = validate_system_context(doc)
+        self.assertTrue(any("languages" in e and "budget" in e for e in errors))
+
 
 class TestModuleValidation(unittest.TestCase):
     def test_modules_must_be_list(self) -> None:
@@ -233,6 +253,27 @@ class TestModuleValidation(unittest.TestCase):
         doc["modules"][0]["purpose"] = "x" * (MODULE_FIELD_MAXLENGTH["purpose"] + 1)
         errors = validate_system_context(doc)
         self.assertTrue(any("purpose" in e and "budget" in e for e in errors))
+
+    def test_module_purpose_cap_tightened_to_100(self) -> None:
+        doc = valid_doc()
+        doc["modules"][0]["purpose"] = "x" * 101
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("purpose" in e and "budget" in e for e in errors),
+            f"100ch cap not enforced; got {errors}",
+        )
+
+    def test_module_name_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["modules"][0]["name"] = "x" * 51
+        errors = validate_system_context(doc)
+        self.assertTrue(any("name" in e and "budget" in e for e in errors))
+
+    def test_module_path_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["modules"][0]["path"] = "x" * 201
+        errors = validate_system_context(doc)
+        self.assertTrue(any("path" in e and "budget" in e for e in errors))
 
     def test_module_file_count_must_be_int(self) -> None:
         doc = valid_doc()
@@ -302,6 +343,12 @@ class TestPrincipleValidation(unittest.TestCase):
         errors = validate_system_context(doc)
         self.assertTrue(any("rationale" in e and "budget" in e for e in errors))
 
+    def test_principle_topic_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["principles"][0]["topic"] = "x" * 61
+        errors = validate_system_context(doc)
+        self.assertTrue(any("topic" in e and "budget" in e for e in errors))
+
     def test_principle_source_event_id_valid(self) -> None:
         doc = valid_doc()
         doc["principles"][0]["source_event_id"] = "abcdef012345"
@@ -339,6 +386,29 @@ class TestProjectSpecificValidation(unittest.TestCase):
         doc["project_specific"] = [{"name": "section"}]
         errors = validate_system_context(doc)
         self.assertTrue(any("content" in e for e in errors))
+
+    def test_project_specific_name_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["project_specific"] = [{"name": "x" * 51, "content": "ok"}]
+        errors = validate_system_context(doc)
+        self.assertTrue(any("name" in e and "budget" in e for e in errors))
+
+    def test_project_specific_content_over_budget_string(self) -> None:
+        doc = valid_doc()
+        # JSON serialization of a string adds 2 chars (the quotes), so a
+        # cap-length string already serializes to cap+2.
+        doc["project_specific"] = [
+            {"name": "notes", "content": "x" * PROJECT_SPECIFIC_CONTENT_MAXLENGTH}
+        ]
+        errors = validate_system_context(doc)
+        self.assertTrue(any("content" in e and "budget" in e for e in errors))
+
+    def test_project_specific_content_over_budget_list(self) -> None:
+        doc = valid_doc()
+        # List of strings serializing to >500ch.
+        doc["project_specific"] = [{"name": "items", "content": ["x" * 80] * 8}]
+        errors = validate_system_context(doc)
+        self.assertTrue(any("content" in e and "budget" in e for e in errors))
 
     def test_project_specific_duplicate_names(self) -> None:
         doc = valid_doc()
@@ -382,6 +452,29 @@ class TestProjectSpecificValidation(unittest.TestCase):
         ]
         errors = validate_system_context(doc)
         self.assertEqual(errors, [])
+
+
+def _surface(**overrides: object) -> dict:
+    s = {"name": "cli", "signals": ["pytest -n auto"], "status": "covered"}
+    s.update(overrides)
+    return s
+
+
+class TestAcceptanceSurfaceValidation(unittest.TestCase):
+    def test_acceptance_surface_name_over_budget(self) -> None:
+        doc = valid_doc(acceptance_surfaces=[_surface(name="x" * 51)])
+        errors = validate_system_context(doc)
+        self.assertTrue(any("name" in e and "budget" in e for e in errors))
+
+    def test_acceptance_surface_harness_over_budget(self) -> None:
+        doc = valid_doc(acceptance_surfaces=[_surface(harness="x" * 51)])
+        errors = validate_system_context(doc)
+        self.assertTrue(any("harness" in e and "budget" in e for e in errors))
+
+    def test_acceptance_surface_signal_item_over_budget(self) -> None:
+        doc = valid_doc(acceptance_surfaces=[_surface(signals=["x" * 101])])
+        errors = validate_system_context(doc)
+        self.assertTrue(any("signals" in e and "budget" in e for e in errors))
 
 
 class TestSourceEventIdEdgeCases(unittest.TestCase):

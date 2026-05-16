@@ -8,6 +8,8 @@ Follows the same pattern as execution_plan_schema.py: hand-rolled validator,
 no external jsonschema dependency, stdlib-only.
 """
 
+import json
+
 from smm_schema import EVENT_ID_RE, is_iso8601
 
 SYSTEM_CONTEXT_FILENAME = "system_context.json"
@@ -25,10 +27,13 @@ FIELD_MAXLENGTH: dict[str, int] = {
 }
 
 STACK_FIELD_MAXLENGTH: int = 100
+STACK_LANGUAGE_ITEM_MAXLENGTH: int = 30
 
 MODULE_FIELD_MAXLENGTH: dict[str, int] = {
-    "purpose": 200,
+    "purpose": 100,
 }
+MODULE_NAME_MAXLENGTH: int = 50
+MODULE_PATH_MAXLENGTH: int = 200
 
 CONVENTION_MAXLENGTH: int = 150
 
@@ -50,6 +55,14 @@ PRINCIPLE_FIELD_MAXLENGTH: dict[str, int] = {
     "decision": 200,
     "rationale": 200,
 }
+PRINCIPLE_TOPIC_MAXLENGTH: int = 60
+
+PROJECT_SPECIFIC_NAME_MAXLENGTH: int = 50
+PROJECT_SPECIFIC_CONTENT_MAXLENGTH: int = 500
+
+ACCEPTANCE_SURFACE_NAME_MAXLENGTH: int = 50
+ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH: int = 50
+ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH: int = 100
 
 _REQUIRED_FIELDS = frozenset(
     {
@@ -105,6 +118,11 @@ def _validate_stack(stack: object, *, enforce_budget: bool = True) -> list[str]:
         for idx, lang in enumerate(stack["languages"]):
             if not isinstance(lang, str):
                 errors.append(f"stack.languages[{idx}] must be a string")
+            elif enforce_budget and len(lang) > STACK_LANGUAGE_ITEM_MAXLENGTH:
+                errors.append(
+                    f"stack.languages[{idx}] exceeds budget"
+                    f" ({len(lang)} > {STACK_LANGUAGE_ITEM_MAXLENGTH} chars)"
+                )
 
     for field in STACK_OPTIONAL_FIELDS:
         if field not in stack:
@@ -146,6 +164,22 @@ def _validate_module(
                 f"modules[{idx}].purpose exceeds budget ({actual} > {max_len} chars)"
             )
 
+    if enforce_budget and isinstance(module.get("name"), str):
+        actual = len(module["name"])
+        if actual > MODULE_NAME_MAXLENGTH:
+            errors.append(
+                f"modules[{idx}].name exceeds budget"
+                f" ({actual} > {MODULE_NAME_MAXLENGTH} chars)"
+            )
+
+    if enforce_budget and isinstance(module.get("path"), str):
+        actual = len(module["path"])
+        if actual > MODULE_PATH_MAXLENGTH:
+            errors.append(
+                f"modules[{idx}].path exceeds budget"
+                f" ({actual} > {MODULE_PATH_MAXLENGTH} chars)"
+            )
+
     if "file_count" in module and not isinstance(module["file_count"], int):
         errors.append(f"modules[{idx}].file_count must be an integer")
 
@@ -179,6 +213,14 @@ def _validate_principle(
                         f"principles[{idx}].{field} exceeds budget"
                         f" ({actual} > {max_len} chars)"
                     )
+
+    if enforce_budget and isinstance(decision.get("topic"), str):
+        actual = len(decision["topic"])
+        if actual > PRINCIPLE_TOPIC_MAXLENGTH:
+            errors.append(
+                f"principles[{idx}].topic exceeds budget"
+                f" ({actual} > {PRINCIPLE_TOPIC_MAXLENGTH} chars)"
+            )
 
     if "rationale" in decision and not isinstance(decision["rationale"], str):
         errors.append(f"principles[{idx}].rationale must be a string")
@@ -276,7 +318,9 @@ def _validate_branching_strategy(
     return errors
 
 
-def _validate_acceptance_surface_entry(entry: object, idx: int) -> list[str]:
+def _validate_acceptance_surface_entry(
+    entry: object, idx: int, *, enforce_budget: bool = True
+) -> list[str]:
     errors: list[str] = []
     if not isinstance(entry, dict):
         return [f"acceptance_surfaces[{idx}] must be an object"]
@@ -290,6 +334,11 @@ def _validate_acceptance_surface_entry(entry: object, idx: int) -> list[str]:
 
     if not isinstance(entry["name"], str):
         errors.append(f"acceptance_surfaces[{idx}].name must be a string")
+    elif enforce_budget and len(entry["name"]) > ACCEPTANCE_SURFACE_NAME_MAXLENGTH:
+        errors.append(
+            f"acceptance_surfaces[{idx}].name exceeds budget"
+            f" ({len(entry['name'])} > {ACCEPTANCE_SURFACE_NAME_MAXLENGTH} chars)"
+        )
 
     if not isinstance(entry["signals"], list):
         errors.append(f"acceptance_surfaces[{idx}].signals must be a list")
@@ -298,6 +347,11 @@ def _validate_acceptance_surface_entry(entry: object, idx: int) -> list[str]:
             if not isinstance(sig, str):
                 errors.append(
                     f"acceptance_surfaces[{idx}].signals[{si}] must be a string"
+                )
+            elif enforce_budget and len(sig) > ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH:
+                errors.append(
+                    f"acceptance_surfaces[{idx}].signals[{si}] exceeds budget"
+                    f" ({len(sig)} > {ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH} chars)"
                 )
 
     status = entry["status"]
@@ -309,13 +363,25 @@ def _validate_acceptance_surface_entry(entry: object, idx: int) -> list[str]:
             f" {sorted(_VALID_SURFACE_STATUSES)} (got {status!r})"
         )
 
-    if "harness" in entry and not isinstance(entry["harness"], str):
-        errors.append(f"acceptance_surfaces[{idx}].harness must be a string")
+    if "harness" in entry:
+        if not isinstance(entry["harness"], str):
+            errors.append(f"acceptance_surfaces[{idx}].harness must be a string")
+        elif (
+            enforce_budget
+            and len(entry["harness"]) > ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH
+        ):
+            errors.append(
+                f"acceptance_surfaces[{idx}].harness exceeds budget"
+                f" ({len(entry['harness'])} > "
+                f"{ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH} chars)"
+            )
 
     return errors
 
 
-def _validate_project_specific_entry(entry: object, idx: int) -> list[str]:
+def _validate_project_specific_entry(
+    entry: object, idx: int, *, enforce_budget: bool = True
+) -> list[str]:
     errors: list[str] = []
     if not isinstance(entry, dict):
         return [f"project_specific[{idx}] must be an object"]
@@ -324,9 +390,21 @@ def _validate_project_specific_entry(entry: object, idx: int) -> list[str]:
         errors.append(f"project_specific[{idx}] missing required field: name")
     elif not isinstance(entry["name"], str):
         errors.append(f"project_specific[{idx}].name must be a string")
+    elif enforce_budget and len(entry["name"]) > PROJECT_SPECIFIC_NAME_MAXLENGTH:
+        errors.append(
+            f"project_specific[{idx}].name exceeds budget"
+            f" ({len(entry['name'])} > {PROJECT_SPECIFIC_NAME_MAXLENGTH} chars)"
+        )
 
     if "content" not in entry:
         errors.append(f"project_specific[{idx}] missing required field: content")
+    elif enforce_budget:
+        serialized = json.dumps(entry["content"])
+        if len(serialized) > PROJECT_SPECIFIC_CONTENT_MAXLENGTH:
+            errors.append(
+                f"project_specific[{idx}].content exceeds budget"
+                f" ({len(serialized)} > {PROJECT_SPECIFIC_CONTENT_MAXLENGTH} chars)"
+            )
 
     return errors
 
@@ -388,7 +466,11 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
     else:
         seen_names: set[str] = set()
         for idx, entry in enumerate(data["project_specific"]):
-            errors.extend(_validate_project_specific_entry(entry, idx))
+            errors.extend(
+                _validate_project_specific_entry(
+                    entry, idx, enforce_budget=enforce_budget
+                )
+            )
             if isinstance(entry, dict) and isinstance(entry.get("name"), str):
                 if entry["name"] in seen_names:
                     errors.append(
@@ -412,7 +494,11 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
         else:
             seen_surface_names: set[str] = set()
             for idx, entry in enumerate(surfaces):
-                errors.extend(_validate_acceptance_surface_entry(entry, idx))
+                errors.extend(
+                    _validate_acceptance_surface_entry(
+                        entry, idx, enforce_budget=enforce_budget
+                    )
+                )
                 if isinstance(entry, dict) and isinstance(entry.get("name"), str):
                     if entry["name"] in seen_surface_names:
                         errors.append(
