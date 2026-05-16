@@ -35,6 +35,25 @@ from system_context_renderer import (
     render_section,
     render_subset,
 )
+from system_context_retire_cli import (
+    _RETIRE_ACTIONS,
+    _emit_retire_event,
+)
+from system_context_retire_cli import (
+    cmd_retire_acceptance_surface as _cmd_retire_acceptance_surface,
+)
+from system_context_retire_cli import (
+    cmd_retire_convention as _cmd_retire_convention,
+)
+from system_context_retire_cli import (
+    cmd_retire_module as _cmd_retire_module,
+)
+from system_context_retire_cli import (
+    cmd_retire_principle as _cmd_retire_principle,
+)
+from system_context_retire_cli import (
+    cmd_retire_project_specific as _cmd_retire_project_specific,
+)
 from system_context_schema import (
     ACCEPTANCE_SURFACES_HARD_CAP,
     ACCEPTANCE_SURFACES_SOFT_CAP,
@@ -48,6 +67,11 @@ from system_context_schema import (
     PROJECT_SPECIFIC_SOFT_CAP,
     validate_system_context,
 )
+
+# Re-exported for callers that imported these from system_context_cli
+# before story-006's retire-* split. Source lives in
+# system_context_retire_cli.py.
+__all__ = ["_RETIRE_ACTIONS", "_emit_retire_event"]
 
 # (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
 # names forward-reference story-006 — until that ships, the "run
@@ -510,6 +534,16 @@ def main() -> None:
         help="Add one acceptance surface from stdin JSON",
     )
 
+    for name, help_text in (
+        ("retire-principle", "Retire a principle by topic"),
+        ("retire-module", "Retire a module by name"),
+        ("retire-convention", "Retire a convention by index or substring"),
+        ("retire-project-specific", "Retire a project_specific entry by name"),
+        ("retire-acceptance-surface", "Retire an acceptance surface by name"),
+    ):
+        retire_p = sub.add_parser(name, help=help_text)
+        retire_p.add_argument("identifier", help="topic/name/index/substring")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -529,6 +563,11 @@ def main() -> None:
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,
+        "retire-principle": _cmd_retire_principle,
+        "retire-module": _cmd_retire_module,
+        "retire-convention": _cmd_retire_convention,
+        "retire-project-specific": _cmd_retire_project_specific,
+        "retire-acceptance-surface": _cmd_retire_acceptance_surface,
     }
 
     sys.exit(dispatch[args.command](args))

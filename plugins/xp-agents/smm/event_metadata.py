@@ -86,6 +86,17 @@ STATUS_ACTION_QUESTION_CLOSE = "question_close"
 # tooling distinguishes end-session bulk drops from organic resolutions.
 STATUS_ACTION_END_SESSION_DROP = "end_session_drop"
 
+# system_context_cli.py retire-* subcommands. Producer: system-context-cli
+# (non-hook). Each retire-X CLI removes one entry from a capped list and
+# emits a status event so curation actions are traceable. Companion
+# metadata: kind (singular, e.g., "principle") + identifier (topic/name
+# for by-key fields; resolved entry text for convention substring).
+STATUS_ACTION_RETIRE_PRINCIPLE = "retire_principle"
+STATUS_ACTION_RETIRE_MODULE = "retire_module"
+STATUS_ACTION_RETIRE_CONVENTION = "retire_convention"
+STATUS_ACTION_RETIRE_PROJECT_SPECIFIC = "retire_project_specific"
+STATUS_ACTION_RETIRE_ACCEPTANCE_SURFACE = "retire_acceptance_surface"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.

@@ -64,3 +64,11 @@ def seed_doc(field: str, n: int) -> dict:
     doc = valid_doc()
     doc[field] = seed_entries(field, n)
     return doc
+
+
+def read_events(smm_dir: Path) -> list[dict]:
+    """Read events.jsonl as a list of dicts; empty list if missing."""
+    events_path = smm_dir / "events.jsonl"
+    if not events_path.exists():
+        return []
+    return [json.loads(line) for line in events_path.read_text().splitlines() if line]
