@@ -218,7 +218,7 @@ class TestResolvesConcernsEventsKwarg(_HookTestCase):
         events = _common.read_events_raw(self.smm_dir)
         import concerns
 
-        with patch("concerns.read_delta.read_delta_full") as mock_read:
+        with patch("concerns.read_events_locked") as mock_read:
             result = concerns.resolve_concerns(
                 self.smm_dir,
                 concerns.TEST_CONCERN_RE.search,

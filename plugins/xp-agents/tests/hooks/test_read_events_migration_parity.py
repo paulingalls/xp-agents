@@ -110,32 +110,53 @@ def _function_node(
     return None
 
 
-def _calls_attribute(scope: ast.AST, qualname_options: tuple[str, ...]) -> bool:
-    """True if any Call inside `scope` matches one of `qualname_options`.
+def _call_matches_qualname(node: ast.Call, qualname_options: tuple[str, ...]) -> bool:
+    """True if `node.func` matches one of `qualname_options`.
 
     Options are dotted paths matched against ast.Attribute chains.
     A bare option name also matches a same-named ast.Name call (covers
-    `from _common import read_events_raw` style).
+    `from <module> import <name>` style).
     """
-    for node in ast.walk(scope):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Attribute):
-            chain = []
-            cur: ast.AST = func
-            while isinstance(cur, ast.Attribute):
-                chain.append(cur.attr)
-                cur = cur.value
-            if isinstance(cur, ast.Name):
-                chain.append(cur.id)
-            dotted = ".".join(reversed(chain))
-            if dotted in qualname_options:
+    func = node.func
+    if isinstance(func, ast.Attribute):
+        chain = []
+        cur: ast.AST = func
+        while isinstance(cur, ast.Attribute):
+            chain.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            chain.append(cur.id)
+        dotted = ".".join(reversed(chain))
+        return dotted in qualname_options
+    if isinstance(func, ast.Name):
+        for opt in qualname_options:
+            if opt == func.id or opt.endswith("." + func.id):
                 return True
-        elif isinstance(func, ast.Name):
-            for opt in qualname_options:
-                if opt == func.id or opt.endswith("." + func.id):
-                    return True
+    return False
+
+
+def _calls_attribute(scope: ast.AST, qualname_options: tuple[str, ...]) -> bool:
+    """True if any Call inside `scope` matches one of `qualname_options`."""
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Call) and _call_matches_qualname(
+            node, qualname_options
+        ):
+            return True
+    return False
+
+
+_READ_DELTA_FULL_QUALNAMES = ("read_delta.read_delta_full",)
+
+
+def _has_update_watermark_false(node: ast.Call) -> bool:
+    """True if call has an `update_watermark=False` kwarg."""
+    for kw in node.keywords:
+        if (
+            kw.arg == "update_watermark"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is False
+        ):
+            return True
     return False
 
 
@@ -293,6 +314,43 @@ for _name, _path, _scope in _MIGRATED_SITES:
     _method = _make_method(_path, _scope)
     _method.__name__ = f"test_{_name}_uses_read_delta_full"
     setattr(TestNoReadEventsRawCallers, _method.__name__, _method)
+
+
+class TestNoInlineCanonicalReadDeltaFull(unittest.TestCase):
+    """The canonical `read_delta_full(...update_watermark=False)[0]` pattern
+    may only appear inside `_common.read_events_locked`. Every other caller
+    must route through the helper. `prompt_nugget.py` is naturally exempt
+    because it omits `update_watermark=False` (intentionally advances the
+    watermark and uses both tuple elements).
+    """
+
+    def test_no_inline_canonical_pattern_in_scripts_and_skills(self):
+        helper_path = (_SCRIPTS_DIR / "_common.py").resolve()
+        violations: list[str] = []
+        for path in list(_SCRIPTS_DIR.rglob("*.py")) + list(_SKILLS_DIR.rglob("*.py")):
+            tree: ast.AST = ast.parse(path.read_text())
+            skip_lo, skip_hi = 0, 0
+            if path.resolve() == helper_path:
+                helper_fn = _function_node(tree, "read_events_locked")
+                if helper_fn is not None:
+                    skip_lo = helper_fn.lineno
+                    skip_hi = helper_fn.end_lineno or helper_fn.lineno
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if skip_lo and skip_lo <= node.lineno <= skip_hi:
+                    continue
+                if not _call_matches_qualname(node, _READ_DELTA_FULL_QUALNAMES):
+                    continue
+                if _has_update_watermark_false(node):
+                    rel = path.relative_to(_SCRIPTS_DIR.parent)
+                    violations.append(f"{rel}:{node.lineno}")
+        self.assertEqual(
+            violations,
+            [],
+            f"Inline read_delta_full(...update_watermark=False) outside "
+            f"_common.read_events_locked: {violations}",
+        )
 
 
 if __name__ == "__main__":
