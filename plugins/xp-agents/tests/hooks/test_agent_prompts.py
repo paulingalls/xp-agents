@@ -12,6 +12,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import system_context_schema
 
+# Window large enough to cover the entire 'Update-mode cap awareness'
+# paragraph (~480 chars today). If the paragraph grows past this, the
+# pin will report 'soft cap' or 'retire-' missing even when present
+# below — bump the window rather than weakening the scoped check.
+_UPDATE_MODE_WINDOW_CHARS = 500
+
 
 class TestHousekeeperPurposeFilters(unittest.TestCase):
     """M5: housekeeper prompt has per-pillar purpose filters."""
@@ -244,6 +250,54 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                     self.content,
                     f"Step 4 template missing '{soft} soft / {hard} hard' "
                     f"for {field} — schema/markdown drift detected",
+                )
+
+    def test_discriminator_phrases_pinned(self):
+        """Verbatim discriminator-test phrases from SYSTEM_CONTEXT_REDESIGN
+        §2/§3 must appear in Step 4. Without these the rename to
+        `principles` and the tightened field definitions lose the
+        analytical lens that resists diary-shaped accumulation.
+        """
+        cases = (
+            (
+                "negation framing",
+                "Record what defines this project, not what was decided along the way",
+            ),
+            ("reversal test", "reversed, makes this a different project"),
+            ("navigation-index test", "where do I put new code"),
+            ("session-relevance test", "within the session"),
+        )
+        for label, phrase in cases:
+            with self.subTest(phrase=label):
+                self.assertIn(
+                    phrase,
+                    self.content,
+                    f"Step 4 missing verbatim {label} phrase — analyzer "
+                    "loses its discriminator lens",
+                )
+
+    def test_update_mode_retire_first_pinned(self):
+        # Scope substring check to the "Update-mode cap awareness" anchor
+        # so an unrelated `retire-module` mention elsewhere can't satisfy
+        # the pin — without the window, the assertion is decorative.
+        anchor = "Update-mode cap awareness"
+        self.assertIn(
+            anchor,
+            self.content,
+            "Step 4 must contain the 'Update-mode cap awareness' "
+            "anchor so cap-aware retire-first guidance is locatable",
+        )
+        start = self.content.index(anchor)
+        window = self.content[start : start + _UPDATE_MODE_WINDOW_CHARS]
+        for needle, why in (
+            ("retire-", "cite a retire-* subcommand"),
+            ("soft cap", "reference 'soft cap' for the trigger"),
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(
+                    needle,
+                    window,
+                    f"Update-mode cap awareness paragraph must {why}",
                 )
 
 
