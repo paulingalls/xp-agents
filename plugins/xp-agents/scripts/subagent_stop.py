@@ -17,7 +17,6 @@ import concerns
 import coordination
 import marker_names
 import markers
-import read_delta
 import sprint_state
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -228,9 +227,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     _record_completion(smm_dir, agent_id, agent_type, completion_action)
 
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     concern_events = concerns.detect_conflicts(events, agent_id)
     for concern in concern_events:
         _common.append_safe(smm_dir, concern)
