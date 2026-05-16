@@ -46,7 +46,7 @@ _BRANCHING_STRATEGY_REQUIRED = frozenset({"stage"})
 _ACCEPTANCE_SURFACE_REQUIRED = frozenset({"name", "signals", "status"})
 _VALID_SURFACE_STATUSES = frozenset({"covered", "gap"})
 
-KEY_DECISION_FIELD_MAXLENGTH: dict[str, int] = {
+PRINCIPLE_FIELD_MAXLENGTH: dict[str, int] = {
     "decision": 200,
     "rationale": 200,
 }
@@ -58,8 +58,7 @@ _REQUIRED_FIELDS = frozenset(
         "stack",
         "modules",
         "conventions",
-        "key_decisions",
-        "sources",
+        "principles",
         "project_specific",
     }
 )
@@ -77,7 +76,7 @@ STACK_OPTIONAL_FIELDS = (
 
 _MODULE_REQUIRED = frozenset({"name", "purpose", "path"})
 
-_KEY_DECISION_REQUIRED = frozenset({"topic", "decision"})
+_PRINCIPLE_REQUIRED = frozenset({"topic", "decision"})
 
 
 def empty_system_context() -> dict:
@@ -88,8 +87,7 @@ def empty_system_context() -> dict:
         "stack": {"languages": []},
         "modules": [],
         "conventions": [],
-        "key_decisions": [],
-        "sources": [],
+        "principles": [],
         "project_specific": [],
     }
 
@@ -154,43 +152,41 @@ def _validate_module(
     return errors
 
 
-def _validate_key_decision(
+def _validate_principle(
     decision: object, idx: int, *, enforce_budget: bool = True
 ) -> list[str]:
     errors: list[str] = []
     if not isinstance(decision, dict):
-        return [f"key_decisions[{idx}] must be an object"]
+        return [f"principles[{idx}] must be an object"]
 
-    for field in _KEY_DECISION_REQUIRED:
+    for field in _PRINCIPLE_REQUIRED:
         if field not in decision:
-            errors.append(f"key_decisions[{idx}] missing required field: {field}")
+            errors.append(f"principles[{idx}] missing required field: {field}")
 
     if errors:
         return errors
 
-    for field in _KEY_DECISION_REQUIRED:
+    for field in _PRINCIPLE_REQUIRED:
         if not isinstance(decision[field], str):
-            errors.append(f"key_decisions[{idx}].{field} must be a string")
+            errors.append(f"principles[{idx}].{field} must be a string")
 
     if enforce_budget:
-        for field, max_len in KEY_DECISION_FIELD_MAXLENGTH.items():
+        for field, max_len in PRINCIPLE_FIELD_MAXLENGTH.items():
             if field in decision and isinstance(decision[field], str):
                 actual = len(decision[field])
                 if actual > max_len:
                     errors.append(
-                        f"key_decisions[{idx}].{field} exceeds budget"
+                        f"principles[{idx}].{field} exceeds budget"
                         f" ({actual} > {max_len} chars)"
                     )
 
     if "rationale" in decision and not isinstance(decision["rationale"], str):
-        errors.append(f"key_decisions[{idx}].rationale must be a string")
+        errors.append(f"principles[{idx}].rationale must be a string")
 
     if "source_event_id" in decision:
         val = decision["source_event_id"]
         if not isinstance(val, str) or not EVENT_ID_RE.match(val):
-            errors.append(
-                f"key_decisions[{idx}].source_event_id must be a 12-char hex ID"
-            )
+            errors.append(f"principles[{idx}].source_event_id must be a 12-char hex ID")
 
     return errors
 
@@ -381,20 +377,11 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
                     f" ({len(conv)} > {CONVENTION_MAXLENGTH} chars)"
                 )
 
-    if not isinstance(data["key_decisions"], list):
-        errors.append("key_decisions must be a list")
+    if not isinstance(data["principles"], list):
+        errors.append("principles must be a list")
     else:
-        for idx, kd in enumerate(data["key_decisions"]):
-            errors.extend(
-                _validate_key_decision(kd, idx, enforce_budget=enforce_budget)
-            )
-
-    if not isinstance(data["sources"], list):
-        errors.append("sources must be a list")
-    else:
-        for idx, src in enumerate(data["sources"]):
-            if not isinstance(src, str):
-                errors.append(f"sources[{idx}] must be a string")
+        for idx, kd in enumerate(data["principles"]):
+            errors.extend(_validate_principle(kd, idx, enforce_budget=enforce_budget))
 
     if not isinstance(data["project_specific"], list):
         errors.append("project_specific must be a list")

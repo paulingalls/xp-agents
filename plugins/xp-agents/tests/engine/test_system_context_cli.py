@@ -171,8 +171,7 @@ class TestRenderCommand(_SMMTestCase):
         stack_pos = output.find("Stack")
         modules_pos = output.find("Modules")
         conv_pos = output.find("Conventions")
-        decisions_pos = output.find("Key Decisions")
-        sources_pos = output.find("Sources")
+        principles_pos = output.find("Principles")
         custom_pos = output.find("Custom Section")
         self.assertTrue(
             product_pos
@@ -180,8 +179,7 @@ class TestRenderCommand(_SMMTestCase):
             < stack_pos
             < modules_pos
             < conv_pos
-            < decisions_pos
-            < sources_pos
+            < principles_pos
             < custom_pos,
             f"Sections not in canonical order: {output[:500]}",
         )
@@ -241,14 +239,14 @@ class TestRenderSubsetFlags(_SMMTestCase):
 
     Plan + close reviewers don't need the full ~7K-token document. The
     `--sections` flag filters which top-level keys are rendered; the
-    `--topics-only` flag (subset of `--sections`) collapses `key_decisions`
+    `--topics-only` flag (subset of `--sections`) collapses `principles`
     to topic-bullets and `project_specific` to name-bullets, leaving the
     rest full.
     """
 
-    def _write_doc_with_decisions(self) -> None:
+    def _write_doc_with_principles(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"] = [
+        doc["principles"] = [
             {"topic": "hooks-first", "decision": "All agents are hooks"},
             {"topic": "four-file", "decision": "events + sc + plan + sprint"},
         ]
@@ -259,7 +257,7 @@ class TestRenderSubsetFlags(_SMMTestCase):
         write_doc(self.smm_dir, doc)
 
     def test_sections_filter_keeps_only_named(self) -> None:
-        self._write_doc_with_decisions()
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI, ["render", "--sections", "stack,conventions"], self.smm_dir
         )
@@ -269,18 +267,18 @@ class TestRenderSubsetFlags(_SMMTestCase):
         self.assertNotIn("## Product", result.stdout)
         self.assertNotIn("## Architecture Overview", result.stdout)
         self.assertNotIn("## Modules", result.stdout)
-        self.assertNotIn("## Key Decisions", result.stdout)
+        self.assertNotIn("## Principles", result.stdout)
 
-    def test_topics_only_collapses_key_decisions_to_topic_bullets(self) -> None:
-        self._write_doc_with_decisions()
+    def test_topics_only_collapses_principles_to_topic_bullets(self) -> None:
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI,
             [
                 "render",
                 "--sections",
-                "key_decisions",
+                "principles",
                 "--topics-only",
-                "key_decisions",
+                "principles",
             ],
             self.smm_dir,
         )
@@ -291,7 +289,7 @@ class TestRenderSubsetFlags(_SMMTestCase):
         self.assertNotIn("events + sc + plan + sprint", result.stdout)
 
     def test_topics_only_collapses_project_specific_to_name_bullets(self) -> None:
-        self._write_doc_with_decisions()
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI,
             [
@@ -310,23 +308,23 @@ class TestRenderSubsetFlags(_SMMTestCase):
         self.assertNotIn("review tiers", result.stdout)
 
     def test_mixed_topics_only_and_full_section(self) -> None:
-        self._write_doc_with_decisions()
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI,
             [
                 "render",
                 "--sections",
-                "stack,key_decisions",
+                "stack,principles",
                 "--topics-only",
-                "key_decisions",
+                "principles",
             ],
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("## Stack", result.stdout)
-        self.assertIn("Python", result.stdout)  # stack content present
-        self.assertIn("- hooks-first", result.stdout)  # kd as TOC
-        self.assertNotIn("All agents are hooks", result.stdout)  # kd body absent
+        self.assertIn("Python", result.stdout)
+        self.assertIn("- hooks-first", result.stdout)
+        self.assertNotIn("All agents are hooks", result.stdout)
 
     def test_unknown_section_errors_with_valid_names(self) -> None:
         write_doc(self.smm_dir)
@@ -349,9 +347,7 @@ class TestRenderSubsetFlags(_SMMTestCase):
 
     def test_topics_only_without_sections_errors(self) -> None:
         write_doc(self.smm_dir)
-        result = run_cli(
-            _CLI, ["render", "--topics-only", "key_decisions"], self.smm_dir
-        )
+        result = run_cli(_CLI, ["render", "--topics-only", "principles"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--sections", result.stderr)
 
@@ -495,39 +491,39 @@ class TestAddModuleCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
 
 
-# ── add-decision ────────────────────────────────────────────────
+# ── add-principle ────────────────────────────────────────────────
 
 
-class TestAddDecisionCommand(_SMMTestCase):
-    def test_add_decision(self) -> None:
+class TestAddPrincipleCommand(_SMMTestCase):
+    def test_add_principle(self) -> None:
         write_doc(self.smm_dir)
-        new_decision = {"topic": "database", "decision": "Use SQLite"}
+        new_principle = {"topic": "database", "decision": "Use SQLite"}
         result = run_cli(
             _CLI,
-            ["add-decision"],
+            ["add-principle"],
             self.smm_dir,
-            stdin_data=json.dumps(new_decision),
+            stdin_data=json.dumps(new_principle),
         )
         self.assertEqual(result.returncode, 0)
         data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
-        self.assertEqual(len(data["key_decisions"]), 2)
-        self.assertEqual(data["key_decisions"][1]["topic"], "database")
+        self.assertEqual(len(data["principles"]), 2)
+        self.assertEqual(data["principles"][1]["topic"], "database")
 
-    def test_add_decision_invalid_json(self) -> None:
+    def test_add_principle_invalid_json(self) -> None:
         write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
-            ["add-decision"],
+            ["add-principle"],
             self.smm_dir,
             stdin_data="not json",
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("Invalid JSON", result.stderr)
 
-    def test_add_decision_missing_file(self) -> None:
+    def test_add_principle_missing_file(self) -> None:
         result = run_cli(
             _CLI,
-            ["add-decision"],
+            ["add-principle"],
             self.smm_dir,
             stdin_data=json.dumps({"topic": "x", "decision": "y"}),
         )
