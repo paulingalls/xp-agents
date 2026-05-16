@@ -16,6 +16,7 @@ Usage:
     system_context_cli.py add-module --smm-dir DIR       < module.json
     system_context_cli.py add-principle --smm-dir DIR     < decision.json
     system_context_cli.py add-convention --smm-dir DIR   < convention.json
+    system_context_cli.py add-project-specific --smm-dir DIR < entry.json
     system_context_cli.py edit-branching --smm-dir DIR   < branching.json
     system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
     system_context_cli.py add-acceptance-surface --smm-dir DIR   < surface.json
@@ -452,6 +453,10 @@ def _cmd_add_principle(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "principles")
 
 
+def _cmd_add_project_specific(args: argparse.Namespace) -> int:
+    return _cmd_append_to_list(args, "project_specific")
+
+
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
     args.name = "acceptance_surfaces"
     return _cmd_edit_field(args)
@@ -506,8 +511,11 @@ def main() -> None:
     get_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
 
     sub.add_parser("add-module", help="Add module from stdin JSON")
-    sub.add_parser("add-principle", help="Add principle from stdin JSON")
     sub.add_parser("add-convention", help="Add convention from stdin JSON")
+    sub.add_parser("add-principle", help="Add principle from stdin JSON")
+    sub.add_parser(
+        "add-project-specific", help="Add project_specific entry from stdin JSON"
+    )
     sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
 
     edit_branching_field_p = sub.add_parser(
@@ -556,8 +564,9 @@ def main() -> None:
         "edit-stack-field": _cmd_edit_stack_field,
         "get-stack-field": _cmd_get_stack_field,
         "add-module": _cmd_add_module,
-        "add-principle": _cmd_add_principle,
         "add-convention": _cmd_add_convention,
+        "add-principle": _cmd_add_principle,
+        "add-project-specific": _cmd_add_project_specific,
         "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-branching": _cmd_edit_branching,
