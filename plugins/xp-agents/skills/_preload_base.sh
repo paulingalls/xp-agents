@@ -72,9 +72,9 @@ emit_system_context_rendered_for() {
 #
 # Usage: system_context_render_to_tempfile_for <kind>
 #   kind=plan-reviewer  → product/architecture/stack/modules/conventions/
-#                         branching/acceptance full + key_decisions and
+#                         branching/acceptance full + principles and
 #                         project_specific topics-only (~1.8K tokens)
-#   kind=close-reviewer → stack/conventions/branching full + key_decisions
+#   kind=close-reviewer → stack/conventions/branching full + principles
 #                         topics-only (~0.9K tokens)
 # Echoes the tempfile path on stdout. Non-zero exit on unknown kind.
 #
@@ -86,12 +86,12 @@ system_context_render_to_tempfile_for() {
     local out rc sections topics_only empty
     case "$kind" in
         plan-reviewer)
-            sections="product,architecture_overview,stack,modules,conventions,branching_strategy,acceptance_surfaces,key_decisions,project_specific"
-            topics_only="key_decisions,project_specific"
+            sections="product,architecture_overview,stack,modules,conventions,branching_strategy,acceptance_surfaces,principles,project_specific"
+            topics_only="principles,project_specific"
             ;;
         close-reviewer)
-            sections="stack,conventions,branching_strategy,key_decisions"
-            topics_only="key_decisions"
+            sections="stack,conventions,branching_strategy,principles"
+            topics_only="principles"
             ;;
         *)
             echo "system_context_render_to_tempfile_for: unknown kind '$kind'" >&2

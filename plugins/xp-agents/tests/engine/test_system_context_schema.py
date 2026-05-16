@@ -12,8 +12,8 @@ from _system_context_fixtures import valid_doc
 from system_context_schema import (
     CONVENTION_MAXLENGTH,
     FIELD_MAXLENGTH,
-    KEY_DECISION_FIELD_MAXLENGTH,
     MODULE_FIELD_MAXLENGTH,
+    PRINCIPLE_FIELD_MAXLENGTH,
     STACK_FIELD_MAXLENGTH,
     SYSTEM_CONTEXT_FILENAME,
     empty_system_context,
@@ -35,8 +35,7 @@ class TestEmptySystemContext(unittest.TestCase):
             "stack",
             "modules",
             "conventions",
-            "key_decisions",
-            "sources",
+            "principles",
             "project_specific",
         ):
             self.assertIn(field, doc)
@@ -89,10 +88,10 @@ class TestValidDocument(unittest.TestCase):
         errors = validate_system_context(doc)
         self.assertEqual(errors, [])
 
-    def test_valid_with_key_decision_optional_fields(self) -> None:
+    def test_valid_with_principle_optional_fields(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["rationale"] = "Industry standard"
-        doc["key_decisions"][0]["source_event_id"] = "abcdef012345"
+        doc["principles"][0]["rationale"] = "Industry standard"
+        doc["principles"][0]["source_event_id"] = "abcdef012345"
         errors = validate_system_context(doc)
         self.assertEqual(errors, [])
 
@@ -109,8 +108,7 @@ class TestMissingRequiredFields(unittest.TestCase):
             "stack",
             "modules",
             "conventions",
-            "key_decisions",
-            "sources",
+            "principles",
             "project_specific",
         ]
         for field in required:
@@ -154,8 +152,8 @@ class TestFieldBudgets(unittest.TestCase):
         )
         doc["conventions"] = ["x" * (CONVENTION_MAXLENGTH + 100)]
         doc["modules"][0]["purpose"] = "x" * (MODULE_FIELD_MAXLENGTH["purpose"] + 100)
-        doc["key_decisions"][0]["decision"] = "x" * (
-            KEY_DECISION_FIELD_MAXLENGTH["decision"] + 100
+        doc["principles"][0]["decision"] = "x" * (
+            PRINCIPLE_FIELD_MAXLENGTH["decision"] + 100
         )
         errors = validate_system_context(doc, enforce_budget=False)
         self.assertEqual(errors, [])
@@ -263,56 +261,56 @@ class TestConventionValidation(unittest.TestCase):
         self.assertTrue(any("budget" in e for e in errors))
 
 
-class TestKeyDecisionValidation(unittest.TestCase):
-    def test_key_decisions_must_be_list(self) -> None:
+class TestPrincipleValidation(unittest.TestCase):
+    def test_principles_must_be_list(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"] = "not a list"
+        doc["principles"] = "not a list"
         errors = validate_system_context(doc)
-        self.assertTrue(any("key_decisions" in e for e in errors))
+        self.assertTrue(any("principles" in e for e in errors))
 
-    def test_key_decision_must_be_dict(self) -> None:
+    def test_principle_must_be_dict(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"] = ["not a dict"]
+        doc["principles"] = ["not a dict"]
         errors = validate_system_context(doc)
-        self.assertTrue(any("key_decisions" in e for e in errors))
+        self.assertTrue(any("principles" in e for e in errors))
 
-    def test_key_decision_missing_topic(self) -> None:
+    def test_principle_missing_topic(self) -> None:
         doc = valid_doc()
-        del doc["key_decisions"][0]["topic"]
+        del doc["principles"][0]["topic"]
         errors = validate_system_context(doc)
         self.assertTrue(any("topic" in e for e in errors))
 
-    def test_key_decision_missing_decision(self) -> None:
+    def test_principle_missing_decision(self) -> None:
         doc = valid_doc()
-        del doc["key_decisions"][0]["decision"]
+        del doc["principles"][0]["decision"]
         errors = validate_system_context(doc)
         self.assertTrue(any("decision" in e for e in errors))
 
-    def test_key_decision_decision_over_budget(self) -> None:
+    def test_principle_decision_over_budget(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["decision"] = "x" * (
-            KEY_DECISION_FIELD_MAXLENGTH["decision"] + 1
+        doc["principles"][0]["decision"] = "x" * (
+            PRINCIPLE_FIELD_MAXLENGTH["decision"] + 1
         )
         errors = validate_system_context(doc)
         self.assertTrue(any("decision" in e and "budget" in e for e in errors))
 
-    def test_key_decision_rationale_over_budget(self) -> None:
+    def test_principle_rationale_over_budget(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["rationale"] = "x" * (
-            KEY_DECISION_FIELD_MAXLENGTH["rationale"] + 1
+        doc["principles"][0]["rationale"] = "x" * (
+            PRINCIPLE_FIELD_MAXLENGTH["rationale"] + 1
         )
         errors = validate_system_context(doc)
         self.assertTrue(any("rationale" in e and "budget" in e for e in errors))
 
-    def test_key_decision_source_event_id_valid(self) -> None:
+    def test_principle_source_event_id_valid(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["source_event_id"] = "abcdef012345"
+        doc["principles"][0]["source_event_id"] = "abcdef012345"
         errors = validate_system_context(doc)
         self.assertEqual(errors, [])
 
-    def test_key_decision_source_event_id_invalid(self) -> None:
+    def test_principle_source_event_id_invalid(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["source_event_id"] = "not-hex"
+        doc["principles"][0]["source_event_id"] = "not-hex"
         errors = validate_system_context(doc)
         self.assertTrue(any("source_event_id" in e for e in errors))
 
@@ -386,50 +384,49 @@ class TestProjectSpecificValidation(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
-class TestSourcesValidation(unittest.TestCase):
-    def test_sources_must_be_list(self) -> None:
-        doc = valid_doc()
-        doc["sources"] = "not a list"
-        errors = validate_system_context(doc)
-        self.assertTrue(any("sources" in e for e in errors))
-
-    def test_sources_items_must_be_strings(self) -> None:
-        doc = valid_doc()
-        doc["sources"] = [42]
-        errors = validate_system_context(doc)
-        self.assertTrue(any("sources" in e for e in errors))
-
-    def test_empty_sources_valid(self) -> None:
-        doc = valid_doc()
-        doc["sources"] = []
-        errors = validate_system_context(doc)
-        self.assertEqual(errors, [])
-
-
 class TestSourceEventIdEdgeCases(unittest.TestCase):
     def test_uppercase_hex_rejected(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["source_event_id"] = "ABCDEF012345"
+        doc["principles"][0]["source_event_id"] = "ABCDEF012345"
         errors = validate_system_context(doc)
         self.assertTrue(any("source_event_id" in e for e in errors))
 
     def test_11_char_hex_rejected(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["source_event_id"] = "abcdef01234"
+        doc["principles"][0]["source_event_id"] = "abcdef01234"
         errors = validate_system_context(doc)
         self.assertTrue(any("source_event_id" in e for e in errors))
 
     def test_13_char_hex_rejected(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["source_event_id"] = "abcdef0123456"
+        doc["principles"][0]["source_event_id"] = "abcdef0123456"
         errors = validate_system_context(doc)
         self.assertTrue(any("source_event_id" in e for e in errors))
 
     def test_empty_string_rejected(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"][0]["source_event_id"] = ""
+        doc["principles"][0]["source_event_id"] = ""
         errors = validate_system_context(doc)
         self.assertTrue(any("source_event_id" in e for e in errors))
+
+
+class TestPrinciplesRename(unittest.TestCase):
+    def test_validate_requires_principles_field(self) -> None:
+        doc = valid_doc()
+        del doc["principles"]
+        errors = validate_system_context(doc)
+        self.assertIn("Missing required field: principles", errors)
+
+    def test_validate_rejects_dict_with_only_key_decisions(self) -> None:
+        doc = valid_doc()
+        doc["key_decisions"] = doc.pop("principles")
+        errors = validate_system_context(doc)
+        self.assertIn("Missing required field: principles", errors)
+
+    def test_validate_ignores_extra_sources_key(self) -> None:
+        doc = valid_doc(sources=["legacy.md", "other.md"])
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ Usage:
     system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
     system_context_cli.py get-stack-field NAME --smm-dir DIR
     system_context_cli.py add-module --smm-dir DIR       < module.json
-    system_context_cli.py add-decision --smm-dir DIR     < decision.json
+    system_context_cli.py add-principle --smm-dir DIR     < decision.json
     system_context_cli.py add-convention --smm-dir DIR   < convention.json
     system_context_cli.py edit-branching --smm-dir DIR   < branching.json
     system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
@@ -372,8 +372,8 @@ def _cmd_add_convention(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "conventions")
 
 
-def _cmd_add_decision(args: argparse.Namespace) -> int:
-    return _cmd_append_to_list(args, "key_decisions")
+def _cmd_add_principle(args: argparse.Namespace) -> int:
+    return _cmd_append_to_list(args, "principles")
 
 
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
@@ -406,7 +406,7 @@ def main() -> None:
         "--topics-only",
         help=(
             "Comma-separated subset of --sections to render as identifier "
-            "bullets only (eligible: key_decisions, project_specific)"
+            "bullets only (eligible: principles, project_specific)"
         ),
     )
     sub.add_parser("create", help="Create from stdin JSON")
@@ -430,7 +430,7 @@ def main() -> None:
     get_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
 
     sub.add_parser("add-module", help="Add module from stdin JSON")
-    sub.add_parser("add-decision", help="Add key decision from stdin JSON")
+    sub.add_parser("add-principle", help="Add principle from stdin JSON")
     sub.add_parser("add-convention", help="Add convention from stdin JSON")
     sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
 
@@ -470,7 +470,7 @@ def main() -> None:
         "edit-stack-field": _cmd_edit_stack_field,
         "get-stack-field": _cmd_get_stack_field,
         "add-module": _cmd_add_module,
-        "add-decision": _cmd_add_decision,
+        "add-principle": _cmd_add_principle,
         "add-convention": _cmd_add_convention,
         "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
         "add-acceptance-surface": _cmd_add_acceptance_surface,

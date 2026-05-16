@@ -49,6 +49,11 @@ def load_system_context(smm_dir: Path) -> dict | None:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Corrupt system context at {path}: {exc}") from exc
 
+    if isinstance(data, dict):
+        if "key_decisions" in data and "principles" not in data:
+            data["principles"] = data.pop("key_decisions")
+        data.pop("sources", None)
+
     errors = validate_system_context(data, enforce_budget=False)
     if errors:
         raise ValueError(

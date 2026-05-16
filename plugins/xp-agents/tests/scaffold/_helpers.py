@@ -105,8 +105,7 @@ def valid_system_context(surfaces: list[dict] | None = None) -> dict:
         "stack": {"languages": ["Python"]},
         "modules": [{"name": "core", "purpose": "Core", "path": "src/core"}],
         "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "lang", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
+        "principles": [{"topic": "lang", "decision": "Use Python"}],
         "project_specific": [],
     }
     if surfaces is not None:

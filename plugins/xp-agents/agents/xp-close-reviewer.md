@@ -27,7 +27,7 @@ Read these five values from your invoking prompt:
 
 If any section is missing, return immediately and say so.
 
-If the invoking prompt provides `SYSTEM_CONTEXT_RENDERED=<path>`, Read that file: it carries the project's stack, conventions, branching strategy, and key-decision topics. Use it to evaluate whether the diff respects project conventions and prior decisions — a diff that contradicts a named convention or a key_decisions topic is a Concern (or Block when severity warrants). When the prompt omits the line (`<SYSTEM_CONTEXT_RENDERED>` placeholder unsubstituted, or empty after `=`), no system_context.json exists for this project; review on diff and SMM_DIR alone.
+If the invoking prompt provides `SYSTEM_CONTEXT_RENDERED=<path>`, Read that file: it carries the project's stack, conventions, branching strategy, and principle topics. Use it to evaluate whether the diff respects project conventions and prior decisions — a diff that contradicts a named convention or a principles topic is a Concern (or Block when severity warrants). When the prompt omits the line (`<SYSTEM_CONTEXT_RENDERED>` placeholder unsubstituted, or empty after `=`), no system_context.json exists for this project; review on diff and SMM_DIR alone.
 
 ## Step 2: Capture the Diff
 

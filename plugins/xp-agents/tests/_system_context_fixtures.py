@@ -24,8 +24,7 @@ def valid_doc(**overrides: object) -> dict:
         "stack": {"languages": ["Python"]},
         "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
         "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "language", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
+        "principles": [{"topic": "language", "decision": "Use Python"}],
         "project_specific": [],
     }
     doc.update(overrides)

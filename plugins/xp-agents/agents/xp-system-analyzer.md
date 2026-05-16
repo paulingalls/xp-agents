@@ -174,10 +174,9 @@ Detect the project's full automated-test command and populate `stack.test_comman
     {"name": "module-name", "path": "src/module", "purpose": "<max 200 chars>"}
   ],
   "conventions": ["<convention, max 150 chars each>"],
-  "key_decisions": [
-    {"topic": "decision-topic", "decision": "<max 200 chars>", "rationale": "<optional, max 200 chars>"}
+  "principles": [
+    {"topic": "principle-topic", "decision": "<max 200 chars>", "rationale": "<optional, max 200 chars>"}
   ],
-  "sources": ["CLAUDE.md", "docs/ARCHITECTURE.md"],
   "project_specific": [
     {"name": "section-name", "content": "<string, list, or object>"}
   ]
@@ -204,7 +203,7 @@ CTXEOF
 ```bash
 echo '"new value"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-field product
 echo '{"name": "mod", "path": "src/mod", "purpose": "does X"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-module
-echo '{"topic": "auth-strategy", "decision": "JWT over session cookies", "rationale": "stateless API"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-decision
+echo '{"topic": "auth-strategy", "decision": "JWT over session cookies", "rationale": "stateless API"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-principle
 ```
 
 For large updates, prefer `create` with the full object over many small patches.

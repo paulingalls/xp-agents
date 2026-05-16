@@ -100,8 +100,7 @@ class TestStoryFreePreloadEmitsTestCommand(unittest.TestCase):
             "stack": {"languages": ["Python"], "test_command": "pytest -n auto"},
             "modules": [],
             "conventions": [],
-            "key_decisions": [],
-            "sources": [],
+            "principles": [],
             "project_specific": [],
         }
         for mode, preload in _TEST_COMMAND_PRELOADS.items():
@@ -124,8 +123,7 @@ class TestStoryFreePreloadEmitsTestCommand(unittest.TestCase):
             "stack": {"languages": ["Python"]},
             "modules": [],
             "conventions": [],
-            "key_decisions": [],
-            "sources": [],
+            "principles": [],
             "project_specific": [],
         }
         for mode, preload in _TEST_COMMAND_PRELOADS.items():
