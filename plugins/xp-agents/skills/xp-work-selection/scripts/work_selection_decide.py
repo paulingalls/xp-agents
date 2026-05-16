@@ -29,7 +29,6 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
 import identity  # noqa: E402
-import read_delta  # noqa: E402
 from event_builder import merge_resolves  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
@@ -97,9 +96,7 @@ def _convention_topic_exists(smm_dir: Path, topic: str) -> bool:
     Used to make force-drop convention emission idempotent — re-drops of
     the same Try MUST NOT append a duplicate convention.
     """
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     for e in events:
         if e.get("type") == _common.CONVENTION and e.get("topic") == topic:
             return True
@@ -113,9 +110,7 @@ def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
         return 0
     targets = set(ref_ids)
     count = 0
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     for e in events:
         if e.get("type") != "status":
             continue
@@ -176,9 +171,7 @@ def _build_drop_event(smm_dir: Path, agent_id: str, content: str) -> dict:
     tokens = set(HEX_ID_RE.findall(event["content"]))
     if not tokens:
         return event
-    cascade_events = read_delta.read_delta_full(
-        smm_dir, _WATERMARK_ID, update_watermark=False
-    )[0]
+    cascade_events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     cascade_ids = {
         e.get("id", "")
         for e in cascade_events

@@ -8,8 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 
+import _common
 import concerns
-import read_delta
 
 _WATERMARK_ID = "debt-for-files"
 
@@ -25,9 +25,7 @@ def main() -> None:
         print("(none)")
         return
 
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     if not events:
         print("(none — SMM empty)")
         return
