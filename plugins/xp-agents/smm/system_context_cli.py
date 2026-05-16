@@ -23,12 +23,20 @@ Usage:
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import system_context_store as store
+from event_metadata import (
+    STATUS_ACTION_RETIRE_ACCEPTANCE_SURFACE,
+    STATUS_ACTION_RETIRE_CONVENTION,
+    STATUS_ACTION_RETIRE_MODULE,
+    STATUS_ACTION_RETIRE_PRINCIPLE,
+    STATUS_ACTION_RETIRE_PROJECT_SPECIFIC,
+)
 from system_context_renderer import (
     ALL_SECTIONS,
     TOPICS_ONLY_ELIGIBLE,
@@ -48,6 +56,19 @@ from system_context_schema import (
     PROJECT_SPECIFIC_SOFT_CAP,
     validate_system_context,
 )
+
+_APPEND_SH = Path(__file__).parent / "append.sh"
+
+# Map kind → STATUS_ACTION constant for retire-* status event emission.
+# The CLI is a non-hook producer; constants live in event_metadata.py +
+# tests/hooks/test_action_vocabulary_smoke.py:_NON_HOOK_PRODUCERS.
+_RETIRE_ACTIONS: dict[str, str] = {
+    "principle": STATUS_ACTION_RETIRE_PRINCIPLE,
+    "module": STATUS_ACTION_RETIRE_MODULE,
+    "convention": STATUS_ACTION_RETIRE_CONVENTION,
+    "project_specific": STATUS_ACTION_RETIRE_PROJECT_SPECIFIC,
+    "acceptance_surface": STATUS_ACTION_RETIRE_ACCEPTANCE_SURFACE,
+}
 
 # (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
 # names forward-reference story-006 — until that ships, the "run
@@ -428,6 +449,118 @@ def _cmd_add_principle(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "principles")
 
 
+def _emit_retire_event(smm_dir: Path, kind: str, identifier: str) -> None:
+    """Append a status event recording the retire-* action."""
+    metadata = json.dumps(
+        {"action": _RETIRE_ACTIONS[kind], "kind": kind, "identifier": identifier}
+    )
+    subprocess.run(
+        [
+            str(_APPEND_SH),
+            "--smm-dir",
+            str(smm_dir),
+            "--type",
+            "status",
+            "--agent",
+            "system-context-cli",
+            "--content",
+            f"retired {kind} {identifier}",
+            "--working-on",
+            "[]",
+            "--metadata",
+            metadata,
+        ],
+        check=True,
+    )
+
+
+def _cmd_retire_by_key(
+    args: argparse.Namespace, field: str, key_field: str, kind: str
+) -> int:
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("No system context found.", file=sys.stderr)
+        return 1
+    bucket = data.get(field, [])
+    for i, entry in enumerate(bucket):
+        if entry.get(key_field) == args.identifier:
+            del bucket[i]
+            try:
+                store.save_system_context(args.smm_dir, data)
+            except ValueError as exc:
+                print(f"Validation error: {exc}", file=sys.stderr)
+                return 1
+            _emit_retire_event(args.smm_dir, kind, args.identifier)
+            return 0
+    print(
+        f"{field}[{key_field}={args.identifier!r}] not found",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _cmd_retire_principle(args: argparse.Namespace) -> int:
+    return _cmd_retire_by_key(args, "principles", "topic", "principle")
+
+
+def _cmd_retire_module(args: argparse.Namespace) -> int:
+    return _cmd_retire_by_key(args, "modules", "name", "module")
+
+
+def _cmd_retire_project_specific(args: argparse.Namespace) -> int:
+    return _cmd_retire_by_key(args, "project_specific", "name", "project_specific")
+
+
+def _cmd_retire_acceptance_surface(args: argparse.Namespace) -> int:
+    return _cmd_retire_by_key(args, "acceptance_surfaces", "name", "acceptance_surface")
+
+
+def _cmd_retire_convention(args: argparse.Namespace) -> int:
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("No system context found.", file=sys.stderr)
+        return 1
+    bucket = data.get("conventions", [])
+    identifier = args.identifier
+
+    if identifier.isdigit():
+        idx = int(identifier)
+        if idx < 0 or idx >= len(bucket):
+            print(
+                f"conventions[{idx}] out of range (have {len(bucket)} entries)",
+                file=sys.stderr,
+            )
+            return 1
+        resolved = bucket[idx]
+    else:
+        matches = [i for i, c in enumerate(bucket) if identifier in c]
+        if not matches:
+            print(
+                f"conventions: no match for substring {identifier!r}",
+                file=sys.stderr,
+            )
+            return 1
+        if len(matches) > 1:
+            preview = "; ".join(bucket[i] for i in matches)
+            print(
+                f"conventions: ambiguous substring {identifier!r} "
+                f"({len(matches)} matches): {preview}",
+                file=sys.stderr,
+            )
+            return 1
+        idx = matches[0]
+        resolved = bucket[idx]
+
+    del bucket[idx]
+    try:
+        store.save_system_context(args.smm_dir, data)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    _emit_retire_event(args.smm_dir, "convention", resolved)
+    return 0
+
+
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
     args.name = "acceptance_surfaces"
     return _cmd_edit_field(args)
@@ -510,6 +643,16 @@ def main() -> None:
         help="Add one acceptance surface from stdin JSON",
     )
 
+    for name, help_text in (
+        ("retire-principle", "Retire a principle by topic"),
+        ("retire-module", "Retire a module by name"),
+        ("retire-convention", "Retire a convention by index or substring"),
+        ("retire-project-specific", "Retire a project_specific entry by name"),
+        ("retire-acceptance-surface", "Retire an acceptance surface by name"),
+    ):
+        retire_p = sub.add_parser(name, help=help_text)
+        retire_p.add_argument("identifier", help="topic/name/index/substring")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -529,6 +672,11 @@ def main() -> None:
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,
+        "retire-principle": _cmd_retire_principle,
+        "retire-module": _cmd_retire_module,
+        "retire-convention": _cmd_retire_convention,
+        "retire-project-specific": _cmd_retire_project_specific,
+        "retire-acceptance-surface": _cmd_retire_acceptance_surface,
     }
 
     sys.exit(dispatch[args.command](args))
