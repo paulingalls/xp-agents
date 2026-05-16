@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.1.40 — sprint-084: system_context redesign + close-cycle bypass age gate
+
+### Breaking change: `add-decision` CLI renamed to `add-principle`
+
+The `system_context_cli.py add-decision` subcommand was renamed to `add-principle` as part of the schema field rename `key_decisions` → `principles`. Out-of-tree scripts invoking `add-decision` will fail with `invalid choice: 'add-decision'` at first run after upgrade. There is no alias / deprecation shim — the rename landed atomically (decision `b6107e89b7db`). Migration: replace every `add-decision` invocation with `add-principle`; the stdin JSON schema is unchanged.
+
 ## v3.1.39 — free session: skill hardening, reviewer-scoped system_context, close-cycle bypass diagnosis
 
 Free-session sprint resolving sprint-083 retro carry-forwards. Eight commits on `paulingalls/free-2026-05-15-harden-skills-tries-context`.
