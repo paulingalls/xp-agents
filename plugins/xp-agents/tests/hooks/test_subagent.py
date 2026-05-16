@@ -39,6 +39,8 @@ from event_schema import (
     event_action,
 )
 
+_WATERMARK_ID = "test-subagent"
+
 # ===========================================================================
 # user_prompt_log.py tests — Milestone 3.4
 # ===========================================================================
@@ -50,7 +52,7 @@ class TestUserPromptLog(_HookTestCase):
             {"session_id": "t", "prompt": "Hello world"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci), 1)
         self.assertEqual(ci[0]["content"], "Hello world")
@@ -60,7 +62,7 @@ class TestUserPromptLog(_HookTestCase):
             {"session_id": "t", "prompt": "Hi"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(ci[0]["agent_id"], "customer")
 
@@ -69,7 +71,7 @@ class TestUserPromptLog(_HookTestCase):
             {"session_id": "t", "prompt": "Hi", "agent_type": "xp-housekeeper"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_graceful_no_smm_dir(self):
@@ -85,7 +87,7 @@ class TestUserPromptLog(_HookTestCase):
             {"session_id": "t", "prompt": ""},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci), 0)
 
@@ -97,7 +99,7 @@ class TestUserPromptLog(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci), 0)
 
@@ -107,7 +109,7 @@ class TestUserPromptLog(_HookTestCase):
             {"session_id": "t", "prompt": long_prompt},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         ci = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
         self.assertEqual(len(ci[0]["content"]), 10000)
 
@@ -170,7 +172,7 @@ class TestSubagentStop(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         self.assertIn("task-1", statuses[0]["content"])
@@ -190,7 +192,7 @@ class TestSubagentStop(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_graceful_no_smm_dir(self):
@@ -209,7 +211,7 @@ class TestSubagentStop(_HookTestCase):
             {"session_id": "t", "last_assistant_message": "Done"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         self.assertIn("subagent", statuses[0]["content"])
@@ -219,7 +221,7 @@ class TestSubagentStop(_HookTestCase):
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
 
@@ -239,7 +241,7 @@ class TestSubagentStop(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(any("contradict" in c["content"].lower() for c in concerns))
 
@@ -299,7 +301,7 @@ class TestSubagentStop(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
@@ -320,7 +322,7 @@ class TestSubagentStopPlanGate(_HookTestCase):
         )
         marker = self.smm_dir / ".plan-awaiting-review"
         self.assertTrue(marker.exists())
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         gate_events = [
             e for e in events if "plan_awaiting_review" in e.get("content", "")
         ]
@@ -337,7 +339,7 @@ class TestSubagentStopPlanGate(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 2)
         actions = {event_action(e) for e in statuses}
@@ -407,7 +409,7 @@ class TestHousekeepingDone(_HookTestCase):
     def test_records_kickoff_done_event(self):
         """Should record a kickoff-done status event."""
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         done_events = [e for e in events if e.get("agent_id") == "xp-kickoff-done"]
         self.assertEqual(len(done_events), 1)
         self.assertIn("Kickoff complete", done_events[0]["content"])
@@ -434,7 +436,7 @@ class TestHousekeepingDone(_HookTestCase):
     def test_emits_housekeeping_complete_action(self):
         """Kickoff-done event carries the housekeeping_complete action."""
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         kickoff_events = [e for e in events if e.get("agent_id") == "xp-kickoff-done"]
         self.assertEqual(len(kickoff_events), 1)
         self.assertEqual(
@@ -444,7 +446,7 @@ class TestHousekeepingDone(_HookTestCase):
     def test_emits_subagent_complete_after_housekeeping(self):
         """A generic subagent_complete event is appended for housekeeper."""
         subagent_stop.run(self._housekeeping_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 2)
         sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
@@ -466,7 +468,7 @@ class TestPlanReviewerDone(_HookTestCase):
     def test_emits_plan_reviewed_action(self):
         """assign_pending event carries the plan_reviewed action."""
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         gate_events = [
             e
             for e in events
@@ -479,7 +481,7 @@ class TestPlanReviewerDone(_HookTestCase):
     def test_emits_subagent_complete_after_plan_review(self):
         """A generic subagent_complete event accompanies the assign_pending event."""
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 2)
         sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
