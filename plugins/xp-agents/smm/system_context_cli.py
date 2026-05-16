@@ -69,14 +69,14 @@ from system_context_schema import (
 )
 
 # Re-exported for callers that imported these from system_context_cli
-# before story-006's retire-* split. Source lives in
-# system_context_retire_cli.py.
+# before the retire-* family was extracted into system_context_retire_cli.
+# Source lives in system_context_retire_cli.py.
 __all__ = ["_RETIRE_ACTIONS", "_emit_retire_event"]
 
 # (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
-# names forward-reference story-006 — until that ships, the "run
-# retire-<kind>" hint points at a command that doesn't yet exist on
-# the sprint branch.
+# names are paired with the matching retire-* CLI subcommand below so
+# the "run retire-<kind> first" hint at hard cap resolves to a real
+# command.
 _COUNT_CAP_TABLE: dict[str, tuple[int, int, str]] = {
     "modules": (MODULES_SOFT_CAP, MODULES_HARD_CAP, "retire-module"),
     "conventions": (CONVENTIONS_SOFT_CAP, CONVENTIONS_HARD_CAP, "retire-convention"),

@@ -8,8 +8,8 @@ utilities (``_emit`` JSON-stdout, ``_require_smm_dir`` precondition,
 ``_load_stdin_json`` input-or-die). ``scaffold_cli`` re-exports every
 name so ``from scaffold_cli import _cmd_apply_write`` still resolves.
 
-Split out from scaffold_cli.py during sprint-082 to keep both modules
-under the 500-line project budget.
+Extracted from scaffold_cli.py to keep both modules under the
+500-line project budget.
 """
 
 import argparse

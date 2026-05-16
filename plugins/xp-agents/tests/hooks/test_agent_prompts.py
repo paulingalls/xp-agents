@@ -153,9 +153,7 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
 
     def test_field_string_caps_pinned_in_template(self):
         """Every leaf string cap from system_context_schema must appear
-        in the analyzer template as 'max N chars'. Pinning each value
-        catches the drift the unsynced caps caused before story-008-doc.
-        """
+        in the analyzer template as 'max N chars'."""
         cases = (
             (
                 "stack.languages item",
