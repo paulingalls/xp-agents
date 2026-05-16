@@ -39,6 +39,41 @@ _RETIRE_ACTIONS: dict[str, str] = {
 }
 
 
+def resolve_convention_index(bucket: list, identifier: str) -> int | None:
+    """Resolve a convention identifier to a bucket index.
+
+    `identifier` is either a digit string (direct index) or a substring
+    (must match exactly one entry). Prints an error to stderr and
+    returns None on miss / ambiguity / out-of-range. Shared by
+    retire-convention + edit-convention.
+    """
+    if identifier.isdigit():
+        idx = int(identifier)
+        if idx < 0 or idx >= len(bucket):
+            print(
+                f"conventions[{idx}] out of range (have {len(bucket)} entries)",
+                file=sys.stderr,
+            )
+            return None
+        return idx
+    matches = [i for i, c in enumerate(bucket) if identifier in c]
+    if not matches:
+        print(
+            f"conventions: no match for substring {identifier!r}",
+            file=sys.stderr,
+        )
+        return None
+    if len(matches) > 1:
+        preview = "; ".join(bucket[i] for i in matches)
+        print(
+            f"conventions: ambiguous substring {identifier!r} "
+            f"({len(matches)} matches): {preview}",
+            file=sys.stderr,
+        )
+        return None
+    return matches[0]
+
+
 def _emit_retire_event(smm_dir: Path, kind: str, identifier: str) -> None:
     """Append a status event recording the retire-* action."""
     event = _common.make_event(
@@ -102,35 +137,10 @@ def cmd_retire_convention(args: argparse.Namespace) -> int:
         print("No system context found.", file=sys.stderr)
         return 1
     bucket = data.get("conventions", [])
-    identifier = args.identifier
-
-    if identifier.isdigit():
-        idx = int(identifier)
-        if idx < 0 or idx >= len(bucket):
-            print(
-                f"conventions[{idx}] out of range (have {len(bucket)} entries)",
-                file=sys.stderr,
-            )
-            return 1
-        resolved = bucket[idx]
-    else:
-        matches = [i for i, c in enumerate(bucket) if identifier in c]
-        if not matches:
-            print(
-                f"conventions: no match for substring {identifier!r}",
-                file=sys.stderr,
-            )
-            return 1
-        if len(matches) > 1:
-            preview = "; ".join(bucket[i] for i in matches)
-            print(
-                f"conventions: ambiguous substring {identifier!r} "
-                f"({len(matches)} matches): {preview}",
-                file=sys.stderr,
-            )
-            return 1
-        idx = matches[0]
-        resolved = bucket[idx]
+    idx = resolve_convention_index(bucket, args.identifier)
+    if idx is None:
+        return 1
+    resolved = bucket[idx]
 
     del bucket[idx]
     try:

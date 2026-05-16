@@ -30,6 +30,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import system_context_store as store
+from system_context_edit_cli import (
+    _EDIT_ACTIONS,
+    _emit_edit_event,
+)
+from system_context_edit_cli import (
+    cmd_edit_acceptance_surface as _cmd_edit_acceptance_surface,
+)
+from system_context_edit_cli import (
+    cmd_edit_convention as _cmd_edit_convention,
+)
+from system_context_edit_cli import (
+    cmd_edit_module as _cmd_edit_module,
+)
+from system_context_edit_cli import (
+    cmd_edit_principle as _cmd_edit_principle,
+)
+from system_context_edit_cli import (
+    cmd_edit_project_specific as _cmd_edit_project_specific,
+)
 from system_context_renderer import (
     ALL_SECTIONS,
     TOPICS_ONLY_ELIGIBLE,
@@ -70,9 +89,14 @@ from system_context_schema import (
 )
 
 # Re-exported for callers that imported these from system_context_cli
-# before the retire-* family was extracted into system_context_retire_cli.
-# Source lives in system_context_retire_cli.py.
-__all__ = ["_RETIRE_ACTIONS", "_emit_retire_event"]
+# before the retire-* + edit-* families were extracted. Sources live in
+# system_context_retire_cli.py and system_context_edit_cli.py.
+__all__ = [
+    "_EDIT_ACTIONS",
+    "_RETIRE_ACTIONS",
+    "_emit_edit_event",
+    "_emit_retire_event",
+]
 
 # (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
 # names are paired with the matching retire-* CLI subcommand below so
@@ -552,6 +576,33 @@ def main() -> None:
         retire_p = sub.add_parser(name, help=help_text)
         retire_p.add_argument("identifier", help="topic/name/index/substring")
 
+    for name, help_text in (
+        (
+            "edit-principle",
+            "Edit a principle by topic; stdin is JSON patch (null value clears a key)",
+        ),
+        (
+            "edit-module",
+            "Edit a module by name; stdin is JSON patch (null value clears a key)",
+        ),
+        (
+            "edit-convention",
+            "Edit a convention by index or substring; stdin is JSON-encoded string",
+        ),
+        (
+            "edit-project-specific",
+            "Edit a project_specific entry by name; stdin is JSON patch "
+            "(null value clears a key)",
+        ),
+        (
+            "edit-acceptance-surface",
+            "Edit an acceptance surface by name; stdin is JSON patch "
+            "(null value clears a key)",
+        ),
+    ):
+        edit_p = sub.add_parser(name, help=help_text)
+        edit_p.add_argument("identifier", help="topic/name/index/substring")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -577,6 +628,11 @@ def main() -> None:
         "retire-convention": _cmd_retire_convention,
         "retire-project-specific": _cmd_retire_project_specific,
         "retire-acceptance-surface": _cmd_retire_acceptance_surface,
+        "edit-principle": _cmd_edit_principle,
+        "edit-module": _cmd_edit_module,
+        "edit-convention": _cmd_edit_convention,
+        "edit-project-specific": _cmd_edit_project_specific,
+        "edit-acceptance-surface": _cmd_edit_acceptance_surface,
     }
 
     sys.exit(dispatch[args.command](args))
