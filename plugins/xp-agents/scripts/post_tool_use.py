@@ -17,7 +17,6 @@ import concerns
 import coordination
 import event_schema
 import identity
-import read_delta
 import worktree
 
 _WATERMARK_ID = "post-tool-use"
@@ -51,10 +50,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     normalized = worktree.normalize_path(file_path, cwd)
 
-    # Read events for conflict detection and semantic enrichment
-    events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID, update_watermark=False)[
-        0
-    ]
+    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
 
     # Semantic references
     refs = concerns.find_related_decisions(events, file_path, cwd)

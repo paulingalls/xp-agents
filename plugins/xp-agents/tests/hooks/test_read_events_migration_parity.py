@@ -110,32 +110,53 @@ def _function_node(
     return None
 
 
-def _calls_attribute(scope: ast.AST, qualname_options: tuple[str, ...]) -> bool:
-    """True if any Call inside `scope` matches one of `qualname_options`.
+def _call_matches_qualname(node: ast.Call, qualname_options: tuple[str, ...]) -> bool:
+    """True if `node.func` matches one of `qualname_options`.
 
     Options are dotted paths matched against ast.Attribute chains.
     A bare option name also matches a same-named ast.Name call (covers
-    `from _common import read_events_raw` style).
+    `from <module> import <name>` style).
     """
-    for node in ast.walk(scope):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Attribute):
-            chain = []
-            cur: ast.AST = func
-            while isinstance(cur, ast.Attribute):
-                chain.append(cur.attr)
-                cur = cur.value
-            if isinstance(cur, ast.Name):
-                chain.append(cur.id)
-            dotted = ".".join(reversed(chain))
-            if dotted in qualname_options:
+    func = node.func
+    if isinstance(func, ast.Attribute):
+        chain = []
+        cur: ast.AST = func
+        while isinstance(cur, ast.Attribute):
+            chain.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            chain.append(cur.id)
+        dotted = ".".join(reversed(chain))
+        return dotted in qualname_options
+    if isinstance(func, ast.Name):
+        for opt in qualname_options:
+            if opt == func.id or opt.endswith("." + func.id):
                 return True
-        elif isinstance(func, ast.Name):
-            for opt in qualname_options:
-                if opt == func.id or opt.endswith("." + func.id):
-                    return True
+    return False
+
+
+def _calls_attribute(scope: ast.AST, qualname_options: tuple[str, ...]) -> bool:
+    """True if any Call inside `scope` matches one of `qualname_options`."""
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Call) and _call_matches_qualname(
+            node, qualname_options
+        ):
+            return True
+    return False
+
+
+_READ_DELTA_FULL_QUALNAMES = ("read_delta.read_delta_full",)
+
+
+def _has_update_watermark_false(node: ast.Call) -> bool:
+    """True if call has an `update_watermark=False` kwarg."""
+    for kw in node.keywords:
+        if (
+            kw.arg == "update_watermark"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is False
+        ):
+            return True
     return False
 
 
@@ -191,6 +212,55 @@ class TestParity(_SMMTestCase):
         self._assert_parity(expected_count=0)
 
 
+class TestReadEventsLocked(_SMMTestCase):
+    """`_common.read_events_locked` is the canonical helper for the
+    `read_delta_full(smm_dir, slug, update_watermark=False)[0]` pattern.
+    """
+
+    _SLUG = "read-events-locked-test"
+
+    def test_returns_same_list_as_inline_form(self):
+        events = [
+            make_event(EVENT_TYPE_CONCERN, content="C1", files=["a.py"]),
+            make_event(EVENT_TYPE_DECISION, content="D1", topic="t"),
+            make_event(EVENT_TYPE_STATUS, content="S1", working_on=["a.py"]),
+        ]
+        self._write_events(events)
+
+        helper_result = _common.read_events_locked(self.smm_dir, self._SLUG)
+        inline_result = read_delta.read_delta_full(
+            self.smm_dir, self._SLUG, update_watermark=False
+        )[0]
+
+        self.assertEqual(helper_result, inline_result)
+        self.assertEqual(len(helper_result), 3)
+
+    def test_returns_empty_list_when_no_events(self):
+        self.assertEqual(_common.read_events_locked(self.smm_dir, self._SLUG), [])
+
+    def test_does_not_advance_watermark(self):
+        """`update_watermark=False` is wired: watermark file stays absent."""
+        events = [make_event(EVENT_TYPE_CONCERN, content="C1", files=["a.py"])]
+        self._write_events(events)
+        watermark_file = self.smm_dir / f".watermark-{self._SLUG}"
+        self.assertFalse(watermark_file.exists())
+
+        _common.read_events_locked(self.smm_dir, self._SLUG)
+
+        self.assertFalse(watermark_file.exists())
+
+    def test_ast_recognizer_accepts_helper_pattern(self):
+        """`_calls_attribute` matches both dotted and bare helper call shapes."""
+        dotted_src = "import _common\n_common.read_events_locked(p, 'x')\n"
+        bare_src = (
+            "from _common import read_events_locked\nread_events_locked(p, 'x')\n"
+        )
+
+        accepted = ("_common.read_events_locked",)
+        self.assertTrue(_calls_attribute(ast.parse(dotted_src), accepted))
+        self.assertTrue(_calls_attribute(ast.parse(bare_src), accepted))
+
+
 class TestNoReadEventsRawCallers(unittest.TestCase):
     """Per-site enforcement. Methods generated from `_MIGRATED_SITES`."""
 
@@ -210,11 +280,14 @@ class TestNoReadEventsRawCallers(unittest.TestCase):
 
         uses_old = _calls_attribute(
             scope,
-            ("_common.read_events_raw", "read_events_raw"),
+            ("_common.read_events_raw",),
         )
         uses_new = _calls_attribute(
             scope,
-            ("read_delta.read_delta_full",),
+            (
+                "read_delta.read_delta_full",
+                "_common.read_events_locked",
+            ),
         )
 
         scope_desc = f" in function {scope_name!r}" if scope_name else ""
@@ -225,7 +298,8 @@ class TestNoReadEventsRawCallers(unittest.TestCase):
         )
         self.assertTrue(
             uses_new,
-            f"{script_path.name}{scope_desc} must call read_delta.read_delta_full",
+            f"{script_path.name}{scope_desc} must call "
+            f"read_delta.read_delta_full or _common.read_events_locked",
         )
 
 
@@ -240,6 +314,43 @@ for _name, _path, _scope in _MIGRATED_SITES:
     _method = _make_method(_path, _scope)
     _method.__name__ = f"test_{_name}_uses_read_delta_full"
     setattr(TestNoReadEventsRawCallers, _method.__name__, _method)
+
+
+class TestNoInlineCanonicalReadDeltaFull(unittest.TestCase):
+    """The canonical `read_delta_full(...update_watermark=False)[0]` pattern
+    may only appear inside `_common.read_events_locked`. Every other caller
+    must route through the helper. `prompt_nugget.py` is naturally exempt
+    because it omits `update_watermark=False` (intentionally advances the
+    watermark and uses both tuple elements).
+    """
+
+    def test_no_inline_canonical_pattern_in_scripts_and_skills(self):
+        helper_path = (_SCRIPTS_DIR / "_common.py").resolve()
+        violations: list[str] = []
+        for path in list(_SCRIPTS_DIR.rglob("*.py")) + list(_SKILLS_DIR.rglob("*.py")):
+            tree: ast.AST = ast.parse(path.read_text())
+            skip_lo, skip_hi = 0, 0
+            if path.resolve() == helper_path:
+                helper_fn = _function_node(tree, "read_events_locked")
+                if helper_fn is not None:
+                    skip_lo = helper_fn.lineno
+                    skip_hi = helper_fn.end_lineno or helper_fn.lineno
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if skip_lo and skip_lo <= node.lineno <= skip_hi:
+                    continue
+                if not _call_matches_qualname(node, _READ_DELTA_FULL_QUALNAMES):
+                    continue
+                if _has_update_watermark_false(node):
+                    rel = path.relative_to(_SCRIPTS_DIR.parent)
+                    violations.append(f"{rel}:{node.lineno}")
+        self.assertEqual(
+            violations,
+            [],
+            f"Inline read_delta_full(...update_watermark=False) outside "
+            f"_common.read_events_locked: {violations}",
+        )
 
 
 if __name__ == "__main__":
