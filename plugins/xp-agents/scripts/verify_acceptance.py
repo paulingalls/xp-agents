@@ -8,8 +8,8 @@ returns non-zero, naming the failing command on stderr. Exits 0 if all
 commands pass.
 
 Designed to give an honest, multi-command acceptance gate so a story
-cannot "lie" about acceptance — pytest passing while a separate grep in
-the AC goes unverified (the sprint-061 story-004 trap).
+cannot "lie" about acceptance — e.g., pytest passing while a separate
+grep in the AC goes unverified.
 """
 
 import argparse

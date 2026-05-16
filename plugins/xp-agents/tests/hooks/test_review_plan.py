@@ -195,7 +195,7 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         """Rendered tempfile contains the plan-reviewer subset.
 
         Plan-reviewer needs product+architecture+modules+stack+conventions
-        full, plus key_decisions topics-only. No project_specific bodies.
+        full, plus principles topics-only. No project_specific bodies.
         """
         write_system_context_doc(self.smm_dir)
         plan_path = self._write_plan()
@@ -215,8 +215,8 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertIn("## Architecture Overview", rendered)
         self.assertIn("## Stack", rendered)
         self.assertIn("## Conventions", rendered)
-        self.assertIn("## Key Decisions (topics)", rendered)
-        # key_decisions content collapsed to topic bullet
+        self.assertIn("## Principles (topics)", rendered)
+        # principles content collapsed to topic bullet
         self.assertIn("- language", rendered)
         self.assertNotIn("Use Python", rendered)
 

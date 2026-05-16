@@ -22,8 +22,8 @@ versioned so future migrations can introspect the on-disk shape:
 
 I/O follows the smm_store / system_context_store template: atomic write
 via tempfile + rename, symlink rejection, fail-loud on corrupt JSON or
-schema-invalid content. Pure module — no CLI; story-003's write_history.py
-is the CLI front-end.
+schema-invalid content. Pure module — no CLI; write_history.py is the
+CLI front-end.
 """
 
 import json

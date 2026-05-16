@@ -36,8 +36,7 @@ _SECTION_HEADINGS: dict[str, str] = {
     "stack": "Stack",
     "modules": "Modules",
     "conventions": "Conventions",
-    "key_decisions": "Key Decisions",
-    "sources": "Sources",
+    "principles": "Principles",
     "branching_strategy": "Branching Strategy",
     "acceptance_surfaces": "Acceptance Surfaces",
 }
@@ -58,8 +57,7 @@ ALL_SECTIONS: tuple[str, ...] = (
     "stack",
     "modules",
     "conventions",
-    "key_decisions",
-    "sources",
+    "principles",
     "project_specific",
     "branching_strategy",
     "acceptance_surfaces",
@@ -67,7 +65,7 @@ ALL_SECTIONS: tuple[str, ...] = (
 
 # Sections whose items carry an identifier field (`topic` / `name`)
 # that can be collapsed to a TOC-style bullet list via --topics-only.
-TOPICS_ONLY_ELIGIBLE: frozenset[str] = frozenset({"key_decisions", "project_specific"})
+TOPICS_ONLY_ELIGIBLE: frozenset[str] = frozenset({"principles", "project_specific"})
 
 
 def render_subset(
@@ -83,7 +81,7 @@ def render_subset(
     the caller's list — output is stable across callers.
 
     `topics_only` names a subset of `sections`; each listed section is
-    collapsed to a TOC of identifier bullets (`topic` for key_decisions,
+    collapsed to a TOC of identifier bullets (`topic` for principles,
     `name` for project_specific). Only items in `TOPICS_ONLY_ELIGIBLE`
     are valid; ineligible names raise ValueError so misuse is loud, not
     silent — the CLI also validates upfront to surface argparse-style
@@ -120,13 +118,11 @@ def render_subset(
                 _render_modules(lines, data["modules"])
             case "conventions":
                 _render_conventions(lines, data["conventions"])
-            case "key_decisions":
+            case "principles":
                 if name in topics_set:
-                    _render_key_decisions_topics_only(lines, data["key_decisions"])
+                    _render_principles_topics_only(lines, data["principles"])
                 else:
-                    _render_key_decisions(lines, data["key_decisions"])
-            case "sources":
-                _render_sources(lines, data["sources"])
+                    _render_principles(lines, data["principles"])
             case "project_specific":
                 entries = data.get("project_specific", [])
                 if name in topics_set:
@@ -199,8 +195,8 @@ def _render_conventions(lines: list[str], conventions: list[str]) -> None:
     lines.append("")
 
 
-def _render_key_decisions(lines: list[str], decisions: list[dict]) -> None:
-    lines.append("## Key Decisions")
+def _render_principles(lines: list[str], decisions: list[dict]) -> None:
+    lines.append("## Principles")
     lines.append("")
     for d in decisions:
         rationale = f" — {d['rationale']}" if d.get("rationale") else ""
@@ -208,19 +204,11 @@ def _render_key_decisions(lines: list[str], decisions: list[dict]) -> None:
     lines.append("")
 
 
-def _render_key_decisions_topics_only(lines: list[str], decisions: list[dict]) -> None:
-    lines.append("## Key Decisions (topics)")
+def _render_principles_topics_only(lines: list[str], decisions: list[dict]) -> None:
+    lines.append("## Principles (topics)")
     lines.append("")
     for d in decisions:
         lines.append(f"- {d['topic']}")
-    lines.append("")
-
-
-def _render_sources(lines: list[str], sources: list[str]) -> None:
-    lines.append("## Sources")
-    lines.append("")
-    for s in sources:
-        lines.append(f"- {s}")
     lines.append("")
 
 

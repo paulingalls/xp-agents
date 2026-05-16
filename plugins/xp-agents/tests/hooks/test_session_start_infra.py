@@ -306,8 +306,7 @@ class TestTeammateSessionStart(_HookTestCase):
             "stack": {"languages": ["Python"]},
             "modules": [],
             "conventions": [],
-            "key_decisions": [],
-            "sources": [],
+            "principles": [],
             "project_specific": [],
         }
         (self.smm_dir / "system_context.json").write_text(json.dumps(ctx))

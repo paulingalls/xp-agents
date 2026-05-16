@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _system_context_fixtures import valid_doc, write_doc
+from _system_context_fixtures import read_events, seed_doc, valid_doc, write_doc
 from conftest import _SMMTestCase, run_cli
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
@@ -171,8 +171,7 @@ class TestRenderCommand(_SMMTestCase):
         stack_pos = output.find("Stack")
         modules_pos = output.find("Modules")
         conv_pos = output.find("Conventions")
-        decisions_pos = output.find("Key Decisions")
-        sources_pos = output.find("Sources")
+        principles_pos = output.find("Principles")
         custom_pos = output.find("Custom Section")
         self.assertTrue(
             product_pos
@@ -180,8 +179,7 @@ class TestRenderCommand(_SMMTestCase):
             < stack_pos
             < modules_pos
             < conv_pos
-            < decisions_pos
-            < sources_pos
+            < principles_pos
             < custom_pos,
             f"Sections not in canonical order: {output[:500]}",
         )
@@ -241,14 +239,14 @@ class TestRenderSubsetFlags(_SMMTestCase):
 
     Plan + close reviewers don't need the full ~7K-token document. The
     `--sections` flag filters which top-level keys are rendered; the
-    `--topics-only` flag (subset of `--sections`) collapses `key_decisions`
+    `--topics-only` flag (subset of `--sections`) collapses `principles`
     to topic-bullets and `project_specific` to name-bullets, leaving the
     rest full.
     """
 
-    def _write_doc_with_decisions(self) -> None:
+    def _write_doc_with_principles(self) -> None:
         doc = valid_doc()
-        doc["key_decisions"] = [
+        doc["principles"] = [
             {"topic": "hooks-first", "decision": "All agents are hooks"},
             {"topic": "four-file", "decision": "events + sc + plan + sprint"},
         ]
@@ -259,7 +257,7 @@ class TestRenderSubsetFlags(_SMMTestCase):
         write_doc(self.smm_dir, doc)
 
     def test_sections_filter_keeps_only_named(self) -> None:
-        self._write_doc_with_decisions()
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI, ["render", "--sections", "stack,conventions"], self.smm_dir
         )
@@ -269,18 +267,18 @@ class TestRenderSubsetFlags(_SMMTestCase):
         self.assertNotIn("## Product", result.stdout)
         self.assertNotIn("## Architecture Overview", result.stdout)
         self.assertNotIn("## Modules", result.stdout)
-        self.assertNotIn("## Key Decisions", result.stdout)
+        self.assertNotIn("## Principles", result.stdout)
 
-    def test_topics_only_collapses_key_decisions_to_topic_bullets(self) -> None:
-        self._write_doc_with_decisions()
+    def test_topics_only_collapses_principles_to_topic_bullets(self) -> None:
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI,
             [
                 "render",
                 "--sections",
-                "key_decisions",
+                "principles",
                 "--topics-only",
-                "key_decisions",
+                "principles",
             ],
             self.smm_dir,
         )
@@ -291,7 +289,7 @@ class TestRenderSubsetFlags(_SMMTestCase):
         self.assertNotIn("events + sc + plan + sprint", result.stdout)
 
     def test_topics_only_collapses_project_specific_to_name_bullets(self) -> None:
-        self._write_doc_with_decisions()
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI,
             [
@@ -310,23 +308,23 @@ class TestRenderSubsetFlags(_SMMTestCase):
         self.assertNotIn("review tiers", result.stdout)
 
     def test_mixed_topics_only_and_full_section(self) -> None:
-        self._write_doc_with_decisions()
+        self._write_doc_with_principles()
         result = run_cli(
             _CLI,
             [
                 "render",
                 "--sections",
-                "stack,key_decisions",
+                "stack,principles",
                 "--topics-only",
-                "key_decisions",
+                "principles",
             ],
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("## Stack", result.stdout)
-        self.assertIn("Python", result.stdout)  # stack content present
-        self.assertIn("- hooks-first", result.stdout)  # kd as TOC
-        self.assertNotIn("All agents are hooks", result.stdout)  # kd body absent
+        self.assertIn("Python", result.stdout)
+        self.assertIn("- hooks-first", result.stdout)
+        self.assertNotIn("All agents are hooks", result.stdout)
 
     def test_unknown_section_errors_with_valid_names(self) -> None:
         write_doc(self.smm_dir)
@@ -349,9 +347,7 @@ class TestRenderSubsetFlags(_SMMTestCase):
 
     def test_topics_only_without_sections_errors(self) -> None:
         write_doc(self.smm_dir)
-        result = run_cli(
-            _CLI, ["render", "--topics-only", "key_decisions"], self.smm_dir
-        )
+        result = run_cli(_CLI, ["render", "--topics-only", "principles"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--sections", result.stderr)
 
@@ -495,43 +491,416 @@ class TestAddModuleCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 1)
 
 
-# ── add-decision ────────────────────────────────────────────────
+# ── add-principle ────────────────────────────────────────────────
 
 
-class TestAddDecisionCommand(_SMMTestCase):
-    def test_add_decision(self) -> None:
+class TestAddPrincipleCommand(_SMMTestCase):
+    def test_add_principle(self) -> None:
         write_doc(self.smm_dir)
-        new_decision = {"topic": "database", "decision": "Use SQLite"}
+        new_principle = {"topic": "database", "decision": "Use SQLite"}
         result = run_cli(
             _CLI,
-            ["add-decision"],
+            ["add-principle"],
             self.smm_dir,
-            stdin_data=json.dumps(new_decision),
+            stdin_data=json.dumps(new_principle),
         )
         self.assertEqual(result.returncode, 0)
         data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
-        self.assertEqual(len(data["key_decisions"]), 2)
-        self.assertEqual(data["key_decisions"][1]["topic"], "database")
+        self.assertEqual(len(data["principles"]), 2)
+        self.assertEqual(data["principles"][1]["topic"], "database")
 
-    def test_add_decision_invalid_json(self) -> None:
+    def test_add_principle_invalid_json(self) -> None:
         write_doc(self.smm_dir)
         result = run_cli(
             _CLI,
-            ["add-decision"],
+            ["add-principle"],
             self.smm_dir,
             stdin_data="not json",
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("Invalid JSON", result.stderr)
 
-    def test_add_decision_missing_file(self) -> None:
+    def test_add_principle_missing_file(self) -> None:
         result = run_cli(
             _CLI,
-            ["add-decision"],
+            ["add-principle"],
             self.smm_dir,
             stdin_data=json.dumps({"topic": "x", "decision": "y"}),
         )
         self.assertEqual(result.returncode, 1)
+
+
+# ── count caps: soft warn / hard refuse on add-* ────────────────
+
+
+class TestAddCommandCountCaps(_SMMTestCase):
+    """Soft cap: stderr "approaching cap" + exit 0. Hard cap: stderr
+    "hard cap reached" + retire-<kind> + non-zero exit; file unchanged."""
+
+    # ── modules: soft=10, hard=15, add-module ──────────────────
+
+    def test_add_modules_below_soft_silent(self) -> None:
+        write_doc(self.smm_dir, seed_doc("modules", 8))
+        result = run_cli(
+            _CLI,
+            ["add-module"],
+            self.smm_dir,
+            stdin_data=json.dumps({"name": "new", "purpose": "x", "path": "p"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("approaching", result.stderr)
+
+    def test_add_modules_at_soft_warns_but_writes(self) -> None:
+        write_doc(self.smm_dir, seed_doc("modules", 10))
+        result = run_cli(
+            _CLI,
+            ["add-module"],
+            self.smm_dir,
+            stdin_data=json.dumps({"name": "new", "purpose": "x", "path": "p"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approaching cap", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["modules"]), 11)
+
+    def test_add_modules_at_hard_refuses(self) -> None:
+        write_doc(self.smm_dir, seed_doc("modules", 15))
+        result = run_cli(
+            _CLI,
+            ["add-module"],
+            self.smm_dir,
+            stdin_data=json.dumps({"name": "new", "purpose": "x", "path": "p"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hard cap reached", result.stderr)
+        self.assertIn("retire-module", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["modules"]), 15)
+
+    # ── conventions: soft=20, hard=30, add-convention ──────────
+
+    def test_add_conventions_below_soft_silent(self) -> None:
+        write_doc(self.smm_dir, seed_doc("conventions", 18))
+        result = run_cli(
+            _CLI,
+            ["add-convention"],
+            self.smm_dir,
+            stdin_data=json.dumps("new-convention"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("approaching", result.stderr)
+
+    def test_add_conventions_at_soft_warns_but_writes(self) -> None:
+        write_doc(self.smm_dir, seed_doc("conventions", 20))
+        result = run_cli(
+            _CLI,
+            ["add-convention"],
+            self.smm_dir,
+            stdin_data=json.dumps("new-convention"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approaching cap", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["conventions"]), 21)
+
+    def test_add_conventions_at_hard_refuses(self) -> None:
+        write_doc(self.smm_dir, seed_doc("conventions", 30))
+        result = run_cli(
+            _CLI,
+            ["add-convention"],
+            self.smm_dir,
+            stdin_data=json.dumps("new-convention"),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hard cap reached", result.stderr)
+        self.assertIn("retire-convention", result.stderr)
+
+    # ── principles: soft=15, hard=20, add-principle ────────────
+
+    def test_add_principles_below_soft_silent(self) -> None:
+        write_doc(self.smm_dir, seed_doc("principles", 13))
+        result = run_cli(
+            _CLI,
+            ["add-principle"],
+            self.smm_dir,
+            stdin_data=json.dumps({"topic": "new", "decision": "d"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("approaching", result.stderr)
+
+    def test_add_principles_at_soft_warns_but_writes(self) -> None:
+        write_doc(self.smm_dir, seed_doc("principles", 15))
+        result = run_cli(
+            _CLI,
+            ["add-principle"],
+            self.smm_dir,
+            stdin_data=json.dumps({"topic": "new", "decision": "d"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approaching cap", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["principles"]), 16)
+
+    def test_add_principles_at_hard_refuses(self) -> None:
+        write_doc(self.smm_dir, seed_doc("principles", 20))
+        result = run_cli(
+            _CLI,
+            ["add-principle"],
+            self.smm_dir,
+            stdin_data=json.dumps({"topic": "new", "decision": "d"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hard cap reached", result.stderr)
+        self.assertIn("retire-principle", result.stderr)
+
+    # ── project_specific: soft=10, hard=15 ─────────────────────
+    # No add-project-specific CLI yet; entries are added via edit-field.
+    # Constants pinned in test_system_context_schema.TestCountCaps.
+
+    # ── acceptance_surfaces: soft=5, hard=8, add-acceptance-surface ─
+
+    def test_add_acceptance_surfaces_below_soft_silent(self) -> None:
+        write_doc(self.smm_dir, seed_doc("acceptance_surfaces", 3))
+        result = run_cli(
+            _CLI,
+            ["add-acceptance-surface"],
+            self.smm_dir,
+            stdin_data=json.dumps(
+                {"name": "new", "signals": ["x"], "status": "covered"}
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("approaching", result.stderr)
+
+    def test_add_acceptance_surfaces_at_soft_warns_but_writes(self) -> None:
+        write_doc(self.smm_dir, seed_doc("acceptance_surfaces", 5))
+        result = run_cli(
+            _CLI,
+            ["add-acceptance-surface"],
+            self.smm_dir,
+            stdin_data=json.dumps(
+                {"name": "new", "signals": ["x"], "status": "covered"}
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approaching cap", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["acceptance_surfaces"]), 6)
+
+    def test_add_acceptance_surfaces_at_hard_refuses(self) -> None:
+        write_doc(self.smm_dir, seed_doc("acceptance_surfaces", 8))
+        result = run_cli(
+            _CLI,
+            ["add-acceptance-surface"],
+            self.smm_dir,
+            stdin_data=json.dumps(
+                {"name": "new", "signals": ["x"], "status": "covered"}
+            ),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hard cap reached", result.stderr)
+        self.assertIn("retire-acceptance-surface", result.stderr)
+
+
+# ── retire-* subcommands ────────────────────────────────────────
+
+
+class TestRetireCommands(_SMMTestCase):
+    """Retire-* CLIs remove an entry from a capped list and emit a status
+    event so curation is traceable. Hard delete only — provenance survives
+    in the original decision event."""
+
+    # ── retire-principle (by topic) ────────────────────────────
+
+    def test_retire_principle_success(self) -> None:
+        write_doc(self.smm_dir, seed_doc("principles", 3))
+        result = run_cli(_CLI, ["retire-principle", "t1"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["principles"]), 2)
+        self.assertNotIn("t1", [p["topic"] for p in data["principles"]])
+
+    def test_retire_principle_not_found(self) -> None:
+        write_doc(self.smm_dir, seed_doc("principles", 3))
+        result = run_cli(_CLI, ["retire-principle", "missing"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["principles"]), 3)
+
+    def test_retire_principle_emits_status_event(self) -> None:
+        write_doc(self.smm_dir, seed_doc("principles", 3))
+        run_cli(_CLI, ["retire-principle", "t1"], self.smm_dir)
+        events = read_events(self.smm_dir)
+        retire_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "retire_principle"
+        ]
+        self.assertEqual(len(retire_events), 1)
+        self.assertEqual(retire_events[0]["metadata"]["identifier"], "t1")
+        self.assertEqual(retire_events[0]["metadata"]["kind"], "principle")
+
+    # ── retire-module (by name) ────────────────────────────────
+
+    def test_retire_module_success(self) -> None:
+        write_doc(self.smm_dir, seed_doc("modules", 3))
+        result = run_cli(_CLI, ["retire-module", "m1"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["modules"]), 2)
+        self.assertNotIn("m1", [m["name"] for m in data["modules"]])
+
+    def test_retire_module_not_found(self) -> None:
+        write_doc(self.smm_dir, seed_doc("modules", 3))
+        result = run_cli(_CLI, ["retire-module", "missing"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing", result.stderr)
+
+    def test_retire_module_emits_status_event(self) -> None:
+        write_doc(self.smm_dir, seed_doc("modules", 3))
+        run_cli(_CLI, ["retire-module", "m1"], self.smm_dir)
+        events = read_events(self.smm_dir)
+        retire_events = [
+            e for e in events if e.get("metadata", {}).get("action") == "retire_module"
+        ]
+        self.assertEqual(len(retire_events), 1)
+        self.assertEqual(retire_events[0]["metadata"]["identifier"], "m1")
+
+    # ── retire-project-specific (by name) ──────────────────────
+
+    def test_retire_project_specific_success(self) -> None:
+        write_doc(self.smm_dir, seed_doc("project_specific", 3))
+        result = run_cli(_CLI, ["retire-project-specific", "ps1"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["project_specific"]), 2)
+        self.assertNotIn("ps1", [e["name"] for e in data["project_specific"]])
+
+    def test_retire_project_specific_not_found(self) -> None:
+        write_doc(self.smm_dir, seed_doc("project_specific", 3))
+        result = run_cli(_CLI, ["retire-project-specific", "missing"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing", result.stderr)
+
+    def test_retire_project_specific_emits_status_event(self) -> None:
+        write_doc(self.smm_dir, seed_doc("project_specific", 3))
+        run_cli(_CLI, ["retire-project-specific", "ps1"], self.smm_dir)
+        events = read_events(self.smm_dir)
+        retire_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "retire_project_specific"
+        ]
+        self.assertEqual(len(retire_events), 1)
+        self.assertEqual(retire_events[0]["metadata"]["identifier"], "ps1")
+
+    # ── retire-acceptance-surface (by name) ────────────────────
+
+    def test_retire_acceptance_surface_success(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = seed_doc("acceptance_surfaces", 3)[
+            "acceptance_surfaces"
+        ]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["retire-acceptance-surface", "s1"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["acceptance_surfaces"]), 2)
+        self.assertNotIn("s1", [s["name"] for s in data["acceptance_surfaces"]])
+
+    def test_retire_acceptance_surface_not_found(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = seed_doc("acceptance_surfaces", 3)[
+            "acceptance_surfaces"
+        ]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["retire-acceptance-surface", "missing"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing", result.stderr)
+
+    def test_retire_acceptance_surface_emits_status_event(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = seed_doc("acceptance_surfaces", 3)[
+            "acceptance_surfaces"
+        ]
+        write_doc(self.smm_dir, doc)
+        run_cli(_CLI, ["retire-acceptance-surface", "s1"], self.smm_dir)
+        events = read_events(self.smm_dir)
+        retire_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "retire_acceptance_surface"
+        ]
+        self.assertEqual(len(retire_events), 1)
+        self.assertEqual(retire_events[0]["metadata"]["identifier"], "s1")
+
+    # ── retire-convention (by index or substring) ──────────────
+
+    def test_retire_convention_by_integer_index(self) -> None:
+        write_doc(self.smm_dir, seed_doc("conventions", 5))
+        result = run_cli(_CLI, ["retire-convention", "2"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["conventions"]), 4)
+        self.assertNotIn("c2", data["conventions"])
+
+    def test_retire_convention_integer_index_out_of_range(self) -> None:
+        write_doc(self.smm_dir, seed_doc("conventions", 3))
+        result = run_cli(_CLI, ["retire-convention", "99"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("out of range", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["conventions"]), 3)
+
+    def test_retire_convention_by_substring(self) -> None:
+        doc = valid_doc()
+        doc["conventions"] = [
+            "Use type hints",
+            "Prefer pathlib over os.path",
+            "Atomic writes via tempfile + rename",
+        ]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["retire-convention", "pathlib"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["conventions"]), 2)
+        self.assertNotIn("Prefer pathlib over os.path", data["conventions"])
+
+    def test_retire_convention_ambiguous_substring_refuses(self) -> None:
+        doc = valid_doc()
+        doc["conventions"] = [
+            "Use type hints",
+            "Use pathlib",
+            "Use atomic writes",
+        ]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["retire-convention", "Use"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ambiguous", result.stderr.lower())
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["conventions"]), 3)
+
+    def test_retire_convention_emits_status_event_with_resolved_text(self) -> None:
+        doc = valid_doc()
+        doc["conventions"] = [
+            "Use type hints",
+            "Prefer pathlib over os.path",
+            "Atomic writes via tempfile + rename",
+        ]
+        write_doc(self.smm_dir, doc)
+        run_cli(_CLI, ["retire-convention", "pathlib"], self.smm_dir)
+        events = read_events(self.smm_dir)
+        retire_events = [
+            e
+            for e in events
+            if e.get("metadata", {}).get("action") == "retire_convention"
+        ]
+        self.assertEqual(len(retire_events), 1)
+        self.assertEqual(
+            retire_events[0]["metadata"]["identifier"],
+            "Prefer pathlib over os.path",
+        )
 
 
 # ── e2e ────────────────────────────────────────────────────────

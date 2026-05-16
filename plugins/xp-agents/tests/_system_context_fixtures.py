@@ -24,8 +24,7 @@ def valid_doc(**overrides: object) -> dict:
         "stack": {"languages": ["Python"]},
         "modules": [{"name": "core", "purpose": "Core logic", "path": "src/core"}],
         "conventions": ["Use type hints"],
-        "key_decisions": [{"topic": "language", "decision": "Use Python"}],
-        "sources": ["CLAUDE.md"],
+        "principles": [{"topic": "language", "decision": "Use Python"}],
         "project_specific": [],
     }
     doc.update(overrides)
@@ -35,3 +34,37 @@ def valid_doc(**overrides: object) -> dict:
 def write_doc(smm_dir: Path, doc: dict | None = None) -> None:
     """Write a valid system context doc to the SMM directory."""
     (smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(json.dumps(doc or valid_doc()))
+
+
+def seed_entries(field: str, n: int) -> list:
+    """Build N schema-valid entries for a given list field."""
+    if field == "modules":
+        return [
+            {"name": f"m{i}", "purpose": "x", "path": f"src/m{i}"} for i in range(n)
+        ]
+    if field == "conventions":
+        return [f"c{i}" for i in range(n)]
+    if field == "principles":
+        return [{"topic": f"t{i}", "decision": "d"} for i in range(n)]
+    if field == "project_specific":
+        return [{"name": f"ps{i}", "content": "x"} for i in range(n)]
+    if field == "acceptance_surfaces":
+        return [
+            {"name": f"s{i}", "signals": ["x"], "status": "covered"} for i in range(n)
+        ]
+    raise ValueError(f"unknown field: {field}")
+
+
+def seed_doc(field: str, n: int) -> dict:
+    """Return a valid_doc with `field` replaced by N seed entries."""
+    doc = valid_doc()
+    doc[field] = seed_entries(field, n)
+    return doc
+
+
+def read_events(smm_dir: Path) -> list[dict]:
+    """Read events.jsonl as a list of dicts; empty list if missing."""
+    events_path = smm_dir / "events.jsonl"
+    if not events_path.exists():
+        return []
+    return [json.loads(line) for line in events_path.read_text().splitlines() if line]

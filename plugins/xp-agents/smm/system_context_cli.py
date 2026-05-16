@@ -14,7 +14,7 @@ Usage:
     system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
     system_context_cli.py get-stack-field NAME --smm-dir DIR
     system_context_cli.py add-module --smm-dir DIR       < module.json
-    system_context_cli.py add-decision --smm-dir DIR     < decision.json
+    system_context_cli.py add-principle --smm-dir DIR     < decision.json
     system_context_cli.py add-convention --smm-dir DIR   < convention.json
     system_context_cli.py edit-branching --smm-dir DIR   < branching.json
     system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
@@ -35,7 +35,63 @@ from system_context_renderer import (
     render_section,
     render_subset,
 )
-from system_context_schema import validate_system_context
+from system_context_retire_cli import (
+    _RETIRE_ACTIONS,
+    _emit_retire_event,
+)
+from system_context_retire_cli import (
+    cmd_retire_acceptance_surface as _cmd_retire_acceptance_surface,
+)
+from system_context_retire_cli import (
+    cmd_retire_convention as _cmd_retire_convention,
+)
+from system_context_retire_cli import (
+    cmd_retire_module as _cmd_retire_module,
+)
+from system_context_retire_cli import (
+    cmd_retire_principle as _cmd_retire_principle,
+)
+from system_context_retire_cli import (
+    cmd_retire_project_specific as _cmd_retire_project_specific,
+)
+from system_context_schema import (
+    ACCEPTANCE_SURFACES_HARD_CAP,
+    ACCEPTANCE_SURFACES_SOFT_CAP,
+    CONVENTIONS_HARD_CAP,
+    CONVENTIONS_SOFT_CAP,
+    MODULES_HARD_CAP,
+    MODULES_SOFT_CAP,
+    PRINCIPLES_HARD_CAP,
+    PRINCIPLES_SOFT_CAP,
+    PROJECT_SPECIFIC_HARD_CAP,
+    PROJECT_SPECIFIC_SOFT_CAP,
+    validate_system_context,
+)
+
+# Re-exported for callers that imported these from system_context_cli
+# before the retire-* family was extracted into system_context_retire_cli.
+# Source lives in system_context_retire_cli.py.
+__all__ = ["_RETIRE_ACTIONS", "_emit_retire_event"]
+
+# (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
+# names are paired with the matching retire-* CLI subcommand below so
+# the "run retire-<kind> first" hint at hard cap resolves to a real
+# command.
+_COUNT_CAP_TABLE: dict[str, tuple[int, int, str]] = {
+    "modules": (MODULES_SOFT_CAP, MODULES_HARD_CAP, "retire-module"),
+    "conventions": (CONVENTIONS_SOFT_CAP, CONVENTIONS_HARD_CAP, "retire-convention"),
+    "principles": (PRINCIPLES_SOFT_CAP, PRINCIPLES_HARD_CAP, "retire-principle"),
+    "project_specific": (
+        PROJECT_SPECIFIC_SOFT_CAP,
+        PROJECT_SPECIFIC_HARD_CAP,
+        "retire-project-specific",
+    ),
+    "acceptance_surfaces": (
+        ACCEPTANCE_SURFACES_SOFT_CAP,
+        ACCEPTANCE_SURFACES_HARD_CAP,
+        "retire-acceptance-surface",
+    ),
+}
 
 # ── CLI commands ────────────────────────────────────────────────
 
@@ -213,15 +269,35 @@ def _cmd_append_to_list(
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
-    if create_if_missing:
-        data.setdefault(field, []).append(item)
-    else:
-        data[field].append(item)
+
+    caps = _COUNT_CAP_TABLE.get(field)
+    bucket = data.setdefault(field, []) if create_if_missing else data[field]
+
+    if caps is not None:
+        _, hard, retire_cmd = caps
+        if len(bucket) >= hard:
+            print(
+                f"{field} hard cap reached ({len(bucket)}/{hard}); "
+                f"run {retire_cmd} first",
+                file=sys.stderr,
+            )
+            return 1
+
+    bucket.append(item)
     try:
         store.save_system_context(args.smm_dir, data)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1
+
+    if caps is not None:
+        soft, hard, _ = caps
+        if len(bucket) >= soft:
+            print(
+                f"{field} approaching cap ({len(bucket)}/{hard})",
+                file=sys.stderr,
+            )
+
     return 0
 
 
@@ -372,8 +448,8 @@ def _cmd_add_convention(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "conventions")
 
 
-def _cmd_add_decision(args: argparse.Namespace) -> int:
-    return _cmd_append_to_list(args, "key_decisions")
+def _cmd_add_principle(args: argparse.Namespace) -> int:
+    return _cmd_append_to_list(args, "principles")
 
 
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
@@ -406,7 +482,7 @@ def main() -> None:
         "--topics-only",
         help=(
             "Comma-separated subset of --sections to render as identifier "
-            "bullets only (eligible: key_decisions, project_specific)"
+            "bullets only (eligible: principles, project_specific)"
         ),
     )
     sub.add_parser("create", help="Create from stdin JSON")
@@ -430,7 +506,7 @@ def main() -> None:
     get_stack_p.add_argument("name", help="Stack field name (e.g. test_command)")
 
     sub.add_parser("add-module", help="Add module from stdin JSON")
-    sub.add_parser("add-decision", help="Add key decision from stdin JSON")
+    sub.add_parser("add-principle", help="Add principle from stdin JSON")
     sub.add_parser("add-convention", help="Add convention from stdin JSON")
     sub.add_parser("edit-branching", help="Set branching_strategy from stdin JSON")
 
@@ -458,6 +534,16 @@ def main() -> None:
         help="Add one acceptance surface from stdin JSON",
     )
 
+    for name, help_text in (
+        ("retire-principle", "Retire a principle by topic"),
+        ("retire-module", "Retire a module by name"),
+        ("retire-convention", "Retire a convention by index or substring"),
+        ("retire-project-specific", "Retire a project_specific entry by name"),
+        ("retire-acceptance-surface", "Retire an acceptance surface by name"),
+    ):
+        retire_p = sub.add_parser(name, help=help_text)
+        retire_p.add_argument("identifier", help="topic/name/index/substring")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -470,13 +556,18 @@ def main() -> None:
         "edit-stack-field": _cmd_edit_stack_field,
         "get-stack-field": _cmd_get_stack_field,
         "add-module": _cmd_add_module,
-        "add-decision": _cmd_add_decision,
+        "add-principle": _cmd_add_principle,
         "add-convention": _cmd_add_convention,
         "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,
+        "retire-principle": _cmd_retire_principle,
+        "retire-module": _cmd_retire_module,
+        "retire-convention": _cmd_retire_convention,
+        "retire-project-specific": _cmd_retire_project_specific,
+        "retire-acceptance-surface": _cmd_retire_acceptance_surface,
     }
 
     sys.exit(dispatch[args.command](args))

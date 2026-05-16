@@ -164,25 +164,36 @@ Detect the project's full automated-test command and populate `stack.test_comman
   "product": "<What the product is, who it's for, how it works (max 400 chars)>",
   "architecture_overview": "<How components connect, key patterns (max 750 chars)>",
   "stack": {
-    "languages": ["Python", "TypeScript"],
+    "languages": ["Python (max 30 chars each)"],
     "runtime": "<optional, max 100 chars>",
     "dependencies_policy": "<optional, max 100 chars>",
     "package_manager": "<optional, max 100 chars>",
     "test_command": "<optional, max 100 chars — see Step 3.7>"
   },
   "modules": [
-    {"name": "module-name", "path": "src/module", "purpose": "<max 200 chars>"}
+    {"name": "auth (max 50 chars)", "path": "src/auth (max 200 chars)", "purpose": "<max 100 chars>"}
   ],
   "conventions": ["<convention, max 150 chars each>"],
-  "key_decisions": [
-    {"topic": "decision-topic", "decision": "<max 200 chars>", "rationale": "<optional, max 200 chars>"}
+  "principles": [
+    {"topic": "auth (max 60 chars)", "decision": "<max 200 chars>", "rationale": "<optional, max 200 chars>"}
   ],
-  "sources": ["CLAUDE.md", "docs/ARCHITECTURE.md"],
   "project_specific": [
-    {"name": "section-name", "content": "<string, list, or object>"}
+    {"name": "domain-glossary (max 50 chars)", "content": "<string, list, or object — serialized max 500 chars>"}
+  ],
+  "acceptance_surfaces": [
+    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap"}
   ]
 }
 ```
+
+**Cap counts (soft = warn, hard = refuse the next add):**
+- `modules`: 10 soft / 15 hard
+- `conventions`: 20 soft / 30 hard
+- `principles`: 15 soft / 20 hard
+- `project_specific`: 10 soft / 15 hard
+- `acceptance_surfaces`: 5 soft / 8 hard
+
+Aim for ~70% of soft on first write so future curation has headroom without immediately hitting warnings.
 
 **Guidelines:**
 - Focus on **product/domain context** — what the system IS, not how to develop in it. Reference CLAUDE.md rather than duplicating dev practices. Be thorough on domain concepts developers need.
@@ -204,7 +215,7 @@ CTXEOF
 ```bash
 echo '"new value"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-field product
 echo '{"name": "mod", "path": "src/mod", "purpose": "does X"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-module
-echo '{"topic": "auth-strategy", "decision": "JWT over session cookies", "rationale": "stateless API"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-decision
+echo '{"topic": "auth-strategy", "decision": "JWT over session cookies", "rationale": "stateless API"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-principle
 ```
 
 For large updates, prefer `create` with the full object over many small patches.

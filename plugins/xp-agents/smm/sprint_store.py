@@ -42,7 +42,7 @@ def _sprint_lock(smm_dir: Path) -> Iterator[None]:
     do NOT take this lock — the CAS only guarantees atomicity against
     other CAS callers. Closing the in-process get→update window in
     spawn_teammate.py is the load-bearing fix; cross-process protection
-    against unlocked writers is out of story-002's scope.
+    against unlocked writers is out of scope for this wrapper.
     """
     with flock_with_timeout(smm_dir / _SPRINT_LOCK_NAME):
         yield
@@ -208,7 +208,7 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 
 
 # -------------------------------------------------------------------
-# Status checks — re-exported from sprint_status (story-008 split)
+# Status checks — re-exported from sprint_status
 # -------------------------------------------------------------------
 # Bodies live in sprint_status.py; this block keeps the historical
 # `from sprint_store import has_active_stories` import path working for

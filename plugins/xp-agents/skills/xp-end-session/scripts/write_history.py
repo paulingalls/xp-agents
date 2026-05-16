@@ -2,9 +2,9 @@
 """Persist a session_summary draft into session_history.json.
 
 Reads the JSON dict produced by draft_summary.run() from stdin, appends
-a new entry to session_history.json (story-001's ring-buffer module),
-then prunes carry_forward items whose references are already resolved
-in events.jsonl.
+a new entry to session_history.json via the ring-buffer module, then
+prunes carry_forward items whose references are already resolved in
+events.jsonl.
 
 Single CLI front-end for SKILL.md Step 4 — keeps the skill body short
 and the persistence logic unit-testable.

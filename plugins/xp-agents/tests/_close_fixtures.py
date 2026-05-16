@@ -282,12 +282,12 @@ class _ClosePreloadCommonTests(_MixinBase):
             "system_context.json exists"
         )
         # Subset content: close-reviewer gets stack/conventions/branching/
-        # key_decisions (topics only); NOT product, architecture, modules,
+        # principles (topics only); NOT product, architecture, modules,
         # acceptance, or project_specific.
         rendered_text = Path(rendered).read_text()
         self.assertIn("## Stack", rendered_text)
         self.assertIn("## Conventions", rendered_text)
-        self.assertIn("## Key Decisions (topics)", rendered_text)
+        self.assertIn("## Principles (topics)", rendered_text)
         # close-reviewer subset omits product/architecture/modules
         self.assertNotIn("## Product", rendered_text)
         self.assertNotIn("## Architecture Overview", rendered_text)

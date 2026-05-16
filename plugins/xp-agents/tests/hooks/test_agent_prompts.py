@@ -151,6 +151,101 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
             "product — schema/markdown drift detected",
         )
 
+    def test_field_string_caps_pinned_in_template(self):
+        """Every leaf string cap from system_context_schema must appear
+        in the analyzer template as 'max N chars'."""
+        cases = (
+            (
+                "stack.languages item",
+                system_context_schema.STACK_LANGUAGE_ITEM_MAXLENGTH,
+            ),
+            ("stack field", system_context_schema.STACK_FIELD_MAXLENGTH),
+            ("modules.name", system_context_schema.MODULE_NAME_MAXLENGTH),
+            ("modules.path", system_context_schema.MODULE_PATH_MAXLENGTH),
+            (
+                "modules.purpose",
+                system_context_schema.MODULE_FIELD_MAXLENGTH["purpose"],
+            ),
+            ("conventions item", system_context_schema.CONVENTION_MAXLENGTH),
+            ("principles.topic", system_context_schema.PRINCIPLE_TOPIC_MAXLENGTH),
+            (
+                "principles.decision",
+                system_context_schema.PRINCIPLE_FIELD_MAXLENGTH["decision"],
+            ),
+            (
+                "principles.rationale",
+                system_context_schema.PRINCIPLE_FIELD_MAXLENGTH["rationale"],
+            ),
+            (
+                "project_specific.name",
+                system_context_schema.PROJECT_SPECIFIC_NAME_MAXLENGTH,
+            ),
+            (
+                "project_specific.content",
+                system_context_schema.PROJECT_SPECIFIC_CONTENT_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.name",
+                system_context_schema.ACCEPTANCE_SURFACE_NAME_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.harness",
+                system_context_schema.ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.signal",
+                system_context_schema.ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
+            ),
+        )
+        for field, expected in cases:
+            with self.subTest(field=field):
+                self.assertIn(
+                    f"max {expected} chars",
+                    self.content,
+                    f"Step 4 template missing 'max {expected} chars' for "
+                    f"{field} — schema/markdown drift detected",
+                )
+
+    def test_count_caps_pinned_in_template(self):
+        """Soft/hard count caps for capped lists must appear in the
+        template as 'N soft / M hard'. Bullet-formatted for scanability.
+        """
+        cases = (
+            (
+                "modules",
+                system_context_schema.MODULES_SOFT_CAP,
+                system_context_schema.MODULES_HARD_CAP,
+            ),
+            (
+                "conventions",
+                system_context_schema.CONVENTIONS_SOFT_CAP,
+                system_context_schema.CONVENTIONS_HARD_CAP,
+            ),
+            (
+                "principles",
+                system_context_schema.PRINCIPLES_SOFT_CAP,
+                system_context_schema.PRINCIPLES_HARD_CAP,
+            ),
+            (
+                "project_specific",
+                system_context_schema.PROJECT_SPECIFIC_SOFT_CAP,
+                system_context_schema.PROJECT_SPECIFIC_HARD_CAP,
+            ),
+            (
+                "acceptance_surfaces",
+                system_context_schema.ACCEPTANCE_SURFACES_SOFT_CAP,
+                system_context_schema.ACCEPTANCE_SURFACES_HARD_CAP,
+            ),
+        )
+        for field, soft, hard in cases:
+            with self.subTest(field=field):
+                self.assertIn(
+                    f"{soft} soft / {hard} hard",
+                    self.content,
+                    f"Step 4 template missing '{soft} soft / {hard} hard' "
+                    f"for {field} — schema/markdown drift detected",
+                )
+
 
 class TestWorkSelectionUsesScheduledStatus(unittest.TestCase):
     """xp-work-selection moves stories to `scheduled`, not `in-progress`.
