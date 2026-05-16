@@ -209,6 +209,8 @@ Aim for ~70% of soft on first write so future curation has headroom without imme
 
 **Update-mode cap awareness.** When a capped list is at or above its soft cap, identify a retirement candidate via the field's discriminator test BEFORE adding a new entry — run `retire-principle`, `retire-module`, `retire-convention`, `retire-project-specific`, or `retire-acceptance-surface` first. At hard cap the `add-*` CLI refuses with non-zero exit; the soft cap is the courage threshold to prune rather than accumulate.
 
+**Update-mode refinement.** For a single-field change on an existing entry, use `edit-module`, `edit-principle`, `edit-convention`, `edit-project-specific`, or `edit-acceptance-surface`. The first four accept a JSON object patch on stdin (`{"field": "new"}`); `edit-convention` takes a JSON-encoded replacement string (`"new text"`) and looks up by index or substring. Preserves the entry's existing metadata — cheaper than `retire+add` or `create`.
+
 **Guidelines:**
 - Focus on **product/domain context** — what the system IS, not how to develop in it. Reference CLAUDE.md rather than duplicating dev practices. Be thorough on domain concepts developers need.
 - `project_specific` is for anything that doesn't fit the generic fields.
@@ -229,10 +231,10 @@ CTXEOF
 ```bash
 echo '"new value"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-field product
 echo '{"name": "mod", "path": "src/mod", "purpose": "does X"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-module
-echo '{"topic": "auth-strategy", "decision": "JWT over session cookies", "rationale": "stateless API"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> add-principle
+echo '{"purpose": "refined purpose"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-module <name>
 ```
 
-For large updates, prefer `create` with the full object over many small patches.
+For wholesale rewrites prefer `create`; for surgical field updates on an existing capped-list entry prefer `edit-*`.
 
 Verify:
 ```bash

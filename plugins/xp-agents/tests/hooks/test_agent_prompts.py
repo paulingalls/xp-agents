@@ -300,6 +300,34 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                     f"Update-mode cap awareness paragraph must {why}",
                 )
 
+    def test_update_mode_refinement_pinned(self):
+        # Window-scoped to the "Update-mode refinement" anchor so a
+        # stray `edit-module` mention elsewhere can't false-green the
+        # pin — analyzer must surface ALL 5 edit-* commands together
+        # at the refinement guidance, not scattered across the doc.
+        anchor = "Update-mode refinement"
+        self.assertIn(
+            anchor,
+            self.content,
+            "Step 4 must contain the 'Update-mode refinement' anchor "
+            "so per-entry edit-* guidance is locatable",
+        )
+        start = self.content.index(anchor)
+        window = self.content[start : start + _UPDATE_MODE_WINDOW_CHARS]
+        for cmd in (
+            "edit-module",
+            "edit-principle",
+            "edit-convention",
+            "edit-project-specific",
+            "edit-acceptance-surface",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertIn(
+                    cmd,
+                    window,
+                    f"Update-mode refinement paragraph must cite {cmd!r}",
+                )
+
 
 class TestProcessGuideSystemContext(unittest.TestCase):
     """PROCESS_GUIDE.md's System Context section must surface the

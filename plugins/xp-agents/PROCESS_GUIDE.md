@@ -52,7 +52,7 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 
 ### System Context
 
-`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by `scripts/session_start.py`, `/xp-plan`, `/xp-sprint-start`, close-skill auto-merge gates, and the `xp-plan-reviewer` and `xp-close-reviewer` agents. Create or refresh via `/xp-system-context`; patch individual fields via `system_context_cli.py edit-stack-field`, `edit-branching-field`, `add-module`, `add-convention`, `add-principle`, `add-project-specific`, `add-acceptance-surface` (`--help` for full list). An empty `stack.test_command` disables the close-skill auto-merge gate.
+`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by `scripts/session_start.py`, `/xp-plan`, `/xp-sprint-start`, close-skill auto-merge gates, and the `xp-plan-reviewer` and `xp-close-reviewer` agents. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py`: `edit-{stack,branching}-field` for scalars, `add-*` / `edit-*` / `retire-*` for capped lists (`--help`). An empty `stack.test_command` disables the close-skill auto-merge gate.
 
 **Principles vs conventions:** a principle, `reversed, makes this a different project`; a convention reversed only changes behavior. Principles soft cap 15 / hard cap 20 — over soft, `retire-principle <topic>` before `add-principle`.
 

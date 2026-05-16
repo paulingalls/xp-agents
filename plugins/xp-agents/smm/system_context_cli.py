@@ -577,19 +577,27 @@ def main() -> None:
         retire_p.add_argument("identifier", help="topic/name/index/substring")
 
     for name, help_text in (
-        ("edit-principle", "Edit a principle by topic; stdin is JSON patch"),
-        ("edit-module", "Edit a module by name; stdin is JSON patch"),
+        (
+            "edit-principle",
+            "Edit a principle by topic; stdin is JSON patch (null value clears a key)",
+        ),
+        (
+            "edit-module",
+            "Edit a module by name; stdin is JSON patch (null value clears a key)",
+        ),
         (
             "edit-convention",
             "Edit a convention by index or substring; stdin is JSON-encoded string",
         ),
         (
             "edit-project-specific",
-            "Edit a project_specific entry by name; stdin is JSON patch",
+            "Edit a project_specific entry by name; stdin is JSON patch "
+            "(null value clears a key)",
         ),
         (
             "edit-acceptance-surface",
-            "Edit an acceptance surface by name; stdin is JSON patch",
+            "Edit an acceptance surface by name; stdin is JSON patch "
+            "(null value clears a key)",
         ),
     ):
         edit_p = sub.add_parser(name, help=help_text)
