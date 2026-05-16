@@ -30,6 +30,8 @@ from event_schema import (
     STATUS_ACTION_QR_COMPLETE,
 )
 
+_WATERMARK_ID = "test-bash-commit-qr-linkage"
+
 
 class TestQRLinkageWarning(_ProbeTestHelpers, _HookTestCase):
     """Per-commit quality-review linkage warning."""
@@ -204,7 +206,7 @@ class TestM2CommitSuccessAction(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commits = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commits), 1)
         metadata = commits[0].get("metadata") or {}
@@ -248,7 +250,7 @@ class TestM2LintResolvedAction(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         resolvers = [
             e
             for e in events

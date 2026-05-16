@@ -28,6 +28,7 @@ from event_schema import (
 )
 
 _SUBPROCESS = "commits.subprocess.run"
+_WATERMARK_ID = "test-commits-issues"
 
 # ---------------------------------------------------------------------------
 # get_code_files_for_review
@@ -286,8 +287,8 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
             EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
         )
         _common.append_safe(self.smm_dir, concern)
-        events = _common.read_events_raw(self.smm_dir)
-        with patch("commits._common.read_events_raw") as mock_read:
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        with patch("commits._common.load_events_with_resolutions") as mock_read:
             result = commits.open_issues_matching_commit(
                 self.smm_dir,
                 ["scripts/auth.py"],
@@ -306,7 +307,7 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
             EVENT_TYPE_CONCERN, content="auth bug", files=["scripts/auth.py"]
         )
         _common.append_safe(self.smm_dir, concern)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         resolutions = resolution.compute_resolutions(events)
         with patch("commits.resolution.compute_resolutions") as mock_compute:
             result = commits.open_issues_matching_commit(

@@ -23,6 +23,8 @@ from conftest import (
     _mock_ruff_result,
 )
 
+_WATERMARK_ID = "test-lint-detection"
+
 
 class TestDetectLinterConfig(unittest.TestCase):
     def setUp(self):
@@ -89,7 +91,7 @@ class TestLintConcernContent(_LintTmpDirMixin, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         content = concerns[0]["content"]
@@ -242,7 +244,7 @@ class TestBashFailureConcernContent(_HookTestCase):
             },
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         content = concerns[0]["content"]

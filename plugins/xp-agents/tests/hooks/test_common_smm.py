@@ -26,28 +26,30 @@ from event_schema import (
     EVENT_TYPE_STATUS,
 )
 
+_WATERMARK_ID = "test-common-smm"
 
-class TestReadEventsRaw(_HookTestCase):
+
+class TestReadEventsLocked(_HookTestCase):
     def test_reads_valid_events(self):
         events = [make_event(), make_event(EVENT_TYPE_STATUS)]
         self._write_events(events)
-        result = _common.read_events_raw(self.smm_dir)
+        result = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(result), 2)
 
     def test_skips_malformed_lines(self):
         self._write_raw_lines(
             [json.dumps(make_event()), "bad line", json.dumps(make_event())]
         )
-        result = _common.read_events_raw(self.smm_dir)
+        result = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(result), 2)
 
     def test_empty_file(self):
-        result = _common.read_events_raw(self.smm_dir)
+        result = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(result, [])
 
     def test_missing_file(self):
         self.events_file.unlink()
-        result = _common.read_events_raw(self.smm_dir)
+        result = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(result, [])
 
 
@@ -123,13 +125,13 @@ class TestAppendSafeBudget(_HookTestCase):
     def test_append_safe_drops_over_budget(self):
         event = make_event(EVENT_TYPE_STATUS, content="x" * 201, working_on=[])
         _common.append_safe(self.smm_dir, event)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_append_safe_writes_within_budget(self):
         event = make_event(EVENT_TYPE_STATUS, content="x" * 200, working_on=[])
         _common.append_safe(self.smm_dir, event)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 1)
 
 
