@@ -15,13 +15,20 @@ session-wide once any Stop hook returns a `reason` (e.g.,
 `session_end_warning`'s nudge) — it does NOT reset per-turn. Once the
 flag is True, this gate's block message can no longer reach the agent
 reliably, so the gate records a high-severity concern + emits stderr
-(loud signal) AND consumes the CLOSE_CYCLE_ACTIVE marker
-(abandoned-cycle signal). The concern + recovery prose tells the user
-to manually finish the cycle next session; the marker clear prevents
-the gate from re-firing every subsequent Stop in the session.
+(loud signal). The concern + recovery prose tells the user to manually
+finish the cycle next session.
+
+Marker consumption is age-gated: only markers older than
+`_CLOSE_CYCLE_AGE_THRESHOLD_SEC` get consumed on bypass. A young marker
+likely belongs to a genuine in-progress cycle that just coincided with
+an unrelated earlier latch — keeping it lets xp-close-reviewer consume
+it normally on the same close cycle. Marker mtime is set by
+markers.marker_write at close-cycle start and is equivalent to the
+preload's CLOSE_START_TS for this purpose.
 """
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -31,6 +38,13 @@ import _common
 import event_schema
 import identity
 import markers
+
+# Close cycles typically complete in well under this window (~5 min
+# happy path). Markers older than this are treated as truly-abandoned;
+# younger markers stay so a genuine in-progress cycle survives an
+# unrelated stop_hook_active latch. 10-min headroom absorbs slower
+# concern-triage AskUserQuestion sessions inside the cycle.
+_CLOSE_CYCLE_AGE_THRESHOLD_SEC = 600
 
 _BLOCK_MESSAGE = (
     "Close cycle mid-flight. Run /security-review then invoke "
@@ -56,19 +70,15 @@ _BYPASS_STDERR = (
 
 
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
-    """Record a concern, emit stderr, and consume the marker on bypass.
+    """Record a concern, emit stderr, and conditionally consume the marker.
 
-    `_common.append_safe` swallows LockTimeoutError internally and logs
-    to hook_errors.jsonl, so the bypass record is best-effort by
-    construction — no extra try/except needed. The stderr write is
-    sequenced FIRST so the minimum signal lands even if append_safe is
-    bypassed by a future regression.
-
-    Marker consumption is sequenced LAST: by the time we get here, the
-    cycle is empirically abandoned (stop_hook_active=True is latched
-    session-wide). Leaving the marker would make every subsequent Stop
-    in the session re-fire this gate and record duplicate concerns.
-    `marker_consume` swallows OSError internally — best-effort.
+    Concern + stderr always emit (visibility into bypass events).
+    Marker consumption is age-gated: old markers (abandoned cycle) get
+    consumed so subsequent Stops don't re-fire; young markers (likely a
+    genuine in-progress cycle latched by an unrelated hook) stay so
+    xp-close-reviewer can consume them normally. A stat() OSError means
+    the marker raced away between marker_exists() and here — skip
+    cleanly.
     """
     sys.stderr.write(_BYPASS_STDERR)
     agent_id = identity.resolve_agent_id(input_data)
@@ -80,7 +90,14 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
         metadata={"kind": event_schema.CONCERN_KIND_CLOSE_CYCLE_BYPASS},
     )
     _common.append_safe(smm_dir, concern)
-    markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+
+    marker_path = markers.marker_path(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+    try:
+        age = time.time() - marker_path.stat().st_mtime
+    except OSError:
+        return
+    if age >= _CLOSE_CYCLE_AGE_THRESHOLD_SEC:
+        markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
