@@ -332,6 +332,19 @@ def read_events_raw(smm_dir: Path) -> list[dict]:
     return events
 
 
+def read_events_locked(smm_dir: Path, slug: str) -> list[dict]:
+    """Read events.jsonl under shared flock without advancing the watermark.
+
+    Canonical helper for the
+    read_delta_full(smm_dir, slug, update_watermark=False)[0] pattern.
+    `slug` is passed to read_delta_full as its `agent_id` — both name a
+    watermark scoping key, not a literal agent identifier.
+    """
+    import read_delta
+
+    return read_delta.read_delta_full(smm_dir, slug, update_watermark=False)[0]
+
+
 def load_events_with_resolutions(
     smm_dir: Path,
 ) -> tuple[list[dict], dict]:

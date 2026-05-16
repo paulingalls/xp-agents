@@ -191,6 +191,58 @@ class TestParity(_SMMTestCase):
         self._assert_parity(expected_count=0)
 
 
+class TestReadEventsLocked(_SMMTestCase):
+    """`_common.read_events_locked` is the canonical helper for the
+    `read_delta_full(smm_dir, slug, update_watermark=False)[0]` pattern.
+    """
+
+    _SLUG = "read-events-locked-test"
+
+    def test_returns_same_list_as_inline_form(self):
+        events = [
+            make_event(EVENT_TYPE_CONCERN, content="C1", files=["a.py"]),
+            make_event(EVENT_TYPE_DECISION, content="D1", topic="t"),
+            make_event(EVENT_TYPE_STATUS, content="S1", working_on=["a.py"]),
+        ]
+        self._write_events(events)
+
+        helper_result = _common.read_events_locked(self.smm_dir, self._SLUG)
+        inline_result = read_delta.read_delta_full(
+            self.smm_dir, self._SLUG, update_watermark=False
+        )[0]
+
+        self.assertEqual(helper_result, inline_result)
+        self.assertEqual(len(helper_result), 3)
+
+    def test_returns_empty_list_when_no_events(self):
+        self.assertEqual(_common.read_events_locked(self.smm_dir, self._SLUG), [])
+
+    def test_does_not_advance_watermark(self):
+        """`update_watermark=False` is wired: watermark file stays absent."""
+        events = [make_event(EVENT_TYPE_CONCERN, content="C1", files=["a.py"])]
+        self._write_events(events)
+        watermark_file = self.smm_dir / f".watermark-{self._SLUG}"
+        self.assertFalse(watermark_file.exists())
+
+        _common.read_events_locked(self.smm_dir, self._SLUG)
+
+        self.assertFalse(watermark_file.exists())
+
+    def test_ast_recognizer_accepts_helper_pattern(self):
+        """`_calls_attribute` matches both dotted and bare helper call shapes."""
+        dotted_src = "import _common\n_common.read_events_locked(p, 'x')\n"
+        bare_src = (
+            "from _common import read_events_locked\nread_events_locked(p, 'x')\n"
+        )
+
+        accepted = (
+            "_common.read_events_locked",
+            "read_events_locked",
+        )
+        self.assertTrue(_calls_attribute(ast.parse(dotted_src), accepted))
+        self.assertTrue(_calls_attribute(ast.parse(bare_src), accepted))
+
+
 class TestNoReadEventsRawCallers(unittest.TestCase):
     """Per-site enforcement. Methods generated from `_MIGRATED_SITES`."""
 
@@ -214,7 +266,11 @@ class TestNoReadEventsRawCallers(unittest.TestCase):
         )
         uses_new = _calls_attribute(
             scope,
-            ("read_delta.read_delta_full",),
+            (
+                "read_delta.read_delta_full",
+                "_common.read_events_locked",
+                "read_events_locked",
+            ),
         )
 
         scope_desc = f" in function {scope_name!r}" if scope_name else ""
@@ -225,7 +281,8 @@ class TestNoReadEventsRawCallers(unittest.TestCase):
         )
         self.assertTrue(
             uses_new,
-            f"{script_path.name}{scope_desc} must call read_delta.read_delta_full",
+            f"{script_path.name}{scope_desc} must call "
+            f"read_delta.read_delta_full or _common.read_events_locked",
         )
 
 
