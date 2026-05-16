@@ -34,3 +34,33 @@ def valid_doc(**overrides: object) -> dict:
 def write_doc(smm_dir: Path, doc: dict | None = None) -> None:
     """Write a valid system context doc to the SMM directory."""
     (smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(json.dumps(doc or valid_doc()))
+
+
+def seed_entries(field: str, n: int) -> list:
+    """Build N schema-valid entries for a given list field.
+
+    Used by count-cap tests (story-005 add-*) and by retire-* tests
+    (story-006) to prep system_context docs at specific list counts.
+    """
+    if field == "modules":
+        return [
+            {"name": f"m{i}", "purpose": "x", "path": f"src/m{i}"} for i in range(n)
+        ]
+    if field == "conventions":
+        return [f"c{i}" for i in range(n)]
+    if field == "principles":
+        return [{"topic": f"t{i}", "decision": "d"} for i in range(n)]
+    if field == "project_specific":
+        return [{"name": f"ps{i}", "content": "x"} for i in range(n)]
+    if field == "acceptance_surfaces":
+        return [
+            {"name": f"s{i}", "signals": ["x"], "status": "covered"} for i in range(n)
+        ]
+    raise ValueError(f"unknown field: {field}")
+
+
+def seed_doc(field: str, n: int) -> dict:
+    """Return a valid_doc with `field` replaced by N seed entries."""
+    doc = valid_doc()
+    doc[field] = seed_entries(field, n)
+    return doc

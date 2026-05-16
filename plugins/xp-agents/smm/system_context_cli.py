@@ -35,7 +35,39 @@ from system_context_renderer import (
     render_section,
     render_subset,
 )
-from system_context_schema import validate_system_context
+from system_context_schema import (
+    ACCEPTANCE_SURFACES_HARD_CAP,
+    ACCEPTANCE_SURFACES_SOFT_CAP,
+    CONVENTIONS_HARD_CAP,
+    CONVENTIONS_SOFT_CAP,
+    MODULES_HARD_CAP,
+    MODULES_SOFT_CAP,
+    PRINCIPLES_HARD_CAP,
+    PRINCIPLES_SOFT_CAP,
+    PROJECT_SPECIFIC_HARD_CAP,
+    PROJECT_SPECIFIC_SOFT_CAP,
+    validate_system_context,
+)
+
+# (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
+# names forward-reference story-006 — until that ships, the "run
+# retire-<kind>" hint points at a command that doesn't yet exist on
+# the sprint branch.
+_COUNT_CAP_TABLE: dict[str, tuple[int, int, str]] = {
+    "modules": (MODULES_SOFT_CAP, MODULES_HARD_CAP, "retire-module"),
+    "conventions": (CONVENTIONS_SOFT_CAP, CONVENTIONS_HARD_CAP, "retire-convention"),
+    "principles": (PRINCIPLES_SOFT_CAP, PRINCIPLES_HARD_CAP, "retire-principle"),
+    "project_specific": (
+        PROJECT_SPECIFIC_SOFT_CAP,
+        PROJECT_SPECIFIC_HARD_CAP,
+        "retire-project-specific",
+    ),
+    "acceptance_surfaces": (
+        ACCEPTANCE_SURFACES_SOFT_CAP,
+        ACCEPTANCE_SURFACES_HARD_CAP,
+        "retire-acceptance-surface",
+    ),
+}
 
 # ── CLI commands ────────────────────────────────────────────────
 
@@ -213,15 +245,35 @@ def _cmd_append_to_list(
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
-    if create_if_missing:
-        data.setdefault(field, []).append(item)
-    else:
-        data[field].append(item)
+
+    caps = _COUNT_CAP_TABLE.get(field)
+    bucket = data.setdefault(field, []) if create_if_missing else data[field]
+
+    if caps is not None:
+        _, hard, retire_cmd = caps
+        if len(bucket) >= hard:
+            print(
+                f"{field} hard cap reached ({len(bucket)}/{hard}); "
+                f"run {retire_cmd} first",
+                file=sys.stderr,
+            )
+            return 1
+
+    bucket.append(item)
     try:
         store.save_system_context(args.smm_dir, data)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1
+
+    if caps is not None:
+        soft, hard, _ = caps
+        if len(bucket) >= soft:
+            print(
+                f"{field} approaching cap ({len(bucket)}/{hard})",
+                file=sys.stderr,
+            )
+
     return 0
 
 
