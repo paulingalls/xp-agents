@@ -301,6 +301,57 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                 )
 
 
+class TestProcessGuideSystemContext(unittest.TestCase):
+    """PROCESS_GUIDE.md's System Context section must surface the
+    reversal-test discriminator so contributors learn the principle-vs-
+    convention discipline without opening the analyzer prompt. Also
+    pin the principle cap numbers and the retire-principle CLI mention
+    so the guide stays in sync with the schema. All pins scope to the
+    "### System Context" section — caps like "15" appear elsewhere in
+    the guide (Constraints pillar), so a file-wide substring would
+    false-green if the section dropped the principles-specific text.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = Path(__file__).parent.parent.parent / "PROCESS_GUIDE.md"
+        cls.content = path.read_text()
+        anchor = "### System Context"
+        start = cls.content.index(anchor)
+        end = cls.content.index("###", start + len(anchor))
+        cls.section = cls.content[start:end]
+
+    def test_reversal_test_phrase_present(self):
+        self.assertIn(
+            "reversed, makes this a different project",
+            self.section,
+            "PROCESS_GUIDE.md §System Context must cite the reversal "
+            "test so contributors learn the discriminator without "
+            "opening the analyzer prompt",
+        )
+
+    def test_principles_caps_present(self):
+        soft = system_context_schema.PRINCIPLES_SOFT_CAP
+        hard = system_context_schema.PRINCIPLES_HARD_CAP
+        for value in (str(soft), str(hard)):
+            with self.subTest(cap=value):
+                self.assertIn(
+                    value,
+                    self.section,
+                    f"PROCESS_GUIDE.md §System Context must mention "
+                    f"the principles cap value {value} so the guide "
+                    "stays in sync with system_context_schema",
+                )
+
+    def test_retire_principle_cited(self):
+        self.assertIn(
+            "retire-principle",
+            self.section,
+            "PROCESS_GUIDE.md §System Context must cite "
+            "retire-principle so contributors know the over-cap remedy",
+        )
+
+
 class TestWorkSelectionUsesScheduledStatus(unittest.TestCase):
     """xp-work-selection moves stories to `scheduled`, not `in-progress`.
 
