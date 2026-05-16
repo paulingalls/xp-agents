@@ -653,9 +653,45 @@ class TestAddCommandCountCaps(_SMMTestCase):
         self.assertIn("hard cap reached", result.stderr)
         self.assertIn("retire-principle", result.stderr)
 
-    # ── project_specific: soft=10, hard=15 ─────────────────────
-    # No add-project-specific CLI yet; entries are added via edit-field.
-    # Constants pinned in test_system_context_schema.TestCountCaps.
+    # ── project_specific: soft=10, hard=15, add-project-specific ──
+
+    def test_add_project_specific_below_soft_silent(self) -> None:
+        write_doc(self.smm_dir, seed_doc("project_specific", 8))
+        result = run_cli(
+            _CLI,
+            ["add-project-specific"],
+            self.smm_dir,
+            stdin_data=json.dumps({"name": "new", "content": "x"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("approaching", result.stderr)
+
+    def test_add_project_specific_at_soft_warns_but_writes(self) -> None:
+        write_doc(self.smm_dir, seed_doc("project_specific", 10))
+        result = run_cli(
+            _CLI,
+            ["add-project-specific"],
+            self.smm_dir,
+            stdin_data=json.dumps({"name": "new", "content": "x"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approaching cap", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["project_specific"]), 11)
+
+    def test_add_project_specific_at_hard_refuses(self) -> None:
+        write_doc(self.smm_dir, seed_doc("project_specific", 15))
+        result = run_cli(
+            _CLI,
+            ["add-project-specific"],
+            self.smm_dir,
+            stdin_data=json.dumps({"name": "new", "content": "x"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("hard cap reached", result.stderr)
+        self.assertIn("retire-project-specific", result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(len(data["project_specific"]), 15)
 
     # ── acceptance_surfaces: soft=5, hard=8, add-acceptance-surface ─
 
