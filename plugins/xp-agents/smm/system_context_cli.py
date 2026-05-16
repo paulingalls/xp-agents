@@ -14,8 +14,8 @@ Usage:
     system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
     system_context_cli.py get-stack-field NAME --smm-dir DIR
     system_context_cli.py add-module --smm-dir DIR       < module.json
-    system_context_cli.py add-principle --smm-dir DIR     < decision.json
     system_context_cli.py add-convention --smm-dir DIR   < convention.json
+    system_context_cli.py add-principle --smm-dir DIR     < decision.json
     system_context_cli.py add-project-specific --smm-dir DIR < entry.json
     system_context_cli.py edit-branching --smm-dir DIR   < branching.json
     system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
