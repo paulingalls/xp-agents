@@ -163,7 +163,7 @@ class TestGetStackFieldCommand(_SMMTestCase):
 
 class TestAddConventionCommand(_SMMTestCase):
     """add-convention closes the asymmetry where add-module,
-    add-decision, and add-acceptance-surface all exist for list
+    add-principle, and add-acceptance-surface all exist for list
     fields but conventions had no append helper, forcing callers to
     rewrite the whole list via edit-field conventions.
     """
