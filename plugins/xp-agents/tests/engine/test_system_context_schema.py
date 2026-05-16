@@ -522,5 +522,29 @@ class TestPrinciplesRename(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class TestCountCaps(unittest.TestCase):
+    def test_count_cap_pairs_are_ints_with_soft_lt_hard(self) -> None:
+        import system_context_schema as schema
+
+        pairs = [
+            ("MODULES_SOFT_CAP", "MODULES_HARD_CAP", 10, 15),
+            ("CONVENTIONS_SOFT_CAP", "CONVENTIONS_HARD_CAP", 20, 30),
+            ("PRINCIPLES_SOFT_CAP", "PRINCIPLES_HARD_CAP", 15, 20),
+            ("PROJECT_SPECIFIC_SOFT_CAP", "PROJECT_SPECIFIC_HARD_CAP", 10, 15),
+            (
+                "ACCEPTANCE_SURFACES_SOFT_CAP",
+                "ACCEPTANCE_SURFACES_HARD_CAP",
+                5,
+                8,
+            ),
+        ]
+        for soft_name, hard_name, soft_val, hard_val in pairs:
+            soft = getattr(schema, soft_name)
+            hard = getattr(schema, hard_name)
+            self.assertEqual(soft, soft_val, soft_name)
+            self.assertEqual(hard, hard_val, hard_name)
+            self.assertLess(soft, hard, f"{soft_name} must be < {hard_name}")
+
+
 if __name__ == "__main__":
     unittest.main()
