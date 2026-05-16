@@ -235,10 +235,7 @@ class TestReadEventsLocked(_SMMTestCase):
             "from _common import read_events_locked\nread_events_locked(p, 'x')\n"
         )
 
-        accepted = (
-            "_common.read_events_locked",
-            "read_events_locked",
-        )
+        accepted = ("_common.read_events_locked",)
         self.assertTrue(_calls_attribute(ast.parse(dotted_src), accepted))
         self.assertTrue(_calls_attribute(ast.parse(bare_src), accepted))
 
@@ -269,7 +266,6 @@ class TestNoReadEventsRawCallers(unittest.TestCase):
             (
                 "read_delta.read_delta_full",
                 "_common.read_events_locked",
-                "read_events_locked",
             ),
         )
 
