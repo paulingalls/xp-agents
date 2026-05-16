@@ -280,6 +280,9 @@ class TestEditConvention(_SMMTestCase):
             edit_events[0]["metadata"]["identifier"],
             "Prefer pathlib over os.path",
         )
+        # convention is a bare string — patched_keys is always [] (whole-
+        # value replacement, no per-key patching). Pin the contract.
+        self.assertEqual(edit_events[0]["metadata"]["patched_keys"], [])
 
 
 class TestEditNullClearsKey(_SMMTestCase):
