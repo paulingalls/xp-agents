@@ -56,8 +56,14 @@ sprint_render_to_tempfile() {
 # truth for the env-var name plus the file-exists predicate.
 emit_system_context_rendered_for() {
     local kind="$1"
+    local rendered
     [ -f "${SMM_DIR}/system_context.json" ] || return 0
-    echo "SYSTEM_CONTEXT_RENDERED=$(system_context_render_to_tempfile_for "$kind")"
+    # Propagate render failure: $() swallows rc otherwise, leaving an
+    # empty `SYSTEM_CONTEXT_RENDERED=` line in preload output that the
+    # downstream Read fails loud on. Skipping emission keeps the failure
+    # signal at the helper's stderr (already loud) instead of downstream.
+    rendered=$(system_context_render_to_tempfile_for "$kind") || return 1
+    echo "SYSTEM_CONTEXT_RENDERED=$rendered"
 }
 
 # Render a reviewer-scoped subset of system_context.json to a tempfile.
@@ -77,29 +83,37 @@ emit_system_context_rendered_for() {
 # stay in sync with actual readers).
 system_context_render_to_tempfile_for() {
     local kind="$1"
-    local out
-    out=$(mktemp "${SMM_DIR}/.system-context-rendered.XXXXXX")
+    local out rc sections topics_only empty
     case "$kind" in
         plan-reviewer)
-            python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
-                render \
-                --sections product,architecture_overview,stack,modules,conventions,branching_strategy,acceptance_surfaces,key_decisions,project_specific \
-                --topics-only key_decisions,project_specific \
-                > "$out" 2>/dev/null
+            sections="product,architecture_overview,stack,modules,conventions,branching_strategy,acceptance_surfaces,key_decisions,project_specific"
+            topics_only="key_decisions,project_specific"
             ;;
         close-reviewer)
-            python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
-                render \
-                --sections stack,conventions,branching_strategy,key_decisions \
-                --topics-only key_decisions \
-                > "$out" 2>/dev/null
+            sections="stack,conventions,branching_strategy,key_decisions"
+            topics_only="key_decisions"
             ;;
         *)
             echo "system_context_render_to_tempfile_for: unknown kind '$kind'" >&2
-            rm -f "$out"
             return 1
             ;;
     esac
+    out=$(mktemp "${SMM_DIR}/.system-context-rendered.XXXXXX")
+    python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" --smm-dir "$SMM_DIR" \
+        render --sections "$sections" --topics-only "$topics_only" \
+        > "$out" 2>/dev/null
+    rc=$?
+    # Catch silent-empty render: a future schema rename that desyncs the
+    # --sections literals from the renderer would otherwise produce an
+    # empty tempfile with rc=0 (stderr swallowed). Fail loud so callers
+    # don't pass a fake-looking path downstream.
+    empty=1
+    [ -s "$out" ] && empty=0
+    if [ "$rc" -ne 0 ] || [ "$empty" -eq 1 ]; then
+        echo "system_context_render_to_tempfile_for: render failed (rc=$rc empty=$empty)" >&2
+        rm -f "$out"
+        return 1
+    fi
     echo "$out"
 }
 
