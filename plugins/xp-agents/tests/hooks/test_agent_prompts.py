@@ -475,6 +475,47 @@ class TestRetroAnalysisNotesDirectives(unittest.TestCase):
         self.assertIn("max 4", self.content.lower())
 
 
+class TestQualityReviewFramings(unittest.TestCase):
+    """/xp-quality-review SKILL.md exposes two framings for plan-review
+    concerns: RESOLVE (verify staged changes address it + Resolves-Event
+    trailer) and COURAGE-FIX (this concern's files overlap the open
+    diff — fix it now while the file is open). Pinned to anchor-bounded
+    sections so prose churn outside these regions doesn't false-green
+    the assertions.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = (
+            Path(__file__).parent.parent.parent
+            / "skills"
+            / "xp-quality-review"
+            / "SKILL.md"
+        )
+        cls.content = path.read_text()
+
+    def _section(self, header: str, end_header: str) -> str:
+        start = self.content.index(header)
+        end = self.content.index(end_header, start + 1)
+        return self.content[start:end]
+
+    def test_resolve_framing_present(self):
+        # Step 2 frames the resolve path; the trailer/resolves wiring
+        # is the load-bearing detail.
+        section = self._section("## Step 2:", "## Step 3:")
+        self.assertIn("Resolved:", section)
+        self.assertIn('"resolves":', section)
+
+    def test_courage_fix_framing_present(self):
+        # Step 3 carries the new COURAGE-FIX framing alongside the
+        # existing "Fix directly" guidance: fix concerns whose files
+        # overlap the open diff while the file is already open.
+        section = self._section("## Step 3:", "## Step 4:")
+        self.assertIn("COURAGE-FIX", section)
+        self.assertIn("fix it now while the file is open", section)
+        self.assertIn("file overlap is in scope", section)
+
+
 class TestRetroAgingReferences(unittest.TestCase):
     """M5: retro prompt no longer references Risks pillar for aging."""
 
