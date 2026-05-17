@@ -126,15 +126,15 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
 
 If the preload shows "### Open Concerns:", process each item:
 
-**Auto-resolve "LIKELY ADDRESSED" concerns:** If a concern is annotated with
-"**LIKELY ADDRESSED** by: ..." and you judge the listed commits genuinely fix
+**Auto-resolve "MAYBE ADDRESSED" concerns:** If a concern is annotated with
+"**MAYBE ADDRESSED** by: ..." and you judge the listed commits genuinely fix
 the concern, auto-resolve it without asking the user:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-drop \
   --smm-dir <SMM_DIR> --event-id <event-id>
 ```
 
-**Present remaining concerns to user:** For concerns WITHOUT the "LIKELY
+**Present remaining concerns to user:** For concerns WITHOUT the "MAYBE
 ADDRESSED" annotation, or where the overlapping commits don't clearly address
 the concern, present via AskUserQuestion with options: adopt-now,
 keep-deferred, drop. Same commands as Step 2.

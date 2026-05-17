@@ -40,7 +40,7 @@ def format_triage_section(
             msgs = "; ".join(
                 c.get("content", "")[:80] for c in commit_overlap[event_id][:3]
             )
-            lines.append(f"  **LIKELY ADDRESSED** by: {msgs}")
+            lines.append(f"  **MAYBE ADDRESSED** by: {msgs}")
     return "\n".join(lines)
 
 

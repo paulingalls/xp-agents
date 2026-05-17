@@ -72,9 +72,9 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "preload must emit Step 5b (Resolve Addressed Concerns) heading",
         )
         self.assertIn(
-            "LIKELY ADDRESSED",
+            "MAYBE ADDRESSED",
             result.stdout,
-            "Step 5b body must mention the LIKELY ADDRESSED annotation",
+            "Step 5b body must mention the MAYBE ADDRESSED annotation",
         )
 
     def test_emits_step6_confirm_merge_marker(self):
@@ -643,7 +643,7 @@ _SHARED_CLOSE_PIPELINE = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
 
 
 class TestPlanFreeCloseSkillMDDropsSkipNote(unittest.TestCase):
-    """Commit 2b removes the 'skip LIKELY ADDRESSED' notes from
+    """Commit 2b removes the 'skip MAYBE ADDRESSED' notes from
     xp-plan-close + xp-free-close SKILL.md. The shared file's Step 5b
     now applies uniformly across all 4 close skills; leaving the skip
     notes inline would contradict the preload-injected guidance.
@@ -656,13 +656,13 @@ class TestPlanFreeCloseSkillMDDropsSkipNote(unittest.TestCase):
             mode: path.read_text().lower() for mode, path in _SKIP_NOTE_TARGETS.items()
         }
 
-    def test_close_skills_drop_skip_likely_addressed_note(self):
+    def test_close_skills_drop_skip_maybe_addressed_note(self):
         for mode in _SKIP_NOTE_TARGETS:
             with self.subTest(mode=mode):
                 self.assertNotIn(
-                    "does not run the likely addressed",
+                    "does not run the maybe addressed",
                     self.skill_lower[mode],
-                    f"{mode}-close SKILL.md must drop the 'skip LIKELY "
+                    f"{mode}-close SKILL.md must drop the 'skip MAYBE "
                     f"ADDRESSED' note in commit 2b — it now contradicts "
                     f"the shared Step 5b",
                 )

@@ -52,7 +52,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/triage_preload.py
   --smm-dir <SMM_DIR>
 ```
 
-For each concern annotated **LIKELY ADDRESSED** in the "Open Concerns"
+For each concern annotated **MAYBE ADDRESSED** in the "Open Concerns"
 section: judge from session context + listed commits. When confident:
 
 ```bash

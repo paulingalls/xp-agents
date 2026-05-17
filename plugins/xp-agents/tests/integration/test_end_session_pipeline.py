@@ -6,7 +6,7 @@ executable test:
 
     Running /xp-end-session appends one session_summary event per call,
     force-closes/defers open questions via AskUserQuestion, bulk-drops
-    likely-addressed concerns/debts, prints uncommitted-events count.
+    maybe-addressed concerns/debts, prints uncommitted-events count.
 
 The LLM (which can't be unit-tested deterministically) is simulated
 by direct subprocess invocations of append.sh + smm_cli.py — the
@@ -44,7 +44,7 @@ class TestEndSessionPipeline(_IntegrationTestCase):
     Q2_ID = "a22222222222"  # closed via won-fix in test 2
     CONCERN_ID = "c33333333333"
     COMMIT_ID = "c44444444444"  # SMM commit-event id (NOT a git ref)
-    # Real git SHA — what LIKELY_ADDRESSED surfaces and what
+    # Real git SHA — what MAYBE_ADDRESSED surfaces and what
     # resolved_by_commits should record (post-commit hook writes this
     # into metadata.commit_hash on every commit event).
     COMMIT_HASH = "abc1230000000000000000000000000000000010"
@@ -126,12 +126,12 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         )
         self._seed_events(events)
 
-    def test_preload_surfaces_open_questions_and_likely_addressed_concern(self):
+    def test_preload_surfaces_open_questions_and_maybe_addressed_concern(self):
         r = self._run_preload(_PRELOAD_SH)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(self.Q1_ID, r.stdout, "open question Q1 should surface")
         self.assertIn(self.Q2_ID, r.stdout, "open question Q2 should surface")
-        # LIKELY_ADDRESSED renders concern ID at top-level with the
+        # MAYBE_ADDRESSED renders concern ID at top-level with the
         # overlapping commit ID(s) indented beneath. The agent uses these
         # IDs to fetch full content from conversation history (solo
         # commits) or via Read on events.jsonl (teammate commits).
@@ -187,9 +187,9 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         )
         self.assertEqual(r.returncode, 0, r.stderr)
 
-        # 5. Simulate LLM Step 3 — auto-judge the likely-addressed
+        # 5. Simulate LLM Step 3 — auto-judge the maybe-addressed
         # concern as resolved by the git commit hash surfaced in
-        # LIKELY_ADDRESSED. Audit trail records both the canonical
+        # MAYBE_ADDRESSED. Audit trail records both the canonical
         # resolves link AND the git commit hash(es) that informed the
         # decision (resolvable downstream via `git show`).
         r = self._run_append(
@@ -264,26 +264,26 @@ class TestEndSessionPipeline(_IntegrationTestCase):
         # Deferral contract: when the agent judges the cited commits
         # do NOT clearly fix a concern, it appends NO event. The next
         # session's preload must re-surface the concern in
-        # LIKELY_ADDRESSED so the user/agent gets another shot at it.
+        # MAYBE_ADDRESSED so the user/agent gets another shot at it.
         # Reframed from the reviewer's "skip step 5 = no-op" weakness:
         # this test calls draft_summary AGAIN after the deferral and
         # asserts re-surfacing — proves the contract holds across
         # session boundaries, not just that nothing changed.
         first = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(first["likely_addressed"]), 1)
-        self.assertEqual(first["likely_addressed"][0]["id"], self.CONCERN_ID)
+        self.assertEqual(len(first["maybe_addressed"]), 1)
+        self.assertEqual(first["maybe_addressed"][0]["id"], self.CONCERN_ID)
 
         # Agent decides to defer — appends nothing. Simulate by leaving
         # events.jsonl untouched.
 
         second = draft_summary.run(self.smm_dir)
         self.assertEqual(
-            len(second["likely_addressed"]),
+            len(second["maybe_addressed"]),
             1,
             "deferred concern must re-surface on next draft",
         )
-        self.assertEqual(second["likely_addressed"][0]["id"], self.CONCERN_ID)
-        self.assertEqual(second["likely_addressed"][0]["commits"], [self.COMMIT_HASH])
+        self.assertEqual(second["maybe_addressed"][0]["id"], self.CONCERN_ID)
+        self.assertEqual(second["maybe_addressed"][0]["commits"], [self.COMMIT_HASH])
 
 
 if __name__ == "__main__":

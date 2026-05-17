@@ -61,17 +61,17 @@ class TestEndSessionPreload(_IntegrationTestCase):
         self.assertIn("SMM_DIR=", r.stdout)
         self.assertIn("### CANDIDATES", r.stdout)
         self.assertIn("### OPEN_QUESTIONS", r.stdout)
-        self.assertIn("### LIKELY_ADDRESSED", r.stdout)
+        self.assertIn("### MAYBE_ADDRESSED", r.stdout)
         self.assertIn("### UNCOMMITTED", r.stdout)
         # Count is 0 when events.jsonl is empty.
         self.assertRegex(r.stdout, r"### UNCOMMITTED\s*\n0\s*")
 
     def test_preload_runs_against_seeded_smm(self):
-        # Pre-commit concern (likely-addressed) + commit + open question +
+        # Pre-commit concern (maybe-addressed) + commit + open question +
         # post-commit noise (3 status) + 2 post-commit concerns/debts.
         # Expected:
         #   OPEN_QUESTIONS contains the question id
-        #   LIKELY_ADDRESSED contains the pre-commit concern id
+        #   MAYBE_ADDRESSED contains the pre-commit concern id
         #   UNCOMMITTED == 2 (only post-commit concern/debt/discovery counted;
         #   status events and questions are noise classes excluded from
         #   probe-resolvable types)

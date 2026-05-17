@@ -75,7 +75,7 @@ If no open plan concerns are listed in the preload, skip this step.
 Review the xp-code-reviewer's summary. For each finding:
 
 - **Fix directly** (preferred — courage). Edit files to address the issue. Run tests afterward.
-- **Fix overlapping open concerns now (COURAGE-FIX).** If an open plan-review or close-reviewer concern's `files` overlap the diff you're already touching, fix it now while the file is open — file overlap is in scope, no re-litigation. Don't defer to "LIKELY ADDRESSED" triage at close time. Resolve via the `Resolves-Event:` trailer in the same commit.
+- **Fix overlapping open concerns now (COURAGE-FIX).** If an open plan-review or close-reviewer concern's `files` overlap the diff you're already touching, fix it now while the file is open — file overlap is in scope, no re-litigation. Don't defer to "MAYBE ADDRESSED" triage at close time. Resolve via the `Resolves-Event:` trailer in the same commit.
 - **Already recorded** by subagent via append.sh — no further action needed.
 - **Record as debt** if fix is too large for this review:
 ```bash

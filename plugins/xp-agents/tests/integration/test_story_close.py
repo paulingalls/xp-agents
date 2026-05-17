@@ -165,7 +165,7 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     _CloseSkillTextCommonTests: invokes close_common.py's four
     subcommands, forks the close-reviewer in story mode, asks before
     merging. Adds story-specific tests: forks reviewer in story mode,
-    auto-resolves LIKELY ADDRESSED concerns (per recorded policy:
+    auto-resolves MAYBE ADDRESSED concerns (per recorded policy:
     story+sprint YES, plan+free NO), and gates JIT-next dispatch on
     next-in-progress + branch_name absence.
     """
@@ -178,13 +178,13 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
         # so the close-reviewer routes to its story-mode focus.
         self.assertIn("## Mode\\nstory", self.text)
 
-    def test_auto_resolves_likely_addressed_concerns(self):
+    def test_auto_resolves_maybe_addressed_concerns(self):
         # Story-close runs the same Step 5b pattern as sprint-close —
         # per recorded policy, story+sprint auto-resolve, plan+free do
         # not. Pin the triage_preload + work_selection_decide tools.
         self.assertIn("triage_preload.py", self.text)
         self.assertIn("triage-drop", self.text)
-        self.assertIn("LIKELY ADDRESSED", self.text)
+        self.assertIn("MAYBE ADDRESSED", self.text)
 
     def test_dispatches_jit_next_after_merge(self):
         # JIT-next dispatch must invoke sprint_cli.py next-in-progress
