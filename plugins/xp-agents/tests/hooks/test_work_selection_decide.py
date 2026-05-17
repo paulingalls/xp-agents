@@ -900,7 +900,7 @@ class TestDropContentCascade(_DecideTestCase):
         from unittest.mock import patch
 
         with patch.object(
-            work_selection_decide._common, "read_events_raw"
+            work_selection_decide._common, "read_events_locked"
         ) as mock_read:
             self.mod.run(
                 action="drop",

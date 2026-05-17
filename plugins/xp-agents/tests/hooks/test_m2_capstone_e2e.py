@@ -38,6 +38,8 @@ from conftest import (
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_STATUS, event_action
 
+_WATERMARK_ID = "test-m2-capstone-e2e"
+
 
 class TestM2CapstoneActionVocabulary(_HookTestCase):
     """Cross-cutting assertions on the M2 action vocabulary end-to-end."""
@@ -45,12 +47,12 @@ class TestM2CapstoneActionVocabulary(_HookTestCase):
     def _statuses(self, action: str) -> list[dict]:
         return [
             e
-            for e in _common.read_events_raw(self.smm_dir)
+            for e in _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
             if e.get("type") == EVENT_TYPE_STATUS and event_action(e) == action
         ]
 
     def _commits(self) -> list[dict]:
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         return events_of_type(events, EVENT_TYPE_COMMIT)
 
     def test_post_tool_use_emits_file_write_action(self):
@@ -151,7 +153,7 @@ class TestM2CapstonePipelineRoundTrip(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         status_summary = retro_metrics._classify_lifecycle_events(events)
 
         # Counters increment via the action path. Each lifecycle moment counts
