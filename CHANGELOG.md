@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.1.44 — free session: concern-emission ref-dedup + triage status content enrichment
+
+Two clustered fixes for a downstream-project symptom where dropped Trys appeared to re-emerge in retros despite explicit user rejection. Investigation traced it to noise erosion of the retro agent's cross-session memory of user-rejected work.
+
+### Concern emission dedup by root references (`scripts/concerns.py`)
+
+`detect_conflicts` now skips emission when an unresolved concern already references the same root set, regardless of content phrasing. Pattern 2 (assumption contradicted) was emitting N concerns when N discoveries cited the same assumption with distinct snippet text — the template inlines per-discovery content (`f"Assumption contradicted: '{a_text}' contradicted by discovery '{d_text}'."`), so content-only dedup at `_add_concern:272` missed because every per-discovery template produces a different string. Observed in a downstream project's `events.jsonl`: 40 contradiction concerns all with `references=['210fe2885dec']` written by 27 distinct teammate worktree agents during one parallel sprint.
+
+The new ref-dedup applies globally — Pattern 1 (`Overlapping working_on`, no references) falls through unchanged; Patterns 3-5 (convention violation, stale question, superseded decision) already had unique-per-topic refs and content, so observed behavior is identical. A cross-pattern test pins the global invariant against future content drift between releases (an older unresolved concern with refs=[X] but drifted phrasing now correctly suppresses re-emission). The two parallel set-comprehensions over `events` were also collapsed into a single pass that builds all three dedup/escalation structures (content set, refs set, resolved-recurrence counts) — per simplify code-quality finding. Closes debt `986861c6d5d9`.
+
+### Triage status content enrichment (`skills/xp-work-selection/scripts/work_selection_decide.py`)
+
+When the user triages a debt/concern/question via `triage-adopt`/`triage-defer`/`triage-drop`, the emitted status event's content now inlines a snippet of the resolved event's content alongside the existing `"Triage: <disposition> <short-id>"` prefix. The opaque short-id-only form defeated `retro_metrics._collect_dropped_tries_recent`'s LLM topic-match safety net (`xp-retrospective.md:28`) — whenever a project bulk-triaged duplicate concerns (e.g. the 40 dups above), the 10-slot `dropped_tries_recent` buffer saturated with unmatcheable rows and pushed actual retro-Try drops out of cross-session memory. Two retros later, the retro agent had no signal to suppress re-proposal of a dropped Try.
+
+The lookup reuses the existing lazy `_events()` memoizer — adopt-only paths still skip the disk read. Falls back to the prior terse form when the target id resolves nothing (stale or archived). Final content is clipped to the status budget via `_common.truncate`, matching `draft_summary.py`'s precedent. A new `TestTriageEnrichment` class pins four contracts: drop enrichment + budget, defer enrichment + preserved no-resolves contract, fail-soft fallback when target is missing, and end-to-end visibility through `_collect_dropped_tries_recent`. The fourth test folds the original Story 3 backstop into Story 2 per plan-revision concern `49732142e09f`.
+
+### Out of scope (named, deferred)
+
+- **Archive-aware resolution.** The same downstream project showed assumption `210fe2885dec` in `backups/archive-<ts>.jsonl` while its 40 contradiction concerns remained in live events — cascade-close couldn't fire because `resolution.compute_resolutions` reads only live events. Fixing this requires either archival cohesion (don't archive a root with live referencers) or archive-aware resolution. Architectural; deferred. Fixing source-side dedup (this release) eliminates most of the volume that triggers archival.
+
 ## v3.1.43 — free session: schema strict unknown-key validation + shared `budget_error` helper + system_context split
 
 Four in-domain schema improvements plus a 4-carry retro Try finally actioned.
