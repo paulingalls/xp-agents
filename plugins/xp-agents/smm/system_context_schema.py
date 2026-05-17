@@ -268,13 +268,10 @@ def _validate_branching_strategy(
             errors.append("branching_strategy.user_namespace must be a string")
         elif enforce_budget:
             max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["user_namespace"]
-            if len(bs["user_namespace"]) > max_len:
+            actual = len(bs["user_namespace"])
+            if actual > max_len:
                 errors.append(
-                    budget_error(
-                        "branching_strategy.user_namespace",
-                        len(bs["user_namespace"]),
-                        max_len,
-                    )
+                    budget_error("branching_strategy.user_namespace", actual, max_len)
                 )
 
     if "protected_branches" in bs:
@@ -300,13 +297,10 @@ def _validate_branching_strategy(
             errors.append("branching_strategy.rationale must be a string")
         elif enforce_budget:
             max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["rationale"]
-            if len(bs["rationale"]) > max_len:
+            actual = len(bs["rationale"])
+            if actual > max_len:
                 errors.append(
-                    budget_error(
-                        "branching_strategy.rationale",
-                        len(bs["rationale"]),
-                        max_len,
-                    )
+                    budget_error("branching_strategy.rationale", actual, max_len)
                 )
 
     if "stage_prompt_dismissed_at" in bs:
@@ -320,11 +314,12 @@ def _validate_branching_strategy(
                 max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH[
                     "stage_prompt_dismissed_at"
                 ]
-                if len(val) > max_len:
+                actual = len(val)
+                if actual > max_len:
                     errors.append(
                         budget_error(
                             "branching_strategy.stage_prompt_dismissed_at",
-                            len(val),
+                            actual,
                             max_len,
                         )
                     )

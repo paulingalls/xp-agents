@@ -11,6 +11,7 @@ no external jsonschema dependency, stdlib-only.
 import re
 
 from _acceptance_execution import validate_acceptance_execution
+from schema_helpers import budget_error
 
 PLAN_FILENAME = "execution_plan.json"
 
@@ -87,9 +88,7 @@ def _validate_zone_entry(
             max_len = MILESTONE_ITEM_MAXLENGTH["zone_note"]
             actual = len(entry["note"])
             if actual > max_len:
-                errors.append(
-                    f"{prefix}.note exceeds budget ({actual} > {max_len} chars)"
-                )
+                errors.append(budget_error(f"{prefix}.note", actual, max_len))
 
     return errors
 
@@ -159,8 +158,7 @@ def _validate_milestone(
             actual = len(val)
             if actual > max_len:
                 errors.append(
-                    f"milestones[{idx}].{field} exceeds budget"
-                    f" ({actual} > {max_len} chars)"
+                    budget_error(f"milestones[{idx}].{field}", actual, max_len)
                 )
 
     # change_zones and impact_zones must be lists of objects with path
@@ -189,8 +187,9 @@ def _validate_milestone(
                 actual = len(item)
                 if actual > c_max:
                     errors.append(
-                        f"milestones[{idx}].constraints[{c_idx}]"
-                        f" exceeds budget ({actual} > {c_max} chars)"
+                        budget_error(
+                            f"milestones[{idx}].constraints[{c_idx}]", actual, c_max
+                        )
                     )
 
     ae = milestone.get("acceptance_execution")
