@@ -530,7 +530,7 @@ class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTest
 
     Step 5b previously skipped on the rationale that story+sprint close
     already auto-resolved everything resolvable. Multi-sprint plans
-    break that assumption — concerns from sprint N can be LIKELY-
+    break that assumption — concerns from sprint N can be MAYBE-
     ADDRESSED by commits in sprint N+1, but sprint N's close window has
     already passed when those commits land. Plan-close is the last
     chance to catch slipped-through matches.
