@@ -234,6 +234,35 @@ CONTENT_BUDGETS: dict[str, int | None] = {
 REQUIRED_FIELDS = frozenset({"id", "type", "ts", "agent_id", "content"})
 
 
+_UNIVERSAL_KEYS = REQUIRED_FIELDS | frozenset(
+    {"references", "metadata", "schema_version"}
+)
+
+# Allowed top-level keys per event type. Per-type extras MUST stay in
+# sync with the `match event_type` arms in validate_event below — a new
+# optional field needs entries in both places.
+_TYPE_ALLOWED_KEYS: dict[str, frozenset[str]] = {
+    EVENT_TYPE_ANSWER: _UNIVERSAL_KEYS,
+    EVENT_TYPE_ASSUMPTION: _UNIVERSAL_KEYS,
+    EVENT_TYPE_COMMIT: _UNIVERSAL_KEYS | frozenset({"files"}),
+    EVENT_TYPE_CONCERN: _UNIVERSAL_KEYS | frozenset({"files", "severity"}),
+    EVENT_TYPE_CONVENTION: _UNIVERSAL_KEYS | frozenset({"topic"}),
+    EVENT_TYPE_CUSTOMER_INPUT: _UNIVERSAL_KEYS,
+    EVENT_TYPE_CUSTOMER_INTENT: _UNIVERSAL_KEYS | frozenset({"intent_status"}),
+    EVENT_TYPE_DEBT: _UNIVERSAL_KEYS | frozenset({"files"}),
+    EVENT_TYPE_DECISION: _UNIVERSAL_KEYS | frozenset({"topic"}),
+    EVENT_TYPE_DISCOVERY: _UNIVERSAL_KEYS,
+    EVENT_TYPE_GOAL: _UNIVERSAL_KEYS,
+    EVENT_TYPE_QUESTION: _UNIVERSAL_KEYS | frozenset({"priority"}),
+    EVENT_TYPE_RETROSPECTIVE: _UNIVERSAL_KEYS | frozenset({"keep", "fix", "try"}),
+    EVENT_TYPE_SESSION_END: _UNIVERSAL_KEYS
+    | frozenset({"duration_seconds", "event_count", "unresolved_items", "working_on"}),
+    EVENT_TYPE_SESSION_SUMMARY: _UNIVERSAL_KEYS,
+    EVENT_TYPE_SPRINT: _UNIVERSAL_KEYS,
+    EVENT_TYPE_STATUS: _UNIVERSAL_KEYS | frozenset({"working_on"}),
+}
+
+
 # Event types with no type-specific validation beyond the universal
 # REQUIRED_FIELDS and content-budget checks. Test gate:
 # tests/engine/test_compact.py::TestEventTypeMatchCompleteness fails
@@ -302,6 +331,11 @@ def validate_event(event: dict) -> list[str]:
     if event_type not in VALID_TYPES:
         errors.append(f"Invalid event type: {event_type}")
         return errors
+
+    allowed = _TYPE_ALLOWED_KEYS[event_type]
+    if not event.keys() <= allowed:
+        extras_str = ", ".join(repr(k) for k in sorted(event.keys() - allowed))
+        errors.append(f"Unknown field(s) for type '{event_type}': {extras_str}")
 
     # Per-type content budget
     budget = CONTENT_BUDGETS.get(event_type)

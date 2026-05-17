@@ -281,5 +281,44 @@ class TestEventCategoryDerivation(unittest.TestCase):
         )
 
 
+class TestUnknownKeyRejection(unittest.TestCase):
+    """validate_event rejects unknown top-level keys per type, so field-name
+    typos fail at write time instead of round-tripping into events.jsonl."""
+
+    _BASE_STATUS: ClassVar[dict] = {
+        "id": "abc123def456",
+        "ts": "2026-05-17T00:00:00+00:00",
+        "type": EVENT_TYPE_STATUS,
+        "agent_id": "main",
+        "content": "test",
+        "schema_version": 1,
+        "working_on": [],
+    }
+
+    def test_rejects_unknown_top_level_key(self):
+        event = {**self._BASE_STATUS, "naem": "typo-for-future-field"}
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("naem" in e for e in errors),
+            f"Expected unknown-field error naming 'naem'; got: {errors}",
+        )
+
+    def test_rejects_unknown_key_on_status_event(self):
+        # 'severity' is valid on concern but NOT on status.
+        event = {**self._BASE_STATUS, "severity": "high"}
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("severity" in e for e in errors),
+            f"Expected unknown-field error naming 'severity' on status; got: {errors}",
+        )
+
+    def test_every_event_type_has_allowed_keys_entry(self):
+        missing = set(event_schema.VALID_TYPES) - set(event_schema._TYPE_ALLOWED_KEYS)
+        self.assertFalse(
+            missing,
+            f"Add to _TYPE_ALLOWED_KEYS: {sorted(missing)}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
