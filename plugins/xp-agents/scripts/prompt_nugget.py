@@ -56,8 +56,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # Locked single-read: full events for resolution chain completeness
         # (chains span the watermark), new_events slice for the nugget signals.
         # Watermark advance uses the same total_lines snapshot returned by
-        # read_events_from under shared flock — closes the read/advance gap
-        # that existed when this called the unlocked read_events_raw.
+        # read_events_from under shared flock — closes the read/advance gap.
         # Documented exception to _common.read_events_locked: both tuple
         # elements are needed and the watermark must advance.
         events, new_events = read_delta.read_delta_full(smm_dir, _WATERMARK_ID)

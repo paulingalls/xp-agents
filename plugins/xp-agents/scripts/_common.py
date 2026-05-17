@@ -26,7 +26,7 @@ from _append_impl import resolve_smm_dir as _resolve_smm_dir_impl
 from _append_impl import (
     write_json_atomic as _write_json_atomic,
 )
-from append_validation import parse_jsonl, validate_smm_dir
+from append_validation import validate_smm_dir
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -310,26 +310,11 @@ def is_task_notification(prompt: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Event reading (no locking — for hook scripts that don't need atomicity)
+# Event reading — locked helper
 # ---------------------------------------------------------------------------
 
 
-_MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 _WATERMARK_ID_LOAD_EVENTS = "load-events-with-resolutions"
-
-
-def read_events_raw(smm_dir: Path) -> list[dict]:
-    """Parse events.jsonl, skip malformed lines, no locking."""
-    events_file = smm_dir / "events.jsonl"
-    try:
-        if events_file.stat().st_size > _MAX_EVENTS_FILE_SIZE:
-            return []
-        raw = events_file.read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return []
-
-    events, _ = parse_jsonl(raw)
-    return events
 
 
 def read_events_locked(smm_dir: Path, slug: str) -> list[dict]:
