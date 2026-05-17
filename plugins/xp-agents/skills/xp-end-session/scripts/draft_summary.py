@@ -9,7 +9,7 @@ JSON to stdout:
       "summary": "<refined session_summary content if present;
                    else line-per-event narrative; trimmed to budget>",
       "open_questions": ["<event-id>", ...],
-      "likely_addressed": [
+      "maybe_addressed": [
           {"id": "<concern_id>", "commits": ["<git_commit_hash>", ...]},
           ...
       ],
@@ -17,7 +17,7 @@ JSON to stdout:
       "carry_forward": [{"note", "references", "recommendation"}, ...]
     }
 
-`likely_addressed.commits` carries real git commit hashes (resolvable
+`maybe_addressed.commits` carries real git commit hashes (resolvable
 via `git show`), not SMM commit-event ids. The agent fetches concern
 content via Read on events.jsonl and commit content via `git show`.
 Keeping the preload minimal is intentional: the agent's judgement is
@@ -104,7 +104,7 @@ def _carry_entry(item: dict, recommendation: str) -> dict:
 def _build_carry_forward(
     open_questions: list[dict],
     open_concerns: list[dict],
-    likely_addressed_ids: set[str],
+    maybe_addressed_ids: set[str],
 ) -> list[dict]:
     """Build carry_forward candidates from open questions + unresolved high concerns.
 
@@ -114,7 +114,7 @@ def _build_carry_forward(
     until resolved or downgraded. Differentiation lets future kickoff
     UIs route the two classes differently without re-deriving severity.
 
-    `likely_addressed_ids` filters out concerns whose files were touched by a
+    `maybe_addressed_ids` filters out concerns whose files were touched by a
     later commit (see triage.find_overlapping_commits) — those are speculatively
     closed and shouldn't crowd next session's triage.
     """
@@ -122,7 +122,7 @@ def _build_carry_forward(
     for concern in open_concerns:
         if concern.get("severity") != "high":
             continue
-        if concern.get("id", "") in likely_addressed_ids:
+        if concern.get("id", "") in maybe_addressed_ids:
             continue
         carry.append(_carry_entry(concern, "watch"))
     return carry
@@ -135,7 +135,7 @@ def run(smm_dir: Path) -> dict:
         return {
             "summary": "",
             "open_questions": [],
-            "likely_addressed": [],
+            "maybe_addressed": [],
             "uncommitted_count": 0,
             "carry_forward": [],
         }
@@ -166,7 +166,7 @@ def run(smm_dir: Path) -> dict:
         session_events, event_schema.EVENT_TYPE_DEBT, all_resolved
     )
 
-    likely_addressed = []
+    maybe_addressed = []
     for item in open_concerns + open_debts:
         overlapping = triage.find_overlapping_commits(item, events)
         if not overlapping:
@@ -185,15 +185,15 @@ def run(smm_dir: Path) -> dict:
         ]
         if not commit_hashes:
             continue
-        likely_addressed.append({"id": item["id"], "commits": commit_hashes})
+        maybe_addressed.append({"id": item["id"], "commits": commit_hashes})
 
-    likely_addressed_ids = {item["id"] for item in likely_addressed}
-    carry_forward = _build_carry_forward(open_qs, open_concerns, likely_addressed_ids)
+    maybe_addressed_ids = {item["id"] for item in maybe_addressed}
+    carry_forward = _build_carry_forward(open_qs, open_concerns, maybe_addressed_ids)
 
     return {
         "summary": summary,
         "open_questions": [q.get("id", "") for q in open_qs],
-        "likely_addressed": likely_addressed,
+        "maybe_addressed": maybe_addressed,
         "uncommitted_count": _common.uncommitted_event_count(events),
         "carry_forward": carry_forward,
     }

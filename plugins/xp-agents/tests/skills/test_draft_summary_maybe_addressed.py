@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for draft_summary's likely_addressed surfacing path.
+"""Tests for draft_summary's maybe_addressed surfacing path.
 
 Split from test_draft_summary.py at the commit that pushed it past
 the 500-line target. Covers the concern/debt → file_overlap → commit
-→ likely_addressed pipeline plus commit-hash audit-trail handling.
+→ maybe_addressed pipeline plus commit-hash audit-trail handling.
 """
 
 import sys
@@ -24,8 +24,8 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-end-session" / "scripts"))
 import draft_summary  # noqa: E402
 
 
-class TestDraftSummaryLikelyAddressed(_SMMTestCase):
-    """concern/debt overlap with later commits surfaces in likely_addressed."""
+class TestDraftSummaryMaybeAddressed(_SMMTestCase):
+    """concern/debt overlap with later commits surfaces in maybe_addressed."""
 
     def test_concern_with_file_overlap_surfaces(self):
         concern = make_event(
@@ -49,12 +49,12 @@ class TestDraftSummaryLikelyAddressed(_SMMTestCase):
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
-        # likely_addressed is list[{id, commits: list[str]}] — agent uses the
+        # maybe_addressed is list[{id, commits: list[str]}] — agent uses the
         # git commit hash to fetch full content via `git show`.
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(result["likely_addressed"][0]["id"], "dddddddddddd")
+        self.assertEqual(len(result["maybe_addressed"]), 1)
+        self.assertEqual(result["maybe_addressed"][0]["id"], "dddddddddddd")
         self.assertEqual(
-            result["likely_addressed"][0]["commits"],
+            result["maybe_addressed"][0]["commits"],
             ["abc1230000000000000000000000000000000001"],
         )
 
@@ -76,9 +76,9 @@ class TestDraftSummaryLikelyAddressed(_SMMTestCase):
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(result["likely_addressed"], [])
+        self.assertEqual(result["maybe_addressed"], [])
 
-    def test_debt_likely_addressed(self):
+    def test_debt_maybe_addressed(self):
         debt = make_event(
             event_schema.EVENT_TYPE_DEBT,
             id="222222222222",
@@ -99,20 +99,20 @@ class TestDraftSummaryLikelyAddressed(_SMMTestCase):
         )
         self._write_events([debt, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(result["likely_addressed"][0]["id"], "222222222222")
+        self.assertEqual(len(result["maybe_addressed"]), 1)
+        self.assertEqual(result["maybe_addressed"][0]["id"], "222222222222")
         self.assertEqual(
-            result["likely_addressed"][0]["commits"],
+            result["maybe_addressed"][0]["commits"],
             ["abc1230000000000000000000000000000000003"],
         )
 
-    def test_likely_addressed_filters_commits_missing_commit_hash(self):
+    def test_maybe_addressed_filters_commits_missing_commit_hash(self):
         # Honesty: a commit event without metadata.commit_hash is malformed
         # (post-commit hook always sets it for valid commits). Filter such
         # events from `commits[]` rather than falling back to the SMM
         # event id — the event id is NOT a git ref, and downstream
         # `git show` would silently fail. Empty commits[] (no overlap
-        # surfaces likely_addressed at all) is honest; wrong refs are not.
+        # surfaces maybe_addressed at all) is honest; wrong refs are not.
         concern = make_event(
             event_schema.EVENT_TYPE_CONCERN,
             id="filtertst001",
@@ -143,15 +143,15 @@ class TestDraftSummaryLikelyAddressed(_SMMTestCase):
         )
         self._write_events([concern, commit_bad, commit_good])
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(len(result["maybe_addressed"]), 1)
         self.assertEqual(
-            result["likely_addressed"][0]["commits"],
+            result["maybe_addressed"][0]["commits"],
             ["def4560000000000000000000000000000000007"],
             "commits[] must skip events missing metadata.commit_hash, "
             "not fall back to the (non-git-ref) SMM event id",
         )
 
-    def test_likely_addressed_emits_git_commit_hash_not_event_id(self):
+    def test_maybe_addressed_emits_git_commit_hash_not_event_id(self):
         # The `commits` field is consumed as a git ref (agents `git show`
         # it to fetch full commit content). The SMM commit-event ID is
         # NOT a git ref — the real git SHA lives in metadata.commit_hash
@@ -178,15 +178,15 @@ class TestDraftSummaryLikelyAddressed(_SMMTestCase):
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
+        self.assertEqual(len(result["maybe_addressed"]), 1)
         self.assertEqual(
-            result["likely_addressed"][0]["commits"],
+            result["maybe_addressed"][0]["commits"],
             ["ae995e32f8ec7a299c517a69773e94803b791a87"],
             "commits[] must carry git commit_hash (resolvable by `git show`),"
             " not the SMM commit-event ID",
         )
 
-    def test_likely_addressed_carries_multiple_commit_ids_for_audit(self):
+    def test_maybe_addressed_carries_multiple_commit_ids_for_audit(self):
         # Two commits both touching the concern's file → both IDs land in
         # the audit-trail list, in chronological order. This is the trail
         # the agent passes through to metadata.resolved_by_commits when
@@ -223,8 +223,8 @@ class TestDraftSummaryLikelyAddressed(_SMMTestCase):
         )
         self._write_events([concern, commit1, commit2])
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        item = result["likely_addressed"][0]
+        self.assertEqual(len(result["maybe_addressed"]), 1)
+        item = result["maybe_addressed"][0]
         self.assertEqual(item["id"], "audit0000001")
         self.assertEqual(
             item["commits"],

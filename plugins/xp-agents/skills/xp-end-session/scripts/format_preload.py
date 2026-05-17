@@ -29,8 +29,8 @@ def main() -> None:
     print("### OPEN_QUESTIONS")
     print("\n".join(data["open_questions"]))
     print()
-    print("### LIKELY_ADDRESSED")
-    for item in data["likely_addressed"]:
+    print("### MAYBE_ADDRESSED")
+    for item in data["maybe_addressed"]:
         print(f"- {item['id']}")
         for commit_hash in item["commits"]:
             print(f"  - {commit_hash}")

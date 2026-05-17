@@ -2,7 +2,7 @@
 """Tests for plugins/xp-agents/skills/xp-end-session/scripts/format_preload.py.
 
 Pins the four-section stdout shape (CANDIDATES / OPEN_QUESTIONS /
-LIKELY_ADDRESSED / UNCOMMITTED) so trim refactors can't drift the
+MAYBE_ADDRESSED / UNCOMMITTED) so trim refactors can't drift the
 contract preload.sh consumers depend on.
 """
 
@@ -44,7 +44,7 @@ class TestFormatPreloadEmptySMM(_SMMTestCase):
         out = _run(self.smm_dir)
         self.assertIn("### CANDIDATES", out)
         self.assertIn("### OPEN_QUESTIONS", out)
-        self.assertIn("### LIKELY_ADDRESSED", out)
+        self.assertIn("### MAYBE_ADDRESSED", out)
         self.assertIn("### UNCOMMITTED", out)
 
     def test_empty_smm_uncommitted_count_zero(self):
@@ -61,11 +61,11 @@ class TestFormatPreloadPopulated(_SMMTestCase):
         out = _run(self.smm_dir)
         # OPEN_QUESTIONS section emits each question id on its own line
         oq_idx = out.index("### OPEN_QUESTIONS")
-        la_idx = out.index("### LIKELY_ADDRESSED")
+        la_idx = out.index("### MAYBE_ADDRESSED")
         section = out[oq_idx:la_idx]
         self.assertIn(q["id"], section)
 
-    def test_likely_addressed_renders_id_and_commit_hashes(self):
+    def test_maybe_addressed_renders_id_and_commit_hashes(self):
         debt = make_event(
             EVENT_TYPE_DEBT,
             content="cleanup",
@@ -81,7 +81,7 @@ class TestFormatPreloadPopulated(_SMMTestCase):
         )
         self._write_events([debt, commit])
         out = _run(self.smm_dir)
-        la_idx = out.index("### LIKELY_ADDRESSED")
+        la_idx = out.index("### MAYBE_ADDRESSED")
         un_idx = out.index("### UNCOMMITTED")
         section = out[la_idx:un_idx]
         # Format: "- {id}\n  - {commit_hash}"
@@ -99,7 +99,7 @@ class TestFormatPreloadInProcess(unittest.TestCase):
             return {
                 "summary": "S",
                 "open_questions": ["q1"],
-                "likely_addressed": [{"id": "d1", "commits": ["h1", "h2"]}],
+                "maybe_addressed": [{"id": "d1", "commits": ["h1", "h2"]}],
                 "uncommitted_count": 3,
             }
 
@@ -120,7 +120,7 @@ class TestFormatPreloadInProcess(unittest.TestCase):
         self.assertIn("S", out)
         self.assertIn("### OPEN_QUESTIONS", out)
         self.assertIn("q1", out)
-        self.assertIn("### LIKELY_ADDRESSED", out)
+        self.assertIn("### MAYBE_ADDRESSED", out)
         self.assertIn("- d1", out)
         self.assertIn("  - h1", out)
         self.assertIn("  - h2", out)
