@@ -104,6 +104,7 @@ __all__ = [
     "_COUNT_CAP_TABLE",
     "_EDIT_ACTIONS",
     "_RETIRE_ACTIONS",
+    "_cmd_append_to_list",
     "_cmd_edit_branching_field",
     "_cmd_edit_stack_field",
     "_cmd_get_branching_field",
