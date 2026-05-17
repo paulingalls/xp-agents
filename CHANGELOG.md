@@ -1,5 +1,68 @@
 # Changelog
 
+## v3.1.42 — sprint-087: retire `read_events_raw` (M-5) + system-context CLI shrink + LIKELY→MAYBE rename + decide.py scan consolidation
+
+### M-5: retire `_common.read_events_raw` (sprint-087, stories 001-003)
+
+Final milestone of the system-context-redesign plan. `_common.read_events_raw` — the unlocked event-read helper — is now retired in favor of the M-4 `read_events_locked` wrapper. Story-001 + story-002 migrated ~141 test call sites across 18 files (tranche A: 6 high-count hook tests; tranche B: 11 remaining hook tests + `tests/engine/test_smm_cli.py`). Each test file gains a module-level `_WATERMARK_ID = "test-<slug>"` constant matching the production-script convention; identifier convention recorded as a curated convention (`test-watermark-slug-convention`).
+
+Story-003 deleted the function, the unused `_MAX_EVENTS_FILE_SIZE` constant, and the now-unused `parse_jsonl` import from `_common.py`. Replaced the per-site `_MIGRATED_SITES` allowlist (14 entries + meta-programming machinery) in `test_read_events_migration_parity.py` with a single **negative-space AST guard** that `rglob`s the entire plugin tree and asserts zero `_common.read_events_raw` Call nodes. Self-extending — catches re-introduction at any new site, not just enumerated ones. Matches the absence-of-flag invariant-guard convention.
+
+Two honesty fixes surfaced during migration and landed alongside: dead `patch("commits._common.read_events_raw")` mock target (commits.py never called `read_events_raw` — calls `_common.load_events_with_resolutions`) swapped to target the function actually called, making the "`events=` kwarg skips disk read" assertion load-bearing instead of vacuously true; same fix for `work_selection_decide.py` mock target. Class `TestReadEventsRaw` in `test_common_smm.py` renamed to `TestReadEventsLocked` so the 4 boundary tests (valid / malformed / empty / missing) cover the canonical wrapper directly.
+
+### `system_context_cli.py` shrink: caps + nested-field-edit extractions (story-005)
+
+`smm/system_context_cli.py` shrank from 642 → 458 lines (under the 500-line target). Two new modules mirror the existing `system_context_retire_cli.py` + `system_context_edit_cli.py` extraction convention:
+
+- **`system_context_caps_cli.py`** (97 lines) — `_COUNT_CAP_TABLE` (gated-list field → `(soft, hard, retire-subcmd)`) and `cmd_append_to_list` cap-enforcement gate for the `add-*` dispatch.
+- **`system_context_nested_field_cli.py`** (123 lines) — the 4 stack/branching nested-field commands (`cmd_edit_stack_field`, `cmd_edit_branching_field`, `cmd_get_stack_field`, `cmd_get_branching_field`) collapsed to 1-line dispatchers over private `_edit_nested_field(args, parent_key, seed)` + `_get_nested_field(args, parent_key)` helpers. Distinct docstrings preserved on the public commands; the parent key and seed dict are the only per-command differences.
+
+Both modules re-imported by `cli.py` via the documented `from <mod> import name as _name` shim; `__all__` documents the public-attribute surface; identity contract pinned by sister tests via `assertIs`.
+
+### `/xp-quality-review` gains COURAGE-FIX framing (story-006)
+
+`xp-quality-review/SKILL.md` Step 3 (Act on Subagent Findings) gains a new bullet alongside the existing "Fix directly (preferred — courage)" guidance:
+
+> **Fix overlapping open concerns now (COURAGE-FIX).** If an open plan-review or close-reviewer concern's `files` overlap the diff you're already touching, fix it now while the file is open — file overlap is in scope, no re-litigation. Don't defer to "LIKELY ADDRESSED" triage at close time. Resolve via the `Resolves-Event:` trailer in the same commit.
+
+Pulls concerns forward before they reach close as heuristic-triage candidates. Pin test `TestQualityReviewFramings` covers both framings with anchor-bounded section slicing per the SMM convention (Step 2 → Step 3 slice asserts RESOLVE framing; Step 3 → Step 4 slice asserts the `COURAGE-FIX` token + `"fix it now while the file is open"` + `"file overlap is in scope"`).
+
+### `LIKELY ADDRESSED` → `MAYBE ADDRESSED` atomic rename (story-007)
+
+The "LIKELY ADDRESSED" annotation overclaimed: file-overlap-after-timestamp is a heuristic candidate that requires LLM judgment, not a fix. The label is renamed to "MAYBE ADDRESSED" to bias triage toward judgment rather than drop. Atomic across 22 files / ~80 hits:
+
+- `"LIKELY ADDRESSED"` → `"MAYBE ADDRESSED"` (prose, annotations)
+- `"LIKELY_ADDRESSED"` → `"MAYBE_ADDRESSED"` (constants, section headers)
+- `"likely_addressed"` → `"maybe_addressed"` (~55 hits: `draft_summary.py` JSON key + 6 test files + `event_metadata.py` + skill prose)
+- `"likely-addressed"` → `"maybe-addressed"` (hyphenated docstring form)
+- File + class rename: `test_draft_summary_likely_addressed.py` + class `TestDraftSummaryLikelyAddressed` → `*_maybe_addressed.py` + Maybe variant
+
+Landed atomically per the SMM-shared-field-rename wisdom.
+
+### `work_selection_decide.py` force-drop scans: 3 reads → 1 (story-008)
+
+The force-drop path (`drop`, `defer --force-drop` with refs, convention dedupe) used to do up to 3 separate `_common.read_events_locked` calls under flock. Refactored to a single locked read fed through 3 pure filter functions:
+
+- `_convention_topic_exists_filter(events, topic) -> bool`
+- `_count_prior_defers_filter(events, ref_ids) -> int`
+- `_cascade_ids_filter(events, tokens) -> set[str]`  *(new — was inline in `_build_drop_event`)*
+
+`_build_drop_event` and `_build_defer_event` now accept a `load_events: Callable[[], list[dict]]` instead of `smm_dir`. `run()` supplies a memoized closure that does one locked read on first invocation; lazy initialization preserves the "no-tokens drop skips disk read" perf guard. Net per invocation:
+
+- force-drop with cascade + prior-defer + convention checks: **1 read** (was 3)
+- plain drop with no hex tokens: **0 reads** (preserved)
+- adopt or triage path: **0 reads**
+
+7 new pure-filter unit tests (`TestForceDropFilterFunctions`) land alongside — no SMM I/O, no flock.
+
+### `concerns.py` qualified-import alignment (story-004)
+
+`scripts/concerns.py` was the lone outlier among 16 migrated sites — used bare-name `read_events_locked(...)` via `from _common import` instead of the canonical qualified `_common.read_events_locked(...)`. Aligned to the qualified form so the call site is grep-able as the canonical helper invocation. The mock-patch target on `test_bash_failure.py:223` follows mechanically (`patch("concerns._common.read_events_locked")`).
+
+### Tests
+
+4817 → 4816. (TestParity 4 tests + `_MIGRATED_SITES` 14 generated tests removed in story-003; replaced by 1 broader negative-space guard. 7 new filter unit tests + 2 framing pin tests + caps/nested-field wiring tests added.) Ruff + pyright + tests gate clean throughout.
+
 ## v3.1.41 — sprint-086 (M-4 read_events_locked migration) + edit-* CLI for capped lists + analyzer principles routing
 
 ### M-4: extract `_common.read_events_locked` helper (sprint-086)
