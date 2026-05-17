@@ -38,6 +38,7 @@ from event_schema import (  # noqa: E402
     METADATA_KEY_DEFER_UNTIL,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    get_required_budget,
     validate_event,
 )
 from retro_history import HEX_ID_RE  # noqa: E402
@@ -333,10 +334,25 @@ def run(
             metadata: dict = {METADATA_KEY_DISPOSITION: disposition}
             if disposition != DISPOSITION_DEFERRED:
                 metadata[METADATA_KEY_RESOLVES] = [event_id]
+            # Inline a snippet of the target event's content so cross-session
+            # drop memory (retro_metrics.dropped_tries_recent) carries the
+            # topic forward — opaque "Triage: dropped <id>" content defeats
+            # the retro agent's LLM topic-match safety net. Falls back to
+            # the terse form when target lookup fails (stale or archived id).
+            target = next(
+                (e for e in _events() if e.get("id") == event_id),
+                None,
+            )
+            target_content = (target or {}).get("content", "")
+            triage_content = (
+                f"Triage: {disposition} {event_id[:8]} — {target_content}"
+                if target_content
+                else f"Triage: {disposition} {event_id[:8]}"
+            )
             event = _common.make_event(
                 "status",
                 agent_id,
-                f"Triage: {disposition} {event_id[:8]}",
+                _common.truncate(triage_content, get_required_budget("status")),
                 working_on=[],
                 metadata=metadata,
             )
