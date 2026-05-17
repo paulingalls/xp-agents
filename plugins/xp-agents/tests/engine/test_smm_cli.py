@@ -26,6 +26,7 @@ from event_schema import (
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
 
 _SMM_SIGNATURE = "# Shared Mental Model \u2014 Curated View"
+_WATERMARK_ID = "test-smm-cli"
 
 
 def _seed_smm(smm_dir: Path) -> None:
@@ -131,7 +132,7 @@ class TestQuestionCloseWontFix(_SMMTestCase):
     def _read_events(self) -> list[dict]:
         import _common
 
-        return _common.read_events_raw(self.smm_dir)
+        return _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
 
     def test_won_fix_appends_status_event_with_correct_metadata(self):
         qid = self._append_question()

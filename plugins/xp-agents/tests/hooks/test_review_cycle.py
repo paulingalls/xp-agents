@@ -19,6 +19,8 @@ import subagent_stop
 from conftest import _HookTestCase, _make_agent_input, _make_skill_input
 from event_schema import EVENT_TYPE_STATUS, event_action
 
+_WATERMARK_ID = "test-review-cycle"
+
 
 class TestReviewCycleDone(_HookTestCase):
     """PostToolUse:Skill|Agent hook sets flags after review skills or xp-housekeeper."""
@@ -36,7 +38,7 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertTrue(cycle["quality_review_done"])
 
     def _action_events(self, action: str) -> list[dict]:
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         return [e for e in events if event_action(e) == action]
 
     def test_simplify_emits_action_event(self):
@@ -247,7 +249,7 @@ class TestAgentIdSemantics(_HookTestCase):
             _make_skill_input("simplify", agent_id="teammate-7"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         emitted = [e for e in events if event_action(e) == "simplify_complete"]
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0]["agent_id"], "teammate-7")
@@ -257,7 +259,7 @@ class TestAgentIdSemantics(_HookTestCase):
             _make_skill_input("xp-quality-review", agent_id="teammate-9"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         emitted = [e for e in events if event_action(e) == "qr_complete"]
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0]["agent_id"], "teammate-9")
