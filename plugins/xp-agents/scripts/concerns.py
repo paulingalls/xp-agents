@@ -240,20 +240,29 @@ def detect_conflicts(
     # Collect existing concern state for deduplication and escalation.
     resolutions = resolution.compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
-    existing_unresolved = {
-        e.get("content", "")
-        for e in events
-        if e.get("type") == CONCERN and e.get("id", "") not in resolved_ids
-    }
-    # Count how many times each concern content was previously resolved
-    # (for severity escalation on recurrence).
+    # Single-pass scan of concern events builds three parallel dedup/escalation
+    # structures: content-based dedup (existing_unresolved), refs-based dedup
+    # for per-root suppression (existing_unresolved_ref_sets — Pattern 2 emits
+    # N concerns when N discoveries cite the same assumption with distinct
+    # snippet text; content-only dedup misses), and resolved-recurrence counts
+    # for severity escalation. Empty `references` (Pattern 1) skips the
+    # ref-dedup set entirely.
+    existing_unresolved: set[str] = set()
+    existing_unresolved_ref_sets: set[tuple[str, ...]] = set()
     resolved_content_counts: dict[str, int] = {}
     for e in events:
-        if e.get("type") == CONCERN and e.get("id", "") in resolved_ids:
-            content = e.get("content", "")
+        if e.get("type") != CONCERN:
+            continue
+        content = e.get("content", "")
+        if e.get("id", "") in resolved_ids:
             resolved_content_counts[content] = (
                 resolved_content_counts.get(content, 0) + 1
             )
+            continue
+        existing_unresolved.add(content)
+        refs = e.get("references")
+        if refs:
+            existing_unresolved_ref_sets.add(tuple(sorted(refs)))
     concerns: list[dict] = []
 
     def _add_concern(
@@ -264,27 +273,39 @@ def detect_conflicts(
     ) -> None:
         """Append concern only if no unresolved duplicate exists.
 
+        Dedup is two-pronged: skip when the same content already exists
+        unresolved, OR when an unresolved concern already references the
+        same root set. The ref check catches per-emitter content drift
+        (e.g., N teammate agents quoting distinct discovery snippets
+        against one assumption).
+
         Escalates severity based on recurrence: each prior resolved
         instance of the same content bumps severity (low → medium → high).
         `references` attaches a WEAK cascade link to the root event(s) so
         compute_resolutions can close the flag when the root closes.
         """
-        if content not in existing_unresolved:
-            prior_count = resolved_content_counts.get(content, 0)
-            if prior_count >= 2:
-                severity = "high"
-            elif prior_count >= 1:
-                severity = "medium"
-            concerns.append(
-                make_concern(
-                    content,
-                    severity,
-                    agent_id,
-                    references=references,
-                    files=files,
-                )
+        if content in existing_unresolved:
+            return
+        ref_key = tuple(sorted(references)) if references else None
+        if ref_key and ref_key in existing_unresolved_ref_sets:
+            return
+        prior_count = resolved_content_counts.get(content, 0)
+        if prior_count >= 2:
+            severity = "high"
+        elif prior_count >= 1:
+            severity = "medium"
+        concerns.append(
+            make_concern(
+                content,
+                severity,
+                agent_id,
+                references=references,
+                files=files,
             )
-            existing_unresolved.add(content)
+        )
+        existing_unresolved.add(content)
+        if ref_key:
+            existing_unresolved_ref_sets.add(ref_key)
 
     # 1. Overlapping working_on — another agent claims same file
     if file_path is not None and cwd is not None:

@@ -264,6 +264,70 @@ class TestDetectConflictsCommon(_HookTestCase):
             f"concern content {len(flag['content'])} exceeds {budget}",
         )
 
+    def test_multiple_discoveries_contradicting_same_assumption_emit_once(self):
+        """N discoveries against one assumption → one concern, not N.
+
+        Models the legacy-project pattern where 27 teammate agents each
+        emitted a contradiction concern against assumption 210fe2885dec.
+        Dedup must key on references, not content (which varies per
+        discovery snippet).
+        """
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="namespace shape will reconcile")
+        d1 = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="packages/shared re-exports flat",
+            references=[a["id"]],
+        )
+        d2 = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="createFieldCrypto exported at top",
+            references=[a["id"]],
+        )
+        d3 = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="encryption barrel has the type",
+            references=[a["id"]],
+        )
+        found = concerns.detect_conflicts([a, d1, d2, d3], "main")
+        contradicts = [c for c in found if "contradict" in c["content"].lower()]
+        self.assertEqual(
+            len(contradicts),
+            1,
+            f"expected 1 contradiction concern (dedup by refs), got {len(contradicts)}",
+        )
+        self.assertEqual(contradicts[0].get("references"), [a["id"]])
+
+    def test_ref_dedup_is_global_across_patterns(self):
+        """An unresolved concern with refs=[X] suppresses re-emission for refs=[X].
+
+        Cross-session pin: simulates a session-1 emission landing in the
+        event log with one content phrasing, then a session-2 re-scan
+        finding the same trigger. The new ref-dedup must short-circuit
+        even when the existing concern's content text differs from what
+        the current emitter would produce.
+
+        Uses Pattern 3 (convention violation) — refs=[convention_id] is
+        cross-pattern-stable. If this test passes, the ref-dedup contract
+        holds globally, not just for the Pattern 2 bug fix.
+        """
+        conv = make_event(
+            EVENT_TYPE_CONVENTION, topic="naming", content="Use camelCase"
+        )
+        dec = make_event(EVENT_TYPE_DECISION, topic="naming", content="Use snake_case")
+        existing_concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="DRIFTED PHRASING: prior-release wording for convention violation",
+            references=[conv["id"]],
+        )
+        found = concerns.detect_conflicts([conv, dec, existing_concern], "main")
+        new_violations = [c for c in found if "convention" in c["content"].lower()]
+        self.assertEqual(
+            len(new_violations),
+            0,
+            "ref-dedup must suppress re-emission when an unresolved concern "
+            "already references the same root, regardless of content phrasing drift",
+        )
+
     def test_convention_violation_concern_references_conventions(self):
         """Flag concern references the topic's convention ids."""
         conv = make_event(
