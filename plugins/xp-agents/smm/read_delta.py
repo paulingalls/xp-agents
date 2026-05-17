@@ -104,9 +104,9 @@ def read_delta_full(
 ) -> tuple[list[dict], list[dict]]:
     """Locked single-read variant: returns (full_events, new_events).
 
-    Reads ALL events under shared flock (not unlocked read_events_raw),
-    derives the post-watermark slice in memory, and advances watermark
-    using the same total_lines snapshot that produced full_events.
+    Reads ALL events under shared flock, derives the post-watermark slice
+    in memory, and advances watermark using the same total_lines snapshot
+    that produced full_events.
     Callers needing both full history (for resolution chain completeness)
     and the post-watermark delta get them from a single locked read.
     """

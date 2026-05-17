@@ -37,7 +37,7 @@ def _draft(
         {
             "summary": summary,
             "open_questions": [],
-            "likely_addressed": [],
+            "maybe_addressed": [],
             "uncommitted_count": 0,
             "carry_forward": carry_forward or [],
         }

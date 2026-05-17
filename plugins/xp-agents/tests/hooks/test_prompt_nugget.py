@@ -307,11 +307,11 @@ class TestPromptNugget(_HookTestCase):
     def test_single_locked_read_path(self):
         """Reads events.jsonl exactly once via the locked read_delta_full path.
 
-        Why: prompt_nugget runs in the UserPromptSubmit hot path. The previous
-        unlocked read_events_raw + separate watermark write left a window where
-        a concurrent append could land between them. read_delta_full performs
-        the read under shared flock and advances watermark using the same
-        total_lines snapshot — closes the gap and keeps the read single.
+        Why: prompt_nugget runs in the UserPromptSubmit hot path. Earlier code
+        performed an unlocked read + separate watermark write, leaving a window
+        where a concurrent append could land between them. read_delta_full now
+        performs the read under shared flock and advances watermark using the
+        same total_lines snapshot — closes the gap and keeps the read single.
         """
         import prompt_nugget
         import read_delta
@@ -326,7 +326,6 @@ class TestPromptNugget(_HookTestCase):
             patch.object(
                 read_delta, "read_delta_full", side_effect=real_full
             ) as mock_full,
-            patch("_common.read_events_raw") as mock_unlocked,
             patch.object(read_delta, "read_delta") as mock_rd,
         ):
             result = prompt_nugget.run(
@@ -340,7 +339,6 @@ class TestPromptNugget(_HookTestCase):
             f"read_delta_full called {mock_full.call_count} times, expected 1",
         )
         mock_rd.assert_not_called()
-        mock_unlocked.assert_not_called()
         assert result is not None
         self.assertIn("X", result)
 

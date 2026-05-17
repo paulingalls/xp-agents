@@ -28,6 +28,8 @@ from event_schema import (
     event_action,
 )
 
+_WATERMARK_ID = "test-subagent-sprint-reviewer"
+
 _SRI = marker_names.SPRINT_REVIEW_INPUT_PREFIX
 
 _SPRINT_REVIEW_MIXED = _sprint_json(
@@ -72,7 +74,7 @@ class TestSprintReviewerDone(_HookTestCase):
             self._reviewer_input(agent_type="xp-agents:xp-sprint-reviewer"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         sprint_events = events_of_type(events, EVENT_TYPE_SPRINT)
         self.assertEqual(len(sprint_events), 1)
 
@@ -80,7 +82,7 @@ class TestSprintReviewerDone(_HookTestCase):
         """Sprint end event has type=sprint, action=end, velocity metadata."""
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         sprint_events = events_of_type(events, EVENT_TYPE_SPRINT)
         self.assertEqual(len(sprint_events), 1)
         meta = sprint_events[0].get("metadata", {})
@@ -94,7 +96,7 @@ class TestSprintReviewerDone(_HookTestCase):
         """Velocity in sprint end event matches sprint.json data."""
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         sprint_events = events_of_type(events, EVENT_TYPE_SPRINT)
         meta = sprint_events[0]["metadata"]
         self.assertEqual(meta["stories_planned"], 4)
@@ -121,7 +123,7 @@ class TestSprintReviewerDone(_HookTestCase):
         """A generic subagent_complete event accompanies the sprint end event."""
         self._seed_sprint()
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         sprint_events = events_of_type(events, EVENT_TYPE_SPRINT)
         self.assertEqual(len(sprint_events), 1)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)

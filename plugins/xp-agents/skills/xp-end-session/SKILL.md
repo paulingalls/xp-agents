@@ -2,7 +2,7 @@
 name: xp-end-session
 description: >-
   User-invoked end-of-session cleanup. Drafts a session_summary event,
-  force-closes/defers open questions, bulk-drops likely-addressed
+  force-closes/defers open questions, bulk-drops maybe-addressed
   concerns and debts, and prints an honesty-signal count of SMM events
   not yet linked to a commit.
 allowed-tools:
@@ -22,7 +22,7 @@ User-invoked. The preload above provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.
-- `### LIKELY_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented git commit hash(es) for the audit trail (resolvable via `git show`).
+- `### MAYBE_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented git commit hash(es) for the audit trail (resolvable via `git show`).
 - `### UNCOMMITTED` — count of concerns/debts/discoveries newer than the last commit event.
 
 Run all five steps in order. Do **not** prompt the user before Step 1 — the user invoked `/xp-end-session` because they want this work done.
@@ -57,9 +57,9 @@ For each id in `### OPEN_QUESTIONS`:
      question close --won-fix --event-id <question_id> --rationale "<one-line reason>"
    ```
 
-## Step 3: Auto-judge likely-addressed concerns and debts
+## Step 3: Auto-judge maybe-addressed concerns and debts
 
-The preload's `### LIKELY_ADDRESSED` section lists each concern/debt
+The preload's `### MAYBE_ADDRESSED` section lists each concern/debt
 ID followed by indented git commit hash(es) whose files overlap. **Judge
 each item yourself — do not prompt the user.** Inspect any cited commit
 via `git show <hash>` (works for both solo and teammate worktree commits).

@@ -76,7 +76,7 @@ class TestFormatConcernTriage(unittest.TestCase):
         result = concern_triage.format_concern_triage("story-001", [], [])
         self.assertEqual(result, "")
 
-    def test_likely_addressed_annotation(self):
+    def test_maybe_addressed_annotation(self):
         concern = make_event(
             EVENT_TYPE_CONCERN, content="Bug in auth", files=["scripts/auth.py"]
         )
@@ -85,7 +85,7 @@ class TestFormatConcernTriage(unittest.TestCase):
         )
         commit["ts"] = "2099-01-01T00:00:00Z"
         result = concern_triage.format_concern_triage("story-001", [concern], [commit])
-        self.assertIn("LIKELY ADDRESSED", result)
+        self.assertIn("MAYBE ADDRESSED", result)
 
 
 class TestSelectInMotionStories(unittest.TestCase):

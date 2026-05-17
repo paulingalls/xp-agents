@@ -30,6 +30,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import system_context_store as store
+from system_context_caps_cli import (
+    _COUNT_CAP_TABLE,
+)
+from system_context_caps_cli import (
+    cmd_append_to_list as _cmd_append_to_list,
+)
 from system_context_edit_cli import (
     _EDIT_ACTIONS,
     _emit_edit_event,
@@ -48,6 +54,18 @@ from system_context_edit_cli import (
 )
 from system_context_edit_cli import (
     cmd_edit_project_specific as _cmd_edit_project_specific,
+)
+from system_context_nested_field_cli import (
+    cmd_edit_branching_field as _cmd_edit_branching_field,
+)
+from system_context_nested_field_cli import (
+    cmd_edit_stack_field as _cmd_edit_stack_field,
+)
+from system_context_nested_field_cli import (
+    cmd_get_branching_field as _cmd_get_branching_field,
+)
+from system_context_nested_field_cli import (
+    cmd_get_stack_field as _cmd_get_stack_field,
 )
 from system_context_renderer import (
     ALL_SECTIONS,
@@ -74,49 +92,26 @@ from system_context_retire_cli import (
 from system_context_retire_cli import (
     cmd_retire_project_specific as _cmd_retire_project_specific,
 )
-from system_context_schema import (
-    ACCEPTANCE_SURFACES_HARD_CAP,
-    ACCEPTANCE_SURFACES_SOFT_CAP,
-    CONVENTIONS_HARD_CAP,
-    CONVENTIONS_SOFT_CAP,
-    MODULES_HARD_CAP,
-    MODULES_SOFT_CAP,
-    PRINCIPLES_HARD_CAP,
-    PRINCIPLES_SOFT_CAP,
-    PROJECT_SPECIFIC_HARD_CAP,
-    PROJECT_SPECIFIC_SOFT_CAP,
-    validate_system_context,
-)
+from system_context_schema import validate_system_context
 
-# Re-exported for callers that imported these from system_context_cli
-# before the retire-* + edit-* families were extracted. Sources live in
-# system_context_retire_cli.py and system_context_edit_cli.py.
+# Back-compat shim: callers that imported these names from
+# system_context_cli before each family was extracted still find them
+# here. __all__ both documents the shim surface and quiets ruff's
+# unused-import lint on the re-export imports. The shim identity
+# contract (same function object across modules) is pinned by per-
+# extracted-module reimport tests.
 __all__ = [
+    "_COUNT_CAP_TABLE",
     "_EDIT_ACTIONS",
     "_RETIRE_ACTIONS",
+    "_cmd_append_to_list",
+    "_cmd_edit_branching_field",
+    "_cmd_edit_stack_field",
+    "_cmd_get_branching_field",
+    "_cmd_get_stack_field",
     "_emit_edit_event",
     "_emit_retire_event",
 ]
-
-# (soft, hard, retire-subcmd-name) per gated list field. Retire-subcmd
-# names are paired with the matching retire-* CLI subcommand below so
-# the "run retire-<kind> first" hint at hard cap resolves to a real
-# command.
-_COUNT_CAP_TABLE: dict[str, tuple[int, int, str]] = {
-    "modules": (MODULES_SOFT_CAP, MODULES_HARD_CAP, "retire-module"),
-    "conventions": (CONVENTIONS_SOFT_CAP, CONVENTIONS_HARD_CAP, "retire-convention"),
-    "principles": (PRINCIPLES_SOFT_CAP, PRINCIPLES_HARD_CAP, "retire-principle"),
-    "project_specific": (
-        PROJECT_SPECIFIC_SOFT_CAP,
-        PROJECT_SPECIFIC_HARD_CAP,
-        "retire-project-specific",
-    ),
-    "acceptance_surfaces": (
-        ACCEPTANCE_SURFACES_SOFT_CAP,
-        ACCEPTANCE_SURFACES_HARD_CAP,
-        "retire-acceptance-surface",
-    ),
-}
 
 # ── CLI commands ────────────────────────────────────────────────
 
@@ -281,188 +276,9 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_append_to_list(
-    args: argparse.Namespace, field: str, *, create_if_missing: bool = False
-) -> int:
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("No system context found.", file=sys.stderr)
-        return 1
-    raw = sys.stdin.read()
-    try:
-        item = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    caps = _COUNT_CAP_TABLE.get(field)
-    bucket = data.setdefault(field, []) if create_if_missing else data[field]
-
-    if caps is not None:
-        _, hard, retire_cmd = caps
-        if len(bucket) >= hard:
-            print(
-                f"{field} hard cap reached ({len(bucket)}/{hard}); "
-                f"run {retire_cmd} first",
-                file=sys.stderr,
-            )
-            return 1
-
-    bucket.append(item)
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-
-    if caps is not None:
-        soft, hard, _ = caps
-        if len(bucket) >= soft:
-            print(
-                f"{field} approaching cap ({len(bucket)}/{hard})",
-                file=sys.stderr,
-            )
-
-    return 0
-
-
 def _cmd_edit_branching(args: argparse.Namespace) -> int:
     args.name = "branching_strategy"
     return _cmd_edit_field(args)
-
-
-def _cmd_edit_branching_field(args: argparse.Namespace) -> int:
-    """Set or clear an optional field nested under branching_strategy.
-
-    Mirrors edit-stack-field: top-level edit-field can't reach nested
-    keys, and rewriting the whole branching_strategy via edit-branching
-    would force the caller to re-supply stage and any other already-set
-    fields. This narrow path edits one nested field at a time and lets
-    the schema validator catch typos (unknown field, value too long,
-    wrong type/format).
-
-    Reads the new value from stdin as JSON. Pass ``null`` to clear.
-
-    Side-effect: when the system_context lacks branching_strategy
-    entirely, the CLI seeds it with ``{"stage": 0}`` before applying
-    the edit (mirrors edit-branching). Pre-seeding lets the validator
-    accept the result; the caller can then bump stage explicitly via
-    edit-branching if needed.
-    """
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("No system context found.", file=sys.stderr)
-        return 1
-
-    raw = sys.stdin.read()
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    bs = data.setdefault("branching_strategy", {"stage": 0})
-    if value is None:
-        bs.pop(args.name, None)
-    else:
-        bs[args.name] = value
-
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def _cmd_get_branching_field(args: argparse.Namespace) -> int:
-    """Print the value of a nested branching_strategy field, or empty
-    string if unset. Read-only counterpart to edit-branching-field.
-
-    Exits 0 with empty stdout when system_context.json is missing OR
-    the field is unset — that uniform "absent → empty" signal lets
-    shell callers plug the value into ``KEY=$(...)`` without exit-code
-    branching. Mirrors get-stack-field.
-
-    Used by xp-kickoff Step 2.4 to read stage_prompt_dismissed_at and
-    skip the migration prompt while the dismissal is in effect.
-    """
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("")
-        return 0
-    val = data.get("branching_strategy", {}).get(args.name)
-    print(val if val is not None else "")
-    return 0
-
-
-def _cmd_get_stack_field(args: argparse.Namespace) -> int:
-    """Print the value of a nested stack field, or empty string if unset.
-
-    Read-only counterpart to `edit-stack-field`. Exits 0 with empty
-    stdout when system_context.json is missing OR the field is unset —
-    that uniform "absent → empty" signal lets shell callers plug the
-    value into `KEY=$(...)` without exit-code branching.
-
-    Schema-invalid files (e.g., a hand-edit that set test_command to a
-    non-string) surface as a load-time ValueError; we let that propagate
-    so the user gets a real traceback. The shell wrapper
-    `_preload_base.sh:find_test_command` traps that via
-    `2>/dev/null || echo ""` so the close-skill preload still emits
-    TEST_COMMAND= (empty) and falls through to the discovery hint —
-    but the failure isn't silenced at the CLI layer.
-
-    Used by `_preload_base.sh:find_test_command` to source the project's
-    test command for the story-close + free-close auto-merge gate.
-    """
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("")
-        return 0
-    print(data.get("stack", {}).get(args.name, ""))
-    return 0
-
-
-def _cmd_edit_stack_field(args: argparse.Namespace) -> int:
-    """Set or clear an optional field nested under stack (e.g. test_command).
-
-    Top-level edit-field can't reach nested keys, and rewriting the whole
-    stack via edit-field would force the caller to re-supply languages
-    and other already-set fields. This narrow path edits one nested
-    field at a time and lets the schema validator catch typos
-    (unknown stack field, value too long, wrong type).
-
-    Reads the new value from stdin as JSON. Pass `null` to clear.
-
-    Side-effect: when the system_context lacks stack entirely, the CLI
-    seeds it with ``{"languages": []}`` before applying the edit.
-    Pre-seeding lets the validator accept the result; the caller can
-    populate languages explicitly via edit-field if needed.
-    """
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("No system context found.", file=sys.stderr)
-        return 1
-
-    raw = sys.stdin.read()
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    stack = data.setdefault("stack", {"languages": []})
-    if value is None:
-        stack.pop(args.name, None)
-    else:
-        stack[args.name] = value
-
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
 
 
 def _cmd_add_module(args: argparse.Namespace) -> int:

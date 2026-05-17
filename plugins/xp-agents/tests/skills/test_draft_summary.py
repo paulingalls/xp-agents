@@ -3,7 +3,7 @@
 
 Story-002 of sprint-070: pure-stdlib helper that parses events.jsonl
 from the prior session_end boundary forward and emits JSON
-{summary, open_questions, likely_addressed} for the SKILL.md to consume.
+{summary, open_questions, maybe_addressed} for the SKILL.md to consume.
 """
 
 import json
@@ -39,7 +39,7 @@ class TestDraftSummary(_SMMTestCase):
             {
                 "summary": "",
                 "open_questions": [],
-                "likely_addressed": [],
+                "maybe_addressed": [],
                 "uncommitted_count": 0,
                 "carry_forward": [],
             },
@@ -521,7 +521,7 @@ class TestDraftSummary(_SMMTestCase):
             {
                 "summary",
                 "open_questions",
-                "likely_addressed",
+                "maybe_addressed",
                 "uncommitted_count",
                 "carry_forward",
             },

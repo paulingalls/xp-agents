@@ -122,7 +122,7 @@ class TestRun(_SMMTestCase):
 class TestFormatWithOverlap(unittest.TestCase):
     """format_triage_section annotates concerns with commit overlap."""
 
-    def test_annotated_concern_shows_likely_addressed(self):
+    def test_annotated_concern_shows_maybe_addressed(self):
         concern = make_event(
             EVENT_TYPE_CONCERN,
             content="Auth bug",
@@ -139,7 +139,7 @@ class TestFormatWithOverlap(unittest.TestCase):
         result = triage_preload.format_triage_section(
             "Open Concerns", [concern], [], commit_overlap=overlap
         )
-        self.assertIn("LIKELY ADDRESSED", result)
+        self.assertIn("MAYBE ADDRESSED", result)
         self.assertIn("Fix token leak", result)
 
     def test_no_annotation_without_overlap(self):
@@ -149,7 +149,7 @@ class TestFormatWithOverlap(unittest.TestCase):
             ts="2026-01-01T00:00:00+00:00",
         )
         result = triage_preload.format_triage_section("Open Concerns", [concern], [])
-        self.assertNotIn("LIKELY ADDRESSED", result)
+        self.assertNotIn("MAYBE ADDRESSED", result)
 
 
 class TestRunWithOverlap(_SMMTestCase):
@@ -170,7 +170,7 @@ class TestRunWithOverlap(_SMMTestCase):
         )
         self._write_events([concern, commit])
         output = triage_preload.run(self.smm_dir)
-        self.assertIn("LIKELY ADDRESSED", output)
+        self.assertIn("MAYBE ADDRESSED", output)
         self.assertIn("Fix auth validation", output)
 
 

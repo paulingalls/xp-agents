@@ -31,6 +31,8 @@ from event_schema import (
 )
 from test_parsing import PARSER_STATUS_FAILED, PARSER_STATUS_PARSED, PARSER_STATUS_ZERO
 
+_WATERMARK_ID = "test-bash"
+
 
 class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
     def test_git_commit_records_commit_event(self):
@@ -42,7 +44,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commits_ev = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commits_ev), 1)
         self.assertIn("Add auth", commits_ev[0]["content"])
@@ -64,7 +66,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commit_ev = events_of_type(events, EVENT_TYPE_COMMIT)[0]
         self.assertEqual(
             commit_ev["metadata"]["resolves"],
@@ -82,7 +84,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commit_ev = events_of_type(events, EVENT_TYPE_COMMIT)[0]
         self.assertNotIn("resolves", commit_ev["metadata"])
 
@@ -98,7 +100,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commits_ev = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commits_ev), 1)
         self.assertNotIn("Co-Authored-By", commits_ev[0]["content"])
@@ -113,7 +115,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 0)
 
@@ -129,7 +131,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("12 files" in c["content"] for c in concerns))
@@ -147,7 +149,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         committed = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(committed), 1)
         self.assertTrue(committed[0].get("metadata", {}).get("code_commit"))
@@ -165,7 +167,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         committed = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(committed), 1)
         self.assertFalse(committed[0].get("metadata", {}).get("code_commit"))
@@ -188,7 +190,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         committed = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(committed), 1)
         self.assertEqual(
@@ -204,7 +206,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) >= 1)
         self.assertTrue(any("5 passed" in s["content"] for s in statuses))
@@ -217,7 +219,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
         self.assertTrue(any("fail" in c["content"].lower() for c in concerns))
@@ -227,7 +229,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             _make_bash_input(command="npx jest", stdout="Tests:  5 passed, 5 total"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) >= 1)
 
@@ -239,7 +241,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
 
@@ -251,7 +253,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertTrue(len(statuses) >= 1)
 
@@ -263,7 +265,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertTrue(len(concerns) >= 1)
 
@@ -272,7 +274,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             _make_bash_input(command="ls -la", stdout="total 0"),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_xp_agent_skips_non_commit_bash(self):
@@ -287,7 +289,7 @@ class TestBashPostTool(_ProbeTestHelpers, _HookTestCase):
             ),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(len(events), 0)
 
     def test_graceful_no_smm_dir(self):
@@ -384,7 +386,7 @@ class TestM2TestRunActions(_HookTestCase):
             _make_bash_input(command=command, stdout=stdout),
             smm_dir=self.smm_dir,
         )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1, f"expected 1 status, got {len(statuses)}")
         return statuses[0]

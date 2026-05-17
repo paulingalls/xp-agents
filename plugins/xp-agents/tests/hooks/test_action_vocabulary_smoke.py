@@ -81,8 +81,11 @@ def _all_status_action_values() -> dict[str, str]:
     }
 
 
+_WATERMARK_ID = "test-action-vocabulary-smoke"
+
+
 def _events(smm_dir: Path) -> list[dict]:
-    return _common.read_events_raw(smm_dir)
+    return _common.read_events_locked(smm_dir, _WATERMARK_ID)
 
 
 def _drive_file_write(smm_dir: Path) -> list[dict]:

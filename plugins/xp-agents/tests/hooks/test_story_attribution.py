@@ -19,6 +19,8 @@ from conftest import _HookTestCase, _make_bash_input, _s, _sprint_json
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_COMMIT
 
+_WATERMARK_ID = "test-story-attribution"
+
 
 class TestResolveStoryId(_HookTestCase):
     """Tests for _resolve_story_id: four-tier commit-to-story attribution."""
@@ -179,7 +181,7 @@ class TestResolveStoryId(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commit_ev = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commit_ev), 1)
         self.assertEqual(commit_ev[0]["metadata"]["story_id"], "story-003")
@@ -194,7 +196,7 @@ class TestResolveStoryId(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        events = _common.read_events_raw(self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         commit_ev = events_of_type(events, EVENT_TYPE_COMMIT)
         self.assertEqual(len(commit_ev), 1)
         self.assertNotIn("story_id", commit_ev[0]["metadata"])

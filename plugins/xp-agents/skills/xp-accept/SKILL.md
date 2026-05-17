@@ -192,7 +192,7 @@ passing from /xp-accept needed — and owns:
 
 - Fork `xp-close-reviewer` (story mode: AC, file_domain, scope creep,
   regression risk)
-- Auto-resolve LIKELY ADDRESSED concerns
+- Auto-resolve MAYBE ADDRESSED concerns
 - Confirm and run `close_common.py merge`
 - (Solo) JIT-create the next scheduled story's branch off the merged tip
 

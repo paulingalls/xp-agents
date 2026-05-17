@@ -900,7 +900,7 @@ class TestDropContentCascade(_DecideTestCase):
         from unittest.mock import patch
 
         with patch.object(
-            work_selection_decide._common, "read_events_raw"
+            work_selection_decide._common, "read_events_locked"
         ) as mock_read:
             self.mod.run(
                 action="drop",
@@ -1073,6 +1073,100 @@ class TestForceDropConventionEmission(_ForceCloseTestCase):
                 convention_content="rationale",
             )
         self.assertIn("force-drop", str(ctx.exception).lower())
+
+
+class TestForceDropFilterFunctions(unittest.TestCase):
+    """Pure filter functions over an event list — no SMM I/O, no flock.
+
+    The force-drop path used to do 3 independent locked reads
+    (_convention_topic_exists, _count_prior_defers, _build_drop_event
+    cascade). Filters now take the events list as an arg so they can be
+    unit-tested without writing to disk, and the orchestrator does one
+    locked read per invocation.
+    """
+
+    def _events(self) -> list[dict]:
+        # Mixed event set: 2 conventions, 2 deferred statuses, 1 debt, 1 concern.
+        return [
+            make_event(
+                EVENT_TYPE_CONVENTION,
+                topic="retro-drop-foo",
+                content="durable suppression for foo",
+            ),
+            make_event(
+                EVENT_TYPE_CONVENTION,
+                topic="retro-drop-bar",
+                content="durable suppression for bar",
+            ),
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="deferred Try ref aaaaaaaaaaaa",
+                metadata={"disposition": "deferred", "resolves": ["aaaaaaaaaaaa"]},
+            ),
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="deferred Try ref bbbbbbbbbbbb",
+                metadata={"disposition": "deferred", "resolves": ["bbbbbbbbbbbb"]},
+            ),
+            make_event(EVENT_TYPE_DEBT, content="some debt", files=["x.py"]),
+            make_event(EVENT_TYPE_CONCERN, content="some concern", files=["y.py"]),
+        ]
+
+    def test_convention_topic_exists_filter_hit(self):
+        self.assertTrue(
+            work_selection_decide._convention_topic_exists_filter(
+                self._events(), "retro-drop-foo"
+            )
+        )
+
+    def test_convention_topic_exists_filter_miss(self):
+        self.assertFalse(
+            work_selection_decide._convention_topic_exists_filter(
+                self._events(), "retro-drop-unseen"
+            )
+        )
+
+    def test_count_prior_defers_filter_counts_matches(self):
+        self.assertEqual(
+            work_selection_decide._count_prior_defers_filter(
+                self._events(), ["aaaaaaaaaaaa"]
+            ),
+            1,
+        )
+
+    def test_count_prior_defers_filter_handles_empty_refs(self):
+        self.assertEqual(
+            work_selection_decide._count_prior_defers_filter(self._events(), []),
+            0,
+        )
+
+    def test_count_prior_defers_filter_no_match(self):
+        self.assertEqual(
+            work_selection_decide._count_prior_defers_filter(
+                self._events(), ["ffffffffffff"]
+            ),
+            0,
+        )
+
+    def test_cascade_ids_filter_returns_resolvable_overlap(self):
+        events = self._events()
+        debt_id = events[4]["id"]
+        concern_id = events[5]["id"]
+        result = work_selection_decide._cascade_ids_filter(
+            events, {debt_id, concern_id, "no-such-id"}
+        )
+        self.assertEqual(result, {debt_id, concern_id})
+
+    def test_cascade_ids_filter_skips_non_resolvable_types(self):
+        # CONVENTION + STATUS events are not in PROBE_RESOLVABLE_TYPES,
+        # so even if their ids appear in tokens they must not cascade-close.
+        events = self._events()
+        convention_id = events[0]["id"]
+        status_id = events[2]["id"]
+        result = work_selection_decide._cascade_ids_filter(
+            events, {convention_id, status_id}
+        )
+        self.assertEqual(result, set())
 
 
 if __name__ == "__main__":

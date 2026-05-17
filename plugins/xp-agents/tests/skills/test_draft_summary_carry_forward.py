@@ -80,9 +80,9 @@ class TestDraftSummaryCarryForward(_SMMTestCase):
             result["carry_forward"],
         )
 
-    def test_carry_forward_excludes_likely_addressed_concern(self):
+    def test_carry_forward_excludes_maybe_addressed_concern(self):
         # High-severity concern with a file overlap commit after it →
-        # appears in likely_addressed → must NOT appear in carry_forward.
+        # appears in maybe_addressed → must NOT appear in carry_forward.
         concern = make_event(
             event_schema.EVENT_TYPE_CONCERN,
             id="acf000000001",
@@ -104,8 +104,8 @@ class TestDraftSummaryCarryForward(_SMMTestCase):
         )
         self._write_events([concern, commit])
         result = draft_summary.run(self.smm_dir)
-        self.assertEqual(len(result["likely_addressed"]), 1)
-        self.assertEqual(result["likely_addressed"][0]["id"], "acf000000001")
+        self.assertEqual(len(result["maybe_addressed"]), 1)
+        self.assertEqual(result["maybe_addressed"][0]["id"], "acf000000001")
         self.assertEqual(result["carry_forward"], [])
 
     def test_existing_keys_unchanged_when_carry_forward_added(self):
@@ -126,7 +126,7 @@ class TestDraftSummaryCarryForward(_SMMTestCase):
             {
                 "summary",
                 "open_questions",
-                "likely_addressed",
+                "maybe_addressed",
                 "uncommitted_count",
                 "carry_forward",
             },
