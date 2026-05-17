@@ -427,6 +427,97 @@ class TestTriageDrop(_DecideTestCase):
         self.assertIn("abc123de", event["content"])
 
 
+class TestTriageEnrichment(_DecideTestCase):
+    """Triage status content inlines a snippet of the resolved event's content
+    so cross-session drop memory (retro_metrics.dropped_tries_recent) can match
+    candidate Tries by topic, not just opaque event ids.
+    """
+
+    def _seed_concern(self, content: str) -> str:
+        from event_schema import EVENT_TYPE_CONCERN
+
+        concern = make_event(EVENT_TYPE_CONCERN, content=content)
+        from _common import append_safe
+
+        append_safe(self.smm_dir, concern)
+        return concern["id"]
+
+    def test_triage_drop_content_contains_target_snippet(self):
+        target_id = self._seed_concern("namespace shape mismatch on encryption barrel")
+        self.mod.run(
+            action="triage-drop",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id=target_id,
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
+        self.assertIn(
+            "namespace shape",
+            event["content"],
+            f"triage-drop must inline target snippet, got: {event['content']!r}",
+        )
+        self.assertLessEqual(
+            len(event["content"]),
+            200,
+            "triage status content must respect 200-char status budget",
+        )
+
+    def test_triage_defer_content_contains_target_snippet(self):
+        target_id = self._seed_concern("audit writer needs INSERT-only role")
+        self.mod.run(
+            action="triage-defer",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id=target_id,
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
+        self.assertIn("audit writer", event["content"])
+        # Existing deferred-path contract: no metadata.resolves on defers.
+        self.assertNotIn("resolves", event["metadata"])
+
+    def test_triage_falls_back_to_terse_form_when_target_missing(self):
+        # No seed — target lookup will fail (event_id is well-formed but
+        # references no event). Impl must degrade to the prior "Triage:
+        # disposition <short-id>" terse form rather than fabricate content
+        # or crash.
+        self.mod.run(
+            action="triage-drop",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id="abc123def456",
+        )
+        event = self._last_event()
+        self.assertIn("abc123de", event["content"])
+        # No em-dash separator when there's no snippet to inline.
+        self.assertNotIn("—", event["content"])
+
+    def test_enriched_content_visible_in_dropped_tries_recent(self):
+        """End-to-end: enriched triage-drop survives retro-digest extraction.
+
+        Pins the consumer contract for xp-retrospective.md:28 — the LLM
+        topic-match safety net must see a usable snippet, not just an
+        opaque event id. Folded from former Story 3 backstop.
+        """
+        target_id = self._seed_concern("namespace shape mismatch on encryption barrel")
+        self.mod.run(
+            action="triage-drop",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id=target_id,
+        )
+        from retro_metrics import _collect_dropped_tries_recent
+
+        drops = _collect_dropped_tries_recent(self._read_events(), limit=10)
+        self.assertGreaterEqual(len(drops), 1)
+        snippets = [d["content"] for d in drops]
+        self.assertTrue(
+            any("namespace shape" in s for s in snippets),
+            f"expected an enriched snippet in dropped_tries_recent, got: {snippets!r}",
+        )
+
+
 # ---------------------------------------------------------------------------
 # FORCE-CLOSE gate — refuse plain defer when a Try has been deferred 3+ times.
 # Carrying a Try across 3+ retros without adoption is dishonest.
