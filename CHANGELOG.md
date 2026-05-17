@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.1.43 — free session: schema strict unknown-key validation + shared `budget_error` helper + system_context split
+
+Four in-domain schema improvements plus a 4-carry retro Try finally actioned.
+
+### Schema strict unknown-key validation (event_schema)
+
+`validate_event` now rejects unknown top-level keys per event type via a new `_TYPE_ALLOWED_KEYS` table keyed on `EVENT_TYPE_*` (same shape as `_EVENT_CATEGORY_MAP` and `CONTENT_BUDGETS`). A typo like `{naem: "x"}` or `{severtiy: "high"}` used to round-trip silently into `events.jsonl` with the wrong key sitting in the file forever and the intended field missing — the schema now rejects them at write time. Happy-path uses `event.keys() <= allowed` short-circuit; mismatch surfaces unknown keys alphabetized in a single error. A completeness test gate ensures every `VALID_TYPES` member has an allowed-keys entry, so adding a new `EVENT_TYPE_*` without classifying its allowed keys fails loudly. Per-type extras must stay in sync with the existing `match event_type` case arms — cross-reference comment flags this; a drift-detector test is captured as a follow-up concern. Closes debt `7431a629b4b1`.
+
+### `schema_helpers.budget_error` cross-schema consolidation
+
+The canonical cap-error string formatter `"{path} exceeds budget ({actual} > {max_len} chars)"` lived as a private `_budget_error` helper inside `system_context_schema.py` with 8 sibling hand-rolled f-strings drifting across `retro_schema`, `sprint_schema`, `execution_plan_schema`, and `smm_schema`. A new shared `smm/schema_helpers.py` module owns the public `budget_error(path, actual, max_len) -> str`; all 5 schemas (25 callsites total) route through it. Error wording is byte-identical pre/post, so existing schema tests remain the spec. After migration, `grep "exceeds budget" plugins/xp-agents/smm/*.py` shows exactly one site: `schema_helpers.py:6`. Also hoisted 6 `len(...)` double-evals into local `actual` vars across `retro_schema`, `smm_schema`, and `system_context_schema` for symmetry with the dominant sprint/plan pattern. Closes debt `06b5e3c05fce`.
+
+### `system_context_schema.py` split (538→433 lines)
+
+Acceptance-surface + project-specific entry validators AND their associated constants extracted into a new sibling `system_context_entry_validators.py` (121 lines, leaf module — imports only `json` + `schema_helpers`). Re-export shim per the split convention preserves the caller surface — external consumers like `tests/hooks/test_agent_prompts.py` keep resolving `system_context_schema.PROJECT_SPECIFIC_NAME_MAXLENGTH` unchanged. Constants colocate with their sole consumers (the validators), so the cycle that would have required a function-local import in `validate_system_context` is eliminated by construction. Function names stay underscore-private — only `validate_system_context` calls them, the cross-module reach is internal collaboration not public API. Closes concern `79302678003e`.
+
+### Age-gate verified against shipped v3.1.42 marketplace cache
+
+The 4-carry retro Try `af4bbbd99e9c` — verify the close-cycle stop-gate's `stop_hook_active` bypass logic + marker age-threshold consumption — finally actioned. Ran `tests/hooks/test_close_cycle_stop_gate.py` (11 tests) directly against the v3.1.42 marketplace cache. All pass: bypass detection records concern + emits stderr, old markers (>10min) consumed, young markers preserved, race-safe under stat() failure. The Try's literal recipe ("spawn scratch worktree, run /xp-free-close on empty diff") is supplanted by the dedicated test suite which exercises the bypass-detection code path deterministically rather than via accidental triggering. Closes Try `af4bbbd99e9c` (recorded as discovery `c08360a117f7`).
+
 ## v3.1.42 — sprint-087: retire `read_events_raw` (M-5) + system-context CLI shrink + LIKELY→MAYBE rename + decide.py scan consolidation
 
 ### M-5: retire `_common.read_events_raw` (sprint-087, stories 001-003)
