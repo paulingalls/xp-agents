@@ -21,6 +21,7 @@ import datetime
 import os
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -91,26 +92,25 @@ def _validate_convention_args(
         )
 
 
-def _convention_topic_exists(smm_dir: Path, topic: str) -> bool:
-    """True if events.jsonl already has a convention event with this topic.
+def _convention_topic_exists_filter(events: list[dict], topic: str) -> bool:
+    """Pure filter: True if `events` contains a convention event with `topic`.
     Used to make force-drop convention emission idempotent — re-drops of
     the same Try MUST NOT append a duplicate convention.
     """
-    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     for e in events:
         if e.get("type") == _common.CONVENTION and e.get("topic") == topic:
             return True
     return False
 
 
-def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
-    """Count status events with disposition=deferred whose metadata.resolves
-    overlaps any id in ref_ids. Each event contributes at most once."""
+def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
+    """Pure filter: count status events with disposition=deferred whose
+    metadata.resolves overlaps any id in ref_ids. Each event contributes
+    at most once."""
     if not ref_ids:
         return 0
     targets = set(ref_ids)
     count = 0
-    events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
     for e in events:
         if e.get("type") != "status":
             continue
@@ -121,6 +121,18 @@ def _count_prior_defers(smm_dir: Path, ref_ids: list[str]) -> int:
         if targets.intersection(resolves):
             count += 1
     return count
+
+
+def _cascade_ids_filter(events: list[dict], tokens: set[str]) -> set[str]:
+    """Pure filter: ids of resolvable events (debt/concern/discovery) whose
+    id appears in tokens. Caller unions this into metadata.resolves so a
+    drop also closes the underlying signal.
+    """
+    return {
+        e.get("id", "")
+        for e in events
+        if e.get("type") in _common.PROBE_RESOLVABLE_TYPES and e.get("id", "") in tokens
+    }
 
 
 def _force_close_message(ref_ids: list[str], prior: int) -> str:
@@ -152,7 +164,9 @@ def _validate_future_iso_date(value: str) -> None:
         )
 
 
-def _build_drop_event(smm_dir: Path, agent_id: str, content: str) -> dict:
+def _build_drop_event(
+    load_events: Callable[[], list[dict]], agent_id: str, content: str
+) -> dict:
     """Build the status/dropped event used by both `drop` and `defer --force-drop`.
 
     Cascade: scan the post-suffix-strip content for 12+ hex IDs. Any that
@@ -160,6 +174,11 @@ def _build_drop_event(smm_dir: Path, agent_id: str, content: str) -> dict:
     PROBE_RESOLVABLE_TYPES) are unioned into `metadata.resolves` — so
     dropping a Try also closes the root issue the Try is about, preventing
     the retro agent from re-proposing a fresh Try every session.
+
+    `load_events` is run()'s memoized accessor — invoked lazily only when
+    hex tokens are present, preserving the "no-tokens skips disk read"
+    perf guard. Once called by any filter, the same list backs subsequent
+    filters on this invocation.
     """
     event = _common.make_event(
         "status",
@@ -171,19 +190,14 @@ def _build_drop_event(smm_dir: Path, agent_id: str, content: str) -> dict:
     tokens = set(HEX_ID_RE.findall(event["content"]))
     if not tokens:
         return event
-    cascade_events = _common.read_events_locked(smm_dir, _WATERMARK_ID)
-    cascade_ids = {
-        e.get("id", "")
-        for e in cascade_events
-        if e.get("type") in _common.PROBE_RESOLVABLE_TYPES and e.get("id", "") in tokens
-    }
+    cascade_ids = _cascade_ids_filter(load_events(), tokens)
     if cascade_ids:
         merge_resolves(event, cascade_ids)
     return event
 
 
 def _build_defer_event(
-    smm_dir: Path,
+    load_events: Callable[[], list[dict]],
     agent_id: str,
     content: str,
     force_adopt_topic: str | None,
@@ -191,6 +205,9 @@ def _build_defer_event(
     force_defer_until: str | None,
 ) -> dict:
     """Build the event for a `defer` invocation, applying the FORCE-CLOSE gate.
+
+    `load_events` is run()'s memoized accessor — only invoked when refs
+    are present (gate read) or when force_drop triggers the cascade scan.
 
     Force flags are mutually exclusive and short-circuit the gate by selecting
     the outcome event directly:
@@ -213,7 +230,7 @@ def _build_defer_event(
             topic=force_adopt_topic,
         )
     if force_drop:
-        return _build_drop_event(smm_dir, agent_id, content)
+        return _build_drop_event(load_events, agent_id, content)
     if force_defer_until:
         _validate_future_iso_date(force_defer_until)
         return _common.make_event(
@@ -234,9 +251,10 @@ def _build_defer_event(
         metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DEFERRED},
     )
     refs = (event.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
-    prior = _count_prior_defers(smm_dir, refs)
-    if prior >= _FORCE_CLOSE_THRESHOLD:
-        raise ValueError(_force_close_message(refs, prior))
+    if refs:
+        prior = _count_prior_defers_filter(load_events(), refs)
+        if prior >= _FORCE_CLOSE_THRESHOLD:
+            raise ValueError(_force_close_message(refs, prior))
     return event
 
 
@@ -271,6 +289,17 @@ def run(
     # agent_id is teammate-resolved attribution per the agent-id-semantics
     # ADR; the skill that produced the event lives in metadata or content.
     agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
+    # Force-drop path may need events for cascade, prior-defer count, and
+    # convention dedupe. Single locked read feeds all three filters; lazy
+    # so adopt + triage paths skip the disk read entirely.
+    events_cache: list[dict] | None = None
+
+    def _events() -> list[dict]:
+        nonlocal events_cache
+        if events_cache is None:
+            events_cache = _common.read_events_locked(smm_dir, _WATERMARK_ID)
+        return events_cache
+
     match action:
         case "adopt":
             event = _common.make_event(
@@ -281,7 +310,7 @@ def run(
             )
         case "defer":
             event = _build_defer_event(
-                smm_dir,
+                _events,
                 agent_id,
                 content,
                 force_adopt_topic,
@@ -289,7 +318,7 @@ def run(
                 force_defer_until,
             )
         case "drop":
-            event = _build_drop_event(smm_dir, agent_id, content)
+            event = _build_drop_event(_events, agent_id, content)
         case "triage-adopt" | "triage-defer" | "triage-drop":
             if event_id is None:
                 raise ValueError(f"{action} requires --event-id")
@@ -319,7 +348,10 @@ def run(
         raise ValueError(f"Event validation failed: {'; '.join(errors)}")
     _common.append_safe(smm_dir, event)
     if convention_topic and convention_content:
-        if _convention_topic_exists(smm_dir, convention_topic):
+        # Reuses the same pre-append snapshot as the build_* path —
+        # CONVENTION events aren't affected by the just-appended drop, so
+        # the stale-by-one read is correctness-equivalent and saves a flock.
+        if _convention_topic_exists_filter(_events(), convention_topic):
             # Honesty: surface the discard rather than silently dropping the
             # second rationale. Drop event still fired; only the duplicate
             # convention is skipped.
