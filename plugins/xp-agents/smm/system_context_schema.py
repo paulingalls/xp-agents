@@ -10,6 +10,7 @@ no external jsonschema dependency, stdlib-only.
 
 import json
 
+from schema_helpers import budget_error
 from smm_schema import EVENT_ID_RE, is_iso8601
 
 SYSTEM_CONTEXT_FILENAME = "system_context.json"
@@ -116,10 +117,6 @@ def empty_system_context() -> dict:
     }
 
 
-def _budget_error(path: str, actual: int, max_len: int) -> str:
-    return f"{path} exceeds budget ({actual} > {max_len} chars)"
-
-
 def _validate_stack(stack: object, *, enforce_budget: bool = True) -> list[str]:
     errors: list[str] = []
     if not isinstance(stack, dict):
@@ -135,7 +132,7 @@ def _validate_stack(stack: object, *, enforce_budget: bool = True) -> list[str]:
                 errors.append(f"stack.languages[{idx}] must be a string")
             elif enforce_budget and len(lang) > STACK_LANGUAGE_ITEM_MAXLENGTH:
                 errors.append(
-                    _budget_error(
+                    budget_error(
                         f"stack.languages[{idx}]",
                         len(lang),
                         STACK_LANGUAGE_ITEM_MAXLENGTH,
@@ -149,9 +146,7 @@ def _validate_stack(stack: object, *, enforce_budget: bool = True) -> list[str]:
             errors.append(f"stack.{field} must be a string")
         elif enforce_budget and len(stack[field]) > STACK_FIELD_MAXLENGTH:
             errors.append(
-                _budget_error(
-                    f"stack.{field}", len(stack[field]), STACK_FIELD_MAXLENGTH
-                )
+                budget_error(f"stack.{field}", len(stack[field]), STACK_FIELD_MAXLENGTH)
             )
 
     return errors
@@ -179,20 +174,20 @@ def _validate_module(
         max_len = MODULE_FIELD_MAXLENGTH["purpose"]
         actual = len(module["purpose"])
         if actual > max_len:
-            errors.append(_budget_error(f"modules[{idx}].purpose", actual, max_len))
+            errors.append(budget_error(f"modules[{idx}].purpose", actual, max_len))
 
     if enforce_budget and isinstance(module.get("name"), str):
         actual = len(module["name"])
         if actual > MODULE_NAME_MAXLENGTH:
             errors.append(
-                _budget_error(f"modules[{idx}].name", actual, MODULE_NAME_MAXLENGTH)
+                budget_error(f"modules[{idx}].name", actual, MODULE_NAME_MAXLENGTH)
             )
 
     if enforce_budget and isinstance(module.get("path"), str):
         actual = len(module["path"])
         if actual > MODULE_PATH_MAXLENGTH:
             errors.append(
-                _budget_error(f"modules[{idx}].path", actual, MODULE_PATH_MAXLENGTH)
+                budget_error(f"modules[{idx}].path", actual, MODULE_PATH_MAXLENGTH)
             )
 
     if "file_count" in module and not isinstance(module["file_count"], int):
@@ -225,14 +220,14 @@ def _validate_principle(
                 actual = len(decision[field])
                 if actual > max_len:
                     errors.append(
-                        _budget_error(f"principles[{idx}].{field}", actual, max_len)
+                        budget_error(f"principles[{idx}].{field}", actual, max_len)
                     )
 
     if enforce_budget and isinstance(decision.get("topic"), str):
         actual = len(decision["topic"])
         if actual > PRINCIPLE_TOPIC_MAXLENGTH:
             errors.append(
-                _budget_error(
+                budget_error(
                     f"principles[{idx}].topic", actual, PRINCIPLE_TOPIC_MAXLENGTH
                 )
             )
@@ -275,7 +270,7 @@ def _validate_branching_strategy(
             max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["user_namespace"]
             if len(bs["user_namespace"]) > max_len:
                 errors.append(
-                    _budget_error(
+                    budget_error(
                         "branching_strategy.user_namespace",
                         len(bs["user_namespace"]),
                         max_len,
@@ -307,7 +302,7 @@ def _validate_branching_strategy(
             max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["rationale"]
             if len(bs["rationale"]) > max_len:
                 errors.append(
-                    _budget_error(
+                    budget_error(
                         "branching_strategy.rationale",
                         len(bs["rationale"]),
                         max_len,
@@ -327,7 +322,7 @@ def _validate_branching_strategy(
                 ]
                 if len(val) > max_len:
                     errors.append(
-                        _budget_error(
+                        budget_error(
                             "branching_strategy.stage_prompt_dismissed_at",
                             len(val),
                             max_len,
@@ -360,7 +355,7 @@ def _validate_acceptance_surface_entry(
         errors.append(f"acceptance_surfaces[{idx}].name must be a string")
     elif enforce_budget and len(entry["name"]) > ACCEPTANCE_SURFACE_NAME_MAXLENGTH:
         errors.append(
-            _budget_error(
+            budget_error(
                 f"acceptance_surfaces[{idx}].name",
                 len(entry["name"]),
                 ACCEPTANCE_SURFACE_NAME_MAXLENGTH,
@@ -377,7 +372,7 @@ def _validate_acceptance_surface_entry(
                 )
             elif enforce_budget and len(sig) > ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH:
                 errors.append(
-                    _budget_error(
+                    budget_error(
                         f"acceptance_surfaces[{idx}].signals[{si}]",
                         len(sig),
                         ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
@@ -401,7 +396,7 @@ def _validate_acceptance_surface_entry(
             and len(entry["harness"]) > ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH
         ):
             errors.append(
-                _budget_error(
+                budget_error(
                     f"acceptance_surfaces[{idx}].harness",
                     len(entry["harness"]),
                     ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH,
@@ -424,7 +419,7 @@ def _validate_project_specific_entry(
         errors.append(f"project_specific[{idx}].name must be a string")
     elif enforce_budget and len(entry["name"]) > PROJECT_SPECIFIC_NAME_MAXLENGTH:
         errors.append(
-            _budget_error(
+            budget_error(
                 f"project_specific[{idx}].name",
                 len(entry["name"]),
                 PROJECT_SPECIFIC_NAME_MAXLENGTH,
@@ -437,7 +432,7 @@ def _validate_project_specific_entry(
         serialized = json.dumps(entry["content"])
         if len(serialized) > PROJECT_SPECIFIC_CONTENT_MAXLENGTH:
             errors.append(
-                _budget_error(
+                budget_error(
                     f"project_specific[{idx}].content",
                     len(serialized),
                     PROJECT_SPECIFIC_CONTENT_MAXLENGTH,
@@ -471,7 +466,7 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
         if not isinstance(val, str):
             errors.append(f"{field} must be a string")
         elif enforce_budget and len(val) > max_len:
-            errors.append(_budget_error(field, len(val), max_len))
+            errors.append(budget_error(field, len(val), max_len))
 
     errors.extend(_validate_stack(data["stack"], enforce_budget=enforce_budget))
 
@@ -489,9 +484,7 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
                 errors.append(f"conventions[{idx}] must be a string")
             elif enforce_budget and len(conv) > CONVENTION_MAXLENGTH:
                 errors.append(
-                    _budget_error(
-                        f"conventions[{idx}]", len(conv), CONVENTION_MAXLENGTH
-                    )
+                    budget_error(f"conventions[{idx}]", len(conv), CONVENTION_MAXLENGTH)
                 )
 
     if not isinstance(data["principles"], list):
