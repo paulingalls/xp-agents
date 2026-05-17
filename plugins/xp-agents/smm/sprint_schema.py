@@ -9,6 +9,7 @@ Follows the same pattern as execution_plan_schema.py.
 
 from _acceptance_execution import validate_acceptance_execution
 from execution_plan_schema import VALID_BRANCH_NAME_RE
+from schema_helpers import budget_error
 
 SPRINT_FILENAME = "sprint.json"
 
@@ -110,9 +111,7 @@ def _validate_story(
         max_len = STORY_FIELD_MAXLENGTH["context"]
         actual = len(story["context"])
         if actual > max_len:
-            errors.append(
-                f"stories[{idx}].context exceeds budget ({actual} > {max_len} chars)"
-            )
+            errors.append(budget_error(f"stories[{idx}].context", actual, max_len))
 
     if enforce_budget and isinstance(story.get("file_domain"), list):
         fd_max = STORY_ITEM_MAXLENGTH["file_domain"]
@@ -121,8 +120,9 @@ def _validate_story(
                 actual = len(item)
                 if actual > fd_max:
                     errors.append(
-                        f"stories[{idx}].file_domain[{fd_idx}]"
-                        f" exceeds budget ({actual} > {fd_max} chars)"
+                        budget_error(
+                            f"stories[{idx}].file_domain[{fd_idx}]", actual, fd_max
+                        )
                     )
 
     ae = story.get("acceptance_execution")

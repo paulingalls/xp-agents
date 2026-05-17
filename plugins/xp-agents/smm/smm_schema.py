@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
+from schema_helpers import budget_error
+
 PILLAR_INTENT = "intent"
 PILLAR_CONSTRAINTS = "constraints"
 PILLAR_RISKS = "risks"
@@ -131,11 +133,9 @@ def _validate_base_entry(
         errors.append(f"{pillar}[{idx}] field 'content' must be a non-empty string")
     elif enforce_budget and pillar in PILLAR_CONTENT_MAX_LENGTH:
         max_len = PILLAR_CONTENT_MAX_LENGTH[pillar]
-        if len(entry["content"]) > max_len:
-            errors.append(
-                f"{pillar}[{idx}] content exceeds budget"
-                f" ({len(entry['content'])} > {max_len} chars)"
-            )
+        actual = len(entry["content"])
+        if actual > max_len:
+            errors.append(budget_error(f"{pillar}[{idx}] content", actual, max_len))
 
     if entry["source"] not in VALID_SOURCES:
         errors.append(
