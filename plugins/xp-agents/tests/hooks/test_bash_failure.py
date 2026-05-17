@@ -220,7 +220,7 @@ class TestResolvesConcernsEventsKwarg(_HookTestCase):
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         import concerns
 
-        with patch("concerns.read_events_locked") as mock_read:
+        with patch("concerns._common.read_events_locked") as mock_read:
             result = concerns.resolve_concerns(
                 self.smm_dir,
                 concerns.TEST_CONCERN_RE.search,
