@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.1.45 — free session: post-commit hook survives truncated Bash stdout
+
+Downstream symptom: SimplyHuman observed ZERO `type=commit` events recorded across sprint-031 + sprint-032 despite 6 successful `git commit` invocations in the main session, with plugin v3.1.44 unchanged across the regression. Investigation traced this to the Bash tool's stdout truncation cap.
+
+### Truncated-stdout commit detection (`scripts/commit_handling.py`, extracted from `bash_post_tool.py`)
+
+`bash_post_tool._handle_commit` gated commit-event recording on `parse_commit_message` matching git's `[branch hash] msg` line in stdout. Heavy pre-commit hook chains (e.g. Husky `lint-staged` → `tsc` → full test suite) routinely push total Bash output past the tool's truncation cap (~40KB observed), and git emits the success line at the END of stdout — exactly the part that gets sliced off. The regex missed, `_handle_commit` silently early-returned, and lint resolution, security-marker consumption, review-cycle reset, and the QR-warning nudge all silently no-op'd alongside the dropped event.
+
+A new `_head_matches_command(command, head_body)` helper compares the `-m` argument's first line against HEAD's actual body (sourced from `git log -1 --format=%B`, which is unaffected by stdout truncation). Either signal — `parse_commit_message` on stdout OR `_head_matches_command` against git's own storage — proves the commit landed. The fix path is path-agnostic at the `Resolves-Event:` trailer extraction layer too: trailers come from the full git body, not the truncated stdout view, so they parse correctly even when the primary signal misses.
+
+### `commit_hash` dedupe guard (same module)
+
+The new fallback exposed a previously-latent false-positive: `_head_matches_command` returning True only proves "HEAD's subject equals the `-m` arg", not "a NEW commit landed". On a same-subject retry after a pre-commit reject, HEAD didn't move, its body still matches, and the truncated path would record a duplicate event carrying the prior commit's hash — plus reset the review cycle on that stale hash. The same hole exists in the primary path if a stale `[branch hash]` line ever appears in stdout (piped via tee, echoed by a chained command). A dedupe scan against `metadata.commit_hash` on previously-recorded commit events catches both. Closes concern `d071509ec41a`.
+
+### Proactive file split (`bash_post_tool.py` → `commit_handling.py`)
+
+The fix pushed `bash_post_tool.py` to 501 lines, crossing the 500-line target. Per the proactive-file-splits policy, the commit-handling block — `_resolve_story_id`, `_check_qr_linkage`, `_head_matches_command`, `_handle_commit`, `_prior_commit_was_test_only` — was extracted into a new `commit_handling.py` module (304 lines). `bash_post_tool.py` shrinks to 214 lines. Re-import shim is unnecessary: tests that referenced the moved helpers (`test_story_attribution.py`, `test_bash_commit_qr_linkage.py`, the `patch()` target in `test_bash_commit.py`) were updated to import from `commit_handling` directly — matching the precedent set by `concerns.py` / `coordination.py` / `security.py` when they were carved out of `_common.py`. Closes concern `ab10a4cb786e`.
+
+### Out of scope (named, deferred)
+
+- **gh CLI + close-pipeline merge detection.** `is_git_commit` matches `git commit` / `git merge` invocations in the parent Bash call, but misses (a) `gh pr merge` (server-side; no local git command fires) and (b) merges performed inside `close_common.py merge` (the inner `git merge --no-ff` runs in a python subprocess invisible to the parent Bash hook). SimplyHuman's actual sprint-031/032 merge commits — all done via `gh pr merge` from PRs #140-142 — remain unrecorded even after this fix. Cleanest path is to emit the commit event directly from `close_common.merge()` after `branching.merge_branch` returns, bypassing hook detection entirely; that path also catches `git merge --ff-only`. Tracked as debt `b0bf15985256`.
+
 ## v3.1.44 — free session: concern-emission ref-dedup + triage status content enrichment
 
 Two clustered fixes for a downstream-project symptom where dropped Trys appeared to re-emerge in retros despite explicit user rejection. Investigation traced it to noise erosion of the retro agent's cross-session memory of user-rejected work.
