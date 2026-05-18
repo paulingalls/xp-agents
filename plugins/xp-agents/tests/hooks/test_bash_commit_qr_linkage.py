@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import commit_handling
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 from event_helpers import events_of_type
@@ -188,7 +189,7 @@ class TestCheckQRLinkagePhrasings(unittest.TestCase):
                 metadata={"action": STATUS_ACTION_QR_COMPLETE},
             ),
         ]
-        result = bash_post_tool._check_qr_linkage(events, "main")
+        result = commit_handling._check_qr_linkage(events, "main")
         self.assertIsNone(result)
 
 

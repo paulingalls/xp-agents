@@ -295,7 +295,7 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
                 patch("commits.get_committed_files", return_value=["a.py"]),
                 patch("commits.get_commit_message_body", return_value="msg"),
                 patch(
-                    "bash_post_tool._resolve_story_id", return_value=None
+                    "commit_handling._resolve_story_id", return_value=None
                 ) as story_spy,
             ):
                 bash_post_tool.run(
@@ -406,6 +406,80 @@ class TestBashPostToolReviewCycle(_HookTestCase):
             )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
+
+
+class TestBashPostToolTruncatedStdout(_HookTestCase):
+    """Large pre-commit hook output (Husky lint-staged + tsc + bun test, etc.)
+    can push the Bash tool's stdout past its truncation cap, slicing off the
+    trailing `[branch hash] msg` line. The hook must still recognise the
+    commit by comparing the `-m` arg against HEAD's body.
+    """
+
+    _TRUNCATED = "$ bun run tsc --noEmit\n" + "test output line\n" * 1000
+
+    def test_truncated_stdout_records_commit_via_head_match(self):
+        """Truncated stdout + HEAD body matches the -m message → commit recorded."""
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "feat(x): real subject\n"
+            "\n"
+            "body text\n"
+            "EOF\n"
+            ')"'
+        )
+        with patch_commits(
+            files=["src/foo.py"],
+            body="feat(x): real subject\n\nbody text",
+            head_sha="abc123def",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=self._TRUNCATED),
+                smm_dir=self.smm_dir,
+            )
+        recorded = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(
+            recorded[0]["content"].split("\n", 1)[0],
+            "feat(x): real subject",
+        )
+
+    def test_truncated_stdout_no_event_when_head_does_not_match(self):
+        """Truncated stdout + HEAD body unchanged (pre-commit rejected) → no event.
+
+        Guards the fallback path against over-recording: when stdout doesn't
+        prove success AND HEAD's body doesn't match what we asked git to
+        commit, we must NOT invent a commit event. Pre-fix this returned the
+        same outcome (None) via the stdout-only check; post-fix it returns
+        None via the combined-signal check. The behavior contract is what's
+        load-bearing, not which branch produced it.
+        """
+        command = "git commit -m 'feat: new feature'"
+        with patch_commits(
+            files=[],
+            body="some older commit message",
+            head_sha="oldhash",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=self._TRUNCATED),
+                smm_dir=self.smm_dir,
+            )
+        recorded = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(recorded), 0)
+
+    def test_truncated_stdout_simple_quoted_message_matches(self):
+        """Simple -m 'msg' shape also works when stdout is truncated."""
+        command = "git commit -m 'fix(bug): patch issue'"
+        with patch_commits(
+            files=["src/foo.py"],
+            body="fix(bug): patch issue",
+            head_sha="newhash",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=self._TRUNCATED),
+                smm_dir=self.smm_dir,
+            )
+        recorded = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(recorded), 1)
 
 
 class TestBashPostToolWorktreeAgentId(_HookTestCase):
