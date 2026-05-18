@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import commit_handling
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _s, _sprint_json
 from event_helpers import events_of_type
@@ -31,7 +32,7 @@ class TestResolveStoryId(_HookTestCase):
 
         assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
         assignment.write_text("story-001")
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir,
             "/proj/.claude/worktrees/teammate-step-1",
             ["src/app.py"],
@@ -40,7 +41,7 @@ class TestResolveStoryId(_HookTestCase):
 
     def test_tier1_no_assignment_falls_through(self):
         """Teammate without assignment file falls through to tier 2/3."""
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir,
             "/proj/.claude/worktrees/teammate-step-1",
             ["src/app.py"],
@@ -61,7 +62,7 @@ class TestResolveStoryId(_HookTestCase):
                 ],
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["scripts/auth.py"]
         )
         self.assertEqual(result, "story-001")
@@ -86,7 +87,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["src/ui.py", "src/util.py"]
         )
         self.assertEqual(result, "story-002")
@@ -111,7 +112,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["scripts/auth.py", "src/ui.py"]
         )
         self.assertIsNone(result)
@@ -136,14 +137,14 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["unrelated.py"]
         )
         self.assertIsNone(result)
 
     def test_tier3_no_sprint_returns_none(self):
         """No sprint.json returns None."""
-        result = bash_post_tool._resolve_story_id(self.smm_dir, "/proj", ["setup.py"])
+        result = commit_handling._resolve_story_id(self.smm_dir, "/proj", ["setup.py"])
         self.assertIsNone(result)
 
     def test_tier3_no_in_progress_stories(self):
@@ -160,7 +161,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["scripts/auth.py"]
         )
         self.assertIsNone(result)
@@ -225,7 +226,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(self.smm_dir, "/proj", ["src/ui.py"])
+        result = commit_handling._resolve_story_id(self.smm_dir, "/proj", ["src/ui.py"])
         self.assertEqual(result, "story-002")
 
     def test_solo_agent_single_story_ignores_stale_marker(self):
@@ -246,7 +247,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["scripts/auth.py"]
         )
         self.assertEqual(result, "story-001")
@@ -281,7 +282,7 @@ class TestResolveStoryId(_HookTestCase):
             )
         )
         # Files overlap story-002's domain only — but the message says story-001.
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir,
             "/proj",
             ["skills/xp-sprint-close/SKILL.md"],
@@ -311,7 +312,7 @@ class TestResolveStoryId(_HookTestCase):
         )
         # Message claims story-001 but story-001 isn't in-progress; fall
         # through to file-overlap (which picks story-002).
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir,
             "/proj",
             ["skills/xp-sprint-close/SKILL.md"],
@@ -333,7 +334,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir,
             "/proj",
             ["scripts/auth.py"],
@@ -365,7 +366,7 @@ class TestResolveStoryId(_HookTestCase):
                 ]
             )
         )
-        result = bash_post_tool._resolve_story_id(
+        result = commit_handling._resolve_story_id(
             self.smm_dir,
             "/proj/.claude/worktrees/teammate-step-1",
             ["src/ui.py"],
