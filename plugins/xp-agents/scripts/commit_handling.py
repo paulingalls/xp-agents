@@ -201,6 +201,21 @@ def _handle_commit(
     code_file_count = sum(1 for f in committed_files if code_files.is_code_file(f))
     has_code = code_file_count > 0
 
+    # Dedupe by commit_hash: `_head_matches_command` only proves HEAD's
+    # subject equals the `-m` arg. If HEAD didn't advance since the last
+    # recorded commit (same-subject retry after a pre-commit reject), the
+    # match is the *prior* commit, not a fresh one — skip to avoid a
+    # duplicate event under a stale hash. parse_commit_message can also
+    # echo a stale `[branch hash] msg` line (e.g. piped from prior output);
+    # the same guard catches that.
+    events, resolutions = _common.load_events_with_resolutions(smm_dir)
+    if commit_hash and any(
+        e.get("type") == _common.COMMIT
+        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
+        for e in events
+    ):
+        return None
+
     raw_body = raw_body or msg
     if not raw_body:
         return None
@@ -240,8 +255,6 @@ def _handle_commit(
             metadata=metadata,
         )
     ]
-
-    events, resolutions = _common.load_events_with_resolutions(smm_dir)
 
     file_count = len(committed_files)
     if file_count >= COMMIT_SIZE_THRESHOLD:

@@ -481,6 +481,67 @@ class TestBashPostToolTruncatedStdout(_HookTestCase):
         recorded = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
         self.assertEqual(len(recorded), 1)
 
+    def _seed_existing_commit(self, head_sha: str) -> dict:
+        existing = make_event(
+            EVENT_TYPE_COMMIT,
+            content="feat(x): real subject",
+            metadata={"commit_hash": head_sha, "action": "commit_success"},
+            files=["src/foo.py"],
+        )
+        _common.append_safe(self.smm_dir, existing)
+        return existing
+
+    def test_truncated_stdout_skips_duplicate_when_hash_already_recorded(self):
+        """Fallback path: HEAD unchanged + last commit event carries this
+        hash → no duplicate event.
+
+        Guards the fallback: `_head_matches_command` only proves "HEAD's
+        subject matches the -m arg", not "a NEW commit landed". When HEAD
+        hasn't moved since the last recorded commit event, the apparent
+        match is the *prior* successful commit, not a fresh one.
+        """
+        head_sha = "abc123def456"
+        existing = self._seed_existing_commit(head_sha)
+
+        command = "git commit -m 'feat(x): real subject'"
+        with patch_commits(
+            files=["src/foo.py"],
+            body="feat(x): real subject",
+            head_sha=head_sha,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=self._TRUNCATED),
+                smm_dir=self.smm_dir,
+            )
+        recorded = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], existing["id"])
+
+    def test_parse_commit_message_skips_duplicate_when_hash_already_recorded(self):
+        """Primary path: stdout has `[branch hash] msg` but HEAD still
+        carries a hash we already recorded (stale stdout echoed back, e.g.
+        via tee or a chained command). Dedupe is path-agnostic.
+        """
+        head_sha = "abc123def456"
+        existing = self._seed_existing_commit(head_sha)
+
+        command = "git commit -m 'feat(x): real subject'"
+        with patch_commits(
+            files=["src/foo.py"],
+            body="feat(x): real subject",
+            head_sha=head_sha,
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command=command,
+                    stdout="[main abc1234] feat(x): real subject\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        recorded = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["id"], existing["id"])
+
 
 class TestBashPostToolWorktreeAgentId(_HookTestCase):
     """Worktree cwd uses resolve_agent_id for commit handling."""
