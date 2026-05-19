@@ -4,9 +4,9 @@
 Covers two surfaces:
 - check_session_needs.sh emits an ORPHAN_FREE_BRANCHES section when
   branching.list_free returns non-empty, and omits it otherwise.
-- xp-kickoff/SKILL.md Step 2.5 (auto-create on protected at Stage 1+)
-  and orphan-detection prose are pinned by guard tests so a future
-  edit cannot silently drop them.
+- xp-kickoff/SKILL.md Step 2 free fork (calls branching.py create-free
+  under a stage gate) and Step 0 orphan-triage prose are pinned by
+  guard tests so a future edit cannot silently drop them.
 
 The end-to-end auto-create flow lives in story-004's lifecycle
 capstone; this file pins the contracts only.
@@ -68,25 +68,15 @@ class TestKickoffOrphanPreload(_IntegrationTestCase):
 
 
 class TestKickoffSkillTextFreeBranch(unittest.TestCase):
-    """SKILL.md prose pins the new Step 2.5 + orphan-detection contracts."""
+    """SKILL.md prose pins the Step 2 free fork + Step 0 orphan-triage contracts."""
 
     @classmethod
     def setUpClass(cls):
         cls.text = _SKILL_MD.read_text()
 
-    def test_step_25_auto_creates_free_branch_on_protected(self):
-        # Step 2.5 must describe: free-session + protected branch + stage>=1
-        # → branching.py create-free invocation.
-        lower = self.text.lower()
+    def test_free_fork_calls_create_free_under_stage_gate(self):
         self.assertIn("create-free", self.text)
-        self.assertTrue(
-            "protected" in lower or "main" in lower or "master" in lower,
-            "Step 2.5 must reference protected/main/master branches",
-        )
-        self.assertTrue(
-            "stage" in lower,
-            "Step 2.5 must reference the branching stage gate",
-        )
+        self.assertIn("STAGE >= 2", self.text)
 
     def test_orphan_detection_step_lists_branches(self):
         # The orphan-detection step must read the ORPHAN_FREE_BRANCHES
