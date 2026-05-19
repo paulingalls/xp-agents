@@ -155,37 +155,149 @@ class TestIsSprintBranch(unittest.TestCase):
         self.assertFalse(branching.is_sprint_branch(""))
 
 
+class TestGetProtectedBranches(unittest.TestCase):
+    """Stage-aware protected set: {main, master} union SMM-declared
+    protected_branches union ({integration_branch} when stage >= 3).
+
+    Callers pass `stage` in rather than have the helper re-call
+    get_branching_stage so the stage 1→2 auto-promote side effect
+    fires once per hook chain, not twice.
+    """
+
+    def test_stage_zero_returns_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=0)
+            self.assertEqual(branching.get_protected_branches(smm, 0), set())
+
+    def test_stage_one_includes_main_and_master(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertEqual(
+                branching.get_protected_branches(smm, 1), {"main", "master"}
+            )
+
+    def test_stage_two_includes_main_and_master(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=2)
+            self.assertEqual(
+                branching.get_protected_branches(smm, 2), {"main", "master"}
+            )
+
+    def test_stage_two_unions_declared_protected_branches(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=2, protected_branches=["release"])
+            self.assertEqual(
+                branching.get_protected_branches(smm, 2),
+                {"main", "master", "release"},
+            )
+
+    def test_stage_three_includes_integration_branch(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=3, integration_branch="develop")
+            self.assertEqual(
+                branching.get_protected_branches(smm, 3),
+                {"main", "master", "develop"},
+            )
+
+    def test_stage_three_unions_declared_and_integration(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(
+                smm,
+                stage=3,
+                protected_branches=["main"],
+                integration_branch="develop",
+            )
+            self.assertEqual(
+                branching.get_protected_branches(smm, 3),
+                {"main", "master", "develop"},
+            )
+
+    def test_stage_three_without_integration_falls_back_to_main(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=3)
+            self.assertEqual(
+                branching.get_protected_branches(smm, 3), {"main", "master"}
+            )
+
+
 class TestIsProtectedBranch(unittest.TestCase):
     def test_main_protected_at_stage_1(self):
-        self.assertTrue(branching.is_protected_branch(1, "main"))
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertTrue(branching.is_protected_branch(1, "main", smm))
 
     def test_master_protected_at_stage_1(self):
-        self.assertTrue(branching.is_protected_branch(1, "master"))
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertTrue(branching.is_protected_branch(1, "master", smm))
 
     def test_main_protected_at_stage_2(self):
-        self.assertTrue(branching.is_protected_branch(2, "main"))
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=2)
+            self.assertTrue(branching.is_protected_branch(2, "main", smm))
 
     def test_not_protected_at_stage_0(self):
-        self.assertFalse(branching.is_protected_branch(0, "main"))
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=0)
+            self.assertFalse(branching.is_protected_branch(0, "main", smm))
 
     def test_feature_branch_not_protected(self):
-        self.assertFalse(branching.is_protected_branch(1, "paul/story-001-feat"))
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertFalse(
+                branching.is_protected_branch(1, "paul/story-001-feat", smm)
+            )
 
     def test_empty_branch_not_protected(self):
-        self.assertFalse(branching.is_protected_branch(1, ""))
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=1)
+            self.assertFalse(branching.is_protected_branch(1, "", smm))
+
+    def test_custom_integration_branch_protected_at_stage_3(self):
+        """The user-reported symptom: at stage 3 with integration_branch=
+        develop, direct commits to develop must trigger the protected-branch
+        block (today they sneak through because the hardcoded set ignores SMM).
+        """
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=3, integration_branch="develop")
+            self.assertTrue(branching.is_protected_branch(3, "develop", smm))
+
+    def test_main_still_protected_at_stage_3(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=3, integration_branch="develop")
+            self.assertTrue(branching.is_protected_branch(3, "main", smm))
+
+    def test_feature_branch_not_protected_at_stage_3(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=3, integration_branch="develop")
+            self.assertFalse(
+                branching.is_protected_branch(3, "paul/free-2026-05-19-foo", smm)
+            )
+
+    def test_declared_protected_branch_blocked_at_stage_2(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            write_system_context(smm, stage=2, protected_branches=["release"])
+            self.assertTrue(branching.is_protected_branch(2, "release", smm))
 
 
 class TestGetPrimaryBranch(unittest.TestCase):
-    def _write_stage_3_ctx(self, td: str, **bs_extras: object) -> Path:
-        """Stage-3 docs need extras (integration_branch) the shared
-        write_system_context fixture doesn't take. write_system_context
-        is the canonical helper for stage-only cases — used directly.
-        """
-        p = Path(td)
-        doc = valid_doc(branching_strategy={"stage": 3, **bs_extras})
-        (p / "system_context.json").write_text(json.dumps(doc))
-        return p
-
     def test_returns_main_at_stage_1(self):
         with tempfile.TemporaryDirectory() as td:
             smm = Path(td)
@@ -200,17 +312,20 @@ class TestGetPrimaryBranch(unittest.TestCase):
 
     def test_returns_integration_branch_at_stage_3(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_stage_3_ctx(td, integration_branch="develop")
+            smm = Path(td)
+            write_system_context(smm, stage=3, integration_branch="develop")
             self.assertEqual(branching.get_primary_branch(smm), "develop")
 
     def test_falls_back_to_main_at_stage_3_when_missing(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_stage_3_ctx(td)
+            smm = Path(td)
+            write_system_context(smm, stage=3)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_falls_back_to_main_at_stage_3_when_null(self):
         with tempfile.TemporaryDirectory() as td:
-            smm = self._write_stage_3_ctx(td, integration_branch=None)
+            smm = Path(td)
+            write_system_context(smm, stage=3, integration_branch=None)
             self.assertEqual(branching.get_primary_branch(smm), "main")
 
     def test_returns_main_when_no_system_context(self):

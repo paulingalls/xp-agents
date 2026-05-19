@@ -19,6 +19,7 @@ from unittest.mock import patch
 import _common
 import markers
 import pre_tool_bash
+from _branching_fixtures import write_system_context
 from conftest import (
     _HookTestCase,
     _make_bash_input,
@@ -498,6 +499,30 @@ class TestMainBranchGate(_HookTestCase):
             _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
         )
         result = self._assert_not_none(result)
+        self.assertIn("story branch", result)
+
+    @patch("identity.get_current_branch", return_value="develop")
+    @patch("branching.get_branching_stage", return_value=3)
+    @patch("git_commits.is_git_commit", return_value=True)
+    @patch("commits.get_code_files_for_review", return_value=[])
+    def test_nudge_on_integration_branch_stage_3(self, *_mocks):
+        """At stage 3 with ``integration_branch=develop``, a direct commit
+        on the develop branch must trigger the protected-branch nudge.
+        Today ``is_protected_branch`` hardcodes ``{main, master}`` and
+        ignores the SMM-declared integration branch, so the nudge silently
+        never fires.
+        """
+        write_system_context(
+            self.smm_dir,
+            stage=3,
+            integration_branch="develop",
+            protected_branches=["main"],
+        )
+        result = pre_tool_bash.run(
+            _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
+        )
+        result = self._assert_not_none(result)
+        self.assertIn("develop", result)
         self.assertIn("story branch", result)
 
 

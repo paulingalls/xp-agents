@@ -96,12 +96,15 @@ def commit_scaffold(
     """Stage-aware branch + commit for a green scaffold.
 
     Stage 0: commit on the current HEAD with the doctrine subject.
-    Stage 1+: refuse outright if HEAD is on a protected branch
-    (main/master) — the user must check out a feature/scaffold branch
-    first; otherwise create/checkout ``<user>/scaffold-<surface>`` via
-    ``branching.create_scaffold_branch``. Refusal is deliberate even when
-    a scaffold branch already exists locally: forcing an explicit user
-    checkout off main avoids surprise branch switches mid-flow.
+    Stage 1+: refuse outright if HEAD is on a protected branch — at
+    minimum ``{main, master}``, plus any SMM-declared
+    ``protected_branches`` and (at stage 3+) the
+    ``integration_branch``. The user must check out a feature/scaffold
+    branch first; otherwise create/checkout ``<user>/scaffold-<surface>``
+    via ``branching.create_scaffold_branch``. Refusal is deliberate even
+    when a scaffold branch already exists locally: forcing an explicit
+    user checkout off the protected branch avoids surprise branch
+    switches mid-flow.
     Subprocess discipline mirrors ``scaffold_apply.run_install``: argv-only
     invocations, no shell metacharacter interpretation.
     """
@@ -110,7 +113,7 @@ def commit_scaffold(
 
     current_branch = identity.get_current_branch(str(repo_root))
 
-    if branching.is_protected_branch(stage, current_branch):
+    if branching.is_protected_branch(stage, current_branch, smm_dir):
         return CommitResult(
             ok=False,
             reason=(
