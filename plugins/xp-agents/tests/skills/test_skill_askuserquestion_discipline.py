@@ -34,8 +34,8 @@ class TestAutonomyNudgeGuard(unittest.TestCase):
         )
 
     def test_kickoff_step2_marker_in_region(self):
-        start = self.kickoff.index("## Step 2: Session mode")
-        end = self.kickoff.index("## Step 2.4:")
+        start = self.kickoff.index("## Step 2: Session Mode")
+        end = self.kickoff.index("## Step 3:")
         self.assertIn(self.MARKER, self.kickoff[start:end])
 
     def test_plan_step1_marker_in_region(self):

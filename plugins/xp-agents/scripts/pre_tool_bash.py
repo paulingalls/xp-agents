@@ -342,7 +342,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 commits.parse_effective_cwd(command, cwd)
             )
             is_escape = commits.is_escape_hatch_commit(command)
-            if branching.is_protected_branch(stage, branch) and not is_escape:
+            if branching.is_protected_branch(stage, branch, smm_dir) and not is_escape:
                 parts.append(
                     f"You're committing directly to {branch} "
                     f"(branching stage {stage}). Use a story branch, or prefix "

@@ -232,22 +232,28 @@ def append_commit(cwd: str, filename: str = "feature.txt") -> None:
     )
 
 
-def write_system_context(smm_dir: Path, stage: int) -> None:
+def write_system_context(smm_dir: Path, stage: int, **bs_extras: object) -> None:
     """Write a fully-valid system_context.json with the given branching stage.
 
-    Uses `valid_doc` so the doc passes schema validation on save. The
+    Extra ``branching_strategy`` fields (``integration_branch``,
+    ``protected_branches``, ...) pass through ``bs_extras``. Single
+    fixture for all stage/branching test shapes — replaces near-identical
+    inline ``_write_stage_3_ctx`` / ``_write_branching_ctx`` helpers
+    that drifted across test classes.
+
+    Uses ``valid_doc`` so the doc passes schema validation on save. The
     earlier minimal shape (project_name + branching_strategy only) failed
-    save validation, which `_maybe_auto_promote`'s broad except silently
+    save validation, which ``_maybe_auto_promote``'s broad except silently
     swallowed — masking the real auto-promote behavior in every test.
 
     Note for stage=1 callers: the auto-promote will fire on the first
-    `get_branching_stage` read, mutating this fixture to stage=2 and
-    emitting one `decision` event with topic `branching-stage-auto-promote`.
+    ``get_branching_stage`` read, mutating this fixture to stage=2 and
+    emitting one ``decision`` event with topic ``branching-stage-auto-promote``.
     Tests that assert on event-log contents must account for this; use
-    `stage=2` directly when the test is not specifically exercising the
+    ``stage=2`` directly when the test is not specifically exercising the
     auto-promote path.
     """
-    doc = valid_doc(branching_strategy={"stage": stage})
+    doc = valid_doc(branching_strategy={"stage": stage, **bs_extras})
     (smm_dir / "system_context.json").write_text(json.dumps(doc))
 
 

@@ -145,7 +145,7 @@ If the preload shows "### Open Questions:", present each item via AskUserQuestio
 Same options as Step 2 (adopt-now, keep-deferred, drop). Same commands with
 the question's event-id.
 
-## Step 5: Sprint / Work Selection (ALWAYS)
+## Step 5: Sprint Story Selection (if sprint active)
 
 **If sprint active with ready stories:**
 1. Show the ready stories from preload.
@@ -173,15 +173,6 @@ the question's event-id.
 
 **If sprint active but no ready stories (all scheduled, in-progress, or done):**
 Report "All stories are queued, in progress, or complete. Continuing."
-
-**If no active sprint:**
-Ask the user "What should we work on this session?" via AskUserQuestion.
-Record their response as a goal event:
-```bash
-${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
-  --type "goal" --agent "xp-work-selection" \
-  --content "<user's goal>"
-```
 
 ## If Nothing Needs Doing
 

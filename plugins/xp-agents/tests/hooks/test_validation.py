@@ -241,11 +241,12 @@ class TestM53AcceptanceCriteria(unittest.TestCase):
     def setUp(self):
         self.agents_dir = Path(__file__).parent.parent.parent / "agents"
 
-    # AC 4: first session asks for goals (now in xp-work-selection)
-    def test_work_selection_has_goal_recording(self):
-        skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-work-selection"
+    # AC 4: kickoff Step 2 records two goal events — session mode and
+    # (free fork) session focus. Two append.sh blocks must survive.
+    def test_kickoff_records_session_goal(self):
+        skill_dir = Path(__file__).parent.parent.parent / "skills" / "xp-kickoff"
         content = (skill_dir / "SKILL.md").read_text()
-        self.assertIn('--type "goal"', content)
+        self.assertGreaterEqual(content.count('--type "goal"'), 2)
 
     # AC 5-8: question triage + intent reconciliation (now in
     # xp-work-selection for questions, xp-housekeeper for intents)

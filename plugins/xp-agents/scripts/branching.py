@@ -178,8 +178,34 @@ def get_primary_branch(smm_dir: Path) -> str:
 _PROTECTED_BRANCHES = {"main", "master"}
 
 
-def is_protected_branch(stage: int, branch: str) -> bool:
-    return stage >= 1 and branch in _PROTECTED_BRANCHES
+def get_protected_branches(smm_dir: Path, stage: int) -> set[str]:
+    """Return the stage-aware set of branches treated as protected.
+
+    Stage 0: empty (branching doctrine inactive).
+    Stage 1+: ``{main, master}`` plus ``branching_strategy.protected_branches``
+    plus (at stage 3+) ``branching_strategy.integration_branch``. The
+    integration branch is the daily fork-and-merge target — committing
+    directly to it is the same anti-pattern as committing to main.
+
+    ``stage`` is supplied by callers (rather than re-read here) so the
+    stage 1→2 auto-promote side effect in ``get_branching_stage`` fires
+    once per hook chain instead of doubling on every protection check.
+    """
+    if stage < 1:
+        return set()
+    result = set(_PROTECTED_BRANCHES)
+    bs = _load_branching_strategy(smm_dir)
+    declared = bs.get("protected_branches") or []
+    result.update(declared)
+    if stage >= 3:
+        integration = bs.get("integration_branch")
+        if integration:
+            result.add(integration)
+    return result
+
+
+def is_protected_branch(stage: int, branch: str, smm_dir: Path) -> bool:
+    return branch in get_protected_branches(smm_dir, stage)
 
 
 def is_worktree_clean(cwd: str) -> bool:
@@ -366,7 +392,7 @@ def create_scaffold_branch(
         stage = get_branching_stage(smm_dir)
     if current_branch is None:
         current_branch = identity.get_current_branch(cwd)
-    if is_protected_branch(stage, current_branch):
+    if is_protected_branch(stage, current_branch, smm_dir):
         base = get_primary_branch(smm_dir)
     else:
         base = current_branch
