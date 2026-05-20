@@ -36,6 +36,12 @@ def plan_branch_name(user_ns: str, slug: str) -> str:
     return f"{user_ns}/plan-{_slugify(slug)}"
 
 
+def scaffold_branch_name(user_ns: str) -> str:
+    """Surface-independent scaffold branch — one shared branch per invocation
+    so a multi-surface loop's surfaces all land on it rather than chaining."""
+    return f"{user_ns}/scaffold"
+
+
 def _utc_today_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 

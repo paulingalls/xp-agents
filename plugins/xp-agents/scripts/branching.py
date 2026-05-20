@@ -38,6 +38,7 @@ from branch_names import (  # noqa: F401
     free_branch_name,
     is_sprint_branch,
     plan_branch_name,
+    scaffold_branch_name,
     sprint_branch_name,
 )
 
@@ -362,12 +363,17 @@ def is_story_branch(branch: str) -> bool:
 
 def create_scaffold_branch(
     cwd: str,
-    surface: str,
     smm_dir: Path,
     *,
     current_branch: str | None = None,
 ) -> str | None:
-    """Create or resume ``<user>/scaffold-<surface>`` off the current branch.
+    """Create or resume the surface-independent ``<user>/scaffold`` branch
+    off the current branch.
+
+    One shared scaffold branch per invocation: a multi-surface
+    /xp-scaffold-acceptance loop calls this once per surface, and because
+    the name carries no surface the second+ calls resume the same branch
+    rather than chaining a per-surface branch off the first.
 
     Scaffold branches host the commit landed by /xp-scaffold-acceptance
     Step 8. Returns None below the plugin floor (stage < 2).
@@ -396,7 +402,7 @@ def create_scaffold_branch(
     failure into ``CommitResult(ok=False, reason=...)`` rather than die.
     """
     user_ns = identity.user_namespace(cwd)
-    name = branch_name(user_ns, "scaffold", surface)
+    name = scaffold_branch_name(user_ns)
     if current_branch is None:
         current_branch = identity.get_current_branch(cwd)
     if is_story_branch(current_branch):
