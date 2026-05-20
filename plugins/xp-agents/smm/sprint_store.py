@@ -242,6 +242,7 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
 # enumerate ALL public names of this module, both module-defined and
 # re-exported, to be a complete contract.
 __all__ = [
+    "build_capstone_story",
     "compute_blockers",
     "compute_velocity",
     "count_by_status",
@@ -422,6 +423,70 @@ def next_scheduled_story_id(
     as next_in_progress_story_id.
     """
     return _next_story_id_with_status(smm_dir, "scheduled", treat_as_done=treat_as_done)
+
+
+# -------------------------------------------------------------------
+# Capstone story builder (pure — no I/O)
+# -------------------------------------------------------------------
+
+
+def build_capstone_story(
+    story_id: str,
+    milestone_name: str,
+    touched_surfaces: list[str],
+    depends_on: list[str],
+    *,
+    milestone_ref: str = "",
+    harness: str = "pytest",
+) -> dict:
+    """Return a schema-valid capstone story dict for a milestone.
+
+    The capstone is the final story: it depends on every sibling and
+    proves the milestone's surfaces compose end to end. Each touched
+    surface becomes one behavior-shaped object AC (`{description,
+    surface}`); a cross-surface ``E2E:`` AC heads the list. The
+    ``acceptance_execution`` block is a non-empty placeholder the
+    implementer replaces with the real cross-cutting invocation when the
+    capstone's own story is built. Pure: the caller appends the result
+    to the stories list and persists via ``save_sprint``.
+    """
+    acceptance_criteria: list[str | dict] = [
+        f"E2E: Given the {milestone_name} stories ship, When the cross-cutting "
+        f"acceptance test exercises every touched surface, Then all report green"
+    ]
+    for surface in touched_surfaces:
+        acceptance_criteria.append(
+            {
+                "description": (
+                    f"Given the {milestone_name} stories ship, When the {surface} "
+                    f"acceptance suite runs, Then it passes"
+                ),
+                "surface": surface,
+            }
+        )
+
+    return {
+        "id": story_id,
+        "title": f"Capstone: {milestone_name}",
+        "status": "ready",
+        "dependencies": list(depends_on),
+        "milestone_ref": milestone_ref,
+        "design_sources": "",
+        "context": (
+            f"Capstone for {milestone_name}: cross-cutting acceptance test "
+            f"proving the milestone's surfaces compose end to end."
+        ),
+        "file_domain": [
+            "<implementer fills: cross-cutting acceptance test path>",
+        ],
+        "interface_contracts": [],
+        "acceptance_criteria": acceptance_criteria,
+        "acceptance_execution": {
+            "type": harness,
+            "command": "<implementer fills: cross-cutting test invocation>",
+            "notes": "Placeholder — fill with the real cross-cutting test command.",
+        },
+    }
 
 
 # -------------------------------------------------------------------
