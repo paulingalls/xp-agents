@@ -399,6 +399,20 @@ class TestRenderMarkdown(_SMMTestCase):
         self.assertIn("src/foo.py", md)
         self.assertIn("new module", md)
 
+    def test_render_includes_surfaces_touched(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched=["api", "cli"])])
+        md = store.render_markdown(plan)
+        self.assertIn("Surfaces Touched", md)
+        self.assertIn("api, cli", md)
+
+    def test_render_omits_surfaces_touched_when_absent(self):
+        import execution_plan_store as store
+
+        md = store.render_markdown(_make_plan())
+        self.assertNotIn("Surfaces Touched", md)
+
     def test_render_includes_branch_when_set(self):
         import execution_plan_store as store
 
