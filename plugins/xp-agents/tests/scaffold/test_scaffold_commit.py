@@ -239,8 +239,8 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
         """On main (protected) at stage 2, commit_scaffold no longer refuses:
         it forks the shared scaffold branch off main and lands the commit on
         that child, leaving main untouched. Branching off a protected base is
-        fine
-        — only committing TO it was the problem, and the child avoids that."""
+        fine — only committing TO it was the problem, and the child avoids
+        that."""
         _write_branching_strategy(self.smm_dir, 2)
         # Default branch is main (protected at stage 2+).
         result = commit_scaffold(
