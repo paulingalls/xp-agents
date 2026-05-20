@@ -129,7 +129,6 @@ def commit_scaffold(
             str(repo_root),
             surface,
             smm_dir,
-            stage=stage,
             current_branch=current_branch,
         )
         if new_branch is None:
