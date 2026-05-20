@@ -111,6 +111,34 @@ class TestListUncovered(_SMMTestCase):
         entry = json.loads(result.stdout)[0]
         self.assertIn("playwright", entry["canonical_tools"])
 
+    def test_shared_surface_entry_keys_match_detect_surfaces(self) -> None:
+        """Both subcommands derive from _surface_entry; the shared keys must
+        carry identical values across detect-surfaces and list-uncovered so a
+        future edit to the helper can't skew one path silently."""
+        surface = {
+            "name": "browser",
+            "signals": ["next.js"],
+            "harness": "playwright",
+            "status": "gap",
+        }
+        self._write_surfaces([surface])
+        shared_keys = ("name", "status", "harness", "has_tooling", "tool_name")
+
+        detect = run_cli(
+            _CLI,
+            ["detect-surfaces", "--repo-root", str(self.smm_dir)],
+            self.smm_dir,
+        )
+        self.assertEqual(detect.returncode, 0, detect.stderr)
+        detect_entry = json.loads(detect.stdout)[0]
+
+        uncovered = self._run()
+        self.assertEqual(uncovered.returncode, 0, uncovered.stderr)
+        uncovered_entry = json.loads(uncovered.stdout)[0]
+
+        for key in shared_keys:
+            self.assertEqual(detect_entry[key], uncovered_entry[key], key)
+
 
 if __name__ == "__main__":
     unittest.main()
