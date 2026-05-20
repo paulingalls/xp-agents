@@ -142,6 +142,9 @@ Exit cleanly in both cases. **No writes.**
 
 ## Step 2: Refresh knowledge
 
+**Runs once per confirmed surface, inside Step 3c's loop — not a single
+pre-loop pass.** Each surface refreshes its own tool knowledge.
+
 After Step 3 collects surface + tool, consult the curated map BEFORE
 WebSearch — some tool names collide with unrelated packages (`brew
 install --cask maestro` lands the GUI app Maestro.app, not the mobile
@@ -252,10 +255,11 @@ Assemble the `ScaffoldPlan` via `scaffold_cli.py build-plan`. Build
 knowledge — typical: config file, happy-path test, `.gitignore`
 update, manifest (`package.json` / `pyproject.toml` / `Cargo.toml`)
 update. Set `verify_cmd` to the runner's invocation against the test
-file. Set `branch_name` to `<user>/scaffold-<surface>` — this is the
+file. Set `branch_name` to the shared `<user>/scaffold` — this is the
 exact branch Step 8 commits to (`branching.create_scaffold_branch`),
 and `render-preview` shows it as `Commit branch:`, so any other value
-misrepresents where the work lands.
+misrepresents where the work lands. The name is surface-independent: in
+a multi-surface loop every surface lands on this one shared branch.
 
 **Draft each file body and embed it in the plan dict.** Each entry
 carries a `body` field with full desired contents — Step 5's
@@ -296,7 +300,7 @@ PLAN_JSON=$(cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli
   ],
   "install_cmds": ["npm install", "npx playwright install chromium"],
   "verify_cmd": "npx playwright test tests/acceptance/example.spec.ts",
-  "branch_name": "paul/scaffold-browser"
+  "branch_name": "paul/scaffold"
 }
 PLANEOF
 )
@@ -417,15 +421,19 @@ COMMIT_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
 # COMMIT_JSON.sha and .branch carry the new commit's coordinates.
 ```
 
-Stage-aware: Stage 0 commits on current HEAD; Stage 1+ creates
-`<user>/scaffold-<surface>` off the current branch and commits there.
-The scaffold branch always forks off the current branch (main / free /
-sprint / plan / generic feature) so any user work already on that branch
-stays reachable — branching off a protected base is fine because the
-scaffold child is what keeps the commit off the protected branch. The
-one refusal is a story branch: a scaffold there would land inside the
-story's `file_domain`, so `apply-commit` returns `ok=false` with guidance
-to checkout the sprint branch first.
+Stage-aware: Stage 0 commits on current HEAD; Stage 1+ creates or
+resumes the shared `<user>/scaffold` branch off the current branch and
+commits there. The name is surface-independent, so a multi-surface loop
+creates it on the first surface and resumes it on the rest — every
+surface lands on one shared branch rather than chaining a per-surface
+branch off the previous surface. The scaffold branch always forks off
+the current branch (main / free / sprint / plan / generic feature) so
+any user work already on that branch stays reachable — branching off a
+protected base is fine because the scaffold child is what keeps the
+commit off the protected branch. The one refusal is a story branch: a
+scaffold there would land inside the story's `file_domain`, so
+`apply-commit` returns `ok=false` with guidance to checkout the sprint
+branch first.
 
 ## Step 9: Record
 

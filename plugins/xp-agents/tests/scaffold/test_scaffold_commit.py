@@ -228,7 +228,7 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
         self.assertTrue(result.ok, result.reason)
         assert result.branch is not None
         self.assertTrue(
-            result.branch.endswith("/scaffold-browser"), f"branch={result.branch!r}"
+            result.branch.endswith("/scaffold"), f"branch={result.branch!r}"
         )
         current = run_git(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"], self.repo
@@ -237,9 +237,10 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
 
     def test_forks_child_off_protected_branch_at_stage_2(self) -> None:
         """On main (protected) at stage 2, commit_scaffold no longer refuses:
-        it forks scaffold-<surface> off main and lands the commit on that
-        child, leaving main untouched. Branching off a protected base is fine
-        — only committing TO it was the problem, and the child avoids that."""
+        it forks the shared scaffold branch off main and lands the commit on
+        that child, leaving main untouched. Branching off a protected base is
+        fine — only committing TO it was the problem, and the child avoids
+        that."""
         _write_branching_strategy(self.smm_dir, 2)
         # Default branch is main (protected at stage 2+).
         result = commit_scaffold(
@@ -254,7 +255,7 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
         self.assertTrue(result.ok, result.reason)
         assert result.branch is not None
         self.assertTrue(
-            result.branch.endswith("/scaffold-browser"), f"branch={result.branch!r}"
+            result.branch.endswith("/scaffold"), f"branch={result.branch!r}"
         )
         # The scaffold commit landed on the child, not on main.
         main_log = run_git(
@@ -287,7 +288,7 @@ class TestCommitScaffoldStageTwo(_CommitScaffoldTestBase):
         self.assertIn("sprint", reason)
         # No scaffold branch was created.
         self.assertFalse(
-            branching.branch_exists(str(self.repo), "paulingalls/scaffold-browser")
+            branching.branch_exists(str(self.repo), "paulingalls/scaffold")
         )
 
     def test_scaffold_branch_forks_off_current_non_protected_branch(self) -> None:

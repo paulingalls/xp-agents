@@ -7,7 +7,10 @@ No I/O, no file operations — pure validation logic and shared constants.
 Follows the same pattern as execution_plan_schema.py.
 """
 
-from _acceptance_execution import validate_acceptance_execution
+from _acceptance_execution import (
+    validate_acceptance_execution,
+    validate_per_ac_verify,
+)
 from execution_plan_schema import VALID_BRANCH_NAME_RE
 from schema_helpers import budget_error
 
@@ -106,6 +109,14 @@ def _validate_story(
     ):
         if not isinstance(story[field], list):
             errors.append(f"stories[{idx}].{field} must be a list")
+
+    if isinstance(story["acceptance_criteria"], list):
+        for ac_idx, item in enumerate(story["acceptance_criteria"]):
+            errors.extend(
+                validate_per_ac_verify(
+                    item, f"stories[{idx}].acceptance_criteria[{ac_idx}]"
+                )
+            )
 
     if enforce_budget and isinstance(story.get("context"), str):
         max_len = STORY_FIELD_MAXLENGTH["context"]

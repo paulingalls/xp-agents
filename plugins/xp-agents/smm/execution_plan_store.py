@@ -237,6 +237,8 @@ def render_markdown(plan: dict) -> str:
         lines.append(f"- **Goal:** {m['goal']}")
         lines.append(f"- **Definition of Done:** {m['done']}")
         lines.append(f"- **Sources:** {m['sources']}")
+        if m.get("surfaces_touched"):
+            lines.append(f"- **Surfaces Touched:** {', '.join(m['surfaces_touched'])}")
         lines.append("")
 
         _render_zones(lines, "Change Zones", m["change_zones"])

@@ -118,9 +118,19 @@ def _validate_source(source: object, idx: int) -> list[str]:
 
 
 def _validate_milestone(
-    milestone: object, idx: int, *, enforce_budget: bool = True
+    milestone: object,
+    idx: int,
+    *,
+    enforce_budget: bool = True,
+    valid_surfaces: frozenset[str] | None = None,
 ) -> list[str]:
-    """Validate a milestone entry."""
+    """Validate a milestone entry.
+
+    ``surfaces_touched`` is an optional ``list[str]``. When
+    ``valid_surfaces`` is supplied, each entry must be one of those names
+    (FK to ``acceptance_surfaces[*].name``); when ``None``, only the
+    list-of-strings shape is checked.
+    """
     errors: list[str] = []
     if not isinstance(milestone, dict):
         return [f"milestones[{idx}] must be an object"]
@@ -198,15 +208,36 @@ def _validate_milestone(
             validate_acceptance_execution(ae, f"milestones[{idx}].acceptance_execution")
         )
 
+    if "surfaces_touched" in milestone:
+        st = milestone["surfaces_touched"]
+        prefix = f"milestones[{idx}].surfaces_touched"
+        if not isinstance(st, list):
+            errors.append(f"{prefix} must be a list of strings")
+        else:
+            for s_idx, name in enumerate(st):
+                if not isinstance(name, str):
+                    errors.append(f"{prefix}[{s_idx}] must be a string")
+                elif valid_surfaces is not None and name not in valid_surfaces:
+                    errors.append(
+                        f"{prefix}[{s_idx}] references unknown surface {name!r}"
+                    )
+
     return errors
 
 
-def validate_plan(data: object, *, enforce_budget: bool = True) -> list[str]:
+def validate_plan(
+    data: object,
+    *,
+    enforce_budget: bool = True,
+    valid_surfaces: frozenset[str] | None = None,
+) -> list[str]:
     """Validate an execution plan document.
 
     Returns a list of error strings — empty list means valid.
     When enforce_budget is False, field-length budgets are skipped
     (read-path grandfathering, matching smm_schema precedent).
+    When valid_surfaces is supplied, milestone.surfaces_touched entries
+    are FK-checked against it; when None, only their shape is validated.
     """
     errors: list[str] = []
 
@@ -244,7 +275,12 @@ def validate_plan(data: object, *, enforce_budget: bool = True) -> list[str]:
     else:
         for idx, milestone in enumerate(data["milestones"]):
             errors.extend(
-                _validate_milestone(milestone, idx, enforce_budget=enforce_budget)
+                _validate_milestone(
+                    milestone,
+                    idx,
+                    enforce_budget=enforce_budget,
+                    valid_surfaces=valid_surfaces,
+                )
             )
 
     return errors

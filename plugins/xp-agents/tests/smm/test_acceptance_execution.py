@@ -20,13 +20,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from _acceptance_execution import (
     render_acceptance_execution,
     validate_acceptance_execution,
+    validate_per_ac_verify,
 )
 
 _PREFIX = "stories[0].acceptance_execution"
 
+_AC_PREFIX = "stories[0].acceptance_criteria[0]"
+
 
 def _v(ae: object) -> list[str]:
     return validate_acceptance_execution(ae, _PREFIX)
+
+
+def _vac(item: object) -> list[str]:
+    return validate_per_ac_verify(item, _AC_PREFIX)
 
 
 class TestValidateBackCompatCommand(unittest.TestCase):
@@ -146,6 +153,68 @@ class TestRenderCommands(unittest.TestCase):
         self.assertIn("**Commands:**", rendered)
         self.assertIn("`grep -q FOO file.txt`", rendered)
         self.assertIn("`pytest tests/`", rendered)
+
+
+class TestValidatePerAcVerify(unittest.TestCase):
+    """Per-AC verify: an AC item is `str` (manual) or an object with a
+    description, optional surface, and an optional command/commands verify
+    block reusing the story-level xor (minus the required `type`)."""
+
+    def test_bare_string_item_is_valid(self):
+        self.assertEqual(_vac("Given X, When Y, Then Z"), [])
+
+    def test_object_with_description_only_is_valid(self):
+        self.assertEqual(_vac({"description": "manual check, no runner"}), [])
+
+    def test_object_with_single_command_is_valid(self):
+        item = {"description": "exports CSV", "command": "pytest tests/test_x.py"}
+        self.assertEqual(_vac(item), [])
+
+    def test_object_with_commands_list_is_valid(self):
+        item = {
+            "description": "exports CSV",
+            "commands": ["grep -q FOO f.txt", "pytest tests/test_x.py"],
+        }
+        self.assertEqual(_vac(item), [])
+
+    def test_object_with_surface_is_valid(self):
+        item = {"description": "api works", "surface": "api", "command": "pytest x"}
+        self.assertEqual(_vac(item), [])
+
+    def test_object_with_both_command_and_commands_rejected(self):
+        item = {
+            "description": "x",
+            "command": "pytest x",
+            "commands": ["pytest x"],
+        }
+        errors = _vac(item)
+        self.assertTrue(any("command" in e and "commands" in e for e in errors), errors)
+
+    def test_object_missing_description_rejected(self):
+        errors = _vac({"command": "pytest x"})
+        self.assertTrue(any("description" in e for e in errors), errors)
+
+    def test_object_non_string_description_rejected(self):
+        errors = _vac({"description": 42})
+        self.assertTrue(any("description" in e for e in errors), errors)
+
+    def test_object_non_string_surface_rejected(self):
+        errors = _vac({"description": "x", "surface": 7})
+        self.assertTrue(any("surface" in e for e in errors), errors)
+
+    def test_object_non_string_command_rejected(self):
+        errors = _vac({"description": "x", "command": 42})
+        self.assertTrue(any("command" in e for e in errors), errors)
+
+    def test_object_empty_commands_list_rejected(self):
+        errors = _vac({"description": "x", "commands": []})
+        self.assertTrue(
+            any("commands" in e and "empty" in e.lower() for e in errors), errors
+        )
+
+    def test_neither_string_nor_dict_rejected(self):
+        errors = _vac(42)
+        self.assertTrue(any("must be a string or" in e for e in errors), errors)
 
 
 if __name__ == "__main__":

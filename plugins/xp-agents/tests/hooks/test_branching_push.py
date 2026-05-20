@@ -114,16 +114,16 @@ class TestScaffoldBranchPushes(_BasePushTest):
 
     def test_pushes_freshly_created(self):
         td, smm = self._setup_repo()
-        name = branching.create_scaffold_branch(td, "cli", smm)
+        name = branching.create_scaffold_branch(td, smm)
         name = self._assert_not_none(name)
         self.assertTrue(_remote_has_branch(td, name))
 
     def test_does_not_push_on_resume(self):
         td, smm = self._setup_repo()
-        first = branching.create_scaffold_branch(td, "cli", smm)
+        first = branching.create_scaffold_branch(td, smm)
         _checkout_main(td)
         with patch("git_remote.push_branch") as mock_push:
-            second = branching.create_scaffold_branch(td, "cli", smm)
+            second = branching.create_scaffold_branch(td, smm)
         self.assertEqual(first, second)
         mock_push.assert_not_called()
 

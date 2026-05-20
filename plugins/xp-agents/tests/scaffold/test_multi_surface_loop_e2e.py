@@ -37,7 +37,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from _bases import _PLUGIN_ROOT
-from _helpers import init_git_with_seed, run_git, valid_system_context
+from _helpers import (
+    init_git_with_seed,
+    load_system_context,
+    run_git,
+    run_scaffold_pipeline,
+    valid_system_context,
+)
 from conftest import run_cli
 from scaffold_post import SCAFFOLD_COMMIT_PREFIX
 
@@ -109,9 +115,7 @@ class TestMultiSurfaceLoopE2E(unittest.TestCase):
         return self._run(["list-uncovered", "--repo-root", str(self.repo)])
 
     def _load_ctx(self) -> dict:
-        return json.loads(
-            (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
-        )
+        return load_system_context(self.smm_dir)
 
     def _scaffold_subjects(self) -> list[str]:
         out = run_git(["git", "log", "--format=%s"], self.repo).stdout
@@ -119,48 +123,14 @@ class TestMultiSurfaceLoopE2E(unittest.TestCase):
 
     def _scaffold_one(self, surface: str, tool: str, plan: dict) -> str:
         """Run the SKILL loop body for one surface; return the commit sha."""
-        write = self._run(
-            ["apply-write", "--repo-root", str(self.repo)],
-            stdin_data=json.dumps(plan),
-        )
-        snap_id = write["snapshot_id"]
-        self.addCleanup(shutil.rmtree, write["snapshot_dir"], True)
-
-        repo = str(self.repo)
-        self._run(["apply-install", "--snapshot-id", snap_id, "--repo-root", repo])
-        self._run(["apply-verify", "--snapshot-id", snap_id, "--repo-root", repo])
-        commit = self._run(
-            [
-                "apply-commit",
-                "--snapshot-id",
-                snap_id,
-                "--repo-root",
-                repo,
-                "--surface",
-                surface,
-                "--tool",
-                tool,
-                "--concern-id",
-                _DUMMY_CONCERN,
-            ]
-        )
-        self.assertTrue(commit["ok"], commit.get("reason"))
-        self._run(
-            [
-                "apply-record",
-                "--snapshot-id",
-                snap_id,
-                "--repo-root",
-                repo,
-                "--surface",
-                surface,
-                "--concern-id",
-                _DUMMY_CONCERN,
-                "--agent-id",
-                "test-agent",
-                "--commit-sha",
-                commit["sha"],
-            ]
+        commit = run_scaffold_pipeline(
+            self,
+            self._run,
+            self.repo,
+            surface=surface,
+            tool=tool,
+            plan=plan,
+            concern_id=_DUMMY_CONCERN,
         )
         return commit["sha"]
 
@@ -195,6 +165,118 @@ class TestMultiSurfaceLoopE2E(unittest.TestCase):
         self.assertEqual(surfaces["cli"]["status"], "covered")
         self.assertEqual(surfaces["cli"]["acceptance_template_command"], "true")
         self.assertEqual(surfaces["browser"]["status"], "covered")
+
+
+class TestMultiSurfaceLoopStage2E2E(unittest.TestCase):
+    """Stage-2: all surfaces land on ONE shared scaffold branch forked off the
+    sprint branch — not a per-surface branch chained off the previous surface
+    (decision 664fdaee5954, resolves dda49fa03342)."""
+
+    def setUp(self) -> None:
+        self.repo = Path(tempfile.mkdtemp(prefix="scaffold-s2-repo-"))
+        self.smm_dir = Path(tempfile.mkdtemp(prefix="scaffold-s2-smm-"))
+        init_git_with_seed(self.repo, "README.md", "# seed\n")
+        # A sprint branch is the current branch; the scaffold branch must
+        # fork off it (its tip stays reachable from the shared branch).
+        run_git(["git", "checkout", "-b", "test/sprint-089-x"], self.repo)
+        (self.repo / "sprint.txt").write_text("sprint\n", encoding="utf-8")
+        run_git(["git", "add", "sprint.txt"], self.repo)
+        run_git(["git", "commit", "-m", "sprint work"], self.repo)
+        self.sprint_tip = run_git(
+            ["git", "rev-parse", "HEAD"], self.repo
+        ).stdout.strip()
+        ctx = valid_system_context(
+            surfaces=[
+                {"name": "cli", "signals": ["argv"], "status": "gap"},
+                {"name": "browser", "signals": ["next.js"], "status": "gap"},
+            ]
+        )
+        ctx["branching_strategy"] = {"stage": 2}
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps(ctx), encoding="utf-8"
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.repo, ignore_errors=True)
+        shutil.rmtree(self.smm_dir, ignore_errors=True)
+
+    def _run(self, argv: list[str], stdin_data: str = "") -> Any:
+        result = run_cli(_CLI, argv, self.smm_dir, stdin_data=stdin_data)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout) if result.stdout.strip() else {}
+
+    def _branches(self) -> list[str]:
+        out = run_git(["git", "branch", "--format=%(refname:short)"], self.repo).stdout
+        return [b.strip() for b in out.splitlines() if b.strip()]
+
+    def _commits_on(self, branch: str) -> set[str]:
+        out = run_git(["git", "log", "--format=%H", branch], self.repo).stdout
+        return {ln for ln in out.splitlines() if ln}
+
+    def _scaffold_subjects_on(self, branch: str) -> list[str]:
+        out = run_git(["git", "log", "--format=%s", branch], self.repo).stdout
+        return [s for s in out.splitlines() if s.startswith(SCAFFOLD_COMMIT_PREFIX)]
+
+    def test_surfaces_share_one_branch_forked_off_sprint(self) -> None:
+        cli_commit = run_scaffold_pipeline(
+            self, self._run, self.repo, surface="cli", tool="bats", plan=_CLI_PLAN
+        )
+        browser_commit = run_scaffold_pipeline(
+            self,
+            self._run,
+            self.repo,
+            surface="browser",
+            tool="playwright",
+            plan=_BROWSER_PLAN,
+        )
+
+        # Both surfaces report the same shared scaffold branch.
+        self.assertTrue(cli_commit["branch"].endswith("/scaffold"))
+        self.assertEqual(cli_commit["branch"], browser_commit["branch"])
+        shared = cli_commit["branch"]
+
+        # Exactly one scaffold branch; no per-surface branch was chained.
+        scaffold_branches = [b for b in self._branches() if b.endswith("/scaffold")]
+        self.assertEqual(scaffold_branches, [shared])
+        self.assertEqual(
+            [b for b in self._branches() if "/scaffold-" in b],
+            [],
+            "a per-surface scaffold branch was chained — should be one shared branch",
+        )
+
+        # Forked off the sprint branch (its tip stays reachable) and carries
+        # both surface commits.
+        reachable = self._commits_on(shared)
+        self.assertIn(self.sprint_tip, reachable)
+        self.assertEqual(len(self._scaffold_subjects_on(shared)), 2)
+
+    def test_partial_rerun_resumes_same_branch_off_sprint(self) -> None:
+        """AC: a partial prior run resumes the existing shared branch (not a
+        duplicate) AND the resumed branch still descends from the sprint
+        branch, not a stale base."""
+        first = run_scaffold_pipeline(
+            self, self._run, self.repo, surface="cli", tool="bats", plan=_CLI_PLAN
+        )
+        # list-uncovered drops the now-covered cli surface.
+        uncovered = [
+            e["name"]
+            for e in self._run(["list-uncovered", "--repo-root", str(self.repo)])
+        ]
+        self.assertEqual(uncovered, ["browser"])
+
+        second = run_scaffold_pipeline(
+            self,
+            self._run,
+            self.repo,
+            surface="browser",
+            tool="playwright",
+            plan=_BROWSER_PLAN,
+        )
+        self.assertEqual(first["branch"], second["branch"])
+        self.assertEqual(
+            len([b for b in self._branches() if b.endswith("/scaffold")]), 1
+        )
+        self.assertIn(self.sprint_tip, self._commits_on(second["branch"]))
 
 
 if __name__ == "__main__":
