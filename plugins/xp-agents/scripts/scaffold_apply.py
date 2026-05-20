@@ -46,6 +46,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -125,7 +126,24 @@ def validate_plan(plan: dict, *, repo_root: Path) -> str | None:
     backing up a missing target; ``write_files`` would then create the file
     fresh, and ``revert()`` cannot restore a backup that was never taken —
     the file orphans.
+
+    Every path must be unique across both lists: ``create_snapshot`` and
+    ``revert`` iterate the concatenation, so a path repeated within or
+    across the lists would be backed up and reverted more than once with
+    undefined precedence (last write wins). One entry per path.
     """
+    path_counts = Counter(
+        entry["path"]
+        for entry in plan.get("files_to_create", []) + plan.get("files_to_modify", [])
+    )
+    dup_paths = sorted(p for p, n in path_counts.items() if n > 1)
+    if dup_paths:
+        paths = ", ".join(dup_paths)
+        return (
+            "duplicate paths across files_to_create / files_to_modify: "
+            f"{paths}. Each path must appear exactly once — remove the "
+            "duplicate so snapshot/revert process it once."
+        )
     missing = [
         entry["path"]
         for entry in plan.get("files_to_modify", [])

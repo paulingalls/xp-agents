@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Tests for scaffold_apply.py — pre-flight validation + lifecycle.
 
-Covers rejection of pre-existing create targets, rejection of modify
-on missing files, phase-log emission, snapshot cleanup, and ApplyResult
-lifecycle. Reuses `_plan`, `_ApplyTestBase`, `_RevertTestBase` from the
-sibling pipeline file (test_scaffold_apply_pipeline.py).
+Covers rejection of modify-on-missing files, phase-log emission, snapshot
+cleanup, and ApplyResult lifecycle. (Pre-existing create targets are now
+resume-handled, not refused — see test_scaffold_apply_resume.py.) Reuses
+`_plan`, `_ApplyTestBase`, `_RevertTestBase` from the sibling pipeline file
+(test_scaffold_apply_pipeline.py).
 """
 
 import shutil
@@ -40,11 +41,10 @@ class TestApplyPlanCreateValidation(_ApplyTestBase):
 
 
 class TestApplyPlanRejectsModifyOfNonexistent(_ApplyTestBase):
-    """Symmetric to the create-side guard: a misclassified files_to_modify
-    entry pointing at a path that doesn't yet exist would silently create
-    the file via write_files and then orphan it (revert can't restore a
-    backup that doesn't exist). apply_plan must refuse before any
-    snapshot is created."""
+    """A misclassified files_to_modify entry pointing at a path that doesn't
+    yet exist would silently create the file via write_files and then orphan
+    it (revert can't restore a backup that doesn't exist). apply_plan must
+    refuse before any snapshot is created."""
 
     def _modify_only_plan(self, target_rel: str = "package.json") -> dict:
         return _plan(
@@ -87,6 +87,35 @@ class TestApplyPlanRejectsModifyOfNonexistent(_ApplyTestBase):
         result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
         self._track_snapshot(result)
         self.assertTrue(result.ok)
+
+    def test_path_in_both_create_and_modify_refused(self) -> None:
+        # A dup path would be snapshotted+reverted twice (create_snapshot and
+        # revert iterate the concatenated lists). Refuse before any write.
+        target = self.repo / "shared.ts"
+        target.write_text("orig\n", encoding="utf-8")
+        plan = _plan(
+            files_to_create=[{"path": "shared.ts", "description": "c", "body": "x\n"}],
+            files_to_modify=[{"path": "shared.ts", "description": "m", "body": "y\n"}],
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+        self.assertIn("duplicate paths", result.reason or "")
+
+    def test_duplicate_path_within_create_list_refused(self) -> None:
+        # Same path twice in files_to_create would also double-process.
+        plan = _plan(
+            files_to_create=[
+                {"path": "dup.ts", "description": "first", "body": "a\n"},
+                {"path": "dup.ts", "description": "second", "body": "b\n"},
+            ]
+        )
+        result = apply_plan(plan, repo_root=self.repo)
+        self._track_snapshot(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.phase, "write")
+        self.assertIn("dup.ts", result.reason or "")
 
 
 class TestApplyPhaseLogs(_ApplyTestBase):
