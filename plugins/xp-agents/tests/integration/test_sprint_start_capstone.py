@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """M-3 capstone: sprint-start surface-coverage + auto-capstone, end-to-end.
 
-Composes Milestone-3's two shipped primitives against the milestone's `done`
-criteria:
+Exercises Milestone-3's two shipped primitives against the milestone's `done`
+criteria — independent capabilities the sprint-start skill composes, not an
+output-chained pipeline:
 
   - story-002: surface_coverage.uncovered_touched_surfaces returns the touched
     surfaces a coverage concern would fire for (gap or absent — not covered).
   - story-001: sprint_store.build_capstone_story produces a ready,
-    behavior-shaped capstone depending on every sibling.
+    behavior-shaped capstone (over all touched surfaces) depending on every
+    sibling, which then round-trips through save_sprint/load_sprint.
 
 Capstone discipline: stories 001-003 are already done, so this passes on
-first write — the red it guards is a regression in the detection→build→save
-seam, not a red->green cycle.
+first write — the red it guards is a regression in these primitives, not a
+red->green cycle.
 """
 
 import json
@@ -77,13 +79,9 @@ class TestSprintStartCapstone(_IntegrationTestCase):
     def test_assembled_sprint_with_capstone_round_trips(self) -> None:
         import sprint_store
 
-        self._seed_surfaces()
-        milestone = {"surfaces_touched": ["cli", "api"]}
-        touched = milestone["surfaces_touched"]
-
         siblings = [make_story_dict(id="story-001")]
         capstone = sprint_store.build_capstone_story(
-            "story-004", _MILESTONE_NAME, touched, ["story-001"]
+            "story-004", _MILESTONE_NAME, ["cli", "api"], ["story-001"]
         )
         sprint = make_sprint_dict(stories=[*siblings, capstone])
 
