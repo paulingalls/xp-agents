@@ -103,5 +103,54 @@ class TestRenderStorySections(unittest.TestCase):
         self.assertEqual(md, "")
 
 
+class TestRenderAcceptanceCriteriaItems(unittest.TestCase):
+    """String AC items render unchanged; object AC items show description
+    plus their verify command(s)."""
+
+    def test_string_criteria_render_as_bullets(self):
+        import sprint_render
+
+        story = _make_story(acceptance_criteria=["Users can register"])
+        md = sprint_render.render_markdown(_make_sprint(stories=[story]))
+        self.assertIn("- Users can register", md)
+
+    def test_object_criterion_renders_description_and_command(self):
+        import sprint_render
+
+        ac = [{"description": "exports CSV", "command": "pytest tests/test_x.py"}]
+        story = _make_story(acceptance_criteria=ac)
+        md = sprint_render.render_markdown(_make_sprint(stories=[story]))
+        # No raw dict repr leaks into the markdown.
+        self.assertNotIn("{'description'", md)
+        self.assertIn("- exports CSV", md)
+        self.assertIn("`pytest tests/test_x.py`", md)
+
+    def test_object_criterion_renders_each_command_in_list(self):
+        import sprint_render
+
+        ac = [
+            {
+                "description": "pipeline green",
+                "commands": ["grep -q FOO f.txt", "pytest tests/test_y.py"],
+            }
+        ]
+        story = _make_story(acceptance_criteria=ac)
+        md = sprint_render.render_markdown(_make_sprint(stories=[story]))
+        self.assertNotIn("{'description'", md)
+        self.assertIn("- pipeline green", md)
+        self.assertIn("`grep -q FOO f.txt`", md)
+        self.assertIn("`pytest tests/test_y.py`", md)
+
+    def test_string_only_render_unchanged_by_object_support(self):
+        import sprint_render
+
+        story = _make_story(
+            acceptance_criteria=["Users can register", "E2E: registration flow"]
+        )
+        md = sprint_render.render_markdown(_make_sprint(stories=[story]))
+        self.assertIn("- Users can register", md)
+        self.assertIn("- E2E: registration flow", md)
+
+
 if __name__ == "__main__":
     unittest.main()

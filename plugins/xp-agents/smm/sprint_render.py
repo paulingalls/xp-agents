@@ -8,7 +8,7 @@ store has already loaded; emits markdown for skills, retros, and CLI.
 
 from typing import Any
 
-from _acceptance_execution import render_acceptance_execution
+from _acceptance_execution import extract_commands, render_acceptance_execution
 
 
 def render_markdown(sprint: dict) -> str:
@@ -51,6 +51,18 @@ def render_story_sections(sprint: dict, story_ids: list[str]) -> str:
     return "\n\n".join(parts)
 
 
+def _render_acceptance_criterion(lines: list[str], ac: Any) -> None:
+    """Render one AC item: a bare string, or an object with a description
+    and an optional command/commands verify block."""
+    if not isinstance(ac, dict):
+        lines.append(f"- {ac}")
+        return
+    lines.append(f"- {ac.get('description', '')}")
+    if "command" in ac or "commands" in ac:
+        for cmd in extract_commands(ac):
+            lines.append(f"  - `{cmd}`")
+
+
 def _render_story(lines: list[str], s: dict[str, Any]) -> None:
     """Render a single story to the lines list."""
     lines.append(f"### {s['id']}: {s['title']}")
@@ -85,7 +97,7 @@ def _render_story(lines: list[str], s: dict[str, Any]) -> None:
         lines.append("")
         lines.append("**Acceptance Criteria:**")
         for ac in s["acceptance_criteria"]:
-            lines.append(f"- {ac}")
+            _render_acceptance_criterion(lines, ac)
 
     ae = s.get("acceptance_execution")
     if ae:
