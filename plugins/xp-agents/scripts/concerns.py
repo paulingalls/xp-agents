@@ -54,6 +54,15 @@ TEST_CONCERN_RE = re.compile(
 # "Superseded decision: topic 'X' has multiple decisions..."
 _SUPERSEDED_TOPIC_RE = re.compile(r"^Superseded decision: topic '([^']+)'")
 
+# Topics that legitimately accrue multiple decisions per session as part of
+# the standard workflow. /xp-assign records execution-mode every kickoff;
+# users may also re-decide mid-session when scope shifts. Cross-session
+# scoping already filters re-citations across SESSION_END boundaries, but
+# in-session pairs would trip the detector without this exemption.
+# Shared with pre_tool_bash._same_topic_decisions_context so the pre-write
+# nudge stays silent on the same topics.
+SUPERSEDED_DECISION_EXEMPT_TOPICS: frozenset[str] = frozenset({"execution-mode"})
+
 LINT_CONCERN_PREFIX = "Lint errors in "
 LINT_RESOLVED_PREFIX = "Lint concern resolved"
 TEST_COMMAND_FAILED_PREFIX = "Test command failed"
@@ -417,6 +426,8 @@ def detect_conflicts(
         if len(decs) < 2:
             continue
         if topic in already_accepted_topics:
+            continue
+        if topic in SUPERSEDED_DECISION_EXEMPT_TOPICS:
             continue
         prev_pos, prev_dec = decs[-2]
         curr_pos, curr_dec = decs[-1]
