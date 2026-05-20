@@ -148,8 +148,13 @@ class TestRenderAcceptanceCriteriaItems(unittest.TestCase):
             acceptance_criteria=["Users can register", "E2E: registration flow"]
         )
         md = sprint_render.render_markdown(_make_sprint(stories=[story]))
-        self.assertIn("- Users can register", md)
-        self.assertIn("- E2E: registration flow", md)
+        # Byte-identical to the pre-object render: the AC section is exactly
+        # the header followed by one `- {text}` bullet per string item, with
+        # no indented command rows. Pin the whole block, not scattered lines.
+        expected_block = (
+            "**Acceptance Criteria:**\n- Users can register\n- E2E: registration flow\n"
+        )
+        self.assertIn(expected_block, md)
 
 
 if __name__ == "__main__":
