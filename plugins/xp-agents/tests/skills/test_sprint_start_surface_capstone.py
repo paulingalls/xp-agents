@@ -37,6 +37,10 @@ class TestSurfaceCapstoneWiring(unittest.TestCase):
         region = self._region("### Step 1b:", "### Step 2:")
         self.assertIn('--type "concern"', region)
         self.assertIn('--severity "medium"', region)
+        # The concern content must reference the milestone + the surface,
+        # not just fire a generic concern (AC #1).
+        self.assertIn("Milestone", region)
+        self.assertIn("surface", region)
 
     def test_capstone_step_uses_build_capstone_cli(self):
         region = self._region("### Step 3b:", "### Step 4:")
@@ -46,6 +50,8 @@ class TestSurfaceCapstoneWiring(unittest.TestCase):
         region = self._region("### Step 3b:", "### Step 4:")
         self.assertIn("opt-in", region)
         self.assertIn("behavior-shaped", region)
+        # The capstone must start in 'ready' status (AC #2).
+        self.assertIn("`ready`", region)
 
     def test_allowed_tools_permits_surface_coverage_cli(self):
         self.assertIn("surface_coverage.py", self.frontmatter)
