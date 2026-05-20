@@ -19,49 +19,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import scaffold_apply
 from _helpers import make_fake_copy_failing_on_backup_restore
-from scaffold_apply import ApplyResult, apply_plan
+from scaffold_apply import apply_plan
 from test_scaffold_apply_pipeline import _ApplyTestBase, _plan, _RevertTestBase
 
 
-class TestApplyPlanRejectsPreExistingCreateTargets(_ApplyTestBase):
-    """Block fix: a misclassified files_to_create entry pointing at an
-    existing customer file would be silently overwritten by write_files
-    and then deleted by revert(). apply_plan must refuse before any
-    snapshot is created."""
-
-    def _run_collision(
-        self, target_rel: str = "package.json", content: str = '{"name": "demo"}\n'
-    ) -> tuple[Path, ApplyResult]:
-        target = self.repo / target_rel
-        target.write_text(content, encoding="utf-8")
-        plan = _plan(
-            files_to_create=[
-                {"path": target_rel, "description": "should fail", "body": "x\n"}
-            ]
-        )
-        result = apply_plan(plan, repo_root=self.repo)
-        self._track_snapshot(result)
-        return target, result
-
-    def test_pre_existing_create_target_returns_not_ok(self) -> None:
-        _, result = self._run_collision()
-        self.assertFalse(result.ok)
-        self.assertEqual(result.phase, "write")
-
-    def test_pre_existing_create_target_reason_names_path(self) -> None:
-        _, result = self._run_collision()
-        self.assertIn("package.json", result.reason or "")
-
-    def test_pre_existing_create_target_does_not_touch_file(self) -> None:
-        original = '{"name": "demo", "secret": "preserved"}\n'
-        target, _ = self._run_collision(content=original)
-        self.assertEqual(target.read_text(encoding="utf-8"), original)
-
-    def test_pre_existing_create_target_no_snapshot_created(self) -> None:
-        _, result = self._run_collision()
-        self.assertFalse(result.reverted)
-        self.assertIsNone(result.snapshot_id)
-        self.assertIsNone(result.snapshot_dir)
+class TestApplyPlanCreateValidation(_ApplyTestBase):
+    """The create-collision refuse was removed in favor of content-aware
+    resume (see test_scaffold_apply_resume.py). A clean plan whose
+    files_to_create targets don't yet exist still passes validation."""
 
     def test_clean_plan_passes_validation(self) -> None:
         plan = _plan(
@@ -122,30 +87,6 @@ class TestApplyPlanRejectsModifyOfNonexistent(_ApplyTestBase):
         result = apply_plan(self._modify_only_plan(), repo_root=self.repo)
         self._track_snapshot(result)
         self.assertTrue(result.ok)
-
-    def test_create_collision_wins_when_both_violations_present(self) -> None:
-        """When the plan has both a missing-modify and an existing-create
-        violation, the create-collision reason wins. Locks in deterministic
-        error messaging so callers see a stable contract."""
-        existing = self.repo / "package.json"
-        existing.write_text('{"name": "demo"}\n', encoding="utf-8")
-        plan = _plan(
-            files_to_create=[
-                {"path": "package.json", "description": "collision", "body": "x"}
-            ],
-            files_to_modify=[
-                {
-                    "path": "tests/missing.ts",
-                    "description": "missing",
-                    "body": "x",
-                }
-            ],
-        )
-        result = apply_plan(plan, repo_root=self.repo)
-        self._track_snapshot(result)
-        self.assertFalse(result.ok)
-        self.assertIn("package.json", result.reason or "")
-        self.assertIn("files_to_create", result.reason or "")
 
 
 class TestApplyPhaseLogs(_ApplyTestBase):
@@ -320,11 +261,11 @@ class TestApplyResultLifecycle(_ApplyTestBase):
         self.assertIsNone(result.snapshot_dir)
 
     def test_validation_failure_state_is_none(self) -> None:
-        target = self.repo / "package.json"
-        target.write_text('{"name": "demo"}\n', encoding="utf-8")
+        # modify-of-nonexistent is the remaining pre-snapshot validation
+        # failure (the create-collision guard was removed in favor of resume).
         plan = _plan(
-            files_to_create=[
-                {"path": "package.json", "description": "collides", "body": "x\n"}
+            files_to_modify=[
+                {"path": "package.json", "description": "missing", "body": "x\n"}
             ]
         )
         result = apply_plan(plan, repo_root=self.repo)

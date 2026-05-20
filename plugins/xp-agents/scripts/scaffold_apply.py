@@ -83,6 +83,7 @@ class ApplyResult:
     reverted: bool = False
     unrestored: list[str] = field(default_factory=list)
     recovery: str | None = None
+    resumed: bool = False
 
 
 @dataclass
@@ -112,32 +113,19 @@ def validate_plan(plan: dict, *, repo_root: Path) -> str | None:
     """Return an error reason if the plan would silently corrupt customer
     state; ``None`` if safe to apply.
 
-    Two symmetric guards:
+    Existing ``files_to_create`` targets are NOT refused — they are
+    resume-handled: ``create_snapshot`` backs them up (so ``revert`` can
+    restore them) and ``write_files`` skips a target whose content already
+    matches its body or overwrites a divergent one. Backed-up create targets
+    are restored on revert, never unlinked, so the data-loss case the old
+    refuse guarded is now covered by the backup.
 
-    1. Every ``files_to_create`` entry must NOT already exist. ``revert()``
-       blindly unlinks create-targets on failure; a misclassified existing
-       file would be overwritten by write and deleted on revert.
-    2. Every ``files_to_modify`` entry MUST already exist. ``create_snapshot``
-       suppresses ``FileNotFoundError`` when backing up a missing target;
-       ``write_files`` then creates the file fresh, and ``revert()`` cannot
-       restore a backup that was never taken — the file orphans.
-
-    Create-side violations win when both are present: the create case is
-    higher-impact (data loss vs orphan file) so its message surfaces first.
+    The modify-side guard remains: every ``files_to_modify`` entry MUST
+    already exist. ``create_snapshot`` suppresses ``FileNotFoundError`` when
+    backing up a missing target; ``write_files`` would then create the file
+    fresh, and ``revert()`` cannot restore a backup that was never taken —
+    the file orphans.
     """
-    collisions = [
-        entry["path"]
-        for entry in plan.get("files_to_create", [])
-        if (repo_root / entry["path"]).exists()
-    ]
-    if collisions:
-        paths = ", ".join(collisions)
-        return (
-            "files_to_create entries already exist in repo_root: "
-            f"{paths}. These look like modifications — move them to "
-            "files_to_modify (with full merged body) or remove them from "
-            "the plan. Refusing to overwrite pre-existing customer files."
-        )
     missing = [
         entry["path"]
         for entry in plan.get("files_to_modify", [])
@@ -174,15 +162,21 @@ def load_snapshot(snapshot_id: str, *, repo_root: Path) -> ApplySnapshot:
 
 
 def create_snapshot(plan: dict, *, repo_root: Path) -> ApplySnapshot:
-    """Create snapshot dir + plan.json, back up every files_to_modify target.
+    """Create snapshot dir + plan.json, back up every modify target and
+    every already-existing create target.
 
     No repo writes happen here — bodies land in ``write_files``. Splitting
     snapshot creation from body writes lets ``apply_plan`` revert partial
-    writes when ``write_files`` itself raises.
+    writes when ``write_files`` itself raises. A create target's backup is
+    only taken when it already exists; its presence in BACKUP_SUBDIR tells
+    ``revert`` to restore (not unlink) it.
     """
     snapshot_id, snapshot_dir = _new_snapshot_dir()
     backup_dir = snapshot_dir / BACKUP_SUBDIR
-    for entry in plan.get("files_to_modify", []):
+    # Back up every modify target AND every already-existing create target.
+    # A backup's presence in BACKUP_SUBDIR is the "pre-existed our run" record
+    # revert() keys on: present → restore, absent → unlink.
+    for entry in plan.get("files_to_modify", []) + plan.get("files_to_create", []):
         target = repo_root / entry["path"]
         backup = backup_dir / entry["path"]
         backup.parent.mkdir(parents=True, exist_ok=True)
@@ -198,8 +192,15 @@ def create_snapshot(plan: dict, *, repo_root: Path) -> ApplySnapshot:
     return snap
 
 
-def write_files(snap: ApplySnapshot) -> None:
-    """Atomically write every files_to_modify body and every files_to_create body."""
+def write_files(snap: ApplySnapshot) -> int:
+    """Atomically write every files_to_modify body and every files_to_create body.
+
+    A files_to_create target that already exists with content matching its
+    body is skipped — the resume case (a prior partial apply already wrote
+    it). Returns the count of such skipped-because-matching targets so the
+    caller can set ``ApplyResult.resumed``. Divergent or missing targets are
+    written normally; the snapshot already backed up any pre-existing one.
+    """
     plan = snap.plan
     for entry in plan.get("files_to_modify", []):
         if "body" not in entry:
@@ -207,10 +208,29 @@ def write_files(snap: ApplySnapshot) -> None:
         target = snap.repo_root / entry["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
         write_text_atomic(target, entry["body"])
+    resumed_skips = 0
     for entry in plan.get("files_to_create", []):
         target = snap.repo_root / entry["path"]
+        body = entry.get("body", "")
+        if target.exists() and _content_matches(target, body):
+            resumed_skips += 1
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(target, entry.get("body", ""))
+        write_text_atomic(target, body)
+    return resumed_skips
+
+
+def _content_matches(target: Path, body: str) -> bool:
+    """True when ``target``'s text content equals ``body``.
+
+    An undecodable (binary) target counts as a non-match so write_files
+    overwrites it — UnicodeDecodeError is a ValueError, not OSError, so
+    letting it propagate would escape apply_write_only's revert guard.
+    """
+    try:
+        return target.read_text(encoding="utf-8") == body
+    except UnicodeDecodeError:
+        return False
 
 
 def run_install(snap: ApplySnapshot) -> None:
@@ -339,6 +359,14 @@ def revert(snap: ApplySnapshot) -> list[str]:
             unrestored.append(rel)
     for entry in snap.plan.get("files_to_create", []):
         rel = entry["path"]
+        backup = backup_dir / rel
+        if backup.exists():
+            # Pre-existed our run — restore the original content, never unlink.
+            try:
+                shutil.copy2(backup, snap.repo_root / rel)
+            except OSError:
+                unrestored.append(rel)
+            continue
         try:
             (snap.repo_root / rel).unlink(missing_ok=True)
         except OSError:
@@ -407,7 +435,7 @@ def apply_write_only(
         )
     snap = create_snapshot(plan, repo_root=repo_root)
     try:
-        write_files(snap)
+        resumed_skips = write_files(snap)
     except OSError as exc:
         return (failure_result("write", str(exc), snap), snap)
     return (
@@ -416,6 +444,7 @@ def apply_write_only(
             snapshot_id=snap.snapshot_id,
             snapshot_dir=str(snap.snapshot_dir),
             snapshot_state="retained",
+            resumed=resumed_skips > 0,
         ),
         snap,
     )
@@ -465,5 +494,9 @@ def apply_plan(plan: dict, *, repo_root: Path) -> ApplyResult:
     snapshot_id = snap.snapshot_id
     cleanup_snapshot(snap)
     return ApplyResult(
-        ok=True, snapshot_id=snapshot_id, snapshot_dir=None, snapshot_state="cleaned"
+        ok=True,
+        snapshot_id=snapshot_id,
+        snapshot_dir=None,
+        snapshot_state="cleaned",
+        resumed=write_result.resumed,
     )
