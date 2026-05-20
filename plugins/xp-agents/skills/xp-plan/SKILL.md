@@ -65,7 +65,7 @@ Based on sources + codebase scan, propose ordered milestones. Each milestone sho
 
 For each milestone:
 - **Goal**: One sentence describing what's delivered. Budget: ≤200 chars.
-- **Definition of Done**: A concrete, testable condition. Budget: ≤300 chars.
+- **Definition of Done**: A concrete, testable condition, behavior-shaped (Given/When/Then or equivalent — an observable outcome, not an implementation note). Budget: ≤300 chars.
 - **Sources**: References into the Sources table with section pointers.
 - **Discovery**: Run the discovery pass above. Its output feeds Change Zones and Impact Zones — do not hand-roll those bullets without it.
 - **Change Zones**: Files/modules modified, with a brief note. Union of declared paths and discovery call-sites that must change. Note budget: ≤150 chars each.
