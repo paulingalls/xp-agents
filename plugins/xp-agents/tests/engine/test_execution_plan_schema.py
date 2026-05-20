@@ -150,6 +150,54 @@ class TestValidatePlan(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class TestSurfacesTouched(unittest.TestCase):
+    """milestone.surfaces_touched: optional list[str], FK to
+    acceptance_surfaces[*].name when a valid_surfaces set is supplied."""
+
+    def test_absent_surfaces_touched_valid(self):
+        import execution_plan_schema as schema
+
+        self.assertEqual(schema.validate_plan(_make_plan()), [])
+
+    def test_known_surfaces_with_valid_set_pass(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched=["api", "cli"])])
+        errors = schema.validate_plan(plan, valid_surfaces=frozenset({"api", "cli"}))
+        self.assertEqual(errors, [])
+
+    def test_unknown_surface_with_valid_set_reports_fk_error(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[_make_milestone(surfaces_touched=["api", "ghost"])]
+        )
+        errors = schema.validate_plan(plan, valid_surfaces=frozenset({"api"}))
+        self.assertTrue(
+            any("surfaces_touched" in e and "ghost" in e for e in errors), errors
+        )
+
+    def test_unknown_surface_without_valid_set_is_shape_only(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched=["anything"])])
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_non_list_surfaces_touched_rejected(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched="api")])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("surfaces_touched" in e for e in errors), errors)
+
+    def test_non_string_surface_entry_rejected(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched=["api", 7])])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("surfaces_touched" in e for e in errors), errors)
+
+
 class TestDeferredMilestoneStatus(unittest.TestCase):
     """`deferred` is a valid milestone status; no delivered_sprint required."""
 
