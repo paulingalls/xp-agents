@@ -138,7 +138,7 @@ _TOOL_CONFIGS: dict[str, list[tuple[str, str | None]]] = {
         ("pyproject.toml", '"pytest-bdd<'),
         ("pyproject.toml", '"pytest-bdd='),
     ],
-    "gauge": [("manifest.json", '"Language":')],
+    "gauge": [("manifest.json", '"Plugins":')],
 }
 
 # Surfaces where has_tooling=False means "no config-file signal," NOT

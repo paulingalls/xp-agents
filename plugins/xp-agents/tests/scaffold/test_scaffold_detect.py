@@ -283,6 +283,14 @@ class TestDetectExistingTooling(unittest.TestCase):
         self.assertTrue(result["has_tooling"])
         self.assertEqual(result["tool_name"], "gauge")
 
+    def test_gauge_marker_rejects_pwa_manifest(self) -> None:
+        """The "Plugins": marker must not match a PWA/extension manifest.json
+        that has a "Language" key but no gauge "Plugins" list."""
+        cfg = self.repo / "manifest.json"
+        cfg.write_text('{"name": "My PWA", "lang": "en", "Language": "en"}\n')
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertFalse(result["has_tooling"])
+
     def test_playwright_wins_over_cucumber_when_both_configured(self) -> None:
         """Precedence pin: cucumber appended after playwright in _CANONICAL_TOOLS
         so existing playwright defaults are preserved when both configs exist."""
