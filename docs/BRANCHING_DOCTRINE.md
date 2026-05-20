@@ -409,10 +409,11 @@ protection rules, enable CI workflows, write PR templates, or push
 branches on the customer's behalf. It raises concerns that tell the
 customer what's missing and what to do.
 
-A dedicated scaffolding skill for branching setup is deferred — same
-reasoning as for acceptance: scaffolding is opinionated and intrusive,
-and belongs in its own holistically-designed skill alongside the
-broader workflow-setup story.
+A dedicated scaffolding skill for branching setup (branch-protection
+rules, CI workflows, PR templates) is deferred. Acceptance scaffolding
+has since shipped as `/xp-scaffold-acceptance`; a branching-setup
+equivalent still belongs in its own holistically-designed skill
+alongside the broader workflow-setup story.
 
 ---
 
