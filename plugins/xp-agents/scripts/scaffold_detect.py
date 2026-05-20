@@ -141,11 +141,11 @@ _TOOL_CONFIGS: dict[str, list[tuple[str, str | None]]] = {
     "gauge": [("manifest.json", '"Language":')],
 }
 
-# Surfaces whose canonical tools generally lack a single config-file signal
-# (sdk: doctest/hypothesis are inline; message_event: testcontainers et al.
-# wire in via test-runner code). detect_existing_tooling will return
-# has_tooling=False for these — the skill must not interpret that as proof
-# of absence; it's "no config-file signal."
+# Surfaces where has_tooling=False means "no config-file signal," NOT
+# "tool absent." sdk's doctest/hypothesis run inline; message_event's
+# testcontainers et al. wire in via test code. (sdk's BDD tools
+# pytest-bdd/behave/gauge DO have config signals — they're the minority,
+# so a doctest-only repo still reports False here.)
 NO_CONFIG_FILE_SIGNAL: frozenset[str] = frozenset({"sdk", "message_event"})
 
 

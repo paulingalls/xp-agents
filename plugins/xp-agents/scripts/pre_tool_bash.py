@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import branching
 import commits
+import concerns
 import coordination
 import git_commits
 import identity
@@ -178,6 +179,8 @@ def _same_topic_decisions_context(
     moment they're about to write the new decision.
     """
     if not topic or not events:
+        return None
+    if topic in concerns.SUPERSEDED_DECISION_EXEMPT_TOPICS:
         return None
     resolved = resolution.collect_all_resolved_ids(resolutions)
 
