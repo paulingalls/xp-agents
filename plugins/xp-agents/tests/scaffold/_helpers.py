@@ -14,11 +14,14 @@ SKILL.md format change has one update site.
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from unittest import TestCase
 
 
 def frontmatter_body(text: str) -> tuple[str, str]:
@@ -91,6 +94,73 @@ def make_fake_copy_failing_on_backup_restore(
         return original_copy(src, dst, *args, **kw)
 
     return fake_copy
+
+
+def load_system_context(smm_dir: Path) -> dict:
+    """Read system_context.json back from an SMM dir (post-apply assertions)."""
+    return json.loads((smm_dir / "system_context.json").read_text(encoding="utf-8"))
+
+
+def run_scaffold_pipeline(
+    tc: TestCase,
+    run: Callable[..., dict],
+    repo_root: Path,
+    *,
+    surface: str,
+    tool: str,
+    plan: dict,
+    concern_id: str = "abc123def456",
+    agent_id: str = "test-agent",
+) -> dict:
+    """Drive one surface through apply-write→install→verify→commit→record.
+
+    ``run`` is the test's CLI runner ``(argv, stdin_data=...) -> dict`` that
+    already asserts returncode 0. Registers snapshot cleanup on ``tc`` and
+    asserts the commit succeeded. Returns the apply-commit payload (keys
+    ``sha``, ``ok``, ``branch``) plus ``snapshot_id`` (the snapshot the
+    pipeline drove off) so callers can make their own assertions.
+    """
+    repo = str(repo_root)
+    write = run(["apply-write", "--repo-root", repo], stdin_data=json.dumps(plan))
+    snap_id = write["snapshot_id"]
+    tc.addCleanup(shutil.rmtree, write["snapshot_dir"], True)
+    run(["apply-install", "--snapshot-id", snap_id, "--repo-root", repo])
+    run(["apply-verify", "--snapshot-id", snap_id, "--repo-root", repo])
+    commit = run(
+        [
+            "apply-commit",
+            "--snapshot-id",
+            snap_id,
+            "--repo-root",
+            repo,
+            "--surface",
+            surface,
+            "--tool",
+            tool,
+            "--concern-id",
+            concern_id,
+        ]
+    )
+    tc.assertTrue(commit["ok"], commit.get("reason"))
+    run(
+        [
+            "apply-record",
+            "--snapshot-id",
+            snap_id,
+            "--repo-root",
+            repo,
+            "--surface",
+            surface,
+            "--concern-id",
+            concern_id,
+            "--agent-id",
+            agent_id,
+            "--commit-sha",
+            commit["sha"],
+        ]
+    )
+    commit["snapshot_id"] = snap_id
+    return commit
 
 
 def valid_system_context(surfaces: list[dict] | None = None) -> dict:

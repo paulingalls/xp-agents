@@ -35,7 +35,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _bases import _PLUGIN_ROOT
-from _helpers import init_git_identity, run_git, valid_system_context
+from _helpers import (
+    init_git_identity,
+    load_system_context,
+    run_git,
+    run_scaffold_pipeline,
+    valid_system_context,
+)
 from conftest import run_cli
 
 _CLI = _PLUGIN_ROOT / "scripts" / "scaffold_cli.py"
@@ -161,52 +167,13 @@ class TestScaffoldM5Capstone(unittest.TestCase):
 
         api_root = self.repo / "packages" / "api"
 
-        write_payload = self._run(
-            ["apply-write", "--repo-root", str(api_root)],
-            stdin_data=json.dumps(_PLAN_INPUT),
-        )
-        snap_id = write_payload["snapshot_id"]
-        self.addCleanup(shutil.rmtree, write_payload["snapshot_dir"], True)
-
-        self._run(
-            ["apply-install", "--snapshot-id", snap_id, "--repo-root", str(api_root)]
-        )
-        self._run(
-            ["apply-verify", "--snapshot-id", snap_id, "--repo-root", str(api_root)]
-        )
-        commit_payload = self._run(
-            [
-                "apply-commit",
-                "--snapshot-id",
-                snap_id,
-                "--repo-root",
-                str(api_root),
-                "--surface",
-                "browser",
-                "--tool",
-                "playwright",
-                "--concern-id",
-                "abc123def456",
-            ]
-        )
-        self.assertTrue(commit_payload["ok"])
-
-        self._run(
-            [
-                "apply-record",
-                "--snapshot-id",
-                snap_id,
-                "--repo-root",
-                str(api_root),
-                "--surface",
-                "browser",
-                "--concern-id",
-                "abc123def456",
-                "--agent-id",
-                "test-agent",
-                "--commit-sha",
-                commit_payload["sha"],
-            ]
+        run_scaffold_pipeline(
+            self,
+            self._run,
+            api_root,
+            surface="browser",
+            tool="playwright",
+            plan=_PLAN_INPUT,
         )
 
         # The scaffold's test file landed under packages/api/, not the repo root.
@@ -218,9 +185,7 @@ class TestScaffoldM5Capstone(unittest.TestCase):
         )
 
         # Surface flipped covered + template stamped.
-        ctx = json.loads(
-            (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
-        )
+        ctx = load_system_context(self.smm_dir)
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
         self.assertEqual(browser["status"], "covered")
         self.assertEqual(browser["acceptance_template_command"], "true")

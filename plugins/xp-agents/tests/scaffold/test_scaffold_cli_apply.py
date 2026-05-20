@@ -489,7 +489,7 @@ class TestApplyCommitStageTwoOnProtectedBase(_ApplyCliCommitTestBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertTrue(payload["ok"], payload.get("reason"))
-        self.assertTrue(payload["branch"].endswith("/scaffold-browser"))
+        self.assertTrue(payload["branch"].endswith("/scaffold"))
 
     def test_refuses_on_story_branch_at_stage_2(self) -> None:
         """apply-commit on a story branch surfaces commit_scaffold's refusal

@@ -9,8 +9,8 @@ after a green verify:
   commit subject and trailers (Tool-version / Files-created /
   Files-modified / Verification / Resolves-Event).
 - ``commit_scaffold(snap, ...)``: stage-aware branch + commit orchestration.
-  Stage 0 commits on HEAD; above the plugin floor creates
-  ``<user>/scaffold-<surface>`` off the current branch via
+  Stage 0 commits on HEAD; above the plugin floor creates/resumes the
+  shared ``<user>/scaffold`` branch off the current branch via
   ``branching.create_scaffold_branch`` and commits there. The one refusal
   is a story branch (a scaffold there would enter the story's file_domain).
 - ``record_scaffold(snap, ...)``: flips the matching
@@ -96,7 +96,7 @@ def commit_scaffold(
     """Stage-aware branch + commit for a green scaffold.
 
     Stage 0: commit on the current HEAD with the doctrine subject.
-    Stage 1+: create/checkout ``<user>/scaffold-<surface>`` off the
+    Stage 1+: create/resume the shared ``<user>/scaffold`` branch off the
     current branch (``branching.create_scaffold_branch``) and commit
     there — branching off a protected base is fine because the scaffold
     child is what keeps the commit off the protected branch. The one
@@ -125,7 +125,6 @@ def commit_scaffold(
             )
         new_branch = branching.create_scaffold_branch(
             str(repo_root),
-            surface,
             smm_dir,
             current_branch=current_branch,
         )
