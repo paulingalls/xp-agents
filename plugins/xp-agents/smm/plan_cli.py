@@ -156,8 +156,8 @@ def _cmd_edit_milestone(args: argparse.Namespace) -> int:
         return 1
 
     milestone_num = args.milestone_number
-    matches = [m for m in plan["milestones"] if m["number"] == milestone_num]
-    if not matches:
+    milestone = store.find_milestone(plan, milestone_num)
+    if milestone is None:
         print(f"No milestone with number {milestone_num}", file=sys.stderr)
         return 1
 
@@ -168,7 +168,7 @@ def _cmd_edit_milestone(args: argparse.Namespace) -> int:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
 
-    matches[0].update(patch)
+    milestone.update(patch)
     try:
         store.save_plan(args.smm_dir, plan)
     except ValueError as exc:
