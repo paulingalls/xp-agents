@@ -96,6 +96,19 @@ def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None
     (smm_dir / _MARKER_NAME).unlink(missing_ok=True)
 
 
+def find_milestone(plan: dict, milestone_num: int) -> dict | None:
+    """Return the milestone with `number == milestone_num`, or None."""
+    return next((m for m in plan["milestones"] if m["number"] == milestone_num), None)
+
+
+def find_milestone_required(plan: dict, milestone_num: int) -> dict:
+    """Return the milestone by number or raise ValueError if absent."""
+    milestone = find_milestone(plan, milestone_num)
+    if milestone is None:
+        raise ValueError(f"No milestone with number {milestone_num}")
+    return milestone
+
+
 def update_milestone_status(
     smm_dir: Path,
     milestone_num: int,
@@ -118,16 +131,13 @@ def update_milestone_status(
     plan = load_plan(smm_dir)
     if plan is None:
         raise ValueError("No execution plan found")
-    for milestone in plan["milestones"]:
-        if milestone["number"] == milestone_num:
-            milestone["status"] = status
-            if status == "delivered":
-                milestone["delivered_sprint"] = delivered_sprint
-            elif milestone.get("delivered_sprint"):
-                milestone["delivered_sprint"] = None
-            save_plan(smm_dir, plan, enforce_budget=False)
-            return
-    raise ValueError(f"No milestone with number {milestone_num}")
+    milestone = find_milestone_required(plan, milestone_num)
+    milestone["status"] = status
+    if status == "delivered":
+        milestone["delivered_sprint"] = delivered_sprint
+    elif milestone.get("delivered_sprint"):
+        milestone["delivered_sprint"] = None
+    save_plan(smm_dir, plan, enforce_budget=False)
 
 
 def set_branch(smm_dir: Path, branch: str | None) -> None:
