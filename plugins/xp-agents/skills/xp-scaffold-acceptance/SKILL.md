@@ -21,8 +21,10 @@ allowed-tools:
 
 Entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.**
 
-**Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9** — Step 3 picks
-tool before Step 2 web-refreshes its version.
+**Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9 → 10.** Step 1 detects
+once; Step 3 confirms the surface set; Steps 2 and 4–9 then run **once per
+confirmed surface** (Step 3 picks the tool before Step 2 web-refreshes it);
+Step 10 summarizes after the loop.
 
 `$REPO_ROOT` is the customer's repository root, resolved once:
 
@@ -181,37 +183,57 @@ If the CLI prints `{"decline": true, "reason": "..."}`, emit the reason
 verbatim and exit. `'GUIDANCE_EOF'` quoting disables shell expansion;
 `--tool="<tool>"` (double-quoted) is apostrophe-safe in tool names.
 
-## Step 3: Ask
+## Step 3: Confirm the surface set
 
-If detection finds no existing tooling and surfaces are present, use
-`AskUserQuestion` to gather selections.
+List uncovered surfaces, confirm the set against default tools, then loop the
+per-surface pipeline.
 
-**Surface question** — list surfaces with `status="gap"` (or all if
-none are tagged gap). Skip if there is exactly one gap surface.
+### 3a. List uncovered surfaces
+
+```bash
+UNCOVERED_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
+    --smm-dir <SMM_DIR> list-uncovered --repo-root <REPO_ROOT>)
+```
+
+Returns a JSON array of the surfaces whose `status != "covered"`, each with
+`{name, status, harness, has_tooling, tool_name, canonical_tools}`. If the
+array is empty, exit cleanly: _"All acceptance surfaces are already covered.
+Nothing to scaffold."_
+
+### 3b. Multi-surface confirmation page
+
+Present **one** multi-surface confirmation page listing every uncovered
+surface with its **default canonical tool** (`canonical_tools[0]`, or "Other"
+when the array is empty). The customer selects which surfaces to scaffold this
+run (`multiSelect`):
 
 ```
 AskUserQuestion(
-  question: "Which acceptance surface should I scaffold?",
-  options: [<surface name per gap surface>]
+  question: "Scaffold these surfaces? Each uses its default canonical tool unless you change it:\n  browser → playwright\n  cli → bats\n  sdk → (no canonical default — name a tool)",
+  multiSelect: true,
+  options: [<surface name per uncovered surface>]
 )
 ```
 
-**Tool question** — call `scaffold_detect.canonical_tools_for(<chosen surface>)`:
+Unselected surfaces are recorded **skipped** in the Step 10 summary — never
+silently dropped. When a confirmed surface's `canonical_tools` is empty, or the
+customer wants a non-default tool, fall back to the per-surface tool question —
+call `scaffold_detect.canonical_tools_for(<surface>)` and offer
+`[...canonical, "Other (I'll name it)"]`.
 
-```
-AskUserQuestion(
-  question: "Which tool for the <surface> surface?",
-  options: [
-    <canonical tool 1>,
-    <canonical tool 2>,
-    ...,
-    "Other (I'll name it)",
-  ]
-)
-```
+### 3c. Per-surface loop
 
-If the customer picks "Other," ask a free-text follow-up. Record both
-selections and proceed to Step 2 (web-refresh) then Step 4 (plan).
+**For each confirmed surface, run Steps 2 and 4–9** as one iteration, binding
+`$SURFACE` / `$TOOL` to that surface. Iterations are independent: a
+cancellation (Step 5 `no`) or auto-revert (Steps 6–7 failure) records that
+surface **skipped** and continues — it does not abort the rest. After the last
+surface, go to Step 10.
+
+**Loop scoping of "exit":** inside this loop, every "then exit" in Steps 5–9
+means **end this iteration** (record the surface skipped), NOT exit the skill.
+Surface the step's `reason` verbatim, mark the surface skipped, and move to the
+next confirmed surface. Only an empty confirmed set (handled in Step 3a/3b)
+ends the skill before Step 10.
 
 #### NO_CONFIG_FILE_SIGNAL caveat (sdk, message_event)
 
@@ -230,7 +252,10 @@ Assemble the `ScaffoldPlan` via `scaffold_cli.py build-plan`. Build
 knowledge — typical: config file, happy-path test, `.gitignore`
 update, manifest (`package.json` / `pyproject.toml` / `Cargo.toml`)
 update. Set `verify_cmd` to the runner's invocation against the test
-file. Set `branch_name` to `<user>/scaffold-<surface>-acceptance`.
+file. Set `branch_name` to `<user>/scaffold-<surface>` — this is the
+exact branch Step 8 commits to (`branching.create_scaffold_branch`),
+and `render-preview` shows it as `Commit branch:`, so any other value
+misrepresents where the work lands.
 
 **Draft each file body and embed it in the plan dict.** Each entry
 carries a `body` field with full desired contents — Step 5's
@@ -271,7 +296,7 @@ PLAN_JSON=$(cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli
   ],
   "install_cmds": ["npm install", "npx playwright install chromium"],
   "verify_cmd": "npx playwright test tests/acceptance/example.spec.ts",
-  "branch_name": "paul/scaffold-browser-acceptance"
+  "branch_name": "paul/scaffold-browser"
 }
 PLANEOF
 )
@@ -325,9 +350,11 @@ APPLY_JSON=$(printf '%s' "$PLAN_JSON" | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/sc
 ```
 
 On `ok=true`, capture `snapshot_id` into `$SNAPSHOT_ID` and proceed to
-Step 7. On `ok=false`, the snapshot already auto-reverted — surface
-`reason` (and `recovery` if set, naming the snapshot dir and
-unrestored paths) verbatim, then exit.
+Step 7; also note `ApplyResult.resumed` (`$APPLY_JSON.resumed`) — `true` means
+the scaffold files already existed and were re-applied, so Step 10 reports this
+surface **resumed** rather than **created**. On `ok=false`, the snapshot already
+auto-reverted — surface `reason` (and `recovery` if set, naming the snapshot
+dir and unrestored paths) verbatim, then exit.
 
 ## Step 7: Install and verify
 
@@ -426,3 +453,20 @@ matches `--commit-sha`. Subject convention is **not** gated, so manual
 recovery flows where the user committed the scaffold themselves with a
 non-canonical subject (conventional-commits, plain prose, custom prefix)
 still work — the SHA-match alone binds record to the exact commit.
+
+## Step 10: Summarize
+
+After the loop, render **one line per surface** from the Step 3b set — the sole
+end-of-run output (do not re-summarize inline). Each surface lands in one
+outcome:
+
+- **created** — fresh scaffold committed (`ApplyResult.resumed=false`); show the Step 8 sha.
+- **resumed** — `ApplyResult.resumed=true`; scaffold files already existed, re-applied idempotently.
+- **skipped** — unselected in Step 3b, or cancelled (Step 5 `no`) / auto-reverted (Steps 6–7) mid-pipeline.
+
+```
+Scaffold summary:
+  browser → created (commit a1b2c3d)
+  cli     → resumed
+  sdk     → skipped (cancelled at preview)
+```
