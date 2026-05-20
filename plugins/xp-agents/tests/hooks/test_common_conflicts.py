@@ -493,6 +493,22 @@ class TestDetectConflictsCommon(_HookTestCase):
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 0)
 
+    def test_superseded_decision_exempt_topic_skipped(self):
+        """Topics in SUPERSEDED_DECISION_EXEMPT_TOPICS never trip the detector.
+
+        execution-mode is re-decided by /xp-assign each kickoff;
+        multiple decisions per session are normal, not silent
+        supersession. The exemption covers the same-session pair case
+        that cross-session scoping doesn't catch.
+        """
+        d1 = make_event(EVENT_TYPE_DECISION, topic="execution-mode", content="Solo")
+        d2 = make_event(
+            EVENT_TYPE_DECISION, topic="execution-mode", content="Teammates"
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 0)
+
     def test_superseded_decision_e2e_only_in_session_pairs_fire(self):
         """Cross+in-session sequences only flag in-session pairs."""
         # Session 1: stable topic decided once

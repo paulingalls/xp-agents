@@ -75,26 +75,54 @@ def _cmd_teammates_active(args: argparse.Namespace) -> int:
     return 1
 
 
+def _surface_entry(surface: dict, repo_root: Path) -> dict:
+    """Build the per-surface detection dict shared by detect-surfaces and
+    list-uncovered: surface metadata plus config-file tooling detection."""
+    name = surface.get("name", "")
+    detection = scaffold_detect.detect_existing_tooling(name, repo_root)
+    return {
+        "name": name,
+        "status": surface.get("status", ""),
+        "harness": surface.get("harness"),
+        "has_tooling": detection["has_tooling"],
+        "tool_name": detection["tool_name"],
+        "config_files": [str(p) for p in detection["config_files"]],
+    }
+
+
 def _cmd_detect_surfaces(args: argparse.Namespace) -> int:
     err = _require_smm_dir(args, "detect-surfaces")
     if err is not None:
         return err
     surfaces = scaffold_detect.read_acceptance_surfaces(args.smm_dir)
-    repo_root = args.repo_root
+    out = [_surface_entry(surface, args.repo_root) for surface in surfaces]
+    print(json.dumps(out))
+    return 0
+
+
+def _cmd_list_uncovered(args: argparse.Namespace) -> int:
+    """Print uncovered surfaces (status != "covered") with canonical_tools.
+
+    Feeds the SKILL.md multi-surface loop: one JSON entry per surface still
+    needing a harness, annotated with the candidate tools to offer. Drops
+    config_files (the loop offers tools, not on-disk paths) and adds
+    canonical_tools.
+    """
+    err = _require_smm_dir(args, "list-uncovered")
+    if err is not None:
+        return err
+    surfaces = scaffold_detect.read_acceptance_surfaces(args.smm_dir)
     out = []
     for surface in surfaces:
-        name = surface.get("name", "")
-        detection = scaffold_detect.detect_existing_tooling(name, repo_root)
-        out.append(
-            {
-                "name": name,
-                "status": surface.get("status", ""),
-                "harness": surface.get("harness"),
-                "has_tooling": detection["has_tooling"],
-                "tool_name": detection["tool_name"],
-                "config_files": [str(p) for p in detection["config_files"]],
-            }
-        )
+        if surface.get("status", "") == "covered":
+            continue
+        entry = {
+            k: v
+            for k, v in _surface_entry(surface, args.repo_root).items()
+            if k != "config_files"
+        }
+        entry["canonical_tools"] = scaffold_detect.canonical_tools_for(entry["name"])
+        out.append(entry)
     print(json.dumps(out))
     return 0
 
@@ -190,6 +218,20 @@ def main() -> None:
         help="Print acceptance_surfaces with detection results as JSON",
     )
     detect.add_argument(
+        "--repo-root",
+        type=Path,
+        required=True,
+        help="Repository root for config-file detection",
+    )
+
+    list_uncovered = sub.add_parser(
+        "list-uncovered",
+        help=(
+            "Print acceptance_surfaces with status != covered as JSON, each "
+            "annotated with canonical_tools for the multi-surface scaffold loop"
+        ),
+    )
+    list_uncovered.add_argument(
         "--repo-root",
         type=Path,
         required=True,
@@ -331,6 +373,7 @@ def main() -> None:
     dispatch = {
         "teammates-active": _cmd_teammates_active,
         "detect-surfaces": _cmd_detect_surfaces,
+        "list-uncovered": _cmd_list_uncovered,
         "find-introducing-commit": _cmd_find_introducing_commit,
         "detect-monorepo": _cmd_detect_monorepo,
         "assess-tool": _cmd_assess_tool,

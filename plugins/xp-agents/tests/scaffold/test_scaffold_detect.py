@@ -101,6 +101,20 @@ class TestCanonicalToolsFor(unittest.TestCase):
     def test_cli_includes_bun(self) -> None:
         self.assertIn("bun", canonical_tools_for("cli"))
 
+    def test_browser_includes_cucumber(self) -> None:
+        tools = canonical_tools_for("browser")
+        self.assertIn("cucumber", tools)
+        self.assertIn("playwright", tools)
+        self.assertIn("cypress", tools)
+
+    def test_sdk_includes_python_bdd_tools(self) -> None:
+        tools = canonical_tools_for("sdk")
+        self.assertIn("pytest-bdd", tools)
+        self.assertIn("behave", tools)
+
+    def test_sdk_includes_gauge(self) -> None:
+        self.assertIn("gauge", canonical_tools_for("sdk"))
+
 
 class TestDetectExistingTooling(unittest.TestCase):
     def setUp(self) -> None:
@@ -222,6 +236,68 @@ class TestDetectExistingTooling(unittest.TestCase):
         (self.repo / "bunfig.toml").write_text("")
         result = detect_existing_tooling("cli", self.repo)
         self.assertEqual(result["tool_name"], "pytest-console-scripts")
+
+    def test_detects_cucumber_js_config(self) -> None:
+        cfg = self.repo / "cucumber.js"
+        cfg.write_text("module.exports = {};")
+        result = detect_existing_tooling("browser", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "cucumber")
+        self.assertIn(cfg, result["config_files"])
+
+    def test_detects_cucumber_json_config(self) -> None:
+        cfg = self.repo / "cucumber.json"
+        cfg.write_text("{}")
+        result = detect_existing_tooling("browser", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "cucumber")
+
+    def test_detects_behave_ini_config(self) -> None:
+        cfg = self.repo / "behave.ini"
+        cfg.write_text("[behave]\n")
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "behave")
+
+    def test_detects_pytest_bdd_via_pyproject_marker(self) -> None:
+        cfg = self.repo / "pyproject.toml"
+        cfg.write_text('[project]\nname = "x"\ndependencies = ["pytest-bdd>=7.0"]\n')
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "pytest-bdd")
+
+    def test_pytest_bdd_marker_rejects_prefix_match(self) -> None:
+        """Quote-bounded marker '\"pytest-bdd\"' must not match pytest-bdd-html
+        or other prefix-share packages."""
+        cfg = self.repo / "pyproject.toml"
+        cfg.write_text(
+            '[project]\nname = "x"\ndependencies = ["pytest-bdd-html>=1.0"]\n'
+        )
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertFalse(result["has_tooling"])
+
+    def test_detects_gauge_via_manifest_marker(self) -> None:
+        cfg = self.repo / "manifest.json"
+        cfg.write_text('{"Language": "python", "Plugins": ["html-report"]}\n')
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertTrue(result["has_tooling"])
+        self.assertEqual(result["tool_name"], "gauge")
+
+    def test_gauge_marker_rejects_pwa_manifest(self) -> None:
+        """The "Plugins": marker must not match a PWA/extension manifest.json
+        that has a "Language" key but no gauge "Plugins" list."""
+        cfg = self.repo / "manifest.json"
+        cfg.write_text('{"name": "My PWA", "lang": "en", "Language": "en"}\n')
+        result = detect_existing_tooling("sdk", self.repo)
+        self.assertFalse(result["has_tooling"])
+
+    def test_playwright_wins_over_cucumber_when_both_configured(self) -> None:
+        """Precedence pin: cucumber appended after playwright in _CANONICAL_TOOLS
+        so existing playwright defaults are preserved when both configs exist."""
+        (self.repo / "playwright.config.ts").write_text("export default {};")
+        (self.repo / "cucumber.js").write_text("module.exports = {};")
+        result = detect_existing_tooling("browser", self.repo)
+        self.assertEqual(result["tool_name"], "playwright")
 
 
 def _git(args: list[str], cwd: Path) -> None:
