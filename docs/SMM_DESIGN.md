@@ -161,7 +161,7 @@ Behavioral rules learned from experience. The institutional memory.
 - Write tests before implementation — the TDD gate blocks otherwise
 - Split large changes into separate commits
 - Always record decisions when making architectural choices
-- Complete the review cycle (simplify → quality review) before committing code changes; Tier 2/3 cover security at /xp-accept and close
+- Complete the review cycle (code-review → quality review) before committing code changes; Tier 2/3 cover security at /xp-accept and close
 - Don't amend pushed commits — creates divergent history
 ```
 

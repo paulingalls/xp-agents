@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for PreToolUse:Skill hook — simplify nudge."""
+"""Tests for PreToolUse:Skill hook — code-review nudge."""
 
 import sys
 import unittest
@@ -13,31 +13,31 @@ import pre_tool_skill
 from conftest import _HookTestCase, _make_skill_input
 
 
-class TestSimplifyNudge(_HookTestCase):
-    """PreToolUse:Skill injects courage nudge before /simplify."""
+class TestCodeReviewNudge(_HookTestCase):
+    """PreToolUse:Skill injects courage nudge before /code-review."""
 
-    def test_simplify_gets_courage_nudge(self):
-        """When /simplify runs, inject courage + subagent reminder."""
-        result = pre_tool_skill.run(_make_skill_input("simplify"))
+    def test_code_review_gets_courage_nudge(self):
+        """When /code-review runs, inject courage + subagent reminder."""
+        result = pre_tool_skill.run(_make_skill_input("code-review"))
         result = self._assert_not_none(result)
         self.assertIn("3 review subagents", result)
         self.assertIn("Courage", result)
 
-    def test_simplify_plugin_prefixed(self):
-        """Plugin-prefixed simplify also gets nudge."""
-        result = pre_tool_skill.run(_make_skill_input("xp-agents:simplify"))
+    def test_code_review_plugin_prefixed(self):
+        """Prefixed code-review also gets nudge."""
+        result = pre_tool_skill.run(_make_skill_input("xp-agents:code-review"))
         result = self._assert_not_none(result)
         self.assertIn("3 review subagents", result)
 
     def test_unrelated_skills_no_output(self):
-        """Skills that are not simplify get nothing."""
+        """Skills that are not code-review get nothing."""
         result = pre_tool_skill.run(_make_skill_input("xp-sprint-start"))
         self.assertIsNone(result)
 
     def test_xp_agent_skips(self):
         """xp-* agents skip the nudge."""
         result = pre_tool_skill.run(
-            _make_skill_input("simplify", agent_type="xp-retrospective")
+            _make_skill_input("code-review", agent_type="xp-retrospective")
         )
         self.assertIsNone(result)
 

@@ -3,11 +3,11 @@
 lifecycle events, inject post-completion context after review skills or
 the xp-housekeeper agent.
 
-Detects /simplify, /xp-quality-review, /security-review, /xp-review-plan,
+Detects /code-review, /xp-quality-review, /security-review, /xp-review-plan,
 /xp-assign via tool_input.skill, and xp-housekeeper via subagent_type.
 Each appends a canonical status event with metadata.action so consumers
 can detect completions without regex-matching LLM-authored content. The
-per-commit review flag is set only for /simplify and /xp-quality-review.
+per-commit review flag is set only for /code-review and /xp-quality-review.
 
 TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
 execution mode (solo vs teammates) is decided by xp-assign — only then
@@ -37,7 +37,12 @@ _TARGET_HOUSEKEEPING = "housekeeping"
 
 def _detect_target(target_name: str) -> str | None:
     """Map a possibly-prefixed skill/agent name to its canonical target."""
-    if "simplify" in target_name:
+    # Built-in /code-review (formerly /simplify). Our own xp-code-reviewer agent
+    # name also contains "code-review", and it arrives here via tool_input.
+    # subagent_type when /xp-quality-review spawns it — but in the MAIN agent's
+    # PostToolUse context, so the is_xp_agent skip in run() (which checks the
+    # invoking agent_type, not subagent_type) does NOT fire. Guard explicitly.
+    if "code-review" in target_name and "code-reviewer" not in target_name:
         return _TARGET_SIMPLIFY
     if "quality-review" in target_name:
         return _TARGET_QUALITY_REVIEW
@@ -59,7 +64,7 @@ def _detect_target(target_name: str) -> str | None:
 _TARGET_LIFECYCLE: dict[str, tuple[str, str]] = {
     _TARGET_SIMPLIFY: (
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,
-        "Simplify complete",
+        "Code review complete",
     ),
     _TARGET_QUALITY_REVIEW: (
         event_schema.STATUS_ACTION_QR_COMPLETE,

@@ -25,10 +25,17 @@ _WATERMARK_ID = "test-review-cycle"
 class TestReviewCycleDone(_HookTestCase):
     """PostToolUse:Skill|Agent hook sets flags after review skills or xp-housekeeper."""
 
-    def test_simplify_sets_flag(self):
-        review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
+    def test_code_review_sets_flag(self):
+        review_cycle_done.run(_make_skill_input("code-review"), smm_dir=self.smm_dir)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
+
+    def test_legacy_simplify_no_longer_sets_flag(self):
+        """Cutover: the renamed-away /simplify name is inert — only /code-review
+        clears the gate now."""
+        review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
 
     def test_quality_review_sets_flag(self):
         review_cycle_done.run(
@@ -41,9 +48,10 @@ class TestReviewCycleDone(_HookTestCase):
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         return [e for e in events if event_action(e) == action]
 
-    def test_simplify_emits_action_event(self):
-        """/simplify completion appends a status event with action=simplify_complete."""
-        review_cycle_done.run(_make_skill_input("simplify"), smm_dir=self.smm_dir)
+    def test_code_review_emits_action_event(self):
+        """/code-review completion appends a status event with the (internally
+        unchanged) action=simplify_complete."""
+        review_cycle_done.run(_make_skill_input("code-review"), smm_dir=self.smm_dir)
         emitted = self._action_events("simplify_complete")
         self.assertEqual(len(emitted), 1)
         self.assertEqual(emitted[0]["type"], EVENT_TYPE_STATUS)
@@ -94,17 +102,30 @@ class TestReviewCycleDone(_HookTestCase):
         emitted = self._action_events("security_complete")
         self.assertEqual(len(emitted), 1)
 
-    def test_xp_agent_skips_simplify(self):
-        """The recursion-prevention skip remains in effect for /simplify
+    def test_xp_agent_skips_code_review(self):
+        """The recursion-prevention skip remains in effect for /code-review
         invocations from xp-* subagents — only /security-review is excepted.
         """
-        input_data = _make_skill_input("simplify", agent_type="xp-test")
+        input_data = _make_skill_input("code-review", agent_type="xp-test")
         result = review_cycle_done.run(input_data, smm_dir=self.smm_dir)
         self.assertIsNone(result)
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
         emitted = self._action_events("simplify_complete")
         self.assertEqual(len(emitted), 0)
+
+    def test_xp_code_reviewer_completion_does_not_set_flag(self):
+        """Collision guard: when /xp-quality-review spawns the xp-code-reviewer
+        agent, its completion arrives as PostToolUse in the MAIN agent's context
+        (invoking agent_type is non-xp; tool_input.subagent_type is the reviewer).
+        The is_xp_agent skip checks the invoking agent, NOT subagent_type — so it
+        does not fire here. _detect_target must itself exclude the reviewer, or it
+        falsely clears the commit gate before /code-review ever ran."""
+        input_data = _make_agent_input("xp-agents:xp-code-reviewer", agent_type="")
+        review_cycle_done.run(input_data, smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertEqual(len(self._action_events("simplify_complete")), 0)
 
     def test_plan_review_emits_action_event(self):
         """/xp-review-plan completion appends action=plan_reviewed."""
@@ -118,10 +139,10 @@ class TestReviewCycleDone(_HookTestCase):
         emitted = self._action_events("housekeeping_complete")
         self.assertEqual(len(emitted), 1)
 
-    def test_qualified_simplify_name(self):
-        """Plugin-qualified skill names also match."""
+    def test_qualified_code_review_name(self):
+        """Prefixed skill names also match (substring detection tolerates a prefix)."""
         review_cycle_done.run(
-            _make_skill_input("xp-agents:simplify"), smm_dir=self.smm_dir
+            _make_skill_input("xp-agents:code-review"), smm_dir=self.smm_dir
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
@@ -132,10 +153,10 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
-    def test_simplify_nudges_quality_review(self):
-        """After /simplify, nudge to run /xp-quality-review."""
+    def test_code_review_nudges_quality_review(self):
+        """After /code-review, nudge to run /xp-quality-review."""
         result = review_cycle_done.run(
-            _make_skill_input("simplify"), smm_dir=self.smm_dir
+            _make_skill_input("code-review"), smm_dir=self.smm_dir
         )
         assert result is not None
         self.assertIn("/xp-quality-review", result)
@@ -223,7 +244,7 @@ class TestReviewCycleDone(_HookTestCase):
     def test_worktree_cwd_scopes_markers(self):
         """Worktree cwd uses resolve_agent_id for marker scoping."""
         inp = _make_skill_input(
-            "simplify",
+            "code-review",
             agent_id="",
             cwd="/proj/.claude/worktrees/teammate-story-001",
         )
@@ -244,9 +265,9 @@ class TestAgentIdSemantics(_HookTestCase):
     skill identity lives in metadata.action.
     """
 
-    def test_simplify_event_uses_resolved_agent_id(self):
+    def test_code_review_event_uses_resolved_agent_id(self):
         review_cycle_done.run(
-            _make_skill_input("simplify", agent_id="teammate-7"),
+            _make_skill_input("code-review", agent_id="teammate-7"),
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
@@ -278,10 +299,10 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         data.update(overrides)
         return data
 
-    def test_simplify_agent_type_sets_flag(self):
-        """SubagentStop with agent_type containing 'simplify' sets flag."""
+    def test_code_review_agent_type_sets_flag(self):
+        """SubagentStop with agent_type containing 'code-review' sets flag."""
         subagent_stop.run(
-            self._stop_input("task-1", agent_type="simplify"),
+            self._stop_input("task-1", agent_type="code-review"),
             smm_dir=self.smm_dir,
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
@@ -296,14 +317,45 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["quality_review_done"])
 
-    def test_simplify_agent_id_sets_flag(self):
-        """SubagentStop with agent_id containing 'simplify' sets flag."""
+    def test_code_review_agent_id_sets_flag(self):
+        """SubagentStop with agent_id containing 'code-review' sets flag."""
         subagent_stop.run(
-            self._stop_input("simplify-reuse-1", agent_type=""),
+            self._stop_input("code-review-reuse-1", agent_type=""),
             smm_dir=self.smm_dir,
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
+
+    def test_xp_code_reviewer_agent_does_not_set_flag(self):
+        """Collision guard: our own xp-code-reviewer agent (spawned by
+        /xp-quality-review) contains the substring 'code-review' but must NOT
+        set the simplify flag. _update_review_cycle_flags runs before the
+        is_xp_agent skip, so the guard ('code-reviewer' not in name) is what
+        prevents the false positive."""
+        subagent_stop.run(
+            self._stop_input("rev-1", agent_type="xp-code-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+
+    def test_qualified_xp_code_reviewer_does_not_set_flag(self):
+        """Plugin-qualified xp-agents:xp-code-reviewer is also excluded."""
+        subagent_stop.run(
+            self._stop_input("rev-2", agent_type="xp-agents:xp-code-reviewer"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+
+    def test_legacy_simplify_agent_type_no_longer_sets_flag(self):
+        """Cutover: a subagent named 'simplify' no longer sets the flag."""
+        subagent_stop.run(
+            self._stop_input("task-9", agent_type="simplify"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
 
     def test_regular_subagent_no_flag(self):
         """Regular subagent does not set any review flags."""
