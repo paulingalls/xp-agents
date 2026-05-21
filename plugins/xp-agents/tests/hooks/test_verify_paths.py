@@ -60,6 +60,14 @@ class TestExtractPathsFromCommand(unittest.TestCase):
             {"tests/smm", "tests"},
         )
 
+    def test_bare_unittest_discover_defaults_to_cwd(self):
+        # No -s: unittest discovers from cwd. A recognized runner must not
+        # yield an empty (silent-pass) set — map to "." (the whole tree).
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("python -m unittest discover"),
+            {"."},
+        )
+
     def test_direct_python_script(self):
         self.assertEqual(
             verify_paths._extract_paths_from_command("python scripts/foo.py"),
@@ -175,6 +183,17 @@ class TestUntouchedVerifyPaths(_GitRepoCase):
             verify_paths.untouched_verify_paths(
                 {"tests/hooks/"}, str(self.tmpdir), base
             ),
+            [],
+        )
+
+    def test_cwd_path_matched_by_any_change(self):
+        # A "." declaration (bare unittest discover) means the whole tree —
+        # any change on the branch counts as touched (gate fails open).
+        self._commit_file("seed4.txt", "x", "seed")
+        base = self._head()
+        self._commit_file("anything.py", "code", "touch something")
+        self.assertEqual(
+            verify_paths.untouched_verify_paths({"."}, str(self.tmpdir), base),
             [],
         )
 

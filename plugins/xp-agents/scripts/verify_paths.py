@@ -34,6 +34,10 @@ _EXIT_CLEAN = 0
 _EXIT_UNTOUCHED = 1
 _EXIT_ERROR = 2
 
+# Bare `unittest discover` (no -s) defaults to the cwd: the whole tree. Any
+# branch change satisfies it, so the gate fails open rather than silent.
+_WHOLE_TREE_SENTINEL = "."
+
 
 def _extract_paths_from_command(command: str) -> set[str]:
     """Parse test-file/dir path tokens from a single command string.
@@ -61,14 +65,19 @@ def _extract_paths_from_command(command: str) -> set[str]:
 
 
 def _extract_unittest_discover_dirs(tokens: list[str]) -> set[str]:
-    """Collect the -s start dir and -t top dir of `unittest discover`."""
+    """Collect the -s start dir and -t top dir of `unittest discover`.
+
+    A bare `discover` (no -s) defaults to the cwd per unittest — return the
+    whole-tree sentinel rather than an empty set so a recognized runner never
+    reads as an unparsable no-binding (which would silently pass the gate).
+    """
     paths: set[str] = set()
     for flag in ("-s", "-t"):
         if flag in tokens:
             idx = tokens.index(flag)
             if idx + 1 < len(tokens):
                 paths.add(tokens[idx + 1])
-    return paths
+    return paths or {_WHOLE_TREE_SENTINEL}
 
 
 def _extract_pytest_paths(tokens: list[str]) -> set[str]:
@@ -151,8 +160,11 @@ def _is_touched(declared: str, changed: set[str]) -> bool:
     """True when a changed file equals `declared` or lives inside it.
 
     Directory declarations match any file beneath them (§10b "inside or
-    equals"): `tests/hooks/` matches `tests/hooks/test_x.py`.
+    equals"): `tests/hooks/` matches `tests/hooks/test_x.py`. The whole-tree
+    sentinel (bare unittest discover) matches any change.
     """
+    if declared == _WHOLE_TREE_SENTINEL:
+        return bool(changed)
     prefix = declared if declared.endswith("/") else declared + "/"
     return any(f == declared or f.startswith(prefix) for f in changed)
 
