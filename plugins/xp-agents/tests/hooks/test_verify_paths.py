@@ -151,6 +151,34 @@ class _GitRepoCase(_TempRepoTestCase):
         ).stdout.strip()
 
 
+class TestUntouchedVerifyPathsHeadArg(_GitRepoCase):
+    """`head=` selects the range end so callers off the branch can check it.
+
+    The close-gate backstop runs at orchestrator cwd ON the target branch, so
+    it must walk `target..source`, not the default `base..HEAD` (HEAD=target).
+    """
+
+    def test_head_arg_walks_base_to_named_ref(self):
+        self._commit_file("seed.txt", "x", "seed")
+        base = self._head()
+        self._git("checkout", "-b", "feat")
+        self._commit_file("a/x.py", "code", "touch a/x.py on feat")
+        # Return HEAD to base (detached) — a/x.py is NOT on base..HEAD now.
+        self._git("checkout", base)
+        # Default head=HEAD (=base): the branch's touch is invisible.
+        self.assertEqual(
+            verify_paths.untouched_verify_paths({"a/x.py"}, str(self.tmpdir), base),
+            ["a/x.py"],
+        )
+        # head="feat": the branch's touch clears the path.
+        self.assertEqual(
+            verify_paths.untouched_verify_paths(
+                {"a/x.py"}, str(self.tmpdir), base, head="feat"
+            ),
+            [],
+        )
+
+
 class TestUntouchedVerifyPaths(_GitRepoCase):
     def test_reports_only_untouched_paths(self):
         self._commit_file("seed1.txt", "x", "seed")

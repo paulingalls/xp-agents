@@ -133,27 +133,29 @@ def extract_verify_paths(story: dict) -> set[str]:
     return paths
 
 
-def _changed_files(cwd: str, base: str) -> set[str]:
-    """Every file touched by a commit on base..HEAD (log-walk, not net diff).
+def _changed_files(cwd: str, base: str, head: str = "HEAD") -> set[str]:
+    """Every file touched by a commit on base..head (log-walk, not net diff).
 
-    A net `git diff base..HEAD` would miss a path written then reverted on
+    A net `git diff base..head` would miss a path written then reverted on
     the branch; the gate asks "was this path ever touched", so we walk every
-    commit. Raises ValueError when git fails (bad ref, not a repo) so callers
-    pick their own fail-open/fail-closed policy rather than seeing a silent
-    empty set.
+    commit. `head` defaults to HEAD; the close-gate backstop passes the source
+    branch (it runs on the target branch, so HEAD would be the wrong end).
+    Raises ValueError when git fails (bad ref, not a repo) so callers pick
+    their own fail-open/fail-closed policy rather than seeing a silent empty
+    set.
     """
     try:
         result = subprocess.run(
-            ["git", "log", f"{base}..HEAD", "--name-only", "--pretty=format:"],
+            ["git", "log", f"{base}..{head}", "--name-only", "--pretty=format:"],
             capture_output=True,
             text=True,
             timeout=5,
             cwd=cwd,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
-        raise ValueError(f"git log {base}..HEAD failed: {exc}") from exc
+        raise ValueError(f"git log {base}..{head} failed: {exc}") from exc
     if result.returncode != 0:
-        raise ValueError(f"git log {base}..HEAD failed: {result.stderr.strip()}")
+        raise ValueError(f"git log {base}..{head} failed: {result.stderr.strip()}")
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
@@ -170,9 +172,11 @@ def _is_touched(declared: str, changed: set[str]) -> bool:
     return any(f == declared or f.startswith(prefix) for f in changed)
 
 
-def untouched_verify_paths(paths: set[str], cwd: str, base: str) -> list[str]:
-    """Sorted declared paths that no commit on base..HEAD touched."""
-    changed = _changed_files(cwd, base)
+def untouched_verify_paths(
+    paths: set[str], cwd: str, base: str, head: str = "HEAD"
+) -> list[str]:
+    """Sorted declared paths that no commit on base..head touched."""
+    changed = _changed_files(cwd, base, head)
     return sorted(p for p in paths if not _is_touched(p, changed))
 
 

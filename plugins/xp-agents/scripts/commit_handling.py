@@ -65,17 +65,18 @@ def parse_verify_deferred(message: str | None) -> str | None:
     return m.group(1).strip() or "(no rationale)"
 
 
-def branch_has_verify_deferred(cwd: str, base: str) -> bool:
-    """True when any commit subject on base..HEAD carries [verify-deferred].
+def branch_has_verify_deferred(cwd: str, base: str, head: str = "HEAD") -> bool:
+    """True when any commit subject on base..head carries [verify-deferred].
 
     Single source for the marker check — reuses parse_verify_deferred so the
     commit-time nudge/debt and the story-close gate share one regex (no
-    duplicate bash pattern). Returns False on git failure (fail-open: an
-    unreadable range defers nothing).
+    duplicate bash pattern). `head` defaults to HEAD; the close-gate backstop
+    passes the source branch (it runs on the target branch). Returns False on
+    git failure (fail-open: an unreadable range defers nothing).
     """
     try:
         result = subprocess.run(
-            ["git", "log", f"{base}..HEAD", "--format=%s"],
+            ["git", "log", f"{base}..{head}", "--format=%s"],
             capture_output=True,
             text=True,
             timeout=5,

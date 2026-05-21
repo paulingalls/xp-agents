@@ -102,10 +102,11 @@ steps in order after Step 4.5, then continue with Step 7 below.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
-  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
+  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
+  --verify-gate acceptance --smm-dir <SMM_DIR>
 ```
 
-Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
+`--verify-gate acceptance` is a deterministic backstop that refuses the merge on a red verify status; on the Step 0 `--force-close` path also pass `--force-verify`. Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Step 8: Plan-close chain (if applicable)
 
