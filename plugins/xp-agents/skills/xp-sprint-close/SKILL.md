@@ -33,7 +33,7 @@ The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 The preload surfaces `VERIFY_STATUS` (`green`/`red`/`none`) — the last sprint-verify rerun's status. `green`/`none` proceed to Step 1 (`none` = nothing verify-bearing to gate). `red` means failing acceptance items: **refuse the merge** — stop and tell the user to fix and re-run `/xp-sprint-review`, or override via `/xp-sprint-close --force-close <reason>`. On `--force-close <reason>`, record the bypass as debt, then continue:
 
 ```bash
-FAILING=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --query-verify-status --smm-dir <SMM_DIR> | tail -n +2)
+FAILING=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --query-verify-status --smm-dir <SMM_DIR> | tail -n +2) || true
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> --type "debt" --agent "xp-sprint-close" \
   --content "Force-close <reason>: merged sprint with red verify items: $FAILING" --files '["<SMM_DIR>/sprint.json"]'
 ```
