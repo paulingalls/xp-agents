@@ -17,6 +17,7 @@ Worktree cleanup for teammate stories lands in commit 10 (a separate
 focused commit).
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -28,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     get_current_branch_at,
+    make_commit,
     seed_sprint_with_stories,
     write_system_context,
 )
@@ -71,6 +73,113 @@ class TestStoryClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
 
 
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "SKILL.md"
+
+
+class TestStoryCloseVerifyGate(_IntegrationTestCase):
+    """Preload computes the verify-touch gate (story-003 / Milestone 5).
+
+    On a story branch ahead of its base, the preload runs the verify_paths
+    CLI and emits VERIFY_UNTOUCHED (declared acceptance-test paths no commit
+    on base..HEAD touched) + VERIFY_DEFERRED (whether a [verify-deferred]
+    commit is in the branch history). The SKILL refuses on
+    untouched && !deferred.
+    """
+
+    _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
+
+    def _seed_story(self, verify_command: str, story_id: str = "story-001") -> None:
+        story = {
+            "id": story_id,
+            "title": "t",
+            "status": "closing",
+            "dependencies": [],
+            "milestone_ref": "",
+            "design_sources": "",
+            "context": "",
+            "file_domain": [],
+            "interface_contracts": [],
+            "acceptance_criteria": [],
+            "acceptance_execution": {"type": "pytest", "command": verify_command},
+        }
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(
+                {
+                    "sprint_id": "sprint-001",
+                    "goal": "g",
+                    "started": "2026-05-21",
+                    "milestone": "",
+                    "stories": [story],
+                }
+            )
+        )
+
+    def _story_branch(self, branch: str, filename: str, message: str) -> None:
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        make_commit(str(self.tmpdir), branch, filename, "x", message)
+
+    def test_untouched_path_emits_gate_fields(self):
+        write_system_context(self.smm_dir, stage=2, integration_branch="main")
+        self._seed_story("pytest acc_test.py")
+        # Commit touches an unrelated file — acc_test.py stays untouched.
+        self._story_branch("u/story-001-a", "other.py", "wip")
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "VERIFY_UNTOUCHED"), "acc_test.py"
+        )
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "VERIFY_DEFERRED"), "false"
+        )
+
+    def test_touched_path_emits_empty_untouched(self):
+        write_system_context(self.smm_dir, stage=2, integration_branch="main")
+        self._seed_story("pytest acc_test.py")
+        self._story_branch("u/story-001-b", "acc_test.py", "add acceptance test")
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "VERIFY_UNTOUCHED"), "")
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "VERIFY_DEFERRED"), "false"
+        )
+
+    def test_verify_deferred_commit_sets_deferred_true(self):
+        write_system_context(self.smm_dir, stage=2, integration_branch="main")
+        self._seed_story("pytest acc_test.py")
+        # Path still untouched, but a [verify-deferred] commit is in history.
+        self._story_branch(
+            "u/story-001-c", "other.py", "[verify-deferred] shipping under deadline"
+        )
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "VERIFY_UNTOUCHED"), "acc_test.py"
+        )
+        self.assertEqual(_extract_preload_var(result.stdout, "VERIFY_DEFERRED"), "true")
+
+    def test_gate_scans_teammate_worktree_not_orchestrator_cwd(self):
+        # The gate routes verify_paths + git-log at ${TEAMMATE_CWD:-.}.
+        # Touch the verify path INSIDE the teammate worktree: the gate must
+        # see it (untouched empty). A regression routing at the orchestrator
+        # cwd (still on the sprint base, no touch) would report acc_test.py.
+        sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+        import spawn_teammate
+
+        wt_path = spawn_teammate.create_worktree("worktree-story-042", str(self.tmpdir))
+        write_system_context(self.smm_dir, stage=2, integration_branch="main")
+        self._seed_story("pytest acc_test.py", story_id="story-042")
+        (Path(wt_path) / "acc_test.py").write_text("x")
+        for args in (["add", "acc_test.py"], ["commit", "-m", "add acceptance test"]):
+            subprocess.run(
+                ["git", "-C", wt_path, *args], capture_output=True, check=True
+            )
+        result = self._run_preload(self._PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "VERIFY_UNTOUCHED"), "")
 
 
 class TestStoryClosePreloadTeammateDetection(_IntegrationTestCase):
@@ -298,6 +407,23 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "Worktree-grep must not require a trailing hyphen — teammate "
             "worktrees are named `worktree-story-NNN` exactly, no slug "
             "suffix (spawn_teammate.py, identity._TEAMMATE_PREFIX).",
+        )
+
+    def test_verify_touch_gate_refuses_before_push(self):
+        # story-003: the close must refuse when the story declares verify
+        # paths no commit touched, naming them, unless [verify-deferred] is
+        # in history. Pin the refuse message + both gate fields, and that
+        # the gate is read BEFORE the push step (refuse early, no PR/merge).
+        self.assertIn("no commit touched", self.text)
+        self.assertIn("VERIFY_UNTOUCHED", self.text)
+        self.assertIn("VERIFY_DEFERRED", self.text)
+        gate_idx = self.text.find("VERIFY_UNTOUCHED")
+        push_match = re.search(r"close_common\.py\s+push", self.text)
+        assert push_match is not None
+        self.assertLess(
+            gate_idx,
+            push_match.start(),
+            "verify-touch gate must be evaluated before the push step",
         )
 
     def test_does_not_dispatch_sprint_review(self):
