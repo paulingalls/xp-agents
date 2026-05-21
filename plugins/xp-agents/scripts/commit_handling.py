@@ -36,6 +36,53 @@ _WATERMARK_ID = "bash-post-tool"
 
 COMMIT_SIZE_THRESHOLD = 12
 
+_VERIFY_DEFERRED_RE = re.compile(
+    r"^\s*\[verify-deferred\]\s*(.*)", re.IGNORECASE | re.DOTALL
+)
+_VERIFY_DEBT_CONTENT_LIMIT = 180
+_METADATA_KEY_VERIFY_DEFERRED = "verify_deferred"
+
+
+def parse_verify_deferred(message: str | None) -> str | None:
+    """Return the rationale after a [verify-deferred] prefix, or None.
+
+    A bare prefix (no trailing text) yields "(no rationale)" so callers can
+    distinguish "deferred without reason" from "not deferred" (None). Kept
+    separate from commits.is_escape_hatch_commit: [verify-deferred] bypasses
+    only the verify-touch gate, never branch protection.
+    """
+    if not message:
+        return None
+    m = _VERIFY_DEFERRED_RE.match(message)
+    if not m:
+        return None
+    return m.group(1).strip() or "(no rationale)"
+
+
+def untouched_paths_for_story(smm_dir: Path, cwd: str, story_id: str) -> list[str]:
+    """Verify paths the story declares that no commit on its branch touched.
+
+    The shared fail-open pipeline behind both the pre-commit nudge and the
+    post-commit [verify-deferred] debt: returns [] (and never raises) when the
+    story is gone, declares no verify paths, or git can't be read.
+    """
+    import branching
+    import sprint_store
+    import verify_paths
+
+    try:
+        story = sprint_store.get_story(smm_dir, story_id)
+    except (ValueError, OSError):
+        return []
+    paths = verify_paths.extract_verify_paths(story)
+    if not paths:
+        return []
+    base = branching.get_story_base_branch(smm_dir, cwd)
+    try:
+        return verify_paths.untouched_verify_paths(paths, cwd, base)
+    except ValueError:
+        return []
+
 
 def _resolve_story_id(
     smm_dir: Path,
@@ -267,6 +314,26 @@ def _handle_commit(
                 files=committed_files,
             )
         )
+
+    # Parse the trailer-stripped `body` (not raw_body): with re.DOTALL the
+    # rationale capture would otherwise swallow the Resolves-Event /
+    # Co-Authored-By trailers into the recorded debt content.
+    rationale = parse_verify_deferred(body) if not is_xp_agent_leak else None
+    if rationale is not None and story_id:
+        deferred = untouched_paths_for_story(smm_dir, effective_cwd, story_id)
+        if deferred:
+            pending.append(
+                _common.make_event(
+                    _common.DEBT,
+                    agent_id,
+                    f"[verify-deferred] {rationale}"[:_VERIFY_DEBT_CONTENT_LIMIT],
+                    files=deferred,
+                    metadata={
+                        "story_id": story_id,
+                        _METADATA_KEY_VERIFY_DEFERRED: True,
+                    },
+                )
+            )
 
     _common.bulk_append_safe(smm_dir, pending)
 
