@@ -102,11 +102,11 @@ When a milestone has **composition surface** (multiple interacting stories whose
 
 **When to propose:** `system_context.json` has `acceptance_surfaces` with a harness, OR the milestone has 3+ stories with interface contracts.
 
-**Build it** via the CLI (one behavior-shaped object AC per touched surface, `ready` status, depends on every sibling, acceptance_execution placeholder the implementer fills):
+**Build it** via the CLI (one behavior-shaped object AC per surface, `ready` status, depends on every sibling, acceptance_execution placeholder the implementer fills). Pass only the **covered** touched surfaces to `--surfaces` (the milestone's `surfaces_touched` minus the uncovered ones from Step 1b) — a capstone AC asserts the surface's suite runs and passes, which an uncovered surface has no harness for; those stay tracked by the Step 1b concern until scaffolded.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> build-capstone \
-  --milestone "<milestone name>" --surfaces <s1,s2> \
+  --milestone "<milestone name>" --surfaces <covered-s1,covered-s2> \
   --depends-on <story-001,...> --story-id <story-NNN>
 ```
 

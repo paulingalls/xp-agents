@@ -53,6 +53,13 @@ class TestSurfaceCapstoneWiring(unittest.TestCase):
         # The capstone must start in 'ready' status (AC #2).
         self.assertIn("`ready`", region)
 
+    def test_capstone_surfaces_scoped_to_covered(self):
+        # Only covered touched surfaces feed --surfaces; uncovered ones have
+        # no harness and stay tracked by the Step 1b concern. Pin a phrase
+        # unique to the new guidance — "covered" alone matches "uncovered".
+        region = self._region("### Step 3b:", "### Step 4:")
+        self.assertIn("minus the uncovered", region)
+
     def test_allowed_tools_permits_surface_coverage_cli(self):
         self.assertIn("surface_coverage.py", self.frontmatter)
 

@@ -36,6 +36,9 @@ def _cmd_uncovered(args: argparse.Namespace) -> int:
     if plan is None:
         print("No execution plan found.", file=sys.stderr)
         return 1
+    # find_milestone (not find_milestone_required): the CLI soft-fails with
+    # exit 1 + stderr rather than raising, so a missing milestone is a clean
+    # caller error, not a stack trace.
     milestone = execution_plan_store.find_milestone(plan, args.milestone)
     if milestone is None:
         print(f"No milestone with number {args.milestone}", file=sys.stderr)
