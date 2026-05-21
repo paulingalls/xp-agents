@@ -66,7 +66,7 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
 
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/simplify", result)
+        self.assertIn("/code-review", result)
 
         markers.set_review_flag(self.smm_dir, "worktree-story-1", "simplify_done")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)

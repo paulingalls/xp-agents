@@ -57,7 +57,7 @@ Analyze through **XP values as lenses**:
 - **Communication** — decisions recorded, questions asked and answered, customer inputs acknowledged
 - **Courage** — hard problems addressed directly, concerns addressed in subsequent commits, bad decisions revisited
 - **Simplicity** — solutions kept simple, conventions followed, plans right-sized
-- **Feedback** — tests written before code, /simplify and /xp-quality-review findings acted on, commits small and frequent
+- **Feedback** — tests written before code, /code-review and /xp-quality-review findings acted on, commits small and frequent
 
 ## Pre-Computed Flags
 

@@ -13,7 +13,7 @@ Take small steps. Don't try to implement everything at once.
 
 ## Review Cycle
 
-Before each commit: `/simplify` (reuse, quality, efficiency) → `/xp-quality-review` (courage, drift, debt) → `git commit` (pre-commit hooks enforce tests + format).
+Before each commit: `/code-review` (reuse, quality, efficiency) → `/xp-quality-review` (courage, drift, debt) → `git commit` (pre-commit hooks enforce tests + format).
 
 Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff. There is no on-demand triage skill.
 

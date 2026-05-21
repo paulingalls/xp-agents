@@ -35,14 +35,14 @@ class TestPreToolBashReviewCycle(_HookTestCase):
 
     _CODE_FILES_PATCH = "commits.get_code_files_for_review"
 
-    def test_above_threshold_blocks_no_simplify(self):
-        """3+ code files, no flags set -> blocks for /simplify."""
+    def test_above_threshold_blocks_no_code_review(self):
+        """3+ code files, no flags set -> blocks for /code-review."""
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             with self.assertRaises(_common.BlockedError) as ctx:
                 pre_tool_bash.run(
                     _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
                 )
-            self.assertIn("/simplify", str(ctx.exception))
+            self.assertIn("/code-review", str(ctx.exception))
 
     def test_above_threshold_blocks_no_quality_review(self):
         """simplify_done=True -> blocks for /xp-quality-review."""

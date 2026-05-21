@@ -71,7 +71,7 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         """Teammate guide has review cycle commands (security at close-skill Step 4)."""
         result = self._run_teammate()
         assert result is not None
-        self.assertIn("/simplify", result)
+        self.assertIn("/code-review", result)
         self.assertIn("/xp-quality-review", result)
         self.assertNotIn("/xp-security-triage", result)
         self.assertIn("/security-review", result)

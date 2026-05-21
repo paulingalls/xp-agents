@@ -55,15 +55,15 @@ class TestDeterministicReviewLifecycle(_IntegrationTestCase):
         self.assertEqual(self._action_count(events, STATUS_ACTION_SECURITY_COMPLETE), 1)
         self.assertGreaterEqual(counts["security_checks"], 1)
 
-    def test_simplify_completion_increments_simplifies_counter(self):
-        events, counts = self._trigger_skill("simplify")
+    def test_code_review_completion_increments_simplifies_counter(self):
+        events, counts = self._trigger_skill("code-review")
         self.assertEqual(self._action_count(events, STATUS_ACTION_SIMPLIFY_COMPLETE), 1)
         self.assertGreaterEqual(counts["simplifies"], 1)
 
     def test_full_review_cycle_increments_all_three_counters(self):
         """Doctrine's primary acceptance — a session that ran the full
-        review cycle has non-zero counters across simplify, QR, and security."""
-        for skill in ("simplify", "xp-quality-review", "security-review"):
+        review cycle has non-zero counters across code-review, QR, and security."""
+        for skill in ("code-review", "xp-quality-review", "security-review"):
             result = self._run_script(
                 "review_cycle_done.py", _make_skill_input(skill, cwd=str(self.tmpdir))
             )

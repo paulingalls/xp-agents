@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.2.0 — free session: review-cycle detection cut over from /simplify to /code-review (BREAKING)
+
+**Breaking:** Anthropic renamed Claude Code's built-in `/simplify` slash command to `/code-review`. The plugin's commit-gated review cycle detected the command by substring-matching `"simplify"` in skill/agent names to set the `simplify_done` flag that clears the commit gate. Post-rename that silently stopped firing — the user ran `/code-review`, no flag was set, and `pre_tool_bash` dead-ended every commit with "Run /simplify before committing". This release cuts detection over to `"code-review"` only (no dual-match), so users MUST be on a Claude Code version that ships `/code-review`.
+
+### Detection cutover (3 hook scripts)
+
+`review_cycle_done.py` (`_detect_target`), `subagent_stop.py` (`_update_review_cycle_flags`), and `pre_tool_skill.py` now match `"code-review"` instead of `"simplify"`. Internal identifiers are deliberately KEPT — the `simplify_done` flag, `STATUS_ACTION_SIMPLIFY_COMPLETE` (`"simplify_complete"` action string), and `_TARGET_SIMPLIFY` — because the action string is persisted in historical event logs and counted by `retro_metrics`; renaming it would break historical counting. Only detection-match strings and user-facing `/simplify` prose changed.
+
+### xp-code-reviewer name-collision guard
+
+Our own `xp-code-reviewer` agent name contains the substring `"code-review"`. Both flag-setting sites guard against it: `"code-review" in name and "code-reviewer" not in name`. The guard is load-bearing in BOTH `subagent_stop._update_review_cycle_flags` and `review_cycle_done._detect_target` — each runs in a context where the invoking agent is non-xp (the reviewer name arrives via `subagent_type`), so the `is_xp_agent` recursion-prevention skip does not fire. Without the guard, the reviewer's own completion would falsely clear the commit gate before `/code-review` ever ran. The third site (`pre_tool_skill`) needs no guard: it keys off `tool_input.skill` (Skill tool), while `xp-code-reviewer` is spawned via the Agent tool's `subagent_type`.
+
+### Prose
+
+All user-facing `/simplify` references updated to `/code-review` across `PROCESS_GUIDE.md`, `TEAMMATE_GUIDE.md`, the `xp-code-reviewer`/`xp-plan-reviewer`/`xp-retrospective` agents, the `xp-quality-review` skill, the SMM wisdom seed, and active docs. Frozen archives (`docs/completed/`, `docs/handoffs/`, `docs/ideas/`) retain their historical `/simplify` references.
+
 ## v3.1.45 — free session: post-commit hook survives truncated Bash stdout
 
 Downstream symptom: SimplyHuman observed ZERO `type=commit` events recorded across sprint-031 + sprint-032 despite 6 successful `git commit` invocations in the main session, with plugin v3.1.44 unchanged across the regression. Investigation traced this to the Bash tool's stdout truncation cap.

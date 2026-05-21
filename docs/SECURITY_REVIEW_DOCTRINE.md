@@ -103,7 +103,7 @@ override but the warning is loud.
 `xp-close-reviewer` (the quality reviewer agent). Security and quality
 are independent review streams that converge only at the Step 6
 abort-default count. The close-reviewer is quality-only across all
-modes (XP value lenses, simplify accountability, drift, debt, regression
+modes (XP value lenses, code-review accountability, drift, debt, regression
 risk in unmodified stories).
 
 **Cost:** One LLM call per close. Negligible compared to a
