@@ -7,9 +7,15 @@ truncated-stdout fallback (`_head_matches_command`), and the TDD-red
 test-only-commit detector (`_prior_commit_was_test_only`). bash_post_tool
 imports the entry points it actually calls in `run()` —
 `_handle_commit` and `_prior_commit_was_test_only`.
+
+CLI: `commit_handling.py has-verify-deferred --cwd <dir> --base <ref>` prints
+true/false — the story-close preload's single source for the [verify-deferred]
+marker check (reuses parse_verify_deferred, no duplicate bash regex).
 """
 
+import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -35,6 +41,78 @@ from pre_tool_write import is_test_file
 _WATERMARK_ID = "bash-post-tool"
 
 COMMIT_SIZE_THRESHOLD = 12
+
+_VERIFY_DEFERRED_RE = re.compile(
+    r"^\s*\[verify-deferred\]\s*(.*)", re.IGNORECASE | re.DOTALL
+)
+_VERIFY_DEBT_CONTENT_LIMIT = 180
+_METADATA_KEY_VERIFY_DEFERRED = "verify_deferred"
+
+
+def parse_verify_deferred(message: str | None) -> str | None:
+    """Return the rationale after a [verify-deferred] prefix, or None.
+
+    A bare prefix (no trailing text) yields "(no rationale)" so callers can
+    distinguish "deferred without reason" from "not deferred" (None). Kept
+    separate from commits.is_escape_hatch_commit: [verify-deferred] bypasses
+    only the verify-touch gate, never branch protection.
+    """
+    if not message:
+        return None
+    m = _VERIFY_DEFERRED_RE.match(message)
+    if not m:
+        return None
+    return m.group(1).strip() or "(no rationale)"
+
+
+def branch_has_verify_deferred(cwd: str, base: str) -> bool:
+    """True when any commit subject on base..HEAD carries [verify-deferred].
+
+    Single source for the marker check — reuses parse_verify_deferred so the
+    commit-time nudge/debt and the story-close gate share one regex (no
+    duplicate bash pattern). Returns False on git failure (fail-open: an
+    unreadable range defers nothing).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "log", f"{base}..HEAD", "--format=%s"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=cwd,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    if result.returncode != 0:
+        return False
+    return any(
+        parse_verify_deferred(line) is not None for line in result.stdout.splitlines()
+    )
+
+
+def untouched_paths_for_story(smm_dir: Path, cwd: str, story_id: str) -> list[str]:
+    """Verify paths the story declares that no commit on its branch touched.
+
+    The shared fail-open pipeline behind both the pre-commit nudge and the
+    post-commit [verify-deferred] debt: returns [] (and never raises) when the
+    story is gone, declares no verify paths, or git can't be read.
+    """
+    import branching
+    import sprint_store
+    import verify_paths
+
+    try:
+        story = sprint_store.get_story(smm_dir, story_id)
+    except (ValueError, OSError):
+        return []
+    paths = verify_paths.extract_verify_paths(story)
+    if not paths:
+        return []
+    base = branching.get_story_base_branch(smm_dir, cwd)
+    try:
+        return verify_paths.untouched_verify_paths(paths, cwd, base)
+    except ValueError:
+        return []
 
 
 def _resolve_story_id(
@@ -268,6 +346,26 @@ def _handle_commit(
             )
         )
 
+    # Parse the trailer-stripped `body` (not raw_body): with re.DOTALL the
+    # rationale capture would otherwise swallow the Resolves-Event /
+    # Co-Authored-By trailers into the recorded debt content.
+    rationale = parse_verify_deferred(body) if not is_xp_agent_leak else None
+    if rationale is not None and story_id:
+        deferred = untouched_paths_for_story(smm_dir, effective_cwd, story_id)
+        if deferred:
+            pending.append(
+                _common.make_event(
+                    _common.DEBT,
+                    agent_id,
+                    f"[verify-deferred] {rationale}"[:_VERIFY_DEBT_CONTENT_LIMIT],
+                    files=deferred,
+                    metadata={
+                        "story_id": story_id,
+                        _METADATA_KEY_VERIFY_DEFERRED: True,
+                    },
+                )
+            )
+
     _common.bulk_append_safe(smm_dir, pending)
 
     if is_xp_agent_leak:
@@ -315,3 +413,26 @@ def _prior_commit_was_test_only(smm_dir: Path) -> bool:
             return False
         return all(is_test_file(f) for f in files)
     return False
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="commit-handling queries")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser(
+        "has-verify-deferred",
+        help="Print true/false: any [verify-deferred] commit on base..HEAD",
+    )
+    p.add_argument("--cwd", default=".", help="Repo working directory")
+    p.add_argument("--base", required=True, help="Base ref")
+    args = parser.parse_args()
+
+    match args.command:
+        case "has-verify-deferred":
+            deferred = branch_has_verify_deferred(args.cwd, args.base)
+            print("true" if deferred else "false")
+            return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

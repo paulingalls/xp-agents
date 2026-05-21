@@ -67,6 +67,21 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   --cwd ${TEAMMATE_CWD:-.} >/dev/null || true
 ```
 
+## Step 1c: Verify-touch gate
+
+Read the preload's `VERIFY_UNTOUCHED` and `VERIFY_DEFERRED`.
+
+If `VERIFY_UNTOUCHED` is non-empty AND `VERIFY_DEFERRED` is `false`,
+**refuse the close**: tell the user `no commit touched <VERIFY_UNTOUCHED>`
+and stop here — do NOT push, create a PR, or merge. The story branch
+needs a commit that touches each declared acceptance-test path, or a
+`[verify-deferred] <reason>` commit to defer it (the deferral is
+recorded as debt). The customer can re-run `/xp-accept` after adding
+the touching (or deferring) commit.
+
+If `VERIFY_DEFERRED` is `true`, the deferral is on record — proceed.
+If `VERIFY_UNTOUCHED` is empty, the gate passes — proceed.
+
 ## Step 2: Push the story branch
 
 ```bash
