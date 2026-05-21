@@ -1,5 +1,35 @@
 # Changelog
 
+## v3.3.0 — Tighten AC↔acceptance-test binding (Milestones 1-6)
+
+Completes the six-milestone "Tighten AC↔acceptance-test binding" plan (shipped across sprints 088-093, landed on main as one plan-close). Today acceptance criteria were `list[str]` with no machine-readable link to a scaffolded test harness; this plan binds each AC to an executable acceptance test and enforces that binding at plan, sprint, commit, and close time. Additive and back-compatible — string ACs remain legal, and every new gate fires only for stories that opt in by declaring verify commands/surfaces.
+
+### M1 — Multi-surface scaffold loop + behavior-test tool catalog
+
+`/xp-scaffold-acceptance` loops over all uncovered `acceptance_surfaces` in one invocation (N uncovered surfaces → N commits, all flipped to covered), and its tool catalog offers behavior-shaped frameworks (pytest-bdd, behave, playwright, cucumber, gauge) alongside unit-shaped. Re-runs are idempotent; per-surface tool confirmation is preserved; refuses on a protected branch.
+
+### M2 — Per-AC verify schema + milestone `surfaces_touched` + behavior-shape prose
+
+`acceptance_criteria` items become `str | {description, surface?, command? | commands?}`. The object form's `surface` is an FK to `acceptance_surfaces[*].name`; a missing surface is a manual check (back-compat). Milestones gain `surfaces_touched` (list FK). Surface-FK names have a single source (`system_context_store.acceptance_surface_names`), enforced at write-time on both schemas with mutate/resave grandfathering. `xp-plan` SKILL prose nudges behavior-shaped (Given/When/Then) milestone acceptance.
+
+### M3 — Sprint-start surface-coverage concern + auto-capstone story
+
+`/xp-sprint-start` emits one concern per uncovered surface in the milestone's `surfaces_touched` (deduped within the sprint) and auto-generates a capstone story (behavior-shaped ACs over the touched-and-covered surfaces, story-level `acceptance_execution` placeholder for the implementer to fill).
+
+### M4 — Plan-reviewer verify-test-coverage rule (§10d)
+
+`xp-plan-reviewer` extracts verify-bearing test paths from a story's per-AC + story-level acceptance commands and checks they appear in the implementation plan's stated file targets — HIGH-severity concern on a miss (a green-looking plan that never writes the test). A soft heuristic flags unit-shaped story-level commands, recommending behavior shape. §10b is the authoritative harness path-parsing spec (`pytest path::sel`, `python -m pytest <path>`, `unittest discover -s <path>` — and a bare `unittest discover` maps to a whole-tree sentinel — plus direct `python`/`bash <path>`).
+
+### M5 — Commit gate for verify-bearing stories
+
+`scripts/verify_paths.py` is the single path-parsing primitive (implements §10b) feeding two gates: a soft commit-time nudge (`PreToolUse:Bash`, never blocks) when a story declares verify test paths but no branch commit touched them, and a HARD `/xp-story-close` gate that refuses the merge with "no commit touched X". Touch detection walks `git log base..HEAD` (touch-then-revert still counts). The `[verify-deferred]` commit-prefix escape bypasses with a recorded debt event — single-sourced through `commit_handling.has-verify-deferred`, its own regex distinct from the branch-protection escape-hatch.
+
+### M6 — Sprint-review batch rerun + sprint-close green-gate
+
+`verify_acceptance.py --sprint` reruns every verify-bearing item across the sprint (per-AC verify objects + story-level `acceptance_execution`), prints a PASS/FAIL matrix grouped by surface, and emits a deterministic `sprint`/`action=verify` event (new `SPRINT_ACTION_VERIFY` + `VERIFY_STATUS_{RED,GREEN,NONE}` constants, with write-time validation requiring `verify_status` for verify events). The signal is script-emitted, not reviewer prose: `_run_sprint` reads the event back after `append_safe` and fails loud if it didn't land, so a dropped event can't read as silent green at the gate. A per-command timeout (`VERIFY_CMD_TIMEOUT_S`, default 600s) converts a hung acceptance test into an attributable red on the unattended path.
+
+`xp-sprint-reviewer` runs the batch rerun (Step 2c) and surfaces the matrix; `xp-sprint-close` reads the result via `verify_acceptance.py --query-verify-status` (exit 0 green/none, 1 red, 2 error), surfaces `VERIFY_STATUS` from its preload, and a Step 0 gate refuses the merge on red unless the close carries `--force-close <reason>` — which records the bypass as a debt event (failing detail truncated to fit the debt budget). A milestone's `acceptance_execution` can bind to its capstone story's cross-story integration test, so `/xp-sprint-review` reruns the capstone as the deterministic milestone gate — closing the AC↔test binding loop.
+
 ## v3.2.0 — free session: review-cycle detection cut over from /simplify to /code-review (BREAKING)
 
 **Breaking:** Anthropic renamed Claude Code's built-in `/simplify` slash command to `/code-review`. The plugin's commit-gated review cycle detected the command by substring-matching `"simplify"` in skill/agent names to set the `simplify_done` flag that clears the commit gate. Post-rename that silently stopped firing — the user ran `/code-review`, no flag was set, and `pre_tool_bash` dead-ended every commit with "Run /simplify before committing". This release cuts detection over to `"code-review"` only (no dual-match), so users MUST be on a Claude Code version that ships `/code-review`.
