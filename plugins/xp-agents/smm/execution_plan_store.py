@@ -21,7 +21,7 @@ from execution_plan_schema import (
     VALID_MILESTONE_STATUSES,
     validate_plan,
 )
-from system_context_store import load_system_context
+from system_context_store import acceptance_surface_names
 
 _MARKER_NAME = ".needs-execution-plan"
 
@@ -76,30 +76,6 @@ def load_plan_required(smm_dir: Path) -> dict:
     return plan
 
 
-def _acceptance_surface_names(smm_dir: Path) -> frozenset[str] | None:
-    """Surface names from system_context, or None when none are declared.
-
-    None keeps the surfaces_touched FK shape-only (no false rejection when a
-    project has no acceptance_surfaces yet); a frozenset turns the FK enforcing.
-
-    Best-effort: a missing, corrupt, or schema-invalid system_context yields
-    None (shape-only) rather than blocking the plan save — surfacing context
-    corruption is system_context_store's job on its own load path, not the
-    plan write path's. The FK is an enhancement, never a save gate. The
-    symlink OSError is intentionally swallowed here too; that defense still
-    fires on the dedicated load/save_system_context paths.
-    """
-    try:
-        doc = load_system_context(smm_dir)
-    except (ValueError, OSError):
-        return None
-    surfaces = (doc or {}).get("acceptance_surfaces", [])
-    names = frozenset(
-        s["name"] for s in surfaces if isinstance(s, dict) and "name" in s
-    )
-    return names or None
-
-
 def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None:
     """Validate and atomically write the execution plan.
 
@@ -121,7 +97,7 @@ def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None
     errors = validate_plan(
         data,
         enforce_budget=enforce_budget,
-        valid_surfaces=(_acceptance_surface_names(smm_dir) if enforce_budget else None),
+        valid_surfaces=(acceptance_surface_names(smm_dir) if enforce_budget else None),
     )
     if errors:
         raise ValueError(f"Plan validation failed: {'; '.join(errors)}")

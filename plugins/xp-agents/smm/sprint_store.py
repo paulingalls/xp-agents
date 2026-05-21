@@ -22,6 +22,7 @@ from sprint_schema import (
     VALID_STORY_STATUSES,
     validate_sprint,
 )
+from system_context_store import acceptance_surface_names
 
 _MARKER_NAME = ".needs-sprint"
 _SPRINT_LOCK_NAME = "sprint.lock"
@@ -95,7 +96,11 @@ def save_sprint(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> No
     if path.is_symlink():
         raise OSError(f"Sprint path is a symlink: {path}")
 
-    errors = validate_sprint(data, enforce_budget=enforce_budget)
+    errors = validate_sprint(
+        data,
+        enforce_budget=enforce_budget,
+        valid_surfaces=(acceptance_surface_names(smm_dir) if enforce_budget else None),
+    )
     if errors:
         raise ValueError(f"Sprint validation failed: {'; '.join(errors)}")
 

@@ -77,7 +77,11 @@ def empty_sprint() -> dict:
 
 
 def _validate_story(
-    story: object, idx: int, *, enforce_budget: bool = True
+    story: object,
+    idx: int,
+    *,
+    enforce_budget: bool = True,
+    valid_surfaces: frozenset[str] | None = None,
 ) -> list[str]:
     """Validate a story entry."""
     errors: list[str] = []
@@ -114,7 +118,9 @@ def _validate_story(
         for ac_idx, item in enumerate(story["acceptance_criteria"]):
             errors.extend(
                 validate_per_ac_verify(
-                    item, f"stories[{idx}].acceptance_criteria[{ac_idx}]"
+                    item,
+                    f"stories[{idx}].acceptance_criteria[{ac_idx}]",
+                    valid_surfaces=valid_surfaces,
                 )
             )
 
@@ -154,12 +160,19 @@ def _validate_story(
     return errors
 
 
-def validate_sprint(data: object, *, enforce_budget: bool = True) -> list[str]:
+def validate_sprint(
+    data: object,
+    *,
+    enforce_budget: bool = True,
+    valid_surfaces: frozenset[str] | None = None,
+) -> list[str]:
     """Validate a sprint document.
 
     Returns a list of error strings — empty list means valid.
     When enforce_budget is False, field-length budgets are skipped
     (read-path grandfathering, matching execution_plan_schema precedent).
+    When valid_surfaces is supplied, each story's per-AC ``surface`` must be
+    one of those names (FK to acceptance_surfaces); None keeps it shape-only.
     """
     errors: list[str] = []
 
@@ -190,6 +203,13 @@ def validate_sprint(data: object, *, enforce_budget: bool = True) -> list[str]:
         errors.append("stories must be a list")
     else:
         for idx, story in enumerate(data["stories"]):
-            errors.extend(_validate_story(story, idx, enforce_budget=enforce_budget))
+            errors.extend(
+                _validate_story(
+                    story,
+                    idx,
+                    enforce_budget=enforce_budget,
+                    valid_surfaces=valid_surfaces,
+                )
+            )
 
     return errors
