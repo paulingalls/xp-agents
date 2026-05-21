@@ -156,8 +156,8 @@ def _cmd_edit_milestone(args: argparse.Namespace) -> int:
         return 1
 
     milestone_num = args.milestone_number
-    matches = [m for m in plan["milestones"] if m["number"] == milestone_num]
-    if not matches:
+    milestone = store.find_milestone(plan, milestone_num)
+    if milestone is None:
         print(f"No milestone with number {milestone_num}", file=sys.stderr)
         return 1
 
@@ -168,7 +168,7 @@ def _cmd_edit_milestone(args: argparse.Namespace) -> int:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
 
-    matches[0].update(patch)
+    milestone.update(patch)
     try:
         store.save_plan(args.smm_dir, plan)
     except ValueError as exc:
@@ -187,14 +187,12 @@ def _cmd_archive(args: argparse.Namespace) -> int:
 
 
 def _cmd_set_branch(args: argparse.Namespace) -> int:
-    plan = store.load_plan(args.smm_dir)
-    if plan is None:
-        print("No execution plan found.", file=sys.stderr)
-        return 1
     # Empty-string-clears is a CLI affordance; the store contract is null-or-valid-name.
-    plan["branch"] = args.name or None
+    # Delegate to the store helper so this mutate path grandfathers the
+    # surfaces_touched FK (enforce_budget=False) — re-saving the whole plan
+    # here with strict enforcement would block on post-authoring surface drift.
     try:
-        store.save_plan(args.smm_dir, plan)
+        store.set_branch(args.smm_dir, args.name or None)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1

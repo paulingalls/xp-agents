@@ -299,6 +299,29 @@ def _cmd_validate_domain(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_build_capstone(args: argparse.Namespace) -> int:
+    """Print a deterministic capstone story as JSON on stdout.
+
+    Pure (no sprint read/write) — the skill pipes the output into
+    `add-story`. Comma-separated --surfaces and --depends-on are split
+    into lists; empty strings yield empty lists.
+    """
+
+    def _split(raw: str) -> list[str]:
+        return [p for p in (s.strip() for s in raw.split(",")) if p]
+
+    story = store.build_capstone_story(
+        args.story_id,
+        args.milestone,
+        _split(args.surfaces),
+        _split(args.depends_on),
+        milestone_ref=args.milestone_ref,
+        harness=args.harness,
+    )
+    print(json.dumps(story, indent=2))
+    return 0
+
+
 def _cmd_update_story_branch(args: argparse.Namespace) -> int:
     try:
         store.set_story_branch(args.smm_dir, args.story_id, args.branch_name)
@@ -399,6 +422,32 @@ def main() -> None:
     sub.add_parser("create", help="Create sprint from stdin")
     sub.add_parser("add-story", help="Add story from stdin")
 
+    bc_p = sub.add_parser(
+        "build-capstone",
+        help=(
+            "Print a deterministic capstone story as JSON (pipe into "
+            "add-story). Pure — does not read or write the sprint."
+        ),
+    )
+    bc_p.add_argument("--milestone", required=True, help="Milestone name")
+    bc_p.add_argument(
+        "--surfaces",
+        default="",
+        help="Comma-separated touched surface names (one object AC each)",
+    )
+    bc_p.add_argument(
+        "--depends-on",
+        default="",
+        help="Comma-separated sibling story ids the capstone depends on",
+    )
+    bc_p.add_argument("--story-id", required=True, help="Capstone story id")
+    bc_p.add_argument(
+        "--milestone-ref", default="", help="milestone_ref string for the story"
+    )
+    bc_p.add_argument(
+        "--harness", default="pytest", help="acceptance_execution type (default pytest)"
+    )
+
     edit_p = sub.add_parser("edit-story", help="Edit story fields from stdin JSON")
     edit_p.add_argument("story_id", help="Story ID to edit")
 
@@ -489,6 +538,7 @@ def main() -> None:
         "list-stories": _cmd_list_stories,
         "create": _cmd_create,
         "add-story": _cmd_add_story,
+        "build-capstone": _cmd_build_capstone,
         "edit-story": _cmd_edit_story,
         "update-story": _cmd_update_story,
         "update-story-if": _cmd_update_story_if,

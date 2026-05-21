@@ -812,5 +812,54 @@ class TestGetStoryBranchCommand(_SMMTestCase):
         self.assertEqual(result.stdout.strip(), "")
 
 
+class TestBuildCapstoneCommand(_SMMTestCase):
+    def _run(self, extra):
+        return run_cli(_CLI, ["build-capstone", *extra], self.smm_dir)
+
+    def test_prints_ready_capstone_json(self):
+        result = self._run(
+            [
+                "--milestone",
+                "Milestone 3: surface-coverage",
+                "--surfaces",
+                "cli,sdk",
+                "--depends-on",
+                "story-001,story-002",
+                "--story-id",
+                "story-006",
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads(result.stdout)
+        self.assertEqual(story["id"], "story-006")
+        self.assertEqual(story["status"], "ready")
+        self.assertTrue(story["title"].startswith("Capstone:"))
+        self.assertEqual(story["dependencies"], ["story-001", "story-002"])
+        surfaces = {
+            a["surface"] for a in story["acceptance_criteria"] if isinstance(a, dict)
+        }
+        self.assertEqual(surfaces, {"cli", "sdk"})
+
+    def test_output_pipes_into_add_story(self):
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(_make_sprint(stories=[_make_story(id="story-001")]))
+        )
+        built = self._run(
+            [
+                "--milestone",
+                "Milestone 3",
+                "--surfaces",
+                "cli",
+                "--depends-on",
+                "story-001",
+                "--story-id",
+                "story-006",
+            ]
+        )
+        self.assertEqual(built.returncode, 0, built.stderr)
+        added = run_cli(_CLI, ["add-story"], self.smm_dir, stdin_data=built.stdout)
+        self.assertEqual(added.returncode, 0, added.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
   - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */scripts/surface_coverage.py *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -42,6 +43,25 @@ Use this flow when `EXECUTION_PLAN=<path>` is shown in the preload.
 Read the execution plan using `Read`. Show the user all `[planned]` milestones with their goals. Ask which milestone to include in this sprint using `AskUserQuestion`.
 
 One sprint = one milestone. If a milestone has >8 change zone files, suggest splitting it before proceeding.
+
+### Step 1b: Surface-Coverage Concerns
+
+List the selected milestone's uncovered touched surfaces:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/surface_coverage.py --smm-dir <SMM_DIR> \
+  uncovered --milestone <milestone-number>
+```
+
+For each surface name in the JSON array, emit one concern (medium):
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "concern" --agent "xp-sprint-start" --severity "medium" \
+  --content "Milestone <N> touches uncovered surface '<surface>' — no acceptance harness covers it"
+```
+
+An empty array emits no concerns.
 
 ### Step 2: Deep Codebase Dive
 
@@ -78,11 +98,19 @@ Include deferred stories from the previous sprint, renumbered.
 
 ### Step 3b: Capstone Story Proposal
 
-When a milestone has **composition surface** (multiple interacting stories whose seams could break without integration testing), propose a **capstone story** as the final story.
+When a milestone has **composition surface** (multiple interacting stories whose seams could break without integration testing), propose a **capstone story** as the final story. Default opt-in — the customer may decline via `AskUserQuestion`.
 
 **When to propose:** `system_context.json` has `acceptance_surfaces` with a harness, OR the milestone has 3+ stories with interface contracts.
 
-**Structure:** last story, depends on all others; deliverable is the cross-cutting acceptance test file (e.g., `tests/acceptance/milestone-03.spec.ts`); acceptance criteria render the milestone's prose `done` into Given/When/Then; file domain owns the cross-cutting test; `acceptance_execution` points at that file (use the matching `acceptance_surfaces` harness when present).
+**Build it** via the CLI (one behavior-shaped object AC per surface, `ready` status, depends on every sibling, acceptance_execution placeholder the implementer fills). Pass only the **covered** touched surfaces to `--surfaces` (the milestone's `surfaces_touched` minus the uncovered ones from Step 1b) — a capstone AC asserts the surface's suite runs and passes, which an uncovered surface has no harness for; those stay tracked by the Step 1b concern until scaffolded.
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> build-capstone \
+  --milestone "<milestone name>" --surfaces <covered-s1,covered-s2> \
+  --depends-on <story-001,...> --story-id <story-NNN>
+```
+
+Pipe the printed JSON into `add-story`. The capstone's ACs are **behavior-shaped** (Given/When/Then); the implementer replaces the `acceptance_execution` placeholder with the real cross-cutting test invocation during the capstone's own story.
 
 ### Step 4: Sprint Goal
 
