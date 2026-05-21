@@ -111,7 +111,7 @@ If no execution plan exists, skip this section.
 
 For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list) and extract the path arguments — file or directory tokens passed to one of:
 - `pytest` / `python -m pytest <path>` (positional path tokens)
-- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present)
+- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present); a bare `unittest discover` with no `-s` targets the whole tree — treat any path as matching
 - direct script invocations such as `python <path>` or `bash <path>`
 
 Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. `tests/hooks/test_x.py` is inside `tests/hooks/`; the same path does NOT intersect a `file_domain` of only `[smm/event_schema.py]` (no shared prefix).
