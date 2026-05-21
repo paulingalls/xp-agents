@@ -194,6 +194,14 @@ def _run_sprint(smm_dir: Path) -> int:
         },
     )
     _common.append_safe(smm_dir, event)
+    # append_safe swallows validation errors and lock timeouts; a dropped
+    # verify event reads as "none" (green) at the close gate. Confirm the
+    # signal landed by reading it back, and fail loud rather than let a red
+    # sprint pass undetected.
+    landed = _common.read_events_locked(smm_dir, _AGENT_ID)
+    if not any(e.get("id") == event["id"] for e in landed):
+        print("verify_acceptance: failed to emit sprint-verify event", file=sys.stderr)
+        return _EXIT_ERROR
     return _EXIT_OK
 
 

@@ -19,12 +19,14 @@ reads a deterministic event and never recomputes.
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import sprint_store
+import verify_acceptance
 from _bases import _HookTestCase
 from conftest import make_sprint_dict, run_cli
 
@@ -190,6 +192,27 @@ class TestCommandTimeout(_SprintCLITestCase):
         self.assertEqual(len(failing), 1, failing)
         self.assertNotEqual(failing[0]["returncode"], 0)
         self.assertIn("timed out", failing[0]["output"])
+
+
+class TestEmitConfirmation(_SprintCLITestCase):
+    def test_dropped_event_surfaces_error_not_silent_green(self):
+        # append_safe swallows validation errors + lock timeouts. If the verify
+        # event silently fails to land, --query-verify-status would read it as
+        # green and pass a red sprint. _run_sprint must fail loud instead.
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": "bad", "surface": "cli", "command": "false"},
+                    ],
+                ),
+            ]
+        )
+        # Replace append_safe with a no-op so the verify event never lands.
+        with patch.object(verify_acceptance._common, "append_safe"):
+            rc = verify_acceptance._run_sprint(self.smm_dir)
+        self.assertEqual(rc, verify_acceptance._EXIT_ERROR)
 
 
 class TestQueryStatusGreen(_SprintCLITestCase):
