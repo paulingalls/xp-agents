@@ -70,6 +70,32 @@ class _SprintCLITestCase(_HookTestCase):
         ]
 
 
+class TestFailingItemsCapped(_SprintCLITestCase):
+    def test_failing_list_capped_but_count_is_true_total(self):
+        # metadata is not budget-checked, and failing[] grows with failure
+        # count — cap the stored detail while keeping the true count + status.
+        cap = verify_acceptance._MAX_FAILING_ITEMS
+        n = cap + 5
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": f"f{i}", "surface": "cli", "command": "false"}
+                        for i in range(n)
+                    ],
+                ),
+            ]
+        )
+        result = self._run("--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        meta = self._verify_events()[0]["metadata"]
+        self.assertEqual(meta["verify_status"], "red")
+        self.assertEqual(len(meta["failing"]), cap, "stored failing[] must be capped")
+        # The human-readable count reflects the TRUE total, not the cap.
+        self.assertIn(f"{n} failing", self._verify_events()[0]["content"])
+
+
 class TestSprintBatchMatrix(_SprintCLITestCase):
     def test_matrix_grouped_by_surface_with_pass_fail(self):
         self._seed(
