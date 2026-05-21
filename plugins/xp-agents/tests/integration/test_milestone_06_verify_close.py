@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 from _bases import _PLUGIN_ROOT
 from _branching_fixtures import write_system_context
-from conftest import _extract_preload_var, _IntegrationTestCase
+from conftest import _extract_preload_var, _IntegrationTestCase, verify_events
 from event_helpers import events_of_type
 
 _VERIFY = _PLUGIN_ROOT / "scripts" / "verify_acceptance.py"
@@ -101,11 +101,7 @@ class TestMilestone06VerifyCloseLifecycle(_IntegrationTestCase):
         )
 
     def _verify_events(self) -> list[dict]:
-        return [
-            e
-            for e in events_of_type(self._read_events(), _common.SPRINT)
-            if (e.get("metadata") or {}).get("action") == "verify"
-        ]
+        return verify_events(self._read_events())
 
     def _close_verify_status(self) -> str | None:
         result = self._run_preload(_CLOSE_PRELOAD)

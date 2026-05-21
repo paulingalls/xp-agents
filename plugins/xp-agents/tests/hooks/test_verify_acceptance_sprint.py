@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import sprint_store
 import verify_acceptance
 from _bases import _HookTestCase
-from conftest import make_sprint_dict, run_cli
+from conftest import make_sprint_dict, run_cli, verify_events
 
 _VERIFY_ACCEPTANCE = (
     Path(__file__).parent.parent.parent / "scripts" / "verify_acceptance.py"
@@ -62,12 +62,7 @@ class _SprintCLITestCase(_HookTestCase):
         return run_cli(_VERIFY_ACCEPTANCE, list(args), self.smm_dir)
 
     def _verify_events(self) -> list[dict]:
-        return [
-            e
-            for e in self._read_events()
-            if e.get("type") == "sprint"
-            and (e.get("metadata") or {}).get("action") == "verify"
-        ]
+        return verify_events(self._read_events())
 
 
 class TestFailingItemsCapped(_SprintCLITestCase):

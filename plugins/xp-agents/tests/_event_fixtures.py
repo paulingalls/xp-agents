@@ -13,10 +13,27 @@ from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
+    SPRINT_ACTION_VERIFY,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
+
+
+def verify_events(events: list[dict]) -> list[dict]:
+    """Sprint-verify events (type=sprint, metadata.action=verify) in a raw list.
+
+    Single source for the filter previously open-coded across the verify test
+    suites. event_helpers.events_of_type filters by type only (it excludes
+    chained filters by design), so this two-field filter lives here.
+    """
+    return [
+        e
+        for e in events
+        if e.get("type") == EVENT_TYPE_SPRINT
+        and (e.get("metadata") or {}).get("action") == SPRINT_ACTION_VERIFY
+    ]
 
 
 def write_events(events_file: Path, events: list[dict]) -> None:
