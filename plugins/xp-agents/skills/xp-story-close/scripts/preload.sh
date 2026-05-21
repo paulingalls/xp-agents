@@ -62,10 +62,11 @@ if [ -n "$STORY_ID" ]; then
         --smm-dir "${SMM_DIR}" --cwd "${TEAMMATE_CWD:-.}" \
         --story "$STORY_ID" --base "${TARGET_BRANCH}" 2>/dev/null) || true
     VERIFY_UNTOUCHED=$(printf '%s' "$UNTOUCHED" | tr '\n' ' ' | sed 's/ *$//')
-    if git -C "${TEAMMATE_CWD:-.}" log --format=%s "${TARGET_BRANCH}..HEAD" \
-        2>/dev/null | grep -iqE '^[[:space:]]*\[verify-deferred\]'; then
-        VERIFY_DEFERRED="true"
-    fi
+    # Single source for the [verify-deferred] marker: commit_handling reuses
+    # parse_verify_deferred (no duplicate bash regex of the marker).
+    VERIFY_DEFERRED=$(python3 "${PLUGIN_ROOT}/scripts/commit_handling.py" \
+        has-verify-deferred --cwd "${TEAMMATE_CWD:-.}" --base "${TARGET_BRANCH}" \
+        2>/dev/null) || VERIFY_DEFERRED="false"
 fi
 echo "VERIFY_UNTOUCHED=${VERIFY_UNTOUCHED}"
 echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"

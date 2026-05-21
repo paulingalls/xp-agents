@@ -7,9 +7,15 @@ truncated-stdout fallback (`_head_matches_command`), and the TDD-red
 test-only-commit detector (`_prior_commit_was_test_only`). bash_post_tool
 imports the entry points it actually calls in `run()` —
 `_handle_commit` and `_prior_commit_was_test_only`.
+
+CLI: `commit_handling.py has-verify-deferred --cwd <dir> --base <ref>` prints
+true/false — the story-close preload's single source for the [verify-deferred]
+marker check (reuses parse_verify_deferred, no duplicate bash regex).
 """
 
+import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -57,6 +63,31 @@ def parse_verify_deferred(message: str | None) -> str | None:
     if not m:
         return None
     return m.group(1).strip() or "(no rationale)"
+
+
+def branch_has_verify_deferred(cwd: str, base: str) -> bool:
+    """True when any commit subject on base..HEAD carries [verify-deferred].
+
+    Single source for the marker check — reuses parse_verify_deferred so the
+    commit-time nudge/debt and the story-close gate share one regex (no
+    duplicate bash pattern). Returns False on git failure (fail-open: an
+    unreadable range defers nothing).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "log", f"{base}..HEAD", "--format=%s"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=cwd,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    if result.returncode != 0:
+        return False
+    return any(
+        parse_verify_deferred(line) is not None for line in result.stdout.splitlines()
+    )
 
 
 def untouched_paths_for_story(smm_dir: Path, cwd: str, story_id: str) -> list[str]:
@@ -382,3 +413,26 @@ def _prior_commit_was_test_only(smm_dir: Path) -> bool:
             return False
         return all(is_test_file(f) for f in files)
     return False
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="commit-handling queries")
+    sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser(
+        "has-verify-deferred",
+        help="Print true/false: any [verify-deferred] commit on base..HEAD",
+    )
+    p.add_argument("--cwd", default=".", help="Repo working directory")
+    p.add_argument("--base", required=True, help="Base ref")
+    args = parser.parse_args()
+
+    match args.command:
+        case "has-verify-deferred":
+            deferred = branch_has_verify_deferred(args.cwd, args.base)
+            print("true" if deferred else "false")
+            return 0
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

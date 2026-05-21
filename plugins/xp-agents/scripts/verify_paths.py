@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Verify-path extraction + touch-check primitive.
 
-Codifies the harness path-parsing rules that previously lived only as prose
-in agents/xp-plan-reviewer.md (§10b): given a story's per-AC verify objects
-and story-level acceptance_execution, extract the test-file paths their
-commands point at, then check which of those paths no commit on the story
-branch ever touched.
+Implements the harness path-parsing rules. `agents/xp-plan-reviewer.md` §10b
+is the AUTHORITATIVE spec; `_extract_paths_from_command` implements it — keep
+the two in sync (a new runner shape belongs in §10b first, then here). Given a
+story's per-AC verify objects and story-level acceptance_execution, extract the
+test-file paths their commands point at, then check which of those paths no
+commit on the story branch ever touched.
 
 Both the commit-time verify nudge and the story-close gate consume this
 single source of truth; the CLI serves the close preload.
