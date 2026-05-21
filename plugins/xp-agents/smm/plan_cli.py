@@ -187,14 +187,12 @@ def _cmd_archive(args: argparse.Namespace) -> int:
 
 
 def _cmd_set_branch(args: argparse.Namespace) -> int:
-    plan = store.load_plan(args.smm_dir)
-    if plan is None:
-        print("No execution plan found.", file=sys.stderr)
-        return 1
     # Empty-string-clears is a CLI affordance; the store contract is null-or-valid-name.
-    plan["branch"] = args.name or None
+    # Delegate to the store helper so this mutate path grandfathers the
+    # surfaces_touched FK (enforce_budget=False) — re-saving the whole plan
+    # here with strict enforcement would block on post-authoring surface drift.
     try:
-        store.save_plan(args.smm_dir, plan)
+        store.set_branch(args.smm_dir, args.name or None)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1

@@ -94,6 +94,21 @@ class TestSavePlanSurfaceFK(_SMMTestCase):
         assert reloaded is not None
         self.assertEqual(reloaded["milestones"][0]["surfaces_touched"], ["ghost"])
 
+    def test_mutate_resave_grandfathers_surface_drift(self):
+        import execution_plan_store as store
+
+        # Author a valid plan, then drift acceptance_surfaces (drop 'sdk').
+        # A mutate/resave path (update_milestone_status, enforce_budget=False)
+        # must not raise on the untouched surfaces_touched — the FK only
+        # enforces on strict authoring saves.
+        self._write_context(_surfaces("cli", "sdk"))
+        store.save_plan(self.smm_dir, self._plan(["sdk"]))
+        self._write_context(_surfaces("cli"))
+        store.update_milestone_status(self.smm_dir, 1, "in-progress")
+        reloaded = store.load_plan(self.smm_dir)
+        assert reloaded is not None
+        self.assertEqual(reloaded["milestones"][0]["status"], "in-progress")
+
     def test_e2e_ghost_rejected_valid_round_trips(self):
         import execution_plan_store as store
 

@@ -103,9 +103,12 @@ def _acceptance_surface_names(smm_dir: Path) -> frozenset[str] | None:
 def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None:
     """Validate and atomically write the execution plan.
 
-    Clears the NEEDS_EXECUTION_PLAN marker on success. Enforces the
-    milestone.surfaces_touched FK against the project's acceptance_surfaces
-    (save-only — load_plan stays shape-only for read-path grandfathering).
+    Clears the NEEDS_EXECUTION_PLAN marker on success. ``enforce_budget=True``
+    is the strict-authoring mode: it gates both the field-length budgets and
+    the milestone.surfaces_touched FK against the project's acceptance_surfaces.
+    Mutate/resave paths (update_milestone_status, set_branch) pass
+    ``enforce_budget=False`` and grandfather both, so post-authoring
+    acceptance_surface drift never blocks a routine resave.
 
     Raises:
         ValueError: If the data fails schema validation.
@@ -118,7 +121,7 @@ def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None
     errors = validate_plan(
         data,
         enforce_budget=enforce_budget,
-        valid_surfaces=_acceptance_surface_names(smm_dir),
+        valid_surfaces=(_acceptance_surface_names(smm_dir) if enforce_budget else None),
     )
     if errors:
         raise ValueError(f"Plan validation failed: {'; '.join(errors)}")
