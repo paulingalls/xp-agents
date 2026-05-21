@@ -301,11 +301,9 @@ class TestSetBranchCommand(_SMMTestCase):
     def test_set_branch_grandfathers_surface_drift(self):
         # set-branch is a mutate path: post-authoring acceptance_surface drift
         # against an untouched surfaces_touched FK must not block the resave.
+        from _system_context_fixtures import surfaces as _surfaces
         from _system_context_fixtures import valid_doc
         from system_context_schema import SYSTEM_CONTEXT_FILENAME
-
-        def _surfaces(*names):
-            return [{"name": n, "signals": ["x"], "status": "covered"} for n in names]
 
         (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(
             json.dumps(valid_doc(acceptance_surfaces=_surfaces("cli", "sdk")))

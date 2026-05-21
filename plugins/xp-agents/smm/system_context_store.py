@@ -62,6 +62,30 @@ def load_system_context(smm_dir: Path) -> dict | None:
     return data
 
 
+def acceptance_surface_names(smm_dir: Path) -> frozenset[str] | None:
+    """Surface names from system_context, or None when none are declared.
+
+    None signals "no FK to enforce" — a surface-name foreign key keyed on this
+    set stays shape-only when a project declares no acceptance_surfaces; a
+    frozenset turns it enforcing.
+
+    Best-effort: a missing, corrupt, or schema-invalid system_context yields
+    None rather than raising, since the FK is an enhancement, not a gate.
+    Corruption and symlink attacks are surfaced on this module's own
+    load/save paths; swallowing them here keeps a best-effort lookup from
+    blocking an unrelated write.
+    """
+    try:
+        doc = load_system_context(smm_dir)
+    except (ValueError, OSError):
+        return None
+    surfaces = (doc or {}).get("acceptance_surfaces", [])
+    names = frozenset(
+        s["name"] for s in surfaces if isinstance(s, dict) and "name" in s
+    )
+    return names or None
+
+
 def save_system_context(
     smm_dir: Path, data: dict, *, enforce_budget: bool = True
 ) -> None:

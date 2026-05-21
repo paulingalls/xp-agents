@@ -72,15 +72,21 @@ def validate_acceptance_execution(ae: object, prefix: str) -> list[str]:
     return errors
 
 
-def validate_per_ac_verify(item: object, prefix: str) -> list[str]:
+def validate_per_ac_verify(
+    item: object, prefix: str, *, valid_surfaces: frozenset[str] | None = None
+) -> list[str]:
     """Validate a single acceptance_criteria item.
 
     An item is either a bare ``str`` (a manual AC) or an object with a
-    required ``description`` (str), an optional ``surface`` (str — FK to
-    acceptance_surfaces is enforced by consumers, not here), and an
+    required ``description`` (str), an optional ``surface`` (str), and an
     optional ``command`` xor ``commands`` verify block reusing the
     story-level shape (minus the required ``type``). An object carrying
     only a description is a structured manual check.
+
+    When ``valid_surfaces`` is supplied, an object's ``surface`` must be one
+    of those names (FK to acceptance_surfaces). ``None`` keeps the FK
+    shape-only — enforcement is the caller's choice, mirroring the
+    milestone.surfaces_touched FK in execution_plan_schema.
     """
     if isinstance(item, str):
         return []
@@ -90,8 +96,15 @@ def validate_per_ac_verify(item: object, prefix: str) -> list[str]:
     errors: list[str] = []
     if not isinstance(item.get("description"), str):
         errors.append(f"{prefix}.description is required and must be a string")
-    if "surface" in item and not isinstance(item["surface"], str):
+    surface = item.get("surface")
+    if "surface" in item and not isinstance(surface, str):
         errors.append(f"{prefix}.surface must be a string")
+    elif (
+        isinstance(surface, str)
+        and valid_surfaces is not None
+        and surface not in valid_surfaces
+    ):
+        errors.append(f"{prefix}.surface references unknown surface {surface!r}")
     errors.extend(_validate_command_block(item, prefix, require_one=False))
     return errors
 

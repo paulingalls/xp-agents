@@ -285,5 +285,46 @@ class TestEmptySprint(unittest.TestCase):
             self.assertIn(field, sprint)
 
 
+class TestValidateSprintSurfaceFK(unittest.TestCase):
+    """validate_sprint threads valid_surfaces to the per-AC surface FK.
+    None (default) keeps it shape-only; a frozenset turns it enforcing."""
+
+    def _sprint_with_surface(self, surface: str) -> dict:
+        story = _make_story(
+            acceptance_criteria=[{"description": "works", "surface": surface}]
+        )
+        return _make_sprint(stories=[story])
+
+    def test_known_surface_passes(self):
+        sprint = self._sprint_with_surface("api")
+        errors = sprint_schema.validate_sprint(
+            sprint, valid_surfaces=frozenset({"api", "cli"})
+        )
+        self.assertEqual(errors, [])
+
+    def test_unknown_surface_rejected(self):
+        sprint = self._sprint_with_surface("ghost")
+        errors = sprint_schema.validate_sprint(
+            sprint, valid_surfaces=frozenset({"api", "cli"})
+        )
+        self.assertTrue(any("surface" in e and "ghost" in e for e in errors), errors)
+
+    def test_none_valid_surfaces_skips_fk(self):
+        sprint = self._sprint_with_surface("ghost")
+        errors = sprint_schema.validate_sprint(sprint, valid_surfaces=None)
+        self.assertEqual(errors, [])
+
+    def test_default_is_shape_only(self):
+        sprint = self._sprint_with_surface("ghost")
+        self.assertEqual(sprint_schema.validate_sprint(sprint), [])
+
+    def test_bare_string_acs_unaffected(self):
+        sprint = _make_sprint(stories=[_make_story()])
+        errors = sprint_schema.validate_sprint(
+            sprint, valid_surfaces=frozenset({"api"})
+        )
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()

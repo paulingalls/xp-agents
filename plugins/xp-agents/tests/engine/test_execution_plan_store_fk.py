@@ -16,15 +16,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _system_context_fixtures import surfaces as _surfaces
 from _system_context_fixtures import valid_doc
 from conftest import _SMMTestCase
 from conftest import make_milestone_dict as _make_milestone
 from conftest import make_plan_dict as _make_plan
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
-
-
-def _surfaces(*names: str) -> list[dict]:
-    return [{"name": n, "signals": ["x"], "status": "covered"} for n in names]
 
 
 class TestSavePlanSurfaceFK(_SMMTestCase):

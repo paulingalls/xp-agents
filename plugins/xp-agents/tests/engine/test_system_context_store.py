@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import marker_names
+from _system_context_fixtures import surfaces as _surfaces
 from _system_context_fixtures import valid_doc
 from conftest import _SMMTestCase
 from system_context_schema import (
@@ -18,6 +19,7 @@ from system_context_schema import (
     SYSTEM_CONTEXT_FILENAME,
 )
 from system_context_store import (
+    acceptance_surface_names,
     load_system_context,
     save_system_context,
     system_context_exists,
@@ -150,6 +152,34 @@ class TestLoadCanonicalization(_SMMTestCase):
         with self.assertRaises(ValueError) as ctx:
             load_system_context(self.smm_dir)
         self.assertIn("Missing required field: principles", str(ctx.exception))
+
+
+class TestAcceptanceSurfaceNames(_SMMTestCase):
+    def _write(self, doc: dict) -> None:
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(json.dumps(doc))
+
+    def test_returns_declared_surface_names(self) -> None:
+        self._write(valid_doc(acceptance_surfaces=_surfaces("api", "cli")))
+        self.assertEqual(
+            acceptance_surface_names(self.smm_dir), frozenset({"api", "cli"})
+        )
+
+    def test_no_surfaces_returns_none(self) -> None:
+        self._write(valid_doc(acceptance_surfaces=[]))
+        self.assertIsNone(acceptance_surface_names(self.smm_dir))
+
+    def test_missing_context_returns_none(self) -> None:
+        self.assertIsNone(acceptance_surface_names(self.smm_dir))
+
+    def test_corrupt_context_returns_none(self) -> None:
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text("not json {{{")
+        self.assertIsNone(acceptance_surface_names(self.smm_dir))
+
+    def test_symlinked_context_returns_none(self) -> None:
+        real = self.smm_dir / "real.json"
+        real.write_text(json.dumps(valid_doc(acceptance_surfaces=_surfaces("api"))))
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).symlink_to(real)
+        self.assertIsNone(acceptance_surface_names(self.smm_dir))
 
 
 if __name__ == "__main__":

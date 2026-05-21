@@ -133,6 +133,16 @@ When the verb+context pair fires, the implied path MUST appear in the story's `f
 
 Do NOT raise this rejection when the description has none of the new-file verbs.
 
+### 10d. Verify-Test Coverage in the Plan
+
+§10b checks AC paths against the sprint `file_domain`; this rule checks them against the **implementation plan under review** — does the plan actually write the test the AC will run?
+
+For the in-progress story in `SPRINT_FILE`, gather its verify-bearing test paths: extract path tokens from each per-AC `command`/`commands` AND the story-level `acceptance_execution.command`/`commands`, using the same harness parsing as §10b (`pytest path::sel`, `python -m pytest <path>`, `unittest discover -s <path>`, direct `python`/`bash <path>`).
+
+For each extracted path, the implementation plan's stated file targets/steps must include that path (the plan must create or modify the test). When a verify-bearing path is absent from the plan's file targets, emit a **high-severity** `concern` naming the story, the AC command, and the missing path — a green acceptance test the plan never writes is a planning gap.
+
+**Unit-shape heuristic (soft).** Scan the story-level `acceptance_execution` command for unit-shape indicators (`::test_internal_*`, private-helper `-k` selectors, internal function-name selectors). On a match, emit a **soft** `concern` (medium, not a block) that recommends the acceptance demo assert observable, behavior-shaped outcomes rather than an internal.
+
 ### 11. Trace Verifications
 
 When you verify a trace (a referenced event id, decision tag, or anchor an earlier review flagged) and find **no real concern**, do NOT emit a `type=concern` event with no real content — null/empty concerns inflate the unresolved-concern metric and pollute future kickoff signal.
