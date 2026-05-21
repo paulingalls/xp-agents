@@ -463,10 +463,38 @@ class TestApplyCommitStageZero(_ApplyCliCommitTestBase):
         self.assertIn("Resolves-Event: abc123def456", body)
 
 
-class TestApplyCommitStageTwoProtected(_ApplyCliCommitTestBase):
+class TestApplyCommitStageTwoOnProtectedBase(_ApplyCliCommitTestBase):
     stage = 2
 
-    def test_refuses_on_main_at_stage_2(self) -> None:
+    def test_forks_child_off_main_at_stage_2(self) -> None:
+        """On main (protected) at stage 2, apply-commit forks the scaffold
+        child off main and commits there instead of refusing — branching off
+        a protected base is fine; the child keeps the commit off main."""
+        write_payload = self._apply_write(self._plan())
+        result = run_cli(
+            _CLI,
+            [
+                "apply-commit",
+                "--snapshot-id",
+                write_payload["snapshot_id"],
+                "--repo-root",
+                str(self._repo),
+                "--surface",
+                "browser",
+                "--tool",
+                "playwright",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["ok"], payload.get("reason"))
+        self.assertTrue(payload["branch"].endswith("/scaffold"))
+
+    def test_refuses_on_story_branch_at_stage_2(self) -> None:
+        """apply-commit on a story branch surfaces commit_scaffold's refusal
+        as an ok=False payload with guidance to the sprint branch."""
+        run_git(["git", "checkout", "-b", "paulingalls/story-007-x"], self._repo)
         write_payload = self._apply_write(self._plan())
         result = run_cli(
             _CLI,
@@ -486,7 +514,9 @@ class TestApplyCommitStageTwoProtected(_ApplyCliCommitTestBase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertFalse(payload["ok"])
-        self.assertIn("main", payload["reason"])
+        reason = payload["reason"].lower()
+        self.assertIn("story", reason)
+        self.assertIn("sprint", reason)
 
 
 if __name__ == "__main__":

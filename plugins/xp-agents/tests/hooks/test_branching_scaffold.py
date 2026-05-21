@@ -29,6 +29,18 @@ _make_commit = _bf.make_commit
 GIT_ENV = _bf.GIT_ENV
 
 
+def _commits_on(cwd: str, branch: str) -> set[str]:
+    """Full set of commit SHAs reachable from ``branch``."""
+    out = subprocess.run(
+        ["git", "log", "--format=%H", branch],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return {line for line in out.splitlines() if line}
+
+
 class TestCreateScaffoldBranch(unittest.TestCase):
     def test_creates_branch_at_stage_one(self) -> None:
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
@@ -37,16 +49,35 @@ class TestCreateScaffoldBranch(unittest.TestCase):
             _write_system_context(smm_dir, stage=1)
 
             with patch("branching.identity.user_namespace", return_value="paul"):
-                result = branching.create_scaffold_branch(td, "browser", smm_dir)
+                result = branching.create_scaffold_branch(td, smm_dir)
 
-            self.assertEqual(result, "paul/scaffold-browser")
+            self.assertEqual(result, "paul/scaffold")
+
+    def test_surface_independent_name_resumes_shared_branch(self) -> None:
+        """The scaffold branch name carries no surface, so a second invocation
+        (the loop's next surface) resumes the same paul/scaffold branch rather
+        than forking a per-surface branch off the first."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _make_commit(td, "paul/sprint-088-x", "s.txt", "sprint\n", "sprint work")
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                first = branching.create_scaffold_branch(td, smm_dir)
+                _bf.append_commit(td, "surface1.txt")  # surface-1 lands here
+                second = branching.create_scaffold_branch(td, smm_dir)
+
+            self.assertEqual(first, "paul/scaffold")
+            self.assertEqual(second, "paul/scaffold")
+            self.assertFalse(_bf.branch_exists(td, "paul/scaffold-browser"))
 
     def test_skips_at_stage_zero(self) -> None:
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
             _write_system_context(Path(smm), stage=0)
 
-            result = branching.create_scaffold_branch(td, "browser", Path(smm))
+            result = branching.create_scaffold_branch(td, Path(smm))
             self.assertIsNone(result)
 
     def test_returns_none_on_dirty_resume_conflict(self) -> None:
@@ -60,7 +91,7 @@ class TestCreateScaffoldBranch(unittest.TestCase):
 
             _make_commit(
                 td,
-                "paul/scaffold-browser",
+                "paul/scaffold",
                 "marker.txt",
                 "scaffold-version\n",
                 "scaffold marker",
@@ -75,9 +106,83 @@ class TestCreateScaffoldBranch(unittest.TestCase):
             (Path(td) / "marker.txt").write_text("conflicting-untracked\n")
 
             with patch("branching.identity.user_namespace", return_value="paul"):
-                result = branching.create_scaffold_branch(td, "browser", smm_dir)
+                result = branching.create_scaffold_branch(td, smm_dir)
 
             self.assertIsNone(result)
+
+    def test_forks_off_current_sprint_branch(self) -> None:
+        """Non-protected current (sprint) → scaffold forks off it, not primary."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            sentinel = _make_commit(
+                td, "paul/sprint-088-x", "s.txt", "sprint\n", "sprint work"
+            )
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_scaffold_branch(td, smm_dir)
+
+            self.assertEqual(result, "paul/scaffold")
+            self.assertIn(sentinel, _commits_on(td, "paul/scaffold"))
+
+    def test_forks_off_current_free_branch(self) -> None:
+        """Non-protected current (free) → scaffold forks off it."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            sentinel = _make_commit(
+                td, "paul/free-2026-05-20-x", "f.txt", "free\n", "free work"
+            )
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_scaffold_branch(td, smm_dir)
+
+            self.assertEqual(result, "paul/scaffold")
+            self.assertIn(sentinel, _commits_on(td, "paul/scaffold"))
+
+    def test_protected_non_primary_forks_off_current_not_primary(self) -> None:
+        """Stage 3: on main (protected, NOT primary) → scaffold forks off main,
+        not the integration_branch primary. Pins base = current always, even
+        for a protected base — the old code forked off primary here."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=3, integration_branch="develop")
+            dev_sentinel = _make_commit(td, "develop", "d.txt", "dev\n", "dev work")
+            subprocess.run(
+                ["git", "checkout", "main"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=GIT_ENV,
+            )
+            _bf.append_commit(td, "m.txt")
+            main_sentinel = _bf.get_head_sha(td)
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_scaffold_branch(td, smm_dir)
+
+            self.assertEqual(result, "paul/scaffold")
+            reachable = _commits_on(td, "paul/scaffold")
+            self.assertIn(main_sentinel, reachable)
+            self.assertNotIn(dev_sentinel, reachable)
+
+    def test_refuses_on_story_branch(self) -> None:
+        """Story branch current → guard returns None and creates no branch,
+        so a scaffold never enters a story's file_domain."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _make_commit(td, "paul/story-007-x", "x.txt", "story\n", "story work")
+
+            with patch("branching.identity.user_namespace", return_value="paul"):
+                result = branching.create_scaffold_branch(td, smm_dir)
+
+            self.assertIsNone(result)
+            self.assertFalse(_bf.branch_exists(td, "paul/scaffold"))
 
 
 if __name__ == "__main__":

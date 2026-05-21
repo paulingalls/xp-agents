@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _common
 import execution_plan_store
-import git_remote
 import identity
 import sprint_store
 import system_context_store
@@ -38,6 +37,7 @@ from branch_names import (  # noqa: F401
     free_branch_name,
     is_sprint_branch,
     plan_branch_name,
+    scaffold_branch_name,
     sprint_branch_name,
 )
 
@@ -281,13 +281,8 @@ def _create_or_resume_branch(
             return None
         sys.exit(1)
 
-    # Push freshly-created branch only — resumed branches may have
-    # diverged from remote and would fail-noisy every kickoff. Push
-    # failure is non-fatal: branch exists locally, retry hint below
-    # covers recovery (don't add a second error message).
-    if not git_remote.push_branch(cwd, name):
-        print(f"  retry: git push -u origin {name}", file=sys.stderr)
-
+    # No push at create — a fresh branch has no commits beyond its base, so
+    # the branch reaches origin at close time (close_common.py), not here.
     return name
 
 
@@ -355,15 +350,24 @@ def create_sprint_branch(
     return result
 
 
+def is_story_branch(branch: str) -> bool:
+    """True if ``branch`` is a ``<user>/story-NNN[-slug]`` story branch."""
+    return identity.extract_story_id(branch) is not None
+
+
 def create_scaffold_branch(
     cwd: str,
-    surface: str,
     smm_dir: Path,
     *,
-    stage: int | None = None,
     current_branch: str | None = None,
 ) -> str | None:
-    """Create or resume ``<user>/scaffold-<surface>`` off the current branch.
+    """Create or resume the surface-independent ``<user>/scaffold`` branch
+    off the current branch.
+
+    One shared scaffold branch per invocation: a multi-surface
+    /xp-scaffold-acceptance loop calls this once per surface, and because
+    the name carries no surface the second+ calls resume the same branch
+    rather than chaining a per-surface branch off the first.
 
     Scaffold branches host the commit landed by /xp-scaffold-acceptance
     Step 8. Returns None below the plugin floor (stage < 2).
@@ -371,15 +375,20 @@ def create_scaffold_branch(
     written files to disk before this call — the dirty state is the
     work being branched, not stale uncommitted changes.
 
-    Base: current branch when non-protected (free / sprint / plan /
-    generic feature), otherwise primary. Forking off primary would
-    strand user work that lives on the feature branch.
+    Base: the current branch, always — main→child off main, sprint /
+    plan / free / generic feature→child off that branch. Branching off a
+    protected base is fine (the scaffold child is what keeps the commit
+    off the protected branch); forking off primary instead would strand
+    user work that lives on the current branch.
 
-    ``stage`` and ``current_branch`` are optional caller-supplied
-    overrides; ``commit_scaffold`` passes the values it already has so
-    we don't re-shell-out to git or re-read system_context.json. Lazy
-    fallback keeps the public signature usable from contexts that
-    don't have the cache.
+    Guard: refuse (return None, create nothing) when the current branch
+    is a story branch — a scaffold there would land inside the story's
+    file_domain. The caller surfaces the user-facing guidance.
+
+    ``current_branch`` is an optional caller-supplied override;
+    ``commit_scaffold`` passes the value it already has so we don't
+    re-shell-out to git. Lazy fallback keeps the public signature usable
+    from contexts that don't have the cache.
 
     Pairs with ``commit_scaffold``'s ``CommitResult`` error contract:
     ``honest_errors=True`` returns ``None`` on git checkout/create failure
@@ -387,21 +396,17 @@ def create_scaffold_branch(
     failure into ``CommitResult(ok=False, reason=...)`` rather than die.
     """
     user_ns = identity.user_namespace(cwd)
-    name = branch_name(user_ns, "scaffold", surface)
-    if stage is None:
-        stage = get_branching_stage(smm_dir)
+    name = scaffold_branch_name(user_ns)
     if current_branch is None:
         current_branch = identity.get_current_branch(cwd)
-    if is_protected_branch(stage, current_branch, smm_dir):
-        base = get_primary_branch(smm_dir)
-    else:
-        base = current_branch
+    if is_story_branch(current_branch):
+        return None
     return _create_or_resume_branch(
         cwd,
         name,
         smm_dir,
         min_stage=BRANCH_MIN_STAGE["scaffold"],
-        base=base,
+        base=current_branch,
         allow_dirty=True,
         honest_errors=True,
     )

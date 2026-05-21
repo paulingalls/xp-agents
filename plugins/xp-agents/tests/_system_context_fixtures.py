@@ -55,6 +55,11 @@ def seed_entries(field: str, n: int) -> list:
     raise ValueError(f"unknown field: {field}")
 
 
+def surfaces(*names: str) -> list[dict]:
+    """Build covered acceptance_surfaces by name (signals stubbed)."""
+    return [{"name": n, "signals": ["x"], "status": "covered"} for n in names]
+
+
 def seed_doc(field: str, n: int) -> dict:
     """Return a valid_doc with `field` replaced by N seed entries."""
     doc = valid_doc()

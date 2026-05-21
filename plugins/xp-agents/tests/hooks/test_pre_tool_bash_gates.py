@@ -298,19 +298,19 @@ class TestPreToolBashDecisionSameTopic(_HookTestCase):
         prior = make_event(
             EVENT_TYPE_DECISION,
             id="111111111111",
-            topic="execution-mode",
-            content="Solo (sequential)",
+            topic="naming",
+            content="Use camelCase",
         )
         self._write_events([prior])
 
         result = pre_tool_bash.run(
-            _make_bash_input(command=self._decision_cmd("execution-mode")),
+            _make_bash_input(command=self._decision_cmd("naming")),
             smm_dir=self.smm_dir,
         )
 
         result = self._assert_not_none(result)
         self.assertIn("111111111111", result)
-        self.assertIn("execution-mode", result)
+        self.assertIn("naming", result)
         # Suggestion should mention both metadata keys to give the agent
         # the choice: supersedes (suppresses the flag) vs resolves
         # (also cascade-closes the prior decision).
@@ -321,20 +321,20 @@ class TestPreToolBashDecisionSameTopic(_HookTestCase):
         prior = make_event(
             EVENT_TYPE_DECISION,
             id="111111111111",
-            topic="execution-mode",
-            content="Solo",
+            topic="naming",
+            content="camelCase",
         )
         superseder = make_event(
             EVENT_TYPE_DECISION,
             id="222222222222",
-            topic="execution-mode",
-            content="Teammates",
+            topic="naming",
+            content="snake_case",
             metadata={"resolves": ["111111111111"]},
         )
         self._write_events([prior, superseder])
 
         result = pre_tool_bash.run(
-            _make_bash_input(command=self._decision_cmd("execution-mode")),
+            _make_bash_input(command=self._decision_cmd("naming")),
             smm_dir=self.smm_dir,
         )
 
@@ -347,13 +347,13 @@ class TestPreToolBashDecisionSameTopic(_HookTestCase):
         prior = make_event(
             EVENT_TYPE_DECISION,
             id="111111111111",
-            topic="execution-mode",
-            content="Solo",
+            topic="naming",
+            content="camelCase",
         )
         self._write_events([prior])
 
         cmd = self._decision_cmd(
-            "execution-mode",
+            "naming",
             "--metadata",
             "'" + '{"supersedes":["111111111111"]}' + "'",
         )
@@ -368,18 +368,40 @@ class TestPreToolBashDecisionSameTopic(_HookTestCase):
         prior = make_event(
             EVENT_TYPE_DECISION,
             id="111111111111",
-            topic="execution-mode",
-            content="Solo",
+            topic="naming",
+            content="camelCase",
         )
         self._write_events([prior])
 
         cmd = self._decision_cmd(
-            "execution-mode",
+            "naming",
             "--metadata",
             "'" + '{"resolves":["111111111111"]}' + "'",
         )
         result = pre_tool_bash.run(
             _make_bash_input(command=cmd),
+            smm_dir=self.smm_dir,
+        )
+
+        self.assertIsNone(result)
+
+    def test_exempt_topic_no_nudge_even_with_unresolved_prior(self):
+        """execution-mode is exempt: never nudge, even with unresolved priors.
+
+        Mirrors concerns.py's SUPERSEDED_DECISION_EXEMPT_TOPICS — multiple
+        decisions per session are part of the /xp-assign workflow, not
+        silent supersession.
+        """
+        prior = make_event(
+            EVENT_TYPE_DECISION,
+            id="111111111111",
+            topic="execution-mode",
+            content="Solo",
+        )
+        self._write_events([prior])
+
+        result = pre_tool_bash.run(
+            _make_bash_input(command=self._decision_cmd("execution-mode")),
             smm_dir=self.smm_dir,
         )
 

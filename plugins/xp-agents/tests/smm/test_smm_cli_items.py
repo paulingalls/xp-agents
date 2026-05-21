@@ -160,6 +160,25 @@ class TestUpdateItemCommand(_HookTestCase):
             )
         self.assertEqual(result, 1)
 
+    def test_help_documents_stdin_content(self):
+        """`update-item --help` must tell users content is read from stdin —
+        otherwise the stdin channel is invisible (it's not a flag), which is
+        exactly the discoverability gap that made update-item look read-only."""
+        import contextlib
+        import io
+        from unittest.mock import patch
+
+        buf = io.StringIO()
+        argv = ["smm_cli.py", "--smm-dir", str(self.smm_dir), "update-item", "--help"]
+        with (
+            patch.object(sys, "argv", argv),
+            self.assertRaises(SystemExit) as cm,
+            contextlib.redirect_stdout(buf),
+        ):
+            smm_cli.main()
+        self.assertEqual(cm.exception.code, 0)
+        self.assertIn("stdin", buf.getvalue().lower())
+
 
 # ---------------------------------------------------------------------------
 # remove-item CLI

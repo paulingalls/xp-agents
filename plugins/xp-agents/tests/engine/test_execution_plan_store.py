@@ -158,6 +158,37 @@ class TestUpdateMilestoneStatus(_SMMTestCase):
             store.update_milestone_status(self.smm_dir, 99, "in-progress")
 
 
+class TestFindMilestone(unittest.TestCase):
+    def test_find_returns_matching_milestone(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(
+            milestones=[_make_milestone(number=1), _make_milestone(number=3)]
+        )
+        found = store.find_milestone(plan, 3)
+        assert found is not None
+        self.assertEqual(found["number"], 3)
+
+    def test_find_returns_none_when_absent(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(number=1)])
+        self.assertIsNone(store.find_milestone(plan, 99))
+
+    def test_find_required_returns_matching(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(number=2)])
+        self.assertEqual(store.find_milestone_required(plan, 2)["number"], 2)
+
+    def test_find_required_raises_when_absent(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(number=1)])
+        with self.assertRaises(ValueError):
+            store.find_milestone_required(plan, 99)
+
+
 class TestHasRemainingWork(_SMMTestCase):
     def test_planned_milestones_have_remaining(self):
         import execution_plan_store as store
@@ -398,6 +429,20 @@ class TestRenderMarkdown(_SMMTestCase):
         md = store.render_markdown(plan)
         self.assertIn("src/foo.py", md)
         self.assertIn("new module", md)
+
+    def test_render_includes_surfaces_touched(self):
+        import execution_plan_store as store
+
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched=["api", "cli"])])
+        md = store.render_markdown(plan)
+        self.assertIn("Surfaces Touched", md)
+        self.assertIn("api, cli", md)
+
+    def test_render_omits_surfaces_touched_when_absent(self):
+        import execution_plan_store as store
+
+        md = store.render_markdown(_make_plan())
+        self.assertNotIn("Surfaces Touched", md)
 
     def test_render_includes_branch_when_set(self):
         import execution_plan_store as store

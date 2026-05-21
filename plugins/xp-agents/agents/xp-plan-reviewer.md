@@ -111,7 +111,7 @@ If no execution plan exists, skip this section.
 
 For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list) and extract the path arguments — file or directory tokens passed to one of:
 - `pytest` / `python -m pytest <path>` (positional path tokens)
-- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present)
+- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present); a bare `unittest discover` with no `-s` targets the whole tree — treat any path as matching
 - direct script invocations such as `python <path>` or `bash <path>`
 
 Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. `tests/hooks/test_x.py` is inside `tests/hooks/`; the same path does NOT intersect a `file_domain` of only `[smm/event_schema.py]` (no shared prefix).
@@ -132,6 +132,16 @@ For each story in `SPRINT_FILE`, scan `description` (and `context` if present) f
 When the verb+context pair fires, the implied path MUST appear in the story's `file_domain`. If the planner named a path-like token in the description and that exact token is absent from `file_domain`, **reject** — emit a 🔴 `question` event naming the missing path and asking the planner to enumerate it, then halt review. If the verb+context pair fires but no path is named yet, also reject: a planner unable to commit to a path means the design isn't complete.
 
 Do NOT raise this rejection when the description has none of the new-file verbs.
+
+### 10d. Verify-Test Coverage in the Plan
+
+§10b checks AC paths against the sprint `file_domain`; this rule checks them against the **implementation plan under review** — does the plan actually write the test the AC will run?
+
+For the in-progress story in `SPRINT_FILE`, gather its verify-bearing test paths: extract path tokens from each per-AC `command`/`commands` AND the story-level `acceptance_execution.command`/`commands`, using the same harness parsing as §10b (`pytest path::sel`, `python -m pytest <path>`, `unittest discover -s <path>`, direct `python`/`bash <path>`).
+
+For each extracted path, the implementation plan's stated file targets/steps must include that path (the plan must create or modify the test). When a verify-bearing path is absent from the plan's file targets, emit a **high-severity** `concern` naming the story, the AC command, and the missing path — a green acceptance test the plan never writes is a planning gap.
+
+**Unit-shape heuristic (soft).** Scan the story-level `acceptance_execution` command for unit-shape indicators (`::test_internal_*`, private-helper `-k` selectors, internal function-name selectors). On a match, emit a **soft** `concern` (medium, not a block) that recommends the acceptance demo assert observable, behavior-shaped outcomes rather than an internal.
 
 ### 11. Trace Verifications
 

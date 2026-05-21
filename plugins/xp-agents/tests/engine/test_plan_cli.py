@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import VALID_MILESTONE as _VALID_MILESTONE
 from conftest import _SMMTestCase, run_cli
+from conftest import make_milestone_dict as _make_milestone
 from conftest import make_plan_dict as _make_plan
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "plan_cli.py"
@@ -296,6 +297,27 @@ class TestSetBranchCommand(_SMMTestCase):
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(_make_plan()))
         result = run_cli(_CLI, ["set-branch", "has space"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
+
+    def test_set_branch_grandfathers_surface_drift(self):
+        # set-branch is a mutate path: post-authoring acceptance_surface drift
+        # against an untouched surfaces_touched FK must not block the resave.
+        from _system_context_fixtures import surfaces as _surfaces
+        from _system_context_fixtures import valid_doc
+        from system_context_schema import SYSTEM_CONTEXT_FILENAME
+
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(
+            json.dumps(valid_doc(acceptance_surfaces=_surfaces("cli", "sdk")))
+        )
+        plan = _make_plan(milestones=[_make_milestone(surfaces_touched=["sdk"])])
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        # Drop 'sdk' from acceptance_surfaces, then flip the branch.
+        (self.smm_dir / SYSTEM_CONTEXT_FILENAME).write_text(
+            json.dumps(valid_doc(acceptance_surfaces=_surfaces("cli")))
+        )
+        result = run_cli(_CLI, ["set-branch", "user/new"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["branch"], "user/new")
 
 
 class TestGetBranchCommand(_SMMTestCase):

@@ -349,9 +349,12 @@ The concern tells the customer what surface was detected, what is
 missing, what to do next, and what the consequence is if left
 unresolved. Vague concerns get ignored; actionable ones drive change.
 
-A dedicated scaffolding skill (e.g., `/xp-scaffold-acceptance`) is
-deferred — it needs holistic design alongside how acceptance testing
-integrates across the plugin, not a bolt-on.
+The intrusive work lives in a dedicated scaffolding skill,
+`/xp-scaffold-acceptance`: it detects uncovered surfaces, plans the
+harness, and — on explicit customer confirmation — installs the tool,
+writes a first test, commits on a scaffold branch, and flips the
+surface to covered. Analysis raises the actionable concern; scaffolding
+acts on it only when the customer asks.
 
 ---
 
@@ -392,5 +395,5 @@ All design decisions resolved. This document is the source for:
   project's surfaces.
 - `/xp-sprint-start` when writing story-level acceptance criteria.
 - `/xp-accept` when executing and evaluating acceptance tests.
-
-Deferred: dedicated scaffolding skill (recorded as debt).
+- `/xp-scaffold-acceptance` when installing a missing harness and
+  flipping a surface to covered.

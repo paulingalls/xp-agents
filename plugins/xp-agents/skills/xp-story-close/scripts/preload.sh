@@ -46,6 +46,31 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 echo "TEST_COMMAND=$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
+
+# Verify-touch gate: declared acceptance-test paths no commit on
+# base..HEAD touched, plus whether a [verify-deferred] commit defers
+# the gate. The close skill refuses on untouched && not-deferred.
+# `|| true` keeps the CLI's exit 1 (untouched paths found) from tripping
+# `set -e` — we want its stdout regardless of exit code. VERIFY_UNTOUCHED
+# is space-joined (acceptance-test paths carry no spaces).
+STORY_ID=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+    --smm-dir "${SMM_DIR}" extract-story-id --branch "${CURRENT_BRANCH}")
+VERIFY_UNTOUCHED=""
+VERIFY_DEFERRED="false"
+if [ -n "$STORY_ID" ]; then
+    UNTOUCHED=$(python3 "${PLUGIN_ROOT}/scripts/verify_paths.py" \
+        --smm-dir "${SMM_DIR}" --cwd "${TEAMMATE_CWD:-.}" \
+        --story "$STORY_ID" --base "${TARGET_BRANCH}" 2>/dev/null) || true
+    VERIFY_UNTOUCHED=$(printf '%s' "$UNTOUCHED" | tr '\n' ' ' | sed 's/ *$//')
+    # Single source for the [verify-deferred] marker: commit_handling reuses
+    # parse_verify_deferred (no duplicate bash regex of the marker).
+    VERIFY_DEFERRED=$(python3 "${PLUGIN_ROOT}/scripts/commit_handling.py" \
+        has-verify-deferred --cwd "${TEAMMATE_CWD:-.}" --base "${TARGET_BRANCH}" \
+        2>/dev/null) || VERIFY_DEFERRED="false"
+fi
+echo "VERIFY_UNTOUCHED=${VERIFY_UNTOUCHED}"
+echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"
+
 emit_system_context_rendered_for close-reviewer
 emit_hook_guidance "$HOOK_STATUS"
 

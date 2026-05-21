@@ -35,6 +35,10 @@ If `execution_plan_md_path` and `milestone` are both non-empty, read `execution_
 
 **If no `acceptance_execution`:** Skip — current behavior (all stories done = delivered).
 
+## Step 2c: Sprint Acceptance Rerun
+
+Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --sprint --smm-dir <SMM_DIR>`: it reruns every story's per-AC verify objects + story-level `acceptance_execution`, prints a PASS/FAIL matrix grouped by surface, and emits the deterministic `sprint`/`action=verify` event `/xp-sprint-close` gates on. When a sprint carries only string ACs, the run reports `no verify-bearing acceptance to rerun` and emits no event — note that in the report. Carry the matrix into the Step 5 report.
+
 ## Step 3: Execution Plan Update
 
 If `execution_plan_md_path` and `milestone` are both non-empty:
@@ -59,7 +63,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 5: Report Back
 
-Concise summary: what shipped vs planned, milestones marked delivered, unmapped stories, velocity ratio.
+Concise summary: what shipped vs planned, milestones marked delivered, unmapped stories, velocity ratio. Include the per-surface verify matrix from Step 2c in the report verbatim — the main agent surfaces it to the user (this subagent's tool result is invisible to them).
 
 ## SMM Content Trust
 

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import branching
 import commits
+import concerns
 import coordination
 import git_commits
 import identity
@@ -179,6 +180,8 @@ def _same_topic_decisions_context(
     """
     if not topic or not events:
         return None
+    if topic in concerns.SUPERSEDED_DECISION_EXEMPT_TOPICS:
+        return None
     resolved = resolution.collect_all_resolved_ids(resolutions)
 
     lines: list[str] = []
@@ -243,6 +246,42 @@ def _staged_ruff_findings(
         if deferred:
             findings.append((path, deferred))
     return findings
+
+
+# ---------------------------------------------------------------------------
+# Verify-touch nudge
+# ---------------------------------------------------------------------------
+
+
+def _verify_touch_nudge(
+    smm_dir: Path, effective_cwd: str, command: str, branch: str
+) -> str | None:
+    """Advisory when the active story's declared verify paths are untouched.
+
+    Fails open at every step — this is a nudge, never a block. Suppressed by
+    a [verify-deferred] commit (which records its own debt post-commit) and
+    silent off a story branch, when the story declares no verify paths, when
+    every path is already touched, or when git can't be read.
+
+    commit_handling is imported lazily (not top-level): pre_tool_bash loads on
+    every Bash call, but only commits reach this helper, so we avoid pulling
+    commit_handling's post-commit dependency tree into the common path.
+    """
+    from commit_handling import parse_verify_deferred, untouched_paths_for_story
+
+    if parse_verify_deferred(commits.extract_commit_message(command)) is not None:
+        return None
+    story_id = identity.extract_story_id(branch)
+    if not story_id:
+        return None
+    untouched = untouched_paths_for_story(smm_dir, effective_cwd, story_id)
+    if not untouched:
+        return None
+    return (
+        "Verify-touch advisory: no commit on this branch touches the declared "
+        "acceptance-test path(s): " + ", ".join(untouched) + ". Touch them, or "
+        "commit with [verify-deferred] <reason> to defer (records a debt)."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -338,9 +377,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         stage = branching.get_branching_stage(smm_dir)
         if stage >= 1:
             # `git -C <path>` retargets cwd — branch-check the named path.
-            branch = identity.get_current_branch(
-                commits.parse_effective_cwd(command, cwd)
-            )
+            effective_cwd = commits.parse_effective_cwd(command, cwd)
+            branch = identity.get_current_branch(effective_cwd)
             is_escape = commits.is_escape_hatch_commit(command)
             if branching.is_protected_branch(stage, branch, smm_dir) and not is_escape:
                 parts.append(
@@ -356,6 +394,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"or prefix with [release]/[chore]/[sprint-direct] for "
                     f"legitimate post-merge work."
                 )
+
+            nudge = _verify_touch_nudge(smm_dir, effective_cwd, command, branch)
+            if nudge:
+                parts.append(nudge)
 
     if (
         smm_dir is not None

@@ -436,7 +436,16 @@ def main() -> None:
     add_p.add_argument("--source", default=None, help="Source (default: curated)")
     add_p.add_argument("--source-event-id", default=None, help="Source event UUID")
 
-    upd_p = sub.add_parser("update-item", help="Update item fields")
+    upd_p = sub.add_parser(
+        "update-item",
+        help="Update item fields (content from stdin)",
+        description=(
+            "Update an existing item. New content is read from stdin (as with "
+            "add-item); type/topic/severity are set via the flags below. Each "
+            "channel is optional — omitted fields are left unchanged. id, "
+            "source, and ts are always preserved."
+        ),
+    )
     upd_p.add_argument("item_id", help="Item UUID to update")
     upd_p.add_argument("--type", default=None, help="New entry type")
     upd_p.add_argument("--topic", default=None, help="New topic")

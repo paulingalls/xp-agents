@@ -78,7 +78,16 @@ VALID_PRIORITIES = frozenset({PRIORITY_BLOCKING, PRIORITY_ASSUMED, PRIORITY_INFO
 VALID_SEVERITIES = frozenset({"high", "medium", "low"})
 SPRINT_ACTION_START = "start"
 SPRINT_ACTION_END = "end"
-VALID_SPRINT_ACTIONS = frozenset({SPRINT_ACTION_START, SPRINT_ACTION_END})
+SPRINT_ACTION_VERIFY = "verify"
+VALID_SPRINT_ACTIONS = frozenset(
+    {SPRINT_ACTION_START, SPRINT_ACTION_END, SPRINT_ACTION_VERIFY}
+)
+VERIFY_STATUS_RED = "red"
+VERIFY_STATUS_GREEN = "green"
+VERIFY_STATUS_NONE = "none"
+VALID_VERIFY_STATUSES = frozenset(
+    {VERIFY_STATUS_RED, VERIFY_STATUS_GREEN, VERIFY_STATUS_NONE}
+)
 VALID_INTENT_STATUSES = frozenset({"open", "delivered", "superseded"})
 
 
@@ -479,7 +488,15 @@ def validate_event(event: dict) -> list[str]:
                 action = meta.get("action")
                 if action not in VALID_SPRINT_ACTIONS:
                     errors.append(
-                        f"Invalid metadata.action: {action} (must be start/end)"
+                        f"Invalid metadata.action: {action} (must be start/end/verify)"
+                    )
+                elif (
+                    action == SPRINT_ACTION_VERIFY
+                    and meta.get("verify_status") not in VALID_VERIFY_STATUSES
+                ):
+                    errors.append(
+                        "Field 'metadata.verify_status' is required and must "
+                        "be red/green/none for action 'verify'"
                     )
 
         case "retrospective":

@@ -490,7 +490,6 @@ class TestAutoPromote(_SMMTestCase):
             patch("branching.branch_exists", return_value=False),
             patch("branching.is_worktree_clean", return_value=True),
             patch("branching._git", return_value=fake_proc),
-            patch("branching.git_remote.push_branch", return_value=True),
         ):
             result = branching.create_sprint_branch(
                 cwd=str(self.smm_dir),
@@ -523,7 +522,6 @@ class TestAutoPromote(_SMMTestCase):
             patch("branching.branch_exists", return_value=False),
             patch("branching.is_worktree_clean", return_value=True),
             patch("branching._git", return_value=fake_proc),
-            patch("branching.git_remote.push_branch", return_value=True),
             # short-circuits the post-create set_story_branch lookup
             patch("branching.sprint_store.sprint_exists", return_value=False),
         ):

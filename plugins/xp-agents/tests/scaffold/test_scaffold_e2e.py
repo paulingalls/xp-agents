@@ -18,7 +18,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _bases import _PLUGIN_ROOT
-from _helpers import init_git_with_seed, run_git, valid_system_context
+from _helpers import (
+    init_git_with_seed,
+    load_system_context,
+    run_git,
+    run_scaffold_pipeline,
+    valid_system_context,
+)
 from conftest import run_cli
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_DECISION
@@ -91,58 +97,17 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
         self._run(
             ["build-plan"], stdin_data=json.dumps(_PLAN_INPUT)
         )  # round-trips plan structure
-        write_payload = self._run(
-            ["apply-write", "--repo-root", str(self.repo)],
-            stdin_data=json.dumps(_PLAN_INPUT),
+        commit_payload = run_scaffold_pipeline(
+            self,
+            self._run,
+            self.repo,
+            surface="browser",
+            tool="playwright",
+            plan=_PLAN_INPUT,
         )
-        snap_id = write_payload["snapshot_id"]
-        self.addCleanup(
-            shutil.rmtree, write_payload["snapshot_dir"], True
-        )  # cleanup snap dir
-
-        self._run(
-            ["apply-install", "--snapshot-id", snap_id, "--repo-root", str(self.repo)]
-        )
-        self._run(
-            ["apply-verify", "--snapshot-id", snap_id, "--repo-root", str(self.repo)]
-        )
-
-        commit_payload = self._run(
-            [
-                "apply-commit",
-                "--snapshot-id",
-                snap_id,
-                "--repo-root",
-                str(self.repo),
-                "--surface",
-                "browser",
-                "--tool",
-                "playwright",
-                "--concern-id",
-                "abc123def456",
-            ]
-        )
-        self.assertTrue(commit_payload["ok"])
         self.assertEqual(commit_payload["branch"], "main")  # stage 0 → HEAD
         commit_sha = commit_payload["sha"]
-
-        self._run(
-            [
-                "apply-record",
-                "--snapshot-id",
-                snap_id,
-                "--repo-root",
-                str(self.repo),
-                "--surface",
-                "browser",
-                "--concern-id",
-                "abc123def456",
-                "--agent-id",
-                "test-agent",
-                "--commit-sha",
-                commit_sha,
-            ]
-        )
+        snap_id = commit_payload["snapshot_id"]
 
         # Commit landed on HEAD with the doctrine subject + four trailers.
         body = run_git(["git", "log", "-1", "--format=%B"], self.repo).stdout
@@ -158,9 +123,7 @@ class TestScaffoldM4Pipeline(unittest.TestCase):
             self.assertIn(trailer, body, f"missing trailer: {trailer!r}")
 
         # system_context flipped covered + template command stamped.
-        ctx = json.loads(
-            (self.smm_dir / "system_context.json").read_text(encoding="utf-8")
-        )
+        ctx = load_system_context(self.smm_dir)
         browser = next(s for s in ctx["acceptance_surfaces"] if s["name"] == "browser")
         self.assertEqual(browser["status"], "covered")
         self.assertEqual(browser["acceptance_template_command"], "true")

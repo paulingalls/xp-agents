@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Push-at-create-time tests for every branching.py create_*_branch wrapper.
+"""Create-time no-push contract for branching.py create_*_branch wrappers.
 
-Pins the contract that each public wrapper (story / sprint / scaffold /
-free / plan) pushes its freshly-created branch to origin. A regression
-that bypasses _create_or_resume_branch for one wrapper still trips here.
+Branch creation does NOT push to origin — a freshly-created branch holds
+no commits beyond its base, so pushing it only adds a network round-trip
+(and fires the project's pre-push hook) for nothing. Branches reach the
+remote at close time (`close_common.py` push), not at creation.
 
-Resume path is explicitly NOT pushed — push -u is only safe when local
-matches/leads remote, and a resumed branch may have diverged remotely.
+All five wrappers (story / sprint / scaffold / free / plan) share
+`_create_or_resume_branch`, so the story wrapper pins the contract for the
+shared path; this is the regression guard against re-introducing a
+create-time push.
 """
 
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -25,7 +27,6 @@ from _bases import _AssertNotNoneMixin
 
 _init_repo = _bf.init_repo
 _write_system_context = _bf.write_system_context
-_seed_plan = _bf.seed_plan
 _add_bare_remote = _bf.add_bare_remote
 _remote_has_branch = _bf.remote_has_branch
 _checkout_main = _bf.checkout_main
@@ -52,116 +53,33 @@ class _BasePushTest(_AssertNotNoneMixin, unittest.TestCase):
         return td, smm
 
 
-class TestStoryBranchPushes(_BasePushTest):
-    """Story-wrapper holds the full path matrix (silent, resume, failure)
-    because all 5 wrappers share `_create_or_resume_branch`. Sister
-    classes (Sprint/Scaffold/Free/Plan) only smoke-test the wire-up.
-    Don't copy the matrix into them — same code path, same coverage."""
+class TestCreateDoesNotPush(_BasePushTest):
+    """Create never pushes. Story wrapper pins the shared
+    `_create_or_resume_branch` path; the other wrappers route through it."""
 
-    def test_pushes_freshly_created(self):
+    def test_fresh_create_does_not_push(self):
         td, smm = self._setup_repo()
         name = branching.create_story_branch(td, "story-001", "demo", smm)
         name = self._assert_not_none(name)
-        self.assertTrue(_remote_has_branch(td, name))
+        self.assertFalse(
+            _remote_has_branch(td, name),
+            "create pushed the branch to origin — it should reach the remote "
+            "at close time, not creation",
+        )
 
-    def test_silent_when_no_remote(self):
+    def test_resume_does_not_push(self):
+        td, smm = self._setup_repo()
+        first = branching.create_story_branch(td, "story-001", "demo", smm)
+        first = self._assert_not_none(first)
+        _checkout_main(td)
+        second = branching.create_story_branch(td, "story-001", "demo", smm)
+        self.assertEqual(first, second)
+        self.assertFalse(_remote_has_branch(td, first))
+
+    def test_create_succeeds_without_remote(self):
         td, smm = self._setup_repo(with_remote=False)
         name = branching.create_story_branch(td, "story-001", "demo", smm)
         self.assertIsNotNone(name)
-
-    def test_does_not_push_on_resume(self):
-        td, smm = self._setup_repo()
-        first = branching.create_story_branch(td, "story-001", "demo", smm)
-        assert first is not None
-        self.assertTrue(_remote_has_branch(td, first))
-        _checkout_main(td)
-        # Patch at source — branching.py calls via `git_remote.push_branch`
-        # (module-attribute access). A future `from git_remote import push_branch`
-        # refactor would silently skip this mock.
-        with patch("git_remote.push_branch") as mock_push:
-            second = branching.create_story_branch(td, "story-001", "demo", smm)
-        self.assertEqual(first, second)
-        mock_push.assert_not_called()
-
-    def test_push_failure_does_not_abort_create(self):
-        td, smm = self._setup_repo()
-        with patch("git_remote.push_branch", return_value=False):
-            name = branching.create_story_branch(td, "story-001", "demo", smm)
-        self.assertIsNotNone(name)
-
-
-class TestSprintBranchPushes(_BasePushTest):
-    def test_pushes_freshly_created(self):
-        td, smm = self._setup_repo()
-        _seed_plan(smm)
-        name = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
-        name = self._assert_not_none(name)
-        self.assertTrue(_remote_has_branch(td, name))
-
-    def test_does_not_push_on_resume(self):
-        td, smm = self._setup_repo()
-        _seed_plan(smm)
-        first = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
-        _checkout_main(td)
-        with patch("git_remote.push_branch") as mock_push:
-            second = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
-        self.assertEqual(first, second)
-        mock_push.assert_not_called()
-
-
-class TestScaffoldBranchPushes(_BasePushTest):
-    stage = 1
-
-    def test_pushes_freshly_created(self):
-        td, smm = self._setup_repo()
-        name = branching.create_scaffold_branch(td, "cli", smm)
-        name = self._assert_not_none(name)
-        self.assertTrue(_remote_has_branch(td, name))
-
-    def test_does_not_push_on_resume(self):
-        td, smm = self._setup_repo()
-        first = branching.create_scaffold_branch(td, "cli", smm)
-        _checkout_main(td)
-        with patch("git_remote.push_branch") as mock_push:
-            second = branching.create_scaffold_branch(td, "cli", smm)
-        self.assertEqual(first, second)
-        mock_push.assert_not_called()
-
-
-class TestFreeBranchPushes(_BasePushTest):
-    stage = 1
-
-    def test_pushes_freshly_created(self):
-        td, smm = self._setup_repo()
-        name = branching.create_free_branch(td, "demo", smm)
-        name = self._assert_not_none(name)
-        self.assertTrue(_remote_has_branch(td, name))
-
-    def test_does_not_push_on_resume(self):
-        td, smm = self._setup_repo()
-        first = branching.create_free_branch(td, "demo", smm)
-        _checkout_main(td)
-        with patch("git_remote.push_branch") as mock_push:
-            second = branching.create_free_branch(td, "demo", smm)
-        self.assertEqual(first, second)
-        mock_push.assert_not_called()
-
-
-class TestPlanBranchPushes(_BasePushTest):
-    def test_pushes_freshly_created(self):
-        td, smm = self._setup_repo()
-        name = branching.create_plan_branch(td, "demo", smm)
-        name = self._assert_not_none(name)
-        self.assertTrue(_remote_has_branch(td, name))
-
-    def test_does_not_push_on_resume(self):
-        td, smm = self._setup_repo()
-        first = branching.create_plan_branch(td, "demo", smm)
-        _checkout_main(td)
-        with patch("git_remote.push_branch") as mock_push:
-            second = branching.create_plan_branch(td, "demo", smm)
-        self.assertEqual(first, second)
-        mock_push.assert_not_called()
 
 
 if __name__ == "__main__":

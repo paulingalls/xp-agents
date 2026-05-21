@@ -176,6 +176,44 @@ class TestValidateSprint(unittest.TestCase):
         self.assertTrue(any("acceptance_execution" in e for e in errors))
 
 
+class TestAcceptanceCriteriaItemShape(unittest.TestCase):
+    """AC items may be a bare string (manual) or a per-AC verify object."""
+
+    def test_string_only_criteria_valid(self):
+        sprint = _make_sprint(
+            stories=[_make_story(acceptance_criteria=["Users can register"])]
+        )
+        self.assertEqual(sprint_schema.validate_sprint(sprint), [])
+
+    def test_object_criteria_item_valid(self):
+        ac = [
+            "Users can register",
+            {"description": "exports CSV", "surface": "cli", "command": "pytest x"},
+        ]
+        sprint = _make_sprint(stories=[_make_story(acceptance_criteria=ac)])
+        self.assertEqual(sprint_schema.validate_sprint(sprint), [])
+
+    def test_malformed_object_criteria_surfaced_with_index_prefix(self):
+        ac = [
+            "ok",
+            {"description": "x", "command": "c", "commands": ["c"]},
+        ]
+        sprint = _make_sprint(stories=[_make_story(acceptance_criteria=ac)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("acceptance_criteria[1]" in e for e in errors), errors)
+
+    def test_object_missing_description_rejected(self):
+        ac = [{"command": "pytest x"}]
+        sprint = _make_sprint(stories=[_make_story(acceptance_criteria=ac)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("description" in e for e in errors), errors)
+
+    def test_non_string_non_dict_criteria_rejected(self):
+        sprint = _make_sprint(stories=[_make_story(acceptance_criteria=[42])])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("acceptance_criteria[0]" in e for e in errors), errors)
+
+
 class TestBranchNameField(unittest.TestCase):
     def test_branch_name_string_valid(self):
         sprint = _make_sprint(branch_name="paul/sprint-031-test")
@@ -245,6 +283,47 @@ class TestEmptySprint(unittest.TestCase):
         sprint = sprint_schema.empty_sprint()
         for field in ("sprint_id", "goal", "started", "stories"):
             self.assertIn(field, sprint)
+
+
+class TestValidateSprintSurfaceFK(unittest.TestCase):
+    """validate_sprint threads valid_surfaces to the per-AC surface FK.
+    None (default) keeps it shape-only; a frozenset turns it enforcing."""
+
+    def _sprint_with_surface(self, surface: str) -> dict:
+        story = _make_story(
+            acceptance_criteria=[{"description": "works", "surface": surface}]
+        )
+        return _make_sprint(stories=[story])
+
+    def test_known_surface_passes(self):
+        sprint = self._sprint_with_surface("api")
+        errors = sprint_schema.validate_sprint(
+            sprint, valid_surfaces=frozenset({"api", "cli"})
+        )
+        self.assertEqual(errors, [])
+
+    def test_unknown_surface_rejected(self):
+        sprint = self._sprint_with_surface("ghost")
+        errors = sprint_schema.validate_sprint(
+            sprint, valid_surfaces=frozenset({"api", "cli"})
+        )
+        self.assertTrue(any("surface" in e and "ghost" in e for e in errors), errors)
+
+    def test_none_valid_surfaces_skips_fk(self):
+        sprint = self._sprint_with_surface("ghost")
+        errors = sprint_schema.validate_sprint(sprint, valid_surfaces=None)
+        self.assertEqual(errors, [])
+
+    def test_default_is_shape_only(self):
+        sprint = self._sprint_with_surface("ghost")
+        self.assertEqual(sprint_schema.validate_sprint(sprint), [])
+
+    def test_bare_string_acs_unaffected(self):
+        sprint = _make_sprint(stories=[_make_story()])
+        errors = sprint_schema.validate_sprint(
+            sprint, valid_surfaces=frozenset({"api"})
+        )
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

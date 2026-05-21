@@ -9,10 +9,10 @@ after a green verify:
   commit subject and trailers (Tool-version / Files-created /
   Files-modified / Verification / Resolves-Event).
 - ``commit_scaffold(snap, ...)``: stage-aware branch + commit orchestration.
-  Stage 0 commits on HEAD; above the plugin floor creates
-  ``<user>/scaffold-<surface>`` via ``branching.create_scaffold_branch``
-  and refuses commits to protected branches (main/master) when no
-  scaffold branch is yet active.
+  Stage 0 commits on HEAD; above the plugin floor creates/resumes the
+  shared ``<user>/scaffold`` branch off the current branch via
+  ``branching.create_scaffold_branch`` and commits there. The one refusal
+  is a story branch (a scaffold there would enter the story's file_domain).
 - ``record_scaffold(snap, ...)``: flips the matching
   ``acceptance_surfaces[*].status`` to ``"covered"`` and stamps the
   verify command onto ``acceptance_template_command`` for downstream
@@ -96,15 +96,13 @@ def commit_scaffold(
     """Stage-aware branch + commit for a green scaffold.
 
     Stage 0: commit on the current HEAD with the doctrine subject.
-    Stage 1+: refuse outright if HEAD is on a protected branch — at
-    minimum ``{main, master}``, plus any SMM-declared
-    ``protected_branches`` and (at stage 3+) the
-    ``integration_branch``. The user must check out a feature/scaffold
-    branch first; otherwise create/checkout ``<user>/scaffold-<surface>``
-    via ``branching.create_scaffold_branch``. Refusal is deliberate even
-    when a scaffold branch already exists locally: forcing an explicit
-    user checkout off the protected branch avoids surprise branch
-    switches mid-flow.
+    Stage 1+: create/resume the shared ``<user>/scaffold`` branch off the
+    current branch (``branching.create_scaffold_branch``) and commit
+    there — branching off a protected base is fine because the scaffold
+    child is what keeps the commit off the protected branch. The one
+    refusal is a story branch: a scaffold there would land inside the
+    story's file_domain, so refuse with guidance to checkout the sprint
+    branch first.
     Subprocess discipline mirrors ``scaffold_apply.run_install``: argv-only
     invocations, no shell metacharacter interpretation.
     """
@@ -113,23 +111,21 @@ def commit_scaffold(
 
     current_branch = identity.get_current_branch(str(repo_root))
 
-    if branching.is_protected_branch(stage, current_branch, smm_dir):
-        return CommitResult(
-            ok=False,
-            reason=(
-                f"refuse to scaffold-commit on protected branch "
-                f"{current_branch!r} at stage {stage}; create a scaffold "
-                f"branch or move to a feature branch first"
-            ),
-        )
-
     target_branch = current_branch
     if stage >= 1:
+        if branching.is_story_branch(current_branch):
+            return CommitResult(
+                ok=False,
+                branch=current_branch,
+                reason=(
+                    f"refuse to scaffold on story branch {current_branch!r}; "
+                    f"checkout the sprint branch first so the scaffold does "
+                    f"not enter the story's file_domain"
+                ),
+            )
         new_branch = branching.create_scaffold_branch(
             str(repo_root),
-            surface,
             smm_dir,
-            stage=stage,
             current_branch=current_branch,
         )
         if new_branch is None:

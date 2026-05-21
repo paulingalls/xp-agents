@@ -21,6 +21,7 @@ from execution_plan_schema import (
     VALID_MILESTONE_STATUSES,
     validate_plan,
 )
+from system_context_store import acceptance_surface_names
 
 _MARKER_NAME = ".needs-execution-plan"
 
@@ -78,7 +79,12 @@ def load_plan_required(smm_dir: Path) -> dict:
 def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None:
     """Validate and atomically write the execution plan.
 
-    Clears the NEEDS_EXECUTION_PLAN marker on success.
+    Clears the NEEDS_EXECUTION_PLAN marker on success. ``enforce_budget=True``
+    is the strict-authoring mode: it gates both the field-length budgets and
+    the milestone.surfaces_touched FK against the project's acceptance_surfaces.
+    Mutate/resave paths (update_milestone_status, set_branch) pass
+    ``enforce_budget=False`` and grandfather both, so post-authoring
+    acceptance_surface drift never blocks a routine resave.
 
     Raises:
         ValueError: If the data fails schema validation.
@@ -88,12 +94,29 @@ def save_plan(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> None
     if path.is_symlink():
         raise OSError(f"Plan path is a symlink: {path}")
 
-    errors = validate_plan(data, enforce_budget=enforce_budget)
+    errors = validate_plan(
+        data,
+        enforce_budget=enforce_budget,
+        valid_surfaces=(acceptance_surface_names(smm_dir) if enforce_budget else None),
+    )
     if errors:
         raise ValueError(f"Plan validation failed: {'; '.join(errors)}")
 
     write_text_atomic(path, json.dumps(data, indent=2))
     (smm_dir / _MARKER_NAME).unlink(missing_ok=True)
+
+
+def find_milestone(plan: dict, milestone_num: int) -> dict | None:
+    """Return the milestone with `number == milestone_num`, or None."""
+    return next((m for m in plan["milestones"] if m["number"] == milestone_num), None)
+
+
+def find_milestone_required(plan: dict, milestone_num: int) -> dict:
+    """Return the milestone by number or raise ValueError if absent."""
+    milestone = find_milestone(plan, milestone_num)
+    if milestone is None:
+        raise ValueError(f"No milestone with number {milestone_num}")
+    return milestone
 
 
 def update_milestone_status(
@@ -118,16 +141,13 @@ def update_milestone_status(
     plan = load_plan(smm_dir)
     if plan is None:
         raise ValueError("No execution plan found")
-    for milestone in plan["milestones"]:
-        if milestone["number"] == milestone_num:
-            milestone["status"] = status
-            if status == "delivered":
-                milestone["delivered_sprint"] = delivered_sprint
-            elif milestone.get("delivered_sprint"):
-                milestone["delivered_sprint"] = None
-            save_plan(smm_dir, plan, enforce_budget=False)
-            return
-    raise ValueError(f"No milestone with number {milestone_num}")
+    milestone = find_milestone_required(plan, milestone_num)
+    milestone["status"] = status
+    if status == "delivered":
+        milestone["delivered_sprint"] = delivered_sprint
+    elif milestone.get("delivered_sprint"):
+        milestone["delivered_sprint"] = None
+    save_plan(smm_dir, plan, enforce_budget=False)
 
 
 def set_branch(smm_dir: Path, branch: str | None) -> None:
@@ -237,6 +257,8 @@ def render_markdown(plan: dict) -> str:
         lines.append(f"- **Goal:** {m['goal']}")
         lines.append(f"- **Definition of Done:** {m['done']}")
         lines.append(f"- **Sources:** {m['sources']}")
+        if m.get("surfaces_touched"):
+            lines.append(f"- **Surfaces Touched:** {', '.join(m['surfaces_touched'])}")
         lines.append("")
 
         _render_zones(lines, "Change Zones", m["change_zones"])
