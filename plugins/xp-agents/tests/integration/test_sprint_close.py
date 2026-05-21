@@ -6,6 +6,7 @@ text assertions for the dirty-tree refusal, with-gh / without-gh paths,
 and merge+cleanup sequencing.
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -17,7 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _bases import _PLUGIN_ROOT
-from _branching_fixtures import seed_plan, write_system_context
+from _branching_fixtures import (
+    seed_plan,
+    seed_sprint_with_stories,
+    write_system_context,
+)
 from _close_fixtures import (
     _ClosePreloadCommonTests,
     _CloseSkillTextCommonTests,
@@ -51,8 +56,91 @@ class TestSprintClosePreload(_ClosePreloadCommonTests, _IntegrationTestCase):
     # test_idempotent_when_marker_absent — the marker no longer exists
     # under close-then-done; sprint-close has no consume to perform.
 
+    def _seed_verify_event(self, status: str) -> None:
+        # seed_sprint_with_stories writes sprint_id="sprint-001"; the verify
+        # event must carry the same id for --query-verify-status to find it.
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
+        meta: dict[str, object] = {
+            "sprint_id": "sprint-001",
+            "action": "verify",
+            "verify_status": status,
+        }
+        if status == "red":
+            meta["failing"] = [
+                {"story": "story-001", "command": "false", "returncode": 1}
+            ]
+        result = self._run_append(
+            "--type",
+            "sprint",
+            "--agent",
+            "xp-test",
+            "--content",
+            "Sprint verify",
+            "--metadata",
+            json.dumps(meta),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_emits_verify_status_red_from_last_verify_event(self):
+        self._seed_verify_event("red")
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "VERIFY_STATUS"), "red")
+
+    def test_emits_verify_status_green_when_last_event_green(self):
+        self._seed_verify_event("green")
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "VERIFY_STATUS"), "green")
+
+    def test_emits_verify_status_none_when_no_verify_event(self):
+        seed_sprint_with_stories(self.smm_dir, [("story-001", "done")])
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_preload_var(result.stdout, "VERIFY_STATUS"), "none")
+
 
 _SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md"
+
+
+class TestSprintCloseVerifyGate(unittest.TestCase):
+    """story-003: SKILL.md gates the merge on the verify-acceptance status."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+        cls.text_lower = cls.text.lower()
+
+    def test_skill_reads_verify_status_preload_var(self):
+        self.assertIn(
+            "VERIFY_STATUS",
+            self.text,
+            "sprint-close SKILL.md must read the preload's VERIFY_STATUS var",
+        )
+
+    def test_skill_refuses_merge_on_red(self):
+        # Pin the gate: a red verify status must refuse/block the merge.
+        self.assertIn("red", self.text_lower)
+        refuse_tokens = ("refuse", "block", "stop", "do not merge", "abort")
+        self.assertTrue(
+            any(tok in self.text_lower for tok in refuse_tokens),
+            "sprint-close SKILL.md must direct refusing the merge when "
+            f"VERIFY_STATUS is red — none of {refuse_tokens} found",
+        )
+
+    def test_skill_force_close_escape_emits_debt(self):
+        self.assertIn(
+            "--force-close",
+            self.text,
+            "sprint-close SKILL.md must document the --force-close <reason> "
+            "override for a red verify status",
+        )
+        self.assertIn(
+            "debt",
+            self.text_lower,
+            "sprint-close SKILL.md must direct recording a debt event when "
+            "--force-close bypasses a red verify gate",
+        )
 
 
 class TestSprintCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):

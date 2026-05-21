@@ -15,6 +15,13 @@ echo "CURRENT_BRANCH=${CURRENT_BRANCH}"
 echo "TARGET_BRANCH=${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
+
+# Verify-acceptance gate signal (M6): the last sprint-verify rerun's status.
+# Exit 1 (red) is a gate signal, not an error — keep the preload green and
+# default an empty/error read to "none" (no gate when no sprint/event exists).
+VERIFY_STATUS=$(python3 "${PLUGIN_ROOT}/scripts/verify_acceptance.py" \
+    --query-verify-status --smm-dir "${SMM_DIR}" 2>/dev/null | head -1) || true
+echo "VERIFY_STATUS=${VERIFY_STATUS:-none}"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 echo "CLOSE_START_TS=$(now_iso)"
