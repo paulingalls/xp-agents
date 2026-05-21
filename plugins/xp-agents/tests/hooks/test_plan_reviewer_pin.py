@@ -158,6 +158,75 @@ class TestPlanReviewerPin(unittest.TestCase):
                 "exact failure mode that escaped sprint-012 story-003",
             )
 
+    # --- §10d verify-test coverage in the plan --------------------------
+    #
+    # M4 (execution_plan.json §Milestone 4): a story can declare an
+    # acceptance_execution / per-AC command that runs a test the
+    # implementation plan never writes — green-looking plan, missing test.
+    # The reviewer must extract verify-bearing test paths and check they
+    # appear among the implementation plan's stated file targets/steps,
+    # emitting a HIGH-severity concern on a miss. A separate soft heuristic
+    # flags unit-shaped story-level commands, recommending behavior shape.
+
+    def test_body_directs_verify_test_path_coverage_in_plan(self):
+        # The §10d rule needs a distinct grep anchor so it can't be confused
+        # with §10b (which checks AC paths against the sprint file_domain).
+        self.assertIn(
+            "verify-test coverage",
+            self.body_lower,
+            "xp-plan-reviewer body must carry a 'verify-test coverage' rule "
+            "(gather verify-bearing test paths from acceptance_execution / "
+            "per-AC commands and check them against the plan under review)",
+        )
+        # Must name the IMPLEMENTATION PLAN as the artifact checked against —
+        # NOT the sprint file_domain (that's §10b). 'file targets' alone
+        # already appears in the execution-mode section, so pin the
+        # rule-specific phrase.
+        self.assertIn(
+            "implementation plan",
+            self.body_lower,
+            "xp-plan-reviewer §10d must check verify test paths against the "
+            "implementation plan's stated file targets/steps — name the "
+            "'implementation plan' so it isn't read as the §10b file_domain "
+            "check",
+        )
+
+    def test_body_directs_high_severity_concern_on_missing_test_path(self):
+        # A missing verify test path is a HARD flag — HIGH severity concern.
+        # Pin 'high-severity' (hyphenated) so it doesn't false-pass on the
+        # frontmatter's 'highest-leverage'.
+        self.assertIn(
+            "high-severity",
+            self.body_lower,
+            "xp-plan-reviewer body must direct a HIGH-severity concern when a "
+            "declared verify test path is absent from the plan's file targets",
+        )
+
+    def test_body_directs_unit_shape_soft_flag(self):
+        # The shape heuristic: story-level commands matching unit-shape
+        # indicators get a SOFT flag recommending behavior shape (not block).
+        self.assertIn(
+            "unit-shape",
+            self.body_lower,
+            "xp-plan-reviewer body must name the 'unit-shape' heuristic for "
+            "story-level acceptance commands",
+        )
+        soft_tokens = ("soft", "recommend")
+        self.assertTrue(
+            any(token in self.body_lower for token in soft_tokens),
+            "xp-plan-reviewer body must mark the shape flag as soft / a "
+            "recommendation (not a block)",
+        )
+        # Must point at the behavior-shaped alternative so the nudge is
+        # actionable. Pin 'behavior-shaped' (not bare 'behavior', which
+        # appears in §6's 'caller behavior').
+        self.assertIn(
+            "behavior-shaped",
+            self.body_lower,
+            "xp-plan-reviewer body must recommend a behavior-shaped "
+            "acceptance demo as the alternative to a unit-shaped command",
+        )
+
     # --- Trace verification reclassification ----------------------------
     #
     # When the agent verifies a trace and finds no real concern, it must
