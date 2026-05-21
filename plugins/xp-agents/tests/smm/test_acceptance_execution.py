@@ -217,5 +217,34 @@ class TestValidatePerAcVerify(unittest.TestCase):
         self.assertTrue(any("must be a string or" in e for e in errors), errors)
 
 
+class TestValidatePerAcVerifySurfaceFK(unittest.TestCase):
+    """When `valid_surfaces` is supplied, an object AC's `surface` must be one
+    of those names; None keeps the FK shape-only (back-compat)."""
+
+    def _vac_fk(self, item: object, valid_surfaces) -> list[str]:
+        return validate_per_ac_verify(item, _AC_PREFIX, valid_surfaces=valid_surfaces)
+
+    def test_surface_in_set_is_valid(self):
+        item = {"description": "api works", "surface": "api"}
+        self.assertEqual(self._vac_fk(item, frozenset({"api", "cli"})), [])
+
+    def test_surface_not_in_set_rejected(self):
+        item = {"description": "api works", "surface": "ghost"}
+        errors = self._vac_fk(item, frozenset({"api", "cli"}))
+        self.assertTrue(any("surface" in e and "ghost" in e for e in errors), errors)
+
+    def test_none_valid_surfaces_skips_fk(self):
+        item = {"description": "api works", "surface": "ghost"}
+        self.assertEqual(self._vac_fk(item, None), [])
+
+    def test_absent_surface_with_set_is_valid(self):
+        item = {"description": "manual check"}
+        self.assertEqual(self._vac_fk(item, frozenset({"api"})), [])
+
+    def test_bare_string_with_set_is_valid(self):
+        errors = self._vac_fk("Given X, When Y, Then Z", frozenset({"api"}))
+        self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()
