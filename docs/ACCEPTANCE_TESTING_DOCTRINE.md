@@ -31,7 +31,7 @@ These are two loops on two clocks. They do not block each other.
 ### Commit loop (TDD)
 
 ```
-red → green → /simplify → /xp-quality-review → commit
+red → green → /code-review → /xp-quality-review → commit
 ```
 
 Runs constantly during implementation. Fast. Enforces correctness of the

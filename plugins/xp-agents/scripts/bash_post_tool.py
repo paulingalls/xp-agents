@@ -2,7 +2,7 @@
 """PostToolUse command hook for Bash: parse git commits and test results.
 
 Records commit status events, checks commit size, and records test
-pass/fail status. Nudges /simplify after commits with 3+ code files.
+pass/fail status. Nudges /code-review after commits with 3+ code files.
 """
 
 import sys
@@ -190,7 +190,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 if uncommitted:
                     parts.append(
                         "Commit now to trigger the review cycle "
-                        "(/simplify, /xp-quality-review)."
+                        "(/code-review, /xp-quality-review)."
                     )
                 if parts:
                     return " ".join(parts)

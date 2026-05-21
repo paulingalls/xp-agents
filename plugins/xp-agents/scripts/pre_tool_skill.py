@@ -2,7 +2,7 @@
 """PreToolUse:Skill hook — inject guidance before skills run.
 
 One injection:
-- /simplify: courage nudge to run all 3 review subagents
+- /code-review: courage nudge to run all 3 review subagents
 """
 
 import sys
@@ -14,7 +14,7 @@ import _common
 
 _SIMPLIFY_COURAGE = (
     "Courage means doing the right thing even when it's uncomfortable. "
-    "/simplify requires launching 3 review subagents in parallel "
+    "/code-review requires launching 3 review subagents in parallel "
     "(code reuse, code quality, efficiency) — every time, on every change. "
     "Skipping subagents because the change 'looks small' is the easy path. "
     "Small changes hide duplication that only the code reuse agent catches "
@@ -29,7 +29,7 @@ def run(input_data: dict, **_kwargs) -> str | None:
 
     skill = input_data.get("tool_input", {}).get("skill", "")
 
-    if "simplify" in skill:
+    if "code-review" in skill:
         return _SIMPLIFY_COURAGE
 
     return None

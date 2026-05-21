@@ -250,7 +250,7 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_PLAN_COMPLETED": _drive_plan_completed,
     "STATUS_ACTION_PLAN_AWAITING_REVIEW": _drive_plan_completed,
     "STATUS_ACTION_PLAN_EXITED": _drive_plan_exited,
-    "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("simplify"),
+    "STATUS_ACTION_SIMPLIFY_COMPLETE": _drive_review_cycle("code-review"),
     "STATUS_ACTION_QR_COMPLETE": _drive_review_cycle("xp-quality-review"),
     "STATUS_ACTION_SECURITY_COMPLETE": _drive_review_cycle("security-review"),
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),

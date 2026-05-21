@@ -269,7 +269,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # (close-skill Step 4 covers the cumulative diff at close).
     if smm_dir is not None and git_commits.is_git_commit(command):
         # Tier 1 fires before the review-cycle gate so deterministic
-        # patterns block even when /simplify and /xp-quality-review are done.
+        # patterns block even when /code-review and /xp-quality-review are done.
         diff = commits.get_staged_diff(cwd)
         if diff is None:
             raise _common.BlockedError(
@@ -325,9 +325,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if len(code_files) >= commits.REVIEW_CYCLE_THRESHOLD:
             if not cycle.get("simplify_done"):
                 raise _common.BlockedError(
-                    f"Run /simplify before committing — "
+                    f"Run /code-review before committing — "
                     f"{len(code_files)} code files changed since last review.",
-                    "Simplify required before committing.",
+                    "Code review required before committing.",
                 )
             elif not cycle.get("quality_review_done"):
                 raise _common.BlockedError(

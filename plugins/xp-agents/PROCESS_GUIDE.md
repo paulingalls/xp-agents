@@ -4,7 +4,7 @@
 
 - **Communication**: Share *why*, not just *what*. Answer open questions promptly.
 - **Simplicity**: Simplest thing that works. Deliver what was asked before adding extras.
-- **Feedback**: Fix what `/simplify` or `/xp-quality-review` flags. Tests are production code.
+- **Feedback**: Fix what `/code-review` or `/xp-quality-review` flags. Tests are production code.
 - **Courage**: Make the tough call. Use the better way; flag the old with a concern.
 - **Honesty**: Record decisions, assumptions, concerns in the SMM. State assumptions explicitly. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes`.
 
@@ -28,7 +28,7 @@ Three link types close events and risk pillar items:
 
 **Plan cycle:** `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Use for multi-file changes (3+ files). Marker-gated: `.plan-awaiting-review` blocks writes until reviewed; `.assign-pending` blocks until assigned.
 
-**Per commit:** `/simplify` → `/xp-quality-review` → `git commit`. Commit gate blocks if skipped. Deterministic patterns scan staged diffs; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.
+**Per commit:** `/code-review` → `/xp-quality-review` → `git commit`. Commit gate blocks if skipped. Deterministic patterns scan staged diffs; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
 

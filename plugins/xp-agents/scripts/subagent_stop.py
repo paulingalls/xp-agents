@@ -62,13 +62,22 @@ def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
     )
 
 
+def _is_code_review(name: str) -> bool:
+    """True for the built-in /code-review skill, but NOT our own
+    xp-code-reviewer agent (which also contains the substring "code-review").
+    This guard matters because _update_review_cycle_flags runs BEFORE the
+    is_xp_agent skip, so without it the xp-code-reviewer's completion would
+    falsely set simplify_done."""
+    return "code-review" in name and "code-reviewer" not in name
+
+
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
     """Set review cycle flags. Runs even for xp- agents (xp-quality-review is xp-*)."""
     agent_type = input_data.get("agent_type", "").lower()
     agent_id_val = input_data.get("agent_id", "").lower()
 
     flag: str | None = None
-    if "simplify" in agent_type or "simplify" in agent_id_val:
+    if _is_code_review(agent_type) or _is_code_review(agent_id_val):
         flag = "simplify_done"
     elif "quality-review" in agent_type or "quality-review" in agent_id_val:
         flag = "quality_review_done"

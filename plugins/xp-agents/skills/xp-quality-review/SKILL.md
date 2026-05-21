@@ -1,8 +1,8 @@
 ---
 name: xp-quality-review
 description: >-
-  Post-simplify quality review. Spawns an independent xp-code-reviewer subagent
-  for simplify accountability, drift management, debt awareness, and XP-lens
+  Post-code-review quality review. Spawns an independent xp-code-reviewer subagent
+  for code-review accountability, drift management, debt awareness, and XP-lens
   code review. Resolves plan concerns inline.
 effort: high
 allowed-tools:
@@ -22,7 +22,7 @@ allowed-tools:
 
 # Quality Review
 
-Post-simplify review. `/simplify` just ran (3 agents: code reuse, quality, efficiency). You orchestrate an independent review and resolve plan concerns.
+Post-code-review review. `/code-review` just ran (3 agents: code reuse, quality, efficiency). You orchestrate an independent review and resolve plan concerns.
 
 ## Step 1: Spawn Independent Code Reviewer
 
@@ -30,9 +30,9 @@ Post-simplify review. `/simplify` just ran (3 agents: code reuse, quality, effic
 
 The reviewer cannot infer which existing concerns or debts the diff might close; pass the relevant ones in the prompt so it can verify whether the staged changes address them and whether a `Resolves-Event:` trailer is warranted on the next commit. Pull candidates from the preload's `## Debt for Changed Files` section (already filtered by file overlap via `concerns.find_issues_for_file`) and from any plan-review concerns the preload lists. If the preload surfaced no overlapping events, state that explicitly — empty context reads as missing analysis, not absence.
 
-### Gather Simplify Findings
+### Gather Code-Review Findings
 
-Look back through the conversation for what `/simplify`'s three agents found. For each finding, capture: the file, what was recommended, and whether it was APPLIED or SKIPPED. **Do NOT include the skip reasons** — the subagent should form its own opinion.
+Look back through the conversation for what `/code-review`'s three agents found. For each finding, capture: the file, what was recommended, and whether it was APPLIED or SKIPPED. **Do NOT include the skip reasons** — the subagent should form its own opinion.
 
 Format as a numbered list — include the file, what was recommended, and the disposition:
 ```
@@ -48,7 +48,7 @@ Use the Agent tool to spawn the `xp-code-reviewer` subagent. The prompt must inc
 ```
 Agent(
   subagent_type: "xp-agents:xp-code-reviewer",
-  prompt: "## Diff\n<diff from preload>\n\n## Simplify Findings\n<numbered list>\n\n## Existing Debt\n<debt from preload or 'None'>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: simplify accountability, drift, debt, XP values."
+  prompt: "## Diff\n<diff from preload>\n\n## Code-Review Findings\n<numbered list>\n\n## Existing Debt\n<debt from preload or 'None'>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: code-review accountability, drift, debt, XP values."
 )
 ```
 

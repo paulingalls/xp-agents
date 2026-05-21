@@ -66,7 +66,7 @@ def lint_check() -> dict:
 
 
 def review_cycle_done() -> dict:
-    return _make_skill_input(skill="simplify", tool_response={"success": True})
+    return _make_skill_input(skill="code-review", tool_response={"success": True})
 
 
 def retrospective() -> dict:
