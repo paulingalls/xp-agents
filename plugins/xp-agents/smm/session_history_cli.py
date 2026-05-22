@@ -11,10 +11,10 @@ Usage:
     session_history_cli.py --smm-dir DIR validate
 
 ``render`` emits the markdown block to stdout; when ``events.jsonl``
-contains ``session_end`` events, the most-recent entry's header is
-annotated ``(stale — N sessions ended without /xp-end-session since
-this summary)`` if intervening sessions ended without a summary. Empty
-output on a missing history file (fresh install).
+contains ``session_started`` boundary anchors, the most-recent entry's
+header is annotated ``(stale — N sessions started without /xp-end-session
+since this summary)`` if intervening sessions started without a summary.
+Empty output on a missing history file (fresh install).
 
 ``validate`` runs the schema validator and exits non-zero with errors
 on stderr; useful in CI / tooling that wants a loud failure mode.
@@ -55,7 +55,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
 
     rendered = session_history.render_markdown(
         entries[-args.limit :],
-        session_end_timestamps=session_history.read_session_end_timestamps(
+        session_anchor_timestamps=session_history.read_session_anchor_timestamps(
             args.smm_dir
         ),
     )
