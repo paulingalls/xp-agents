@@ -269,113 +269,24 @@ class TestSessionEnd(_HookTestCase):
             f"session_end content {len(se['content'])} exceeds budget {budget}",
         )
 
-    def test_resolves_session_goal_events(self):
-        """Goals from current session are resolved via metadata.resolves on
-        the session_end event so compaction archives them."""
+    def test_session_end_never_emits_resolves_metadata(self):
+        """Goal resolution moved off session_end to SessionStart (M3,
+        story-002). Even with main- and teammate-owned goals open in the
+        log, session_end must not carry metadata.resolves for goals."""
         import session_end
 
-        g1 = make_event(EVENT_TYPE_GOAL, content="Free session", agent_id="xp-kickoff")
-        g2 = make_event(
-            EVENT_TYPE_GOAL, content="Fix the bug", agent_id="xp-work-selection"
-        )
-        self._write_events([g1, g2])
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        resolves = (se.get("metadata") or {}).get("resolves", [])
-        self.assertIn(g1["id"], resolves)
-        self.assertIn(g2["id"], resolves)
-
-    def test_already_resolved_goals_not_re_resolved(self):
-        """Goals already resolved by a prior session_end (via metadata.resolves)
-        must not be re-listed in the new session_end's metadata.resolves."""
-        import session_end
-
-        prior_goal = make_event(
-            EVENT_TYPE_GOAL,
-            content="Prior session goal",
-            ts="2026-03-12T08:00:00+00:00",
-            agent_id="xp-kickoff",
-        )
-        prior_end = make_event(
-            EVENT_TYPE_SESSION_END,
-            ts="2026-03-12T09:00:00+00:00",
-            content="Session ended: prior",
-            metadata={"resolves": [prior_goal["id"]]},
-        )
-        current_goal = make_event(
-            EVENT_TYPE_GOAL,
-            content="Current session goal",
-            ts="2026-03-12T10:00:00+00:00",
-            agent_id="xp-kickoff",
-        )
-        self._write_events([prior_goal, prior_end, current_goal])
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        se = events_of_type(events, EVENT_TYPE_SESSION_END)[-1]
-        resolves = (se.get("metadata") or {}).get("resolves", [])
-        self.assertIn(current_goal["id"], resolves)
-        self.assertNotIn(prior_goal["id"], resolves)
-
-    def test_main_session_does_not_resolve_teammate_goals(self):
-        """Multi-teammate worktrees share one SMM. Main session_end must
-        not claim ownership of a teammate's still-unresolved goals."""
-        import session_end
-
-        main_goal = make_event(
-            EVENT_TYPE_GOAL, content="Main goal", agent_id="xp-kickoff"
-        )
-        teammate_goal = make_event(
+        g_main = make_event(EVENT_TYPE_GOAL, content="Main goal", agent_id="xp-kickoff")
+        g_team = make_event(
             EVENT_TYPE_GOAL, content="Teammate goal", agent_id="worktree-story-001"
         )
-        self._write_events([main_goal, teammate_goal])
+        self._write_events([g_main, g_team])
         session_end.run(
             {"session_id": "test", "reason": "logout", "cwd": "/home/user/project"},
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        resolves = (se.get("metadata") or {}).get("resolves", [])
-        self.assertIn(main_goal["id"], resolves)
-        self.assertNotIn(teammate_goal["id"], resolves)
-
-    def test_teammate_resolves_only_own_goals(self):
-        """A teammate session_end resolves only its own teammate-prefixed
-        goals — not main's goals nor other teammates' goals."""
-        import session_end
-
-        main_goal = make_event(
-            EVENT_TYPE_GOAL, content="Main goal", agent_id="xp-kickoff"
-        )
-        own_goal = make_event(
-            EVENT_TYPE_GOAL, content="Own teammate goal", agent_id="worktree-story-001"
-        )
-        other_goal = make_event(
-            EVENT_TYPE_GOAL,
-            content="Other teammate goal",
-            agent_id="worktree-story-002",
-        )
-        self._write_events([main_goal, own_goal, other_goal])
-        session_end.run(
-            {
-                "session_id": "test",
-                "reason": "done",
-                "cwd": "/home/user/project/.claude/worktrees/worktree-story-001/src",
-            },
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        resolves = (se.get("metadata") or {}).get("resolves", [])
-        self.assertIn(own_goal["id"], resolves)
-        self.assertNotIn(main_goal["id"], resolves)
-        self.assertNotIn(other_goal["id"], resolves)
+        self.assertNotIn("resolves", se.get("metadata") or {})
 
     def test_no_resolves_metadata_when_no_goals(self):
         """When no goals were emitted in the session, the session_end
@@ -392,27 +303,10 @@ class TestSessionEnd(_HookTestCase):
         meta = se.get("metadata") or {}
         self.assertNotIn("resolves", meta)
 
-
-# ===========================================================================
-# Stale-concern sweep tests
-# ===========================================================================
-
-
-class TestStaleConcernSweep(_HookTestCase):
-    """SessionEnd flags concerns older than 4 SESSION_END markers by emitting
-    a NEW concern event with references=[orig_id] + metadata.flagged_stale.
-    The flag participates in WEAK-references cascade closure."""
-
-    @staticmethod
-    def _flag_concerns(events: list[dict]) -> list[dict]:
-        return [
-            e
-            for e in events
-            if e.get("type") == EVENT_TYPE_CONCERN
-            and (e.get("metadata") or {}).get("flagged_stale") is True
-        ]
-
-    def test_stale_concern_emits_flag(self):
+    def test_session_end_emits_no_stale_flags(self):
+        """Stale-concern sweep moved off session_end to SessionStart (M3,
+        story-002). A concern old enough to once trip the sweep must NOT
+        produce a flagged_stale concern from session_end anymore."""
         import session_end
 
         c = make_event(EVENT_TYPE_CONCERN, content="Old concern")
@@ -429,129 +323,56 @@ class TestStaleConcernSweep(_HookTestCase):
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        flags = self._flag_concerns(
-            _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        )
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0].get("references"), [c["id"]])
-        self.assertEqual(flags[0]["metadata"]["stale_session_count"], 4)
-        self.assertEqual(flags[0].get("severity"), "low")
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        flags = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and (e.get("metadata") or {}).get("flagged_stale") is True
+        ]
+        self.assertEqual(flags, [])
 
-    def test_fresh_concern_not_flagged(self):
+    def test_duration_spans_full_conversation_when_no_session_started_anchor(self):
+        """Concern 4b7a27898de7: with no session_started anchor (e.g. a
+        resume/compact continuation), duration anchors on the original
+        first event — the resumed session is logically one session."""
         import session_end
 
-        c = make_event(EVENT_TYPE_CONCERN, content="Fresh concern")
-        self._write_events(
-            [
-                c,
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
-            ]
-        )
+        old = make_event(content="early", ts="2026-03-12T08:00:00+00:00")
+        recent = make_event(content="late", ts="2026-03-12T10:00:00+00:00")
+        self._write_events([old, recent])
         session_end.run(
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
+        # Anchored at the 08:00 first event, so duration spans from then to
+        # now (well over the 2h gap to the 10:00 event), not just the tail.
+        self.assertGreater(se["duration_seconds"], 7200)
+
+    def test_duration_anchors_at_tail_cap_when_no_anchor_and_long_log(self):
+        """Concern 4b7a27898de7: a no-anchor log longer than the tail cap
+        anchors at len - _NO_ANCHOR_TAIL_CAP, deliberately bounding an
+        unbounded 'current session' rather than swallowing the whole log."""
+        import session_end
+
+        cap = _common._NO_ANCHOR_TAIL_CAP
+        # cap+5 events, none of them a session_started anchor.
+        long_log = [make_event(content=f"e{i}") for i in range(cap + 5)]
+        self._write_events(long_log)
+        events_before = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         self.assertEqual(
-            self._flag_concerns(
-                _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-            ),
-            [],
-        )
-
-    def test_resolved_concern_not_flagged(self):
-        import session_end
-
-        c = make_event(EVENT_TYPE_CONCERN, content="Already-resolved concern")
-        r = make_event(
-            EVENT_TYPE_STATUS,
-            content="Fixed",
-            working_on=[],
-            metadata={"resolves": [c["id"]]},
-        )
-        self._write_events(
-            [
-                c,
-                r,
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
-            ]
+            _common.current_session_start_index(events_before),
+            len(events_before) - cap,
         )
         session_end.run(
             {"session_id": "test", "reason": "logout"},
             smm_dir=self.smm_dir,
         )
-        self.assertEqual(
-            self._flag_concerns(
-                _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-            ),
-            [],
-        )
-
-    def test_multiple_stale_concerns_all_flagged(self):
-        """Given multiple stale concerns, every one gets a flag in one sweep
-        (E2E AC: 'session ends with multiple stale concerns -> Fix lens lists each')."""
-        import session_end
-
-        c1 = make_event(EVENT_TYPE_CONCERN, content="Stale orig 1")
-        c2 = make_event(EVENT_TYPE_CONCERN, content="Stale orig 2")
-        self._write_events(
-            [
-                c1,
-                c2,
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
-            ]
-        )
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        flags = self._flag_concerns(
-            _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        )
-        flagged_origs = {f.get("references", [None])[0] for f in flags}
-        self.assertEqual(flagged_origs, {c1["id"], c2["id"]})
-
-    def test_already_flagged_stale_concern_not_re_flagged(self):
-        """Idempotency: if a flag-concern already exists for an orig concern,
-        session_end must not emit a duplicate flag."""
-        import session_end
-
-        c = make_event(EVENT_TYPE_CONCERN, content="Stale orig")
-        existing_flag = make_event(
-            EVENT_TYPE_CONCERN,
-            content=(
-                f"Concern {c['id']} is stale (4 sessions old) — triage at next kickoff"
-            ),
-            references=[c["id"]],
-            severity="low",
-            metadata={"flagged_stale": True, "stale_session_count": 4},
-        )
-        self._write_events(
-            [
-                c,
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
-                existing_flag,
-            ]
-        )
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        flags = self._flag_concerns(
-            _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        )
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0]["id"], existing_flag["id"])
+        # session_end still appends exactly one summary event.
+        after = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        self.assertEqual(len(events_of_type(after, EVENT_TYPE_SESSION_END)), 1)
 
 
 # ===========================================================================
@@ -564,8 +385,10 @@ class TestTeammateSessionEnd(_HookTestCase):
 
     _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
 
-    def test_resolve_agent_id_used_in_event(self):
-        """SessionEnd event uses resolve_agent_id, not hardcoded 'main'."""
+    def test_teammate_emits_no_session_end(self):
+        """A worktree teammate shares main's session window with no anchor
+        of its own, so a per-teammate session_end only corrupts boundary
+        counts (M3). The teammate emits a completion status instead."""
         import session_end
 
         self._write_events([make_event()])
@@ -574,8 +397,27 @@ class TestTeammateSessionEnd(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        se = events_of_type(events, EVENT_TYPE_SESSION_END)[0]
-        self.assertEqual(se["agent_id"], "worktree-story-001")
+        self.assertEqual(events_of_type(events, EVENT_TYPE_SESSION_END), [])
+
+    def test_teammate_completion_uses_resolved_agent_id(self):
+        """The teammate completion status uses resolve_agent_id, not a
+        hardcoded 'main' — preserves identity-resolution coverage."""
+        import session_end
+
+        self._write_events([make_event()])
+        session_end.run(
+            {"session_id": "test", "reason": "done", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        completions = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_STATUS
+            and "completed" in e.get("content", "").lower()
+        ]
+        self.assertEqual(len(completions), 1)
+        self.assertEqual(completions[0]["agent_id"], "worktree-story-001")
 
     def test_non_teammate_uses_main(self):
         """Non-teammate SessionEnd still uses 'main' agent_id."""

@@ -7,6 +7,7 @@ Sets .needs-kickoff marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
 
+import bisect
 import json
 import os
 import subprocess
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import concerns
 import execution_plan_store
 import identity
 import markers
@@ -25,7 +27,14 @@ import smm_cli
 import smm_store
 import sprint_state
 import system_context_store
+from event_schema import (
+    METADATA_KEY_FLAGGED_STALE,
+    METADATA_KEY_RESOLVES,
+    METADATA_KEY_STALE_SESSION_COUNT,
+)
 from system_context_renderer import render_markdown as render_system_context
+
+STALE_CONCERN_SESSION_THRESHOLD = 4
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -52,6 +61,101 @@ def _is_fresh_start(source: str) -> bool:
     redo work just done.
     """
     return source in ("startup", "clear")
+
+
+def _resolve_prior_goals(events: list[dict], resolutions: dict) -> list[str]:
+    """Return sorted ids of all unresolved GOAL events.
+
+    Re-homed from session_end (M3). Only valid for source=='startup', where
+    the prior conversation is gone and every open goal is genuinely prior-
+    session backlog (callers gate on this — see run()). On 'clear' a goal
+    emitted earlier in the SAME live conversation by /xp-kickoff is still
+    active and must NOT be resolved. Teammates no longer emit session_end and
+    SessionStart is main-only, so main owns the whole shared window: resolve
+    all unresolved goals regardless of agent_id, else worktree-story-* goals
+    orphan forever.
+    """
+    resolved = resolutions["resolved_goal_ids"]
+    return sorted(
+        e["id"]
+        for e in events
+        if e.get("type") == _common.GOAL and e.get("id") and e["id"] not in resolved
+    )
+
+
+def _sweep_stale_concerns(
+    smm_dir: Path,
+    events: list[dict],
+    resolutions: dict,
+    agent_id: str,
+) -> None:
+    """Emit one flag-concern per open concern that has survived
+    STALE_CONCERN_SESSION_THRESHOLD or more SESSION_STARTED anchors.
+
+    Re-homed from session_end (M3), now counting the deterministic
+    session_started boundary. Idempotency: a concern that already has an
+    unresolved flag-concern pointing back to it (metadata.flagged_stale=True,
+    references=[orig_id]) is skipped. `events` is the pre-anchor list, so the
+    current session's own anchor is not yet counted toward the threshold.
+    """
+    resolved_ids = resolutions["resolved_concern_ids"]
+    already_flagged: set[str] = set()
+    anchor_positions: list[int] = []
+    concern_position: dict[str, int] = {}
+    for i, e in enumerate(events):
+        match e.get("type"):
+            case _common.SESSION_STARTED:
+                anchor_positions.append(i)
+            case _common.CONCERN:
+                eid = e.get("id", "")
+                if eid:
+                    concern_position[eid] = i
+                if (
+                    eid not in resolved_ids
+                    and (e.get("metadata") or {}).get("flagged_stale") is True
+                ):
+                    already_flagged.update(e.get("references") or [])
+    stale = concerns.filter_by_session_age(
+        events,
+        STALE_CONCERN_SESSION_THRESHOLD,
+        resolutions=resolutions,
+        anchor_positions=anchor_positions,
+    )
+    if not stale:
+        return
+    total_anchors = len(anchor_positions)
+    flag_events: list[dict] = []
+    for orig in stale:
+        orig_id = orig.get("id", "")
+        # A flag-concern is itself an open CONCERN, so it surfaces in `stale`
+        # once it ages past the threshold. Never flag a flag — that would
+        # compound a new flag-of-a-flag every fresh start (the original it
+        # references is suppressed via already_flagged, but the flag's own id
+        # is not, so without this guard the log grows unbounded).
+        if not orig_id or orig_id in already_flagged:
+            continue
+        if (orig.get("metadata") or {}).get("flagged_stale") is True:
+            continue
+        anchors_since = total_anchors - bisect.bisect_right(
+            anchor_positions, concern_position[orig_id]
+        )
+        flag_events.append(
+            concerns.make_concern(
+                content=(
+                    f"Concern {orig_id} is stale ({anchors_since} sessions old)"
+                    " — triage at next kickoff"
+                ),
+                severity="low",
+                agent_id=agent_id,
+                references=[orig_id],
+                metadata={
+                    METADATA_KEY_FLAGGED_STALE: True,
+                    METADATA_KEY_STALE_SESSION_COUNT: anchors_since,
+                },
+            )
+        )
+    if flag_events:
+        _common.bulk_append_safe(smm_dir, flag_events)
 
 
 # ---------------------------------------------------------------------------
@@ -120,16 +224,30 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _is_fresh_start(source):
         markers.sweep_stale_session_markers(smm_dir)
         markers.marker_write(smm_dir, markers.KICKOFF, source)
-        # Deterministic session-boundary anchor. Main-only — teammates
-        # returned above; emitted once per startup/clear fresh start.
+        # Deterministic session-boundary anchor + re-homed side-effects (M3).
+        # Main-only — teammates returned above; emitted once per startup/clear.
+        # Resolve prior-session goals on the anchor and sweep stale concerns,
+        # both against the PRE-anchor event list so the new anchor isn't
+        # counted toward the staleness threshold (append_safe writes to disk,
+        # not to `events`).
+        agent_id = identity.resolve_agent_id(input_data)
+        events, resolutions = _common.load_events_with_resolutions(smm_dir)
+        # Goal-resolution only on 'startup': a fresh process whose prior
+        # conversation is gone, so open goals are prior-session backlog. On
+        # 'clear' the conversation continues and any open goal is still active.
+        resolved_goal_ids = (
+            _resolve_prior_goals(events, resolutions) if source == "startup" else []
+        )
+        extra = (
+            {"metadata": {METADATA_KEY_RESOLVES: resolved_goal_ids}}
+            if resolved_goal_ids
+            else {}
+        )
         _common.append_safe(
             smm_dir,
-            _common.make_event(
-                _common.SESSION_STARTED,
-                identity.resolve_agent_id(input_data),
-                source,
-            ),
+            _common.make_event(_common.SESSION_STARTED, agent_id, source, **extra),
         )
+        _sweep_stale_concerns(smm_dir, events, resolutions, agent_id)
         if not sprint_state.has_remaining_work(smm_dir):
             execution_plan_store.archive(smm_dir)
             markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)

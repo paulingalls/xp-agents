@@ -25,7 +25,7 @@ from _common import (
     DISCOVERY,
     PRIORITY_BLOCKING,
     QUESTION,
-    SESSION_END,
+    SESSION_STARTED,
     STATUS,
     bulk_append_safe,
     current_session_start_index,
@@ -118,34 +118,33 @@ def _find_unresolved(
 
 def filter_by_session_age(
     events: list[dict],
-    min_session_ends: int,
+    min_anchors: int,
     resolutions: dict | None = None,
-    session_end_positions: list[int] | None = None,
+    anchor_positions: list[int] | None = None,
 ) -> list[dict]:
-    """Return open concerns whose first appearance is >= min_session_ends
-    SESSION_END markers ago.
+    """Return open concerns whose first appearance is >= min_anchors
+    SESSION_STARTED markers ago.
 
-    Used by session_end's stale-concern sweep to flag long-lived concerns
+    Used by SessionStart's stale-concern sweep to flag long-lived concerns
     for human triage at the next /xp-kickoff retro. Resolved concerns
     (per resolution.compute_resolutions) are excluded. Pass `resolutions`
-    AND/OR `session_end_positions` when the caller already computed them
-    to avoid the redundant pass over events.
+    AND/OR `anchor_positions` (the session_started boundary indices) when
+    the caller already computed them to avoid the redundant pass over events.
     """
     if resolutions is None:
         resolutions = resolution.compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
-    if session_end_positions is None:
-        session_end_positions = [
-            i for i, e in enumerate(events) if e.get("type") == SESSION_END
+    if anchor_positions is None:
+        anchor_positions = [
+            i for i, e in enumerate(events) if e.get("type") == SESSION_STARTED
         ]
-    total_ends = len(session_end_positions)
+    total_anchors = len(anchor_positions)
     return [
         e
         for i, e in enumerate(events)
         if e.get("type") == CONCERN
         and e.get("id", "") not in resolved_ids
-        and total_ends - bisect.bisect_right(session_end_positions, i)
-        >= min_session_ends
+        and total_anchors - bisect.bisect_right(anchor_positions, i) >= min_anchors
     ]
 
 
