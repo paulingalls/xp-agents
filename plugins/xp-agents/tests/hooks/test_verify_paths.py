@@ -117,6 +117,18 @@ class TestExtractPathsFromCommand(unittest.TestCase):
             {"apps/agent/tests/"},
         )
 
+    def test_cd_prefix_normalizes_parent_dir_escape(self):
+        # A cross-package AC (`cd apps/agent && pytest ../shared/tests/`) rebases
+        # to apps/agent/../shared/tests/ — normpath collapses the `..` to the
+        # repo-relative apps/shared/tests/ (up one level from agent, into
+        # shared) so it matches git's committed paths instead of failing closed.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "cd apps/agent && pytest ../shared/tests/"
+            ),
+            {"apps/shared/tests/"},
+        )
+
 
 class TestExtractVerifyPaths(unittest.TestCase):
     def test_story_level_acceptance_execution(self):

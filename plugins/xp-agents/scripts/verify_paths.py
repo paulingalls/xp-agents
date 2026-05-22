@@ -13,6 +13,7 @@ single source of truth; the CLI serves the close preload.
 """
 
 import argparse
+import posixpath
 import shlex
 import subprocess
 import sys
@@ -87,8 +88,25 @@ def _extract_paths_from_command(command: str) -> set[str]:
 
     if cd_dir:
         prefix = cd_dir.rstrip("/")
-        paths = {p if p == _WHOLE_TREE_SENTINEL else f"{prefix}/{p}" for p in paths}
+        paths = {_rebase(prefix, p) for p in paths}
     return paths
+
+
+def _rebase(prefix: str, path: str) -> str:
+    """Prefix a cd-relative path with the cd dir and normalize to repo-relative.
+
+    `posixpath.normpath` collapses `..`/`.`/`//` so a cross-package token
+    (`../shared/tests/` under `cd apps/agent`) resolves to git's actual
+    repo-relative path (`apps/shared/tests/` — `..` cancels `agent`, one
+    level, not the repo root) instead of failing the touch match.
+    Trailing slash is preserved (normpath strips it) because a directory
+    declaration drives `_is_touched`'s inside-or-equals match. The whole-tree
+    sentinel is left untouched — it already matches any change (fail open).
+    """
+    if path == _WHOLE_TREE_SENTINEL:
+        return path
+    normalized = posixpath.normpath(f"{prefix}/{path}")
+    return normalized + "/" if path.endswith("/") else normalized
 
 
 def _extract_unittest_discover_dirs(tokens: list[str]) -> set[str]:
