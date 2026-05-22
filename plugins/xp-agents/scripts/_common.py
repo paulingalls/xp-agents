@@ -106,11 +106,18 @@ def current_session_start_index(events: list[dict]) -> int:
 
     The current session begins at the most recent SESSION_STARTED event,
     which is itself the first event of that session — so its own index is
-    the answer (no +1). The slice events[idx:] therefore includes the
+    the answer (no +1). The slice events[idx:] therefore INCLUDES the
     anchor, which is intentional: all callers filter by content type inside
     the window. When no anchor exists, return 0 for short logs and a
     positive tail cap (len - _NO_ANCHOR_TAIL_CAP) for long ones, so an
     unbounded "current session" doesn't swallow the whole event log.
+
+    Boundary asymmetry vs the sister `current_session_start_ts`: this
+    returns an index whose slice is anchor-INCLUSIVE, while `_ts` is used
+    with `e["ts"] > start_ts` which is anchor-EXCLUSIVE. Both are correct
+    for their callers — index callers type-filter the window (the anchor is
+    a SIBLING_ARTIFACT they ignore), ts callers want events strictly after
+    the boundary. A raw-iterating index consumer would see the anchor.
     """
     idx = _last_index_of_type(events, SESSION_STARTED)
     if idx >= 0:
@@ -123,7 +130,8 @@ def current_session_start_ts(events: list[dict]) -> str:
 
     Sister of `current_session_start_index` — returns the boundary
     timestamp instead of the index. Use when callers need a ts comparison
-    (e.g., filter by `e["ts"] > start_ts`).
+    (e.g., filter by `e["ts"] > start_ts`, which EXCLUDES the anchor —
+    unlike the index sister whose slice includes it; see its docstring).
     """
     idx = _last_index_of_type(events, SESSION_STARTED)
     return events[idx].get("ts", "") if idx >= 0 else ""
