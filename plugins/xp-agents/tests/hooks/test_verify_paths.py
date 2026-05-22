@@ -86,6 +86,49 @@ class TestExtractPathsFromCommand(unittest.TestCase):
     def test_runner_with_no_path_yields_nothing(self):
         self.assertEqual(verify_paths._extract_paths_from_command("pytest"), set())
 
+    def test_cd_prefix_rebases_pytest_path(self):
+        # Monorepo shape: a leading `cd <dir> &&` rebases the cd-relative path
+        # to repo-relative so it matches git's repo-relative committed paths.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("cd apps/agent && pytest tests/"),
+            {"apps/agent/tests/"},
+        )
+
+    def test_cd_prefix_strips_selector_then_rebases(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "cd apps/agent && pytest tests/x.py::T::m"
+            ),
+            {"apps/agent/tests/x.py"},
+        )
+
+    def test_cd_prefix_leaves_whole_tree_sentinel(self):
+        # A cd'd bare unittest discover still fails open — sentinel unprefixed.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "cd apps/agent && python -m unittest discover"
+            ),
+            {"."},
+        )
+
+    def test_cd_trailing_slash_normalized(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("cd apps/agent/ && pytest tests/"),
+            {"apps/agent/tests/"},
+        )
+
+    def test_cd_prefix_normalizes_parent_dir_escape(self):
+        # A cross-package AC (`cd apps/agent && pytest ../shared/tests/`) rebases
+        # to apps/agent/../shared/tests/ — normpath collapses the `..` to the
+        # repo-relative apps/shared/tests/ (up one level from agent, into
+        # shared) so it matches git's committed paths instead of failing closed.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "cd apps/agent && pytest ../shared/tests/"
+            ),
+            {"apps/shared/tests/"},
+        )
+
 
 class TestExtractVerifyPaths(unittest.TestCase):
     def test_story_level_acceptance_execution(self):
@@ -222,6 +265,26 @@ class TestUntouchedVerifyPaths(_GitRepoCase):
         self._commit_file("anything.py", "code", "touch something")
         self.assertEqual(
             verify_paths.untouched_verify_paths({"."}, str(self.tmpdir), base),
+            [],
+        )
+
+    def test_cd_prefix_command_touch_matches_repo_relative_path(self):
+        # Regression for the live monorepo gate failure: a story whose command
+        # is `cd apps/agent && pytest tests/` must clear when a commit touches
+        # the repo-relative apps/agent/tests/... path.
+        self._commit_file("seed_mono.txt", "x", "seed")
+        base = self._head()
+        self._commit_file("apps/agent/tests/test_x.py", "code", "touch monorepo test")
+        story = make_story_dict(
+            acceptance_execution={
+                "type": "pytest",
+                "command": "cd apps/agent && pytest tests/",
+            }
+        )
+        paths = verify_paths.extract_verify_paths(story)
+        self.assertEqual(paths, {"apps/agent/tests/"})
+        self.assertEqual(
+            verify_paths.untouched_verify_paths(paths, str(self.tmpdir), base),
             [],
         )
 

@@ -114,6 +114,8 @@ For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `accep
 - `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present); a bare `unittest discover` with no `-s` targets the whole tree — treat any path as matching
 - direct script invocations such as `python <path>` or `bash <path>`
 
+A leading `cd <dir> &&` prefix (the monorepo shape, e.g. `cd apps/agent && pytest tests/`) **rebases** every extracted path: each path is prefixed with `<dir>/` and normalized so it is repo-relative. `file_domain` (compared below) and git's committed paths (the close-gate consumer) are both repo-relative, so a cd-relative token like `tests/` would never match `apps/agent/tests/...`. Normalization collapses `.`/`..`/`//`, so a cross-package token resolves one level at a time: `../shared/tests/` under `cd apps/agent` becomes `apps/shared/tests/` (the `..` cancels `agent`), not the repo root. Only a leading `cd <dir> &&` is recognized; mid-chain `cd` is not. The whole-tree sentinel (bare `unittest discover`) is left unprefixed — it already matches any change.
+
 Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. `tests/hooks/test_x.py` is inside `tests/hooks/`; the same path does NOT intersect a `file_domain` of only `[smm/event_schema.py]` (no shared prefix).
 
 When no extracted path intersects the story's `file_domain`, emit a concern naming the mismatch: which story, which AC command, which paths it points at, which paths the story actually owns. This catches an AC command that exercises none of the new code — a green AC that's meaningless.

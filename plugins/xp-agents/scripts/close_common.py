@@ -187,8 +187,10 @@ def _verify_gate_block(args: argparse.Namespace) -> str | None:
                 return None
             try:
                 story = sprint_store.get_story(smm_dir, story_id)
+            except sprint_store.SprintCorruptError as exc:
+                return f"merge refused: sprint.json is corrupt or schema-invalid: {exc}"
             except (ValueError, OSError):
-                return None
+                return None  # missing sprint/story (or symlink) → fail open
             paths = verify_paths.extract_verify_paths(story)
             if not paths:
                 return None
@@ -212,7 +214,12 @@ def _verify_gate_block(args: argparse.Namespace) -> str | None:
             # Reads the last sprint-verify event (cwd-independent): refuse on
             # red unless the SKILL passed --force-verify (the --force-close path,
             # which already recorded the bypass as debt).
-            sprint = sprint_store.load_sprint(smm_dir)
+            try:
+                sprint = sprint_store.load_sprint(smm_dir)
+            except sprint_store.SprintCorruptError as exc:
+                return f"merge refused: sprint.json is corrupt or schema-invalid: {exc}"
+            except OSError:
+                return None  # symlinked sprint path → fail open (matches touch gate)
             if sprint is None:
                 return None
             status, failing = verify_acceptance._last_verify(

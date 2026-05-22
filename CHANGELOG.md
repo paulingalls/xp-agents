@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.3.3 — Fix verify-gate path matching and corrupt-sprint handling
+
+Free-session fixes to the acceptance verify-gates, surfaced by running them against a monorepo. All non-breaking; `verify_paths` and `close_common` only.
+
+### Monorepo `cd <dir> &&` path rebasing (`verify_paths.py`)
+
+The verify-touch gate extracted the cd-relative path token (`tests/` from `cd apps/agent && pytest tests/`) but compared it against git's repo-relative committed paths (`apps/agent/tests/...`), so `_is_touched` never matched and the gate refused legitimate green closes. `_extract_paths_from_command` now peels a leading `cd <dir> &&` and rebases each extracted path with `<dir>/`; the whole-tree sentinel (bare `unittest discover`) stays unprefixed (fail open). §10b in `xp-plan-reviewer.md` — the authoritative parsing spec — documents the rule. Only a leading `cd <dir> &&` is recognized; mid-chain `cd` is out of scope.
+
+### Corrupt sprint.json fails the gate HARD, not open (`sprint_store.py`, `close_common.py`)
+
+The close-gate caught `(ValueError, OSError)` from `get_story` and proceeded with the merge for ALL of corrupt-JSON, schema-invalid, missing-sprint, and missing-story — so a corrupt sprint.json silently passed a story whose acceptance-test paths the gate could not verify. A new `SprintCorruptError(ValueError)` is raised by `load_sprint` on malformed JSON and schema-invalid content; both verify-gates now catch it first and return a clean "merge refused: corrupt or schema-invalid" string (blocking the merge), while a genuinely absent sprint/story still fails open. The acceptance gate previously emitted a raw traceback on corrupt input — now symmetric with the touch gate. The subclass keeps every existing `(ValueError, OSError)` handler unchanged; only the gates opt in.
+
 ## v3.3.2 — Realign the review cycle to the identify-only `/code-review`
 
 The built-in `/code-review` changed to identify-only (returns a JSON findings array, fixes nothing) and correctness-only (dropped its old reuse/quality/efficiency triad). The plugin's review cycle still assumed the old fixing/triple-angle shape, so this release re-homes the lost coverage and purges the stale framing. Prose + hook only; no schema or CLI change.
