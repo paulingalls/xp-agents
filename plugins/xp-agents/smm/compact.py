@@ -138,9 +138,9 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     resolutions = resolution.compute_resolutions(events)
     referenced: set[str] = set()
 
-    # Build session_end timestamps for decision aging. Sort is required —
-    # sessions_since_event uses bisect_right on this list.
-    se_timestamps = session_history.filter_session_end_timestamps(events)
+    # Build session boundary anchors (session_started) for decision aging.
+    # Sort is required — sessions_since_event uses bisect_right on this list.
+    anchor_timestamps = session_history.filter_session_anchor_timestamps(events)
 
     pending_retro_sprint_ids = _compute_pending_retro_sprint_ids(events)
 
@@ -159,7 +159,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     continue
                 # Age-based: keep for _DECISION_MAX_AGE sessions
                 decision_ts = event.get("ts", "")
-                sessions_after = es.sessions_since_event(se_timestamps, decision_ts)
+                sessions_after = es.sessions_since_event(anchor_timestamps, decision_ts)
                 if sessions_after < _DECISION_MAX_AGE:
                     referenced.add(eid)
             case es.EVENT_TYPE_CONVENTION:
@@ -175,7 +175,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     continue
                 # Age-based: compact unanswered questions
                 q_ts = event.get("ts", "")
-                q_sessions = es.sessions_since_event(se_timestamps, q_ts)
+                q_sessions = es.sessions_since_event(anchor_timestamps, q_ts)
                 if q_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case es.EVENT_TYPE_CUSTOMER_INTENT:
@@ -187,7 +187,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                     continue
                 # Age-based: compact unresolved assumptions
                 a_ts = event.get("ts", "")
-                a_sessions = es.sessions_since_event(se_timestamps, a_ts)
+                a_sessions = es.sessions_since_event(anchor_timestamps, a_ts)
                 if a_sessions < _ASSUMPTION_MAX_AGE:
                     referenced.add(eid)
             case es.EVENT_TYPE_SPRINT:

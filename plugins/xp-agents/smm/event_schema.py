@@ -17,14 +17,15 @@ from smm_schema import EVENT_ID_RE
 # ---------------------------------------------------------------------------
 
 
-def sessions_since_event(se_timestamps: list[str], event_ts: str) -> int:
-    """Count session_end events that occurred after *event_ts*.
+def sessions_since_event(anchor_timestamps: list[str], event_ts: str) -> int:
+    """Count session boundary anchors that occurred after *event_ts*.
 
-    *se_timestamps* must be sorted ascending (ISO-8601 strings).
-    Returns 0 when there are no session_end timestamps or the event
-    is newer than all of them.
+    Boundary anchors are ``session_started`` timestamps (the START of each
+    session, including a mid-session ``/clear``). *anchor_timestamps* must
+    be sorted ascending (ISO-8601 strings). Returns 0 when there are no
+    anchors or the event is newer than all of them.
     """
-    return len(se_timestamps) - bisect.bisect_right(se_timestamps, event_ts)
+    return len(anchor_timestamps) - bisect.bisect_right(anchor_timestamps, event_ts)
 
 
 # ---------------------------------------------------------------------------

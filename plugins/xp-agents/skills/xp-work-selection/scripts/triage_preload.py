@@ -21,7 +21,7 @@ import triage  # noqa: E402
 def format_triage_section(
     header: str,
     items: list[dict],
-    session_end_timestamps: list[str],
+    session_anchor_timestamps: list[str],
     *,
     commit_overlap: dict[str, list[dict]] | None = None,
 ) -> str:
@@ -32,7 +32,7 @@ def format_triage_section(
     for item in items:
         event_id = item.get("id", "")
         age = event_schema.sessions_since_event(
-            session_end_timestamps, item.get("ts", "")
+            session_anchor_timestamps, item.get("ts", "")
         )
         age_str = f"{age} sessions" if age != 1 else "1 session"
         lines.append(f"- [id: {event_id}] {item.get('content', '')} ({age_str} old)")
@@ -53,7 +53,7 @@ def run(smm_dir: Path) -> str:
     all_resolved = resolution.collect_all_resolved_ids(
         resolution.compute_resolutions(events)
     )
-    session_end_ts = session_history.filter_session_end_timestamps(events)
+    session_anchor_ts = session_history.filter_session_anchor_timestamps(events)
 
     debts = triage.find_unresolved(events, event_schema.EVENT_TYPE_DEBT, all_resolved)
     concerns = triage.find_unresolved(
@@ -69,11 +69,11 @@ def run(smm_dir: Path) -> str:
             overlap[c.get("id", "")] = hits
 
     sections = [
-        format_triage_section("Open Debts", debts, session_end_ts),
+        format_triage_section("Open Debts", debts, session_anchor_ts),
         format_triage_section(
-            "Open Concerns", concerns, session_end_ts, commit_overlap=overlap
+            "Open Concerns", concerns, session_anchor_ts, commit_overlap=overlap
         ),
-        format_triage_section("Open Questions", questions, session_end_ts),
+        format_triage_section("Open Questions", questions, session_anchor_ts),
     ]
     return "\n\n".join(s for s in sections if s)
 

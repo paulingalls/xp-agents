@@ -31,7 +31,7 @@ from pathlib import Path
 
 from _append_impl import write_text_atomic
 from append_validation import parse_jsonl
-from event_schema import EVENT_TYPE_SESSION_END, sessions_since_event
+from event_schema import EVENT_TYPE_SESSION_STARTED, sessions_since_event
 from resolution import collect_all_resolved_ids
 
 SESSION_HISTORY_FILENAME = "session_history.json"
@@ -177,25 +177,27 @@ def append_entry(
     save_history(smm_dir, data)
 
 
-def filter_session_end_timestamps(events: list[dict]) -> list[str]:
-    """Return ascending list of ``session_end`` event timestamps from *events*.
+def filter_session_anchor_timestamps(events: list[dict]) -> list[str]:
+    """Return ascending list of ``session_started`` boundary anchors from *events*.
 
-    In-memory filter+sort; callers that already have events loaded
-    (retro, materialize) use this directly to avoid re-reading
-    events.jsonl. Disk-read callers use ``read_session_end_timestamps``
-    which delegates here.
+    Each ``session_started`` event marks the START of a real session
+    boundary (including a mid-session ``/clear``) — the anchor all aging
+    math counts against. In-memory filter+sort; callers that already have
+    events loaded (retro, materialize) use this directly to avoid
+    re-reading events.jsonl. Disk-read callers use
+    ``read_session_anchor_timestamps`` which delegates here.
     """
     timestamps = [
         ts
         for e in events
-        if e.get("type") == EVENT_TYPE_SESSION_END and (ts := e.get("ts", ""))
+        if e.get("type") == EVENT_TYPE_SESSION_STARTED and (ts := e.get("ts", ""))
     ]
     timestamps.sort()
     return timestamps
 
 
-def read_session_end_timestamps(smm_dir: Path) -> list[str]:
-    """Return ascending list of ``session_end`` event timestamps from disk.
+def read_session_anchor_timestamps(smm_dir: Path) -> list[str]:
+    """Return ascending list of ``session_started`` boundary anchors from disk.
 
     Returns ``[]`` when ``events.jsonl`` is absent or unreadable so the
     staleness scan stays resilient when consumers run before init.
@@ -208,37 +210,40 @@ def read_session_end_timestamps(smm_dir: Path) -> list[str]:
     except OSError:
         return []
     events, _ = parse_jsonl(raw)
-    return filter_session_end_timestamps(events)
+    return filter_session_anchor_timestamps(events)
 
 
-def compute_staleness(entry: dict, session_end_timestamps: list[str]) -> dict:
-    """Classify *entry* freshness against the sorted *session_end_timestamps*.
+def compute_staleness(entry: dict, anchor_ts: list[str]) -> dict:
+    """Classify *entry* freshness against the sorted *anchor_ts* boundaries.
 
-    Mechanics: ``/xp-end-session`` writes the summary at ``T1`` and the
-    SessionEnd hook later fires the entry's own session_end event at
-    ``T2 > T1``. So in normal flow exactly one session_end is newer than
-    the entry — that's the fresh case. Each additional newer session_end
-    represents a subsequent session that ended without a summary.
+    Mechanics: ``/xp-end-session`` writes the summary at ``T1`` DURING a
+    session whose own ``session_started`` anchor already fired BEFORE
+    ``T1``. So the entry's own boundary is NOT newer than the summary and
+    contributes zero. A count of 0 newer anchors therefore means fresh;
+    each newer ``session_started`` is a real boundary crossed after the
+    summary — i.e. a session that started without a new summary.
 
     Returns ``{"status": <fresh|stale|unknown>, "skipped_sessions": int}``.
 
-    * ``count == 0``: ``unknown`` — entry is from the current still-running
-      session, OR older session_ends were archived past retention.
-    * ``count == 1``: ``fresh`` — only the entry's own session_end is newer.
-    * ``count >= 2``: ``stale`` with ``skipped_sessions = count - 1``.
+    * empty ``anchor_ts``: ``unknown`` — no boundary data at all (e.g. a
+      pre-Milestone-1 log with no ``session_started`` events).
+    * ``count == 0`` (non-empty list): ``fresh`` — no session has started
+      since the summary was written.
+    * ``count >= 1``: ``stale`` with ``skipped_sessions = count`` (the
+      entry's own session started before the summary, so it never counts).
     """
-    count = sessions_since_event(session_end_timestamps, entry.get("ts", ""))
-    if count == 0:
+    if not anchor_ts:
         return {"status": STALENESS_UNKNOWN, "skipped_sessions": 0}
-    if count == 1:
+    count = sessions_since_event(anchor_ts, entry.get("ts", ""))
+    if count == 0:
         return {"status": STALENESS_FRESH, "skipped_sessions": 0}
-    return {"status": STALENESS_STALE, "skipped_sessions": count - 1}
+    return {"status": STALENESS_STALE, "skipped_sessions": count}
 
 
 def render_markdown(
     entries: list[dict],
     *,
-    session_end_timestamps: list[str] | None = None,
+    session_anchor_timestamps: list[str] | None = None,
 ) -> str:
     """Render *entries* as a ``### LAST_SESSION`` markdown block.
 
@@ -246,11 +251,14 @@ def render_markdown(
     header followed by each entry's summary and ``carry_forward`` notes.
     Event ids in ``references`` are NEVER rendered — humans don't read them.
 
-    When *session_end_timestamps* is provided AND the most-recent entry's
-    staleness is ``stale``, the header is annotated with ``(stale — N
-    sessions ended without /xp-end-session since this summary)``. The
-    annotation reflects the most-recent entry because older entries are
-    obviously older — the block as a whole is "stale" when the latest is.
+    When *session_anchor_timestamps* is provided AND the most-recent
+    entry's staleness is ``stale``, the header is annotated with ``(stale —
+    N sessions started without /xp-end-session since this summary)``. The
+    count is of ``session_started`` boundary anchors newer than the
+    summary; the newest of those is the CURRENT still-running session, so
+    "started" (not "ended") is the accurate verb. The annotation reflects
+    the most-recent entry because older entries are obviously older — the
+    block as a whole is "stale" when the latest is.
 
     Returns ``""`` when *entries* is empty so the kickoff preload can
     skip the section cleanly on first-session installs.
@@ -259,12 +267,12 @@ def render_markdown(
         return ""
 
     header = "### LAST_SESSION"
-    if session_end_timestamps is not None:
-        status = compute_staleness(entries[-1], session_end_timestamps)
+    if session_anchor_timestamps is not None:
+        status = compute_staleness(entries[-1], session_anchor_timestamps)
         if status["status"] == STALENESS_STALE:
             n = status["skipped_sessions"]
             header += (
-                f" (stale — {n} session{'s' if n != 1 else ''} ended without "
+                f" (stale — {n} session{'s' if n != 1 else ''} started without "
                 f"/xp-end-session since this summary)"
             )
 
@@ -285,7 +293,7 @@ def render_markdown(
 def gather_recent_summaries(
     smm_dir: Path,
     *,
-    session_end_timestamps: list[str] | None = None,
+    session_anchor_timestamps: list[str] | None = None,
     limit: int = RECENT_SUMMARIES_LIMIT,
 ) -> list[dict]:
     """Load the last *limit* session_history entries with staleness annotated.
@@ -295,9 +303,9 @@ def gather_recent_summaries(
     Fail-quiet on missing / corrupt history — recent_summaries is a hint,
     not a load-bearing input.
 
-    When *session_end_timestamps* is provided (the materialize path,
+    When *session_anchor_timestamps* is provided (the materialize path,
     which already scans events for aging), it's used directly. Otherwise
-    the helper falls back to ``read_session_end_timestamps`` — caller
+    the helper falls back to ``read_session_anchor_timestamps`` — caller
     convenience for paths that don't already have the timestamps in hand.
     """
     try:
@@ -307,15 +315,15 @@ def gather_recent_summaries(
     entries = data.get("entries", [])
     if not entries:
         return []
-    ses = (
-        session_end_timestamps
-        if session_end_timestamps is not None
-        else read_session_end_timestamps(smm_dir)
+    anchors = (
+        session_anchor_timestamps
+        if session_anchor_timestamps is not None
+        else read_session_anchor_timestamps(smm_dir)
     )
     annotated: list[dict] = []
     for entry in entries[-limit:]:
         item = dict(entry)
-        item["staleness"] = compute_staleness(entry, ses)
+        item["staleness"] = compute_staleness(entry, anchors)
         annotated.append(item)
     return annotated
 
