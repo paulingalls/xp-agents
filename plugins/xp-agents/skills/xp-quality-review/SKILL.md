@@ -12,6 +12,7 @@ allowed-tools:
   - Grep
   - Glob
   - Agent
+  - Skill
   - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
@@ -83,7 +84,11 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "What needs fixing and why" --files '["path/to/file.py"]'
 ```
 
-## Step 4: Report Back
+## Step 4: Re-review the Staged Diff Before Commit
+
+You and the subagent just edited files — changes the `/code-review` pass that opened this cycle never saw. If any files changed during Steps 2-3, stage them and **re-run `/code-review` on the staged diff before committing**. Fix any correctness findings directly (they can only be in the freshly-added fix code), then commit. Commit only when `/code-review` is clean on the diff you are about to commit. The subagent cannot do this itself (it has no Agent/Skill tool) — the re-review is yours to run. If nothing changed, skip straight to the commit.
+
+## Step 5: Report Back
 
 Briefly summarize what was fixed, what was deferred as debt, and what was already clean. Do NOT append a status event — the PostToolUse hook records the lifecycle event.
 
