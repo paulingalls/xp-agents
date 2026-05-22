@@ -295,7 +295,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
             "aging": {},
             "health": _health_from_smm(current_smm),
             "recent_summaries": session_history.gather_recent_summaries(
-                smm_dir, session_end_timestamps=[]
+                smm_dir, session_anchor_timestamps=[]
             ),
         }
 
@@ -305,7 +305,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     retros = [
         e for e in events if e.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE
     ]
-    session_end_timestamps = session_history.filter_session_end_timestamps(events)
+    session_anchor_timestamps = session_history.filter_session_anchor_timestamps(events)
 
     retro_history = _extract_retro_history(retros)
 
@@ -331,7 +331,7 @@ def prepare_curation_data(smm_dir: Path) -> dict:
     # --- aging (sessions since each risk item in current_smm) ---
 
     aging: dict[str, int] = {
-        risk["id"]: sessions_since_event(session_end_timestamps, risk.get("ts", ""))
+        risk["id"]: sessions_since_event(session_anchor_timestamps, risk.get("ts", ""))
         for risk in current_smm.get("risks", [])
     }
 
@@ -342,6 +342,6 @@ def prepare_curation_data(smm_dir: Path) -> dict:
         "aging": aging,
         "health": _health_from_smm(current_smm),
         "recent_summaries": session_history.gather_recent_summaries(
-            smm_dir, session_end_timestamps=session_end_timestamps
+            smm_dir, session_anchor_timestamps=session_anchor_timestamps
         ),
     }

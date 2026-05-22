@@ -20,7 +20,7 @@ from event_schema import (
     EVENT_TYPE_DECISION,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_RETROSPECTIVE,
-    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
 )
 
@@ -211,11 +211,12 @@ class TestPrepareCurationData(_SMMTestCase):
             self.smm_dir,
             risks=[("Old concern", "concern", "problem")],
         )
-        # The fixture uses ts "2026-01-01T00:00:00+00:00" — add 4 session_ends after it
+        # The fixture uses ts "2026-01-01T00:00:00+00:00" — add 4
+        # session_started boundary anchors after it.
         sessions = [
             make_event(
-                EVENT_TYPE_SESSION_END,
-                content=f"end {i}",
+                EVENT_TYPE_SESSION_STARTED,
+                content=f"start {i}",
                 ts=f"2026-03-{i + 1:02d}T00:00:00+00:00",
             )
             for i in range(4)

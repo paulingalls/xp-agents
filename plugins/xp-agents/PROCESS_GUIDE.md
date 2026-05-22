@@ -32,7 +32,7 @@ Three link types close events and risk pillar items:
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
 
-**Session close:** `/xp-end-session` — emits `session_summary` event, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block AND the `recent_summaries` field of retro + housekeeper inputs. The render annotates the most-recent entry `(stale — N sessions ended without /xp-end-session)` when intervening sessions ended without a summary.
+**Session close:** `/xp-end-session` — emits `session_summary` event, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block AND the `recent_summaries` field of retro + housekeeper inputs. The render annotates the most-recent entry `(stale — N sessions started without /xp-end-session)` when intervening sessions started without a summary.
 
 **Multi-command AC:** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners.
 

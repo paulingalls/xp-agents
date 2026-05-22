@@ -260,7 +260,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None
     retro_history = gather_retro_history(smm_dir)
     recent_summaries = session_history.gather_recent_summaries(
         smm_dir,
-        session_end_timestamps=session_history.filter_session_end_timestamps(events),
+        session_anchor_timestamps=session_history.filter_session_anchor_timestamps(
+            events
+        ),
     )
     retro_input = _build_retro_input(
         events, start_idx, retro_history, resolutions, recent_summaries

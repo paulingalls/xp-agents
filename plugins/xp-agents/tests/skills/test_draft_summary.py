@@ -237,9 +237,9 @@ class TestDraftSummary(_SMMTestCase):
             priority=event_schema.PRIORITY_ASSUMED,
         )
         boundary = make_event(
-            event_schema.EVENT_TYPE_SESSION_END,
+            event_schema.EVENT_TYPE_SESSION_STARTED,
             id="555555555555",
-            content="session ended",
+            content="session started",
             ts="2026-05-07T23:59:00+00:00",
         )
         new_q = make_event(

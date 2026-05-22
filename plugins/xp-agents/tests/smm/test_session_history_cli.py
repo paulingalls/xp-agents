@@ -3,8 +3,9 @@
 
 The CLI is the canonical front-end for session_history.json reads.
 Covers: render output shape, --limit param, staleness annotation when
-events.jsonl carries session_end events, fail-quiet on missing history,
-fail-loud on corrupt history, validate subcommand exit codes.
+events.jsonl carries session_started boundary anchors, fail-quiet on
+missing history, fail-loud on corrupt history, validate subcommand exit
+codes.
 """
 
 import json
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import session_history
 from conftest import _SMMTestCase, make_event, make_session_history_entry
-from event_schema import EVENT_TYPE_SESSION_END
+from event_schema import EVENT_TYPE_SESSION_STARTED
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent
 _CLI = _PLUGIN_ROOT / "smm" / "session_history_cli.py"
@@ -31,9 +32,10 @@ def _save(smm_dir: Path, entries: list[dict]) -> None:
     )
 
 
-def _seed_session_end(smm_dir: Path, ts: str) -> None:
-    """Append a session_end event so the CLI's staleness scan sees it."""
-    event = make_event(EVENT_TYPE_SESSION_END, content="ended", ts=ts)
+def _seed_session_started(smm_dir: Path, ts: str) -> None:
+    """Append a session_started boundary anchor so the CLI's staleness scan
+    sees it."""
+    event = make_event(EVENT_TYPE_SESSION_STARTED, content="started", ts=ts)
     path = smm_dir / "events.jsonl"
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(event) + "\n")
@@ -115,10 +117,12 @@ class TestRenderSubcommand(_SMMTestCase):
                 )
             ],
         )
-        # Three session_ends after the entry: own + two intervening sessions.
-        _seed_session_end(self.smm_dir, "2026-05-10T10:00:30+00:00")
-        _seed_session_end(self.smm_dir, "2026-05-11T09:00:00+00:00")
-        _seed_session_end(self.smm_dir, "2026-05-12T09:00:00+00:00")
+        # Three session_started anchors after the entry. The newest is the
+        # current still-running session; the other two began without a new
+        # summary => skipped_sessions=2.
+        _seed_session_started(self.smm_dir, "2026-05-10T10:00:30+00:00")
+        _seed_session_started(self.smm_dir, "2026-05-11T09:00:00+00:00")
+        _seed_session_started(self.smm_dir, "2026-05-12T09:00:00+00:00")
 
         result = _run("render", smm_dir=self.smm_dir)
         self.assertEqual(result.returncode, 0)
@@ -134,8 +138,9 @@ class TestRenderSubcommand(_SMMTestCase):
                 )
             ],
         )
-        # Exactly one newer session_end — the entry's own close.
-        _seed_session_end(self.smm_dir, "2026-05-10T10:00:30+00:00")
+        # One session started after the summary — the current session; the
+        # prior session closed cleanly, so the entry is fresh.
+        _seed_session_started(self.smm_dir, "2026-05-10T10:00:30+00:00")
 
         result = _run("render", smm_dir=self.smm_dir)
         self.assertEqual(result.returncode, 0)
