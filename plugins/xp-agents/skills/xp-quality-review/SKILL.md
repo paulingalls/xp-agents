@@ -2,8 +2,8 @@
 name: xp-quality-review
 description: >-
   Post-code-review quality review. Spawns an independent xp-code-reviewer subagent
-  for code-review accountability, drift management, debt awareness, and XP-lens
-  code review. Resolves plan concerns inline.
+  to validate and fix /code-review's findings, plus drift, debt, and
+  reuse/quality/efficiency + XP-lens review. Resolves plan concerns inline.
 effort: high
 allowed-tools:
   - Read
@@ -22,7 +22,7 @@ allowed-tools:
 
 # Quality Review
 
-Post-code-review review. `/code-review` just ran (3 agents: code reuse, quality, efficiency). You orchestrate an independent review and resolve plan concerns.
+Post-code-review review. `/code-review` just ran — an identify-only correctness pass that returns a JSON array of findings (it fixes nothing). You orchestrate an independent review and resolve plan concerns.
 
 ## Step 1: Spawn Independent Code Reviewer
 
@@ -32,13 +32,12 @@ The reviewer cannot infer which existing concerns or debts the diff might close;
 
 ### Gather Code-Review Findings
 
-Look back through the conversation for what `/code-review`'s three agents found. For each finding, capture: the file, what was recommended, and whether it was APPLIED or SKIPPED. **Do NOT include the skip reasons** — the subagent should form its own opinion.
+Read the JSON findings array `/code-review` returned (each entry: `file`, `line`, `summary`, `failure_scenario`). Every finding is unaddressed — `/code-review` identifies, it does not fix — so the subagent validates and fixes each one. If the array is empty, say so in the prompt.
 
-Format as a numbered list — include the file, what was recommended, and the disposition:
+Format as a numbered list for the prompt — file, line, and the finding summary:
 ```
-1. [Agent: Code Reuse] file.py: "finding text" — APPLIED
-2. [Agent: Code Quality] other.py: "finding text" — SKIPPED
-3. [Agent: Efficiency] file.py: "finding text" — APPLIED
+1. file.py:123 — "summary of the bug"
+2. other.py:45 — "summary of the bug"
 ```
 
 ### Build the Prompt and Spawn
@@ -48,7 +47,7 @@ Use the Agent tool to spawn the `xp-code-reviewer` subagent. The prompt must inc
 ```
 Agent(
   subagent_type: "xp-agents:xp-code-reviewer",
-  prompt: "## Diff\n<diff from preload>\n\n## Code-Review Findings\n<numbered list>\n\n## Existing Debt\n<debt from preload or 'None'>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: code-review accountability, drift, debt, XP values."
+  prompt: "## Diff\n<diff from preload>\n\n## Code-Review Findings\n<numbered list>\n\n## Existing Debt\n<debt from preload or 'None'>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: validate & fix the findings, drift, debt, reuse/quality/efficiency + XP values."
 )
 ```
 
@@ -91,6 +90,6 @@ Briefly summarize what was fixed, what was deferred as debt, and what was alread
 ## Guidelines
 
 - **Independence is the point.** The xp-code-reviewer subagent has fresh context — it didn't write the code. Trust its judgment.
-- **Courage over comfort.** If the subagent says a skipped finding should be applied, default to applying it.
+- **Courage over comfort.** If the subagent flags a finding as valid, default to applying the fix.
 - **Run tests** after any changes to verify nothing breaks.
 - If the subagent reports all code is clean, record the summary and move on.

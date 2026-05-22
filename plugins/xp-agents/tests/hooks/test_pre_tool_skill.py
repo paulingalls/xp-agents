@@ -17,17 +17,20 @@ class TestCodeReviewNudge(_HookTestCase):
     """PreToolUse:Skill injects courage nudge before /code-review."""
 
     def test_code_review_gets_courage_nudge(self):
-        """When /code-review runs, inject courage + subagent reminder."""
+        """When /code-review runs, inject courage + identify-only reminder."""
         result = pre_tool_skill.run(_make_skill_input("code-review"))
         result = self._assert_not_none(result)
-        self.assertIn("3 review subagents", result)
         self.assertIn("Courage", result)
+        # /code-review is identify-only now; the fix happens in quality-review.
+        self.assertIn("/xp-quality-review", result)
+        # The old "code reuse agent" no longer exists — don't resurrect it.
+        self.assertNotIn("code reuse agent", result)
 
     def test_code_review_plugin_prefixed(self):
         """Prefixed code-review also gets nudge."""
         result = pre_tool_skill.run(_make_skill_input("xp-agents:code-review"))
         result = self._assert_not_none(result)
-        self.assertIn("3 review subagents", result)
+        self.assertIn("Courage", result)
 
     def test_unrelated_skills_no_output(self):
         """Skills that are not code-review get nothing."""
