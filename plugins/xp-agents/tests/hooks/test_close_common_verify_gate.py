@@ -350,6 +350,35 @@ class TestMergeVerifyAcceptanceGate(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "feat"))
 
+    def test_refuses_with_clean_message_when_sprint_json_is_corrupt(self):
+        # Parity with the touch gate: a corrupt sprint.json must produce a
+        # clean refusal string, not a raw traceback. Both block the merge.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            smm = _make_smm(td)
+            (smm / "sprint.json").write_text("{ not valid json")
+            _bf.make_commit(td, "feat", "f.txt", "x", "feature")
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feat",
+                    "--target",
+                    main,
+                    "--verify-gate",
+                    "acceptance",
+                    "--smm-dir",
+                    str(smm),
+                ]
+            )
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("corrupt", result.stderr.lower())
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertTrue(_bf.branch_exists(td, "feat"))
+
     def test_passes_when_no_verify_event(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
