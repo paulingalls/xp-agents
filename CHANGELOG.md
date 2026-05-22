@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.3.2 — Realign the review cycle to the identify-only `/code-review`
+
+The built-in `/code-review` changed to identify-only (returns a JSON findings array, fixes nothing) and correctness-only (dropped its old reuse/quality/efficiency triad). The plugin's review cycle still assumed the old fixing/triple-angle shape, so this release re-homes the lost coverage and purges the stale framing. Prose + hook only; no schema or CLI change.
+
+### `xp-code-reviewer` owns reuse/quality/efficiency again
+
+The independent reviewer's "gaps `/code-review` does not cover" section was scoped assuming `/code-review` owned reuse/quality/efficiency — now nobody's job. The agent regains those three lenses (recovered from the removed `xp-simplify` skill, commit `45e84aca`) as distinct from correctness, plus the "no excuse skips" ethos (low-severity / pre-existing / not-our-change are not reasons to skip a valid fix). Its §1 reframes from "accountability for skipped findings" to validating + fixing the identified findings (there are no skips anymore).
+
+### `xp-quality-review` reads the JSON array + re-reviews before commit
+
+Step 1 now reads `/code-review`'s JSON findings array (`file`/`line`/`summary`/`failure_scenario`) instead of reconstructing APPLIED/SKIPPED dispositions from the conversation. New Step 4 (approach A) closes a review-cycle integrity gap: because the reviewer now authors more changes, the orchestrator re-runs `/code-review` on the staged diff and commits only when clean — the committed diff finally gets an independent correctness scan. The skill gains the `Skill` tool grant so the directive is executable.
+
+### Stale-reference purge
+
+The `PreToolUse:Skill` courage nugget and `TEAMMATE_GUIDE.md` review-cycle line dropped references to the now-nonexistent "code reuse agent"; the nugget reframes around acting on every identified finding. New prose-pin tests guard the JSON-array framing, the absent APPLIED/SKIPPED labels, and the re-review-before-commit directive.
+
 ## v3.3.1 — Harden the close gates left open after the M6 plan
 
 Free-session cleanup of the three concerns the M6 close reviews left open. All non-breaking.
