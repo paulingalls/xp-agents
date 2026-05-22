@@ -140,9 +140,9 @@ def run(smm_dir: Path) -> dict:
             "carry_forward": [],
         }
 
-    prior_end_ts = _common.prior_session_end_ts(events)
-    if prior_end_ts:
-        session_events = [e for e in events if e.get("ts", "") > prior_end_ts]
+    session_start_ts = _common.current_session_start_ts(events)
+    if session_start_ts:
+        session_events = [e for e in events if e.get("ts", "") > session_start_ts]
     else:
         session_events = events[-_NO_BOUNDARY_TAIL_CAP:]
 

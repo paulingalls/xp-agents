@@ -27,7 +27,7 @@ from event_schema import (
     EVENT_TYPE_DECISION,
     EVENT_TYPE_DISCOVERY,
     EVENT_TYPE_QUESTION,
-    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
     METADATA_KEY_RESOLVES,
     METADATA_KEY_SUPERSEDES,
@@ -447,11 +447,12 @@ class TestDetectConflictsCommon(_HookTestCase):
         self.assertEqual(len(convention_concerns), 1)
 
     def test_superseded_decision_cross_session_excluded(self):
-        """Decisions on same topic separated by SESSION_END are NOT flagged."""
+        """Decisions on same topic separated by a session_started anchor are
+        NOT flagged."""
         d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
-        end = make_event(EVENT_TYPE_SESSION_END, content="session ended")
+        boundary = make_event(EVENT_TYPE_SESSION_STARTED, content="session started")
         d2 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use MySQL")
-        found = concerns.detect_conflicts([d1, end, d2], "main")
+        found = concerns.detect_conflicts([d1, boundary, d2], "main")
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 0)
 
@@ -460,10 +461,10 @@ class TestDetectConflictsCommon(_HookTestCase):
         # Prior-session decision is excluded from the window; in-session
         # pair (d1, d2) is what should fire.
         old_d = make_event(EVENT_TYPE_DECISION, topic="db", content="Use SQLite")
-        end = make_event(EVENT_TYPE_SESSION_END, content="session ended")
+        boundary = make_event(EVENT_TYPE_SESSION_STARTED, content="session started")
         d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
         d2 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use MySQL")
-        found = concerns.detect_conflicts([old_d, end, d1, d2], "main")
+        found = concerns.detect_conflicts([old_d, boundary, d1, d2], "main")
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 1)
         self.assertIn(
@@ -474,7 +475,7 @@ class TestDetectConflictsCommon(_HookTestCase):
     def test_superseded_decision_in_session_acceptance_honored(self):
         """In-window already_accepted_topics resolution still skips re-fire."""
         topic = "db"
-        end = make_event(EVENT_TYPE_SESSION_END, content="session ended")
+        boundary = make_event(EVENT_TYPE_SESSION_STARTED, content="session started")
         old_concern = make_event(
             EVENT_TYPE_CONCERN,
             content=f"Superseded decision: topic '{topic}' has multiple "
@@ -488,7 +489,7 @@ class TestDetectConflictsCommon(_HookTestCase):
         d1 = make_event(EVENT_TYPE_DECISION, topic=topic, content="First")
         d2 = make_event(EVENT_TYPE_DECISION, topic=topic, content="Second")
         d3 = make_event(EVENT_TYPE_DECISION, topic=topic, content="Third")
-        events = [end, old_concern, resolution, d1, d2, d3]
+        events = [boundary, old_concern, resolution, d1, d2, d3]
         found = concerns.detect_conflicts(events, "main")
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 0)
@@ -514,13 +515,13 @@ class TestDetectConflictsCommon(_HookTestCase):
         # Session 1: stable topic decided once
         s1_a = make_event(EVENT_TYPE_DECISION, topic="topic-a", content="Pick A1")
         s1_b = make_event(EVENT_TYPE_DECISION, topic="topic-b", content="Pick B1")
-        end1 = make_event(EVENT_TYPE_SESSION_END, content="end of s1")
+        s2_start = make_event(EVENT_TYPE_SESSION_STARTED, content="start of s2")
         # Session 2: re-cite topic-a (cross-session re-cite, MUST NOT fire),
         # and topic-c gets two in-session decisions (MUST fire once).
         s2_a = make_event(EVENT_TYPE_DECISION, topic="topic-a", content="Pick A2")
         s2_c1 = make_event(EVENT_TYPE_DECISION, topic="topic-c", content="C1")
         s2_c2 = make_event(EVENT_TYPE_DECISION, topic="topic-c", content="C2")
-        events = [s1_a, s1_b, end1, s2_a, s2_c1, s2_c2]
+        events = [s1_a, s1_b, s2_start, s2_a, s2_c1, s2_c2]
         found = concerns.detect_conflicts(events, "main")
         superseded = [c for c in found if "superseded" in c["content"].lower()]
         self.assertEqual(len(superseded), 1)

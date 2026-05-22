@@ -21,7 +21,7 @@ from event_schema import (
     EVENT_TYPE_CUSTOMER_INPUT,
     EVENT_TYPE_DECISION,
     EVENT_TYPE_GOAL,
-    EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
 )
 
@@ -315,7 +315,7 @@ class TestSubagentStartHousekeeper(_HookTestCase):
         self.assertNotIn("## Session Work Selection", result)
 
     def test_session_boundary_filters_old_events(self):
-        """retro-try-* decisions before session_end are ignored."""
+        """retro-try-* decisions before the session_started anchor are ignored."""
         self._write_events(
             [
                 make_event(
@@ -324,8 +324,8 @@ class TestSubagentStartHousekeeper(_HookTestCase):
                     content=("Adopted retro Try: old item from prior session"),
                 ),
                 make_event(
-                    EVENT_TYPE_SESSION_END,
-                    content="prior session ended",
+                    EVENT_TYPE_SESSION_STARTED,
+                    content="current session started",
                 ),
             ]
         )
