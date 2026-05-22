@@ -55,6 +55,18 @@ _AGENT_ID = "verify-acceptance"
 # can explain WHY a rerun went red without re-running it.
 _OUTPUT_TAIL_CHARS = 500
 
+# Cap the failing items stored in the event. The whole serialized event —
+# metadata included — is checked against MAX_EVENT_BYTES in append_event, and
+# append_safe swallows only LockTimeoutError, NOT the ValueError an oversized
+# event raises. Each failing item carries a ~500-char output tail (~700 bytes
+# total), so a heavily red sprint (>~140 failures) would breach the 100 KB
+# budget and crash _run_sprint with an uncaught ValueError — blocking close
+# instead of reporting the red. Capping the stored detail keeps the event well
+# under budget. 20 is plenty to diagnose a red close — failures usually cluster
+# to a few root causes. verify_status + the content's count still reflect the
+# TRUE total; only the stored detail is bounded.
+_MAX_FAILING_ITEMS = 20
+
 # Per-command timeout for the unattended --sprint batch path: a hung
 # acceptance test must convert to an attributable red, never block close
 # forever. Generous default (won't false-fail a real suite); operators tune
@@ -190,7 +202,7 @@ def _run_sprint(smm_dir: Path) -> int:
             "sprint_id": sprint["sprint_id"],
             "action": SPRINT_ACTION_VERIFY,
             "verify_status": status,
-            "failing": failing,
+            "failing": failing[:_MAX_FAILING_ITEMS],
         },
     )
     _common.append_safe(smm_dir, event)

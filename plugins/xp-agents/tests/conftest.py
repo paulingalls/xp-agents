@@ -120,6 +120,7 @@ from _event_fixtures import (  # noqa: E402, F401
     make_session_history_entry,
     passing_tests_status,
     tests_run_status,
+    verify_events,
     write_events,
     write_smm_fixture,
 )

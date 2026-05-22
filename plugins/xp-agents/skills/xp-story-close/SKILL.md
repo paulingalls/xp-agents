@@ -162,8 +162,14 @@ then continue to Step 7. Otherwise apply the shared Step 6 prompt.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
-  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
+  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
+  --verify-gate touch --smm-dir <SMM_DIR>
 ```
+
+`--verify-gate touch` is a deterministic backstop: it re-derives the Step 1c
+verify-touch check and refuses the merge if no commit touched the story's
+declared acceptance-test paths (unless a `[verify-deferred]` commit defers).
+Step 1c stays the first line of defense; this guards a skipped Step 1c.
 
 Always at orchestrator cwd (see intro). Any failing step aborts the
 chain — source intact for retry. Conflicts are never auto-resolved.

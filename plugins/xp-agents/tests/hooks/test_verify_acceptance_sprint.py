@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 import sprint_store
 import verify_acceptance
 from _bases import _HookTestCase
-from conftest import make_sprint_dict, run_cli
+from conftest import make_sprint_dict, run_cli, verify_events
 
 _VERIFY_ACCEPTANCE = (
     Path(__file__).parent.parent.parent / "scripts" / "verify_acceptance.py"
@@ -62,12 +62,33 @@ class _SprintCLITestCase(_HookTestCase):
         return run_cli(_VERIFY_ACCEPTANCE, list(args), self.smm_dir)
 
     def _verify_events(self) -> list[dict]:
-        return [
-            e
-            for e in self._read_events()
-            if e.get("type") == "sprint"
-            and (e.get("metadata") or {}).get("action") == "verify"
-        ]
+        return verify_events(self._read_events())
+
+
+class TestFailingItemsCapped(_SprintCLITestCase):
+    def test_failing_list_capped_but_count_is_true_total(self):
+        # metadata is not budget-checked, and failing[] grows with failure
+        # count — cap the stored detail while keeping the true count + status.
+        cap = verify_acceptance._MAX_FAILING_ITEMS
+        n = cap + 5
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": f"f{i}", "surface": "cli", "command": "false"}
+                        for i in range(n)
+                    ],
+                ),
+            ]
+        )
+        result = self._run("--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        meta = self._verify_events()[0]["metadata"]
+        self.assertEqual(meta["verify_status"], "red")
+        self.assertEqual(len(meta["failing"]), cap, "stored failing[] must be capped")
+        # The human-readable count reflects the TRUE total, not the cap.
+        self.assertIn(f"{n} failing", self._verify_events()[0]["content"])
 
 
 class TestSprintBatchMatrix(_SprintCLITestCase):

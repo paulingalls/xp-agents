@@ -164,5 +164,54 @@ class TestBranchHasVerifyDeferred(_TempRepoTestCase):
         self.assertEqual(result.stdout.strip(), "true")
 
 
+class TestBranchHasVerifyDeferredHeadArg(_TempRepoTestCase):
+    """`head=` selects the range end. Its own repo (separate class) because
+    the test detaches HEAD; sharing TestBranchHasVerifyDeferred's per-class
+    repo would pollute that class's alphabetically-next method."""
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(
+            ["git", *args],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+            env=self._test_env,
+        )
+
+    def _commit(self, message: str) -> None:
+        (self.tmpdir / "f.txt").write_text(message)
+        self._git("add", "f.txt")
+        self._git("commit", "-m", message)
+
+    def _head(self) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=self._test_env,
+        ).stdout.strip()
+
+    def test_head_arg_walks_base_to_named_ref(self):
+        # The close-gate backstop checks target..source from the target branch,
+        # so it must pass head=<source>, not rely on HEAD (=target).
+        self._commit("seed")
+        base = self._head()
+        self._git("checkout", "-b", "feat")
+        self._commit("[verify-deferred] on feat")
+        self._git("checkout", base)
+        # Default head=HEAD (=base): the deferred commit is out of range.
+        self.assertFalse(
+            commit_handling.branch_has_verify_deferred(str(self.tmpdir), base)
+        )
+        # head="feat": the deferred commit is seen.
+        self.assertTrue(
+            commit_handling.branch_has_verify_deferred(
+                str(self.tmpdir), base, head="feat"
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
