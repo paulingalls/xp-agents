@@ -4,7 +4,7 @@
 Retention policy (compact_after_curation):
 - Keep all events after the curation watermark (not yet curated)
 - From pre-watermark events, keep:
-  - Last 3 session_end events (for aging calculations)
+  - Last 3 session_end + last 3 session_started events (aging anchors)
   - Events referenced by current SMM (unresolved goals, decisions, etc.)
 - Archive everything else to backups/archive-{timestamp}.jsonl
 - Reset prompt-nugget watermark, update curation watermark
@@ -260,7 +260,7 @@ def _classify_pre_watermark(
     """Classify pre-watermark events as retained or archived.
 
     Retention rules (checked in order):
-    1. Last 3 session_end events (for aging calculations)
+    1. Last 3 session_end + last 3 session_started events (aging anchors)
     2. Last 2 retrospective events (for trend detection)
     3. Last 1 sprint end event (for velocity data)
     4. sprint_retro_done status events paired with retained sprint_end
@@ -270,13 +270,24 @@ def _classify_pre_watermark(
 
     Returns (retained, archived, smm_ref_count).
     """
-    # Find last 3 session_end events from pre-watermark
+    # Find last 3 session_end events from pre-watermark. Legacy aging anchor
+    # kept until Milestone 3 re-homes the stale-concern sweep off session_end.
     pre_session_ends = [
         i
         for i, e in enumerate(pre_watermark)
         if e.get("type") == es.EVENT_TYPE_SESSION_END
     ]
     keep_session_end_indices = set(pre_session_ends[-3:])
+
+    # Find last 3 session_started events from pre-watermark. These are the
+    # Milestone 2 aging anchor — sessions_since_event counts them. They MUST
+    # survive compaction or every aging count collapses to 0 (re-anchor inert).
+    pre_session_starts = [
+        i
+        for i, e in enumerate(pre_watermark)
+        if e.get("type") == es.EVENT_TYPE_SESSION_STARTED
+    ]
+    keep_session_started_indices = set(pre_session_starts[-3:])
 
     # Keep last 2 retro events across ALL events (not just pre-watermark).
     # Post-watermark retros count toward the cap so we don't accumulate 3+.
@@ -342,6 +353,7 @@ def _classify_pre_watermark(
 
         if (
             i in keep_session_end_indices
+            or i in keep_session_started_indices
             or i in pre_retro_indices
             or i in pre_sprint_end_indices
             or i in pre_retro_done_indices
@@ -370,7 +382,7 @@ def compact_after_curation(smm_dir: Path) -> dict:
     Retention policy:
     - Keep all events after the curation watermark (uncurated)
     - From pre-watermark events, keep:
-      - Last 3 session_end events (for aging calculations)
+      - Last 3 session_end + last 3 session_started events (aging anchors)
       - Events referenced by current SMM (unresolved goals, decisions, etc.)
     - Archive everything else to backups/
 

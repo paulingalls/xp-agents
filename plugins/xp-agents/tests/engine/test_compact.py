@@ -112,6 +112,36 @@ class TestCompact(_SMMTestCase):
         self.assertIn("retained", result)
         self.assertIn("permanent", result)
 
+    def test_compact_retains_last_3_session_started_anchors(self):
+        """session_started anchors are the M2 aging boundary — the last 3
+        must survive compaction or sessions_since_event loses its anchors
+        and every aging count collapses to 0 (the re-anchor goes inert)."""
+        import compact
+
+        anchors = [
+            make_event(
+                EVENT_TYPE_SESSION_STARTED,
+                content=f"start {i}",
+                ts=f"2026-01-0{i}T00:00:00+00:00",
+            )
+            for i in range(1, 5)  # s1..s4, oldest first
+        ]
+        new_event = make_event(
+            EVENT_TYPE_STATUS, content="new", ts="2026-02-01T00:00:00+00:00"
+        )
+        self._write_events([*anchors, new_event])
+        materialize.write_curation_watermark(self.smm_dir, 4, "xp-housekeeper")
+
+        compact.compact(self.smm_dir)
+        retained_ids = {e["id"] for e in self._read_events()}
+
+        # Last 3 anchors retained as aging boundaries.
+        self.assertIn(anchors[1]["id"], retained_ids)
+        self.assertIn(anchors[2]["id"], retained_ids)
+        self.assertIn(anchors[3]["id"], retained_ids)
+        # Oldest anchor beyond the 3-cap is archived.
+        self.assertNotIn(anchors[0]["id"], retained_ids)
+
     def test_compact_unresolved_questions_retained(self):
         """Unresolved questions retained via SMM-referenced policy."""
         import compact
