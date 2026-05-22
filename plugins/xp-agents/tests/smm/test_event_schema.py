@@ -249,6 +249,7 @@ class TestEventCategoryDerivation(unittest.TestCase):
             "customer_intent",
             "discovery",
             "goal",
+            "kickoff_started",
             "retrospective",
             "session_end",
             "session_summary",
@@ -262,6 +263,7 @@ class TestEventCategoryDerivation(unittest.TestCase):
             "answer",
             "customer_input",
             "discovery",
+            "kickoff_started",
             "session_end",
             "session_summary",
             "status",
@@ -278,6 +280,52 @@ class TestEventCategoryDerivation(unittest.TestCase):
         self.assertEqual(
             compact._COMPACT_INTENTIONALLY_ABSENT,
             self.EXPECTED_COMPACT_ABSENT,
+        )
+
+
+class TestKickoffStartedRegistration(unittest.TestCase):
+    """kickoff_started is the deterministic session-boundary anchor
+    (decision 9933b0ac1549), registered as a SIBLING_ARTIFACT marker
+    mirroring session_end. Inert until Milestone 2 consumes it for
+    boundary math; this only pins its schema registration."""
+
+    _BASE_EVENT: ClassVar[dict] = {
+        "id": "abc123def456",
+        "ts": "2026-05-22T18:00:00+00:00",
+        "type": "kickoff_started",
+        "agent_id": "xp-kickoff",
+        "content": "session anchor",
+        "schema_version": 1,
+    }
+
+    def test_constant_exists_with_expected_value(self):
+        self.assertTrue(
+            hasattr(event_schema, "EVENT_TYPE_KICKOFF_STARTED"),
+            "event_schema missing constant EVENT_TYPE_KICKOFF_STARTED",
+        )
+        self.assertEqual(event_schema.EVENT_TYPE_KICKOFF_STARTED, "kickoff_started")
+
+    def test_in_valid_types(self):
+        self.assertIn("kickoff_started", event_schema.VALID_TYPES)
+
+    def test_category_is_sibling_artifact(self):
+        self.assertEqual(
+            event_schema.event_category_of("kickoff_started"),
+            event_schema.EVENT_CATEGORY.SIBLING_ARTIFACT,
+        )
+
+    def test_content_budget_is_50(self):
+        self.assertEqual(event_schema.get_required_budget("kickoff_started"), 50)
+
+    def test_well_formed_event_validates(self):
+        self.assertEqual(event_schema.validate_event(self._BASE_EVENT), [])
+
+    def test_content_over_budget_rejected(self):
+        event = {**self._BASE_EVENT, "content": "x" * 51}
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("budget" in e for e in errors),
+            f"Expected content-budget error; got: {errors}",
         )
 
 
