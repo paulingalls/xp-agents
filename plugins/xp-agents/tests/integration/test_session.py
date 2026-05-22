@@ -25,6 +25,7 @@ from event_schema import (
     EVENT_TYPE_GOAL,
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_SESSION_END,
+    EVENT_TYPE_SESSION_STARTED,
 )
 
 
@@ -84,6 +85,43 @@ class TestSessionStartIntegration(_IntegrationTestCase):
         ctx = output["hookSpecificOutput"]["additionalContext"]
         self.assertNotIn("Run a retrospective", ctx)
         self.assertNotIn("Action Required", ctx)
+
+    def test_fresh_main_session_start_sweeps_and_resolves(self):
+        """E2E (M3 story-002): a fresh-main session_start.py subprocess with
+        a stale concern and an open prior goal appends a session_started
+        anchor carrying metadata.resolves for the goal AND emits a
+        flagged_stale concern referencing the stale concern."""
+        goal = make_event(EVENT_TYPE_GOAL, content="Open goal", agent_id="xp-kickoff")
+        stale = make_event(EVENT_TYPE_CONCERN, content="Old concern")
+        self._seed_events(
+            [
+                goal,
+                stale,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s4"),
+            ]
+        )
+        result = self._run_script(
+            "session_start.py",
+            {"session_id": "int-test", "source": "startup"},
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        anchors = events_of_type(events, EVENT_TYPE_SESSION_STARTED)
+        # The newly-appended anchor is the last session_started event.
+        new_anchor = anchors[-1]
+        resolves = (new_anchor.get("metadata") or {}).get("resolves", [])
+        self.assertIn(goal["id"], resolves)
+        flags = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and (e.get("metadata") or {}).get("flagged_stale") is True
+        ]
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].get("references"), [stale["id"]])
 
 
 class TestSessionEndIntegration(_IntegrationTestCase):
