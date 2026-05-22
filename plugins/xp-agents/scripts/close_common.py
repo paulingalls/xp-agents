@@ -187,8 +187,10 @@ def _verify_gate_block(args: argparse.Namespace) -> str | None:
                 return None
             try:
                 story = sprint_store.get_story(smm_dir, story_id)
+            except sprint_store.SprintCorruptError as exc:
+                return f"merge refused: sprint.json is corrupt or schema-invalid: {exc}"
             except (ValueError, OSError):
-                return None
+                return None  # missing sprint/story (or symlink) → fail open
             paths = verify_paths.extract_verify_paths(story)
             if not paths:
                 return None

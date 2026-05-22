@@ -28,6 +28,16 @@ _MARKER_NAME = ".needs-sprint"
 _SPRINT_LOCK_NAME = "sprint.lock"
 
 
+class SprintCorruptError(ValueError):
+    """Sprint file exists but its content is unusable (malformed JSON or
+    schema-invalid) — distinct from a missing sprint/story so callers may
+    fail hard on corruption while proceeding on absence. Subclasses
+    ValueError so existing `except (ValueError, OSError)` handlers still
+    catch it; only a caller that opts in by catching this type first
+    changes behavior.
+    """
+
+
 @contextmanager
 def _sprint_lock(smm_dir: Path) -> Iterator[None]:
     """Hold an exclusive flock on sprint.lock for the duration of the block.
@@ -62,7 +72,9 @@ def load_sprint(smm_dir: Path) -> dict | None:
         Parsed sprint dict, or None if file does not exist.
 
     Raises:
-        ValueError: Malformed JSON or schema validation failure.
+        SprintCorruptError: Malformed JSON or schema validation failure
+            (a ValueError subclass — callers that must distinguish a
+            corrupt-but-present sprint from absence catch this first).
         OSError: Path is a symlink.
     """
     path = smm_dir / SPRINT_FILENAME
@@ -75,11 +87,13 @@ def load_sprint(smm_dir: Path) -> dict | None:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Corrupt sprint file at {path}: {exc}") from exc
+        raise SprintCorruptError(f"Corrupt sprint file at {path}: {exc}") from exc
 
     errors = validate_sprint(data, enforce_budget=False)
     if errors:
-        raise ValueError(f"Schema-invalid sprint at {path}: {'; '.join(errors)}")
+        raise SprintCorruptError(
+            f"Schema-invalid sprint at {path}: {'; '.join(errors)}"
+        )
     return data
 
 

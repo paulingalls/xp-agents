@@ -183,6 +183,69 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "u/story-001-z"))
 
+    def test_refuses_when_sprint_json_is_corrupt(self):
+        # Corrupt sprint.json must fail HARD: the gate can't verify the
+        # declared paths, so it refuses rather than silently passing.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            smm = _make_smm(td)
+            (smm / "sprint.json").write_text("{ not valid json")
+            _bf.make_commit(td, "u/story-001-c", "other.py", "x", "wip")
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "u/story-001-c",
+                    "--target",
+                    main,
+                    "--verify-gate",
+                    "touch",
+                    "--smm-dir",
+                    str(smm),
+                ]
+            )
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("corrupt", result.stderr.lower())
+            self.assertTrue(_bf.branch_exists(td, "u/story-001-c"))
+            merges = subprocess.run(
+                ["git", "log", "--merges", "--oneline"],
+                cwd=td,
+                capture_output=True,
+                text=True,
+                env=_bf.GIT_ENV,
+            ).stdout
+            self.assertEqual(merges.strip(), "", "no merge on corrupt sprint")
+
+    def test_passes_when_branch_story_absent_from_valid_sprint(self):
+        # A valid sprint that simply lacks the branch's story is ABSENCE,
+        # not corruption — the gate fails open and the merge proceeds.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            smm = _make_smm(td)
+            _seed_story_sprint(smm)  # holds only story-001
+            _bf.make_commit(td, "u/story-999-x", "other.py", "x", "wip")
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "u/story-999-x",
+                    "--target",
+                    main,
+                    "--verify-gate",
+                    "touch",
+                    "--smm-dir",
+                    str(smm),
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, "u/story-999-x"))
+
     def test_passes_when_story_declares_no_verify_paths(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)

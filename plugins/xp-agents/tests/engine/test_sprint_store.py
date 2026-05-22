@@ -56,19 +56,38 @@ class TestLoadSprint(_SMMTestCase):
         with self.assertRaises(OSError):
             sprint_store.load_sprint(self.smm_dir)
 
-    def test_load_corrupt_json_raises(self):
+    def test_load_corrupt_json_raises_corrupt_error(self):
         import sprint_store
 
         (self.smm_dir / "sprint.json").write_text("{bad json")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(sprint_store.SprintCorruptError):
             sprint_store.load_sprint(self.smm_dir)
 
-    def test_load_invalid_schema_raises(self):
+    def test_load_invalid_schema_raises_corrupt_error(self):
         import sprint_store
 
         (self.smm_dir / "sprint.json").write_text('{"bad": "schema"}')
-        with self.assertRaises(ValueError):
+        with self.assertRaises(sprint_store.SprintCorruptError):
             sprint_store.load_sprint(self.smm_dir)
+
+    def test_corrupt_error_is_value_error_subclass(self):
+        # Existing handlers catch (ValueError, OSError); the new type must
+        # remain catchable by them so only the opt-in gate changes behavior.
+        import sprint_store
+
+        self.assertTrue(issubclass(sprint_store.SprintCorruptError, ValueError))
+
+    def test_missing_story_raises_plain_value_error_not_corrupt(self):
+        # A valid sprint with an absent story id is ABSENCE, not corruption —
+        # get_story must raise plain ValueError, never SprintCorruptError, so
+        # the gate can fail open on a missing story while failing hard on a
+        # corrupt file.
+        import sprint_store
+
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        with self.assertRaises(ValueError) as ctx:
+            sprint_store.get_story(self.smm_dir, "story-999")
+        self.assertNotIsInstance(ctx.exception, sprint_store.SprintCorruptError)
 
 
 class TestSaveSprint(_SMMTestCase):
