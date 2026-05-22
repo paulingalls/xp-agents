@@ -20,7 +20,12 @@ from event_helpers import events_of_type
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
-from event_schema import EVENT_TYPE_QUESTION, EVENT_TYPE_SESSION_END
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_GOAL,
+    EVENT_TYPE_QUESTION,
+    EVENT_TYPE_SESSION_END,
+)
 
 
 class TestSessionStartIntegration(_IntegrationTestCase):
@@ -133,6 +138,39 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         events = self._read_events()
         se = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(se), 0)
+
+    def test_main_session_end_has_no_sweep_or_goal_resolution(self):
+        """E2E (M3 story-001): the end-session pipeline on main records a
+        session_end with no goal-resolution metadata and emits no stale-flag
+        concerns — those side-effects re-home to SessionStart in story-002."""
+        goal = make_event(EVENT_TYPE_GOAL, content="Open goal", agent_id="xp-kickoff")
+        concern = make_event(EVENT_TYPE_CONCERN, content="Old concern")
+        self._seed_events(
+            [
+                goal,
+                concern,
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
+                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
+            ]
+        )
+        result = self._run_script(
+            "session_end.py",
+            {"session_id": "int-test", "reason": "user_logout"},
+        )
+        self.assertEqual(result.returncode, 0)
+        events = self._read_events()
+        # The session_end we just appended is the last one.
+        se = events_of_type(events, EVENT_TYPE_SESSION_END)[-1]
+        self.assertNotIn("resolves", se.get("metadata") or {})
+        flags = [
+            e
+            for e in events
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and (e.get("metadata") or {}).get("flagged_stale") is True
+        ]
+        self.assertEqual(flags, [])
 
 
 class TestPreCompactIntegration(_IntegrationTestCase):
