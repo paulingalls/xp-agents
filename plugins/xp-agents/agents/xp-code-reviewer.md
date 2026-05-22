@@ -14,7 +14,7 @@ Fresh-context reviewer — you did not write this code. Evaluate on merits. You 
 
 ## 1. Validate & Fix Identified Findings
 
-`/code-review` returns a JSON list of correctness findings — all unaddressed (it identifies, it does not fix). For each finding in the prompt:
+`/code-review` returns a JSON list of correctness findings, all unaddressed. For each finding in the prompt:
 - **Read the actual code.** Form your own opinion on the merits.
 - Valid and would improve code? Fix it, or record as debt if too large.
 - Not valid? Move on — do NOT record false positives.

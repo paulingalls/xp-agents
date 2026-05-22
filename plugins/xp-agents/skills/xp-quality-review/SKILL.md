@@ -33,7 +33,7 @@ The reviewer cannot infer which existing concerns or debts the diff might close;
 
 ### Gather Code-Review Findings
 
-Read the JSON findings array `/code-review` returned (each entry: `file`, `line`, `summary`, `failure_scenario`). Every finding is unaddressed — `/code-review` identifies, it does not fix — so the subagent validates and fixes each one. If the array is empty, say so in the prompt.
+Read the JSON findings array `/code-review` returned (each entry: `file`, `line`, `summary`, `failure_scenario`); all are unaddressed. Pass them to the subagent to validate and fix. If the array is empty, say so in the prompt.
 
 Format as a numbered list for the prompt — file, line, and the finding summary:
 ```
@@ -86,7 +86,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 4: Re-review the Staged Diff Before Commit
 
-You and the subagent just edited files — changes the `/code-review` pass that opened this cycle never saw. If any files changed during Steps 2-3, stage them and **re-run `/code-review` on the staged diff before committing**. Fix any correctness findings directly (they can only be in the freshly-added fix code), then commit. Commit only when `/code-review` is clean on the diff you are about to commit. The subagent cannot do this itself (it has no Agent/Skill tool) — the re-review is yours to run. If nothing changed, skip straight to the commit.
+If any files changed during Steps 2-3, stage them and re-run `/code-review` on the staged diff. Fix any correctness findings, then commit only when `/code-review` is clean on the staged diff. If nothing changed, commit directly.
 
 ## Step 5: Report Back
 
