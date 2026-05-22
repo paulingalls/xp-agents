@@ -56,7 +56,7 @@ _RETRO_TRY_TOPIC_PREFIX = "retro-try-"
 def _gather_work_selection_events(smm_dir: Path) -> str | None:
     """Current-session work-selection events as a markdown block, or None.
 
-    Boundary is the last session_end event.
+    Boundary is the most recent session_started anchor.
     """
     import materialize
 

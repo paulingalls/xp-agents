@@ -32,6 +32,7 @@ from event_schema import (
     EVENT_TYPE_GOAL,
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_RETROSPECTIVE,
+    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_SESSION_SUMMARY,
     EVENT_TYPE_STATUS,
     PRIORITY_ASSUMED,
@@ -562,6 +563,69 @@ class TestUncommittedEventCount(unittest.TestCase):
             self._ev(EVENT_TYPE_DISCOVERY),
         ]
         self.assertEqual(_common.uncommitted_event_count(events), 4)
+
+
+class TestCurrentSessionStartIndex(unittest.TestCase):
+    """current_session_start_index re-anchors on SESSION_STARTED (the first
+    event of the current session). Returns that anchor's own index — no +1 —
+    so the slice events[idx:] includes the anchor. With no anchor, returns 0
+    for short logs and a positive tail cap (len-200) for long ones."""
+
+    def _ev(self, etype: str) -> dict:
+        return {"type": etype, "ts": "2026-05-08T10:00:00+00:00"}
+
+    def test_empty_events_returns_zero(self):
+        self.assertEqual(_common.current_session_start_index([]), 0)
+
+    def test_no_anchor_short_log_returns_zero(self):
+        events = [self._ev(EVENT_TYPE_STATUS) for _ in range(10)]
+        self.assertEqual(_common.current_session_start_index(events), 0)
+
+    def test_no_anchor_long_log_engages_tail_cap(self):
+        events = [self._ev(EVENT_TYPE_STATUS) for _ in range(250)]
+        self.assertEqual(_common.current_session_start_index(events), 50)
+
+    def test_single_anchor_returns_its_own_index(self):
+        events = [self._ev(EVENT_TYPE_STATUS) for _ in range(5)]
+        events.insert(3, self._ev(EVENT_TYPE_SESSION_STARTED))
+        self.assertEqual(_common.current_session_start_index(events), 3)
+
+    def test_two_anchors_returns_most_recent(self):
+        events = [self._ev(EVENT_TYPE_STATUS) for _ in range(10)]
+        events[2] = self._ev(EVENT_TYPE_SESSION_STARTED)
+        events[7] = self._ev(EVENT_TYPE_SESSION_STARTED)
+        self.assertEqual(_common.current_session_start_index(events), 7)
+
+
+class TestCurrentSessionStartTs(unittest.TestCase):
+    """current_session_start_ts returns the ts of the most recent
+    SESSION_STARTED event, or "" when none exists."""
+
+    def _ev(self, etype: str, ts: str) -> dict:
+        return {"type": etype, "ts": ts}
+
+    def test_no_anchor_returns_empty_string(self):
+        events = [self._ev(EVENT_TYPE_STATUS, "2026-05-08T10:00:00+00:00")]
+        self.assertEqual(_common.current_session_start_ts(events), "")
+
+    def test_single_anchor_returns_its_ts(self):
+        events = [
+            self._ev(EVENT_TYPE_STATUS, "2026-05-08T09:00:00+00:00"),
+            self._ev(EVENT_TYPE_SESSION_STARTED, "2026-05-08T10:00:00+00:00"),
+        ]
+        self.assertEqual(
+            _common.current_session_start_ts(events), "2026-05-08T10:00:00+00:00"
+        )
+
+    def test_two_anchors_returns_later_ts(self):
+        events = [
+            self._ev(EVENT_TYPE_SESSION_STARTED, "2026-05-08T10:00:00+00:00"),
+            self._ev(EVENT_TYPE_STATUS, "2026-05-08T11:00:00+00:00"),
+            self._ev(EVENT_TYPE_SESSION_STARTED, "2026-05-08T12:00:00+00:00"),
+        ]
+        self.assertEqual(
+            _common.current_session_start_ts(events), "2026-05-08T12:00:00+00:00"
+        )
 
 
 if __name__ == "__main__":
