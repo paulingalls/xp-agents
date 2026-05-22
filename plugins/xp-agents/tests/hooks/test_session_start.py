@@ -515,5 +515,70 @@ class TestSessionStartXPValues(_HookTestCase):
         self.assertNotIn("<smm-context>", result)
 
 
+class TestSessionStartedEmission(_HookTestCase):
+    """session_start emits a session_started anchor on fresh MAIN starts
+    (decision f248f4c4e29f, supersedes 9933b0ac1549). Main-only (teammates
+    return earlier), once per startup/clear; resume, compact, and teammate
+    starts emit none. Idempotency is structural — one start event, one emit."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
+
+    def _started(self) -> list[dict]:
+        return [e for e in self._read_events() if e.get("type") == "session_started"]
+
+    def test_startup_emits_one_anchor(self):
+        import session_start
+
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        events = self._started()
+        self.assertEqual(len(events), 1, f"expected 1 session_started, got {events!r}")
+        self.assertEqual(events[0]["content"], "startup")
+
+    def test_clear_emits_one_anchor(self):
+        import session_start
+
+        session_start.run({"session_id": "t", "source": "clear"}, smm_dir=self.smm_dir)
+        events = self._started()
+        self.assertEqual(len(events), 1, f"expected 1 session_started, got {events!r}")
+        self.assertEqual(events[0]["content"], "clear")
+
+    def test_resume_emits_none(self):
+        import session_start
+
+        session_start.run({"session_id": "t", "source": "resume"}, smm_dir=self.smm_dir)
+        self.assertEqual(self._started(), [])
+
+    def test_compact_emits_none(self):
+        import session_start
+
+        session_start.run(
+            {"session_id": "t", "source": "compact"}, smm_dir=self.smm_dir
+        )
+        self.assertEqual(self._started(), [])
+
+    def test_teammate_startup_emits_none(self):
+        import session_start
+
+        session_start.run(
+            {"session_id": "t", "source": "startup", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(self._started(), [])
+
+    def test_emitted_anchor_is_schema_valid(self):
+        """E2E: a fresh main start lands one valid session_started event."""
+        import event_schema
+        import session_start
+
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        events = self._started()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(event_schema.validate_event(events[0]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

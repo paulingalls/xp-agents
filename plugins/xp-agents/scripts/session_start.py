@@ -120,6 +120,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _is_fresh_start(source):
         markers.sweep_stale_session_markers(smm_dir)
         markers.marker_write(smm_dir, markers.KICKOFF, source)
+        # Deterministic session-boundary anchor. Main-only — teammates
+        # returned above; emitted once per startup/clear fresh start.
+        _common.append_safe(
+            smm_dir,
+            _common.make_event(
+                _common.SESSION_STARTED,
+                identity.resolve_agent_id(input_data),
+                source,
+            ),
+        )
         if not sprint_state.has_remaining_work(smm_dir):
             execution_plan_store.archive(smm_dir)
             markers.marker_write(smm_dir, markers.NEEDS_EXECUTION_PLAN, source)

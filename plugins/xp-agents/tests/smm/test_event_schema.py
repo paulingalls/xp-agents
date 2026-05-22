@@ -249,7 +249,7 @@ class TestEventCategoryDerivation(unittest.TestCase):
             "customer_intent",
             "discovery",
             "goal",
-            "kickoff_started",
+            "session_started",
             "retrospective",
             "session_end",
             "session_summary",
@@ -263,7 +263,7 @@ class TestEventCategoryDerivation(unittest.TestCase):
             "answer",
             "customer_input",
             "discovery",
-            "kickoff_started",
+            "session_started",
             "session_end",
             "session_summary",
             "status",
@@ -283,16 +283,16 @@ class TestEventCategoryDerivation(unittest.TestCase):
         )
 
 
-class TestKickoffStartedRegistration(unittest.TestCase):
-    """kickoff_started is the deterministic session-boundary anchor
-    (decision 9933b0ac1549), registered as a SIBLING_ARTIFACT marker
-    mirroring session_end. Inert until Milestone 2 consumes it for
-    boundary math; this only pins its schema registration."""
+class TestSessionStartedRegistration(unittest.TestCase):
+    """session_started is the deterministic session-boundary anchor
+    (decision f248f4c4e29f, supersedes 9933b0ac1549), registered as a
+    SIBLING_ARTIFACT marker mirroring session_end. Inert until Milestone 2
+    consumes it for boundary math; this only pins its schema registration."""
 
     _BASE_EVENT: ClassVar[dict] = {
         "id": "abc123def456",
         "ts": "2026-05-22T18:00:00+00:00",
-        "type": "kickoff_started",
+        "type": "session_started",
         "agent_id": "xp-kickoff",
         "content": "session anchor",
         "schema_version": 1,
@@ -300,22 +300,22 @@ class TestKickoffStartedRegistration(unittest.TestCase):
 
     def test_constant_exists_with_expected_value(self):
         self.assertTrue(
-            hasattr(event_schema, "EVENT_TYPE_KICKOFF_STARTED"),
-            "event_schema missing constant EVENT_TYPE_KICKOFF_STARTED",
+            hasattr(event_schema, "EVENT_TYPE_SESSION_STARTED"),
+            "event_schema missing constant EVENT_TYPE_SESSION_STARTED",
         )
-        self.assertEqual(event_schema.EVENT_TYPE_KICKOFF_STARTED, "kickoff_started")
+        self.assertEqual(event_schema.EVENT_TYPE_SESSION_STARTED, "session_started")
 
     def test_in_valid_types(self):
-        self.assertIn("kickoff_started", event_schema.VALID_TYPES)
+        self.assertIn("session_started", event_schema.VALID_TYPES)
 
     def test_category_is_sibling_artifact(self):
         self.assertEqual(
-            event_schema.event_category_of("kickoff_started"),
+            event_schema.event_category_of("session_started"),
             event_schema.EVENT_CATEGORY.SIBLING_ARTIFACT,
         )
 
     def test_content_budget_is_50(self):
-        self.assertEqual(event_schema.get_required_budget("kickoff_started"), 50)
+        self.assertEqual(event_schema.get_required_budget("session_started"), 50)
 
     def test_well_formed_event_validates(self):
         self.assertEqual(event_schema.validate_event(self._BASE_EVENT), [])
