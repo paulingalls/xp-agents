@@ -164,11 +164,13 @@ METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
 # defer past the FORCE-CLOSE gate via --force-defer-with-date; YYYY-MM-DD.
 METADATA_KEY_DEFER_UNTIL = "defer_until"
 
-# Stale-concern sweep (session_end._sweep_stale_concerns) flag-concern keys.
+# Stale-concern sweep (session_start._sweep_stale_concerns) flag-concern keys.
 # Carried on a NEW concern event with references=[orig_id]; the WEAK cascade
 # (resolution.compute_resolutions) closes the flag when orig_id resolves.
-# Producer: session_end. Consumer: session_end (idempotency check) + retro
-# Fix-lens (xp-retrospective surfaces flagged concerns for human triage).
+# Producer: the SessionStart fresh-start block (re-homed from session_end in
+# M3, counting session_started anchors). Consumer: the sweep itself
+# (idempotency check) + retro Fix-lens (xp-retrospective surfaces flagged
+# concerns for human triage).
 METADATA_KEY_FLAGGED_STALE = "flagged_stale"
 METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
 
