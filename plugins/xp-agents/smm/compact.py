@@ -61,7 +61,7 @@ _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can 
 #   - SESSION_END + SESSION_SUMMARY: sibling_artifact types with separate
 #     index-based retention (session_history.json holds the last 3
 #     summaries; events.jsonl drops them).
-#   - KICKOFF_STARTED: session-boundary anchor sibling_artifact, classified
+#   - SESSION_STARTED: session-boundary anchor sibling_artifact, classified
 #     here so the completeness gate is satisfied. Milestone 2 (boundary
 #     re-anchor) must confirm anchors survive compaction for sessions_since
 #     counting — same retention question session_end faces.
@@ -76,7 +76,7 @@ _COMPACT_INDEX_RETENTION_TYPES = frozenset(
     {
         es.EVENT_TYPE_SESSION_END,
         es.EVENT_TYPE_SESSION_SUMMARY,
-        es.EVENT_TYPE_KICKOFF_STARTED,
+        es.EVENT_TYPE_SESSION_STARTED,
     }
 )
 _COMPACT_REFERENCE_TIED_TYPES = frozenset(
