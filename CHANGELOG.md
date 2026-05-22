@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.3.1 — Harden the close gates left open after the M6 plan
+
+Free-session cleanup of the three concerns the M6 close reviews left open. All non-breaking.
+
+### Deterministic close-gate backstop (`close_common.cmd_merge`)
+
+The story-close verify-touch gate and sprint-close verify-acceptance gate were HARD but enforced only by SKILL prose — an LLM skipping the step merged anyway. `cmd_merge` now runs a deterministic backstop BEFORE the merge that re-derives the gate signal independently and refuses (exit 1): `--verify-gate touch` re-checks the story's declared acceptance-test paths against `target..source` (refuses unless touched or a `[verify-deferred]` commit defers); `--verify-gate acceptance` reads the last sprint-verify event (refuses on red unless `--force-verify`, the `--force-close` path). `verify_paths` (`_changed_files`, `untouched_verify_paths`) and `commit_handling.branch_has_verify_deferred` gained a `head="HEAD"` kwarg so the backstop can walk `target..source` from the target branch (CLIs unchanged). Inert without `--verify-gate` (plan/free close); refuses if `--verify-gate` is given without `--smm-dir` (no silent disable). Resolves the prose-only-gate honesty concerns and the adopted backstop Try.
+
+### Bounded sprint-verify event (`verify_acceptance.py`)
+
+`--sprint` stored every failing item (each with a ~500-char output tail) in the event's `metadata.failing` — unbounded with failure count. The whole serialized event is checked against `MAX_EVENT_BYTES` in `append_event`, and `append_safe` swallows only `LockTimeoutError`, so a heavily-red sprint (>~140 failures) would crash `_run_sprint` with an uncaught `ValueError` and block close instead of reporting the red. The stored list is now capped at 20 items; `verify_status` and the content count still reflect the true total.
+
+### Test-helper consolidation
+
+The `type==sprint && action==verify` filter, open-coded across two verify test suites, is hoisted to `_event_fixtures.verify_events()` (the shipped `event_helpers.events_of_type` filters by type only by design).
+
 ## v3.3.0 — Tighten AC↔acceptance-test binding (Milestones 1-6)
 
 Completes the six-milestone "Tighten AC↔acceptance-test binding" plan (shipped across sprints 088-093, landed on main as one plan-close). Today acceptance criteria were `list[str]` with no machine-readable link to a scaffolded test harness; this plan binds each AC to an executable acceptance test and enforces that binding at plan, sprint, commit, and close time. Additive and back-compatible — string ACs remain legal, and every new gate fires only for stories that opt in by declaring verify commands/surfaces.
