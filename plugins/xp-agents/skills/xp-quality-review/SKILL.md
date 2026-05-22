@@ -35,10 +35,10 @@ The reviewer cannot infer which existing concerns or debts the diff might close;
 
 Read the JSON findings array `/code-review` returned (each entry: `file`, `line`, `summary`, `failure_scenario`); all are unaddressed. Pass them to the subagent to validate and fix. If the array is empty, say so in the prompt.
 
-Format as a numbered list for the prompt — file, line, and the finding summary:
+Format as a numbered list for the prompt — file, line, the finding summary, and its `failure_scenario`:
 ```
-1. file.py:123 — "summary of the bug"
-2. other.py:45 — "summary of the bug"
+1. file.py:123 — "summary of the bug" (failure: <failure_scenario>)
+2. other.py:45 — "summary of the bug" (failure: <failure_scenario>)
 ```
 
 ### Build the Prompt and Spawn
@@ -86,7 +86,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Step 4: Re-review the Staged Diff Before Commit
 
-If any files changed during Steps 2-3, stage them and re-run `/code-review` on the staged diff. Fix any correctness findings, then commit only when `/code-review` is clean on the staged diff. If nothing changed, commit directly.
+If any files changed during Steps 2-3, stage them and re-run `/code-review` on the staged diff **once**. Fix any correctness findings it surfaces, then commit. Do not loop: if a finding can't be fixed in this pass, record it as debt and commit. If nothing changed, commit directly.
 
 ## Step 5: Report Back
 
