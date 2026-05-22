@@ -22,6 +22,7 @@
         "customer_intent",
         "debt",
         "goal",
+        "session_started",
         "status",
         "decision",
         "convention",

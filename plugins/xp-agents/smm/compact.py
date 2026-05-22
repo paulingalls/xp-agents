@@ -61,6 +61,10 @@ _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can 
 #   - SESSION_END + SESSION_SUMMARY: sibling_artifact types with separate
 #     index-based retention (session_history.json holds the last 3
 #     summaries; events.jsonl drops them).
+#   - SESSION_STARTED: session-boundary anchor sibling_artifact, classified
+#     here so the completeness gate is satisfied. Milestone 2 (boundary
+#     re-anchor) must confirm anchors survive compaction for sessions_since
+#     counting — same retention question session_end faces.
 #   - ANSWER + DISCOVERY + CUSTOMER_INPUT: their lifecycle is tied to a
 #     referenced event (answer→question, discovery→assumption) or they're
 #     superseded by another type (customer_input→customer_intent). Not
@@ -69,7 +73,11 @@ _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can 
 # fails if a new EVENT_TYPE_* lacks a `case` arm here AND isn't covered
 # by the derivation below.
 _COMPACT_INDEX_RETENTION_TYPES = frozenset(
-    {es.EVENT_TYPE_SESSION_END, es.EVENT_TYPE_SESSION_SUMMARY}
+    {
+        es.EVENT_TYPE_SESSION_END,
+        es.EVENT_TYPE_SESSION_SUMMARY,
+        es.EVENT_TYPE_SESSION_STARTED,
+    }
 )
 _COMPACT_REFERENCE_TIED_TYPES = frozenset(
     {es.EVENT_TYPE_ANSWER, es.EVENT_TYPE_DISCOVERY, es.EVENT_TYPE_CUSTOMER_INPUT}
