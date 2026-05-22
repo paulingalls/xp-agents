@@ -40,6 +40,18 @@ _EXIT_ERROR = 2
 _WHOLE_TREE_SENTINEL = "."
 
 
+def _split_cd_prefix(tokens: list[str]) -> tuple[str | None, list[str]]:
+    """Peel a leading `cd <dir> &&` off the token list (the monorepo shape).
+
+    Returns (cd_dir, remaining_tokens). Only a leading `cd <dir> &&` is
+    recognized — mid-chain cd is out of scope (§10b). Paths after such a
+    prefix are cd-relative and must be rebased to repo-relative by callers.
+    """
+    if len(tokens) >= 3 and tokens[0] == "cd" and tokens[2] == "&&":
+        return tokens[1], tokens[3:]
+    return None, tokens
+
+
 def _extract_paths_from_command(command: str) -> set[str]:
     """Parse test-file/dir path tokens from a single command string.
 
@@ -48,6 +60,10 @@ def _extract_paths_from_command(command: str) -> set[str]:
     `python -m unittest discover -s <startdir> [-t <topdir>]`, and direct
     `python <path>` / `bash <path>`. Unrecognized runners yield no paths —
     honest about what we can't parse, never a false positive.
+
+    A leading `cd <dir> &&` prefix rebases every extracted path with `<dir>/`
+    so it is repo-relative (git reports repo-relative paths). The whole-tree
+    sentinel is left unprefixed — it already matches any change (fail open).
     """
     try:
         tokens = shlex.split(command)
@@ -56,13 +72,23 @@ def _extract_paths_from_command(command: str) -> set[str]:
     if not tokens:
         return set()
 
+    cd_dir, tokens = _split_cd_prefix(tokens)
+    if not tokens:
+        return set()
+
     if "unittest" in tokens and "discover" in tokens:
-        return _extract_unittest_discover_dirs(tokens)
-    if "pytest" in tokens:
-        return _extract_pytest_paths(tokens)
-    if tokens[0] in ("python", "python3", "bash", "sh"):
-        return _extract_direct_script(tokens)
-    return set()
+        paths = _extract_unittest_discover_dirs(tokens)
+    elif "pytest" in tokens:
+        paths = _extract_pytest_paths(tokens)
+    elif tokens[0] in ("python", "python3", "bash", "sh"):
+        paths = _extract_direct_script(tokens)
+    else:
+        return set()
+
+    if cd_dir:
+        prefix = cd_dir.rstrip("/")
+        paths = {p if p == _WHOLE_TREE_SENTINEL else f"{prefix}/{p}" for p in paths}
+    return paths
 
 
 def _extract_unittest_discover_dirs(tokens: list[str]) -> set[str]:
