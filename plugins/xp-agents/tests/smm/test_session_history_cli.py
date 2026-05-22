@@ -117,8 +117,9 @@ class TestRenderSubcommand(_SMMTestCase):
                 )
             ],
         )
-        # Three session_started anchors after the entry — each is a session
-        # that began without a new summary being written.
+        # Three session_started anchors after the entry. The newest is the
+        # current still-running session; the other two began without a new
+        # summary => skipped_sessions=2.
         _seed_session_started(self.smm_dir, "2026-05-10T10:00:30+00:00")
         _seed_session_started(self.smm_dir, "2026-05-11T09:00:00+00:00")
         _seed_session_started(self.smm_dir, "2026-05-12T09:00:00+00:00")
@@ -126,7 +127,7 @@ class TestRenderSubcommand(_SMMTestCase):
         result = _run("render", smm_dir=self.smm_dir)
         self.assertEqual(result.returncode, 0)
         self.assertIn("### LAST_SESSION (stale", result.stdout)
-        self.assertIn("3 sessions", result.stdout)
+        self.assertIn("2 sessions", result.stdout)
 
     def test_fresh_entry_renders_no_annotation(self):
         _save(
@@ -137,9 +138,9 @@ class TestRenderSubcommand(_SMMTestCase):
                 )
             ],
         )
-        # The entry's own session started before the summary; no later
-        # session has begun, so the entry is fresh.
-        _seed_session_started(self.smm_dir, "2026-05-10T09:00:00+00:00")
+        # One session started after the summary — the current session; the
+        # prior session closed cleanly, so the entry is fresh.
+        _seed_session_started(self.smm_dir, "2026-05-10T10:00:30+00:00")
 
         result = _run("render", smm_dir=self.smm_dir)
         self.assertEqual(result.returncode, 0)

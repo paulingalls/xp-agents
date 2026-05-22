@@ -216,28 +216,30 @@ def read_session_anchor_timestamps(smm_dir: Path) -> list[str]:
 def compute_staleness(entry: dict, anchor_ts: list[str]) -> dict:
     """Classify *entry* freshness against the sorted *anchor_ts* boundaries.
 
-    Mechanics: ``/xp-end-session`` writes the summary at ``T1`` DURING a
-    session whose own ``session_started`` anchor already fired BEFORE
-    ``T1``. So the entry's own boundary is NOT newer than the summary and
-    contributes zero. A count of 0 newer anchors therefore means fresh;
-    each newer ``session_started`` is a real boundary crossed after the
-    summary — i.e. a session that started without a new summary.
+    Mechanics: the staleness render runs at kickoff, AFTER ``session_start``
+    has emitted the CURRENT session's ``session_started`` anchor. So the
+    newest anchor newer than the summary is always the current still-running
+    session — itself NOT a skipped session. It provides the same ``+1`` that
+    the entry's own ``session_end`` provided under the old model, so the
+    count→status mapping is unchanged from that model; only the anchor type
+    differs.
 
     Returns ``{"status": <fresh|stale|unknown>, "skipped_sessions": int}``.
 
-    * empty ``anchor_ts``: ``unknown`` — no boundary data at all (e.g. a
-      pre-Milestone-1 log with no ``session_started`` events).
-    * ``count == 0`` (non-empty list): ``fresh`` — no session has started
-      since the summary was written.
-    * ``count >= 1``: ``stale`` with ``skipped_sessions = count`` (the
-      entry's own session started before the summary, so it never counts).
+    * ``count == 0`` (incl. empty list): ``unknown`` — no boundary crossed
+      since the summary (the current still-running session, or a pre-M1 log
+      with no ``session_started`` anchors).
+    * ``count == 1``: ``fresh`` — the one newer anchor is the current
+      session; the prior session closed cleanly.
+    * ``count >= 2``: ``stale`` with ``skipped_sessions = count - 1`` (the
+      newest anchor is the current session; the rest are skipped sessions).
     """
-    if not anchor_ts:
-        return {"status": STALENESS_UNKNOWN, "skipped_sessions": 0}
     count = sessions_since_event(anchor_ts, entry.get("ts", ""))
     if count == 0:
+        return {"status": STALENESS_UNKNOWN, "skipped_sessions": 0}
+    if count == 1:
         return {"status": STALENESS_FRESH, "skipped_sessions": 0}
-    return {"status": STALENESS_STALE, "skipped_sessions": count}
+    return {"status": STALENESS_STALE, "skipped_sessions": count - 1}
 
 
 def render_markdown(

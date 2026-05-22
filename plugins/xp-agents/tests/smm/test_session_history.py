@@ -298,16 +298,19 @@ class TestComputeStaleness(_SMMTestCase):
     """Freshness classification of a session_history entry against the
     sorted list of session_started boundary anchors.
 
-    Mechanics: /xp-end-session writes the summary entry at T1 during a
-    session whose own session_started fired BEFORE T1 — so the entry's
-    own boundary does NOT count. A count of 0 newer anchors therefore
-    means fresh; each newer session_started is a real boundary crossed
-    after the summary, i.e. a skipped session.
+    Mechanics: the staleness render runs at kickoff, AFTER session_start.py
+    has emitted the CURRENT session's session_started. So the newest anchor
+    in the list is always the current still-running session, which is NOT a
+    skipped session — it provides the same +1 the entry's own session_end
+    used to provide under the old model. Therefore count==1 (only the
+    current session's anchor is newer) means fresh; count>=2 means count-1
+    sessions started without a summary in between.
     """
 
     _T1 = "2026-05-10T10:00:00+00:00"
-    _T_PRIOR = "2026-05-10T09:00:00+00:00"  # entry's own session_started (before T1)
-    _T_NEXT = "2026-05-11T09:00:00+00:00"  # next session's session_started
+    _T_CURRENT = "2026-05-11T09:00:00+00:00"  # current session's anchor (after T1)
+    _T_NEXT2 = "2026-05-12T09:00:00+00:00"
+    _T_NEXT3 = "2026-05-13T09:00:00+00:00"
 
     def test_no_anchors_returns_unknown(self):
         # Empty anchor list = no boundary data (e.g. pre-M1 log).
@@ -315,35 +318,36 @@ class TestComputeStaleness(_SMMTestCase):
         result = session_history.compute_staleness(entry, [])
         self.assertEqual(result, {"status": "unknown", "skipped_sessions": 0})
 
-    def test_zero_newer_with_prior_anchor_is_fresh(self):
-        # The entry's own session started before the summary was written,
-        # so a non-empty anchor list with nothing newer means fresh.
+    def test_zero_newer_anchors_is_unknown(self):
+        # No anchor newer than the summary = no boundary crossed since it was
+        # written (the summary is from the current still-running session).
         entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(entry, [self._T_PRIOR])
+        prior = "2026-05-10T09:00:00+00:00"  # before the summary
+        result = session_history.compute_staleness(entry, [prior])
+        self.assertEqual(result, {"status": "unknown", "skipped_sessions": 0})
+
+    def test_one_newer_anchor_is_fresh(self):
+        # The single newer anchor is the current session; the prior session
+        # closed cleanly, nothing was skipped.
+        entry = _entry(self._T1, "summary")
+        result = session_history.compute_staleness(entry, [self._T_CURRENT])
         self.assertEqual(result, {"status": "fresh", "skipped_sessions": 0})
 
-    def test_one_newer_anchor_is_stale_one_skipped(self):
-        # One session started after the summary without a new summary.
+    def test_two_newer_anchors_is_stale_one_skipped(self):
+        # Current session + one intervening session that started without a
+        # summary => one skipped.
         entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(entry, [self._T_PRIOR, self._T_NEXT])
+        result = session_history.compute_staleness(
+            entry, [self._T_CURRENT, self._T_NEXT2]
+        )
         self.assertEqual(result, {"status": "stale", "skipped_sessions": 1})
 
-    def test_two_newer_anchors_is_stale_two_skipped(self):
-        t_next2 = "2026-05-12T09:00:00+00:00"
+    def test_three_newer_anchors_is_stale_two_skipped(self):
         entry = _entry(self._T1, "summary")
         result = session_history.compute_staleness(
-            entry, [self._T_PRIOR, self._T_NEXT, t_next2]
+            entry, [self._T_CURRENT, self._T_NEXT2, self._T_NEXT3]
         )
         self.assertEqual(result, {"status": "stale", "skipped_sessions": 2})
-
-    def test_three_newer_anchors_is_stale_three_skipped(self):
-        t_next2 = "2026-05-12T09:00:00+00:00"
-        t_next3 = "2026-05-13T09:00:00+00:00"
-        entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(
-            entry, [self._T_PRIOR, self._T_NEXT, t_next2, t_next3]
-        )
-        self.assertEqual(result, {"status": "stale", "skipped_sessions": 3})
 
 
 class TestRenderMarkdown(_SMMTestCase):
@@ -375,10 +379,10 @@ class TestRenderMarkdown(_SMMTestCase):
 
     def test_fresh_entry_renders_no_staleness_annotation(self):
         entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
-        # The entry's own session_started fired before the summary; nothing
-        # newer = fresh.
+        # One anchor newer than the summary = the current session; the prior
+        # session closed cleanly => fresh, no annotation.
         result = session_history.render_markdown(
-            entries, session_anchor_timestamps=["2026-05-10T09:00:00+00:00"]
+            entries, session_anchor_timestamps=["2026-05-10T10:00:30+00:00"]
         )
         self.assertIn("### LAST_SESSION", result)
         self.assertNotIn("(stale", result)
@@ -394,10 +398,10 @@ class TestRenderMarkdown(_SMMTestCase):
                 "2026-05-12T09:00:00+00:00",
             ],
         )
-        # Header carries the annotation; "3 sessions" matches skipped_sessions=3
-        # (all three anchors are newer than the entry under the new model).
+        # Three anchors newer than the entry => count 3, skipped_sessions=2
+        # (the newest is the current session; two intervening were skipped).
         self.assertIn("### LAST_SESSION (stale", result)
-        self.assertIn("3 sessions", result)
+        self.assertIn("2 sessions", result)
         # Verb is "started", not "ended": the newest counted anchor is the
         # CURRENT still-running session, which has not ended.
         self.assertIn("started without /xp-end-session", result)
