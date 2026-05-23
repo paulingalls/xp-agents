@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _common
 import execution_plan_store
+import git_remote
 import identity
 import sprint_store
 import system_context_store
@@ -44,6 +45,28 @@ from branch_names import (  # noqa: F401
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+def _push_branch_if_remote(cwd: str, name: str) -> None:
+    """Best-effort `git push -u origin <name>` when a remote exists.
+
+    Used by the sprint/plan create wrappers so the first child merge has a
+    remote ref to PR against (decision sprint-plan-push-at-create). Best-
+    effort: the branch already exists locally, so a push failure must not
+    fail creation — relay stderr and move on. No-op without a remote (the
+    common test/offline case).
+
+    Pushes with ``--no-verify``: a freshly-created branch holds no commits
+    beyond its base, so a project pre-push hook (e.g. an integration test
+    suite) has nothing new to gate. Skipping it avoids a pointless multi-
+    second run AND the _git timeout (a slow suite would raise
+    TimeoutExpired and crash creation).
+    """
+    if not git_remote.has_remote(cwd):
+        return
+    r = _git(["git", "push", "--no-verify", "-u", "origin", name], cwd)
+    if r.returncode != 0:
+        sys.stderr.write(f"WARN: failed to push {name} at create: {r.stderr}")
 
 
 _DEFAULT_PRIMARY = "main"
@@ -281,8 +304,12 @@ def _create_or_resume_branch(
             return None
         sys.exit(1)
 
-    # No push at create — a fresh branch has no commits beyond its base, so
-    # the branch reaches origin at close time (close_common.py), not here.
+    # No push at create here — a fresh branch has no commits beyond its base,
+    # so for the frequent story/free/scaffold wrappers the branch reaches
+    # origin at close time (close_common.py), not here. The infrequent
+    # sprint/plan wrappers are the exception: they call _push_branch_if_remote
+    # after this returns, so the first child merge has a remote PR base
+    # (decision sprint-plan-push-at-create).
     return name
 
 
@@ -345,8 +372,10 @@ def create_sprint_branch(
     result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["sprint"], base=base
     )
-    if result is not None and sprint_store.sprint_exists(smm_dir):
-        sprint_store.set_branch(smm_dir, result)
+    if result is not None:
+        if sprint_store.sprint_exists(smm_dir):
+            sprint_store.set_branch(smm_dir, result)
+        _push_branch_if_remote(cwd, result)
     return result
 
 
@@ -461,8 +490,10 @@ def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
         min_stage=BRANCH_MIN_STAGE["plan"],
         base=get_primary_branch(smm_dir),
     )
-    if result is not None and execution_plan_store.plan_exists(smm_dir):
-        execution_plan_store.set_branch(smm_dir, result)
+    if result is not None:
+        if execution_plan_store.plan_exists(smm_dir):
+            execution_plan_store.set_branch(smm_dir, result)
+        _push_branch_if_remote(cwd, result)
     return result
 
 
