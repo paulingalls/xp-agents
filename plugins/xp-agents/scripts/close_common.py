@@ -40,7 +40,7 @@ import sprint_store
 import verify_acceptance
 import verify_paths
 import worktree
-from event_schema import METADATA_KEY_COMMIT_HASH, STATUS_ACTION_COMMIT_SUCCESS
+from event_schema import METADATA_KEY_COMMIT_HASH
 
 
 def pre_commit_hook_present(repo_root: str) -> bool:
@@ -275,21 +275,6 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     files = commits.get_committed_files(cwd)
     body = commits.get_commit_message_body(cwd) or f"Merge {source}"
     code_file_count = sum(1 for f in files if code_files.is_code_file(f))
-    metadata: dict = {
-        "action": STATUS_ACTION_COMMIT_SUCCESS,
-        "code_commit": code_file_count > 0,
-        "code_file_count": code_file_count,
-        METADATA_KEY_COMMIT_HASH: commit_hash,
-        # is_merge=True excludes this event from resolves_link_rate accounting:
-        # the merge HEAD aggregates already-recorded story commits, each of
-        # which carries its own Resolves trailer. Counting the merge commit
-        # in the denominator would dilute the rate without a meaningful
-        # numerator (merge commit messages don't carry Resolves trailers).
-        "is_merge": True,
-    }
-    story_id = identity.extract_story_id(source)
-    if story_id:
-        metadata["story_id"] = story_id
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches _verify_gate_block's
@@ -298,10 +283,20 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
         sprint = sprint_store.load_sprint(smm_dir)
     except (sprint_store.SprintCorruptError, OSError):
         sprint = None
-    if sprint is not None:
-        metadata["sprint_id"] = sprint["sprint_id"]
-    event = _common.make_event(
-        _common.COMMIT, "close_common", body, files=files, metadata=metadata
+    # is_merge=True excludes this event from resolves_link_rate accounting:
+    # the merge HEAD aggregates already-recorded story commits, each of
+    # which carries its own Resolves trailer. Counting the merge commit
+    # in the denominator would dilute the rate without a meaningful
+    # numerator (merge commit messages don't carry Resolves trailers).
+    event = commit_handling.make_commit_event(
+        "close_common",
+        body,
+        commit_hash=commit_hash,
+        files=files,
+        code_file_count=code_file_count,
+        story_id=identity.extract_story_id(source),
+        sprint_id=sprint["sprint_id"] if sprint is not None else None,
+        is_merge=True,
     )
     _common.bulk_append_safe(smm_dir, [event])
 
