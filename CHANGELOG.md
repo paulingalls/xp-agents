@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.4.0 — Deterministic session boundaries + merge-gap commit-event closure
+
+A 4-milestone plan re-anchors all session-boundary and aging math on a deterministic per-session anchor, closes a long-standing accounting hole where close-cycle merge commits were invisible to event-driven metrics, and ships two adopted retro Tries. Non-breaking but materially new behavior — minor bump.
+
+### M1+M2 — `session_started` anchor replaces `session_end` for boundary math
+
+`session_end` events misfire (`/exit` emits none; every git-worktree teammate emits its own), so aging caps (compact 3/5, sweep 4) never tripped — the root cause behind an 11-retro-persistent debt. A new `EVENT_TYPE_SESSION_STARTED` is emitted exactly once per fresh main session from `SessionStart`'s fresh-start block (teammates, resume, compact never emit it). All boundary/aging math (`_common.current_session_start_index` / `current_session_start_ts`, `sessions_since_event`, `compact.py`'s decision-3 / assumption-question-5 caps, `materialize.py`'s risk session-age, `session_history.py`'s staleness) re-anchored onto session_started with a 200-event tail-cap fallback. `compact._classify_pre_watermark` retains last-3 session_started anchors through compaction so the re-anchor stays alive post-archive. `compute_staleness` mapping restored to count==0 unknown / count==1 fresh / count>=2 stale skipped=count-1 after the session_started source change.
+
+### M3 — Stale-sweep + prior-session goal-resolution re-homed to SessionStart
+
+`session_end`'s side-effect roles stripped: `_sweep_stale_concerns` and `_resolve_prior_goals` moved into the SessionStart fresh-start block, anchored on `session_started`. Teammates now emit only a completion status (no `session_end` event) — main still emits the session_end summary. The two side-effects gate differently and on purpose: the sweep fires on BOTH `startup` AND `clear` (concern-age accounting wants every fresh-start anchor counted), while `_resolve_prior_goals` is gated to `source=='startup'` only (on `/clear`, an open goal is still the live conversation's objective, not prior-session backlog). The sweep skips flag-concerns themselves to prevent unbounded flag-of-flag growth. Per `wisdom c1d4555afd4c`, the wide-mechanical `filter_session_end_timestamps` → `*_anchor_timestamps` rename landed as 3 atomic commits (rename / behavior / docs) keeping each batch under the 75-event / 5-file-without-test gates.
+
+### M4 — Close-cycle merges emit `type=commit` events
+
+`close_common.cmd_merge()` spawns `git merge --no-ff` as a subprocess, invisible to the parent Bash PreToolUse commit hook. Every close-cycle merge commit was missing from event-driven accounting (commit counts, story attribution, resolves-link rate). New `_append_merge_commit_event` helper appends a `type=commit` event from `cmd_merge` after `branching.merge_branch` returns, reusing `commit_handling._handle_commit`'s metadata shape via a newly-extracted shared `commit_handling.make_commit_event` builder. `metadata.is_merge=True` excludes merge events from both `retro_metrics._compute_resolves_link_rate` denominator AND `story_metrics._attribute_commits` per-story counts (a story-close merge of `<user>/story-NNN-*` carries `story_id=story-NNN` and would otherwise inflate the story's metrics by +1 every close). Dedupes by `commit_hash` so "Already up to date" re-merges don't double-emit; degrades on corrupt `sprint.json` (fail-open like `_verify_gate_block`). Threaded `--smm-dir` through `xp-plan-close` + `xp-free-close` SKILL.md merge invocations so emission activates everywhere.
+
+### Adopted retro Tries
+
+- **xp-free-close `TARGET_BRANCH` parity with sprint-close** — switched from `branching.py get-primary` to `get-target --cwd .`. A free branch forked off an active plan branch now merges back to the plan branch (not main), eliminating the premature-release / history-drag pattern. Stale "merges to primary" prose refreshed across SKILL.md (description, line 25, Step 6 auto-merge rationale, Reporting Back) + test module docstring.
+- **SessionStart pre-anchor-only invariant for `_resolve_prior_goals`** — the function iterated every GOAL in `events` regardless of anchor position; correct-by-luck only because no caller emits goals at SessionStart time. Slice now happens INSIDE the function (`events[:_last_index_of_type(events, SESSION_STARTED)]` when an anchor exists, else no-op for fresh-project no-anchor case). Invariant is now correct by construction.
+
+### Free-mode workflow fix bundled in
+
+`branching.create_sprint_branch` / `create_plan_branch` now push to origin at create (has_remote-gated, `--no-verify`) so the first child merge has a remote PR base + immediate backup. `close_common.cmd_merge` prunes the remote source branch after a successful merge+target-push. `_git` `TimeoutExpired` caught in the create-push path so raw network latency exceeding `subprocess.run(timeout=10)` doesn't crash sprint/plan creation.
+
 ## v3.3.3 — Fix verify-gate path matching and corrupt-sprint handling
 
 Free-session fixes to the acceptance verify-gates, surfaced by running them against a monorepo. All non-breaking; `verify_paths` and `close_common` only.

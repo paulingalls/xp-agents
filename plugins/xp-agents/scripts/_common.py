@@ -94,23 +94,46 @@ def _last_index_of_type(events: list[dict], etype: str) -> int:
     return -1
 
 
+# Fallback cap when no SESSION_STARTED anchor exists. Mirrors
+# draft_summary._NO_BOUNDARY_TAIL_CAP by value but kept independent: this one
+# caps an index window for current_session_start_index, that one caps a
+# summary slice — coupling their tuning would conflate two concerns.
+_NO_ANCHOR_TAIL_CAP = 200
+
+
 def current_session_start_index(events: list[dict]) -> int:
     """Return index of the first event in the current session.
 
-    Current session = events after the last SESSION_END event. Returns 0
-    when no SESSION_END has been recorded (everything is the current session).
+    The current session begins at the most recent SESSION_STARTED event,
+    which is itself the first event of that session — so its own index is
+    the answer (no +1). The slice events[idx:] therefore INCLUDES the
+    anchor, which is intentional: all callers filter by content type inside
+    the window. When no anchor exists, return 0 for short logs and a
+    positive tail cap (len - _NO_ANCHOR_TAIL_CAP) for long ones, so an
+    unbounded "current session" doesn't swallow the whole event log.
+
+    Boundary asymmetry vs the sister `current_session_start_ts`: this
+    returns an index whose slice is anchor-INCLUSIVE, while `_ts` is used
+    with `e["ts"] > start_ts` which is anchor-EXCLUSIVE. Both are correct
+    for their callers — index callers type-filter the window (the anchor is
+    a SIBLING_ARTIFACT they ignore), ts callers want events strictly after
+    the boundary. A raw-iterating index consumer would see the anchor.
     """
-    return _last_index_of_type(events, SESSION_END) + 1
+    idx = _last_index_of_type(events, SESSION_STARTED)
+    if idx >= 0:
+        return idx
+    return max(0, len(events) - _NO_ANCHOR_TAIL_CAP)
 
 
-def prior_session_end_ts(events: list[dict]) -> str:
-    """Return ts of the most recent SESSION_END event, or "" if none.
+def current_session_start_ts(events: list[dict]) -> str:
+    """Return ts of the most recent SESSION_STARTED event, or "" if none.
 
     Sister of `current_session_start_index` — returns the boundary
-    timestamp instead of the post-boundary index. Use when callers need
-    a ts comparison (e.g., filter by `e["ts"] > prior_ts`).
+    timestamp instead of the index. Use when callers need a ts comparison
+    (e.g., filter by `e["ts"] > start_ts`, which EXCLUDES the anchor —
+    unlike the index sister whose slice includes it; see its docstring).
     """
-    idx = _last_index_of_type(events, SESSION_END)
+    idx = _last_index_of_type(events, SESSION_STARTED)
     return events[idx].get("ts", "") if idx >= 0 else ""
 
 

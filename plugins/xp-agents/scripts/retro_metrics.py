@@ -327,12 +327,18 @@ def _compute_resolves_link_rate(
 ) -> dict:
     """Count code commits with Resolves-Event trailers vs total code commits."""
 
+    # Exclude merge commits (metadata.is_merge==True): a close-cycle merge
+    # HEAD aggregates already-counted story commits and its message has no
+    # Resolves trailer of its own — counting it in the denominator dilutes
+    # the rate without a meaningful numerator. See close_common
+    # ._append_merge_commit_event for the marker source.
     code_commits = [
         e
         for e in events
         if e.get("type") == _common.COMMIT
         and _event_in_sprint_window(e, sprint_start_ts)
         and (e.get("metadata") or {}).get("code_commit")
+        and not (e.get("metadata") or {}).get("is_merge")
     ]
 
     total = len(code_commits)

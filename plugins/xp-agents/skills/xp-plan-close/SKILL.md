@@ -92,7 +92,8 @@ steps in order after Step 4.5, then continue with Step 7 below.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
-  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> && \
+  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
+  --smm-dir <SMM_DIR> && \
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive
 ```
 

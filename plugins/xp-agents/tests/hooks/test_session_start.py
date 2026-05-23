@@ -21,8 +21,10 @@ import _common
 import plugin_loader
 from conftest import _HookTestCase, make_event, write_smm_fixture
 from event_schema import (
+    EVENT_TYPE_CONCERN,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_QUESTION,
+    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
 )
 
@@ -578,6 +580,322 @@ class TestSessionStartedEmission(_HookTestCase):
         events = self._started()
         self.assertEqual(len(events), 1)
         self.assertEqual(event_schema.validate_event(events[0]), [])
+
+
+class TestSessionStartGoalResolution(_HookTestCase):
+    """Prior-session goal-resolution re-homed from session_end to the
+    SessionStart fresh-start block (M3 story-002). Main-only; the anchor
+    carries metadata.resolves for all unresolved prior goals."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
+
+    def _started(self) -> list[dict]:
+        return [
+            e
+            for e in self._read_events()
+            if e.get("type") == EVENT_TYPE_SESSION_STARTED
+        ]
+
+    def test_fresh_start_resolves_all_prior_unresolved_goals(self):
+        """All unresolved prior goals are resolved regardless of agent_id —
+        teammates no longer self-resolve, so main owns the whole window."""
+        import session_start
+
+        g_main = make_event(EVENT_TYPE_GOAL, content="Main goal", agent_id="xp-kickoff")
+        g_team = make_event(
+            EVENT_TYPE_GOAL, content="Teammate goal", agent_id="worktree-story-001"
+        )
+        self._write_events([g_main, g_team])
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        anchors = self._started()
+        self.assertEqual(len(anchors), 1)
+        resolves = (anchors[0].get("metadata") or {}).get("resolves", [])
+        self.assertIn(g_main["id"], resolves)
+        self.assertIn(g_team["id"], resolves)
+
+    def test_resolve_prior_goals_pre_anchor_only(self):
+        """Pin the pre-anchor-only invariant: any goal emitted AT or AFTER
+        the most-recent session_started anchor must NOT be resolved by the
+        sweep. Correct-by-luck today only because no caller emits goals
+        at SessionStart time; a future SessionStart-time goal emitter
+        would otherwise be silently resolved the instant it lands.
+        """
+        import session_start
+
+        pre_goal = make_event(
+            EVENT_TYPE_GOAL, content="Prior session goal", agent_id="xp-kickoff"
+        )
+        anchor = make_event(EVENT_TYPE_SESSION_STARTED, content="prior session start")
+        post_goal = make_event(
+            EVENT_TYPE_GOAL,
+            content="Active SessionStart-time goal",
+            agent_id="xp-kickoff",
+        )
+        self._write_events([pre_goal, anchor, post_goal])
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        anchors = self._started()
+        # _started() picks every session_started — the prior anchor we
+        # seeded plus the new one this run emits.
+        self.assertEqual(len(anchors), 2)
+        new_anchor = anchors[-1]
+        resolves = (new_anchor.get("metadata") or {}).get("resolves", [])
+        self.assertIn(
+            pre_goal["id"],
+            resolves,
+            "pre-anchor goal must be resolved (prior-session backlog)",
+        )
+        self.assertNotIn(
+            post_goal["id"],
+            resolves,
+            "post-anchor goal must NOT be resolved (live, same-conversation work)",
+        )
+
+    def test_fresh_start_skips_already_resolved_goals(self):
+        import session_start
+
+        g = make_event(EVENT_TYPE_GOAL, content="Resolved goal", agent_id="xp-kickoff")
+        r = make_event(
+            EVENT_TYPE_STATUS,
+            content="done",
+            working_on=[],
+            metadata={"resolves": [g["id"]]},
+        )
+        self._write_events([g, r])
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        resolves = (self._started()[0].get("metadata") or {}).get("resolves", [])
+        self.assertNotIn(g["id"], resolves)
+
+    def test_no_unresolved_goals_anchor_has_no_resolves(self):
+        import session_start
+
+        self._write_events([make_event(content="status only")])
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        self.assertNotIn("resolves", self._started()[0].get("metadata") or {})
+
+    def test_resume_does_not_resolve_goals(self):
+        """resume emits no anchor, so no goal-resolution happens."""
+        import session_start
+
+        g = make_event(EVENT_TYPE_GOAL, content="Open goal", agent_id="xp-kickoff")
+        self._write_events([g])
+        session_start.run({"session_id": "t", "source": "resume"}, smm_dir=self.smm_dir)
+        self.assertEqual(self._started(), [])
+
+    def test_clear_does_not_resolve_active_goals(self):
+        """source='clear' is a mid-session reset: a goal emitted earlier in
+        the SAME conversation (e.g. by /xp-kickoff) is still active. Only
+        'startup' — a brand-new session whose prior conversation is gone —
+        may treat open goals as prior-session backlog. The clear anchor still
+        emits, but carries no resolves for the active goal."""
+        import session_start
+
+        g = make_event(EVENT_TYPE_GOAL, content="Active goal", agent_id="xp-kickoff")
+        self._write_events([g])
+        session_start.run({"session_id": "t", "source": "clear"}, smm_dir=self.smm_dir)
+        anchors = self._started()
+        self.assertEqual(len(anchors), 1)
+        resolves = (anchors[0].get("metadata") or {}).get("resolves", [])
+        self.assertNotIn(g["id"], resolves)
+
+
+class TestSessionStartStaleConcernSweep(_HookTestCase):
+    """Stale-concern sweep re-homed from session_end to the SessionStart
+    fresh-start block (M3 story-002), counting session_started anchors. The
+    sweep runs against pre-anchor events, so the current session's own
+    anchor never counts toward the threshold."""
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
+
+    def _flags(self) -> list[dict]:
+        return [
+            e
+            for e in self._read_events()
+            if e.get("type") == EVENT_TYPE_CONCERN
+            and (e.get("metadata") or {}).get("flagged_stale") is True
+        ]
+
+    def test_concern_surviving_threshold_anchors_is_flagged(self):
+        import session_start
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Old concern")
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s4"),
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        flags = self._flags()
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].get("references"), [c["id"]])
+        self.assertEqual(flags[0]["metadata"]["stale_session_count"], 4)
+        self.assertEqual(flags[0].get("severity"), "low")
+
+    def test_flag_concern_is_not_itself_flagged(self):
+        """A flag-concern (metadata.flagged_stale=True) that has itself
+        survived the threshold must NOT spawn a flag-of-a-flag. Otherwise
+        every fresh start compounds a new flag, growing the event log
+        unbounded. The original concern it references is suppressed by the
+        already_flagged guard; the flag itself is suppressed by being a
+        flag-concern. Net: zero NEW flags this run."""
+        import session_start
+
+        orig = make_event(EVENT_TYPE_CONCERN, content="Original stale concern")
+        flag = make_event(
+            EVENT_TYPE_CONCERN,
+            content=f"Concern {orig['id']} is stale (4 sessions old) — triage",
+            references=[orig["id"]],
+            severity="low",
+            metadata={"flagged_stale": True, "stale_session_count": 4},
+        )
+        # Both orig and the flag sit before 4 anchors, so both are old enough
+        # to trip filter_by_session_age.
+        self._write_events(
+            [
+                orig,
+                flag,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s4"),
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        # Only the pre-existing flag remains; no flag-of-flag was created.
+        flags = self._flags()
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["id"], flag["id"])
+        # And specifically: nothing references the flag itself.
+        self.assertFalse(
+            any(flag["id"] in (f.get("references") or []) for f in flags),
+            "a flag-concern must never be flagged-of-flagged",
+        )
+
+    def test_concern_under_threshold_not_flagged(self):
+        import session_start
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Newish concern")
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        self.assertEqual(self._flags(), [])
+
+    def test_resolved_concern_not_flagged(self):
+        import session_start
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Resolved old concern")
+        r = make_event(
+            EVENT_TYPE_STATUS,
+            content="Fixed",
+            working_on=[],
+            metadata={"resolves": [c["id"]]},
+        )
+        self._write_events(
+            [
+                c,
+                r,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s4"),
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        self.assertEqual(self._flags(), [])
+
+    def test_sweep_is_idempotent(self):
+        """An existing unresolved flag referencing the concern suppresses a
+        second flag."""
+        import session_start
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Stale orig")
+        existing_flag = make_event(
+            EVENT_TYPE_CONCERN,
+            content=f"Concern {c['id']} is stale (4 sessions old) — triage at kickoff",
+            references=[c["id"]],
+            severity="low",
+            metadata={"flagged_stale": True, "stale_session_count": 4},
+        )
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s4"),
+                existing_flag,
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        flags = self._flags()
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["id"], existing_flag["id"])
+
+    def test_count_excludes_current_session_anchor(self):
+        """3 prior anchors + the anchor THIS run appends == 4 total on disk,
+        but the sweep counts only the 3 pre-anchor boundaries, so a
+        3-boundary concern is NOT flagged. Pins the pre-anchor ordering."""
+        import session_start
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Three-boundary concern")
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        self.assertEqual(self._flags(), [])
+
+    def test_teammate_session_start_does_not_sweep(self):
+        import session_start
+
+        c = make_event(EVENT_TYPE_CONCERN, content="Old concern")
+        self._write_events(
+            [
+                c,
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
+                make_event(EVENT_TYPE_SESSION_STARTED, content="s4"),
+            ]
+        )
+        session_start.run(
+            {"session_id": "t", "source": "startup", "cwd": self._TEAMMATE_CWD},
+            smm_dir=self.smm_dir,
+        )
+        self.assertEqual(self._flags(), [])
 
 
 if __name__ == "__main__":

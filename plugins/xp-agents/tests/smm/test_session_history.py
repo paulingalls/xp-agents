@@ -204,40 +204,44 @@ class TestPruneResolved(_SMMTestCase):
         self.assertEqual(len(result["entries"][0]["carry_forward"]), 1)
 
 
-class TestFilterSessionEndTimestamps(_SMMTestCase):
-    """filter_session_end_timestamps extracts session_end ts values and
-    sorts ascending. Sort is load-bearing — sessions_since_event uses
+class TestFilterSessionAnchorTimestamps(_SMMTestCase):
+    """filter_session_anchor_timestamps extracts session_started ts values
+    and sorts ascending. Sort is load-bearing — sessions_since_event uses
     bisect_right which requires ascending input. Events are normally
     monotonic on disk but clock skew across teammate worktrees can
     break the invariant, so the helper enforces it."""
 
     def test_empty_events_returns_empty_list(self):
-        self.assertEqual(session_history.filter_session_end_timestamps([]), [])
+        self.assertEqual(session_history.filter_session_anchor_timestamps([]), [])
 
-    def test_no_session_end_events_returns_empty_list(self):
+    def test_no_session_started_events_returns_empty_list(self):
         events = [
             make_event(
                 EVENT_TYPE_QUESTION, content="Q?", ts="2026-05-10T10:00:00+00:00"
             ),
             make_event(EVENT_TYPE_ANSWER, content="A.", ts="2026-05-10T11:00:00+00:00"),
         ]
-        self.assertEqual(session_history.filter_session_end_timestamps(events), [])
+        self.assertEqual(session_history.filter_session_anchor_timestamps(events), [])
 
-    def test_extracts_ts_from_session_end_events_only(self):
-        from event_schema import EVENT_TYPE_SESSION_END
+    def test_extracts_ts_from_session_started_events_only(self):
+        from event_schema import EVENT_TYPE_SESSION_STARTED
 
         events = [
             make_event(
-                EVENT_TYPE_SESSION_END, content="end1", ts="2026-05-10T10:00:00+00:00"
+                EVENT_TYPE_SESSION_STARTED,
+                content="start1",
+                ts="2026-05-10T10:00:00+00:00",
             ),
             make_event(
                 EVENT_TYPE_QUESTION, content="Q?", ts="2026-05-10T11:00:00+00:00"
             ),
             make_event(
-                EVENT_TYPE_SESSION_END, content="end2", ts="2026-05-11T09:00:00+00:00"
+                EVENT_TYPE_SESSION_STARTED,
+                content="start2",
+                ts="2026-05-11T09:00:00+00:00",
             ),
         ]
-        result = session_history.filter_session_end_timestamps(events)
+        result = session_history.filter_session_anchor_timestamps(events)
         self.assertEqual(
             result, ["2026-05-10T10:00:00+00:00", "2026-05-11T09:00:00+00:00"]
         )
@@ -246,20 +250,26 @@ class TestFilterSessionEndTimestamps(_SMMTestCase):
         """Sort is load-bearing; pin it. Append order on disk is
         normally monotonic but clock skew across teammate worktrees
         can produce out-of-order timestamps."""
-        from event_schema import EVENT_TYPE_SESSION_END
+        from event_schema import EVENT_TYPE_SESSION_STARTED
 
         events = [
             make_event(
-                EVENT_TYPE_SESSION_END, content="end3", ts="2026-05-12T09:00:00+00:00"
+                EVENT_TYPE_SESSION_STARTED,
+                content="start3",
+                ts="2026-05-12T09:00:00+00:00",
             ),
             make_event(
-                EVENT_TYPE_SESSION_END, content="end1", ts="2026-05-10T10:00:00+00:00"
+                EVENT_TYPE_SESSION_STARTED,
+                content="start1",
+                ts="2026-05-10T10:00:00+00:00",
             ),
             make_event(
-                EVENT_TYPE_SESSION_END, content="end2", ts="2026-05-11T09:00:00+00:00"
+                EVENT_TYPE_SESSION_STARTED,
+                content="start2",
+                ts="2026-05-11T09:00:00+00:00",
             ),
         ]
-        result = session_history.filter_session_end_timestamps(events)
+        result = session_history.filter_session_anchor_timestamps(events)
         self.assertEqual(
             result,
             [
@@ -269,62 +279,74 @@ class TestFilterSessionEndTimestamps(_SMMTestCase):
             ],
         )
 
-    def test_skips_session_end_events_without_ts(self):
-        from event_schema import EVENT_TYPE_SESSION_END
+    def test_skips_session_started_events_without_ts(self):
+        from event_schema import EVENT_TYPE_SESSION_STARTED
 
         events = [
-            make_event(EVENT_TYPE_SESSION_END, content="missing-ts", ts=""),
+            make_event(EVENT_TYPE_SESSION_STARTED, content="missing-ts", ts=""),
             make_event(
-                EVENT_TYPE_SESSION_END, content="end1", ts="2026-05-10T10:00:00+00:00"
+                EVENT_TYPE_SESSION_STARTED,
+                content="start1",
+                ts="2026-05-10T10:00:00+00:00",
             ),
         ]
-        result = session_history.filter_session_end_timestamps(events)
+        result = session_history.filter_session_anchor_timestamps(events)
         self.assertEqual(result, ["2026-05-10T10:00:00+00:00"])
 
 
 class TestComputeStaleness(_SMMTestCase):
     """Freshness classification of a session_history entry against the
-    sorted list of session_end timestamps.
+    sorted list of session_started boundary anchors.
 
-    Mechanics: /xp-end-session writes the entry at T1; the SessionEnd
-    hook later fires the entry's own session_end event at T2 > T1.
-    So exactly ONE newer session_end is the expected fresh-case shape.
+    Mechanics: the staleness render runs at kickoff, AFTER session_start.py
+    has emitted the CURRENT session's session_started. So the newest anchor
+    in the list is always the current still-running session, which is NOT a
+    skipped session — it provides the same +1 the entry's own session_end
+    used to provide under the old model. Therefore count==1 (only the
+    current session's anchor is newer) means fresh; count>=2 means count-1
+    sessions started without a summary in between.
     """
 
     _T1 = "2026-05-10T10:00:00+00:00"
-    _T2 = "2026-05-10T10:00:30+00:00"  # entry's own session_end
-    _T3 = "2026-05-11T09:00:00+00:00"  # next session's session_end (skipped summary)
+    _T_CURRENT = "2026-05-11T09:00:00+00:00"  # current session's anchor (after T1)
+    _T_NEXT2 = "2026-05-12T09:00:00+00:00"
+    _T_NEXT3 = "2026-05-13T09:00:00+00:00"
 
-    def test_no_session_ends_returns_unknown(self):
+    def test_no_anchors_returns_unknown(self):
+        # Empty anchor list = no boundary data (e.g. pre-M1 log).
         entry = _entry(self._T1, "summary")
         result = session_history.compute_staleness(entry, [])
         self.assertEqual(result, {"status": "unknown", "skipped_sessions": 0})
 
-    def test_zero_newer_session_ends_returns_unknown(self):
-        # Entry is newer than every session_end on disk — current session,
-        # or older session_ends archived past retention.
-        older_se = "2026-05-09T00:00:00+00:00"
+    def test_zero_newer_anchors_is_unknown(self):
+        # No anchor newer than the summary = no boundary crossed since it was
+        # written (the summary is from the current still-running session).
         entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(entry, [older_se])
+        prior = "2026-05-10T09:00:00+00:00"  # before the summary
+        result = session_history.compute_staleness(entry, [prior])
         self.assertEqual(result, {"status": "unknown", "skipped_sessions": 0})
 
-    def test_exactly_one_newer_session_end_is_fresh(self):
-        # Normal flow: entry at T1, entry's own session_end at T2.
+    def test_one_newer_anchor_is_fresh(self):
+        # The single newer anchor is the current session; the prior session
+        # closed cleanly, nothing was skipped.
         entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(entry, [self._T2])
+        result = session_history.compute_staleness(entry, [self._T_CURRENT])
         self.assertEqual(result, {"status": "fresh", "skipped_sessions": 0})
 
-    def test_two_newer_session_ends_is_stale_one_skipped(self):
-        # Entry at T1, own session_end at T2, then another session ended at T3
-        # without writing a summary.
+    def test_two_newer_anchors_is_stale_one_skipped(self):
+        # Current session + one intervening session that started without a
+        # summary => one skipped.
         entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(entry, [self._T2, self._T3])
+        result = session_history.compute_staleness(
+            entry, [self._T_CURRENT, self._T_NEXT2]
+        )
         self.assertEqual(result, {"status": "stale", "skipped_sessions": 1})
 
-    def test_three_newer_session_ends_is_stale_two_skipped(self):
-        t4 = "2026-05-12T09:00:00+00:00"
+    def test_three_newer_anchors_is_stale_two_skipped(self):
         entry = _entry(self._T1, "summary")
-        result = session_history.compute_staleness(entry, [self._T2, self._T3, t4])
+        result = session_history.compute_staleness(
+            entry, [self._T_CURRENT, self._T_NEXT2, self._T_NEXT3]
+        )
         self.assertEqual(result, {"status": "stale", "skipped_sessions": 2})
 
 
@@ -357,9 +379,10 @@ class TestRenderMarkdown(_SMMTestCase):
 
     def test_fresh_entry_renders_no_staleness_annotation(self):
         entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
-        # Exactly one newer SE = fresh.
+        # One anchor newer than the summary = the current session; the prior
+        # session closed cleanly => fresh, no annotation.
         result = session_history.render_markdown(
-            entries, session_end_timestamps=["2026-05-10T10:00:30+00:00"]
+            entries, session_anchor_timestamps=["2026-05-10T10:00:30+00:00"]
         )
         self.assertIn("### LAST_SESSION", result)
         self.assertNotIn("(stale", result)
@@ -369,20 +392,25 @@ class TestRenderMarkdown(_SMMTestCase):
         entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
         result = session_history.render_markdown(
             entries,
-            session_end_timestamps=[
+            session_anchor_timestamps=[
                 "2026-05-10T10:00:30+00:00",
                 "2026-05-11T09:00:00+00:00",
                 "2026-05-12T09:00:00+00:00",
             ],
         )
-        # Header carries the annotation; "2 sessions" matches skipped_sessions=2.
+        # Three anchors newer than the entry => count 3, skipped_sessions=2
+        # (the newest is the current session; two intervening were skipped).
         self.assertIn("### LAST_SESSION (stale", result)
         self.assertIn("2 sessions", result)
+        # Verb is "started", not "ended": the newest counted anchor is the
+        # CURRENT still-running session, which has not ended.
+        self.assertIn("started without /xp-end-session", result)
+        self.assertNotIn("ended without", result)
 
     def test_unknown_status_renders_no_annotation(self):
-        # No session_ends at all — annotation suppressed to keep noise low.
+        # No anchors at all — annotation suppressed to keep noise low.
         entries = [_entry("2026-05-10T10:00:00+00:00", "Summary.")]
-        result = session_history.render_markdown(entries, session_end_timestamps=[])
+        result = session_history.render_markdown(entries, session_anchor_timestamps=[])
         self.assertIn("### LAST_SESSION", result)
         self.assertNotIn("(stale", result)
         self.assertNotIn("(unknown", result)
@@ -399,7 +427,7 @@ class TestRenderMarkdown(_SMMTestCase):
         # carries the marker.
         result = session_history.render_markdown(
             entries,
-            session_end_timestamps=[
+            session_anchor_timestamps=[
                 "2026-05-10T10:00:30+00:00",
                 "2026-05-11T09:00:00+00:00",
                 "2026-05-12T09:00:00+00:00",
