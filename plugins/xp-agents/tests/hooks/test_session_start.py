@@ -615,6 +615,45 @@ class TestSessionStartGoalResolution(_HookTestCase):
         self.assertIn(g_main["id"], resolves)
         self.assertIn(g_team["id"], resolves)
 
+    def test_resolve_prior_goals_pre_anchor_only(self):
+        """Pin the pre-anchor-only invariant: any goal emitted AT or AFTER
+        the most-recent session_started anchor must NOT be resolved by the
+        sweep. Correct-by-luck today only because no caller emits goals
+        at SessionStart time; a future SessionStart-time goal emitter
+        would otherwise be silently resolved the instant it lands.
+        """
+        import session_start
+
+        pre_goal = make_event(
+            EVENT_TYPE_GOAL, content="Prior session goal", agent_id="xp-kickoff"
+        )
+        anchor = make_event(EVENT_TYPE_SESSION_STARTED, content="prior session start")
+        post_goal = make_event(
+            EVENT_TYPE_GOAL,
+            content="Active SessionStart-time goal",
+            agent_id="xp-kickoff",
+        )
+        self._write_events([pre_goal, anchor, post_goal])
+        session_start.run(
+            {"session_id": "t", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        anchors = self._started()
+        # _started() picks every session_started — the prior anchor we
+        # seeded plus the new one this run emits.
+        self.assertEqual(len(anchors), 2)
+        new_anchor = anchors[-1]
+        resolves = (new_anchor.get("metadata") or {}).get("resolves", [])
+        self.assertIn(
+            pre_goal["id"],
+            resolves,
+            "pre-anchor goal must be resolved (prior-session backlog)",
+        )
+        self.assertNotIn(
+            post_goal["id"],
+            resolves,
+            "post-anchor goal must NOT be resolved (live, same-conversation work)",
+        )
+
     def test_fresh_start_skips_already_resolved_goals(self):
         import session_start
 

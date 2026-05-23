@@ -276,6 +276,31 @@ class TestAttributeCommitsStoryId(unittest.TestCase):
         self.assertEqual(result["story-001"]["commits"], 1)
         self.assertEqual(result["story-001"]["files_changed"], 1)
 
+    def test_merge_commit_not_attributed(self):
+        """metadata.is_merge=True (close-cycle merge from close_common) is
+        excluded from per-story commit counts and files_changed — the merge
+        HEAD aggregates already-counted story commits and would inflate the
+        story's metrics by +1 every close. Parity with retro_metrics'
+        is_merge exclusion."""
+        import story_metrics
+
+        stories = [
+            _s(
+                "story-001",
+                "Auth",
+                "done",
+                file_domain=["scripts/auth.py — login"],
+            ),
+        ]
+        commits = [
+            commit_event(["scripts/auth.py"], story_id="story-001"),
+            commit_event(["scripts/auth.py"], story_id="story-001", is_merge=True),
+        ]
+        result = story_metrics._attribute_commits(commits, stories)
+        # Only the real story commit counts — the merge is filtered out.
+        self.assertEqual(result["story-001"]["commits"], 1)
+        self.assertEqual(result["story-001"]["files_changed"], 1)
+
 
 class TestCodeFreeFlag(unittest.TestCase):
     """code_free flag distinguishes investigation-only from code-expected stories."""

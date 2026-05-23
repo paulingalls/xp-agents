@@ -193,12 +193,15 @@ def commit_event(
     ts: str = "2026-04-05T10:00:00+00:00",
     story_id: str | None = None,
     sprint_id: str | None = None,
+    is_merge: bool = False,
 ) -> dict:
     metadata: dict = {"code_commit": True, "commit_hash": "abc123"}
     if story_id:
         metadata["story_id"] = story_id
     if sprint_id:
         metadata["sprint_id"] = sprint_id
+    if is_merge:
+        metadata["is_merge"] = True
     return make_event(
         EVENT_TYPE_COMMIT,
         content="Committed: test change",

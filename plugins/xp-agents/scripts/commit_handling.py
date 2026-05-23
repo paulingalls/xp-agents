@@ -236,6 +236,64 @@ def _head_matches_command(command: str, head_body: str | None) -> bool:
     return bool(expected_first) and expected_first == actual_first
 
 
+def make_commit_event(
+    agent_id: str,
+    body: str,
+    *,
+    commit_hash: str | None,
+    files: list[str],
+    code_file_count: int,
+    story_id: str | None = None,
+    sprint_id: str | None = None,
+    resolves: list[str] | None = None,
+    has_resolves_trailer: bool = False,
+    is_merge: bool = False,
+) -> dict:
+    """Build a type=commit event from the shared metadata shape.
+
+    Single canonical builder for both regular `git commit` emissions
+    (``_handle_commit``) and close-cycle merge emissions
+    (``close_common._append_merge_commit_event``). When either side
+    adds a metadata field, this builder is the one place to update —
+    eliminates the drift risk two parallel builders would carry.
+
+    Optional kwargs:
+      - ``resolves`` / ``has_resolves_trailer``: bash-commit only
+        (parsed from the commit message body)
+      - ``is_merge``: close-cycle merge only (excludes the event from
+        ``retro_metrics._compute_resolves_link_rate`` denominator so a
+        merge HEAD doesn't dilute the rate without a meaningful trailer)
+
+    Callers pass ``code_file_count`` already computed (both sites
+    compute it earlier for their own thresholds — recomputing here
+    would duplicate the scan).
+    """
+    metadata: dict = {
+        "action": STATUS_ACTION_COMMIT_SUCCESS,
+        "code_commit": code_file_count > 0,
+        "code_file_count": code_file_count,
+    }
+    if commit_hash:
+        metadata[METADATA_KEY_COMMIT_HASH] = commit_hash
+    if resolves:
+        metadata[METADATA_KEY_RESOLVES] = resolves
+    if has_resolves_trailer:
+        metadata["has_resolves_trailer"] = True
+    if story_id:
+        metadata["story_id"] = story_id
+    # `is not None` (not truthy): mirrors the pre-extraction
+    # `if sprint is not None: metadata["sprint_id"] = sprint["sprint_id"]`
+    # idiom both call sites used. A fresh empty_sprint() carries
+    # sprint_id="" and would otherwise be silently dropped here.
+    if sprint_id is not None:
+        metadata["sprint_id"] = sprint_id
+    if is_merge:
+        metadata["is_merge"] = True
+    return _common.make_event(
+        _common.COMMIT, agent_id, body, files=files, metadata=metadata
+    )
+
+
 def _handle_commit(
     smm_dir: Path,
     agent_id: str,
@@ -301,18 +359,6 @@ def _handle_commit(
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
-    metadata: dict = {
-        "action": STATUS_ACTION_COMMIT_SUCCESS,
-        "code_commit": has_code,
-        "code_file_count": code_file_count,
-    }
-    if commit_hash:
-        metadata[METADATA_KEY_COMMIT_HASH] = commit_hash
-    if resolves:
-        metadata[METADATA_KEY_RESOLVES] = resolves
-    if has_trailer:
-        metadata["has_resolves_trailer"] = True
-
     import sprint_store
 
     sprint = sprint_store.load_sprint(smm_dir)
@@ -320,18 +366,18 @@ def _handle_commit(
     story_id = _resolve_story_id(
         smm_dir, effective_cwd, committed_files, sprint=sprint, message=body
     )
-    if story_id:
-        metadata["story_id"] = story_id
-    if sprint is not None:
-        metadata["sprint_id"] = sprint["sprint_id"]
 
     pending: list[dict] = [
-        _common.make_event(
-            _common.COMMIT,
+        make_commit_event(
             agent_id,
             body,
+            commit_hash=commit_hash,
             files=committed_files,
-            metadata=metadata,
+            code_file_count=code_file_count,
+            story_id=story_id,
+            sprint_id=sprint["sprint_id"] if sprint is not None else None,
+            resolves=resolves,
+            has_resolves_trailer=has_trailer,
         )
     ]
 
