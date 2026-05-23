@@ -28,8 +28,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import _common
 import branching
+import code_files
 import commit_handling
+import commits
 import git_hooks
 import git_remote
 import identity
@@ -37,6 +40,7 @@ import sprint_store
 import verify_acceptance
 import verify_paths
 import worktree
+from event_schema import METADATA_KEY_COMMIT_HASH
 
 
 def pre_commit_hook_present(repo_root: str) -> bool:
@@ -239,6 +243,64 @@ def _verify_gate_block(args: argparse.Namespace) -> str | None:
     return None
 
 
+def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> None:
+    """Append a type=commit event for the merge HEAD just produced by
+    ``branching.merge_branch``.
+
+    Closes the merge-gap commit-event hole: the parent Bash PreToolUse hook
+    only matches top-level ``git commit`` shells, so the inner
+    ``git merge --no-ff`` subprocess spawned by ``branching.merge_branch``
+    leaves no event. We emit one here mirroring
+    ``commit_handling._handle_commit``'s metadata shape (action, code_commit,
+    code_file_count, commit_hash, story_id, sprint_id) so downstream
+    accounting (commit counts, story attribution, resolves-link rate) sees
+    close-cycle merges.
+
+    No-op when ``smm_dir`` is None — some close-skill callers don't pass
+    ``--smm-dir`` yet. Dedupes by ``commit_hash`` so a retried/"Already up to
+    date" re-merge cannot double-emit.
+    """
+    if smm_dir is None:
+        return
+    commit_hash = commits.get_head_commit_hash(cwd)
+    if not commit_hash:
+        return
+    events, _ = _common.load_events_with_resolutions(smm_dir)
+    if any(
+        e.get("type") == _common.COMMIT
+        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
+        for e in events
+    ):
+        return
+    files = commits.get_committed_files(cwd)
+    body = commits.get_commit_message_body(cwd) or f"Merge {source}"
+    code_file_count = sum(1 for f in files if code_files.is_code_file(f))
+    # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
+    # itself already succeeded on target, and the surrounding push/delete/
+    # remote-prune chain must continue. Matches _verify_gate_block's
+    # established fail-open posture for SMM-state errors here.
+    try:
+        sprint = sprint_store.load_sprint(smm_dir)
+    except (sprint_store.SprintCorruptError, OSError):
+        sprint = None
+    # is_merge=True excludes this event from resolves_link_rate accounting:
+    # the merge HEAD aggregates already-recorded story commits, each of
+    # which carries its own Resolves trailer. Counting the merge commit
+    # in the denominator would dilute the rate without a meaningful
+    # numerator (merge commit messages don't carry Resolves trailers).
+    event = commit_handling.make_commit_event(
+        "close_common",
+        body,
+        commit_hash=commit_hash,
+        files=files,
+        code_file_count=code_file_count,
+        story_id=identity.extract_story_id(source),
+        sprint_id=sprint["sprint_id"] if sprint is not None else None,
+        is_merge=True,
+    )
+    _common.bulk_append_safe(smm_dir, [event])
+
+
 def cmd_merge(args: argparse.Namespace) -> int:
     """Chained merge --no-ff + (push target if remote) + delete source.
 
@@ -261,6 +323,13 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
     branching.merge_branch(args.cwd, args.source, target=args.target)
     print(f"merged: {args.source} -> {args.target}")
+
+    # Emit a commit event for the merge HEAD; closes the merge-gap hole
+    # (the inner `git merge --no-ff` subprocess is invisible to the parent
+    # Bash PreToolUse commit hook). No-op when --smm-dir is absent.
+    _append_merge_commit_event(
+        args.cwd, Path(args.smm_dir) if args.smm_dir else None, args.source
+    )
 
     if git_remote.has_remote(args.cwd):
         rc = _run_or_relay(

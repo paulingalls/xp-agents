@@ -94,6 +94,34 @@ class TestDirectTrailerCount(unittest.TestCase):
         self.assertEqual(result["resolves_trailer_total"], 1)
         self.assertEqual(result["resolves_trailer_hits"], 1)
 
+    def test_merge_commits_excluded_from_denominator(self):
+        """metadata.is_merge==True commits are emitted by close_common's
+        merge-gap helper and must not dilute the rate — they aggregate
+        already-counted story commits and carry no Resolves trailer."""
+        import retro_metrics
+
+        merge_event = make_event(
+            EVENT_TYPE_COMMIT,
+            content="Merge story-001",
+            ts="2026-04-05T13:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": "merge-sha",
+                "is_merge": True,
+                # no resolves trailer
+            },
+        )
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
+            merge_event,
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 2)
+        self.assertEqual(result["resolves_trailer_hits"], 2)
+        self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
+
 
 class TestClassifyLifecycleEvents(unittest.TestCase):
     """_classify_lifecycle_events dispatches on metadata.action for review-cycle
