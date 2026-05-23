@@ -176,6 +176,44 @@ class TestCreateFreeBranch(unittest.TestCase):
             ).stdout.strip()
             self.assertEqual(sha, primary_sha)
 
+    def test_forks_off_recorded_plan_branch_when_active(self):
+        """When a plan branch is recorded and present, free forks off it —
+        NOT off primary. Fork-base must match free-close's merge target
+        (get_merge_target) or primary-only commits get dragged into the plan
+        branch at close time."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            # Plan branch advances one commit past primary's tip.
+            plan_tip = _bf.make_commit(
+                td, "paul/plan-redesign", "planfile.txt", "x", "plan commit"
+            )
+            # Return HEAD to primary so HEAD != plan_tip. This isolates the
+            # merge-target resolution: a regression that drops the base= arg
+            # (reverting to fork-off-current-HEAD) would now yield sha==main,
+            # not plan_tip, so only correct base resolution passes.
+            subprocess.run(
+                ["git", "checkout", "main"], cwd=td, capture_output=True, check=True
+            )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            _seed_plan(smm_dir, branch="paul/plan-redesign")
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branch_names._utc_today_iso", return_value="2026-04-24"),
+            ):
+                branching.create_free_branch(td, "spike", smm_dir)
+
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(
+                sha,
+                plan_tip,
+                "free branch did not fork off the recorded plan branch — "
+                "it forked off primary, dragging the asymmetry the fix removes",
+            )
+
     def test_resume_existing_branch(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
