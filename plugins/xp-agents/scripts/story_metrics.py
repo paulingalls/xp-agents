@@ -109,7 +109,17 @@ def _attribute_commits(
         if not committed_files:
             continue
 
-        story_id = (commit.get("metadata") or {}).get("story_id")
+        metadata = commit.get("metadata") or {}
+        # Skip close-cycle merge events: a story-close merge of
+        # paul/story-NNN-* carries metadata.story_id=story-NNN but
+        # aggregates already-counted story commits — counting the merge
+        # inflates per-story `commits` by +1 every close. Mirrors the
+        # is_merge exclusion in retro_metrics._compute_resolves_link_rate
+        # for cross-metric coherence.
+        if metadata.get("is_merge"):
+            continue
+
+        story_id = metadata.get("story_id")
         if not story_id or story_id not in story_ids:
             continue
 

@@ -256,9 +256,11 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     accounting (commit counts, story attribution, resolves-link rate) sees
     close-cycle merges.
 
-    No-op when ``smm_dir`` is None — some close-skill callers don't pass
-    ``--smm-dir`` yet. Dedupes by ``commit_hash`` so a retried/"Already up to
-    date" re-merge cannot double-emit.
+    No-op when ``smm_dir`` is None — defends programmatic callers
+    (in-process tests, future scripts) that invoke ``cmd_merge`` without
+    threading ``--smm-dir``. All four shipped close skills now pass it.
+    Dedupes by ``commit_hash`` so a retried/"Already up to date" re-merge
+    cannot double-emit.
     """
     if smm_dir is None:
         return
