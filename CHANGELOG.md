@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.4.2 — Concern-nudge correctness + free-branch fixes + dead-code consolidation
+
+A free-session batch of bug fixes, accuracy improvements, and cleanup driven by triaging two plugin-developer feedback docs against current code. Non-breaking — patch bump.
+
+### Concern-nudge correctness (bug fix)
+
+The `/xp-quality-review` "Debt for Changed Files" preload surfaced debts/concerns via the **non-resolution-aware** `concerns.find_issues_for_file`, so a concern resolved by an earlier commit kept resurfacing on every later commit touching the same file. Its resolution-aware twin `commits.open_issues_matching_commit` already existed but was orphaned (test-only) — leftover when the "resolves probe" feature was deleted, which also left the replacement quality-review step wired to the wrong matcher. `debt_for_files.py` is repointed onto `open_issues_matching_commit` (resolutions computed once, passed in); the buggy duplicate `find_issues_for_file` and its redundant test file are deleted. Behavior is identical apart from the intended resolved-exclusion.
+
+### Concern-nudge accuracy — explicit-id citations
+
+New `commits.find_addressing_commits` unions file-overlap (`triage.find_overlapping_commits`) with commits whose body **cites a concern's id** without a formal `Resolves-Event:` trailer — wiring up the previously dead `commits.extract_implicit_event_ids`. The three concern-nudge sites (`xp-work-selection` triage_preload, `xp-accept` concern_triage, `xp-end-session` draft_summary) now route through it, so a "fixed it in a different file / forgot the trailer" commit is folded into the soft "MAYBE ADDRESSED" nudge (and the end-session carry-forward filter). Soft signal only — a formal trailer already resolves the concern, so resolved concerns never reach the nudge.
+
+### Free-branch fork-base symmetry
+
+`branching.create_free_branch` forked off `get_primary_branch` while `xp-free-close` merges via `get_merge_target` (the recorded plan branch when active) — forking off primary then merging into a plan branch dragged primary-only commits into the plan branch at close. Fork-base now uses `get_merge_target` (falls back to primary with no active plan, so the common case is unchanged), and a new keyword-only `base=` threaded through the `create-free --base` CLI flag gives an explicit override mirroring story `create --base`.
+
+### Accept-gate commits-ahead refinement
+
+The Stop accept-gate nagged "run /xp-accept" the moment a story went in-progress with an `.accept` marker (armed on the first Edit), even with zero commits ahead of base — acceptance there verified nothing. New `branching.commits_ahead` gates the in-progress+marker path on real commits-ahead; reviewing/closing states still fire unconditionally. Safe defaults: no/invalid cwd or a git failure all fire, so a real un-accepted story is never silently skipped. Consolidated `check_plan_divergence`'s inline rev-list onto the new helper.
+
+### Test-infra + dead-code cleanup
+
+- A real pre-push hook fixture (`add_pre_push_hook`) now lets behavioral tests prove `--no-verify` suppresses the project pre-push hook end-to-end (create-time push contract), replacing argv-only assertions.
+- Removed the genuinely-dead `_common.has_final_status` (zero references). A census found the codebase otherwise clean.
+
 ## v3.4.1 — Tighten resolves_link_rate denominator
 
 The retro `resolves_link_rate` metric was structurally floored. Its denominator counted **story commits** (commits tagged `metadata.story_id=story-NNN`) alongside cross-cutting commits, but story commits do the story's work and aren't expected to carry `Resolves-Event` trailers — the story IS the unit of resolution. Counting them as denominator-with-no-numerator gave the 80% threshold no analytic value.
