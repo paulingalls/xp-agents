@@ -208,6 +208,42 @@ class TestMergeEmitsCommitEvent(unittest.TestCase):
         # (merge commits aggregate story commits that carry their own trailers).
         self.assertTrue(meta["is_merge"])
 
+    def test_merge_with_sprint_source_not_tagged_free_session(self):
+        """The default _SOURCE is a story-shaped branch, not a free branch.
+        The merge event MUST NOT carry metadata.is_free_session — that flag
+        is reserved for free-mode merges so retro_metrics can bucket them."""
+        import close_common
+
+        td = self._make_repo("feature.py")
+        smm_dir = self._make_smm()
+        rc = close_common.cmd_merge(self._make_args(td, smm_dir))
+        self.assertEqual(rc, 0)
+        meta = self._read_commit_events(smm_dir)[0]["metadata"]
+        self.assertNotIn("is_free_session", meta)
+
+    def test_merge_with_free_source_tagged_is_free_session(self):
+        """A free→target merge tags the commit event is_free_session=True
+        (alongside is_merge). Retro_metrics' conditional-include filter
+        treats it like any other merge for the standard rate, but the flag
+        is preserved for future free-mode bucket metrics."""
+        import close_common
+
+        free_source = "paulingalls/free-2026-05-23-explore-foo"
+        td_ctx = tempfile.TemporaryDirectory()
+        self.addCleanup(td_ctx.cleanup)
+        td = td_ctx.name
+        _bf.init_repo(td)
+        _bf.make_commit(td, free_source, "feature.py", "x", "feat")
+        _bf.checkout_main(td)
+        smm_dir = self._make_smm()
+        rc = close_common.cmd_merge(self._make_args(td, smm_dir, source=free_source))
+        self.assertEqual(rc, 0)
+        meta = self._read_commit_events(smm_dir)[0]["metadata"]
+        self.assertTrue(meta["is_merge"])
+        self.assertTrue(meta["is_free_session"])
+        # extract_story_id on a free branch returns None — no story_id key.
+        self.assertNotIn("story_id", meta)
+
     def test_merge_does_not_emit_when_smm_dir_absent(self):
         """Graceful no-op for callers that don't pass --smm-dir yet."""
         import close_common

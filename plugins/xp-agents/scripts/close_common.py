@@ -290,6 +290,10 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     # which carries its own Resolves trailer. Counting the merge commit
     # in the denominator would dilute the rate without a meaningful
     # numerator (merge commit messages don't carry Resolves trailers).
+    # Tag merges whose source is a free branch — honored by retro_metrics
+    # alongside is_merge. (A free→primary merge is both: it carries is_merge
+    # from this code path AND should be flagged as free for any future metric
+    # that wants to bucket free-mode close cycles separately.)
     event = commit_handling.make_commit_event(
         "close_common",
         body,
@@ -299,6 +303,7 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
         story_id=identity.extract_story_id(source),
         sprint_id=sprint["sprint_id"] if sprint is not None else None,
         is_merge=True,
+        is_free_session=branching.is_free_branch(source),
     )
     _common.bulk_append_safe(smm_dir, [event])
 

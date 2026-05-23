@@ -368,12 +368,22 @@ def _handle_commit(
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
+    import branching
     import sprint_store
 
     sprint = sprint_store.load_sprint(smm_dir)
 
     story_id = _resolve_story_id(
         smm_dir, effective_cwd, committed_files, sprint=sprint, message=body
+    )
+
+    # Tag commits emitted on a free branch — honored by
+    # retro_metrics._compute_resolves_link_rate as a conditional-include
+    # filter (counts only when the commit carries a Resolves trailer).
+    # get_current_branch returns "" on git failure; is_free_branch("") is
+    # False (safe-fail: untagged commit drops into the denominator).
+    is_free_session = branching.is_free_branch(
+        identity.get_current_branch(effective_cwd)
     )
 
     pending: list[dict] = [
@@ -387,6 +397,7 @@ def _handle_commit(
             sprint_id=sprint["sprint_id"] if sprint is not None else None,
             resolves=resolves,
             has_resolves_trailer=has_trailer,
+            is_free_session=is_free_session,
         )
     ]
 

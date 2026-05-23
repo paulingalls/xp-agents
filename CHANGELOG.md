@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.4.1 — Tighten resolves_link_rate denominator
+
+The retro `resolves_link_rate` metric was structurally floored. Its denominator counted **story commits** (commits tagged `metadata.story_id=story-NNN`) alongside cross-cutting commits, but story commits do the story's work and aren't expected to carry `Resolves-Event` trailers — the story IS the unit of resolution. Counting them as denominator-with-no-numerator gave the 80% threshold no analytic value.
+
+### Three exclusions in `_compute_resolves_link_rate`
+
+`retro_metrics._compute_resolves_link_rate` now skips three categories before computing the rate, each for its own reason:
+
+- **`metadata.is_merge==True`** — close-cycle merge HEADs aggregate already-counted commits (existing exclusion, kept).
+- **`metadata.story_id` present (NEW)** — bounded by the story; the story IS the unit of resolution, story commits aren't expected to carry trailers.
+- **`metadata.is_free_session==True` AND no `Resolves-Event` trailer (NEW, conditional)** — exploration commits with nothing to reference. Free-session commits WITH a trailer count both ways (Option B' conditional-include): rewards voluntary fix-and-link work visibly.
+
+Refactor: factored the trailer-presence check into a local `_has_trailer(meta)` helper to dedupe three inline copies (free-session conditional, total numerator, per-agent numerator).
+
+### `is_free_session` producer
+
+`commit_handling._handle_commit` and `close_common._append_merge_commit_event` now tag emitted commit events with `metadata.is_free_session=True` when the current/source branch matches the free-branch shape `<user>/free-YYYY-MM-DD-<slug>`. Detection uses the new `branch_names.is_free_branch(name)` helper (regex anchored, mirrors `is_sprint_branch`). `identity.get_current_branch` returns `""` on git failure; `is_free_branch("")` is `False` — safe-fail untagged drops into the denominator.
+
+### Decision pin
+
+Decision `4e9b5a31b541` records the denominator policy under topic `resolves-link-rate-denominator-policy` so the superseded-decision drift detector catches any future divergent change before it silently reverts the fix.
+
+### Warm-up note
+
+Pre-this-fix commits in events.jsonl lack the `is_free_session` tag. They'll be treated as "not tagged" by the filter — old free commits without trailers will count (false-positive denominator hit) until new tagged events accumulate. The metric warms up to its corrected behavior over the next few sprints.
+
 ## v3.4.0 — Deterministic session boundaries + merge-gap commit-event closure
 
 A 4-milestone plan re-anchors all session-boundary and aging math on a deterministic per-session anchor, closes a long-standing accounting hole where close-cycle merge commits were invisible to event-driven metrics, and ships two adopted retro Tries. Non-breaking but materially new behavior — minor bump.
