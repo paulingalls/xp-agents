@@ -173,6 +173,27 @@ class TestRunWithOverlap(_SMMTestCase):
         self.assertIn("MAYBE ADDRESSED", output)
         self.assertIn("Fix auth validation", output)
 
+    def test_concern_cited_by_commit_id_annotated_without_file_overlap(self):
+        """A commit that cites the concern's id in its body (no file
+        overlap) still surfaces under MAYBE ADDRESSED — exercises the
+        find_addressing_commits id tier wiring."""
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Auth validation bug",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            EVENT_TYPE_COMMIT,
+            content=f"Fix landed in helper, closes {concern['id']}",
+            files=["scripts/helper.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        self._write_events([concern, commit])
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("MAYBE ADDRESSED", output)
+        self.assertIn(concern["id"], output)
+
 
 if __name__ == "__main__":
     unittest.main()

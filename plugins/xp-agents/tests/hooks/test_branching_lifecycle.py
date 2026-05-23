@@ -29,6 +29,37 @@ _write_system_context = _bf.write_system_context
 _make_feature_commit = _bf.append_commit
 
 
+class TestCommitsAhead(unittest.TestCase):
+    def test_zero_ahead_on_fresh_branch(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "checkout", "-b", "feature"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(branching.commits_ahead(td, "main"), 0)
+
+    def test_counts_commits_ahead_of_base(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "checkout", "-b", "feature"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            _make_feature_commit(td, "a.txt")
+            _make_feature_commit(td, "b.txt")
+            self.assertEqual(branching.commits_ahead(td, "main"), 2)
+
+    def test_none_on_bogus_base(self):
+        with tempfile.TemporaryDirectory() as td:
+            _init_repo(td)
+            self.assertIsNone(branching.commits_ahead(td, "no-such-branch"))
+
+
 class TestIsWorktreeClean(unittest.TestCase):
     def test_clean_repo(self):
         with tempfile.TemporaryDirectory() as td:

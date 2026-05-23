@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import branching
 import coordination
 import identity
 import markers
@@ -82,7 +83,26 @@ def _has_sprint_end_event(events: list[dict], sprint_id: str) -> bool:
     return False
 
 
-def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
+def _in_progress_has_work(smm_dir: Path, cwd: str) -> bool:
+    """True when the in-progress story branch has commits ahead of its base.
+
+    The ACCEPT marker arms on the first Edit of an in-progress story —
+    before any commit — so marker presence alone over-fires the accept
+    gate against an empty branch right after assign. Refine with a real
+    commits-ahead check. Without a usable cwd (missing, or not a real
+    directory) we can't measure it, so assume work exists (fire —
+    preserve the prior behavior). A git failure (commits_ahead -> None)
+    is likewise treated as "has work" so a real un-accepted story is
+    never silently skipped.
+    """
+    if not cwd or not Path(cwd).is_dir():
+        return True
+    base = branching.get_story_base_branch(smm_dir, cwd)
+    n = branching.commits_ahead(cwd, base)
+    return n != 0
+
+
+def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | None:
     """Return the first triggered cascade block message, or None.
 
     Uses the ``_data`` predicate variants throughout so the sprint dict
@@ -92,11 +112,14 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict) -> str | None:
     # Cascade step 1: accept gate. Any UNDER_ACCEPTANCE story (reviewing
     # or closing) fires (Option A): both are mid-accept-window states
     # where the user must run /xp-accept (or finish the in-flight close)
-    # before stopping.
+    # before stopping. These carry committed+merged work, so they fire
+    # unconditionally — only the in-progress+marker path is refined below.
     if has_under_acceptance_stories_data(sprint_data):
         return _ACCEPT_MESSAGE
     if has_in_progress_stories_data(sprint_data):
-        if markers.marker_exists(smm_dir, markers.ACCEPT):
+        if markers.marker_exists(smm_dir, markers.ACCEPT) and _in_progress_has_work(
+            smm_dir, cwd
+        ):
             return _ACCEPT_MESSAGE
         return None
 
@@ -129,13 +152,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if sprint_data is None:
         return None
 
-    block_message = _compute_block_message(smm_dir, sprint_data)
+    cwd = input_data.get("cwd", "") or ""
+    block_message = _compute_block_message(smm_dir, sprint_data, cwd)
     if block_message is None:
         return None
 
     # Defer if mid-workflow — only pay the cost when we'd otherwise block
     agent_id = identity.resolve_agent_id(input_data)
-    cwd = input_data.get("cwd", "") or ""
     if _deferred(smm_dir, agent_id, cwd):
         return None
 

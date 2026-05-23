@@ -449,8 +449,21 @@ def create_scaffold_branch(
     )
 
 
-def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
-    """Create or resume <user>/free-YYYY-MM-DD-<slug> off the primary branch.
+def create_free_branch(
+    cwd: str, slug: str, smm_dir: Path, *, base: str | None = None
+) -> str | None:
+    """Create or resume <user>/free-YYYY-MM-DD-<slug> off the merge target.
+
+    Defaults to forking off ``get_merge_target`` — the recorded plan branch
+    when one is active, else primary. The fork-base MUST match free-close's
+    merge target: forking off primary while merging back into a plan branch
+    drags primary-only commits (those landed since the plan branch forked)
+    into the plan branch at close time. With no active plan, get_merge_target
+    falls back to primary, so the common case is unchanged.
+
+    An explicit ``base`` overrides that default — the escape hatch for free
+    work that must fork off a specific ref (mirrors create_story_branch's
+    ``base``). Forks off whatever ``base`` names; the caller owns correctness.
 
     Free branches are scratch work outside of plans/sprints. Date is UTC.
     Returns None below the plugin floor (stage < 2). Per BRANCH_LIFECYCLE
@@ -464,7 +477,7 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
         name,
         smm_dir,
         min_stage=BRANCH_MIN_STAGE["free"],
-        base=get_primary_branch(smm_dir),
+        base=base if base is not None else get_merge_target(smm_dir, cwd),
     )
 
 
@@ -534,6 +547,23 @@ def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
     return primary
 
 
+def commits_ahead(cwd: str, base: str, head: str = "HEAD") -> int | None:
+    """Count commits on ``head`` not reachable from ``base``.
+
+    Thin wrapper over ``git rev-list --count <base>..<head>``. Returns None
+    when git fails (bad base ref, not a repo) or the count is unparseable —
+    callers treat None as "can't tell, don't suppress" so a gate keyed on
+    this never silently skips a legitimate signal.
+    """
+    r = _git(["git", "rev-list", "--count", f"{base}..{head}"], cwd)
+    if r.returncode != 0:
+        return None
+    try:
+        return int(r.stdout.strip())
+    except ValueError:
+        return None
+
+
 def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict | None:
     """Count how far the plan branch has fallen behind primary.
 
@@ -546,10 +576,9 @@ def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict 
     if not plan_branch:
         return None
     primary = get_primary_branch(smm_dir)
-    r = _git(["git", "rev-list", "--count", f"{plan_branch}..{primary}"], cwd)
-    if r.returncode != 0:
+    behind = commits_ahead(cwd, base=plan_branch, head=primary)
+    if behind is None:
         return None
-    behind = int(r.stdout.strip())
     result: dict = {
         "commits_behind": behind,
         "plan_branch": plan_branch,

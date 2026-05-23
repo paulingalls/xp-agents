@@ -2,8 +2,8 @@
 """Draft a session-summary candidate from events.jsonl.
 
 Pure-stdlib helper for the /xp-end-session skill. Reads the SMM
-events.jsonl from the prior session_end boundary forward and emits
-JSON to stdout:
+events.jsonl from the current session's session_started boundary forward
+and emits JSON to stdout:
 
     {
       "summary": "<refined session_summary content if present;
@@ -34,6 +34,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
+import commits  # noqa: E402
 import event_schema  # noqa: E402
 import materialize  # noqa: E402
 import resolution  # noqa: E402
@@ -114,9 +115,10 @@ def _build_carry_forward(
     until resolved or downgraded. Differentiation lets future kickoff
     UIs route the two classes differently without re-deriving severity.
 
-    `maybe_addressed_ids` filters out concerns whose files were touched by a
-    later commit (see triage.find_overlapping_commits) — those are speculatively
-    closed and shouldn't crowd next session's triage.
+    `maybe_addressed_ids` filters out concerns a later commit likely
+    addressed — file overlap OR an explicit id citation in the commit body
+    (see commits.find_addressing_commits) — those are speculatively closed
+    and shouldn't crowd next session's triage.
     """
     carry = [_carry_entry(q, "triage") for q in open_questions]
     for concern in open_concerns:
@@ -168,7 +170,7 @@ def run(smm_dir: Path) -> dict:
 
     maybe_addressed = []
     for item in open_concerns + open_debts:
-        overlapping = triage.find_overlapping_commits(item, events)
+        overlapping = commits.find_addressing_commits(item, events)
         if not overlapping:
             continue
         # Emit git commit_hash (resolvable by `git show`), not the SMM

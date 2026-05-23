@@ -16,6 +16,7 @@ The story wrapper pins the no-push half of the shared
 `_create_or_resume_branch` path; the sprint/plan wrappers add their own push.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -135,9 +136,46 @@ class TestCreatePushSkipsVerify(_BasePushTest):
     project pre-push hook (e.g. an integration test suite) has nothing
     new to gate. Skipping it avoids a pointless multi-second run AND the
     `branching._git` timeout — a slow suite would raise TimeoutExpired
-    and crash creation. The bare-remote fixture has no pre-push hook, so
-    this pins the contract by asserting the push argv directly.
+    and crash creation. The argv assertions pin the mechanism cheaply;
+    the behavioral tests (via `add_pre_push_hook`) pin the observable
+    effect — that `--no-verify` genuinely keeps the hook from firing.
     """
+
+    def test_pre_push_hook_fires_without_no_verify(self):
+        """Fixture guard: a plain push (no --no-verify) MUST fire the hook
+        and be blocked by it — otherwise the suppression test below is
+        vacuous (a hook that never fires proves nothing about --no-verify)."""
+        td, _ = self._setup_repo()
+        marker = _bf.add_pre_push_hook(td)
+        result = subprocess.run(
+            ["git", "push", "origin", "main"],
+            cwd=td,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(
+            result.returncode,
+            0,
+            "plain push succeeded — pre-push hook did not block it",
+        )
+        self.assertTrue(marker.exists(), "pre-push hook did not fire on a plain push")
+
+    def test_sprint_create_push_skips_pre_push_hook(self):
+        """End-to-end: create-time push passes --no-verify, so the project
+        pre-push hook is skipped — the branch reaches origin and the hook
+        never fires (no marker, no slow-suite TimeoutExpired crash)."""
+        td, smm = self._setup_repo()
+        marker = _bf.add_pre_push_hook(td)
+        name = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
+        name = self._assert_not_none(name)
+        self.assertFalse(
+            marker.exists(),
+            "create-time push fired the pre-push hook despite --no-verify",
+        )
+        self.assertTrue(
+            _remote_has_branch(td, name),
+            "sprint branch did not reach origin",
+        )
 
     def _capture_push_argv(self, call) -> list[list[str]]:
         pushes: list[list[str]] = []

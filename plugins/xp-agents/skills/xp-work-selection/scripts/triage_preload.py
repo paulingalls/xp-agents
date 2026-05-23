@@ -10,7 +10,9 @@ from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
+sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
+import commits  # noqa: E402
 import event_schema  # noqa: E402
 import materialize  # noqa: E402
 import resolution  # noqa: E402
@@ -65,7 +67,7 @@ def run(smm_dir: Path) -> str:
 
     overlap: dict[str, list[dict]] = {}
     for c in concerns:
-        if hits := triage.find_overlapping_commits(c, events):
+        if hits := commits.find_addressing_commits(c, events):
             overlap[c.get("id", "")] = hits
 
     sections = [

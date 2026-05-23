@@ -17,6 +17,7 @@ import _common
 import code_files
 import git_commits
 import resolution
+import triage
 import worktree
 from smm_schema import EVENT_ID_RE
 
@@ -231,6 +232,42 @@ def open_issues_matching_commit(
         and e.get("id") not in resolved
         and _intersects(e.get("files") or [])
     ]
+
+
+def find_addressing_commits(concern: dict, events: list[dict]) -> list[dict]:
+    """Commits that may have addressed ``concern`` — the soft 'MAYBE
+    ADDRESSED' nudge superset. UNION of two signals over commits dated
+    after the concern:
+
+    - file overlap (``triage.find_overlapping_commits``), and
+    - the commit body citing the concern's id without a formal
+      ``Resolves-Event:`` trailer (``extract_implicit_event_ids``).
+
+    File-overlap hits come first (stable with prior behavior); id-citing
+    hits not already present are appended. Neither signal is
+    authoritative — a formal trailer already resolves the concern, so a
+    resolved concern never reaches this nudge; only prose citations on
+    still-open concerns surface here. The id signal also catches commits
+    that fixed the concern in a *different* file than it lists (including
+    fileless concerns, invisible to file overlap).
+    """
+    hits = list(triage.find_overlapping_commits(concern, events))
+    cid = concern.get("id", "")
+    if not cid:
+        return hits
+    seen = {h.get("id") for h in hits}
+    concern_ts = concern.get("ts", "")
+    for e in events:
+        if e.get("type") != _common.COMMIT:
+            continue
+        if e.get("ts", "") <= concern_ts:
+            continue
+        if e.get("id") in seen:
+            continue
+        if extract_implicit_event_ids(e.get("content") or "", {cid}):
+            hits.append(e)
+            seen.add(e.get("id"))
+    return hits
 
 
 def get_commit_message_body(cwd: str) -> str | None:

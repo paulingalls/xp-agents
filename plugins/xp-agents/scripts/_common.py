@@ -426,14 +426,6 @@ def count_unresolved_concerns(events: list[dict]) -> int:
     return len(concern_ids - resolved)
 
 
-def has_final_status(events: list[dict], agent_id: str = "main") -> bool:
-    """Check if the last event from the given agent is a status event."""
-    for e in reversed(events):
-        if e.get("agent_id") == agent_id:
-            return e.get("type") == STATUS
-    return True  # No events from this agent → nothing to warn about
-
-
 def write_json_atomic(file_path: Path, data: dict) -> None:
     """Atomic JSON write: tempfile + chmod 600 + rename.
 

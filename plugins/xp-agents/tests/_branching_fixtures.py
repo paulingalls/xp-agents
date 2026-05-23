@@ -344,6 +344,24 @@ def add_bare_remote(td: str, remote_name: str = "origin") -> str:
     return bare
 
 
+def add_pre_push_hook(td: str, marker_name: str = "pre_push_fired") -> Path:
+    """Install an executable ``.git/hooks/pre-push`` that records its firing
+    and blocks the push (exit 1). Returns the marker Path.
+
+    Lets behavioral tests prove ``--no-verify`` actually suppresses the
+    project pre-push hook end-to-end, rather than only asserting the push
+    argv. On fire the hook ``touch``es ``<td>/<marker_name>`` (absolute path
+    baked in, so it lands regardless of the hook's cwd) and exits non-zero —
+    so a test can assert both "hook fired" (marker exists) and "push blocked"
+    (returncode != 0). The marker does NOT exist until the hook fires.
+    """
+    marker = Path(td) / marker_name
+    hook = Path(td) / ".git" / "hooks" / "pre-push"
+    hook.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 1\n')
+    hook.chmod(0o755)
+    return marker
+
+
 def branch_exists(cwd: str, name: str) -> bool:
     """Return True if `name` is a local git branch in `cwd`. Test helper."""
     return (
