@@ -194,6 +194,7 @@ def commit_event(
     story_id: str | None = None,
     sprint_id: str | None = None,
     is_merge: bool = False,
+    is_free_session: bool = False,
 ) -> dict:
     metadata: dict = {"code_commit": True, "commit_hash": "abc123"}
     if story_id:
@@ -202,6 +203,8 @@ def commit_event(
         metadata["sprint_id"] = sprint_id
     if is_merge:
         metadata["is_merge"] = True
+    if is_free_session:
+        metadata["is_free_session"] = True
     return make_event(
         EVENT_TYPE_COMMIT,
         content="Committed: test change",

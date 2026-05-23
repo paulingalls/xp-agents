@@ -952,5 +952,59 @@ class TestStripQuotedSingleScan(_HookTestCase):
             )
 
 
+class TestBashPostToolFreeSessionTag(_HookTestCase):
+    """Commits on a free branch (`<user>/free-YYYY-MM-DD-<slug>`) tag the
+    emitted commit event with ``metadata.is_free_session=True``. Honored
+    by ``retro_metrics._compute_resolves_link_rate`` as a conditional
+    exclusion (exploration commits without trailers drop out of the rate).
+    """
+
+    def test_free_branch_commit_tagged_is_free_session(self):
+        with (
+            patch_commits(
+                files=["scripts/x.py"],
+                body="explore",
+                head_sha="freebranch1234",
+            ),
+            patch(
+                "identity.get_current_branch",
+                return_value="paulingalls/free-2026-05-23-explore",
+            ),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'explore'",
+                    stdout=(
+                        "[paulingalls/free-2026-05-23-explore freebranch] "
+                        "explore\n 1 file changed"
+                    ),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        commit_events = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(commit_events), 1)
+        self.assertTrue((commit_events[0].get("metadata") or {}).get("is_free_session"))
+
+    def test_main_branch_commit_not_tagged(self):
+        with (
+            patch_commits(
+                files=["scripts/x.py"],
+                body="mainline",
+                head_sha="mainbranch1234",
+            ),
+            patch("identity.get_current_branch", return_value="main"),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'mainline'",
+                    stdout="[main mainbranch] mainline\n 1 file changed",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        commit_events = events_of_type(self._read_events(), EVENT_TYPE_COMMIT)
+        self.assertEqual(len(commit_events), 1)
+        self.assertNotIn("is_free_session", commit_events[0].get("metadata") or {})
+
+
 if __name__ == "__main__":
     unittest.main()

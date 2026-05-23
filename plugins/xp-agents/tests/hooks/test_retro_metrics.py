@@ -94,6 +94,98 @@ class TestDirectTrailerCount(unittest.TestCase):
         self.assertEqual(result["resolves_trailer_total"], 1)
         self.assertEqual(result["resolves_trailer_hits"], 1)
 
+    def test_story_commits_excluded_from_denominator(self):
+        """metadata.story_id-tagged commits do the story's work and aren't
+        expected to carry Resolves-Event trailers — the story IS the unit
+        of resolution. Counting them structurally floors the rate. Must
+        be filtered out of both numerator and denominator."""
+        import retro_metrics
+
+        story_event = make_event(
+            EVENT_TYPE_COMMIT,
+            content="story-007: implement X",
+            ts="2026-04-05T13:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": "story-sha",
+                "story_id": "story-007",
+                # no resolves trailer — story commits aren't expected to
+            },
+        )
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
+            story_event,
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 2)
+        self.assertEqual(result["resolves_trailer_hits"], 2)
+        self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
+
+    def test_free_session_without_trailer_excluded(self):
+        """metadata.is_free_session==True with NO trailer = exploration
+        commit. Excluded — exploration has nothing to resolve, can't be
+        expected to carry a trailer, mustn't drag the rate."""
+        import retro_metrics
+
+        free_event = make_event(
+            EVENT_TYPE_COMMIT,
+            content="explore",
+            ts="2026-04-05T13:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": "free-sha",
+                "is_free_session": True,
+                # no resolves trailer — exploration
+            },
+        )
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
+            free_event,
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 2)
+        self.assertEqual(result["resolves_trailer_hits"], 2)
+        self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
+
+    def test_free_session_with_trailer_included(self):
+        """metadata.is_free_session==True WITH a trailer = concrete fix.
+        Included — rewards the good behavior visibly in the rate. Story
+        commits stay excluded (story IS the unit); only free commits get
+        the conditional-include treatment."""
+        import retro_metrics
+
+        # 1 main commit, no trailer → 1 denom hit, 0 numerator hit
+        main_no_trailer = make_event(
+            EVENT_TYPE_COMMIT,
+            content="cross-cutting fixup",
+            ts="2026-04-05T10:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={"code_commit": True, "commit_hash": "main-sha"},
+        )
+        # 1 free commit, WITH trailer → 1 denom hit, 1 numerator hit
+        free_with_trailer = make_event(
+            EVENT_TYPE_COMMIT,
+            content="free: fix concern X",
+            ts="2026-04-05T11:00:00+00:00",
+            files=["scripts/y.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": "free-sha",
+                "is_free_session": True,
+                "resolves": ["concern-id-123"],
+            },
+        )
+        result = retro_metrics._compute_resolves_link_rate(
+            [main_no_trailer, free_with_trailer], "2026-04-01"
+        )
+        self.assertEqual(result["resolves_trailer_total"], 2)
+        self.assertEqual(result["resolves_trailer_hits"], 1)
+        self.assertAlmostEqual(result["resolves_link_rate"], 0.5, places=6)
+
     def test_merge_commits_excluded_from_denominator(self):
         """metadata.is_merge==True commits are emitted by close_common's
         merge-gap helper and must not dilute the rate — they aggregate

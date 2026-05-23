@@ -248,6 +248,7 @@ def make_commit_event(
     resolves: list[str] | None = None,
     has_resolves_trailer: bool = False,
     is_merge: bool = False,
+    is_free_session: bool = False,
 ) -> dict:
     """Build a type=commit event from the shared metadata shape.
 
@@ -263,6 +264,12 @@ def make_commit_event(
       - ``is_merge``: close-cycle merge only (excludes the event from
         ``retro_metrics._compute_resolves_link_rate`` denominator so a
         merge HEAD doesn't dilute the rate without a meaningful trailer)
+      - ``is_free_session``: commit emitted on a free branch
+        (``branching.is_free_branch(...)`` True). Honored by
+        ``retro_metrics`` as a CONDITIONAL exclusion — the commit drops
+        out of the rate ONLY when it carries no trailer (exploration);
+        a free commit with a trailer counts both ways (rewards the
+        voluntary fix-and-link behavior visibly).
 
     Callers pass ``code_file_count`` already computed (both sites
     compute it earlier for their own thresholds — recomputing here
@@ -289,6 +296,8 @@ def make_commit_event(
         metadata["sprint_id"] = sprint_id
     if is_merge:
         metadata["is_merge"] = True
+    if is_free_session:
+        metadata["is_free_session"] = True
     return _common.make_event(
         _common.COMMIT, agent_id, body, files=files, metadata=metadata
     )
@@ -359,12 +368,22 @@ def _handle_commit(
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
 
+    import branching
     import sprint_store
 
     sprint = sprint_store.load_sprint(smm_dir)
 
     story_id = _resolve_story_id(
         smm_dir, effective_cwd, committed_files, sprint=sprint, message=body
+    )
+
+    # Tag commits emitted on a free branch — honored by
+    # retro_metrics._compute_resolves_link_rate as a conditional-include
+    # filter (counts only when the commit carries a Resolves trailer).
+    # get_current_branch returns "" on git failure; is_free_branch("") is
+    # False (safe-fail: untagged commit drops into the denominator).
+    is_free_session = branching.is_free_branch(
+        identity.get_current_branch(effective_cwd)
     )
 
     pending: list[dict] = [
@@ -378,6 +397,7 @@ def _handle_commit(
             sprint_id=sprint["sprint_id"] if sprint is not None else None,
             resolves=resolves,
             has_resolves_trailer=has_trailer,
+            is_free_session=is_free_session,
         )
     ]
 
