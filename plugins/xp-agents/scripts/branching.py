@@ -36,6 +36,7 @@ from branch_names import (  # noqa: F401
     _utc_today_iso,
     branch_name,
     free_branch_name,
+    is_free_branch,
     is_sprint_branch,
     plan_branch_name,
     scaffold_branch_name,

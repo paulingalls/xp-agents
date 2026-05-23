@@ -327,27 +327,46 @@ def _compute_resolves_link_rate(
 ) -> dict:
     """Count code commits with Resolves-Event trailers vs total code commits."""
 
-    # Exclude merge commits (metadata.is_merge==True): a close-cycle merge
-    # HEAD aggregates already-counted story commits and its message has no
-    # Resolves trailer of its own — counting it in the denominator dilutes
-    # the rate without a meaningful numerator. See close_common
-    # ._append_merge_commit_event for the marker source.
-    code_commits = [
-        e
-        for e in events
-        if e.get("type") == _common.COMMIT
-        and _event_in_sprint_window(e, sprint_start_ts)
-        and (e.get("metadata") or {}).get("code_commit")
-        and not (e.get("metadata") or {}).get("is_merge")
-    ]
+    def _has_trailer(meta: dict) -> bool:
+        # Trailer detection: legacy events used has_resolves_trailer; current
+        # writers populate metadata.resolves directly. Either signals a
+        # numerator hit. Kept local — only this function speaks both shapes.
+        return bool(meta.get(METADATA_KEY_RESOLVES) or meta.get("has_resolves_trailer"))
+
+    # Filter the denominator to "commits we'd expect to carry a Resolves
+    # trailer". Three exclusions, each for its own reason:
+    #
+    #   is_merge==True       — close-cycle merge HEAD; aggregates already-
+    #                          counted story commits, no trailer of its own.
+    #   story_id present     — bounded by the story (the story IS the unit
+    #                          of resolution); story commits aren't expected
+    #                          to carry trailers.
+    #   is_free_session==True
+    #     AND no trailer     — free-session exploration commit; nothing to
+    #                          reference. Free commits WITH a trailer count
+    #                          both ways (rewards the voluntary fix-and-link
+    #                          behavior visibly — see Option B' in the
+    #                          rate-denominator-fix free plan).
+    def _included(e: dict) -> bool:
+        if e.get("type") != _common.COMMIT:
+            return False
+        if not _event_in_sprint_window(e, sprint_start_ts):
+            return False
+        meta = e.get("metadata") or {}
+        if not meta.get("code_commit"):
+            return False
+        if meta.get("is_merge"):
+            return False
+        if meta.get("story_id"):
+            return False
+        # Free-session commits include conditionally: present-with-trailer
+        # rewards voluntary fix-and-link; no-trailer is exploration.
+        return not (meta.get("is_free_session") and not _has_trailer(meta))
+
+    code_commits = [e for e in events if _included(e)]
 
     total = len(code_commits)
-    with_trailers = [
-        e
-        for e in code_commits
-        if (e.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
-        or (e.get("metadata") or {}).get("has_resolves_trailer")
-    ]
+    with_trailers = [e for e in code_commits if _has_trailer(e.get("metadata") or {})]
     total_hits = len(with_trailers)
 
     per_agent_commits: dict[str, list[dict]] = {}
@@ -359,10 +378,7 @@ def _compute_resolves_link_rate(
     for agent_id, agent_commits in per_agent_commits.items():
         agent_total = len(agent_commits)
         agent_hits = sum(
-            1
-            for c in agent_commits
-            if (c.get("metadata") or {}).get(METADATA_KEY_RESOLVES)
-            or (c.get("metadata") or {}).get("has_resolves_trailer")
+            1 for c in agent_commits if _has_trailer(c.get("metadata") or {})
         )
         per_agent[agent_id] = {
             "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,

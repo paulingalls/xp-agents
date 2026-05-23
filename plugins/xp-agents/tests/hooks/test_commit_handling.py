@@ -109,6 +109,30 @@ class TestMakeCommitEvent(unittest.TestCase):
         self.assertFalse(meta["code_commit"])
         self.assertEqual(meta["code_file_count"], 0)
 
+    def test_free_session_shape(self):
+        """is_free_session=True tags metadata.is_free_session; default omits
+        the key. Mirror of is_merge — the rate filter applies conditional
+        include based on trailer presence (test pinned in test_retro_metrics).
+        """
+        ev = commit_handling.make_commit_event(
+            "main",
+            "free-session work",
+            commit_hash="abc1234",
+            files=["scripts/x.py"],
+            code_file_count=1,
+            is_free_session=True,
+        )
+        self.assertTrue(ev["metadata"]["is_free_session"])
+
+        ev_default = commit_handling.make_commit_event(
+            "main",
+            "regular work",
+            commit_hash="abc1234",
+            files=["scripts/x.py"],
+            code_file_count=1,
+        )
+        self.assertNotIn("is_free_session", ev_default["metadata"])
+
     def test_no_commit_hash_omits_key(self):
         """commit_hash=None → key omitted (not stored as None) so
         downstream dedupe-by-hash matchers see absence, not a None

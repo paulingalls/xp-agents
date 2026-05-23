@@ -56,3 +56,21 @@ _SPRINT_BRANCH_RE = re.compile(r"^[^/]+/sprint-\d{3}-[a-z0-9-]+$")
 def is_sprint_branch(name: str) -> bool:
     """True for branches matching ``<user>/sprint-NNN-<slug>``."""
     return bool(_SPRINT_BRANCH_RE.match(name))
+
+
+_FREE_BRANCH_RE = re.compile(r"^[^/]+/free-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$")
+
+
+def is_free_branch(name: str) -> bool:
+    """True for branches matching ``<user>/free-YYYY-MM-DD-<slug>`` —
+    the shape ``free_branch_name`` emits.
+
+    Used by ``commit_handling._handle_commit`` and
+    ``close_common._append_merge_commit_event`` to tag emitted commit
+    events with ``metadata.is_free_session=True``, which
+    ``retro_metrics._compute_resolves_link_rate`` honors via a
+    conditional-include filter (count when the commit voluntarily
+    carries a Resolves-Event trailer, exclude when it doesn't —
+    exploration commits have nothing to reference).
+    """
+    return bool(_FREE_BRANCH_RE.match(name or ""))

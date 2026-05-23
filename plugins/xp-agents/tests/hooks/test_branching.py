@@ -155,6 +155,42 @@ class TestIsSprintBranch(unittest.TestCase):
         self.assertFalse(branching.is_sprint_branch(""))
 
 
+class TestIsFreeBranch(unittest.TestCase):
+    """Free branches follow `<user>/free-YYYY-MM-DD-<slug>` per free_branch_name.
+
+    Mirrors TestIsSprintBranch: anchored regex match against the documented
+    shape. Anything that deviates degrades silently to "not free", which is
+    the safe-fail mode for retro_metrics' is_free_session filter (denominator-
+    inclusive — over-counts, never under-tags real free work)."""
+
+    def test_valid_free_branch(self):
+        self.assertTrue(
+            branching.is_free_branch("paulingalls/free-2026-05-23-rate-fix")
+        )
+
+    def test_valid_free_branch_short_user(self):
+        self.assertTrue(branching.is_free_branch("paul/free-2026-04-24-spike-foo"))
+
+    def test_story_branch_not_free(self):
+        self.assertFalse(branching.is_free_branch("paul/story-007-demo"))
+
+    def test_sprint_branch_not_free(self):
+        self.assertFalse(branching.is_free_branch("paul/sprint-097-foo"))
+
+    def test_main_not_free(self):
+        self.assertFalse(branching.is_free_branch("main"))
+
+    def test_bare_free_prefix_not_free(self):
+        self.assertFalse(branching.is_free_branch("free-2026-05-23-foo"))
+
+    def test_malformed_date_not_free(self):
+        # 'not-a-date' replaces the YYYY-MM-DD segment.
+        self.assertFalse(branching.is_free_branch("paul/free-not-a-date-slug"))
+
+    def test_empty_not_free(self):
+        self.assertFalse(branching.is_free_branch(""))
+
+
 class TestGetProtectedBranches(unittest.TestCase):
     """Stage-aware protected set: {main, master} union SMM-declared
     protected_branches union ({integration_branch} when stage >= 3).
