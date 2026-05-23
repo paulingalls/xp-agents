@@ -9,6 +9,7 @@ Replaces TestAcceptGate. Covers the full cascade:
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -373,6 +374,83 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
         )
         result = sprint_stop_gate.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)
+
+
+class TestSprintStopGateCommitsAheadRefinement(_HookTestCase):
+    """In-progress + ACCEPT marker only fires when the story branch has
+    commits ahead of base — otherwise /xp-accept would verify an empty
+    branch (dev-notes Item 2). The .accept marker arms on the first Edit,
+    before any commit, so the marker alone isn't enough.
+
+    Refinement applies ONLY to the in-progress+marker path: reviewing /
+    closing states carry committed+merged work and fire unconditionally.
+    """
+
+    def _seed_in_progress_with_accept(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+
+    def test_zero_commits_ahead_allows_stop(self):
+        import sprint_stop_gate
+
+        self._seed_in_progress_with_accept()
+        with (
+            patch(
+                "sprint_stop_gate.branching.get_story_base_branch",
+                return_value="main",
+            ),
+            patch("sprint_stop_gate.branching.commits_ahead", return_value=0),
+        ):
+            result = sprint_stop_gate.run(
+                _make_stop_input(cwd=str(self.smm_dir)), smm_dir=self.smm_dir
+            )
+        self.assertIsNone(result)
+
+    def test_commits_ahead_blocks(self):
+        import sprint_stop_gate
+
+        self._seed_in_progress_with_accept()
+        with (
+            patch(
+                "sprint_stop_gate.branching.get_story_base_branch",
+                return_value="main",
+            ),
+            patch("sprint_stop_gate.branching.commits_ahead", return_value=2),
+        ):
+            result = sprint_stop_gate.run(
+                _make_stop_input(cwd=str(self.smm_dir)), smm_dir=self.smm_dir
+            )
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_commits_ahead_unknown_blocks(self):
+        """A git failure (None) is a safe default — fire rather than
+        suppress, so a real un-accepted story is never silently skipped."""
+        import sprint_stop_gate
+
+        self._seed_in_progress_with_accept()
+        with (
+            patch(
+                "sprint_stop_gate.branching.get_story_base_branch",
+                return_value="main",
+            ),
+            patch("sprint_stop_gate.branching.commits_ahead", return_value=None),
+        ):
+            result = sprint_stop_gate.run(
+                _make_stop_input(cwd=str(self.smm_dir)), smm_dir=self.smm_dir
+            )
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_empty_cwd_blocks_without_refinement(self):
+        """No cwd → can't compute commits-ahead → preserve prior behavior
+        (fire). Guards the existing no-cwd accept-gate test."""
+        import sprint_stop_gate
+
+        self._seed_in_progress_with_accept()
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
 
 
 if __name__ == "__main__":

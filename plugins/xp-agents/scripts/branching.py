@@ -547,6 +547,23 @@ def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
     return primary
 
 
+def commits_ahead(cwd: str, base: str, head: str = "HEAD") -> int | None:
+    """Count commits on ``head`` not reachable from ``base``.
+
+    Thin wrapper over ``git rev-list --count <base>..<head>``. Returns None
+    when git fails (bad base ref, not a repo) or the count is unparseable —
+    callers treat None as "can't tell, don't suppress" so a gate keyed on
+    this never silently skips a legitimate signal.
+    """
+    r = _git(["git", "rev-list", "--count", f"{base}..{head}"], cwd)
+    if r.returncode != 0:
+        return None
+    try:
+        return int(r.stdout.strip())
+    except ValueError:
+        return None
+
+
 def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict | None:
     """Count how far the plan branch has fallen behind primary.
 
@@ -559,10 +576,9 @@ def check_plan_divergence(cwd: str, smm_dir: Path, threshold: int = 10) -> dict 
     if not plan_branch:
         return None
     primary = get_primary_branch(smm_dir)
-    r = _git(["git", "rev-list", "--count", f"{plan_branch}..{primary}"], cwd)
-    if r.returncode != 0:
+    behind = commits_ahead(cwd, base=plan_branch, head=primary)
+    if behind is None:
         return None
-    behind = int(r.stdout.strip())
     result: dict = {
         "commits_behind": behind,
         "plan_branch": plan_branch,
