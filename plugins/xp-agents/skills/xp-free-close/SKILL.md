@@ -116,7 +116,8 @@ then continue to Step 7. Otherwise apply the shared Step 6 `AskUserQuestion` as 
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
-  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH>
+  --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
+  --smm-dir <SMM_DIR>
 ```
 
 Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
