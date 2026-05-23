@@ -282,6 +282,24 @@ def cmd_merge(args: argparse.Namespace) -> int:
         sys.stderr.write(f"delete failed: {args.source}\n")
         return 1
     print(f"deleted: {args.source}")
+
+    # Best-effort: prune the remote source ref too, so closed branches don't
+    # accumulate on origin. A never-pushed source has no remote ref and the
+    # delete fails harmlessly — rc is deliberately ignored (the merge + target
+    # push already succeeded; this step never aborts the chain).
+    # --no-verify: a pure ref deletion has nothing to gate, and the target
+    # push above already fired any pre-push hook — don't re-run it.
+    if git_remote.has_remote(args.cwd):
+        r = subprocess.run(
+            ["git", "push", "--no-verify", "origin", "--delete", args.source],
+            cwd=args.cwd,
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode == 0:
+            print(f"deleted remote: {args.source}")
+        else:
+            print(f"remote source {args.source} already absent or unpushed")
     return 0
 
 
