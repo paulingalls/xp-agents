@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "smm"))
 
 import _common
-import concerns
+import commits
+import resolution
 
 _WATERMARK_ID = "debt-for-files"
 
@@ -30,9 +31,12 @@ def main() -> None:
         print("(none — SMM empty)")
         return
 
+    resolutions = resolution.compute_resolutions(events)
     found = False
     for file_path in args.files:
-        debts = concerns.find_issues_for_file(events, file_path, ".")
+        debts = commits.open_issues_matching_commit(
+            smm_dir, [file_path], ".", events=events, resolutions=resolutions
+        )
         for d in debts:
             found = True
             eid = d.get("id", "")
