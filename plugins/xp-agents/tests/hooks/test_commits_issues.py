@@ -20,6 +20,7 @@ import commits
 from conftest import _SMMTestCase, make_event
 from event_schema import (
     EVENT_TYPE_ASSUMPTION,
+    EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
     EVENT_TYPE_DECISION,
@@ -320,6 +321,80 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         mock_compute.assert_not_called()
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], concern["id"])
+
+
+_T0 = "2026-03-12T00:00:00+00:00"
+_T1 = "2026-03-12T01:00:00+00:00"
+_BEFORE = "2026-03-11T00:00:00+00:00"
+
+
+class TestFindAddressingCommits(unittest.TestCase):
+    """find_addressing_commits unions file-overlap (triage) with explicit
+    commit-body id citations (extract_implicit_event_ids) — the superset
+    feeding the soft MAYBE ADDRESSED nudge."""
+
+    def _concern(self, **kw):
+        return make_event(EVENT_TYPE_CONCERN, ts=_T0, **kw)
+
+    def _commit(self, **kw):
+        kw.setdefault("ts", _T1)
+        return make_event(EVENT_TYPE_COMMIT, **kw)
+
+    def test_file_overlap_only(self):
+        concern = self._concern(files=["scripts/auth.py"])
+        commit = self._commit(content="unrelated message", files=["scripts/auth.py"])
+        result = commits.find_addressing_commits(concern, [commit])
+        self.assertEqual([e["id"] for e in result], [commit["id"]])
+
+    def test_id_citation_without_file_overlap(self):
+        concern = self._concern(files=["scripts/auth.py"])
+        commit = self._commit(
+            content=f"fix landed elsewhere, closes {concern['id']}",
+            files=["scripts/other.py"],
+        )
+        result = commits.find_addressing_commits(concern, [commit])
+        self.assertEqual([e["id"] for e in result], [commit["id"]])
+
+    def test_id_citation_for_fileless_concern(self):
+        """A concern with no files is invisible to file-overlap, but an
+        explicit id citation still surfaces the addressing commit."""
+        concern = self._concern()  # no files
+        commit = self._commit(
+            content=f"addresses {concern['id']}", files=["scripts/x.py"]
+        )
+        result = commits.find_addressing_commits(concern, [commit])
+        self.assertEqual([e["id"] for e in result], [commit["id"]])
+
+    def test_both_signals_deduped(self):
+        concern = self._concern(files=["scripts/auth.py"])
+        commit = self._commit(
+            content=f"fixes {concern['id']}", files=["scripts/auth.py"]
+        )
+        result = commits.find_addressing_commits(concern, [commit])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], commit["id"])
+
+    def test_commit_before_concern_excluded(self):
+        concern = self._concern(files=["scripts/auth.py"])
+        commit = self._commit(
+            content=f"prior work {concern['id']}",
+            files=["scripts/auth.py"],
+            ts=_BEFORE,
+        )
+        result = commits.find_addressing_commits(concern, [commit])
+        self.assertEqual(result, [])
+
+    def test_no_signal_excluded(self):
+        concern = self._concern(files=["scripts/auth.py"])
+        commit = self._commit(content="unrelated", files=["scripts/other.py"])
+        result = commits.find_addressing_commits(concern, [commit])
+        self.assertEqual(result, [])
+
+    def test_non_commit_events_ignored(self):
+        concern = self._concern(files=["scripts/auth.py"])
+        status = make_event(EVENT_TYPE_STATUS, ts=_T1, content=f"touch {concern['id']}")
+        result = commits.find_addressing_commits(concern, [status])
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":
