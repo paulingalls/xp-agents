@@ -2,7 +2,8 @@
 name: xp-free-close
 description: >-
   Push the current free branch, fork xp-close-reviewer for free-mode
-  review, and merge into the primary integration branch with cleanup.
+  review, and merge into the target integration branch (recorded plan
+  branch when set and present locally, else primary) with cleanup.
   Used for ad-hoc work performed outside a sprint or plan; degrades
   gracefully when gh is unavailable.
 allowed-tools:
@@ -22,7 +23,7 @@ allowed-tools:
 
 # Free Close
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary integration branch (free-close merges a free branch → primary). Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the recorded plan branch when `execution_plan.json` sets one (and that branch exists locally), else the primary integration branch (sprint-close parity) — a free branch forked off a plan branch merges back to the plan branch, never to main. Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 **Commit trailer reminder.** When a commit on this free branch closed a carried retro Try (an adopted `retro-try-*` decision from this or a prior session), the commit body should include `Resolves-Event: <try-id-or-ref>` so `try_status` closes the loop. Cascade closure via the adoption decision's `metadata.resolves` covers most cases; explicit trailers cover the rest.
 
@@ -92,7 +93,7 @@ The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by the prelo
 
 3. The preload emitted a non-empty `TEST_COMMAND=...` line (sourced from `system_context.stack.test_command`) AND running that command AFTER all Step 5c fixes landed exits 0. Any non-zero exit means tests aren't green — fall through to the shared Step 6 prompt.
 
-4. Step 5c classified zero `design_decision` findings — even if the classifier routed one to `fix`. Free-close merges to primary, and architectural calls deserve a human checkpoint regardless of the classifier's route choice. Verify via:
+4. Step 5c classified zero `design_decision` findings — even if the classifier routed one to `fix`. Free-close merges into an integration branch (plan or primary), and architectural calls deserve a human checkpoint regardless of the classifier's route choice. Verify via:
    ```bash
    DESIGN_DECISION_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-classifications \
@@ -124,4 +125,4 @@ Any failing step aborts the chain — source intact for retry. Conflicts are nev
 
 ## Reporting Back
 
-Tell the user: free branch merged into primary, PR (if created) merged, local branch deleted. Free-close is complete.
+Tell the user: free branch merged into `<TARGET_BRANCH>`, PR (if created) merged, local branch deleted. Free-close is complete.

@@ -1,16 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 # Preload for xp-free-close: surface the five fields the close skill
-# orchestrates against. TARGET_BRANCH is the primary integration branch
-# — free-close merges a free branch into primary, never into a plan
-# branch, so we use get-primary directly (not get-target, which would
-# return a recorded plan branch when one is set in execution_plan.json).
+# orchestrates against. TARGET_BRANCH is the recorded plan branch when
+# execution_plan.json sets one, else the primary integration branch —
+# sprint-close parity via get-target. A free branch forked off a plan
+# branch merges back to the plan branch (never to main), eliminating
+# the premature-release / history-drag pattern of merging plan-branch
+# work via primary.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 TARGET_BRANCH=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
-    --smm-dir "${SMM_DIR}" get-primary 2>/dev/null || echo "")
+    --smm-dir "${SMM_DIR}" get-target --cwd . 2>/dev/null || echo "")
 
 echo "SMM_DIR=${SMM_DIR}"
 echo "CURRENT_BRANCH=${CURRENT_BRANCH}"
