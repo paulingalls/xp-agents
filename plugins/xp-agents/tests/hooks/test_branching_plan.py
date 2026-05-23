@@ -214,6 +214,71 @@ class TestCreateFreeBranch(unittest.TestCase):
                 "it forked off primary, dragging the asymmetry the fix removes",
             )
 
+    def test_forks_from_explicit_base(self):
+        """An explicit base= overrides the merge-target default — the escape
+        hatch for free work that must fork off a specific ref."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            _bf.append_commit(td, "first.txt")
+            base_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            _bf.append_commit(td, "second.txt")  # primary advances past base
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            with (
+                patch("branching.identity.user_namespace", return_value="paul"),
+                patch("branch_names._utc_today_iso", return_value="2026-04-24"),
+            ):
+                branching.create_free_branch(td, "spike", smm_dir, base=base_sha)
+
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(
+                sha, base_sha, "free branch did not fork off the explicit --base ref"
+            )
+
+    def test_cli_base_flag_passthrough(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            _bf.append_commit(td, "first.txt")
+            base_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            _bf.append_commit(td, "second.txt")
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+
+            cli = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+            env = {**_GIT_ENV, "USER": "paul"}
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    cli,
+                    "--smm-dir",
+                    str(smm_dir),
+                    "create-free",
+                    "--cwd",
+                    td,
+                    "--slug",
+                    "cli-base",
+                    "--base",
+                    base_sha,
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            branch = result.stdout.strip().split(": ", 1)[1]
+            head_sha = subprocess.run(
+                ["git", "rev-parse", branch], cwd=td, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertEqual(head_sha, base_sha)
+
     def test_resume_existing_branch(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)

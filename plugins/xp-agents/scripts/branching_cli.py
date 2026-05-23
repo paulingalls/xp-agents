@@ -157,7 +157,9 @@ def _cmd_create_free(args: argparse.Namespace) -> int:
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.free_branch_name(user_ns, args.slug)
     existed = branching.branch_exists(args.cwd, name)
-    result = branching.create_free_branch(args.cwd, args.slug, Path(args.smm_dir))
+    result = branching.create_free_branch(
+        args.cwd, args.slug, Path(args.smm_dir), base=args.base
+    )
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["free"], resumed=existed)
 
 
@@ -246,6 +248,7 @@ def main() -> int:
     p_create_free = sub.add_parser("create-free", help="Create or resume a free branch")
     p_create_free.add_argument("--cwd", required=True)
     p_create_free.add_argument("--slug", required=True)
+    p_create_free.add_argument("--base", default=None, help="Fork from this ref")
     p_create_free.set_defaults(func=_cmd_create_free)
 
     p_list_free = sub.add_parser("list-free", help="List the user's free branches")

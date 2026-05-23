@@ -449,15 +449,21 @@ def create_scaffold_branch(
     )
 
 
-def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
+def create_free_branch(
+    cwd: str, slug: str, smm_dir: Path, *, base: str | None = None
+) -> str | None:
     """Create or resume <user>/free-YYYY-MM-DD-<slug> off the merge target.
 
-    Forks off ``get_merge_target`` — the recorded plan branch when one is
-    active, else primary. The fork-base MUST match free-close's merge
-    target: forking off primary while merging back into a plan branch
+    Defaults to forking off ``get_merge_target`` — the recorded plan branch
+    when one is active, else primary. The fork-base MUST match free-close's
+    merge target: forking off primary while merging back into a plan branch
     drags primary-only commits (those landed since the plan branch forked)
     into the plan branch at close time. With no active plan, get_merge_target
     falls back to primary, so the common case is unchanged.
+
+    An explicit ``base`` overrides that default — the escape hatch for free
+    work that must fork off a specific ref (mirrors create_story_branch's
+    ``base``). Forks off whatever ``base`` names; the caller owns correctness.
 
     Free branches are scratch work outside of plans/sprints. Date is UTC.
     Returns None below the plugin floor (stage < 2). Per BRANCH_LIFECYCLE
@@ -471,7 +477,7 @@ def create_free_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
         name,
         smm_dir,
         min_stage=BRANCH_MIN_STAGE["free"],
-        base=get_merge_target(smm_dir, cwd),
+        base=base if base is not None else get_merge_target(smm_dir, cwd),
     )
 
 
