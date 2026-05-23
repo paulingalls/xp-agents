@@ -12,6 +12,15 @@ This document describes the three Trys, why they keep stalling, and the
 behavior I think the skills should adopt. I am writing this as an XP customer
 who would adopt these features the moment they exist.
 
+> **Status (2026-05-23): triaged and resolved — archived.** Reviewed against
+> current code (now past 3.4.1; much of the supporting infra shipped after
+> 3.1.45). Outcome per Try below. Net: the trailer-rate *measurement* loop is
+> already closed (`resolves_link_rate`), the soft concern nudge was sharpened
+> (Try 1 reframed, no hard gate), Try 2 is largely already shipped, and Try 3
+> was declined by design. The investigation also traced a class of orphaned
+> "tested-but-unwired" helpers to a deleted feature and consolidated them —
+> see the closing note.
+
 ---
 
 ## Try 1 — Resolves-Event trailer hard-gate
@@ -49,7 +58,18 @@ metric. The skill currently has no place to enforce it.
    only in deletions (closing the loop by removing the workaround line).
 4. Surface the count in retro input so the metric closes the loop on itself.
 
----
+> **Resolved — reframed (no hard gate).** The customer declined a hard commit
+> gate (false-positive risk on incidental id mentions). Instead:
+> (a) the *measurement* loop the Try wanted is already shipped —
+> `retro_metrics._compute_resolves_link_rate` tracks the trailer rate and feeds
+> retro input (its denominator was tightened earlier in this same session);
+> (b) the building block `commits.extract_implicit_event_ids` (which scans a
+> commit body for a bare event id) was dead code — it is now wired into
+> `commits.find_addressing_commits`, so a commit that *cites* an open concern's
+> id in prose without the formal trailer is folded into the soft "MAYBE
+> ADDRESSED" nudge at work-selection / xp-accept / end-session. Accurate soft
+> nudges, not a block. The `commit_gate.require_resolves_event_trailer` config
+> flag was intentionally not built.
 
 ## Try 2 — Kickoff Try-disposition force-prompt
 **Try id:** `5f1fb1d9d62f` (this kickoff), generalized from
@@ -80,7 +100,17 @@ identical to "defer," and the metric is invisible at the moment of choice.
    it in the Fix block rather than the Try block. Five retros in a row asking
    "please adopt this" is dishonest tooling.
 
----
+> **Resolved — largely already shipped; remainder declined.** Current
+> `xp-work-selection` already forces an explicit `adopt / defer / drop` per Try
+> (no silent "carry forward" option — the doc's premise is stale here), and the
+> 3-defer force-close gate exists in `work_selection_decide.py` with
+> `--force-adopt / --force-drop / --force-defer-with-date`. What's missing — an
+> N-consecutive-*silent*-carry counter and force-decision-first ordering — the
+> customer judged not worth building: silent carries rarely happen in practice.
+> Confirmed the recent session_end→session_started anchor fix is orthogonal:
+> the force-close gate counts defer *events* (not sessions) and
+> `annotate_try_status` keys off the retro watermark, so carry-counting was
+> never session-boundary dependent.
 
 ## Try 3 — Deferred-to-debt auto-resolve
 **Try ids:** original `1406f005cda5`, re-proposal `9eb1f2fc911a`, third
@@ -118,7 +148,14 @@ side-by-side, asking the customer to triage them twice.
    close-reviewer concerns as debt events with references=[concern_id]") —
    it was advice to the customer that the skill should now do automatically.
 
----
+> **Declined — premise no longer holds + working-as-intended.** Current
+> `triage-defer` does NOT create a debt event (it emits a `status` with
+> `disposition=deferred`, no `resolves`), so the doc's stated symptom —
+> concern + debt double-surfacing — does not occur. The remaining behavior
+> (a kept-deferred concern resurfaces until adopted or dropped) is what the
+> customer now wants: "sometimes it takes a while before work fits into the
+> flow of a session." No auto-resolve-on-defer. Wisdom `9d0ef1d4826c` was not
+> found locally (external/already gone).
 
 ## Meta-observation
 
@@ -146,6 +183,27 @@ Pick whichever of the three Trys you most agree with and ship it. The metric
 will close the loop. If none are landable, please consider a release note
 telling customers to stop expecting them — that would also close the loop, just
 the other way.
+
+> **Resolution (plugin maintainer, 2026-05-23).** Try 1 reframed and shipped as
+> an accuracy improvement (no gate); Try 2 was already shipped bar a feature
+> judged not worth building; Try 3 declined. Closing the loop the honest way
+> for the parts not built.
+
+### Closing note — a dead-code thread this surfaced
+
+Wiring `extract_implicit_event_ids` (Try 1) exposed that it was orphaned
+"tested-but-unwired" code, alongside a sibling `open_issues_matching_commit`.
+Root cause: both were leaf helpers of a deliberately-deleted "resolves probe"
+feature (the probe was an always-on per-commit hot-path cost) — the deletion
+swept the orchestration layer but missed the leaf helpers, and the
+replacement quality-review step was even wired to the *non-resolution-aware*
+twin of one of them (a real bug: resolved concerns resurfaced in "Debt for
+Changed Files"). A census found the codebase otherwise clean (one genuinely
+dead function). Fixes shipped this session: consolidated the quality-review
+preload onto the resolution-aware matcher, un-orphaned both helpers, deleted
+the buggy duplicate and the one dead function. A *prevention* mechanism for
+future tested-but-unwired helpers (a reviewer prompt vs a deterministic
+reachability test) was deliberately deferred to a separate discussion.
 
 ---
 
