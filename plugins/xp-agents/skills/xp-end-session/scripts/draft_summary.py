@@ -49,9 +49,9 @@ _SUMMARY_TYPES = frozenset(
     }
 )
 
-# Fallback cap when no prior SESSION_END exists (first session, corruption
-# recovery, or backfilled events). Without it, an N=10000 backfill would
-# crowd the budget with stale events and discard recent signal.
+# Fallback cap when no prior session_started anchor exists (first session,
+# corruption recovery, or backfilled events). Without it, an N=10000 backfill
+# would crowd the budget with stale events and discard recent signal.
 _NO_BOUNDARY_TAIL_CAP = 200
 
 # Cap on the carry_forward `note` field. Keeps the persisted ring-buffer

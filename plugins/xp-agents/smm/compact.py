@@ -270,8 +270,10 @@ def _classify_pre_watermark(
 
     Returns (retained, archived, smm_ref_count).
     """
-    # Find last 3 session_end events from pre-watermark. Legacy aging anchor
-    # kept until Milestone 3 re-homes the stale-concern sweep off session_end.
+    # Find last 3 session_end events from pre-watermark. Retained for the
+    # session_end summary/history readers (main still emits session_end with
+    # the summary payload); the session_started block below is the live
+    # aging anchor.
     pre_session_ends = [
         i
         for i, e in enumerate(pre_watermark)
