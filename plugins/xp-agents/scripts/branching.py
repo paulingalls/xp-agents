@@ -59,12 +59,19 @@ def _push_branch_if_remote(cwd: str, name: str) -> None:
     Pushes with ``--no-verify``: a freshly-created branch holds no commits
     beyond its base, so a project pre-push hook (e.g. an integration test
     suite) has nothing new to gate. Skipping it avoids a pointless multi-
-    second run AND the _git timeout (a slow suite would raise
-    TimeoutExpired and crash creation).
+    second run. Raw network latency can still exceed _git's timeout, so the
+    TimeoutExpired is caught here too — either way the branch is local and
+    reaches origin at close time as a fallback.
     """
     if not git_remote.has_remote(cwd):
         return
-    r = _git(["git", "push", "--no-verify", "-u", "origin", name], cwd)
+    try:
+        r = _git(["git", "push", "--no-verify", "-u", "origin", name], cwd)
+    except subprocess.TimeoutExpired:
+        sys.stderr.write(
+            f"WARN: push of {name} at create timed out; reaches origin at close\n"
+        )
+        return
     if r.returncode != 0:
         sys.stderr.write(f"WARN: failed to push {name} at create: {r.stderr}")
 

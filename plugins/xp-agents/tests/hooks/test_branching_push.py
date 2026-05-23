@@ -172,6 +172,29 @@ class TestCreatePushSkipsVerify(_BasePushTest):
         self.assertTrue(pushes, "plan create did not push")
         self.assertIn("--no-verify", pushes[0])
 
+    def test_create_survives_push_timeout(self):
+        """A slow/hung real-remote push (network latency, not the hook)
+        raises subprocess.TimeoutExpired from _git — create must catch it
+        and still return the branch name, never crash (the branch already
+        exists locally and reaches origin at close time as a fallback)."""
+        import subprocess as _sp
+
+        td, smm = self._setup_repo()
+        real_git = branching._git
+
+        def _git_timeout(args, cwd):
+            if len(args) > 1 and args[1] == "push":
+                raise _sp.TimeoutExpired(cmd=args, timeout=10)
+            return real_git(args, cwd)
+
+        orig = branching._git
+        branching._git = _git_timeout
+        try:
+            name = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
+        finally:
+            branching._git = orig
+        self.assertIsNotNone(name, "create crashed on a push timeout")
+
 
 if __name__ == "__main__":
     unittest.main()
