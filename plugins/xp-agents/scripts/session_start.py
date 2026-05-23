@@ -64,7 +64,8 @@ def _is_fresh_start(source: str) -> bool:
 
 
 def _resolve_prior_goals(events: list[dict], resolutions: dict) -> list[str]:
-    """Return sorted ids of all unresolved GOAL events.
+    """Return sorted ids of unresolved GOAL events emitted before the
+    most-recent session_started anchor in ``events``.
 
     Re-homed from session_end (M3). Only valid for source=='startup', where
     the prior conversation is gone and every open goal is genuinely prior-
@@ -74,7 +75,18 @@ def _resolve_prior_goals(events: list[dict], resolutions: dict) -> list[str]:
     SessionStart is main-only, so main owns the whole shared window: resolve
     all unresolved goals regardless of agent_id, else worktree-story-* goals
     orphan forever.
+
+    The pre-anchor slice pins the pre-anchor-only invariant IN the function
+    itself — without it, a future SessionStart-time goal emitter would land
+    at/after the anchor in ``events`` and be wrongly resolved as prior-
+    session backlog the instant it's emitted. When no anchor exists (very
+    first session of a fresh project), the slice no-ops and we resolve the
+    entire backlog as before — preserves the no-anchor regression-guard
+    pinned by ``test_fresh_start_resolves_all_prior_unresolved_goals``.
     """
+    anchor_idx = _common._last_index_of_type(events, _common.SESSION_STARTED)
+    if anchor_idx >= 0:
+        events = events[:anchor_idx]
     resolved = resolutions["resolved_goal_ids"]
     return sorted(
         e["id"]
