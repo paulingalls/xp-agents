@@ -49,6 +49,25 @@ class TestKickoffStep0StageMigration(unittest.TestCase):
     def test_step_0_delegates_to_stage_migration_skill(self):
         self.assertIn("xp-stage-migration", self.step)
 
+    def test_step_0_bootstraps_system_context_before_stage_gate(self):
+        # Step 0 runs /xp-system-context (the only stage-setter) when the
+        # preload flags NEEDS_SYSTEM_CONTEXT, BEFORE reading the stage — so a
+        # fresh project has a real, analyzer-set stage when the gate fires and
+        # an existing system_context.json for the migration's direct write.
+        self.assertIn("NEEDS_SYSTEM_CONTEXT", self.step)
+        self.assertIn("/xp-system-context", self.step)
+        ctx_at = self.step.find("/xp-system-context")
+        gate_at = self.step.find("xp-stage-migration")
+        self.assertLess(
+            ctx_at, gate_at, "system-context must precede the stage-migration gate"
+        )
+
+    def test_system_context_invocation_not_duplicated_in_step_3(self):
+        # The system-context invocation moved up to Step 0; Step 3 must not
+        # re-invoke it (the preload flag is stale once Step 0 has run it).
+        step_3 = _slice_step(self.text, "## Step 3")
+        self.assertNotIn("/xp-system-context", step_3)
+
 
 if __name__ == "__main__":
     unittest.main()
