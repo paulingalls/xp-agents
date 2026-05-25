@@ -171,12 +171,13 @@ free sessions — same number of commits, same lack of sprint
 ceremony, but the change still lands via PR with a review gate.
 
 **Migration to Stage 2.** When `/xp-kickoff` runs at session start
-on a Stage 0 project, Step 2.4 prompts the customer to migrate. The
-mechanical path is `/xp-sprint-start` (which creates the sprint
-branch and flips the active stage) plus `/xp-system-context` to
-record the new branching strategy. A project may decline and
-explicitly declare Stage 0 in `system_context.json`, but migration
-concerns continue if signals (contributor count, CI presence,
+on a Stage 0 project, Step 0 first runs `/xp-system-context` (which
+records the stack and sets the branching stage), then prompts the
+customer to migrate via `/xp-stage-migration`. On accept, that skill
+writes the Stage 2 floor directly (`edit-branching-field stage`) — no
+sprint or plan required, which a fresh project lacks. A project may
+decline and explicitly declare Stage 0 in `system_context.json`, but
+migration concerns continue if signals (contributor count, CI presence,
 branch-protection rules) suggest the project has outgrown it.
 
 ### Stage 1 — Story branches (deprecated waystation)

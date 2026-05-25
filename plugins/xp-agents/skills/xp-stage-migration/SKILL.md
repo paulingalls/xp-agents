@@ -1,8 +1,8 @@
 ---
 name: xp-stage-migration
 description: >-
-  Stage 2 floor migration prompt for /xp-kickoff Step 2.4. Reads dismissal,
-  prompts customer to migrate via /xp-sprint-start or records a dismissal.
+  Stage 2 floor migration prompt for /xp-kickoff Step 0. Reads dismissal,
+  prompts customer to set the Stage 2 floor or records a dismissal.
   INTERNAL — invoked only by xp-kickoff when stage < 2.
 allowed-tools:
   - Bash(python3 */smm/system_context_cli.py get-branching-field *)
@@ -11,7 +11,6 @@ allowed-tools:
   - Bash(python3 -c *datetime*)
   - Bash(printf *)
   - AskUserQuestion
-  - Skill
 ---
 
 # Stage 2 Floor Migration
@@ -34,15 +33,19 @@ steps.
 
 Prompt via `AskUserQuestion`, substituting the stage value: **"This project
 is on branching Stage <N>. Stage 2 is the v3.1 plugin floor (sprint branches
-required for production-grade discipline). Migrate now via /xp-sprint-start,
+required for production-grade discipline). Migrate to the Stage 2 floor now,
 or continue at Stage <N> for this session?"**
 
 ## Step 3: Act on the choice
 
-If the user picks **migrate**, invoke `/xp-sprint-start`. Do NOT record
-a dismissal — migration is the non-dismissed branch. After it completes,
-return control to the caller (which re-reads stage fresh, so do not
-cache).
+If the user picks **migrate**, write the Stage 2 floor directly
+(`system_context.json` exists — kickoff Step 0 ran `/xp-system-context` first):
+```bash
+printf '2' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> \
+  edit-branching-field stage
+```
+Do NOT record a dismissal — migration is the non-dismissed branch. Return
+control to the caller (which re-reads stage fresh, so do not cache).
 
 If the user picks **continue**, record the dismissal:
 ```bash

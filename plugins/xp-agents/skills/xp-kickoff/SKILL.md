@@ -21,12 +21,14 @@ allowed-tools:
 
 ## Step 0: Prepare (ALWAYS)
 
-Read the branching stage:
+**Bootstrap system context.** If the preload shows **NEEDS_SYSTEM_CONTEXT**, invoke `/xp-system-context` and wait. It sets the branching stage, so it MUST run before the stage gate below and before the mode fork.
+
+Then read the branching stage:
 ```bash
 STAGE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage)
 ```
 
-If `STAGE < 2`, invoke `/xp-stage-migration`. Re-read `STAGE` after it returns.
+If `STAGE < 2`, invoke `/xp-stage-migration` (it sets the Stage 2 floor directly). Re-read `STAGE` after it returns.
 
 **Orphan free-branch triage.** If the preload shows **ORPHAN_FREE_BRANCHES**, ask via `AskUserQuestion` for each: **merge / keep / delete?**
 - **merge** — invoke `/xp-free-close` against that branch (check it out first if needed).
@@ -84,13 +86,11 @@ Tell the user which branch is in use. Then jump to Step 5.
 
 Proceed to Step 3.
 
-## Step 3: System Context and Execution Plan (sprint mode, conditional)
-
-If the preload shows **NEEDS_SYSTEM_CONTEXT**, invoke `/xp-system-context`. Wait for it to complete.
+## Step 3: Execution Plan (sprint mode, conditional)
 
 If the preload shows **NEEDS_EXECUTION_PLAN**, first `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` for context. Then invoke `/xp-plan`. Wait for it to complete.
 
-If neither is shown, skip to Step 4.
+If not shown, skip to Step 4.
 
 ## Step 4: Sprint Start (sprint mode, conditional)
 
