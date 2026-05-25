@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.4.3 — Fix new-project bootstrap stage-migration deadlock
+
+A free-session bug fix. Non-breaking — patch bump.
+
+On a fresh project, `/xp-kickoff` Step 0 read branching stage 0 (no `system_context.json`) and routed `/xp-stage-migration` → `/xp-sprint-start`. But `/xp-sprint-start` never sets the stage — it only *reads* it to decide whether to create a sprint branch — and it needs an `execution_plan.json` a fresh project lacks. Migration could never complete; the stage stayed 0 and branching was effectively disabled. The only thing that sets the stage is `/xp-system-context` (its analyzer writes `branching_strategy.stage`), and the stage gate fired before it ever ran.
+
+- **Kickoff Step 0** now runs `/xp-system-context` (when the preload flags `NEEDS_SYSTEM_CONTEXT`) *before* the stage gate and the mode fork, so a real analyzer-set stage exists for both free and sprint modes. Step 3 retitled "Execution Plan" (its system-context invocation moved up, de-duplicated).
+- **`/xp-stage-migration`** now writes the Stage 2 floor directly via `edit-branching-field stage` — setting the floor is a config write that needs no sprint or plan — replacing the `/xp-sprint-start` dispatch. The now-unused `Skill` is dropped from its `allowed-tools`.
+- `docs/BRANCHING_DOCTRINE.md` updated to the new mechanism.
+- New prose-contract tests pin the Step 0 ordering and Step 3 de-duplication; a behavioral guard proves stage-0 → direct write → stage 2 → branch creation unblocked.
+
 ## v3.4.2 — Concern-nudge correctness + free-branch fixes + dead-code consolidation
 
 A free-session batch of bug fixes, accuracy improvements, and cleanup driven by triaging two plugin-developer feedback docs against current code. Non-breaking — patch bump.
