@@ -25,10 +25,11 @@ _NOT_IDENT_TAIL = r"(?![\w.-])"
 # allowed within the suffix for kebab-case scripts).
 _TEST_SCRIPT_TAIL = r"test(?::[\w:-]+)?" + _NOT_IDENT_TAIL
 
-# Package-script / workspace launcher patterns — the test target lives in
-# package.json/config, NOT on the command line. Named once so is_test_run and
-# is_script_alias_run share one source of truth (a divergence would re-open the
-# verify-path gap that script aliases must map to the whole-tree sentinel).
+# Package-script / workspace launcher patterns used by is_test_run — the test
+# target lives in package.json/config, NOT on the command line. Named as
+# constants because the regexes are dense and flag-tolerant; verify_paths'
+# classify_path_strategy keys off is_test_run's *return value*, so the
+# launcher vocabulary stays here as the single source.
 _TURBO_RE = (
     r"\b(?:npx\s+|bunx\s+|pnpm\s+|yarn\s+|bun\s+x\s+)?turbo"
     + _FLAG_GAP

@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.5.1 — Correct stale comment from the v3.5.0 refactor
+
+Doc-only patch. The v3.5.0 verify-path work first drafted an `is_script_alias_run` helper, then folded its logic into `verify_paths.classify_path_strategy` (which keys off `is_test_run`'s return value plus a `\bjest\b` token). A comment in `test_parsing.py` still claimed the launcher regex constants were "shared with is_script_alias_run" — a reference to a function that never shipped. Corrected to describe the actual single consumer (`is_test_run`). No behavior change.
+
 ## v3.5.0 — Verifiable acceptance commands across all test platforms
 
 A behavioral change to the verify-touch gate — minor bump.
