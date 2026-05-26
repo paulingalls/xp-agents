@@ -344,20 +344,34 @@ def add_bare_remote(td: str, remote_name: str = "origin") -> str:
     return bare
 
 
-def add_pre_push_hook(td: str, marker_name: str = "pre_push_fired") -> Path:
-    """Install an executable ``.git/hooks/pre-push`` that records its firing
-    and blocks the push (exit 1). Returns the marker Path.
+def add_pre_push_hook(
+    td: str, marker_name: str = "pre_push_fired", *, block: bool = True
+) -> Path:
+    """Install an executable ``.git/hooks/pre-push`` that records its firing.
+    Returns the marker Path. The marker does NOT exist until the hook fires.
 
     Lets behavioral tests prove ``--no-verify`` actually suppresses the
     project pre-push hook end-to-end, rather than only asserting the push
-    argv. On fire the hook ``touch``es ``<td>/<marker_name>`` (absolute path
-    baked in, so it lands regardless of the hook's cwd) and exits non-zero —
-    so a test can assert both "hook fired" (marker exists) and "push blocked"
-    (returncode != 0). The marker does NOT exist until the hook fires.
+    argv. The absolute marker path is baked in, so it lands regardless of the
+    hook's cwd.
+
+    ``block=True`` (default): on fire the hook ``touch``es the marker and exits
+    non-zero — a test asserts both "hook fired" (marker exists) and "push
+    blocked" (returncode != 0).
+
+    ``block=False``: the exit-0 variant appends the pushed refs (the hook's
+    stdin — one ``<local-ref> <local-sha> <remote-ref> <remote-sha>`` line per
+    ref, ``(delete)`` as the local ref for a deletion) to the marker and exits
+    zero, letting the push proceed. A test inspects the log to tell WHICH push
+    fired the hook — e.g. that a ``--no-verify`` delete push left no
+    ``(delete)`` line while an ordinary push was recorded.
     """
     marker = Path(td) / marker_name
     hook = Path(td) / ".git" / "hooks" / "pre-push"
-    hook.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 1\n')
+    if block:
+        hook.write_text(f'#!/bin/sh\ntouch "{marker}"\nexit 1\n')
+    else:
+        hook.write_text(f'#!/bin/sh\ncat >> "{marker}"\nexit 0\n')
     hook.chmod(0o755)
     return marker
 

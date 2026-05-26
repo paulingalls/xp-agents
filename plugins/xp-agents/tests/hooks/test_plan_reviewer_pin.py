@@ -115,6 +115,36 @@ class TestPlanReviewerPin(unittest.TestCase):
             "(python/bash <path>) in its AC-path extraction guidance",
         )
 
+    def test_body_covers_positional_whole_tree_taxonomy(self):
+        # §10b now enumerates two runner shapes (positional-path vs
+        # whole-tree). Pin both terms so a future trim can't collapse the
+        # taxonomy back to the Python-only list and re-open the JS gap.
+        self.assertIn(
+            "positional-path runners",
+            self.body_lower,
+            "§10b must name the positional-path runner shape (playwright/jest/"
+            "etc. that name their proof file on the CLI)",
+        )
+        self.assertIn(
+            "whole-tree runners",
+            self.body_lower,
+            "§10b must name the whole-tree runner shape (script aliases / "
+            "package-or-scheme runners that name no CLI path)",
+        )
+
+    def test_body_directs_non_verifiable_command_concern(self):
+        # A recognized test-run that names no proof file (script alias /
+        # whole-tree runner) is non-verifiable — the verify-touch gate cannot
+        # confirm the story authored its proof. §10b must flag it as a concern
+        # recommending the command name the spec, or JS script-alias stories
+        # silently escape acceptance-authorship verification.
+        self.assertIn(
+            "non-verifiable",
+            self.body_lower,
+            "§10b must flag a test-run command that names no proof file as "
+            "non-verifiable and recommend naming the spec",
+        )
+
     # --- NEW-file path rejection ----------------------------------------
     #
     # When a story description contains language implying a new file or

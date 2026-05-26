@@ -144,6 +144,22 @@ invoke:
 - `setup` — optional prerequisite commands (compose up, seed DB, etc.).
 - `notes` — anything the agent or human needs to know before running.
 
+**The command must name its proof file.** The verify-touch gate confirms a
+story authored the test backing its acceptance by matching the command's named
+test path against the story's commits. So the command must name the specific
+spec file (a path inside the story's `file_domain`) on the command line — the
+path-naming binary form — not a script alias whose proof file is hidden in
+`package.json`/config. A path-less command is *non-verifiable*: the gate cannot
+tell whether the story wrote its proof, and the plan reviewer flags it (§10b).
+This holds on every platform, not just Python:
+
+| Verifiable (names the spec) | Non-verifiable (hides it) |
+|---|---|
+| `npx playwright test tests/acceptance/story-042.spec.ts` | `npm run test:e2e` |
+| `npx jest src/auth/login.test.ts` | `pnpm test` |
+| `pytest tests/acceptance/test_export.py` | `turbo run test` |
+| `mix test test/checkout_test.exs` | `nx test web` |
+
 `type: "manual"` is the explicit fallback for acceptance that genuinely
 cannot be automated (visual/UX judgment). In that case `/xp-accept`
 presents criteria and walks the human through them.

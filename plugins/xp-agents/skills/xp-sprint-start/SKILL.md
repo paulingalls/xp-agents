@@ -94,6 +94,8 @@ For each story:
   - `setup` (optional): Prerequisites (e.g., `docker compose up -d`).
   - `notes` (optional): Anything the agent needs before running.
 
+  **Verifiable command**: the `command`/`commands` MUST name the specific test file the acceptance runs, and that path MUST live inside the story's `file_domain` — the verify-touch gate confirms the story authored its proof by matching that path against the commits. Use the path-naming binary form (`npx playwright test <spec>`, `npx jest <path>`), not a bare script alias (`npm run test:e2e`, `pnpm test`) whose proof file is hidden in config — a script alias is non-verifiable and the plan reviewer flags it.
+
 Include deferred stories from the previous sprint, renumbered.
 
 ### Step 3b: Capstone Story Proposal

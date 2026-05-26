@@ -109,16 +109,20 @@ If no execution plan exists, skip this section.
 
 ### 10b. AC-Command / File-Domain Coherence
 
-For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list) and extract the path arguments — file or directory tokens passed to one of:
-- `pytest` / `python -m pytest <path>` (positional path tokens)
-- `python -m unittest discover -s <path>` (the `-s` start dir; also `-t <topdir>` when present); a bare `unittest discover` with no `-s` targets the whole tree — treat any path as matching
-- direct script invocations such as `python <path>` or `bash <path>`
+For each story in `SPRINT_FILE`, parse `acceptance_execution.command` (or `acceptance_execution.commands` when a list) and extract the path arguments. Recognized test runners fall into two shapes — `scripts/test_parsing.py` owns the framework vocabulary and `scripts/verify_paths.py` implements the extraction mechanics:
 
-A leading `cd <dir> &&` prefix (the monorepo shape, e.g. `cd apps/agent && pytest tests/`) **rebases** every extracted path: each path is prefixed with `<dir>/` and normalized so it is repo-relative. `file_domain` (compared below) and git's committed paths (the close-gate consumer) are both repo-relative, so a cd-relative token like `tests/` would never match `apps/agent/tests/...`. Normalization collapses `.`/`..`/`//`, so a cross-package token resolves one level at a time: `../shared/tests/` under `cd apps/agent` becomes `apps/shared/tests/` (the `..` cancels `agent`), not the repo root. Only a leading `cd <dir> &&` is recognized; mid-chain `cd` is not. The whole-tree sentinel (bare `unittest discover`) is left unprefixed — it already matches any change.
+- **Positional-path runners** name their test file(s)/dir(s) as positional tokens on the command line: `pytest` / `python -m pytest`, `python -m unittest discover -s <path>` (also `-t <topdir>`), direct script invocations such as `python <path>` / `bash <path>`, `playwright test`, `jest`, `vitest`, `mocha`, `node --test`, `deno test`, `rspec`, `phpunit`, `mix test`, `dart`/`flutter test` — each optionally wrapped in `npx`/`bunx`/`pnpm exec`/`yarn`. The extracted paths are those positional tokens (with a `::selector` suffix stripped).
+- **Whole-tree runners** name no file path on the command line; the proof file lives in `package.json`/config/scheme/module: npm/pnpm/yarn/lerna/bun **script aliases** (`npm run test:e2e`, `pnpm test`), `turbo`, `nx`, `cargo`, `maven`, `gradle`, `xcodebuild`, `dotnet`, `ctest`, `go test`, `swift test`, `rake test`. These target the whole tree — any change matches. A script token like `test:e2e` is NOT a path.
+
+A positional runner invoked with no path token (a bare `unittest discover`, or a whole-suite `playwright test`) also targets the whole tree.
+
+A leading `cd <dir> &&` prefix (the monorepo shape, e.g. `cd apps/agent && pytest tests/`) **rebases** every extracted path: each path is prefixed with `<dir>/` and normalized so it is repo-relative. `file_domain` (compared below) and git's committed paths (the close-gate consumer) are both repo-relative, so a cd-relative token like `tests/` would never match `apps/agent/tests/...`. Normalization collapses `.`/`..`/`//`, so a cross-package token resolves one level at a time: `../shared/tests/` under `cd apps/agent` becomes `apps/shared/tests/` (the `..` cancels `agent`), not the repo root. Only a leading `cd <dir> &&` is recognized; mid-chain `cd` is not. The whole-tree sentinel (any whole-tree runner, or a positional runner given no path) is left unprefixed — it already matches any change.
 
 Verify at least one extracted path lives **inside** (or equals) a path declared in the story's `file_domain`. `tests/hooks/test_x.py` is inside `tests/hooks/`; the same path does NOT intersect a `file_domain` of only `[smm/event_schema.py]` (no shared prefix).
 
 When no extracted path intersects the story's `file_domain`, emit a concern naming the mismatch: which story, which AC command, which paths it points at, which paths the story actually owns. This catches an AC command that exercises none of the new code — a green AC that's meaningless.
+
+**Non-verifiable command.** A whole-tree runner names no proof file on the command line, so the verify-touch gate cannot confirm the story authored the test backing its acceptance — emit a `concern` that it is non-verifiable. The actionable fix depends on the runner: script-alias / workspace runners (npm/pnpm/yarn script aliases, `turbo`, `nx`) wrap a path-naming binary, so recommend rewriting to that binary form with the spec named (e.g. `npx playwright test <spec>` instead of `npm run test:e2e`), the path inside the story's `file_domain`. Package/module/scheme runners with no single-spec invocation form (`cargo`, `go test`, `swift test`, `maven`, `gradle`, `dotnet`, `ctest`) cannot name one spec — there the concern is informational: the gate falls open (the whole-tree sentinel) and no rewrite is possible.
 
 Skip when the story's `file_domain` is empty or `acceptance_execution` is absent.
 
@@ -139,7 +143,7 @@ Do NOT raise this rejection when the description has none of the new-file verbs.
 
 §10b checks AC paths against the sprint `file_domain`; this rule checks them against the **implementation plan under review** — does the plan actually write the test the AC will run?
 
-For the in-progress story in `SPRINT_FILE`, gather its verify-bearing test paths: extract path tokens from each per-AC `command`/`commands` AND the story-level `acceptance_execution.command`/`commands`, using the same harness parsing as §10b (`pytest path::sel`, `python -m pytest <path>`, `unittest discover -s <path>`, direct `python`/`bash <path>`).
+For the in-progress story in `SPRINT_FILE`, gather its verify-bearing test paths: extract path tokens from each per-AC `command`/`commands` AND the story-level `acceptance_execution.command`/`commands`, using the same positional-path / whole-tree runner taxonomy as §10b.
 
 For each extracted path, the implementation plan's stated file targets/steps must include that path (the plan must create or modify the test). When a verify-bearing path is absent from the plan's file targets, emit a **high-severity** `concern` naming the story, the AC command, and the missing path — a green acceptance test the plan never writes is a planning gap.
 
