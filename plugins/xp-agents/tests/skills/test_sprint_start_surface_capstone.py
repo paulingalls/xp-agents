@@ -64,5 +64,33 @@ class TestSurfaceCapstoneWiring(unittest.TestCase):
         self.assertIn("surface_coverage.py", self.frontmatter)
 
 
+class TestVerifiableAcceptanceCommandPin(unittest.TestCase):
+    """Pin the verifiable-acceptance-command authoring rule (decision
+    4b2454f96b41).
+
+    The verify-touch gate can only confirm a story authored its proof when
+    the acceptance command names the specific test file. A bare script alias
+    (`npm run test:e2e`) hides the proof file in config — non-verifiable.
+    sprint-start must steer authoring toward a path-naming command.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        text = (_PLUGIN_ROOT / "skills/xp-sprint-start/SKILL.md").read_text()
+        cls.frontmatter, cls.body = _split_frontmatter_body(text)
+        cls.body_lower = cls.body.lower()
+
+    def test_command_must_name_proof_file_in_file_domain(self):
+        # The rule must direct that the command names the test file it runs,
+        # and that the named path lives in the story's file_domain.
+        self.assertIn("file_domain", self.body_lower)
+        self.assertIn("verify-touch", self.body_lower)
+
+    def test_prefers_path_naming_over_script_alias(self):
+        # Pin the script-alias contrast so a trim can't drop the steer toward
+        # the path-naming binary form.
+        self.assertIn("script alias", self.body_lower)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -72,7 +72,7 @@ For each milestone:
 - **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Remaining read-only call-sites land here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
-- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when `system_context.json` has an `acceptance_surfaces` entry with `status: "covered"`. Format: `{"type": "<harness>", "command": "<run command>"}` for one command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple (run in order, fail on first non-zero). Optional `setup` and `notes` fields.
+- **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when `system_context.json` has an `acceptance_surfaces` entry with `status: "covered"`. Format: `{"type": "<harness>", "command": "<run command>"}` for one command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple (run in order, fail on first non-zero). Optional `setup` and `notes` fields. When a command is present, name the proof test file directly (the path-naming binary form, e.g. `npx playwright test <spec>`) rather than a bare script alias whose proof file is hidden in config.
 
 Guidelines:
 - Milestones are ordered — each builds on the previous.

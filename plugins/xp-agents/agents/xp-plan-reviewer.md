@@ -122,6 +122,8 @@ Verify at least one extracted path lives **inside** (or equals) a path declared 
 
 When no extracted path intersects the story's `file_domain`, emit a concern naming the mismatch: which story, which AC command, which paths it points at, which paths the story actually owns. This catches an AC command that exercises none of the new code — a green AC that's meaningless.
 
+**Non-verifiable command.** A whole-tree runner names no proof file on the command line, so the verify-touch gate cannot confirm the story authored the test backing its acceptance — emit a `concern` that it is non-verifiable. The actionable fix depends on the runner: script-alias / workspace runners (npm/pnpm/yarn script aliases, `turbo`, `nx`) wrap a path-naming binary, so recommend rewriting to that binary form with the spec named (e.g. `npx playwright test <spec>` instead of `npm run test:e2e`), the path inside the story's `file_domain`. Package/module/scheme runners with no single-spec invocation form (`cargo`, `go test`, `swift test`, `maven`, `gradle`, `dotnet`, `ctest`) cannot name one spec — there the concern is informational: the gate falls open (the whole-tree sentinel) and no rewrite is possible.
+
 Skip when the story's `file_domain` is empty or `acceptance_execution` is absent.
 
 ### 10c. NEW-file Path Enumeration
