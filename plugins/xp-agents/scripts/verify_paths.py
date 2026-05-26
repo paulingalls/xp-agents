@@ -3,10 +3,13 @@
 
 Implements the harness path-parsing rules. `agents/xp-plan-reviewer.md` §10b
 is the AUTHORITATIVE spec; `_extract_paths_from_command` implements it — keep
-the two in sync (a new runner shape belongs in §10b first, then here). Given a
-story's per-AC verify objects and story-level acceptance_execution, extract the
-test-file paths their commands point at, then check which of those paths no
-commit on the story branch ever touched.
+the two in sync (a new runner shape belongs in §10b first, then here).
+`test_parsing.is_test_run` owns runner classification (the framework
+vocabulary); this module owns the verify-path policy (which frameworks name a
+CLI path — the positional/whole-tree partition — and the token mechanics).
+Given a story's per-AC verify objects and story-level acceptance_execution,
+extract the test-file paths their commands point at, then check which of those
+paths no commit on the story branch ever touched.
 
 Both the commit-time verify nudge and the story-close gate consume this
 single source of truth; the CLI serves the close preload.
@@ -14,6 +17,7 @@ single source of truth; the CLI serves the close preload.
 
 import argparse
 import posixpath
+import re
 import shlex
 import subprocess
 import sys
@@ -24,11 +28,69 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import branching
 import sprint_store
+import test_parsing
 from _acceptance_execution import extract_commands
 
 # pytest short flags that consume a following token as their argument — the
 # token after one of these is a value, never a path.
 _PYTEST_ARG_FLAGS = {"-k", "-m", "-p", "-c", "-o", "-n", "-r", "--maxfail"}
+
+# Leading tokens to skip before a positional runner's binary: package-manager
+# wrappers (`npx jest`, `pnpm exec playwright`, `yarn dlx vitest`).
+_WRAPPER_TOKENS = {
+    "npm",
+    "npx",
+    "pnpm",
+    "yarn",
+    "bun",
+    "bunx",
+    "lerna",
+    "corepack",
+    "exec",
+    "dlx",
+}
+# Subcommands that follow the runner binary and precede the paths
+# (`playwright test <spec>`, `deno test <dir>`, `vitest run <path>`). `--test`
+# is node's run-mode flag (`node --test <path>`) — a mode selector, not a
+# value-consuming flag, so it belongs here rather than triggering skip-next.
+_RUN_SUBCOMMANDS = {"test", "run", "--test"}
+
+# Verify-path extraction policy by framework (keyed on is_test_run's returns).
+# Positional runners name their proof file as a CLI token; whole-tree runners
+# name a package/module/scheme/target — no CLI path — so they map to the
+# sentinel. agents/xp-plan-reviewer.md §10b mirrors this partition.
+_POSITIONAL_FRAMEWORKS = frozenset(
+    {
+        "pytest",
+        "unittest",
+        "playwright",
+        "jest",
+        "vitest",
+        "mocha",
+        "node-test",
+        "deno",
+        "rspec",
+        "phpunit",
+        "dart",
+        "elixir",
+    }
+)
+_WHOLE_TREE_FRAMEWORKS = frozenset(
+    {
+        "turbo",
+        "nx",
+        "bun",
+        "cargo",
+        "maven",
+        "gradle",
+        "xcodebuild",
+        "dotnet",
+        "ctest",
+        "go",
+        "swift",
+        "minitest",
+    }
+)
 
 # CLI exit codes. 1 is a gate signal (untouched paths found), NOT an error —
 # the story-close preload distinguishes it from a real failure (2).
@@ -39,6 +101,37 @@ _EXIT_ERROR = 2
 # Bare `unittest discover` (no -s) defaults to the cwd: the whole tree. Any
 # branch change satisfies it, so the gate fails open rather than silent.
 _WHOLE_TREE_SENTINEL = "."
+
+
+def classify_path_strategy(command: str) -> str:
+    """Verify-path extraction strategy for a command: "positional",
+    "whole_tree", or "none".
+
+    Leans on `test_parsing.is_test_run`'s precedence (single source of truth)
+    rather than re-matching launcher patterns — `pnpm exec playwright test`
+    already resolves to "playwright", not a script alias. A runner that names
+    its test file(s) on the CLI → "positional"; a script-alias/workspace
+    launcher or a package/module/scheme/target runner → "whole_tree"
+    (sentinel, fail-open); unrecognized → "none".
+
+    `is_test_run` returns "jest" for BOTH the direct binary (`npx jest
+    x.test.js`, names a path) AND npm/pnpm/yarn/lerna script aliases
+    (`npm run test:e2e`, no path). A literal `jest` binary token
+    disambiguates: present → direct (positional); absent → alias (whole_tree,
+    so `test:e2e` is never read as a path). (Direct `python`/`bash <path>`
+    and pytest/unittest are handled by the shape branches in
+    `_extract_paths_from_command` before this is consulted.)
+    """
+    framework = test_parsing.is_test_run(command)
+    if framework is None:
+        return "none"
+    if framework == "jest":
+        return "positional" if re.search(r"\bjest\b", command) else "whole_tree"
+    if framework in _POSITIONAL_FRAMEWORKS:
+        return "positional"
+    if framework in _WHOLE_TREE_FRAMEWORKS:
+        return "whole_tree"
+    return "none"
 
 
 def _split_cd_prefix(tokens: list[str]) -> tuple[str | None, list[str]]:
@@ -56,11 +149,15 @@ def _split_cd_prefix(tokens: list[str]) -> tuple[str | None, list[str]]:
 def _extract_paths_from_command(command: str) -> set[str]:
     """Parse test-file/dir path tokens from a single command string.
 
-    Recognizes the four harness shapes §10b enumerates: pytest /
-    `python -m pytest <path>` (positional paths, `::selector` stripped),
-    `python -m unittest discover -s <startdir> [-t <topdir>]`, and direct
-    `python <path>` / `bash <path>`. Unrecognized runners yield no paths —
-    honest about what we can't parse, never a false positive.
+    Python shapes have dedicated branches: pytest / `python -m pytest <path>`
+    (positional paths, `::selector` stripped), `python -m unittest discover -s
+    <startdir> [-t <topdir>]`, and direct `python <path>` / `bash <path>`.
+    Every other command is routed by `test_parsing.classify_path_strategy`:
+    positional runners (playwright/jest/vitest/...) extract their CLI path
+    tokens (a whole-suite run with no path → whole-tree sentinel); whole-tree
+    runners (script aliases / package-or-scheme runners) → sentinel.
+    Unrecognized runners yield no paths — honest about what we can't parse,
+    never a false positive.
 
     A leading `cd <dir> &&` prefix rebases every extracted path with `<dir>/`
     so it is repo-relative (git reports repo-relative paths). The whole-tree
@@ -84,7 +181,13 @@ def _extract_paths_from_command(command: str) -> set[str]:
     elif tokens[0] in ("python", "python3", "bash", "sh"):
         paths = _extract_direct_script(tokens)
     else:
-        return set()
+        match classify_path_strategy(" ".join(tokens)):
+            case "positional":
+                paths = _extract_positional_paths(tokens) or {_WHOLE_TREE_SENTINEL}
+            case "whole_tree":
+                paths = {_WHOLE_TREE_SENTINEL}
+            case _:
+                return set()
 
     if cd_dir:
         prefix = cd_dir.rstrip("/")
@@ -155,6 +258,45 @@ def _extract_direct_script(tokens: list[str]) -> set[str]:
             continue
         return {tok}
     return set()
+
+
+def _extract_positional_paths(tokens: list[str]) -> set[str]:
+    """Path tokens of a positional-path runner (playwright/jest/vitest/mocha/
+    node-test/deno/rspec/phpunit/mix/dart...).
+
+    Skips package-manager wrappers, the runner binary, and a leading
+    `test`/`run` subcommand, then keeps only **path-shaped** positional tokens
+    (containing `/` or `.`, with a `::selector` stripped). The token after a
+    space-form bare flag (starts with `-`, no `=`) is dropped as that flag's
+    value — so a path-shaped value like `--config jest.config.js` or
+    `--reporter ./r.js` is never mistaken for a proof file. (A spurious gate
+    firing is worse than under-extraction, which fails open; conservatively
+    skipping a boolean flag's following token only ever under-extracts.) An
+    attached `--flag=value` carries its own value, so the next token survives.
+    No path tokens (a whole-suite run) yields an empty set; the caller maps
+    that to the whole-tree sentinel.
+    """
+    i = 0
+    n = len(tokens)
+    while i < n and tokens[i] in _WRAPPER_TOKENS:
+        i += 1
+    if i < n:  # the runner binary itself
+        i += 1
+    while i < n and tokens[i] in _RUN_SUBCOMMANDS:
+        i += 1
+    paths: set[str] = set()
+    skip_next = False
+    for tok in tokens[i:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok.startswith("-"):
+            skip_next = "=" not in tok
+            continue
+        candidate = tok.split("::", 1)[0]
+        if "/" in candidate or "." in candidate:
+            paths.add(candidate)
+    return paths
 
 
 def extract_verify_paths(story: dict) -> set[str]:

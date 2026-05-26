@@ -25,6 +25,26 @@ _NOT_IDENT_TAIL = r"(?![\w.-])"
 # allowed within the suffix for kebab-case scripts).
 _TEST_SCRIPT_TAIL = r"test(?::[\w:-]+)?" + _NOT_IDENT_TAIL
 
+# Package-script / workspace launcher patterns — the test target lives in
+# package.json/config, NOT on the command line. Named once so is_test_run and
+# is_script_alias_run share one source of truth (a divergence would re-open the
+# verify-path gap that script aliases must map to the whole-tree sentinel).
+_TURBO_RE = (
+    r"\b(?:npx\s+|bunx\s+|pnpm\s+|yarn\s+|bun\s+x\s+)?turbo"
+    + _FLAG_GAP
+    + r"\s+(?:run\s+)?"
+    + _TEST_SCRIPT_TAIL
+)
+_NX_RES = (
+    r"\bnx\s+test\b",
+    r"\bnx\s+run\s+\S+:test\b",
+    r"\bnx\s+\S+\s+--targets?=test(?:[,\s]|$)",
+)
+_BUN_SCRIPT_RE = r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
+_NPM_SCRIPT_RE = (
+    r"\b(?:npm|pnpm|yarn|lerna)" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL
+)
+
 
 def is_test_run(command: str) -> str | None:
     """Check if the command is a test run. Returns framework name or None."""
@@ -65,41 +85,25 @@ def is_test_run(command: str) -> str | None:
     # Turbo accepts `turbo test`, `turbo run test`, with or without a
     # wrapping `npx`/`bunx`/`pnpm`. `--filter=<pkg>` and other flags may
     # appear after `test`.
-    if re.search(
-        r"\b(?:npx\s+|bunx\s+|pnpm\s+|yarn\s+|bun\s+x\s+)?turbo"
-        + _FLAG_GAP
-        + r"\s+(?:run\s+)?"
-        + _TEST_SCRIPT_TAIL,
-        command,
-    ):
+    if re.search(_TURBO_RE, command):
         return "turbo"
 
     # nx workspace runner: `nx test <pkg>`, `nx run <pkg>:test`,
     # `nx run-many --target=test`, `nx run-many --targets=test,build`.
-    if re.search(r"\bnx\s+test\b", command):
-        return "nx"
-    if re.search(r"\bnx\s+run\s+\S+:test\b", command):
-        return "nx"
-    if re.search(r"\bnx\s+\S+\s+--targets?=test(?:[,\s]|$)", command):
+    if any(re.search(p, command) for p in _NX_RES):
         return "nx"
 
     # bun: bare `bun test[:script]` or `bun run test[:script]`, and the
     # workspace form `bun --filter <pkg> test[:script]` (and similar
     # flag-tolerant variants up to 5 intervening tokens).
-    if re.search(r"\bbun" + _FLAG_GAP + r"\s+(?:run\s+)?" + _TEST_SCRIPT_TAIL, command):
+    if re.search(_BUN_SCRIPT_RE, command):
         return "bun"
 
     # npm/pnpm/yarn/lerna script aliases — flag-tolerant (covers --filter,
     # --workspace, -w, -F, -r, workspace foreach, workspace <pkg>, run, etc.)
     # bound to 5 intervening tokens. lerna folded in here since it shares
     # the script-alias shape (`lerna run test [--scope=<pkg>]`).
-    if re.search(
-        r"\b(?:npm|pnpm|yarn|lerna)"
-        + _FLAG_GAP
-        + r"\s+(?:run\s+)?"
-        + _TEST_SCRIPT_TAIL,
-        command,
-    ):
+    if re.search(_NPM_SCRIPT_RE, command):
         return "jest"
 
     # Go

@@ -130,6 +130,303 @@ class TestExtractPathsFromCommand(unittest.TestCase):
         )
 
 
+class TestClassifyPathStrategy(unittest.TestCase):
+    """Verify-path extraction strategy per command.
+
+    Load-bearing: `is_test_run` returns the same "jest" for `npm run test:e2e`
+    (alias, no path) and `npx jest x.test.js` (direct, names a path). The alias
+    form must map to "whole_tree" so `test:e2e` is never mis-read as a path;
+    the direct form to "positional".
+    """
+
+    def test_npm_run_script_alias_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("npm run test:e2e"), "whole_tree"
+        )
+
+    def test_pnpm_test_shorthand_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("pnpm test:unit"), "whole_tree"
+        )
+
+    def test_pnpm_filter_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("pnpm -F mypkg test"), "whole_tree"
+        )
+
+    def test_yarn_workspace_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("yarn workspace mypkg test"),
+            "whole_tree",
+        )
+
+    def test_lerna_run_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("lerna run test"), "whole_tree"
+        )
+
+    def test_turbo_run_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("npx turbo run test"), "whole_tree"
+        )
+
+    def test_nx_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("nx test mypkg"), "whole_tree"
+        )
+
+    def test_bun_run_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("bun run test"), "whole_tree"
+        )
+
+    def test_go_test_whole_tree(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("go test ./pkg/..."), "whole_tree"
+        )
+
+    # --- direct binary invocations name a path on the CLI → positional ---
+
+    def test_direct_npx_jest_positional(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("npx jest x.test.js"), "positional"
+        )
+
+    def test_yarn_jest_positional(self):
+        # `yarn jest x.test.js` runs the jest binary, not a `test` script.
+        self.assertEqual(
+            verify_paths.classify_path_strategy("yarn jest x.test.js"), "positional"
+        )
+
+    def test_pnpm_exec_playwright_positional(self):
+        # `pnpm exec playwright test` resolves to playwright via is_test_run
+        # precedence — a direct binary run, not a script alias.
+        self.assertEqual(
+            verify_paths.classify_path_strategy("pnpm exec playwright test spec.ts"),
+            "positional",
+        )
+
+    def test_npx_playwright_positional(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("npx playwright test specs/x.spec.mjs"),
+            "positional",
+        )
+
+    def test_pytest_positional(self):
+        self.assertEqual(
+            verify_paths.classify_path_strategy("pytest tests/x.py"), "positional"
+        )
+
+    def test_unrecognized_none(self):
+        self.assertEqual(verify_paths.classify_path_strategy("echo hello"), "none")
+
+
+class TestExtractPositionalRunners(unittest.TestCase):
+    """Non-Python positional-path runners name their proof file on the CLI.
+
+    The generic extractor skips wrapper prefixes (npx/bunx/pnpm exec/yarn),
+    the runner binary, and a leading test/run subcommand, then keeps only
+    path-shaped positional tokens (containing `/` or `.`) — so a flag value
+    like `--project chromium` or `-t renders` is never mis-read as a path.
+    """
+
+    def test_npx_playwright_names_spec(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "npx playwright test specs/login.spec.mjs"
+            ),
+            {"specs/login.spec.mjs"},
+        )
+
+    def test_npx_jest_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("npx jest path/x.test.js"),
+            {"path/x.test.js"},
+        )
+
+    def test_vitest_run_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("vitest run src/x.test.ts"),
+            {"src/x.test.ts"},
+        )
+
+    def test_mocha_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("mocha test/x.js"),
+            {"test/x.js"},
+        )
+
+    def test_node_test_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("node --test test/x.js"),
+            {"test/x.js"},
+        )
+
+    def test_deno_test_names_dir(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("deno test src/"),
+            {"src/"},
+        )
+
+    def test_rspec_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("rspec spec/x_spec.rb"),
+            {"spec/x_spec.rb"},
+        )
+
+    def test_phpunit_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("phpunit tests/X.php"),
+            {"tests/X.php"},
+        )
+
+    def test_mix_test_names_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("mix test test/x.exs"),
+            {"test/x.exs"},
+        )
+
+    def test_jest_title_filter_value_not_a_path(self):
+        # `-t renders` is a title filter; `renders` (no `/` or `.`) is not a
+        # path and must not be extracted — only the spec is.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                'npx jest -t "renders" src/x.test.js'
+            ),
+            {"src/x.test.js"},
+        )
+
+    def test_playwright_project_flag_value_not_a_path(self):
+        # `--project chromium` (space form): chromium is a value, not a path.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "npx playwright test --project chromium specs/x.spec.ts"
+            ),
+            {"specs/x.spec.ts"},
+        )
+
+    def test_space_form_flag_with_path_shaped_value_not_a_path(self):
+        # `--config jest.config.js` (space form): jest.config.js is path-shaped
+        # but it is the flag's VALUE, not a proof file. Extracting it would
+        # report the (untouched) config untouched → spurious gate firing, the
+        # worst failure mode. Only the real spec must survive.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "npx jest --config jest.config.js tests/x.test.js"
+            ),
+            {"tests/x.test.js"},
+        )
+
+    def test_space_form_reporter_path_value_not_a_path(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "npx mocha --reporter ./r.js test/x.js"
+            ),
+            {"test/x.js"},
+        )
+
+    def test_attached_flag_value_still_extracts_following_path(self):
+        # `--config=jest.config.js` (attached `=` form) consumes its own value,
+        # so the following spec is NOT skipped.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "npx jest --config=jest.config.js tests/x.test.js"
+            ),
+            {"tests/x.test.js"},
+        )
+
+    def test_pnpm_exec_playwright_wrapper(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "pnpm exec playwright test specs/x.spec.ts"
+            ),
+            {"specs/x.spec.ts"},
+        )
+
+    def test_positional_runner_no_path_is_whole_tree(self):
+        # Bare whole-suite run names no spec → sentinel, never empty (which
+        # would silently disable the gate) and never blocking.
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("npx playwright test"),
+            {"."},
+        )
+
+
+class TestWholeTreeRunners(unittest.TestCase):
+    """Script aliases / workspace / scheme-or-module runners name no CLI
+    path → whole-tree sentinel (recognized, fail-open, never a silent
+    no-binding). A script token like `test:e2e` is NOT a path."""
+
+    def test_npm_run_script_alias_is_sentinel(self):
+        result = verify_paths._extract_paths_from_command("npm run test:e2e")
+        self.assertEqual(result, {"."})
+        self.assertNotIn("test:e2e", result)
+
+    def test_pnpm_filter_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("pnpm -F pkg test"), {"."}
+        )
+
+    def test_yarn_workspace_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("yarn workspace pkg test"), {"."}
+        )
+
+    def test_turbo_run_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("npx turbo run test"), {"."}
+        )
+
+    def test_nx_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("nx test mypkg"), {"."}
+        )
+
+    def test_cargo_test_is_sentinel(self):
+        self.assertEqual(verify_paths._extract_paths_from_command("cargo test"), {"."})
+
+    def test_maven_module_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("mvn -pl mod test"), {"."}
+        )
+
+    def test_gradle_module_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("./gradlew :mod:test"), {"."}
+        )
+
+    def test_go_test_is_sentinel(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("go test ./pkg/..."), {"."}
+        )
+
+    def test_unrecognized_command_stays_empty(self):
+        self.assertEqual(verify_paths._extract_paths_from_command("echo hello"), set())
+
+    def test_non_test_npm_script_stays_empty(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command("npm run build"), set()
+        )
+
+
+class TestPositionalRunnerCdRebase(unittest.TestCase):
+    def test_cd_prefix_rebases_playwright_spec(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "cd apps/web && npx playwright test specs/x.spec.ts"
+            ),
+            {"apps/web/specs/x.spec.ts"},
+        )
+
+    def test_cd_prefix_leaves_sentinel_for_whole_suite(self):
+        self.assertEqual(
+            verify_paths._extract_paths_from_command(
+                "cd apps/web && npx playwright test"
+            ),
+            {"."},
+        )
+
+
 class TestExtractVerifyPaths(unittest.TestCase):
     def test_story_level_acceptance_execution(self):
         story = make_story_dict(
@@ -283,6 +580,44 @@ class TestUntouchedVerifyPaths(_GitRepoCase):
         )
         paths = verify_paths.extract_verify_paths(story)
         self.assertEqual(paths, {"apps/agent/tests/"})
+        self.assertEqual(
+            verify_paths.untouched_verify_paths(paths, str(self.tmpdir), base),
+            [],
+        )
+
+    def test_playwright_command_enforces_where_it_failed_open(self):
+        # Regression for the npx-playwright gap: a story whose acceptance
+        # command is `npx playwright test <spec>` must now extract the spec
+        # and report it untouched when no commit touches it (previously the
+        # parser returned an empty set → silent fail-open).
+        self._commit_file("seed_pw.txt", "x", "seed")
+        base = self._head()
+        self._commit_file("src/unrelated.ts", "code", "touch unrelated")
+        story = make_story_dict(
+            acceptance_execution={
+                "type": "playwright",
+                "command": "npx playwright test specs/login.spec.ts",
+            }
+        )
+        paths = verify_paths.extract_verify_paths(story)
+        self.assertEqual(paths, {"specs/login.spec.ts"})
+        self.assertEqual(
+            verify_paths.untouched_verify_paths(paths, str(self.tmpdir), base),
+            ["specs/login.spec.ts"],
+        )
+
+    def test_script_alias_command_fails_open(self):
+        # A path-less script alias maps to the sentinel; any branch change
+        # clears it, so the gate never blocks (§10b catches non-verifiable
+        # commands at plan-review, not here).
+        self._commit_file("seed_alias.txt", "x", "seed")
+        base = self._head()
+        self._commit_file("anything.ts", "code", "touch something")
+        story = make_story_dict(
+            acceptance_execution={"type": "jest", "command": "npm run test:e2e"}
+        )
+        paths = verify_paths.extract_verify_paths(story)
+        self.assertEqual(paths, {"."})
         self.assertEqual(
             verify_paths.untouched_verify_paths(paths, str(self.tmpdir), base),
             [],
