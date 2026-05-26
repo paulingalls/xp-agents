@@ -79,10 +79,70 @@ class TestRemoteDeleteSkipsVerify(unittest.TestCase):
 
     A pure ref deletion has nothing to gate, and the target push already
     fired any project pre-push hook — re-running it (e.g. a multi-second
-    integration suite) on a delete is pure waste. The bare-remote fixture
-    has no pre-push hook, so this pins the contract by spying on the push
-    argv in-process.
+    integration suite) on a delete is pure waste. `test_remote_delete_push_
+    uses_no_verify` pins the contract by spying on the push argv;
+    `test_remote_delete_push_skips_pre_push_hook` proves the observable
+    effect end-to-end with a real (exit-0) pre-push hook.
     """
+
+    def _setup_pushed_source(self) -> str:
+        td_ctx = tempfile.TemporaryDirectory()
+        self.addCleanup(td_ctx.cleanup)
+        td = td_ctx.name
+        _bf.init_repo(td)
+        _bf.add_bare_remote(td)
+        _bf.make_commit(td, _SOURCE, "feature.txt", "x", "feat")
+        subprocess.run(
+            ["git", "push", "-u", "origin", _SOURCE],
+            cwd=td,
+            capture_output=True,
+            check=True,
+            env=_bf.GIT_ENV,
+        )
+        _bf.checkout_main(td)
+        return td
+
+    def test_remote_delete_push_skips_pre_push_hook(self):
+        # Behavioral complement to the argv spy: a real pre-push hook (exit-0
+        # variant, logs the refs it sees) must record the target push but NOT
+        # the `--delete` push of the remote source — `--no-verify` suppresses
+        # the hook for the deletion. The control assertion (target push WAS
+        # logged) keeps this non-vacuous: a hook that never fired would let
+        # the "(delete) absent" check pass for the wrong reason.
+        td = self._setup_pushed_source()
+        log = _bf.add_pre_push_hook(td, block=False)
+        self.assertTrue(_bf.remote_has_branch(td, _SOURCE))  # precondition
+
+        args = argparse.Namespace(
+            source=_SOURCE,
+            target=_TARGET,
+            cwd=td,
+            verify_gate=None,
+            smm_dir=None,
+            force_verify=False,
+        )
+        import close_common
+
+        rc = close_common.cmd_merge(args)
+
+        self.assertEqual(rc, 0)
+        self.assertFalse(
+            _bf.remote_has_branch(td, _SOURCE),
+            "remote source not pruned — delete push did not run",
+        )
+        recorded = log.read_text() if log.exists() else ""
+        self.assertIn(
+            "refs/heads/main",
+            recorded,
+            "control failed: the target push should fire the (exit-0) hook — "
+            "without it the deletion assertion below is vacuous",
+        )
+        self.assertNotIn(
+            "(delete)",
+            recorded,
+            "the --delete push fired the pre-push hook — --no-verify was not "
+            "honored on the remote-source deletion",
+        )
 
     def test_remote_delete_push_uses_no_verify(self):
         import close_common
