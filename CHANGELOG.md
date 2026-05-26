@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.5.0 — Verifiable acceptance commands across all test platforms
+
+A behavioral change to the verify-touch gate — minor bump.
+
+The verify-touch gate confirms a story's commits actually touched the acceptance-test file its command names, guarding against vacuous green acceptance. Path extraction previously handled only four Python shapes (`pytest`, `unittest discover`, direct `python`/`bash`); every other runner returned no paths, so both consumers (the pre-commit nudge and the close-time touch gate) **failed open silently** — the guarantee evaporated for JS/other-platform projects. Surfaced by an external `npx playwright` report whose stated premise (runner classification) was imprecise: the real gap was the path-extraction parser.
+
+Closed across the full author→check→verify loop:
+
+- **Verify (`verify_paths.py` + `test_parsing.py`)** — non-Python commands now route through `classify_path_strategy`, leaning on `is_test_run`'s precedence. Positional runners (playwright/jest/vitest/mocha/node-test/deno/rspec/phpunit/mix/dart) extract their CLI spec path; script-alias/workspace/package-or-scheme runners (npm-scripts/turbo/nx/bun/cargo/go/maven/gradle/swift/etc.) map to the whole-tree sentinel (recognized, fail-open). A whole-suite run with no path also maps to the sentinel. The jest dual-origin (direct binary vs npm-script alias) is disambiguated by a literal `jest` token, and a space-form flag's path-shaped value (`--config jest.config.js`) is never mis-extracted as a proof file.
+- **Check (`xp-plan-reviewer` §10b)** — new "non-verifiable command" rule: a whole-tree runner names no proof file, so emit a concern. The actionable fix is runner-dependent (script-alias → rewrite to the path-naming binary; cargo/go/etc. with no single-spec form → informational, gate falls open).
+- **Author (`xp-sprint-start`, `xp-plan`, `ACCEPTANCE_TESTING_DOCTRINE.md`)** — acceptance commands must name the specific spec inside `file_domain` (path-naming binary form, not a bare script alias).
+
+Also: a behavioral `--delete-push --no-verify` test (exit-0 pre-push hook fixture) replacing the prior argv-spy-only coverage, and two stabilized stable-topic decisions (`gate-safe-default-fire-on-unknown`, `addressing-commits-resolver`).
+
 ## v3.4.3 — Fix new-project bootstrap stage-migration deadlock
 
 A free-session bug fix. Non-breaking — patch bump.
