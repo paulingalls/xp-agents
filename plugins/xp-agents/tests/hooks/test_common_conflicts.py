@@ -297,6 +297,129 @@ class TestDetectConflictsCommon(_HookTestCase):
         )
         self.assertEqual(contradicts[0].get("references"), [a["id"]])
 
+    def test_resolved_assumption_contradiction_not_reraised(self):
+        """A resolved contradiction stops re-firing — the events are immutable,
+        so re-raising (and escalating) every scan is pure noise. Mirrors the
+        superseded-decision `already_accepted_topics` suppression: a prior
+        RESOLVED concern referencing the assumption marks it acknowledged."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="alias_run splits cleanly")
+        prior = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Assumption contradicted: 'alias_run...' — by discovery.",
+            references=[a["id"]],
+        )
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="Triage: dropped — superseded by the discovery",
+            working_on=[],
+            metadata={METADATA_KEY_RESOLVES: [prior["id"]]},
+        )
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Supersedes the assumption: never shipped",
+            references=[a["id"]],
+        )
+        found = concerns.detect_conflicts([a, prior, resolver, d], "main")
+        contradicts = [c for c in found if "contradict" in c["content"].lower()]
+        self.assertEqual(
+            len(contradicts),
+            0,
+            f"resolved contradiction must not re-raise, got {len(contradicts)}",
+        )
+
+    def test_resolved_multi_ref_contradiction_not_reraised(self):
+        """A resolved contradiction whose concern references the assumption
+        ALONGSIDE other ids still marks the assumption acknowledged.
+
+        Guards the flat resolved-ref-id set: a whole-set tuple keyed on
+        (assumption, extra) would never match the single-assumption probe,
+        re-firing the exact noise this suppression removes."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="alias_run splits cleanly")
+        other = make_event(EVENT_TYPE_DISCOVERY, content="unrelated context")
+        prior = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Assumption contradicted: 'alias_run...' — by discovery.",
+            references=[a["id"], other["id"]],
+        )
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="Triage: dropped — superseded by the discovery",
+            working_on=[],
+            metadata={METADATA_KEY_RESOLVES: [prior["id"]]},
+        )
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Supersedes the assumption: never shipped",
+            references=[a["id"]],
+        )
+        found = concerns.detect_conflicts([a, other, prior, resolver, d], "main")
+        contradicts = [c for c in found if "contradict" in c["content"].lower()]
+        self.assertEqual(
+            len(contradicts),
+            0,
+            "multi-ref resolved contradiction must mark the assumption "
+            f"acknowledged, got {len(contradicts)}",
+        )
+
+    def test_empty_string_in_resolves_does_not_blanket_suppress(self):
+        """A discovery with metadata.resolves=[''] must NOT suppress the
+        contradiction — empty-string startswith-matches everything, which
+        would silently mute a real conflict."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata={METADATA_KEY_RESOLVES: [""]},
+        )
+        found = concerns.detect_conflicts([a, d], "main")
+        contradicts = [c for c in found if "contradict" in c["content"].lower()]
+        self.assertEqual(len(contradicts), 1)
+
+    def test_empty_string_in_supersedes_does_not_skip_superseded_decision(self):
+        """Pattern 5 parity: metadata.supersedes=[''] must not blanket-suppress
+        the superseded-decision flag."""
+        d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
+        d2 = make_event(
+            EVENT_TYPE_DECISION,
+            topic="db",
+            content="Use MySQL",
+            metadata={METADATA_KEY_SUPERSEDES: [""]},
+        )
+        found = concerns.detect_conflicts([d1, d2], "main")
+        superseded = [c for c in found if "superseded" in c["content"].lower()]
+        self.assertEqual(len(superseded), 1)
+
+    def test_supersedes_metadata_on_discovery_skips_contradiction(self):
+        """A discovery that structurally declares metadata.supersedes of the
+        assumption never raises the contradiction — supersession is the
+        intended forward mechanism, not an unresolved conflict."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL — supersedes the REST assumption",
+            references=[a["id"]],
+            metadata={METADATA_KEY_SUPERSEDES: [a["id"]]},
+        )
+        found = concerns.detect_conflicts([a, d], "main")
+        contradicts = [c for c in found if "contradict" in c["content"].lower()]
+        self.assertEqual(len(contradicts), 0)
+
+    def test_resolves_metadata_on_discovery_skips_contradiction(self):
+        """Symmetric with supersedes: metadata.resolves on the discovery is a
+        STRONG link that cascade-closes the assumption, so re-flagging it as an
+        open contradiction would contradict the link hierarchy."""
+        a = make_event(EVENT_TYPE_ASSUMPTION, content="API is REST")
+        d = make_event(
+            EVENT_TYPE_DISCOVERY,
+            content="Actually GraphQL",
+            references=[a["id"]],
+            metadata={METADATA_KEY_RESOLVES: [a["id"]]},
+        )
+        found = concerns.detect_conflicts([a, d], "main")
+        contradicts = [c for c in found if "contradict" in c["content"].lower()]
+        self.assertEqual(len(contradicts), 0)
+
     def test_ref_dedup_is_global_across_patterns(self):
         """An unresolved concern with refs=[X] suppresses re-emission for refs=[X].
 
