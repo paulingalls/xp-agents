@@ -445,6 +445,14 @@ branching_list_story_orphans() {
         --smm-dir "$SMM_DIR" list-story-orphans --cwd . 2>/dev/null
 }
 
+# Print the branching stage integer (0 when unset). Auto-promotes 1->2 as a
+# side effect, identical to a SKILL.md Step 0 read.
+# Usage: branching_stage
+branching_stage() {
+    python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "$SMM_DIR" stage 2>/dev/null
+}
+
 # Marker helpers (thin wrappers over markers.py).
 # Usage: consume_marker ACCEPT
 #        write_marker NEEDS_HOUSEKEEPING "kickoff"

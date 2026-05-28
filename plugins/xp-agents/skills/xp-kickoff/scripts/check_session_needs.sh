@@ -17,6 +17,26 @@ echo ""
 if [ ! -f "$SYSTEM_CONTEXT_FILE" ] || [ -L "$SYSTEM_CONTEXT_FILE" ]; then
     echo "### NEEDS_SYSTEM_CONTEXT → invoke /xp-system-context"
     echo ""
+else
+    # Branching stage — surfaced so SKILL.md Step 0 reads it here instead of a
+    # redundant python callback. The else branch makes mutual exclusivity with
+    # NEEDS_SYSTEM_CONTEXT structural (no comment-asserted De Morgan invariant
+    # to drift): the stage lives in system_context.json and is meaningless (0)
+    # until that file exists, so it is only surfaced once the file is present.
+    # On a fresh project the NEEDS_SYSTEM_CONTEXT path runs /xp-system-context,
+    # which sets the stage; Step 0 reads it fresh there.
+    #
+    # Capture under `|| stage=""` so a non-zero branching.py exit (e.g. a
+    # schema-invalid doc on the stage-1 auto-promote save path) does not abort
+    # the whole preload via set -e, and emit the marker only when non-empty —
+    # an empty `### STAGE=` would read as a valid STAGE<2 and falsely trigger
+    # /xp-stage-migration. No marker → SKILL.md falls back to the Python re-read.
+    stage=""
+    stage=$(branching_stage) || stage=""
+    if [ -n "$stage" ]; then
+        echo "### STAGE=${stage}"
+        echo ""
+    fi
 fi
 
 # Gate session_history_cli render on file presence so first-session

@@ -23,12 +23,12 @@ allowed-tools:
 
 **Bootstrap system context.** If the preload shows **NEEDS_SYSTEM_CONTEXT**, invoke `/xp-system-context` and wait. It sets the branching stage, so it MUST run before the stage gate below and before the mode fork.
 
-Then read the branching stage:
+**Read the branching stage.** Take `STAGE` from the preload's `### STAGE=N` marker — that is the default source, no Python call needed. If **no `### STAGE` marker is present**, read it from Python (covers a fresh project before `/xp-system-context` and the rare case where the preload could not compute the stage). Also re-read it from Python after any path that mutated the stage since the preload ran: after `/xp-system-context` or after `/xp-stage-migration` (below):
 ```bash
 STAGE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage)
 ```
 
-If `STAGE < 2`, invoke `/xp-stage-migration` (it sets the Stage 2 floor directly). Re-read `STAGE` after it returns.
+If `STAGE < 2`, invoke `/xp-stage-migration` (it sets the Stage 2 floor directly, unless the user declines). Re-read `STAGE` after it returns.
 
 **Orphan free-branch triage.** If the preload shows **ORPHAN_FREE_BRANCHES**, ask via `AskUserQuestion` for each: **merge / keep / delete?**
 - **merge** — invoke `/xp-free-close` against that branch (check it out first if needed).

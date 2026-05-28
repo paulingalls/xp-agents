@@ -180,6 +180,43 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
 
+    def test_outputs_stage_marker_when_system_context_exists(self):
+        """Surfaces ### STAGE=N so SKILL.md Step 0 reads the stage from the
+        preload instead of a redundant branching.py callback. Gated on a real
+        system_context.json (which holds the stage)."""
+        from _branching_fixtures import write_system_context
+
+        write_system_context(self.smm_dir, stage=2)
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("### STAGE=2", result.stdout)
+
+    def test_no_stage_marker_when_system_context_missing(self):
+        """No ### STAGE marker when system_context.json is absent — the stage
+        is meaningless (0) and the NEEDS_SYSTEM_CONTEXT path sets it instead."""
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("### STAGE", result.stdout)
+        self.assertIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
+
+    def test_no_empty_stage_marker_when_branching_exits_nonzero(self):
+        """A present-but-schema-invalid system_context.json on the stage-1
+        auto-promote save path makes `branching.py stage` exit non-zero. The
+        preload must (a) NOT emit an empty `### STAGE=` marker — which the SKILL
+        would read as a valid STAGE<2 and falsely trigger /xp-stage-migration —
+        and (b) survive set -e (exit 0) so the rest of kickoff still runs. No
+        marker => SKILL falls back to the documented Python re-read."""
+        # stage=1 read => auto-promote save => load_system_context revalidates
+        # this minimal (invalid) doc and raises ValueError => stage exits 1.
+        (self.smm_dir / "system_context.json").write_text(
+            '{"branching_strategy": {"stage": 1}}'
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("### STAGE=", result.stdout)
+        # The file exists (non-symlink) so NEEDS_SYSTEM_CONTEXT must NOT fire.
+        self.assertNotIn("NEEDS_SYSTEM_CONTEXT", result.stdout)
+
     def test_empty_marker_headers_carry_action_hint(self):
         """Empty-body markers must include the action they trigger inline.
 

@@ -37,8 +37,26 @@ class TestKickoffStep0StageMigration(unittest.TestCase):
         self.assertTrue(self.step, "Step 0 region is empty")
 
     def test_step_0_reads_branching_stage(self):
+        # The branching.py stage snippet must remain documented for the
+        # conditional re-read on stage-mutating paths (system-context /
+        # migration), even though the default source is now the preload marker.
         self.assertIn("branching.py", self.step)
         self.assertIn("stage", self.step.lower())
+
+    def test_step_0_reads_stage_from_preload_marker(self):
+        # Default source for the stage is the preload's `### STAGE=N` marker —
+        # the redundant python callback only survives on the re-read paths.
+        # Pin both the marker token AND the "default source" relationship: a
+        # prose revert to "always read via branching.py" that left a stray
+        # `### STAGE` mention would still flunk the relationship assertion.
+        self.assertIn("### STAGE", self.step)
+        self.assertIn("default source", self.step.lower())
+
+    def test_step_0_documents_missing_marker_python_fallback(self):
+        # No marker (fresh project before /xp-system-context, or a preload that
+        # could not compute the stage) must explicitly route to the Python read,
+        # not leave the LLM with an undefined STAGE that reads as < 2.
+        self.assertIn("no `### STAGE` marker", self.step)
 
     def test_step_0_skips_migration_when_stage_ge_2(self):
         self.assertTrue(
