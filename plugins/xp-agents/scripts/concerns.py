@@ -208,6 +208,27 @@ def resolve_concerns(
 # ---------------------------------------------------------------------------
 
 
+def _declares_supersession(meta: dict, target_id: str) -> bool:
+    """True if an event's metadata declares it supersedes/resolves *target_id*.
+
+    Reads ``metadata.supersedes`` and ``metadata.resolves`` (OR semantics —
+    either key counts). Prefix-tolerant in both directions to honor the
+    short-ID convention (mirrors resolution.resolve_prefix). Empty/falsy
+    declared entries are skipped so a stray ``['']`` can't blanket-match.
+
+    Shared by Pattern 2 (assumption contradicted by discovery) and Pattern 5
+    (superseded decision) in detect_conflicts so the prefix rule stays
+    single-sourced.
+    """
+    declared = (meta.get(METADATA_KEY_SUPERSEDES) or []) + (
+        meta.get(METADATA_KEY_RESOLVES) or []
+    )
+    return any(
+        s and (target_id == s or target_id.startswith(s) or s.startswith(target_id))
+        for s in declared
+    )
+
+
 def make_concern(
     content: str,
     severity: str,
@@ -247,16 +268,27 @@ def detect_conflicts(
     # Collect existing concern state for deduplication and escalation.
     resolutions = resolution.compute_resolutions(events)
     resolved_ids = resolutions["resolved_concern_ids"]
-    # Single-pass scan of concern events builds three parallel dedup/escalation
+    # Single-pass scan of concern events builds four parallel dedup/escalation
     # structures: content-based dedup (existing_unresolved), refs-based dedup
     # for per-root suppression (existing_unresolved_ref_sets — Pattern 2 emits
     # N concerns when N discoveries cite the same assumption with distinct
-    # snippet text; content-only dedup misses), and resolved-recurrence counts
-    # for severity escalation. Empty `references` (Pattern 1) skips the
-    # ref-dedup set entirely.
+    # snippet text; content-only dedup misses), resolved-recurrence counts
+    # for severity escalation (resolved_content_counts), and the flat set of
+    # individual ref-ids acknowledged by RESOLVED concerns (resolved_ref_ids).
+    # Empty `references` (Pattern 1) skips both ref structures.
     existing_unresolved: set[str] = set()
     existing_unresolved_ref_sets: set[tuple[str, ...]] = set()
     resolved_content_counts: dict[str, int] = {}
+    # Individual ref-ids acknowledged by RESOLVED concerns. Pattern 2
+    # (assumption contradicted) uses this to stop re-firing: the
+    # assumption+discovery events are immutable, so once a human resolves the
+    # contradiction it carries no new signal — re-raising (and escalating via
+    # resolved_content_counts) every scan is pure noise. Stored flat (not as
+    # whole-set tuples) so a resolved concern referencing the assumption
+    # alongside other ids still marks the assumption acknowledged. Global, not
+    # session-windowed: unlike Pattern 5's decision pairs, an immutable-id
+    # contradiction can never become new signal.
+    resolved_ref_ids: set[str] = set()
     for e in events:
         if e.get("type") != CONCERN:
             continue
@@ -265,6 +297,9 @@ def detect_conflicts(
             resolved_content_counts[content] = (
                 resolved_content_counts.get(content, 0) + 1
             )
+            refs = e.get("references")
+            if refs:
+                resolved_ref_ids.update(refs)
             continue
         existing_unresolved.add(content)
         refs = e.get("references")
@@ -340,19 +375,34 @@ def detect_conflicts(
         if e.get("type") == ASSUMPTION:
             assumptions[e.get("id", "")] = e
         elif e.get("type") == DISCOVERY:
+            # A discovery may declare it supersedes/resolves the assumption it
+            # references — the intended forward mechanism (mirrors the Pattern-5
+            # check below). Prefix-tolerant for short-ID conventions.
+            meta = e.get("metadata", {})
             for ref in e.get("references", []):
-                if ref in assumptions:
-                    # Template = 57 chars; split remaining budget across both texts
-                    _budget = get_required_budget(CONCERN)
-                    _max_text = (_budget - 57) // 2
-                    a_text = assumptions[ref]["content"][:_max_text]
-                    d_text = e["content"][:_max_text]
-                    _add_concern(
-                        f"Assumption contradicted: '{a_text}' "
-                        f"contradicted by discovery '{d_text}'.",
-                        "high",
-                        references=[assumptions[ref]["id"]],
-                    )
+                if ref not in assumptions:
+                    continue
+                assumption_id = assumptions[ref]["id"]
+                # Acknowledged: a prior RESOLVED contradiction for this
+                # assumption already exists — stop re-firing (and escalating).
+                if assumption_id in resolved_ref_ids:
+                    continue
+                # Explicitly superseded/resolved by this discovery. The
+                # `assumption_id and` guard mirrors Pattern 5's prev_id guard:
+                # an empty target would make `s.startswith("")` blanket-match.
+                if assumption_id and _declares_supersession(meta, assumption_id):
+                    continue
+                # Template = 57 chars; split remaining budget across both texts
+                _budget = get_required_budget(CONCERN)
+                _max_text = (_budget - 57) // 2
+                a_text = assumptions[ref]["content"][:_max_text]
+                d_text = e["content"][:_max_text]
+                _add_concern(
+                    f"Assumption contradicted: '{a_text}' "
+                    f"contradicted by discovery '{d_text}'.",
+                    "high",
+                    references=[assumption_id],
+                )
 
     # 3. Convention violation — decision diverges from convention on same topic
     conventions_by_topic: dict[str, list[dict]] = {}
@@ -430,21 +480,13 @@ def detect_conflicts(
         prev_pos, prev_dec = decs[-2]
         curr_pos, curr_dec = decs[-1]
 
-        # Explicit override: curr decision's metadata.supersedes OR
-        # metadata.resolves references the prior decision (full ID or 8+
-        # char prefix match, mirroring resolution.resolve_prefix's short-ID
-        # convention). Both keys count: `resolves` triggers the cascade
-        # auto-closer (STRONG link), so flagging the prior as unresolved
-        # would contradict the link hierarchy.
+        # Explicit override: curr decision's metadata declares it supersedes/
+        # resolves the prior decision (see _declares_supersession). `resolves`
+        # triggers the cascade auto-closer (STRONG link), so flagging the prior
+        # as unresolved would contradict the link hierarchy.
         meta = curr_dec.get("metadata", {})
-        declarations = (meta.get(METADATA_KEY_SUPERSEDES) or []) + (
-            meta.get(METADATA_KEY_RESOLVES) or []
-        )
         prev_id = prev_dec.get("id", "")
-        if prev_id and any(
-            prev_id == s or prev_id.startswith(s) or s.startswith(prev_id)
-            for s in declarations
-        ):
+        if prev_id and _declares_supersession(meta, prev_id):
             continue
 
         # Binary search: any concern position in (prev_pos, curr_pos)?
