@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.5.2 — Surface the branching stage in the kickoff preload
+
+Internal optimization, no user-facing behavior change — patch bump.
+
+`/xp-kickoff` Step 0 read the branching stage with a dedicated
+`branching.py stage` Bash callback. The kickoff preload
+(`check_session_needs.sh`) already runs Python at session start, so the
+stage is now surfaced there as a `### STAGE=N` marker and Step 0 reads it
+directly — removing a redundant LLM↔Bash round-trip from every kickoff's
+hot path. The marker is emitted as the `else`-branch of the
+`NEEDS_SYSTEM_CONTEXT` gate (mutual exclusivity is structural), and a
+non-zero `branching.py` exit suppresses the marker so Step 0 falls back to
+the Python read rather than trusting an empty value. Two stage-mutating
+skills (`/xp-system-context`, `/xp-stage-migration`) still trigger a fresh
+Python re-read, since they change the stage after the preload has run.
+
 ## v3.5.1 — Correct stale comment from the v3.5.0 refactor
 
 Doc-only patch. The v3.5.0 verify-path work first drafted an `is_script_alias_run` helper, then folded its logic into `verify_paths.classify_path_strategy` (which keys off `is_test_run`'s return value plus a `\bjest\b` token). A comment in `test_parsing.py` still claimed the launcher regex constants were "shared with is_script_alias_run" — a reference to a function that never shipped. Corrected to describe the actual single consumer (`is_test_run`). No behavior change.
