@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.5.3 — Stop the assumption-contradicted concern from re-firing forever
+
+Bug fix in the conflict detector (`detect_conflicts`, Pattern 2). It raised a
+`high` "Assumption contradicted" concern on every scan whenever a `discovery`
+event referenced an `assumption` — and because the dedup only suppressed
+*unresolved* duplicates, resolving the flag made the next scan re-add it and
+the recurrence path escalated its severity. With immutable assumption+discovery
+events, the same concern regenerated every kickoff and aged into stale-flag
+sweeps no matter how often it was triaged.
+
+The detector now honors supersession, mirroring the superseded-decision
+pattern: it skips the contradiction when a prior **resolved** concern already
+references the assumption (acknowledged), or when the discovery's
+`metadata.supersedes`/`metadata.resolves` **declares** the assumption (the
+intended forward link). The shared `_declares_supersession` predicate is
+extracted and used by both patterns; it ignores empty declared entries so a
+stray `['']` can no longer blanket-match (a latent bug in the prior inline
+code).
+
 ## v3.5.2 — Surface the branching stage in the kickoff preload
 
 Internal optimization, no user-facing behavior change — patch bump.
