@@ -117,6 +117,13 @@ def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]
     return parts
 
 
+SEQUENTIAL_DISCIPLINE_NOTE = (
+    "You are a single-purpose sequential agent: do one action, observe its "
+    "result, then proceed. The harness's parallel-batching guidance does not "
+    "apply to dependent calls (e.g. save then verify) — only to independent reads."
+)
+
+
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
     "xp-code-reviewer": _inject_full,
@@ -139,7 +146,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         values = plugin_loader.load_xp_values()
-        return values if values else None
+        parts = [values] if values else []
+        parts.append(SEQUENTIAL_DISCIPLINE_NOTE)
+        return "\n\n".join(parts)
 
     agent_id = input_data.get("agent_id", "subagent")
 
@@ -161,8 +170,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if values:
         parts.append(values)
 
-    if not parts:
-        return None
+    parts.append(SEQUENTIAL_DISCIPLINE_NOTE)
+
     return "\n\n".join(parts)
 
 

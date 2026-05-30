@@ -235,5 +235,64 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         self.assertIn("</smm-context>", result)
 
 
+# ===========================================================================
+# Sequential-discipline note (sprint-098 story-001) — lands in every tier
+# ===========================================================================
+
+
+class TestSubagentSequentialNote(_HookTestCase):
+    """The sequential-discipline note injects into every subagent tier."""
+
+    _SIGNATURE = "single-purpose sequential agent"
+    _EXEMPTION = "only to independent reads"
+
+    def test_default_agent_gets_sequential_note(self):
+        """A default (Task) agent's context carries the sequential note."""
+        import subagent_start
+
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
+        result = subagent_start.run(
+            {"session_id": "t", "agent_id": "task-1"},
+            smm_dir=self.smm_dir,
+        )
+        assert result is not None
+        self.assertIn(self._SIGNATURE, result)
+
+    def test_xp_agent_gets_sequential_note(self):
+        """An xp-* values-only-tier agent still carries the note (every tier)."""
+        import subagent_start
+
+        result = subagent_start.run(
+            {"session_id": "t", "agent_id": "xp-1", "agent_type": "xp-nav"},
+            smm_dir=self.smm_dir,
+        )
+        assert result is not None
+        self.assertIn(self._SIGNATURE, result)
+
+    def test_missing_smm_dir_gets_sequential_note(self):
+        """The smm_dir-None early-return path also carries the note."""
+        import subagent_start
+
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        result = subagent_start.run(
+            {"session_id": "t", "agent_id": "x-1"},
+            smm_dir=fake_dir,
+        )
+        assert result is not None
+        self.assertIn(self._SIGNATURE, result)
+
+    def test_sequential_note_exempts_independent_reads(self):
+        """The note preserves legitimate independent-read batching."""
+        import subagent_start
+
+        write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
+        result = subagent_start.run(
+            {"session_id": "t", "agent_id": "task-1"},
+            smm_dir=self.smm_dir,
+        )
+        assert result is not None
+        self.assertIn(self._EXEMPTION, result)
+
+
 if __name__ == "__main__":
     unittest.main()
