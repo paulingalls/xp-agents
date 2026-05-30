@@ -24,7 +24,7 @@ from conftest import (
 
 GUIDE_BUDGETS: dict[str, int] = {
     "XP_VALUES": 20,
-    "PROCESS_GUIDE": 90,
+    "PROCESS_GUIDE": 100,
     "TEAMMATE_GUIDE": 50,
 }
 

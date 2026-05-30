@@ -8,6 +8,14 @@
 - **Courage**: Make the tough call. Use the better way; flag the old with a concern.
 - **Honesty**: Record decisions, assumptions, concerns in the SMM. State assumptions explicitly. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes`.
 
+## Sequential Discipline
+
+The harness instructs you to batch independent tool calls in parallel. XP flows are the opposite: step-gated and sequential. Inside any xp skill, suppress the parallel instinct — run one step per turn: make the call, observe the result, then decide the next. Batching a gated step with the one after it races state that isn't settled yet, and one failure in the block cancels the whole batch.
+
+- Never place an `AskUserQuestion` and the action that consumes its answer in the same block — the action runs against a guessed answer.
+- Never spawn the same subagent more than once; duplicates collide on shared preload/marker state.
+- The exemption: genuinely independent, read-only calls (Glob, Grep, Read of unrelated files) may still batch. The rule targets dependent and gated calls, not parallel reads.
+
 ## Pillars
 
 - **Intent** — what we're building. Cap 2-5.
