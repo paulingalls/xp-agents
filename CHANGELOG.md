@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.5.4 — Stop a malformed file_domain from crashing the startup hooks
+
+Bug fix in `extract_file_domain_paths` (`smm/triage.py`). A sprint story whose
+`file_domain` entry was free-text prose using the ASCII `--` separator instead
+of the em-dash convention (e.g. `content/items.json -- strip legacy
+effects[].damage copies`) left the whole prose string as the glob path. The
+embedded `effects[]` is a bare `[]` — an unterminated regex character set — so
+`_compile_glob` raised `re.PatternError`, uncaught, and took down the
+SessionStart retrospective hook on launch. The same path is exercised by the
+stop-gate, pre-write, and concern-triage hooks, so the crash was not limited to
+startup.
+
+Two layers of fix:
+
+- **Robustness** — `_compile_glob` now falls back to a literal match on
+  `re.error`, so a malformed glob from any caller degrades to "matches nothing"
+  instead of crashing the hook.
+- **Lenient parsing** — `_entry_to_paths` strips the description at the earliest
+  em-dash *or* ASCII `--` separator, then splits the path portion on commas (so
+  a comma inside the description spawns no phantom path). Comma-joined and
+  `--`-separated entries now resolve to their real declared paths, restoring
+  correct commit attribution.
+
+The skill guidance still prescribes the canonical em-dash form — the leniency is
+defensive, not an invitation to deviate.
+
 ## v3.5.3 — Stop the assumption-contradicted concern from re-firing forever
 
 Bug fix in the conflict detector (`detect_conflicts`, Pattern 2). It raised a

@@ -14,6 +14,27 @@ from pathlib import Path
 import event_schema
 
 _EM_DASH = "—"
+# The convention is "path — description" (em-dash), but " -- " (ASCII) is a
+# common deviation. Both end the path portion; a leaked description once
+# crashed a hook by feeding prose to the glob compiler.
+_ASCII_DESC_SEP = " -- "
+
+
+def _entry_to_paths(entry: str) -> list[str]:
+    """Split one file_domain entry into its declared path(s).
+
+    An entry is "path — description", "path -- description", or just
+    "path"; multiple paths may be comma-joined ("a.ts, b.ts — ..."). The
+    description (after the earliest em-dash or ASCII ' -- ' separator) is
+    stripped before splitting on commas, so a comma inside the description
+    never spawns a phantom path. Returns cleaned, non-empty path strings.
+    """
+    seps = [entry.index(_EM_DASH)] if _EM_DASH in entry else []
+    ascii_idx = entry.find(_ASCII_DESC_SEP)
+    if ascii_idx != -1:
+        seps.append(ascii_idx)
+    head = entry[: min(seps)] if seps else entry  # earliest separator wins
+    return [p.strip() for p in head.split(",") if p.strip()]
 
 
 def find_unresolved(
@@ -103,8 +124,18 @@ def _compile_glob(pattern: str) -> re.Pattern[str]:
 
     `resolve_dominant_story` is on the pre-commit hot path — same patterns
     recompile on every commit without this cache.
+
+    Degrades gracefully on a malformed glob: free-text file_domain prose
+    (e.g. "...effects[].damage...") can produce an invalid regex — a bare
+    `[]` is an unterminated character set. Rather than let re.error escape
+    and crash the caller (it took down the SessionStart retrospective hook),
+    fall back to matching the pattern as a literal. The bad entry is not a
+    real path, so it simply matches nothing real instead of raising.
     """
-    return re.compile(_glob_to_regex(pattern))
+    try:
+        return re.compile(_glob_to_regex(pattern))
+    except re.error:
+        return re.compile(re.escape(pattern))
 
 
 def extract_file_domain_paths(
@@ -114,9 +145,12 @@ def extract_file_domain_paths(
 ) -> set[str]:
     """Extract file paths from file_domain entries, expanding any globs.
 
-    Entries are "path — description" or just "path". When the path contains
-    glob metacharacters (`*`, `?`, `[...]`) the entry expands to matching
-    files: against `candidate_files` via fnmatch-style regex when provided
+    Entries are "path — description" (em-dash convention), "path --
+    description" (common ASCII deviation), or just "path"; several paths
+    may be comma-joined in one entry. See `_entry_to_paths`. When a path
+    contains glob metacharacters (`*`, `?`, `[...]`) the entry expands to
+    matching files: against `candidate_files` via fnmatch-style regex when
+    provided
     (the cascade-analysis case — historical commits whose files may no
     longer exist on disk), otherwise via `pathlib.Path(cwd).glob`.
 
@@ -135,29 +169,25 @@ def extract_file_domain_paths(
     candidates_list: list[str] | None = None  # materialized lazily on first glob
     glob_root = Path(cwd) if cwd is not None else None
     for entry in file_domain:
-        path = (
-            entry.split(_EM_DASH, 1)[0].strip() if _EM_DASH in entry else entry.strip()
-        )
-        if not path:
-            continue
-        if not _glob.has_magic(path):
-            paths.add(path)
-            continue
-        if candidate_files is not None:
-            if candidates_list is None:
-                candidates_list = list(candidate_files)
-            regex = _compile_glob(path)
-            for cand in candidates_list:
-                if regex.fullmatch(cand):
-                    paths.add(cand)
-        else:
-            if glob_root is None:
-                raise ValueError(
-                    f"extract_file_domain_paths: glob entry {path!r} requires "
-                    "candidate_files= or cwd= (no implicit-cwd fallback)"
-                )
-            # Normalize to paths RELATIVE TO `glob_root` so result shape
-            # matches what callers passing literal paths produce.
-            for match in glob_root.glob(path):
-                paths.add(str(match.relative_to(glob_root)))
+        for path in _entry_to_paths(entry):
+            if not _glob.has_magic(path):
+                paths.add(path)
+                continue
+            if candidate_files is not None:
+                if candidates_list is None:
+                    candidates_list = list(candidate_files)
+                regex = _compile_glob(path)
+                for cand in candidates_list:
+                    if regex.fullmatch(cand):
+                        paths.add(cand)
+            else:
+                if glob_root is None:
+                    raise ValueError(
+                        f"extract_file_domain_paths: glob entry {path!r} requires "
+                        "candidate_files= or cwd= (no implicit-cwd fallback)"
+                    )
+                # Normalize to paths RELATIVE TO `glob_root` so result shape
+                # matches what callers passing literal paths produce.
+                for match in glob_root.glob(path):
+                    paths.add(str(match.relative_to(glob_root)))
     return paths
