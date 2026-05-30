@@ -103,8 +103,18 @@ def _compile_glob(pattern: str) -> re.Pattern[str]:
 
     `resolve_dominant_story` is on the pre-commit hot path — same patterns
     recompile on every commit without this cache.
+
+    Degrades gracefully on a malformed glob: free-text file_domain prose
+    (e.g. "...effects[].damage...") can produce an invalid regex — a bare
+    `[]` is an unterminated character set. Rather than let re.error escape
+    and crash the caller (it took down the SessionStart retrospective hook),
+    fall back to matching the pattern as a literal. The bad entry is not a
+    real path, so it simply matches nothing real instead of raising.
     """
-    return re.compile(_glob_to_regex(pattern))
+    try:
+        return re.compile(_glob_to_regex(pattern))
+    except re.error:
+        return re.compile(re.escape(pattern))
 
 
 def extract_file_domain_paths(

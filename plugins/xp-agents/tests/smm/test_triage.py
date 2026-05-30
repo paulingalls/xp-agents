@@ -283,5 +283,56 @@ class TestExtractFileDomainPaths(unittest.TestCase):
         self.assertEqual(result, {"tests/hooks/test_a.py"})
 
 
+class TestMalformedGlobRobustness(unittest.TestCase):
+    """A malformed glob in a file_domain entry must never crash a hook.
+
+    Free-text file_domain prose (e.g. "content/items.json -- strip legacy
+    effects[].damage copies") produces an invalid regex — the bare `[]`
+    is an unterminated character set. This crashed the SessionStart
+    retrospective hook (re.PatternError) for every caller of
+    extract_file_domain_paths. A bad entry must degrade gracefully: it is
+    not a real path, so it contributes nothing rather than raising.
+    """
+
+    # A free-text file_domain entry whose prose embeds an unterminated
+    # bracket class (`effects[]`) — the shape that crashed the hook.
+    BAD_ENTRY = (
+        "content/items.json -- strip legacy effects[].damage/ac_bonus copies (34 items)"
+    )
+
+    def test_compile_glob_does_not_raise_on_unterminated_set(self):
+        """_compile_glob returns a usable pattern instead of raising re.error."""
+        pattern = triage._compile_glob("effects[].damage")
+        # Falls back to a literal match — the malformed glob matches only
+        # its own literal text, never a real file path.
+        self.assertIsNone(pattern.fullmatch("effects.damage"))
+        self.assertIsNotNone(pattern.fullmatch("effects[].damage"))
+
+    def test_candidate_branch_does_not_raise(self):
+        """The cascade-analysis (candidate_files) path must not crash."""
+        result = triage.extract_file_domain_paths(
+            [self.BAD_ENTRY],
+            candidate_files=["content/items.json", "apps/server/src/items.ts"],
+        )
+        # Prose-as-glob matches no real candidate -> contributes nothing.
+        self.assertEqual(result, set())
+
+    def test_disk_branch_does_not_raise(self):
+        """The disk-glob (cwd=) path must not crash on a malformed entry."""
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / "content").mkdir()
+            (Path(td) / "content" / "items.json").touch()
+            result = triage.extract_file_domain_paths([self.BAD_ENTRY], cwd=td)
+        self.assertEqual(result, set())
+
+    def test_wellformed_entries_alongside_bad_one_still_resolve(self):
+        """A bad entry doesn't poison sibling well-formed entries."""
+        result = triage.extract_file_domain_paths(
+            [self.BAD_ENTRY, "scripts/auth.py — add login"],
+            candidate_files=["scripts/auth.py", "content/items.json"],
+        )
+        self.assertEqual(result, {"scripts/auth.py"})
+
+
 if __name__ == "__main__":
     unittest.main()
