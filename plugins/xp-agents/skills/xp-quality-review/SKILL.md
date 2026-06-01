@@ -23,6 +23,13 @@ allowed-tools:
 
 # Quality Review
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 5 strictly, one
+> step per turn — make the call, observe, then decide the next. Don't batch a
+> step with the one that depends on it (e.g. acting on the xp-code-reviewer's
+> findings before it returns); never spawn that reviewer subagent more than once.
+> Independent read-only calls may still batch.
+
 Post-code-review review. `/code-review` just ran — an identify-only correctness pass that returns a JSON array of findings (it fixes nothing). You orchestrate an independent review and resolve plan concerns.
 
 ## Step 1: Spawn Independent Code Reviewer
