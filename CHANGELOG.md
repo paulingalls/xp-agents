@@ -1,5 +1,41 @@
 # Changelog
 
+## v3.6.0 — Sequential-discipline guardrails across subagents, guides, and skills
+
+The Claude Code harness instructs the agent to batch independent tool calls in
+parallel; xp flows are deliberately step-gated, and over-applying that instinct
+inside a flow races `AskUserQuestion` answers, spawns duplicate subagents, and
+fires dependent calls together. This release (sprint-098) asserts sequential
+discipline in every context the plugin controls:
+
+- **Subagent injection** — `subagent_start.py` appends a
+  `SEQUENTIAL_DISCIPLINE_NOTE` to every spawned subagent's context (both the
+  normal path and the `smm_dir`-None early return): act one action at a time,
+  observe, then proceed — while exempting genuinely independent reads.
+- **Guide prose** — a new `## Sequential Discipline` section in
+  `PROCESS_GUIDE.md` (names the harness parallel instruction, one-step-per-turn,
+  the `AskUserQuestion`-race rule, no-duplicate-subagent, and the read
+  exemption) and a teammate-scoped section in `TEAMMATE_GUIDE.md`.
+- **Per-skill pins** — a self-contained pin after the H1 of all 14 inline
+  skills, each naming that skill's real step sequence and a skill-specific
+  `AskUserQuestion`-race (or subagent-spawn) example; `xp-scaffold-acceptance`
+  echoes its non-standard 1→3→2→4…→10 order. The 3 forked delegation skills are
+  intentionally unpinned. A new `tests/skills/test_sequential_pins.py` enforces
+  presence, classifying forked skills via the `context: fork` frontmatter signal
+  so future inline skills auto-require a pin.
+
+The hard spawn-lock guard (atomic `O_CREAT|O_EXCL` keyed by `agent_type`)
+remains deferred to a future plan — this is prose+injection mitigation, not
+enforcement.
+
+Also in this release: **test SMM-leak isolation.** `conftest.py` now pins
+`CLAUDE_PLUGIN_DATA` to a throwaway temp dir for the test session. With
+`SMM_DIR` stripped, in-process SMM derivation (`init.sh` fallback in ephemeral
+test repos) had been creating one project-id dir per temp repo under the real
+`~/.claude/plugins/data/xp-agents-xp-agents` root and leaving it behind; the pin
+redirects that derivation under temp with `atexit` cleanup, guarded by a
+regression test.
+
 ## v3.5.4 — Stop a malformed file_domain from crashing the startup hooks
 
 Bug fix in `extract_file_domain_paths` (`smm/triage.py`). A sprint story whose
