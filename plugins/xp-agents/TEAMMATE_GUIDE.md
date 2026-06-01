@@ -17,6 +17,10 @@ Before each commit: `/code-review` (identify-only correctness scan) → `/xp-qua
 
 Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff. There is no on-demand triage skill.
 
+## Sequential Discipline
+
+The harness tells you to batch independent tool calls in parallel. As a single-story teammate your work is sequential — do one action, observe its result, then proceed. The parallel-batching guidance applies only to genuinely independent read-only calls, not to dependent steps (e.g. save then verify, or a question and the action that uses its answer).
+
 ## Commit Conventions
 
 - One logical change per commit; `ruff format` before staging

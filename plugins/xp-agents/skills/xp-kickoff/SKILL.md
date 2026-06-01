@@ -17,6 +17,14 @@ allowed-tools:
 
 # Session Kickoff
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
+> strictly, one step per turn — make the call, observe, then decide the next.
+> Never put an `AskUserQuestion` and the action it gates in one block (the Step 2
+> session-mode question vs the skill it launches); never spawn the same subagent
+> twice (e.g. duplicate retrospectives). Independent read-only calls may still
+> batch.
+
 **You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (Step 6) MUST always run — it is not optional. Only begin session work after housekeeping completes.**
 
 ## Step 0: Prepare (ALWAYS)

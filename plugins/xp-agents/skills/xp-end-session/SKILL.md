@@ -18,6 +18,13 @@ allowed-tools:
 
 # End Session
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 5 strictly, one
+> step per turn — make the call, observe, then decide the next. Never put an
+> `AskUserQuestion` and the action consuming its answer in one block (a
+> force-close/defer question vs the append that records its disposition); never
+> spawn the same subagent twice. Independent read-only calls may still batch.
+
 User-invoked. The preload above provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).

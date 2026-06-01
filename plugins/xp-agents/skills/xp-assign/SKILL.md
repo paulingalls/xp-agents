@@ -18,6 +18,14 @@ allowed-tools:
 
 # Work Assignment
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Pre-flight → Mode Selection → Branch
+> Creation → Solo or CLI-Teammate → Recording Events strictly, one step per turn
+> — make the call, observe, then decide the next. Never put an `AskUserQuestion`
+> and the action it gates in one block (the mode-selection question vs the branch
+> creation / teammate spawn it decides); never spawn the same subagent twice.
+> Independent read-only calls may still batch.
+
 Decide how to execute the plan: solo (sequential) or with CLI teammates (parallel). Stories arrive in `scheduled` status (xp-work-selection parks them). xp-assign promotes scheduled → in-progress as it creates each branch — solo promotes only the FIRST scheduled, teammates promote ALL.
 
 ## Pre-flight

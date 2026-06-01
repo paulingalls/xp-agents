@@ -16,6 +16,13 @@ allowed-tools:
 
 # Work Selection
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 5 strictly, one
+> step per turn — make the call, observe, then decide the next. Never put an
+> `AskUserQuestion` and the action consuming its answer in one block (a
+> Try/triage question vs the decide/triage append that records it); never spawn
+> the same subagent twice. Independent read-only calls may still batch.
+
 The session data above was preloaded automatically.
 
 SMM_DIR=<path> is shown in the preload output. Use it for all append.sh calls.

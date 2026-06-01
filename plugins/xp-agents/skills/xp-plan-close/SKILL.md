@@ -24,6 +24,13 @@ allowed-tools:
 
 # Plan Close
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 4.5 → 5–6 → 7 → 8
+> strictly, one step per turn — make the call, observe, then decide the next.
+> Don't batch a step with the one that depends on it (e.g. archiving or merging
+> before the forked xp-close-reviewer returns); never spawn the same subagent
+> twice. Independent read-only calls may still batch.
+
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary
 integration branch (plan-close merges plan → primary). Shared pipeline

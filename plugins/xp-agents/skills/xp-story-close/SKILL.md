@@ -25,6 +25,13 @@ allowed-tools:
 
 # Story Close
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 1b → 1c → 2 → 3 → 4.5 → 5–6 →
+> 7 → 7b → 8 strictly, one step per turn — make the call, observe, then decide
+> the next. Don't batch a step with the one that depends on it (e.g. merging or
+> JIT-branching the next story before the diff review completes); never spawn the
+> same subagent twice. Independent read-only calls may still batch.
+
 The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
 `TARGET_BRANCH`, `GH_AVAILABLE`, `WORKTREE_CLEAN`. `TARGET_BRANCH` is
 the merge destination — the sprint branch at stage 2+, primary

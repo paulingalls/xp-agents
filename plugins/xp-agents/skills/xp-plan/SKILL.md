@@ -23,6 +23,14 @@ allowed-tools:
 
 # Execution Plan
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Mode Detection → System-Context Check →
+> Create (Steps 1–6) or Update (Steps 1–10) strictly, one step per turn — make
+> the call, observe, then decide the next. Never put an `AskUserQuestion` and the
+> action consuming its answer in one block (the Step 1 source-gathering question
+> vs writing the plan); never spawn the same subagent twice. Independent
+> read-only calls may still batch.
+
 ## Mode Detection
 
 - **Create mode** (preload says "No execution plan found"): Follow the Create flow.

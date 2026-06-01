@@ -19,6 +19,14 @@ allowed-tools:
 
 # Scaffold Acceptance
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run its non-standard order 1 → 3 → 2 → 4 →
+> 5 → 6 → 7 → 8 → 9 → 10 (Steps 2 and 4–9 loop once per confirmed surface)
+> strictly, one step per turn — make the call, observe, then decide the next.
+> Never put an `AskUserQuestion` and the action consuming its answer in one block
+> (the Step 3/5 surface/preview confirmation vs the Step 6 write); never spawn the
+> same subagent twice. Independent read-only calls may still batch.
+
 Entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.**
 
 **Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9 → 10.** Step 1 detects

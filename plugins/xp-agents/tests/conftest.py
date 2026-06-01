@@ -16,9 +16,12 @@ do not move it. The conftest's directory is on sys.path by virtue of pytest /
 unittest discovery, which lets us import from sibling `_*.py` modules.
 """
 
+import atexit
 import json
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # Strip environment variables that would leak a parent shell's state into
@@ -49,6 +52,20 @@ for _leaked_var in (
     "XP_FILE_DOMAIN_DRIFT_TOLERANCE",
 ):
     os.environ.pop(_leaked_var, None)
+
+# Pin CLAUDE_PLUGIN_DATA to a throwaway dir for the whole test session. With
+# SMM_DIR stripped above, any production code that derives its SMM in-process
+# (resolve_smm_dir -> _derive_smm_dir -> init.sh, which inherits os.environ)
+# would otherwise fall back to the real
+# ${CLAUDE_PLUGIN_DATA:-~/.claude/plugins/data/xp-agents-xp-agents} root and
+# litter it with one project-id dir per ephemeral test git repo. Redirecting
+# the root keeps init.sh's per-repo derivation semantics but lands everything
+# under temp, cleaned up at interpreter exit. Base classes that
+# os.environ.copy() inherit this and then override it with their own per-class
+# temp, so this only affects paths that don't set CLAUDE_PLUGIN_DATA themselves.
+_test_plugin_data = tempfile.mkdtemp(prefix="xp-agents-test-plugin-data-")
+os.environ["CLAUDE_PLUGIN_DATA"] = _test_plugin_data
+atexit.register(shutil.rmtree, _test_plugin_data, ignore_errors=True)
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules. _bases.py owns the
