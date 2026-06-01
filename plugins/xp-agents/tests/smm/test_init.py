@@ -5,15 +5,29 @@ Covers TestInit, TestInitHonorsSmmDirEnv, TestSeedSMM.
 Event validation tests live in test_event_validation.py.
 """
 
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 # Path setup -- allow importing production modules and conftest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-from conftest import _TempRepoTestCase
+from conftest import _PLUGIN_ROOT, _TempRepoTestCase
+
+_REAL_PLUGIN_DATA_ROOT = (
+    Path.home() / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+)
+
+
+def _is_real_root(path: str | Path | None) -> bool:
+    """True if path is the real plugin-data root or lives under it."""
+    if not path:
+        return False
+    p = Path(path)
+    return p == _REAL_PLUGIN_DATA_ROOT or _REAL_PLUGIN_DATA_ROOT in p.parents
 
 
 class TestInit(_TempRepoTestCase):
@@ -139,7 +153,7 @@ class TestInitHonorsSmmDirEnv(_TempRepoTestCase):
         self.assertEqual(result.returncode, 0)
         derived = Path(result.stdout.strip())
         self.assertTrue(
-            str(derived).startswith(str(self._plugin_data_dir)),
+            derived.is_relative_to(self._plugin_data_dir),
             f"expected derived path under {self._plugin_data_dir}, got {derived}",
         )
 
@@ -234,6 +248,80 @@ class TestSeedSMM(_TempRepoTestCase):
         self.assertTrue(json_file.exists())
         self.assertTrue(md_file.exists())
         self.assertEqual(md_file.read_text(), "# Old markdown SMM\n")
+
+
+class TestPluginDataIsolation(unittest.TestCase):
+    """conftest must pin CLAUDE_PLUGIN_DATA to a throwaway dir for the whole
+    test session.
+
+    Regression for SMM dirs littering the real
+    ~/.claude/plugins/data/xp-agents-xp-agents root: with SMM_DIR stripped by
+    conftest, production code that derives its SMM in-process
+    (resolve_smm_dir -> _derive_smm_dir -> init.sh, inheriting os.environ)
+    would otherwise fall back to that real root, creating one project-id dir
+    per ephemeral test git repo and leaving it behind.
+    """
+
+    def test_plugin_data_env_is_isolated_tempdir(self):
+        pd = os.environ.get("CLAUDE_PLUGIN_DATA")
+        self.assertTrue(pd, "conftest must set CLAUDE_PLUGIN_DATA for test isolation")
+        self.assertFalse(
+            _is_real_root(pd),
+            f"CLAUDE_PLUGIN_DATA must be a throwaway dir, not the real "
+            f"plugin-data root, got {pd!r}",
+        )
+
+    def test_ambient_init_resolves_under_isolated_root(self):
+        # Assert the pin BEFORE invoking init.sh — when red (env not pinned)
+        # this fails here, so the test never itself derives under the real
+        # root and leaks a dir.
+        pd = os.environ.get("CLAUDE_PLUGIN_DATA")
+        self.assertTrue(pd and not _is_real_root(pd), "env not isolated")
+        assert pd is not None  # narrowed by the assertTrue above (for Pyright)
+
+        # init.sh, run in a fresh temp git repo with the AMBIENT process env
+        # (what production subprocess calls inherit) and SMM_DIR stripped,
+        # must resolve under the pinned root.
+        with tempfile.TemporaryDirectory() as repo:
+            git_env = {
+                **os.environ,
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            }
+            subprocess.run(
+                ["git", "init", "-q", "."],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-q", "--allow-empty", "-m", "init"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                env=git_env,
+            )
+            env = os.environ.copy()
+            env.pop("SMM_DIR", None)
+            result = subprocess.run(
+                ["bash", str(_PLUGIN_ROOT / "smm" / "init.sh")],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            derived = Path(result.stdout.strip())
+            self.assertTrue(
+                derived.is_relative_to(pd),
+                f"init.sh derived {derived}, expected under pinned {pd}",
+            )
+            self.assertFalse(
+                _is_real_root(derived),
+                f"init.sh leaked under the real plugin-data root: {derived}",
+            )
 
 
 if __name__ == "__main__":
