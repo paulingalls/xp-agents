@@ -15,6 +15,14 @@ allowed-tools:
 
 # Accept Verification
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 1.0 → 1b → 1.5 → 2 → 3 → 4 →
+> 5 → 6 → 7 → 8 strictly, one step per turn — make the call, observe, then decide
+> the next. Never put an `AskUserQuestion` and the action consuming its answer in
+> one block (the Step 1 accept/defer question vs the `/xp-story-close` call in
+> Step 2); never spawn the same subagent twice. Independent read-only calls may
+> still batch.
+
 The preload shows: count of stories under acceptance,
 `SELECTED_STATUS=reviewing|in-progress`, `SPRINT_FILE=<path>`, or
 ERROR/NO_STORIES_TO_ACCEPT. Reviewing-first dispatch picks `reviewing`

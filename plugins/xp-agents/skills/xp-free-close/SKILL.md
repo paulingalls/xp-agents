@@ -23,6 +23,13 @@ allowed-tools:
 
 # Free Close
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 4.5 → 5–6 → 7
+> strictly, one step per turn — make the call, observe, then decide the next.
+> Don't batch a step with the one that depends on it (e.g. pushing or merging
+> before the forked xp-close-reviewer returns); never spawn the same subagent
+> twice. Independent read-only calls may still batch.
+
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the recorded plan branch when `execution_plan.json` sets one (and that branch exists locally), else the primary integration branch (sprint-close parity) — a free branch forked off a plan branch merges back to the plan branch, never to main. Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
 **Commit trailer reminder.** When a commit on this free branch closed a carried retro Try (an adopted `retro-try-*` decision from this or a prior session), the commit body should include `Resolves-Event: <try-id-or-ref>` so `try_status` closes the loop. Cascade closure via the adoption decision's `metadata.resolves` covers most cases; explicit trailers cover the rest.

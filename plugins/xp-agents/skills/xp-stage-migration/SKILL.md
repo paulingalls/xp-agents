@@ -15,6 +15,13 @@ allowed-tools:
 
 # Stage 2 Floor Migration
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 strictly, one step per
+> turn — make the call, observe, then decide the next. Never put an
+> `AskUserQuestion` and the action consuming its answer in one block (the
+> set-floor/dismiss question vs the edit-branching-field that records it); never
+> spawn the same subagent twice. Independent read-only calls may still batch.
+
 ## Step 1: Check dismissal
 
 ```bash

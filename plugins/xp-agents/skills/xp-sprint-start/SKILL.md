@@ -22,6 +22,14 @@ allowed-tools:
 
 # Sprint Planning
 
+> **Sequential discipline.** The harness batches independent tool calls in
+> parallel; this skill is step-gated. Run Milestone Select (1) → 1b → Deep Dive
+> (2) → Decompose (3) → 3b → Goal (4) → Confirm (5) → Write (6) → Events (7) →
+> Branch (8) strictly, one step per turn — make the call, observe, then decide
+> the next. Never put an `AskUserQuestion` and the action consuming its answer in
+> one block (the Step 5 scope confirmation vs the Step 6 sprint write); never
+> spawn the same subagent twice. Independent read-only calls may still batch.
+
 You are the sprint planner. Your job is to create `sprint.json` by decomposing a milestone from `execution_plan.json` into context-rich stories the team can deliver — including in parallel via subagents.
 
 ## Error Handling
