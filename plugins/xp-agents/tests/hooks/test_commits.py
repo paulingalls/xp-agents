@@ -613,6 +613,30 @@ class TestIsEscapeHatchCommit(unittest.TestCase):
         )
 
 
+class TestIsEscapeHatchMessage(unittest.TestCase):
+    """Message-level escape-hatch check — shared by the commit gate and the
+    retro review-required denominator."""
+
+    def test_release_prefix(self):
+        self.assertTrue(commits.is_escape_hatch_message("[release] v1.0"))
+
+    def test_chore_and_sprint_direct(self):
+        self.assertTrue(commits.is_escape_hatch_message("[chore] cleanup"))
+        self.assertTrue(commits.is_escape_hatch_message("[sprint-direct] hotfix"))
+
+    def test_case_insensitive(self):
+        self.assertTrue(commits.is_escape_hatch_message("[RELEASE] v2"))
+
+    def test_none_is_false(self):
+        self.assertFalse(commits.is_escape_hatch_message(None))
+
+    def test_plain_message_is_false(self):
+        self.assertFalse(commits.is_escape_hatch_message("fix bug"))
+
+    def test_prefix_not_at_start_is_false(self):
+        self.assertFalse(commits.is_escape_hatch_message("fix [release] tag"))
+
+
 class TestParseEffectiveCwdScanTarget(unittest.TestCase):
     """story-007: parse_effective_cwd accepts a pre-stripped scan_target so
     callers (bash_post_tool) that already have one don't pay for a second

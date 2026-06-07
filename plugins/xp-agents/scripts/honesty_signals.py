@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import code_files
+import commits
 from commits import REVIEW_CYCLE_THRESHOLD
 from event_schema import (
     STATUS_ACTION_FILE_WRITE,
@@ -55,11 +56,21 @@ def build_honesty_signals(events: list[dict]) -> dict:
         if etype == _common.COMMIT:
             total_commits += 1
             in_refactor_mode = False
-            is_code = e.get("metadata", {}).get("code_commit", True)
+            meta = e.get("metadata", {})
+            is_code = meta.get("code_commit", True)
             if is_code:
                 code_commits += 1
-                cfc = e.get("metadata", {}).get("code_file_count")
-                if cfc is None or cfc >= REVIEW_CYCLE_THRESHOLD:
+                cfc = meta.get("code_file_count")
+                # Merge HEADs aggregate already-reviewed work; escape-hatch
+                # commits ([release]/[chore]/[sprint-direct]) bypass the
+                # review-cycle gate by design. Neither requires its own
+                # review, so neither belongs in the review-required
+                # denominator — counting them is a quality_reviews_missing
+                # false positive (the Feedback flag fires on merge/release noise).
+                review_exempt = meta.get("is_merge") or commits.is_escape_hatch_message(
+                    content
+                )
+                if not review_exempt and (cfc is None or cfc >= REVIEW_CYCLE_THRESHOLD):
                     review_required_commits += 1
         elif etype == _common.STATUS:
             action = event_action(e)

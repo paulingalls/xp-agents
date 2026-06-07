@@ -393,6 +393,30 @@ def _has_unresolved_lint_concern(smm_dir: Path, normalized: str) -> bool:
     )
 
 
+def lint_invocation_target(
+    config_path: str, git_root: str, normalized: str
+) -> tuple[str, str]:
+    """Return (lint_cwd, file_arg) for invoking a linter on *normalized*.
+
+    The linter runs FROM the config file's directory, not git_root. In a
+    monorepo the linter binary lives in the subpackage's node_modules
+    (`npx eslint` resolves it by walking up from cwd) and eslint v9 flat
+    config resolves `eslint.config.*` relative to cwd — running from the repo
+    root finds neither, so every subpackage edit fired a spurious lint concern
+    that could never clear. The file arg is realpath'd then made relative to
+    the config dir: normalize_path skips symlink resolution but
+    detect_linter_config .resolve()s the config path, so both sides must be
+    realpath'd before relpath or the result drifts (/var vs /private/var).
+    Single source for lint_check.run() and lint_resolution.
+    """
+    lint_cwd = str(Path(config_path).parent)
+    abs_file = Path(normalized)
+    if not abs_file.is_absolute():
+        abs_file = Path(git_root) / normalized
+    file_arg = os.path.relpath(os.path.realpath(str(abs_file)), lint_cwd)
+    return lint_cwd, file_arg
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core lint_check logic. Returns additionalContext with lint errors, or None."""
     if _common.is_xp_agent(input_data):
@@ -436,20 +460,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             pass
         return None
 
-    linter_name, _config_path = config
+    linter_name, config_path = config
 
     binary = _LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
 
+    lint_cwd, file_arg = lint_invocation_target(config_path, git_root, normalized)
+
     # Route ruff through run_ruff so the edit-time filter (F401/F811 deferred to
     # staging) is single source of truth. Gate on parsed codes — filtered output
     # may keep ruff's "Found N errors." footer even when every code was filtered.
     if linter_name == "ruff":
-        codes, lint_output = run_ruff(normalized, context="edit", cwd=git_root)
+        codes, lint_output = run_ruff(file_arg, context="edit", cwd=lint_cwd)
         has_errors = bool(codes)
     else:
-        lint_output = run_linter(linter_name, normalized, cwd=git_root) or ""
+        lint_output = run_linter(linter_name, file_arg, cwd=lint_cwd) or ""
         has_errors = bool(lint_output)
     if has_errors:
         if not _has_unresolved_lint_concern(smm_dir, normalized):

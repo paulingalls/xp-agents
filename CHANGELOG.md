@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.6.1 — Run linters from their config dir; stop merge/release noise in retro denominators
+
+Two monorepo-and-metrics fixes found while dogfooding in a real subpackage layout:
+
+- **Lint hook runs from the config file's directory, not the git root.** In a
+  monorepo the linter binary lives in a subpackage's `node_modules` (`npx
+  eslint` resolves it by walking up from cwd) and eslint v9 flat config resolves
+  `eslint.config.*` relative to cwd. Both the edit-time hook (`lint_check.run`)
+  and the resolution leg (`lint_resolution.check_and_resolve_lint`) detected the
+  config but ran the linter from the repo root, so every subpackage edit fired a
+  spurious "command not found" lint concern — and on the resolution leg, such a
+  concern could never clear. A new shared `lint_check.lint_invocation_target()`
+  helper runs the linter from the config dir with the file arg made relative to
+  it (realpath both sides first to avoid `/var` vs `/private/var` drift) and is
+  used by both legs. The staged-ruff batch (`pre_tool_bash`) intentionally keeps
+  repo-root cwd — ruff is a global binary that resolves config per-file, so one
+  batch legitimately spans subpackages.
+- **Merge + escape-hatch commits no longer dilute the retro discipline
+  denominators.** The `quality_reviews_missing` Feedback flag fired on
+  merge/release noise (e.g. "3 reviews for 5 review-required commits" when 3 of 6
+  commits were merges and 1 was `[release]`). Merge HEADs aggregate
+  already-reviewed work and escape-hatch commits (`[release]`/`[chore]`/
+  `[sprint-direct]`) bypass the review-cycle gate by design, so neither requires
+  its own review. A new `commits.is_escape_hatch_message()` helper (the
+  command-level checker now delegates to it) drives the exclusion in
+  `honesty_signals.review_required_commits`, and the same exemption is propagated
+  to `retro_metrics._compute_resolves_link_rate`, which previously excluded
+  merges but not escape-hatch commits.
+
 ## v3.6.0 — Sequential-discipline guardrails across subagents, guides, and skills
 
 The Claude Code harness instructs the agent to batch independent tool calls in

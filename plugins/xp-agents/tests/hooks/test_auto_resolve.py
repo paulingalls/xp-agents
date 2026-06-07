@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Tests for auto-resolve of test-failure and lint concerns."""
 
+import os
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import concerns
 import lint_check
+import lint_resolution
 import worktree
 from conftest import (
     _HookTestCase,
@@ -273,6 +277,48 @@ class TestAutoResolveLintConcerns(_LintTmpDirMixin, _HookTestCase):
         self.assertEqual(len(new_resolutions), 0)
 
 
+class TestResolveLintFromConfigDir(_HookTestCase):
+    """The resolution leg (lint_resolution) must run the linter from the
+    config file's directory — symmetric with lint_check.run() — so a monorepo
+    lint concern can actually clear after a fix. Running from git root means
+    `npx eslint` is not found, run_linter returns a spurious error, and the
+    concern is never resolved."""
+
+    def test_check_and_resolve_runs_linter_from_config_dir(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        subpkg = repo / "apps" / "mobile"
+        (subpkg / "src").mkdir(parents=True)
+        (subpkg / "eslint.config.mjs").touch()
+        target = subpkg / "src" / "foo.ts"
+        target.write_text("const x = 1\n")
+        normalized = worktree.normalize_path(str(target), str(repo))
+
+        captured: dict[str, str | None] = {}
+
+        def fake_run_linter(_linter_name, file_path, cwd=None):
+            captured["cwd"] = cwd
+            captured["file_path"] = file_path
+            return None  # clean
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.run_linter", side_effect=fake_run_linter),
+        ):
+            lint_resolution.check_and_resolve_lint(
+                self.smm_dir,
+                str(repo),
+                str(repo),
+                "lint-check",
+                normalized,
+                "Lint concern resolved on commit",
+                None,
+                None,
+            )
+        self.assertEqual(captured["cwd"], os.path.realpath(str(subpkg)))
+        self.assertEqual(captured["file_path"], "src/foo.ts")
+
+
 class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
     """Verify resolve_lint_on_commit threads resolutions without re-computation."""
 
@@ -295,7 +341,7 @@ class TestResolutionsThreading(_LintTmpDirMixin, _HookTestCase):
         with (
             patch(
                 "lint_check.detect_linter_config",
-                return_value=("ruff", None),
+                return_value=("ruff", ""),
             ),
             patch("lint_check.run_linter", return_value=None),
             patch(

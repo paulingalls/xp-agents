@@ -456,8 +456,15 @@ def extract_commit_message(command: str) -> str | None:
 _ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore|sprint-direct)\]", re.IGNORECASE)
 
 
-def is_escape_hatch_commit(command: str) -> bool:
-    msg = extract_commit_message(command)
-    if msg is None:
+def is_escape_hatch_message(message: str | None) -> bool:
+    """True if a commit message opens with an escape-hatch tag
+    ([release]/[chore]/[sprint-direct]). These bypass the review-cycle gate,
+    so they neither require a review at commit time nor count toward the
+    retro's review-required denominator."""
+    if message is None:
         return False
-    return bool(_ESCAPE_HATCH_RE.match(msg))
+    return bool(_ESCAPE_HATCH_RE.match(message))
+
+
+def is_escape_hatch_commit(command: str) -> bool:
+    return is_escape_hatch_message(extract_commit_message(command))
