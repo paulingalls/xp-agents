@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import commits
 from event_schema import (
     DISPOSITION_DROPPED,
     METADATA_KEY_CLOSE_MODE,
@@ -338,6 +339,12 @@ def _compute_resolves_link_rate(
     #
     #   is_merge==True       — close-cycle merge HEAD; aggregates already-
     #                          counted story commits, no trailer of its own.
+    #   escape-hatch message — [release]/[chore]/[sprint-direct] commits
+    #                          bypass the review/resolution discipline by
+    #                          design (version bump, CHANGELOG, chores); they
+    #                          carry no meaningful trailer, same noise class
+    #                          as merge HEADs (mirrors the honesty_signals
+    #                          review-required exemption).
     #   story_id present     — bounded by the story (the story IS the unit
     #                          of resolution); story commits aren't expected
     #                          to carry trailers.
@@ -356,6 +363,8 @@ def _compute_resolves_link_rate(
         if not meta.get("code_commit"):
             return False
         if meta.get("is_merge"):
+            return False
+        if commits.is_escape_hatch_message(e.get("content")):
             return False
         if meta.get("story_id"):
             return False

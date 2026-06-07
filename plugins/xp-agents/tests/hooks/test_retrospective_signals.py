@@ -230,6 +230,54 @@ class TestReviewRequiredCommits(unittest.TestCase):
         signals = honesty_signals.build_honesty_signals(events)
         self.assertEqual(signals["review_required_commits"], 1)
 
+    def test_merge_commits_excluded_from_review_required(self):
+        """Merge HEADs aggregate already-reviewed work — they don't require
+        their own review, so they must not inflate the denominator."""
+        import honesty_signals
+
+        events = [
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="Merge branch feature/x",
+                metadata={
+                    "code_commit": True,
+                    "code_file_count": 3,
+                    "is_merge": True,
+                },
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["review_required_commits"], 0)
+        # Still counts toward code_commits — only the review denominator changes.
+        self.assertEqual(signals["code_commits"], 1)
+
+    def test_escape_hatch_commits_excluded_from_review_required(self):
+        """[release]/[chore]/[sprint-direct] commits bypass the review-cycle
+        gate by design, so they never require a review and must not land in
+        the quality_reviews_missing denominator (retro false positive)."""
+        import honesty_signals
+
+        events = [
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="[release] xp-agents 3.6.0 — guardrails",
+                metadata={"code_commit": True, "code_file_count": 3},
+            ),
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="[chore] bump pinned versions",
+                metadata={"code_commit": True, "code_file_count": 3},
+            ),
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="[sprint-direct] hotfix the gate",
+                metadata={"code_commit": True, "code_file_count": 3},
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["review_required_commits"], 0)
+        self.assertEqual(signals["code_commits"], 3)
+
 
 class TestCommitAsSignalEvent(_HookTestCase):
     """Commit events should appear in the retro digest as signal events."""

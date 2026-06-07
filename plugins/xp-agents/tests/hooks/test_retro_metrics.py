@@ -214,6 +214,34 @@ class TestDirectTrailerCount(unittest.TestCase):
         self.assertEqual(result["resolves_trailer_hits"], 2)
         self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
 
+    def test_escape_hatch_commits_excluded_from_denominator(self):
+        """[release]/[chore]/[sprint-direct] commits bypass the review/
+        resolution discipline by design (version bump + CHANGELOG, chores),
+        so they carry no meaningful Resolves trailer and must not dilute the
+        rate — same false-positive class as merge HEADs."""
+        import retro_metrics
+
+        release_event = make_event(
+            EVENT_TYPE_COMMIT,
+            content="[release] xp-agents 3.6.0 — guardrails",
+            ts="2026-04-05T13:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": "rel-sha",
+                # no resolves trailer, no story_id, not free-session
+            },
+        )
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
+            release_event,
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 2)
+        self.assertEqual(result["resolves_trailer_hits"], 2)
+        self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
+
 
 class TestClassifyLifecycleEvents(unittest.TestCase):
     """_classify_lifecycle_events dispatches on metadata.action for review-cycle
