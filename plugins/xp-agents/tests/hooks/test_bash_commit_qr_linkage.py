@@ -159,7 +159,7 @@ class TestResolutionComputationCount(_HookTestCase):
                 files=["scripts/auth.py", "scripts/routes.py"],
                 body="Fix lint",
             ),
-            patch("lint_check.detect_linter_config", return_value=("ruff", None)),
+            patch("lint_check.detect_linter_config", return_value=("ruff", "")),
             patch("lint_check.run_linter", return_value=None),
             patch(
                 "resolution.compute_resolutions",

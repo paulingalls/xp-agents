@@ -225,6 +225,11 @@ def _staged_ruff_findings(
     py_paths = [p for p in staged_files if p.endswith(".py")]
     if not py_paths:
         return []
+    # Intentionally cwd=repo-root (not lint_check.lint_invocation_target's
+    # config-dir): ruff is a single global PATH binary that resolves config
+    # per-file by walking up from each path, so one batch can span subpackages
+    # with different configs. The config-dir convention exists for npx-resolved
+    # eslint v9 (local binary + cwd-relative flat config), which this leg never runs.
     per_file = lint_check.run_linter_batch("ruff", py_paths, context="staging", cwd=cwd)
     missing = [p for p in py_paths if p not in per_file]
     if missing:

@@ -36,8 +36,14 @@ def check_and_resolve_lint(
     config = lint_check.detect_linter_config(cwd, git_root, file_path=normalized)
     if config is None:
         return
-    linter_name, _ = config
-    if lint_check.run_linter(linter_name, normalized, cwd=git_root) is not None:
+    linter_name, config_path = config
+    # Run the linter from the config file's dir (not git_root) so monorepo
+    # subpackage binaries + cwd-relative configs resolve — symmetric with
+    # lint_check.run(), or a concern raised there could never clear here.
+    lint_cwd, file_arg = lint_check.lint_invocation_target(
+        config_path, git_root, normalized
+    )
+    if lint_check.run_linter(linter_name, file_arg, cwd=lint_cwd) is not None:
         return
     concerns.resolve_concerns(
         smm_dir,

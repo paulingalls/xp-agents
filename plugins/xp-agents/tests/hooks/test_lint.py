@@ -4,6 +4,8 @@
 Split from the original test_post_tool.py.
 """
 
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -307,6 +309,40 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertIsNone(result)
+
+    def test_run_invokes_linter_from_config_dir(self):
+        """In a monorepo, the linter runs with cwd=the config file's directory,
+        not git root, so `npx eslint` resolves the subpackage's node_modules
+        binary and eslint v9 flat config resolves from that dir. The file arg
+        is passed relative to the config dir, not git-root-relative.
+        """
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        subpkg = repo / "apps" / "mobile"
+        (subpkg / "src").mkdir(parents=True)
+        (subpkg / "eslint.config.mjs").touch()
+        target = subpkg / "src" / "foo.ts"
+        target.write_text("const x = 1\n")
+        (self.smm_dir / ".lint-warned").touch()  # suppress no-config nudge
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.worktree.resolve_git_root", return_value=str(repo)),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()  # clean
+            lint_check.run(
+                _make_write_input(
+                    tool_input={"file_path": str(target), "content": "x"},
+                    cwd=str(repo),
+                ),
+                smm_dir=self.smm_dir,
+            )
+        mock_run.assert_called_once()
+        _, kwargs = mock_run.call_args
+        self.assertEqual(kwargs.get("cwd"), os.path.realpath(str(subpkg)))
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("src/foo.ts", cmd)
+        self.assertNotIn("apps/mobile/src/foo.ts", " ".join(cmd))
 
 
 # ===========================================================================
