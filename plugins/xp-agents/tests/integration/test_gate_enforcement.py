@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import (
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
+    SPRINT_SCHEDULED_ONLY,
     _IntegrationTestCase,
     failing_tests_concern,
     passing_tests_status,
@@ -210,6 +211,58 @@ class TestSprintStopGateIntegration(_IntegrationTestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "")
+
+
+# ---------------------------------------------------------------------------
+# pre_tool_write.py + pre_tool_plan_mode.py — state-derived schedule gates
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleGateEnforcement(_IntegrationTestCase):
+    """Both schedule gates across the pre-promotion window: blocked while
+    scheduled stories await a frontier, allowed once one is in-progress.
+    """
+
+    def _write_input(self) -> dict:
+        return {
+            "session_id": "it",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "src/app.py", "content": "x = 1"},
+            "agent_id": "main",
+            "cwd": str(self.tmpdir),
+        }
+
+    def _plan_mode_input(self) -> dict:
+        return {
+            "session_id": "it",
+            "tool_name": "EnterPlanMode",
+            "tool_input": {},
+            "agent_id": "main",
+            "cwd": str(self.tmpdir),
+        }
+
+    def test_blocked_then_allowed_across_promotion(self):
+        # Trigger window: scheduled stories, none in-progress.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_SCHEDULED_ONLY)
+
+        write_blocked = self._run_script("pre_tool_write.py", self._write_input())
+        self.assertEqual(write_blocked.returncode, 2, write_blocked.stderr)
+        self.assertIn("xp-schedule", write_blocked.stderr)
+
+        plan_blocked = self._run_script(
+            "pre_tool_plan_mode.py", self._plan_mode_input()
+        )
+        self.assertEqual(plan_blocked.returncode, 2, plan_blocked.stderr)
+        self.assertIn("xp-schedule", plan_blocked.stderr)
+
+        # /xp-schedule promotes a frontier scheduled -> in-progress.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+
+        write_ok = self._run_script("pre_tool_write.py", self._write_input())
+        self.assertEqual(write_ok.returncode, 0, write_ok.stderr)
+
+        plan_ok = self._run_script("pre_tool_plan_mode.py", self._plan_mode_input())
+        self.assertEqual(plan_ok.returncode, 0, plan_ok.stderr)
 
 
 if __name__ == "__main__":

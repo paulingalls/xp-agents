@@ -30,6 +30,16 @@
             "statusMessage": "Preparing review guidance..."
           }
         ]
+      },
+      {
+        "matcher": "EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_tool_plan_mode.py",
+            "statusMessage": "Checking schedule gate..."
+          }
+        ]
       }
     ],
     "SessionStart": [
