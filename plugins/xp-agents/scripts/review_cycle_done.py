@@ -10,8 +10,9 @@ can detect completions without regex-matching LLM-authored content. The
 per-commit review flag is set only for /code-review and /xp-quality-review.
 
 TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
-execution mode (solo vs teammates) is decided by xp-assign — only then
-can the nudge describe mode-appropriate task shapes.
+/xp-assign runs only for the teammate batch /xp-schedule already promoted —
+by then the execution mode is settled, so the nudge can describe
+teammate-appropriate task shapes.
 """
 
 import sys

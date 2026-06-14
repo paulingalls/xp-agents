@@ -54,7 +54,7 @@ TEST_CONCERN_RE = re.compile(
 _SUPERSEDED_TOPIC_RE = re.compile(r"^Superseded decision: topic '([^']+)'")
 
 # Topics that legitimately accrue multiple decisions per session as part of
-# the standard workflow. /xp-assign records execution-mode every kickoff;
+# the standard workflow. /xp-schedule records execution-mode per frontier;
 # users may also re-decide mid-session when scope shifts. Cross-session
 # scoping already filters re-citations across SESSION_END boundaries, but
 # in-session pairs would trip the detector without this exemption.
