@@ -38,6 +38,12 @@ IN_MOTION_STORY_STATUSES = frozenset({"in-progress", "reviewing", "closing"})
 # separately at every call site.
 UNDER_ACCEPTANCE_STORY_STATUSES = frozenset({"reviewing", "closing"})
 
+# How a story is executed once its frontier is promoted. Set by
+# /xp-schedule; read by the plan-review gate (subagent_stop) to decide
+# whether to arm .assign-pending (teammate only). Optional story field —
+# absent means not-yet-promoted.
+VALID_EXECUTION_MODES = frozenset({"solo", "teammate"})
+
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,
 }
@@ -155,6 +161,16 @@ def _validate_story(
         elif not VALID_BRANCH_NAME_RE.match(bn):
             errors.append(
                 f"stories[{idx}].branch_name is not a valid git branch name: {bn!r}"
+            )
+
+    em = story.get("execution_mode")
+    if em is not None:
+        if not isinstance(em, str):
+            errors.append(f"stories[{idx}].execution_mode must be a string or null")
+        elif em not in VALID_EXECUTION_MODES:
+            valid = sorted(VALID_EXECUTION_MODES)
+            errors.append(
+                f"stories[{idx}].execution_mode must be one of {valid}, got {em!r}"
             )
 
     return errors

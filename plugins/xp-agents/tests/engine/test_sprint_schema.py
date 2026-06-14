@@ -273,6 +273,57 @@ class TestStoryBranchNameField(unittest.TestCase):
         self.assertTrue(any("valid git branch name" in e for e in errors))
 
 
+class TestStoryExecutionModeField(unittest.TestCase):
+    """Optional execution_mode story field: "solo" | "teammate" | absent.
+
+    Set by /xp-schedule when it promotes a frontier; read by the
+    plan-review gate (subagent_stop) to decide whether to arm
+    .assign-pending. Optional — absent is valid (pre-promotion stories).
+    """
+
+    def test_story_without_execution_mode_valid(self):
+        sprint = _make_sprint()
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_execution_mode_solo_valid(self):
+        story = _make_story(execution_mode="solo")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_execution_mode_teammate_valid(self):
+        story = _make_story(execution_mode="teammate")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_execution_mode_null_valid(self):
+        story = _make_story(execution_mode=None)
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_execution_mode_unknown_value_rejected(self):
+        story = _make_story(execution_mode="parallel")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(
+            any("execution_mode" in e and "parallel" in e for e in errors), errors
+        )
+
+    def test_execution_mode_non_string_rejected(self):
+        story = _make_story(execution_mode=2)
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("execution_mode" in e for e in errors), errors)
+
+    def test_valid_execution_modes_constant(self):
+        self.assertEqual(
+            sprint_schema.VALID_EXECUTION_MODES, frozenset({"solo", "teammate"})
+        )
+
+
 class TestEmptySprint(unittest.TestCase):
     def test_empty_sprint_is_valid(self):
         sprint = sprint_schema.empty_sprint()
