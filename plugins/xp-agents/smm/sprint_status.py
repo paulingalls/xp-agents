@@ -138,6 +138,33 @@ def has_scheduled_stories(smm_dir: Path) -> bool:
     return has_stories_with_status(smm_dir, "scheduled")
 
 
+def schedule_gate_active(smm_dir: Path) -> bool:
+    """True in the pre-promotion window: scheduled stories exist AND zero
+    in-progress.
+
+    The trigger the /xp-schedule write + EnterPlanMode gates fire on. It is
+    state-derived (no marker to rm past): the only legitimate exit is
+    /xp-schedule promoting a frontier scheduled->in-progress, which flips the
+    in-progress check and self-clears the gate. False when no sprint.
+    """
+    from sprint_store import load_sprint
+
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return schedule_gate_active_data(sprint)
+
+
+def schedule_gate_active_data(data: dict) -> bool:
+    """True if the sprint dict has scheduled stories and none in-progress.
+
+    Sibling to schedule_gate_active for callers holding the loaded dict.
+    """
+    return has_stories_with_status_data(
+        data, "scheduled"
+    ) and not has_stories_with_status_data(data, "in-progress")
+
+
 def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
     """True when 2+ scheduled stories share at least one file in their
     file_domain.
