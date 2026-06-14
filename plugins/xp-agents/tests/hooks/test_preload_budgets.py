@@ -44,6 +44,7 @@ PRELOAD_BUDGETS: dict[str, int] = {
     "xp-plan-close": 7100,
     "xp-quality-review": 300,
     "xp-review-plan": 200,
+    "xp-schedule": 300,
     "xp-sprint-close": 7100,
     "xp-sprint-review": 100,
     "xp-sprint-start": 200,
