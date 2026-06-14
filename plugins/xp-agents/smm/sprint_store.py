@@ -291,6 +291,8 @@ __all__ = [
     "next_in_progress_story_id",
     "next_scheduled_story_id",
     "next_sprint_id",
+    "ready_frontier",
+    "ready_frontier_data",
     "save_sprint",
     "scheduled_file_domains_overlap",
     "select_closing_stories",
@@ -325,6 +327,46 @@ def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     return story.get("branch_name", "") or ""
 
 
+def _story_id_sort_key(story_id: str) -> tuple[int, str]:
+    """Numeric sort by trailing -NNN — lexical would order story-10 before
+    story-2. Project convention zero-pads (story-001) but the numeric key
+    removes the latent footgun. Malformed ids (typos like `story-2a` that
+    escaped schema validation) fall back to a large sentinel so they sort
+    last instead of crashing the close pipeline with an uncaught ValueError.
+    """
+    tail = story_id.rsplit("-", 1)[-1]
+    try:
+        return (int(tail), story_id)
+    except ValueError:
+        return (sys.maxsize, story_id)
+
+
+def _deps_satisfied(story: dict, by_id: dict, overrides: set[str]) -> bool:
+    """True when every dep is `done` (or asserted via `overrides`).
+
+    `overrides` (treat_as_done) lets a caller assert "this id is about to
+    be done" without it being marked done on disk yet — closes the JIT-next
+    race where /xp-story-close runs before /xp-accept marks the just-closed
+    story `done`. Cascade-defer falls out naturally: a deferred dep's status
+    is "deferred", not "done", so dependents fail the check and are skipped.
+    """
+    return all(
+        (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
+        for dep in story.get("dependencies", [])
+    )
+
+
+def _eligible_sorted_ids(data: dict, status: str, overrides: set[str]) -> list[str]:
+    """Stories with `status` whose deps are all satisfied, sorted by id."""
+    by_id = {s["id"]: s for s in data["stories"]}
+    eligible = [
+        s["id"]
+        for s in data["stories"]
+        if s["status"] == status and _deps_satisfied(s, by_id, overrides)
+    ]
+    return sorted(eligible, key=_story_id_sort_key)
+
+
 def _next_story_id_with_status(
     smm_dir: Path,
     status: str,
@@ -335,49 +377,43 @@ def _next_story_id_with_status(
 
     Powers JIT branch creation in /xp-story-close: the next story's
     branch is born off the merged tip of the just-accepted story, but
-    only when the candidate's deps are actually satisfied. Cascade-defer
-    naturally excludes blocked stories — a deferred story's status is
-    "deferred", not "done", so any matching story depending on it fails
-    the "all deps done" check and is skipped.
+    only when the candidate's deps are actually satisfied.
 
-    `treat_as_done` lets the caller assert "this id is about to be
-    done" without it actually being marked done on disk yet. Closes
-    the JIT-next race: /xp-story-close Step 8 runs BEFORE /xp-accept
-    Step 4 marks the just-closed story `done`, so a dep-gated next
-    story would never be promoted in solo mode without this override.
+    See `_deps_satisfied` for the `treat_as_done` override semantics.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return None
-    by_id = {s["id"]: s for s in sprint["stories"]}
-    overrides = treat_as_done or set()
+    eligible = _eligible_sorted_ids(sprint, status, treat_as_done or set())
+    return eligible[0] if eligible else None
 
-    def _deps_done(story: dict) -> bool:
-        return all(
-            (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
-            for dep in story.get("dependencies", [])
-        )
 
-    eligible = [
-        s["id"] for s in sprint["stories"] if s["status"] == status and _deps_done(s)
-    ]
-    if not eligible:
-        return None
+def ready_frontier_data(
+    data: dict, *, treat_as_done: set[str] | None = None
+) -> list[str]:
+    """The ready frontier from a loaded sprint dict (pure).
 
-    # Numeric sort by trailing -NNN — lexical min would order story-10
-    # before story-2. Project convention zero-pads (story-001) but a
-    # numeric key removes the latent footgun. Malformed ids (typos
-    # like `story-2a` that escaped schema validation) fall back to a
-    # large sentinel so they sort last instead of crashing the close
-    # pipeline with an uncaught ValueError.
-    def _id_sort_key(s: str) -> tuple[int, str]:
-        tail = s.rsplit("-", 1)[-1]
-        try:
-            return (int(tail), s)
-        except ValueError:
-            return (sys.maxsize, s)
+    The frontier /xp-schedule promotes: dep-satisfied `scheduled` stories,
+    sorted by id. Lifecycle is ready→scheduled (work-selection)→in-progress
+    (/xp-schedule), so the frontier is over `scheduled`, not `ready`. Sibling
+    to `ready_frontier` for callers that already hold the sprint dict.
+    """
+    return _eligible_sorted_ids(data, "scheduled", treat_as_done or set())
 
-    return min(eligible, key=_id_sort_key)
+
+def ready_frontier(
+    smm_dir: Path, *, treat_as_done: set[str] | None = None
+) -> list[str]:
+    """The ready frontier: dep-satisfied `scheduled` stories, sorted by id.
+
+    Consumed by skills/xp-schedule/preload.sh to decide solo vs parallel.
+    Empty list when no sprint or no eligible scheduled story. See
+    `_deps_satisfied` for the `treat_as_done` override.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return []
+    return ready_frontier_data(sprint, treat_as_done=treat_as_done)
 
 
 def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
