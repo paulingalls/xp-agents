@@ -112,7 +112,13 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 Skipped — sprint-close runs cumulative `/security-review` for all merged stories.
 
-## Step 4.5: Fork the close-reviewer
+## Step 4.5: Review (routed by REVIEW_PATH)
+
+Route on the preload's `REVIEW_PATH` — **do NOT evaluate cadence yourself**.
+`close-reviewer` (commit cadence / default) → Step 4.5a; `full-cycle` (story
+cadence) → Step 4.5b. Step 1b's file_domain drift surface runs in both.
+
+### Step 4.5a: Fork the close-reviewer (REVIEW_PATH=close-reviewer)
 
 Compute the diff command:
 
@@ -129,6 +135,19 @@ Agent(
   prompt: "SMM_DIR=<SMM_DIR>\nSYSTEM_CONTEXT_RENDERED=<SYSTEM_CONTEXT_RENDERED>\n\n## Mode\nstory\n\n## Source Branch\n<CURRENT_BRANCH>\n\n## Target Branch\n<TARGET_BRANCH>\n\n## Diff Command\n<DIFF_CMD>\n\n## Close Cycle ID\n<CLOSE_CYCLE_ID>\n\n## Context\nClosing story branch <CURRENT_BRANCH> for story <story-id> into <TARGET_BRANCH>. PR <PR_OUTPUT or 'not created (no gh)'>.\n\n## Instructions\nRun the Diff Command, analyze cumulative diff with story-mode focus (AC alignment, file_domain enforcement against sprint.json, story-bounded scope creep, regression risk in unmodified stories). Return Keep / Concern / Block summary."
 )
 ```
+
+### Step 4.5b: Full review cycle (REVIEW_PATH=full-cycle)
+
+Story cadence relaxed the per-commit gate, so the full review runs **here** — the
+single gate keeping the sprint base reviewed. Run the per-commit cycle on the
+**cumulative** diff (`<TARGET_BRANCH>...HEAD`), not a staged diff:
+
+1. `/code-review` — correctness pass over the cumulative diff.
+2. `/xp-quality-review` — spawns the independent `xp-code-reviewer`; fix findings
+   inline (or record as debt with a reason), as in the per-commit flow.
+
+Do not also fork `xp-close-reviewer` here — the full cycle subsumes it. Step 6's
+"no Block in Step 4.5's reviewer summary" holds vacuously (no close-reviewer ran).
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
