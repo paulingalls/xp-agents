@@ -367,7 +367,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         )
 
         if len(code_files) >= commits.REVIEW_CYCLE_THRESHOLD:
-            if not cycle.get("simplify_done"):
+            if markers.read_review_cadence(smm_dir) == "story":
+                # Story cadence: review relocates to /xp-story-close (merge).
+                # Emit a visible deferral advisory instead of blocking — the
+                # tier-1 security and ruff gates above stay unconditional.
+                parts.append(
+                    f"Story cadence: per-commit review deferred to "
+                    f"/xp-story-close ({len(code_files)} code files changed "
+                    f"since last review). /code-review + /xp-quality-review "
+                    f"run at story close."
+                )
+            elif not cycle.get("simplify_done"):
                 raise _common.BlockedError(
                     f"Run /code-review before committing — "
                     f"{len(code_files)} code files changed since last review.",
