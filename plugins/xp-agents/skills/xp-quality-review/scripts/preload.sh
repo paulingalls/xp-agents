@@ -42,17 +42,11 @@ echo ""
 # unless cadence is 'story' AND a base resolves AND the committed range is
 # non-empty (guards on-base / stage-0 / no-divergence).
 REVIEW_BASE=""
-CADENCE=$(python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-import markers
-print(markers.read_review_cadence(Path(sys.argv[3])))
-' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" 2>/dev/null || echo commit)
+CADENCE=$(_get_review_cadence)
 if [ "$CADENCE" = "story" ]; then
     base=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
         --smm-dir "${SMM_DIR}" get-base --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "")
-    if [ -n "$base" ] && [ -n "$(_git diff "$base...HEAD" --name-only 2>/dev/null)" ]; then
+    if [ -n "$base" ] && [ -n "$(get_changed_files_range "$base")" ]; then
         REVIEW_BASE="$base"
     fi
 fi

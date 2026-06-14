@@ -74,13 +74,7 @@ echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"
 # Cadence routes Step 4.5: 'story' runs the full review cycle here (the
 # per-commit gate deferred it); 'commit'/unset keeps the close-reviewer
 # fork. read_review_cadence fail-safes to 'commit'.
-CADENCE=$(python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-import markers
-print(markers.read_review_cadence(Path(sys.argv[3])))
-' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" 2>/dev/null || echo commit)
+CADENCE=$(_get_review_cadence)
 if [ "$CADENCE" = "story" ]; then
     echo "REVIEW_PATH=full-cycle"
 else
