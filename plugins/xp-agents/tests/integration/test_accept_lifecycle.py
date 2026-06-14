@@ -251,6 +251,44 @@ class TestAcceptCloseThenDoneOrdering(unittest.TestCase):
         self.assertIn("idempotent", lower)
 
 
+class TestAcceptPostLoopSchedule(unittest.TestCase):
+    """story-006: the accept post-loop hands the next frontier to
+    /xp-schedule instead of pulling next-in-progress and entering plan mode
+    directly (story-close no longer pre-promotes). Step 7's /xp-sprint-review
+    fallthrough stays for the sprint-complete case."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_post_loop_dispatches_xp_schedule(self):
+        self.assertIn(
+            "/xp-schedule",
+            self.text,
+            "accept post-loop must invoke /xp-schedule to promote the next frontier",
+        )
+
+    def test_post_loop_no_longer_pulls_next_in_progress(self):
+        # story-close no longer JIT-promotes, so accept must not assume a
+        # pre-promoted in-progress story — promotion goes through /xp-schedule.
+        self.assertNotIn(
+            "next-in-progress",
+            self.text,
+            "accept must not pull next-in-progress; /xp-schedule promotes it",
+        )
+
+    def test_sprint_review_fallthrough_preserved(self):
+        # When no frontier remains, the post-loop still dispatches sprint-review.
+        self.assertIn("/xp-sprint-review", self.text)
+        _assert_text_ordering(
+            self,
+            self.text,
+            "## Step 7",
+            "/xp-schedule",
+            msg="the /xp-schedule post-loop dispatch comes after the Step 7 header",
+        )
+
+
 class TestAcceptCwdSubshell(unittest.TestCase):
     """SKILL.md worktree-acceptance must use a subshell so the parent
     shell's cwd doesn't persist into subsequent Bash calls."""
