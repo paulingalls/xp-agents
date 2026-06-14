@@ -335,6 +335,37 @@ dump_diff() {
     echo ""
 }
 
+# Cadence-aware variants of get_changed_files / dump_diff that review a
+# COMMITTED range (base...HEAD) instead of the working tree. Story cadence
+# relocates review to story-close, where the work is already committed — the
+# staged-diff helpers above would see nothing. Callers resolve the base (the
+# sprint branch via branching.py get-base) and the empty-range fallback; these
+# helpers just render the range. Route through the TEAMMATE_CWD-aware _git.
+
+# Usage: get_changed_files_range <base-ref>
+get_changed_files_range() {
+    _git diff "$1...HEAD" --name-only 2>/dev/null | sort -u
+}
+
+# Usage: dump_diff_range <base-ref> [stat|full]
+dump_diff_range() {
+    local base="$1" mode="${2:-stat}" stat
+    stat=$(_git diff "$base...HEAD" --stat 2>/dev/null || true)
+    if [ -z "$stat" ]; then
+        echo "## No Changes"
+        echo "(no committed changes since ${base})"
+        return
+    fi
+    echo "## Story Diff (cumulative since ${base})"
+    echo "$stat"
+    if [ "$mode" = "full" ]; then
+        echo ""
+        echo "## Full Diff"
+        _git diff "$base...HEAD" 2>/dev/null || true
+    fi
+    echo ""
+}
+
 smm_has_section() {
     python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" has-section "$1" 2>/dev/null
 }

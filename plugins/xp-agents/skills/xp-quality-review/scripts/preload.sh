@@ -33,11 +33,40 @@ _qr_auto_detect_teammate_cwd
 echo "SMM_DIR=${SMM_DIR}"
 echo "TEAMMATE_CWD=${TEAMMATE_CWD:-}"
 echo ""
-dump_diff
+
+# Cadence-aware diff scope. Commit cadence reviews the staged/working diff
+# (review runs before the commit). Story cadence relocates review to
+# story-close, where the work is already committed — so review the cumulative
+# range against the sprint-branch base instead (else the staged diff is empty
+# and the reviewer sees nothing). REVIEW_BASE stays empty (→ staged fallback)
+# unless cadence is 'story' AND a base resolves AND the committed range is
+# non-empty (guards on-base / stage-0 / no-divergence).
+REVIEW_BASE=""
+CADENCE=$(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
+from pathlib import Path
+import markers
+print(markers.read_review_cadence(Path(sys.argv[3])))
+' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" 2>/dev/null || echo commit)
+if [ "$CADENCE" = "story" ]; then
+    base=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "${SMM_DIR}" get-base --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "")
+    if [ -n "$base" ] && [ -n "$(_git diff "$base...HEAD" --name-only 2>/dev/null)" ]; then
+        REVIEW_BASE="$base"
+    fi
+fi
+
+if [ -n "$REVIEW_BASE" ]; then
+    dump_diff_range "$REVIEW_BASE" full
+    changed_files=$(get_changed_files_range "$REVIEW_BASE")
+else
+    dump_diff
+    changed_files=$(get_changed_files)
+fi
 
 echo ""
 echo "## Debt for Changed Files"
-changed_files=$(get_changed_files)
 if [ -z "$changed_files" ]; then
     echo "(none)"
 else
