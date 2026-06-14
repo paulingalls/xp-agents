@@ -167,7 +167,9 @@ class TestScheduleFrontierE2E(_IntegrationTestCase):
     # -- AC #2: teammate frontier — plan review ARMS the assign gate
 
     def test_teammate_frontier_arms_assign_gate(self):
-        write_system_context(self.smm_dir, 2)
+        # No write_system_context: this path never branches (no
+        # branching.py create), so the branching-stage doc is unread here —
+        # unlike the solo/close ACs that do call _branching_create.
         self._write_sprint(
             [
                 _make_story(
