@@ -235,6 +235,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # flight that legitimately holds them.
     if _is_fresh_start(source):
         markers.sweep_stale_session_markers(smm_dir)
+        # Cadence is session-scoped: a fresh start resets to the careful
+        # 'commit' default so a prior session's 'story' choice never leaks.
+        # resume/compact (continuations) fall through and preserve it.
+        markers.write_review_cadence(smm_dir, markers.DEFAULT_CADENCE)
         markers.marker_write(smm_dir, markers.KICKOFF, source)
         # Deterministic session-boundary anchor + re-homed side-effects (M3).
         # Main-only — teammates returned above; emitted once per startup/clear.

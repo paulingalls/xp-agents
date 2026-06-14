@@ -177,6 +177,26 @@ class TestGenerateSMM(unittest.TestCase):
                 self.assertNotIn(entry["id"], seen, "duplicate id")
                 seen.add(entry["id"])
 
+    def test_review_cycle_wisdom_is_cadence_aware(self):
+        """story-006: the review-cycle wisdom names both cadences, not an
+        absolute per-commit rule."""
+        smm = seed_smm.generate_smm(self.tmpdir)
+        entry = next(
+            (e for e in smm["wisdom"] if "cadence" in e["content"].lower()),
+            None,
+        )
+        self.assertIsNotNone(entry, "no cadence-aware review-cycle wisdom")
+        assert entry is not None  # narrow for the type-checker
+        text = entry["content"].lower()
+        self.assertIn("commit", text)
+        self.assertIn("story", text)
+        self.assertIn("/xp-story-close", entry["content"])
+        # Security review is Step 4 (Step 4.5 is the close-reviewer/quality
+        # stream) — keep this surface in agreement with PROCESS_GUIDE.md and
+        # scripts/_close_pipeline_shared.md.
+        self.assertIn("Step 4.", entry["content"])
+        self.assertNotIn("Step 4.5", entry["content"])
+
     def test_empty_project_has_all_risks(self):
         smm = seed_smm.generate_smm(self.tmpdir)
         contents = [e["content"] for e in smm["risks"]]
