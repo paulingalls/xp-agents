@@ -861,5 +861,102 @@ class TestBuildCapstoneCommand(_SMMTestCase):
         self.assertEqual(added.returncode, 0, added.stderr)
 
 
+class TestReadyFrontierCommand(_SMMTestCase):
+    """ready-frontier emits JSON {"frontier": [...], "parallelizable": bool}
+    for the /xp-schedule preload to consume. Exit 0 always — an empty
+    frontier is a valid state, not an error."""
+
+    def _run(self, stories, extra_args=None):
+        sprint = _make_sprint(stories=stories)
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["ready-frontier", *(extra_args or [])], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_single_story_frontier_not_parallelizable(self):
+        out = self._run(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=["story-001"],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+        self.assertEqual(out["frontier"], ["story-001"])
+        self.assertFalse(out["parallelizable"])
+
+    def test_disjoint_multi_frontier_is_parallelizable(self):
+        out = self._run(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+        self.assertEqual(out["frontier"], ["story-001", "story-002"])
+        self.assertTrue(out["parallelizable"])
+
+    def test_overlapping_multi_frontier_not_parallelizable(self):
+        out = self._run(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["shared.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["shared.py — y"],
+                ),
+            ]
+        )
+        self.assertEqual(out["frontier"], ["story-001", "story-002"])
+        self.assertFalse(out["parallelizable"])
+
+    def test_empty_frontier(self):
+        out = self._run([_make_story(id="story-001", status="done", dependencies=[])])
+        self.assertEqual(out["frontier"], [])
+        self.assertFalse(out["parallelizable"])
+
+    def test_no_sprint_is_empty(self):
+        result = run_cli(_CLI, ["ready-frontier"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout), {"frontier": [], "parallelizable": False}
+        )
+
+    def test_treat_as_done_unblocks_frontier(self):
+        out = self._run(
+            [
+                _make_story(id="story-001", status="closing", dependencies=[]),
+                _make_story(
+                    id="story-002", status="scheduled", dependencies=["story-001"]
+                ),
+            ],
+            extra_args=["--treat-as-done", "story-001"],
+        )
+        self.assertEqual(out["frontier"], ["story-002"])
+
+
 if __name__ == "__main__":
     unittest.main()

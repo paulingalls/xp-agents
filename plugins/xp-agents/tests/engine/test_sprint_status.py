@@ -51,6 +51,8 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "has_ready_stories",
         "has_scheduled_stories",
         "scheduled_file_domains_overlap",
+        "schedule_gate_active",
+        "schedule_gate_active_data",
         "is_complete",
     )
 
@@ -578,6 +580,59 @@ class TestCountByStatus(unittest.TestCase):
         sprint = _make_sprint(stories=[_make_story(status="closing")])
         counts = sprint_store.count_by_status(sprint)
         self.assertEqual(counts.get("closing"), 1)
+
+
+class TestScheduleGateActive(_SMMTestCase):
+    """schedule_gate_active{,_data}: the trigger the /xp-schedule gates fire
+    on — scheduled stories exist AND zero in-progress. That is exactly the
+    "work-selection scheduled work, no frontier promoted yet" window;
+    /xp-schedule is the sole legitimate exit (promotes scheduled->in-progress).
+    """
+
+    def _write(self, stories):
+        sprint = _make_sprint(stories=stories)
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_active_when_scheduled_and_none_in_progress(self):
+        import sprint_store
+
+        self._write([_make_story(id="story-001", status="scheduled")])
+        self.assertTrue(sprint_store.schedule_gate_active(self.smm_dir))
+
+    def test_inactive_when_any_in_progress(self):
+        import sprint_store
+
+        self._write(
+            [
+                _make_story(id="story-001", status="in-progress"),
+                _make_story(id="story-002", status="scheduled"),
+            ]
+        )
+        self.assertFalse(sprint_store.schedule_gate_active(self.smm_dir))
+
+    def test_inactive_when_no_scheduled(self):
+        import sprint_store
+
+        self._write([_make_story(id="story-001", status="in-progress")])
+        self.assertFalse(sprint_store.schedule_gate_active(self.smm_dir))
+
+    def test_inactive_when_no_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.schedule_gate_active(self.smm_dir))
+
+    def test_data_twin_is_pure(self):
+        import sprint_status
+
+        active = _make_sprint(stories=[_make_story(status="scheduled")])
+        blocked = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="scheduled"),
+                _make_story(id="story-002", status="in-progress"),
+            ]
+        )
+        self.assertTrue(sprint_status.schedule_gate_active_data(active))
+        self.assertFalse(sprint_status.schedule_gate_active_data(blocked))
 
 
 if __name__ == "__main__":
