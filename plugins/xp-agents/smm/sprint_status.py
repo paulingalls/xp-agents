@@ -165,6 +165,34 @@ def schedule_gate_active_data(data: dict) -> bool:
     ) and not has_stories_with_status_data(data, "in-progress")
 
 
+def in_progress_is_teammate(smm_dir: Path) -> bool:
+    """True iff any in-progress story has execution_mode == 'teammate'.
+
+    The signal subagent_stop's plan-review gate keys on: at plan-review-done
+    time the just-planned story is in-progress, and /xp-schedule promotes a
+    homogeneous batch. Only teammate-mode plans need /xp-assign, so a solo or
+    unset in-progress story leaves no .assign-pending marker. Conservative
+    default False (no sprint / no in-progress / solo / unset).
+    """
+    from sprint_store import load_sprint
+
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return in_progress_is_teammate_data(sprint)
+
+
+def in_progress_is_teammate_data(data: dict) -> bool:
+    """True iff the sprint dict has an in-progress story with
+    execution_mode == 'teammate'. Sibling to in_progress_is_teammate for
+    callers holding the loaded dict.
+    """
+    return any(
+        s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
+        for s in data.get("stories", [])
+    )
+
+
 def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
     """True when 2+ scheduled stories share at least one file in their
     file_domain.

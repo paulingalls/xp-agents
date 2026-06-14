@@ -635,5 +635,69 @@ class TestScheduleGateActive(_SMMTestCase):
         self.assertFalse(sprint_status.schedule_gate_active_data(blocked))
 
 
+class TestInProgressIsTeammate(_SMMTestCase):
+    """in_progress_is_teammate{,_data}: True iff any in-progress story is
+    execution_mode=='teammate'. The signal subagent_stop's plan-review gate
+    keys on — only teammate-mode plans need /xp-assign, so solo/unset plan
+    reviews must leave no .assign-pending marker. Conservative default False.
+    """
+
+    def _write(self, stories):
+        sprint = _make_sprint(stories=stories)
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_true_when_in_progress_teammate(self):
+        import sprint_store
+
+        self._write(
+            [
+                _make_story(
+                    id="story-001", status="in-progress", execution_mode="teammate"
+                )
+            ]
+        )
+        self.assertTrue(sprint_store.in_progress_is_teammate(self.smm_dir))
+
+    def test_false_when_in_progress_solo(self):
+        import sprint_store
+
+        self._write(
+            [_make_story(id="story-001", status="in-progress", execution_mode="solo")]
+        )
+        self.assertFalse(sprint_store.in_progress_is_teammate(self.smm_dir))
+
+    def test_false_when_execution_mode_unset(self):
+        import sprint_store
+
+        self._write([_make_story(id="story-001", status="in-progress")])
+        self.assertFalse(sprint_store.in_progress_is_teammate(self.smm_dir))
+
+    def test_false_when_teammate_but_not_in_progress(self):
+        import sprint_store
+
+        # A teammate-mode story still in reviewing is not the just-planned unit.
+        self._write(
+            [_make_story(id="story-001", status="reviewing", execution_mode="teammate")]
+        )
+        self.assertFalse(sprint_store.in_progress_is_teammate(self.smm_dir))
+
+    def test_false_when_no_sprint(self):
+        import sprint_store
+
+        self.assertFalse(sprint_store.in_progress_is_teammate(self.smm_dir))
+
+    def test_data_twin_is_pure(self):
+        import sprint_status
+
+        teammate = _make_sprint(
+            stories=[_make_story(status="in-progress", execution_mode="teammate")]
+        )
+        solo = _make_sprint(
+            stories=[_make_story(status="in-progress", execution_mode="solo")]
+        )
+        self.assertTrue(sprint_status.in_progress_is_teammate_data(teammate))
+        self.assertFalse(sprint_status.in_progress_is_teammate_data(solo))
+
+
 if __name__ == "__main__":
     unittest.main()

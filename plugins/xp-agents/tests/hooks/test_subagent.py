@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import markers
 import subagent_stop
 import user_prompt_log
 from conftest import (
@@ -455,7 +456,13 @@ class TestHousekeepingDone(_HookTestCase):
 
 
 class TestPlanReviewerDone(_HookTestCase):
-    """subagent_stop._handle_plan_review_done runs after xp-plan-reviewer."""
+    """subagent_stop._handle_plan_review_done runs after xp-plan-reviewer.
+
+    The .assign-pending marker is now narrowed to teammate-mode plans: it is
+    written only when the just-planned (in-progress) story is
+    execution_mode=='teammate'. Solo/unset plan reviews leave no marker so the
+    agent codes straight through without a spurious "run /xp-assign" block.
+    """
 
     def _reviewer_input(self, agent_type: str = "xp-plan-reviewer") -> dict:
         return {
@@ -465,21 +472,36 @@ class TestPlanReviewerDone(_HookTestCase):
             "last_assistant_message": "Plan reviewed.",
         }
 
-    def test_emits_plan_reviewed_action(self):
-        """assign_pending event carries the plan_reviewed action."""
-        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+    def _write_sprint(self, execution_mode=None, status="in-progress"):
+        from conftest import _s, _sprint_json
+
+        kw = {} if execution_mode is None else {"execution_mode": execution_mode}
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json([_s("story-001", "narrow gate", status, **kw)])
+        )
+
+    def _gate_events(self):
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        gate_events = [
+        return [
             e
             for e in events
             if e.get("type") == EVENT_TYPE_STATUS
             and "assign_pending" in e.get("content", "")
         ]
+
+    def test_emits_plan_reviewed_action(self):
+        """Teammate-mode plan review: assign_pending event + plan_reviewed action."""
+        self._write_sprint(execution_mode="teammate")
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNotNone(result)
+        gate_events = self._gate_events()
         self.assertEqual(len(gate_events), 1)
         self.assertEqual(event_action(gate_events[0]), STATUS_ACTION_PLAN_REVIEWED)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
 
     def test_emits_subagent_complete_after_plan_review(self):
         """A generic subagent_complete event accompanies the assign_pending event."""
+        self._write_sprint(execution_mode="teammate")
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         statuses = events_of_type(events, EVENT_TYPE_STATUS)
@@ -489,6 +511,51 @@ class TestPlanReviewerDone(_HookTestCase):
         self.assertEqual(
             sc[0].get("metadata", {}).get("agent_type"), "xp-plan-reviewer"
         )
+
+    def test_solo_leaves_no_marker_but_records_completion(self):
+        """Solo-mode plan review: no marker, no gate event, returns None — but
+        the reviewer's subagent_complete is still recorded."""
+        self._write_sprint(execution_mode="solo")
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
+        self.assertEqual(len(self._gate_events()), 0)
+        statuses = events_of_type(
+            _common.read_events_locked(self.smm_dir, _WATERMARK_ID), EVENT_TYPE_STATUS
+        )
+        sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
+        self.assertEqual(len(sc), 1)
+
+    def test_unset_execution_mode_leaves_no_marker(self):
+        """An in-progress story with no execution_mode is treated as non-teammate."""
+        self._write_sprint(execution_mode=None)
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
+
+    def test_no_sprint_leaves_no_marker(self):
+        """No sprint (free mode): graceful — no marker, returns None."""
+        result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
+
+    def test_solo_review_does_not_block_next_write(self):
+        """E2E (AC #3): after a solo plan review, the assign gate's marker is
+        absent, so the agent's next write is not blocked."""
+        import pre_tool_write
+
+        self._write_sprint(execution_mode="solo")
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
+        # The assign gate only blocks when .assign-pending exists; absent marker
+        # means a Write proceeds. run() returns None (no block) here.
+        write_input = {
+            "session_id": "t",
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(self.smm_dir / "foo.py")},
+            "cwd": "/tmp",
+        }
+        self.assertIsNone(pre_tool_write.run(write_input, smm_dir=self.smm_dir))
 
 
 class TestCloseReviewerDone(_HookTestCase):
