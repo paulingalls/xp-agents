@@ -202,7 +202,10 @@ passing from /xp-accept needed — and owns:
   regression risk)
 - Auto-resolve MAYBE ADDRESSED concerns
 - Confirm and run `close_common.py merge`
-- (Solo) JIT-create the next scheduled story's branch off the merged tip
+
+Close stops at the merge — it does NOT promote or branch the next
+story. The next-frontier promotion is owned by Step 8's post-loop
+dispatch (the sole owner of `scheduled → in-progress`).
 
 **Merge-failure semantics:** on abort (preflight fails, reviewer Block,
 user picks abort, merge conflicts) the story stays in `closing`;
