@@ -166,6 +166,14 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     if agent_type not in _PLAN_REVIEWER_AGENT_TYPES:
         return None
 
+    # Narrow the assign gate to teammate-mode plans: only a teammate batch
+    # needs /xp-assign to split + spawn. Solo/unset plan reviews leave no
+    # marker so the agent codes straight through — but still record the
+    # reviewer's completion (the generic path below skips xp-* agents).
+    if not sprint_state.in_progress_is_teammate(smm_dir):
+        _emit_subagent_complete(smm_dir, input_data)
+        return None
+
     agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
     markers.marker_write(smm_dir, markers.ASSIGN_PENDING, agent_id)
 

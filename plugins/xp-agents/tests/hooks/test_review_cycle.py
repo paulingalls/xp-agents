@@ -379,7 +379,9 @@ class TestSubagentStopReviewFlags(_HookTestCase):
 
 
 class TestPlanReviewerSetsAssignPending(_HookTestCase):
-    """SubagentStop for xp-plan-reviewer sets .assign-pending marker."""
+    """SubagentStop for xp-plan-reviewer sets .assign-pending — but only in
+    teammate mode (the planned in-progress story is execution_mode=='teammate').
+    """
 
     def _stop_input(self, agent_id: str, agent_type: str = "") -> dict:
         return {
@@ -389,8 +391,18 @@ class TestPlanReviewerSetsAssignPending(_HookTestCase):
             "last_assistant_message": "Review complete",
         }
 
+    def _write_teammate_sprint(self):
+        from conftest import _s, _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "t", "in-progress", execution_mode="teammate")]
+            )
+        )
+
     def test_plan_reviewer_sets_assign_marker(self):
-        """xp-plan-reviewer completion creates .assign-pending marker."""
+        """Teammate-mode xp-plan-reviewer completion creates .assign-pending."""
+        self._write_teammate_sprint()
         subagent_stop.run(
             self._stop_input("review-1", agent_type="xp-plan-reviewer"),
             smm_dir=self.smm_dir,
@@ -399,7 +411,8 @@ class TestPlanReviewerSetsAssignPending(_HookTestCase):
         self.assertTrue(marker.exists(), "assign-pending marker not created")
 
     def test_plan_reviewer_returns_nudge(self):
-        """xp-plan-reviewer completion returns additionalContext nudge."""
+        """Teammate-mode xp-plan-reviewer completion returns the /xp-assign nudge."""
+        self._write_teammate_sprint()
         result = subagent_stop.run(
             self._stop_input("review-1", agent_type="xp-plan-reviewer"),
             smm_dir=self.smm_dir,
