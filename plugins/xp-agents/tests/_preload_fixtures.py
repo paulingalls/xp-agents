@@ -39,6 +39,7 @@ PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {
     "xp-plan-close": _no_env,
     "xp-quality-review": _no_env,
     "xp-review-plan": _no_env,
+    "xp-schedule": _no_env,
     "xp-sprint-close": _no_env,
     "xp-sprint-review": _no_env,
     "xp-sprint-start": _no_env,
