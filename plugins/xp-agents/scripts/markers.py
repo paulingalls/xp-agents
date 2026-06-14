@@ -59,6 +59,7 @@ ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
 ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
 CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
+REVIEW_CADENCE = MarkerDef(marker_names.REVIEW_CADENCE, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
@@ -181,6 +182,33 @@ def set_review_flag(
     data = read_review_cycle(smm_dir, agent_id)
     data[flag] = value
     write_review_cycle(smm_dir, agent_id, data)
+
+
+# ---------------------------------------------------------------------------
+# Review cadence convenience functions (session-scoped: commit | story)
+# ---------------------------------------------------------------------------
+
+VALID_CADENCES = frozenset({"commit", "story"})
+DEFAULT_CADENCE = "commit"
+
+
+def read_review_cadence(smm_dir: Path) -> str:
+    """Read the session review cadence ('commit' | 'story').
+
+    Fail-safe to 'commit' (the careful default) when the marker is
+    missing, corrupt, or holds an unrecognized value.
+    """
+    value = marker_read(smm_dir, REVIEW_CADENCE)
+    if isinstance(value, str) and value in VALID_CADENCES:
+        return value
+    return DEFAULT_CADENCE
+
+
+def write_review_cadence(smm_dir: Path, cadence: str) -> None:
+    """Write the session review cadence. Rejects unknown values (fail loud)."""
+    if cadence not in VALID_CADENCES:
+        raise ValueError(f"Invalid review cadence: {cadence!r}")
+    marker_write(smm_dir, REVIEW_CADENCE, cadence)
 
 
 # ---------------------------------------------------------------------------
