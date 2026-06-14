@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.7.0 — Session-scoped review cadence (commit | story)
+
+A new per-session review cadence, chosen explicitly at kickoff (solo). The
+default `commit` cadence is unchanged — the full review cycle runs before every
+commit. The new `story` cadence relocates the LLM review from the commit
+boundary to story-close (the merge), preserving the invariant that nothing
+reaches the sprint base unreviewed while letting intermediate commits flow.
+
+- **Cadence marker + API.** A shared `.review-cadence` marker holds `commit` or
+  `story`, with `read_review_cadence`/`write_review_cadence` helpers that
+  fail-safe to the careful `commit` default on missing/corrupt input.
+- **Commit-gate relaxation.** In `story` cadence the per-commit review-cycle
+  block becomes a one-line advisory naming `/xp-story-close` instead of blocking;
+  tier-1 security, ruff, and branch checks stay unconditional.
+- **Session-scoped, never leaks.** A fresh-start SessionStart (`startup`/`clear`)
+  resets cadence to `commit`; `resume`/`compact` preserve the active cadence.
+- **Explicit opt-in.** The kickoff Sprint fork asks the customer for the cadence
+  and writes `story` only when chosen; the Free fork never asks.
+- **Story-close conditional review.** `story` cadence routes story-close to a
+  full `/code-review` + `/xp-quality-review` over the cumulative diff
+  (Step 4.5b); `commit`/unset keeps the close-reviewer fork.
+- **Legibility.** PROCESS_GUIDE and the seed-SMM wisdom describe both cadences,
+  so the always-in-context surfaces agree with the implemented behavior.
+
 ## v3.6.1 — Run linters from their config dir; stop merge/release noise in retro denominators
 
 Two monorepo-and-metrics fixes found while dogfooding in a real subpackage layout:
