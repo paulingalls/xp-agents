@@ -378,9 +378,9 @@ def main() -> None:
         metavar="STORY_ID",
         help=(
             "Treat STORY_ID as if its status were 'done' for the dep check. "
-            "Repeatable. Used by /xp-story-close Step 8 to surface a "
-            "next-scheduled story whose dep is the just-closed story "
-            "(still 'closing' at JIT-next time, not yet 'done')."
+            "Repeatable. Lets a promotion query surface a next story whose "
+            "dep is the just-closed story (still 'closing' at promotion "
+            "time, not yet 'done')."
         ),
     )
     nsc_p = sub.add_parser(

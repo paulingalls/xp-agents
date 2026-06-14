@@ -320,10 +320,10 @@ __all__ = [
 def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     """Return the recorded branch_name for a story, or empty string.
 
-    Powers /xp-story-close's JIT-next gate: a non-empty branch_name
-    means the branch already exists (parallel teammate batch at
-    /xp-assign), so JIT-create is skipped. Empty means solo mode —
-    create the branch off the just-merged sprint tip.
+    Branch-existence check: a non-empty branch_name means the branch
+    already exists (a parallel teammate batch created at /xp-assign), so
+    creation is skipped. Empty means none yet. Branch creation lives in
+    /xp-schedule (solo, JIT off the sprint tip) and /xp-assign (teammate).
 
     Returns "" when the sprint is missing OR the story is missing OR
     branch_name is unset, to keep the CLI contract simple (caller can
@@ -356,10 +356,10 @@ def _deps_satisfied(story: dict, by_id: dict, overrides: set[str]) -> bool:
     """True when every dep is `done` (or asserted via `overrides`).
 
     `overrides` (treat_as_done) lets a caller assert "this id is about to
-    be done" without it being marked done on disk yet — closes the JIT-next
-    race where /xp-story-close runs before /xp-accept marks the just-closed
-    story `done`. Cascade-defer falls out naturally: a deferred dep's status
-    is "deferred", not "done", so dependents fail the check and are skipped.
+    be done" without it being marked done on disk yet — e.g. a promotion
+    query that runs while the just-closed story is still `closing`.
+    Cascade-defer falls out naturally: a deferred dep's status is
+    "deferred", not "done", so dependents fail the check and are skipped.
     """
     return all(
         (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
@@ -386,9 +386,10 @@ def _next_story_id_with_status(
 ) -> str | None:
     """Lowest-id story with `status` whose deps are ALL done. None if none.
 
-    Powers JIT branch creation in /xp-story-close: the next story's
-    branch is born off the merged tip of the just-accepted story, but
-    only when the candidate's deps are actually satisfied.
+    Backs the `next-in-progress` sprint_cli query — surfaces the next
+    dep-satisfied story for promotion/branching, which /xp-schedule owns
+    (off the merged sprint tip), only when the candidate's deps are
+    actually satisfied.
 
     See `_deps_satisfied` for the `treat_as_done` override semantics.
     """
@@ -483,12 +484,12 @@ def next_in_progress_story_id(
 ) -> str | None:
     """Lowest-id in-progress story whose deps are ALL done. None if none.
 
-    Powers /xp-story-close's JIT branch creation: the next story's branch
-    is born off the merged tip of the just-accepted story, but only when
-    its deps are actually satisfied. Cascade-defer naturally excludes
-    blocked stories — a deferred story's status is "deferred", not
-    "done", so any in-progress story depending on it fails the
-    "all deps done" check and is skipped.
+    Backs the `next-in-progress` query — surfaces the next dep-satisfied
+    in-progress story for /xp-schedule promotion/branching off the merged
+    sprint tip, but only when its deps are actually satisfied. Cascade-defer
+    naturally excludes blocked stories — a deferred story's status is
+    "deferred", not "done", so any in-progress story depending on it fails
+    the "all deps done" check and is skipped.
 
     See `_next_story_id_with_status` for the `treat_as_done` override
     semantics — exposed here for symmetry with `next_scheduled_story_id`.
@@ -503,9 +504,9 @@ def next_scheduled_story_id(
 ) -> str | None:
     """Lowest-id scheduled story whose deps are ALL done. None if none.
 
-    Powers /xp-story-close's JIT-next dispatch when no in-progress story
-    remains: promotes the next scheduled story to in-progress + creates
-    its branch off the merged sprint tip. Same cascade-defer semantics
+    Backs the `next-scheduled` query — surfaces the next dep-satisfied
+    scheduled story so /xp-schedule can promote it to in-progress and
+    branch it off the merged sprint tip. Same cascade-defer semantics
     as next_in_progress_story_id.
     """
     return _next_story_id_with_status(smm_dir, "scheduled", treat_as_done=treat_as_done)

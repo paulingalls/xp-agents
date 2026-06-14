@@ -53,8 +53,8 @@ def extract_story_id(branch_name: str) -> str | None:
 
     Returns None for branches that don't match the convention (free
     branches, plan branches, primary, story-prefixed branches without
-    a user namespace). Powers /xp-story-close's JIT-next gate so the
-    teammate-worktree lookup can find the matching `worktree-story-NNN`.
+    a user namespace). Powers /xp-story-close's teammate-worktree
+    cleanup lookup so it can find the matching `worktree-story-NNN`.
     """
     if not branch_name:
         return None
