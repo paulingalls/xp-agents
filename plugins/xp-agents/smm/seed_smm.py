@@ -429,10 +429,11 @@ def generate_smm(root: Path) -> dict:
         ),
         _seed_entry(
             "wisdom",
-            "Complete the review cycle before committing code changes "
-            "— /code-review → /xp-quality-review → commit. Deterministic "
-            "patterns scan staged diffs; LLM /security-review fires at "
-            "/xp-{free,sprint,plan}-close Step 4.5 (cumulative close diff).",
+            "Review cadence (commit | story), chosen at kickoff: in commit "
+            "cadence run /code-review → /xp-quality-review before each commit; "
+            "in story cadence the per-commit gate defers and the full cycle "
+            "runs at /xp-story-close on the cumulative diff. LLM "
+            "/security-review fires at close Step 4.",
         ),
         _seed_entry(
             "wisdom",

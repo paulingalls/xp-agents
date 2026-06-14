@@ -36,7 +36,7 @@ Three link types close events and risk pillar items:
 
 **Plan cycle:** `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Use for multi-file changes (3+ files). Marker-gated: `.plan-awaiting-review` blocks writes until reviewed; `.assign-pending` blocks until assigned.
 
-**Per commit:** `/code-review` → `/xp-quality-review` → `git commit`. Commit gate blocks if skipped. Deterministic patterns scan staged diffs; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4.
+**Per commit (cadence set at kickoff):** *commit* — `/code-review` → `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers (advisory); full review runs at `/xp-story-close` Step 4.5b. Deterministic patterns scan staged diffs; LLM `/security-review` at `/xp-{free,sprint,plan}-close` Step 4.
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
 
