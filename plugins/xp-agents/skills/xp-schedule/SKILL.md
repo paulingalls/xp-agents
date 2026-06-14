@@ -54,9 +54,8 @@ file domains). If `FRONTIER_COUNT` is `0`, there is nothing ready to schedule
 
 ## Step 3: Promote + set mode (+ solo branch)
 
-Read the branching stage and base:
+Read the story base branch:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} stage
 BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .)
 ```
 
