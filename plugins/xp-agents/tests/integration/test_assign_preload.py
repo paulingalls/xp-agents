@@ -295,5 +295,48 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertIn("PLUGIN_ROOT=", result.stdout)
 
 
+class TestPreloadTeammateBatch(_IntegrationTestCase):
+    """Narrowed xp-assign consumes the teammate batch from the preload (Python-
+    computed) rather than inline scheduled-selection bash — symmetric with
+    /xp-schedule's FRONTIER_IDS. TEAMMATE_STORY_IDS = in-progress stories whose
+    execution_mode is teammate (the batch /xp-schedule already promoted)."""
+
+    def _write_sprint(self, sprint_json: str) -> None:
+        (self.smm_dir / "sprint.json").write_text(sprint_json)
+
+    def test_emits_in_progress_teammate_stories_only(self):
+        self._write_sprint(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "in-progress", execution_mode="teammate"),
+                    _s("story-002", "B", "in-progress", execution_mode="teammate"),
+                    _s("story-003", "C", "in-progress", execution_mode="solo"),
+                    _s("story-004", "D", "scheduled", execution_mode="teammate"),
+                ]
+            )
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ids = _extract_preload_var(result.stdout, "TEAMMATE_STORY_IDS")
+        self.assertIsNotNone(ids, "TEAMMATE_STORY_IDS line must be emitted")
+        self.assertEqual((ids or "").split(), ["story-001", "story-002"])
+
+    def test_empty_when_no_teammate_in_progress(self):
+        self._write_sprint(
+            _sprint_json([_s("story-001", "A", "in-progress", execution_mode="solo")])
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ids = _extract_preload_var(result.stdout, "TEAMMATE_STORY_IDS")
+        self.assertIsNotNone(ids, "line emitted even when empty")
+        self.assertEqual((ids or "").strip(), "")
+
+    def test_empty_when_no_sprint(self):
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ids = _extract_preload_var(result.stdout, "TEAMMATE_STORY_IDS")
+        self.assertEqual((ids or "").strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()
