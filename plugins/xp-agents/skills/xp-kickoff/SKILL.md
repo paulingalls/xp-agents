@@ -92,7 +92,23 @@ Tell the user which branch is in use. Then jump to Step 5.
 
 ### Sprint session fork
 
-Proceed to Step 3.
+**Review cadence (opt-in).** Ask the user via AskUserQuestion: **"Review cadence: per-commit or per-story?"**
+
+- **commit** (default) — the full review cycle (`/code-review` → `/xp-quality-review`) runs before every commit.
+- **story** — review relocates to `/xp-story-close` (the merge); intermediate commits proceed with a one-line deferral advisory. Nothing reaches the sprint base unreviewed.
+
+Only when the user chooses **story**, write the cadence marker (the careful `commit` default needs no write — session-start already reset it):
+```bash
+python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
+from pathlib import Path
+import markers
+markers.write_review_cadence(Path(sys.argv[3]), "story")
+' "${CLAUDE_PLUGIN_ROOT}/scripts" "${CLAUDE_PLUGIN_ROOT}/smm" "<SMM_DIR>"
+```
+
+Then proceed to Step 3.
 
 ## Step 3: Execution Plan (sprint mode, conditional)
 
