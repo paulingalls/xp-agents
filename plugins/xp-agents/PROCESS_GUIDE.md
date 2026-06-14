@@ -34,13 +34,13 @@ Three link types close events and risk pillar items:
 
 ## When to Run XP Skills
 
-**Plan cycle:** `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → `/xp-assign` → execute. Use for multi-file changes (3+ files). Marker-gated: `.plan-awaiting-review` blocks writes until reviewed; `.assign-pending` blocks until assigned.
+**Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → (teammate only) `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate (pre-promotion window) blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
 
 **Per commit (cadence set at kickoff):** *commit* — `/code-review` → `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers (advisory); full review runs at `/xp-story-close` Step 4.5b. Deterministic patterns scan staged diffs; LLM `/security-review` at `/xp-{free,sprint,plan}-close` Step 4.
 
-**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` (teammates self-promote) → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. Solo JITs; teammates eager-batch. Stop gate fires on in-motion stories.
+**Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-schedule` → plan → `/xp-review-plan` → (teammate) `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. `/xp-schedule` (kickoff tail + `/xp-accept` post-loop) solely owns promotion + `execution_mode`; `/xp-story-close` merges + cleans up only. Stop gate fires on in-motion stories.
 
-**Session close:** `/xp-end-session` — emits `session_summary` event, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block AND the `recent_summaries` field of retro + housekeeper inputs. The render annotates the most-recent entry `(stale — N sessions started without /xp-end-session)` when intervening sessions started without a summary.
+**Session close:** `/xp-end-session` — emits `session_summary`, appends to `session_history.json`, populates next kickoff's `### LAST_SESSION` block + the `recent_summaries` of retro + housekeeper inputs.
 
 **Multi-command AC:** `commands: list[str]` reports `commands[N] failed (exit RC): CMD`; single keeps `command failed`. Prefer `commands` over chained `&&` when mixing runners.
 
@@ -60,9 +60,9 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 
 ### System Context
 
-`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by `scripts/session_start.py`, `/xp-plan`, `/xp-sprint-start`, close-skill auto-merge gates, and the `xp-plan-reviewer` and `xp-close-reviewer` agents. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py`: `edit-{stack,branching}-field` for scalars, `add-*` / `edit-*` / `retire-*` for capped lists (`--help`). An empty `stack.test_command` disables the close-skill auto-merge gate.
+`system_context.json` (per-project, in `SMM_DIR`) holds stack, architecture, conventions, principles, branching stage, and acceptance surfaces. Read by session_start, `/xp-plan`, `/xp-sprint-start`, close-skill gates, and the plan/close reviewers. Create or refresh via `/xp-system-context`; patch via `system_context_cli.py` (`edit-{stack,branching}-field`; `add-*`/`edit-*`/`retire-*` for capped lists; `--help`). An empty `stack.test_command` disables the close-skill auto-merge gate.
 
-**Principles vs conventions:** a principle, `reversed, makes this a different project`; a convention reversed only changes behavior. Principles soft cap 15 / hard cap 20 — over soft, `retire-principle <topic>` before `add-principle`.
+**Principles vs conventions:** a principle, `reversed, makes this a different project`; a convention reversed only changes behavior. Principles soft cap 15 / hard cap 20; `retire-principle` before `add-principle` over soft.
 
 ### Event Types
 
@@ -95,4 +95,4 @@ CLIs (`sprint_cli.py`, `plan_cli.py`, `smm_cli.py`, `retro_cli.py`, `session_his
 
 ### Refactor Mode
 
-Declare before behavior-preserving changes. TDD metric excludes file writes until next commit. Existing tests cover preserved behavior. Add a behavior test for any **new primitive** (module/function/class) — original-caller tests don't reach it.
+Declare before behavior-preserving changes. TDD metric excludes file writes until next commit. Add a behavior test for any **new primitive** (module/function/class) — original-caller tests don't reach it.
