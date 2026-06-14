@@ -2,10 +2,10 @@
 name: xp-story-close
 description: >-
   Per-story close: review the story diff, merge into the sprint base,
-  and (solo mode) JIT-create the next scheduled story's branch off
-  the merged tip. Invoked by /xp-accept on each accepted story; the
-  sprint-review dispatch is owned by /xp-accept after its loop
-  completes — single source of truth lives there.
+  and clean up. Invoked by /xp-accept on each accepted story; the
+  next-frontier promotion (via /xp-schedule) and the sprint-review
+  dispatch are owned by /xp-accept after its loop completes — single
+  source of truth lives there.
 allowed-tools:
   - Read
   - Write
@@ -27,10 +27,10 @@ allowed-tools:
 
 > **Sequential discipline.** The harness batches independent tool calls in
 > parallel; this skill is step-gated. Run Step 1 → 1b → 1c → 2 → 3 → 4.5 → 5–6 →
-> 7 → 7b → 8 strictly, one step per turn — make the call, observe, then decide
-> the next. Don't batch a step with the one that depends on it (e.g. merging or
-> JIT-branching the next story before the diff review completes); never spawn the
-> same subagent twice. Independent read-only calls may still batch.
+> 7 → 7b strictly, one step per turn — make the call, observe, then decide
+> the next. Don't batch a step with the one that depends on it (e.g. merging
+> before the diff review completes); never spawn the same subagent twice.
+> Independent read-only calls may still batch.
 
 The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
 `TARGET_BRANCH`, `GH_AVAILABLE`, `WORKTREE_CLEAN`. `TARGET_BRANCH` is
@@ -219,51 +219,11 @@ if [ -n "$WORKTREE_NAME" ]; then
 fi
 ```
 
-## Step 8: JIT-next dispatch (solo mode)
-
-After the merge, dispatch the next story. Two states:
-
-- **An in-progress story remains** (parallel-teammate batch from
-  /xp-assign — branches already exist). Skip JIT-create.
-- **No in-progress, but scheduled stories queued** (solo mode normal
-  case). Promote the next scheduled story to in-progress and JIT-create
-  its branch off the merged tip.
-
-Pass `--treat-as-done "$STORY_ID"` so the dep gate counts the
-just-closed story as satisfied (its on-disk status is still `closing`
-until /xp-accept Step 4 marks done after this dispatch returns).
-
-```bash
-if NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-    --smm-dir <SMM_DIR> next-in-progress \
-    --treat-as-done "$STORY_ID"); then
-  NEXT_BRANCH=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-    --smm-dir <SMM_DIR> get-story-branch "$NEXT_STORY")
-  if [ -z "$NEXT_BRANCH" ]; then
-    python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
-      --smm-dir <SMM_DIR> create --cwd . \
-      --story "$NEXT_STORY" --slug "<next-story-title-slug>" \
-      --base <TARGET_BRANCH>
-  fi
-elif NEXT_STORY=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-    --smm-dir <SMM_DIR> next-scheduled \
-    --treat-as-done "$STORY_ID"); then
-  python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
-    --smm-dir <SMM_DIR> update-story "$NEXT_STORY" in-progress
-  python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
-    --smm-dir <SMM_DIR> create --cwd . \
-    --story "$NEXT_STORY" --slug "<next-story-title-slug>" \
-    --base <TARGET_BRANCH>
-fi
-# Else: no in-progress AND no scheduled — sprint complete; the
-# sprint-review dispatch is /xp-accept's responsibility.
-```
-
-`branching.py create` records `branch_name` in sprint.json and checks
-out the new branch.
-
 ## Reporting Back
 
 Tell the user: story branch merged into sprint, PR (if created)
-merged, local branch deleted. If JIT-create ran, name the new branch
-and the next story id. /xp-accept's loop continues from here.
+merged, local branch deleted. Close stops here — it does NOT promote
+or branch the next story. `/xp-accept`'s post-loop owns the next
+dispatch: it invokes `/xp-schedule` (the sole owner of
+`scheduled → in-progress`) to promote + mode-select the next frontier
+off the merged tip, or dispatches sprint review when none remain.

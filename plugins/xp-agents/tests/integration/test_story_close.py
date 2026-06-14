@@ -6,15 +6,10 @@ single story branch into the sprint base (TARGET_BRANCH = story-base
 from branching.py get-base — the sprint branch at stage 2+, primary
 otherwise). Built on close_common.py from day one.
 
-Solo-only JIT-next: after the merge, story-close picks the next
-in-progress story whose deps are done (sprint_cli.py next-in-progress)
-and creates its branch off the merged tip — but only if the story has
-no branch_name yet in sprint.json. Teammate-mode parallel branches
-(all created up-front at /xp-assign) already have branch_name set,
-so JIT-next is a no-op for them.
-
-Worktree cleanup for teammate stories lands in commit 10 (a separate
-focused commit).
+As of story-006, frontier promotion moved to /xp-schedule: story-close
+merges + cleans up only, and /xp-accept's post-loop owns the next
+dispatch (it invokes /xp-schedule). Close no longer promotes or
+branches the next story.
 """
 
 import json
@@ -275,8 +270,8 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
     subcommands, forks the close-reviewer in story mode, asks before
     merging. Adds story-specific tests: forks reviewer in story mode,
     auto-resolves MAYBE ADDRESSED concerns (per recorded policy:
-    story+sprint YES, plan+free NO), and gates JIT-next dispatch on
-    next-in-progress + branch_name absence.
+    story+sprint YES, plan+free NO). As of story-006, close no longer
+    promotes/branches the next story — /xp-schedule owns that.
     """
 
     _SKILL_MD = _SKILL_MD
@@ -295,84 +290,25 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
         self.assertIn("triage-drop", self.text)
         self.assertIn("MAYBE ADDRESSED", self.text)
 
-    def test_dispatches_jit_next_after_merge(self):
-        # JIT-next dispatch must invoke sprint_cli.py next-in-progress
-        # AFTER close_common.py merge (so the merge tip is the new
-        # branch base) and must check the story's branch_name in
-        # sprint.json before creating (parallel teammate branches
-        # already exist).
-        merge_match = re.search(r"close_common\.py\s+merge", self.text)
-        assert merge_match is not None
-        # Find the next-in-progress invocation specifically. Anchoring
-        # on the literal subcommand avoids matching the allowed-tools
-        # frontmatter line that mentions sprint_cli.py without the
-        # subcommand.
-        next_idx = self.text.find("next-in-progress")
-        self.assertNotEqual(
-            next_idx,
-            -1,
-            "SKILL.md must invoke sprint_cli.py next-in-progress for JIT-next dispatch",
-        )
-        # Must be the bash invocation, not just a prose mention.
-        self.assertIn("sprint_cli.py", self.text)
-        self.assertLess(
-            merge_match.start(),
-            next_idx,
-            "next-in-progress dispatch must appear AFTER close_common.py merge",
-        )
-
-    def test_jit_next_skips_when_branch_already_set(self):
-        # The skill must read sprint.json (or query sprint_cli) for the
-        # candidate's branch_name and skip JIT-create when it's already
-        # set — that means the branch exists (parallel teammate batch
-        # at /xp-assign), creating it again would clobber.
-        self.assertRegex(
-            self.text,
-            r"branch_name",
-            "SKILL.md must reference branch_name to gate JIT-create",
-        )
-
-    def test_jit_next_uses_explicit_shell_guard(self):
-        # Pin the explicit `if NEXT_STORY=$(...)` outer guard and the
-        # inner `if [ -z "$NEXT_BRANCH" ]; then` so the gate is shell-
-        # enforced, not just prose. A regression that drops the
-        # explicit if/then would let an LLM-orchestrator interpret the
-        # `&&`-style guard incorrectly and run JIT-create even when
-        # `next-in-progress` exited non-zero.
-        self.assertRegex(
-            self.text,
-            r"if NEXT_STORY=\$\(",
-            "JIT-next dispatch must use an explicit `if NEXT_STORY=$(...)` "
-            "outer guard so non-zero exit short-circuits cleanly",
-        )
-        self.assertRegex(
-            self.text,
-            r'if \[ -z "\$NEXT_BRANCH" \]; then',
-            "JIT-create must run inside an explicit `if [ -z $NEXT_BRANCH ]; "
-            "then` block so parallel-teammate branches are skipped, not "
-            "clobbered by a fresh create",
-        )
-
-    def test_jit_next_falls_back_to_scheduled_when_no_in_progress(self):
-        # Under the four-state lifecycle (commit 1+2+3 of this work),
-        # solo mode's next story is in `scheduled` status — xp-assign
-        # only promoted the FIRST scheduled at /xp-assign time. The
-        # JIT-next dispatch must look at next-scheduled when
-        # next-in-progress is empty, promote it to in-progress, and
-        # create the branch off the merged sprint tip.
+    def test_close_does_not_promote_or_branch_next(self):
+        # story-006 moved frontier promotion to /xp-schedule. Close now
+        # merges + cleans up only — the JIT-next promote/branch dispatch is
+        # gone, and /xp-accept's post-loop owns the next dispatch (it invokes
+        # /xp-schedule off the merged tip). Guard against a regression that
+        # re-adds in-skill promotion (which would double-promote alongside
+        # /xp-schedule).
+        for removed in ("next-in-progress", "next-scheduled", "JIT-next"):
+            self.assertNotIn(
+                removed,
+                self.text,
+                f"story-close must no longer reference {removed!r} — "
+                "/xp-schedule owns frontier promotion now",
+            )
         self.assertIn(
-            "next-scheduled",
+            "/xp-schedule",
             self.text,
-            "JIT-next dispatch must check next-scheduled for the solo "
-            "fallback (the next scheduled story becomes the new in-progress)",
-        )
-        # The promotion step (update-story <id> in-progress) must be
-        # explicit in the SKILL.md so a future editor doesn't drop it
-        # and leave the next story stuck in scheduled forever.
-        self.assertIn(
-            "update-story",
-            self.text,
-            "SKILL.md must promote scheduled → in-progress before creating the branch",
+            "story-close must document that the next frontier is promoted by "
+            "/xp-schedule (via /xp-accept's post-loop), not by close",
         )
 
     def test_cleans_up_teammate_worktree_when_present(self):
