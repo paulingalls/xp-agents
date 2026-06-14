@@ -22,6 +22,7 @@ import worktree
 from sprint_status import (
     has_in_progress_stories_data,
     has_under_acceptance_stories_data,
+    schedule_gate_active_data,
 )
 
 # ---------------------------------------------------------------------------
@@ -210,6 +211,24 @@ def check_tdd_order(smm_dir: Path, agent_id: str, file_path: str | None) -> str 
 # ---------------------------------------------------------------------------
 
 
+def _is_smm_write(smm_dir: Path | None, target_file: str | None, cwd: str) -> bool:
+    """True if the write targets a file inside the SMM dir.
+
+    SMM mutations are infrastructure, not implementation, so they are exempt
+    from the schedule gate. Resolves relative target paths against cwd.
+    """
+    if not smm_dir or not target_file:
+        return False
+    p = Path(target_file)
+    if not p.is_absolute():
+        p = Path(cwd) / p
+    try:
+        p.resolve().relative_to(smm_dir.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core logic. Returns additionalContext string or None. Raises BlockedError."""
     if _common.is_xp_agent(input_data):
@@ -291,6 +310,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # .accept while the per-story accept dispatch is in flight.
     if smm_dir and not is_plan_file:
         sprint_data = sprint_state.read_sprint_content(smm_dir)
+
+        # Schedule gate (state-derived, no marker). In the pre-promotion window
+        # (scheduled stories exist, none in-progress) force /xp-schedule before
+        # implementation writes. SMM writes exempt (plan files already excluded
+        # above). Self-clears the instant a frontier is promoted to in-progress.
+        if (
+            sprint_data is not None
+            and schedule_gate_active_data(sprint_data)
+            and not _is_smm_write(smm_dir, target_file, cwd)
+        ):
+            raise _common.BlockedError(
+                "Run /xp-schedule to promote the next frontier (scheduled -> "
+                "in-progress) and pick solo/teammate before writing code.",
+                "Schedule the next frontier before implementation.",
+            )
+
         if (
             sprint_data is not None
             and has_in_progress_stories_data(sprint_data)
