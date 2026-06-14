@@ -234,6 +234,7 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 # every caller (production scripts and 16+ test files).
 
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
+    file_domains_overlap_data,
     has_active_stories,
     has_active_stories_data,
     has_closing_stories,
@@ -268,6 +269,7 @@ __all__ = [
     "compute_velocity",
     "count_by_status",
     "edit_story",
+    "file_domains_overlap_data",
     "get_story",
     "get_story_branch_name",
     "has_active_stories",
@@ -295,6 +297,7 @@ __all__ = [
     "next_sprint_id",
     "ready_frontier",
     "ready_frontier_data",
+    "ready_frontier_report",
     "save_sprint",
     "schedule_gate_active",
     "schedule_gate_active_data",
@@ -418,6 +421,26 @@ def ready_frontier(
     if sprint is None:
         return []
     return ready_frontier_data(sprint, treat_as_done=treat_as_done)
+
+
+def ready_frontier_report(
+    smm_dir: Path, *, treat_as_done: set[str] | None = None
+) -> dict:
+    """The ready frontier plus its parallelizable verdict, in one load.
+
+    Returns ``{"frontier": [ids...], "parallelizable": bool}`` for the
+    /xp-schedule preload. Parallelizable means a genuine fan-out: two or more
+    frontier stories with disjoint file domains (a single-story frontier or
+    overlapping domains is solo). Empty/false when no sprint.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return {"frontier": [], "parallelizable": False}
+    frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
+    parallelizable = len(frontier) >= 2 and not file_domains_overlap_data(
+        sprint, frontier
+    )
+    return {"frontier": frontier, "parallelizable": parallelizable}
 
 
 def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
