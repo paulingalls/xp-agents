@@ -208,7 +208,7 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-system-context` | Autonomous codebase analysis — produces system description, architecture, constraints | Before planning or on demand |
 | `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
-| `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
+| `/xp-assign` | Split a reviewed teammate-mode plan per teammate, create their branches, and spawn parallel CLI teammates (mode already selected by `/xp-schedule`) | After `/xp-schedule` promotes the teammate batch and the plan is reviewed |
 | `/xp-scaffold-acceptance` | Interactive scaffold of an acceptance test harness (pytest/playwright/bats/cargo/etc.) for a `system_context.json` surface | On demand when adding an automated AC surface |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
