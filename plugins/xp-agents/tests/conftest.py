@@ -73,6 +73,7 @@ atexit.register(shutil.rmtree, _test_plugin_data, ignore_errors=True)
 # ---------------------------------------------------------------------------
 
 from _bases import (  # noqa: E402, F401
+    _CADENCE_CLI_PY,
     _MARKERS_PY,
     _PLUGIN_ROOT,
     _SCRIPTS_DIR,
