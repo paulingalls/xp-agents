@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.8.1 — `cadence_cli.py` extraction
+
+Internal refactor — no user-facing behavior change. The session review cadence
+(`commit` | `story`) gains a dedicated CLI, retiring the last inline
+`python3 -c` markers bootstraps.
+
+- **New `cadence_cli.py` read+write entry point.** Thin CLI over
+  `markers.read_review_cadence` / `write_review_cadence`, mirroring the
+  `branching.py` / `retro_cli.py` dedicated-CLI pattern. `read` prints the
+  cadence (fail-safe `commit`); `write {commit,story}` validates at the argparse
+  boundary.
+- **Both shell call sites migrated.** The `xp-kickoff` Sprint-fork WRITE and the
+  `_preload_base.sh` `_get_review_cadence` READ helper (shared by the
+  quality-review and story-close preloads) now call the CLI instead of inlining
+  a sys.path-juggling `python3 -c` bootstrap. Both keep the `|| echo commit`
+  fail-safe; behavior is identical. No inline cadence bootstrap remains.
+
 ## v3.8.0 — Frontier-driven mode selection (`/xp-schedule`)
 
 Mode selection (solo vs CLI teammates) is now an explicit, JIT-safe step that
