@@ -10,6 +10,7 @@ allowed-tools:
   - Bash(python3 */smm/retro_cli.py *)
   - Bash(python3 */smm/smm_cli.py *)
   - Bash(python3 */scripts/branching.py *)
+  - Bash(python3 */scripts/cadence_cli.py *)
   - Read
 ---
 
@@ -99,13 +100,7 @@ Tell the user which branch is in use. Then jump to Step 5.
 
 Only when the user chooses **story**, write the cadence marker (the careful `commit` default needs no write — session-start already reset it):
 ```bash
-python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-import markers
-markers.write_review_cadence(Path(sys.argv[3]), "story")
-' "${CLAUDE_PLUGIN_ROOT}/scripts" "${CLAUDE_PLUGIN_ROOT}/smm" "<SMM_DIR>"
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cadence_cli.py --smm-dir <SMM_DIR> write story
 ```
 
 Then proceed to Step 3.

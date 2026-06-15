@@ -387,21 +387,14 @@ branching_stage() {
         --smm-dir "$SMM_DIR" stage 2>/dev/null
 }
 
-# Read the session's review cadence ('commit' or 'story') via markers.py.
-# Fail-safes to 'commit' when the marker is unset or python3/markers is
-# unavailable. Single source for the inline python3 -c bootstrap shared by
-# the quality-review (READ) and story-close (READ) preloads — see open
-# concern 5b7c5da87d94 (kickoff WRITE side still inlines its own bootstrap;
-# this dedups the two READ sides only).
+# Read the session's review cadence ('commit' or 'story') via cadence_cli.py.
+# Fail-safes to 'commit' when the marker is unset or python3/cadence_cli is
+# unavailable. Both the READ side (quality-review + story-close preloads, here)
+# and the WRITE side (xp-kickoff) now route through cadence_cli.py — no inline
+# python3 -c markers bootstrap remains.
 # Usage: cadence=$(_get_review_cadence)
 _get_review_cadence() {
-    python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-import markers
-print(markers.read_review_cadence(Path(sys.argv[3])))
-' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" 2>/dev/null || echo commit
+    python3 "${PLUGIN_ROOT}/scripts/cadence_cli.py" --smm-dir "${SMM_DIR}" read 2>/dev/null || echo commit
 }
 
 # Marker helpers (thin wrappers over markers.py).

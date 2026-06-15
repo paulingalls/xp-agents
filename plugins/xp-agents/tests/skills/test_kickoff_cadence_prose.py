@@ -42,16 +42,16 @@ class TestKickoffCadenceProse(unittest.TestCase):
         self.assertIn("story", self.sprint_fork)
 
     def test_story_write_is_conditional(self):
-        """AC#1: writes 'story' via write_review_cadence, gated on the choice."""
-        self.assertIn("write_review_cadence", self.sprint_fork)
-        self.assertRegex(self.sprint_fork, r'write_review_cadence\(.*"story"')
+        """AC#1: writes 'story' via cadence_cli.py, gated on the choice."""
+        self.assertIn("cadence_cli.py", self.sprint_fork)
+        self.assertRegex(self.sprint_fork, r"cadence_cli\.py.*write story")
         # The write must be conditional on the story choice, not unconditional.
         self.assertRegex(self.sprint_fork, r"(?i)only when.*story")
 
     def test_free_fork_has_no_cadence_question(self):
         """AC#2: the Free session fork never asks about cadence."""
         self.assertNotRegex(self.free_fork, r"(?i)review cadence")
-        self.assertNotIn("write_review_cadence", self.free_fork)
+        self.assertNotIn("cadence_cli", self.free_fork)
 
 
 if __name__ == "__main__":
