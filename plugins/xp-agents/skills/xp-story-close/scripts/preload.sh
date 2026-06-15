@@ -73,7 +73,7 @@ echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"
 
 # Cadence routes Step 4.5: 'story' runs the full review cycle here (the
 # per-commit gate deferred it); 'commit'/unset keeps the close-reviewer
-# fork. read_review_cadence fail-safes to 'commit'.
+# fork. _get_review_cadence fail-safes to 'commit'.
 CADENCE=$(_get_review_cadence)
 if [ "$CADENCE" = "story" ]; then
     echo "REVIEW_PATH=full-cycle"
