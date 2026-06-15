@@ -28,7 +28,9 @@ from _branching_fixtures import (
     create_teammate_worktree_with_commit,
     get_current_branch_at,
     git_log_oneline_at,
+    make_commit,
     merge_teammate_branch,
+    write_system_context,
 )
 from conftest import (
     _extract_preload_var,
@@ -195,6 +197,81 @@ class TestM2TeammateAcceptFlow(_IntegrationTestCase):
         # for the AC4 checklist).
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT))
         self.assertIn("[story-002] add feature", self._git_log_oneline(orch_branch))
+
+
+class TestM6SoloScheduleHandoff(_IntegrationTestCase):
+    """story-006 E2E (AC #4): dispatch-ownership split. After a solo story
+    merges via close_common.py, the next scheduled story is NOT auto-promoted
+    by close — /xp-schedule's promotion primitives (update-story in-progress +
+    branching.py create off the merged tip) own that. The SKILL prose
+    orchestrates exactly these CLI primitives; this fences the contract.
+    """
+
+    def test_close_leaves_next_scheduled_then_schedule_promotes(self):
+        # Stage 2 so branching.py create records branch_name (story branches
+        # require min stage 2 — the production sprint default).
+        write_system_context(self.smm_dir, 2)
+        base = get_current_branch_at(self.tmpdir)
+        sprint = _sprint_json(
+            [
+                _s("story-001", "First", "in-progress", branch_name="story-001-b"),
+                _s("story-002", "Second", "scheduled", dependencies=["story-001"]),
+            ],
+            sprint_id="sprint-test",
+            started="2026-06-14",
+        )
+        (self.smm_dir / "sprint.json").write_text(sprint)
+
+        # story-001 lands a real commit on its branch, then closes (merge).
+        make_commit(
+            str(self.tmpdir), "story-001-b", "f1.txt", "x", "[story-001] add f1"
+        )
+        merge = merge_teammate_branch(
+            str(self.tmpdir), "story-001-b", base, self._test_env
+        )
+        self.assertEqual(merge.returncode, 0, merge.stderr)
+
+        # Contract 1: close (merge) did NOT promote the next story.
+        self.assertEqual(
+            sprint_store.get_story(self.smm_dir, "story-002")["status"],
+            "scheduled",
+            "close must not promote the next story — /xp-schedule owns promotion",
+        )
+
+        # Contract 2: /xp-schedule's solo promotion primitives advance it.
+        # (mark story-001 done first — accept Step 4 precedes the post-loop.)
+        sprint_store.update_story_status(self.smm_dir, "story-001", "done")
+        sprint_store.update_story_status(self.smm_dir, "story-002", "in-progress")
+        create = subprocess.run(
+            [
+                sys.executable,
+                str(_PLUGIN_ROOT / "scripts" / "branching.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+                "create",
+                "--cwd",
+                str(self.tmpdir),
+                "--story",
+                "story-002",
+                "--slug",
+                "second",
+                "--base",
+                base,
+            ],
+            cwd=str(self.tmpdir),
+            env=self._test_env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(create.returncode, 0, create.stderr)
+
+        promoted = sprint_store.get_story(self.smm_dir, "story-002")
+        self.assertEqual(promoted["status"], "in-progress")
+        self.assertTrue(
+            promoted.get("branch_name"),
+            "/xp-schedule's branching.py create must record branch_name",
+        )
+        self.assertTrue(branch_exists(str(self.tmpdir), promoted["branch_name"]))
 
 
 if __name__ == "__main__":

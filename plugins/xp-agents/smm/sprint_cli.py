@@ -57,6 +57,14 @@ def _cmd_next_scheduled(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ready_frontier(args: argparse.Namespace) -> int:
+    report = store.ready_frontier_report(
+        args.smm_dir, treat_as_done=set(args.treat_as_done)
+    )
+    print(json.dumps(report))
+    return 0
+
+
 def _cmd_scheduled_overlap(args: argparse.Namespace) -> int:
     return 0 if store.scheduled_file_domains_overlap(args.smm_dir) else 1
 
@@ -370,9 +378,9 @@ def main() -> None:
         metavar="STORY_ID",
         help=(
             "Treat STORY_ID as if its status were 'done' for the dep check. "
-            "Repeatable. Used by /xp-story-close Step 8 to surface a "
-            "next-scheduled story whose dep is the just-closed story "
-            "(still 'closing' at JIT-next time, not yet 'done')."
+            "Repeatable. Lets a promotion query surface a next story whose "
+            "dep is the just-closed story (still 'closing' at promotion "
+            "time, not yet 'done')."
         ),
     )
     nsc_p = sub.add_parser(
@@ -385,6 +393,21 @@ def main() -> None:
         default=[],
         metavar="STORY_ID",
         help="Same as next-in-progress: see that subcommand's help.",
+    )
+    rf_p = sub.add_parser(
+        "ready-frontier",
+        help=(
+            "Print JSON {frontier, parallelizable}: dep-satisfied scheduled "
+            "stories + whether they are a disjoint-domain fan-out (>=2). "
+            "Consumed by the /xp-schedule preload. Exit 0 always."
+        ),
+    )
+    rf_p.add_argument(
+        "--treat-as-done",
+        action="append",
+        default=[],
+        metavar="STORY_ID",
+        help="Same as next-scheduled: treat these ids as done for dep checks.",
     )
     sub.add_parser(
         "scheduled-overlap",
@@ -528,6 +551,7 @@ def main() -> None:
         "is-complete": _cmd_is_complete,
         "next-in-progress": _cmd_next_in_progress,
         "next-scheduled": _cmd_next_scheduled,
+        "ready-frontier": _cmd_ready_frontier,
         "scheduled-overlap": _cmd_scheduled_overlap,
         "count": _cmd_count,
         "count-status": _cmd_count_status,

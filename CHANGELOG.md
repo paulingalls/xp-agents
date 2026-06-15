@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.8.0 — Frontier-driven mode selection (`/xp-schedule`)
+
+Mode selection (solo vs CLI teammates) is now an explicit, JIT-safe step that
+precedes planning, enabling sequential-foundation then parallel-fanout within a
+single sprint. A new `/xp-schedule` skill becomes the sole owner of
+`scheduled → in-progress` promotion; `/xp-assign` narrows to teammate
+split+spawn only; and state-derived gates make skipping the schedule step
+structurally impossible.
+
+- **`/xp-schedule` skill + frontier query.** Promotes the next
+  dependency-satisfied frontier, picks mode, sets each story's `execution_mode`,
+  and (solo) JIT-creates the branch. Backed by a `ready_frontier` query and the
+  `schedule_gate_active` predicate (scheduled stories exist, none in-progress).
+- **State-derived enforcement gates.** A `pre_tool_write` write gate and a new
+  `pre_tool_plan_mode` EnterPlanMode gate both block in the pre-promotion window
+  until `/xp-schedule` runs, then self-clear on promotion — no marker to bypass.
+- **Narrowed `.assign-pending` gate.** Armed only when the just-planned story's
+  `execution_mode` is `teammate`; solo plan reviews leave no marker, so the
+  agent codes straight through.
+- **Teammate-only `/xp-assign`.** Splits a reviewed teammate-mode plan per
+  teammate and spawns worktrees; mode selection and solo branching moved to
+  `/xp-schedule`.
+- **Rewired orchestration.** The kickoff tail and `/xp-accept`'s post-loop
+  invoke `/xp-schedule`; `/xp-story-close` merges + cleans up only (no next-story
+  promotion). Shipped + repo docs updated to the new flow.
+
 ## v3.7.0 — Session-scoped review cadence (commit | story)
 
 A new per-session review cadence, chosen explicitly at kickoff (solo). The

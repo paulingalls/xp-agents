@@ -147,6 +147,6 @@ Output the render CLI's stdout to the user, followed by the change summary the h
 
 Kickoff is complete. **Do NOT stop.**
 
-**If stories were selected in Step 5**, follow the plan cycle: enter plan mode, run `/xp-review-plan` after exiting, then run `/xp-assign`.
+**If stories were selected in Step 5**, run `/xp-schedule` first — it promotes the next frontier (scheduled → in-progress), sets each story's execution_mode, and (solo) creates the branch. The schedule gate enforces this before planning. Then follow its handoff: enter plan mode, run `/xp-review-plan` after exiting, then (teammate mode only) run `/xp-assign`. If a story is already in-progress from a prior session, continue it directly into the plan cycle.
 
 **If no sprint is active or the user chose free session**, begin working on the session goals.

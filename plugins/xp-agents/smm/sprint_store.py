@@ -234,6 +234,7 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 # every caller (production scripts and 16+ test files).
 
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
+    file_domains_overlap_data,
     has_active_stories,
     has_active_stories_data,
     has_closing_stories,
@@ -250,7 +251,11 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     has_stories_with_status_data,
     has_under_acceptance_stories,
     has_under_acceptance_stories_data,
+    in_progress_is_teammate,
+    in_progress_is_teammate_data,
     is_complete,
+    schedule_gate_active,
+    schedule_gate_active_data,
     scheduled_file_domains_overlap,
     select_closing_stories,
     select_in_motion_stories,
@@ -266,6 +271,7 @@ __all__ = [
     "compute_velocity",
     "count_by_status",
     "edit_story",
+    "file_domains_overlap_data",
     "get_story",
     "get_story_branch_name",
     "has_active_stories",
@@ -284,6 +290,8 @@ __all__ = [
     "has_stories_with_status_data",
     "has_under_acceptance_stories",
     "has_under_acceptance_stories_data",
+    "in_progress_is_teammate",
+    "in_progress_is_teammate_data",
     "is_complete",
     "list_stories",
     "load_sprint",
@@ -291,7 +299,12 @@ __all__ = [
     "next_in_progress_story_id",
     "next_scheduled_story_id",
     "next_sprint_id",
+    "ready_frontier",
+    "ready_frontier_data",
+    "ready_frontier_report",
     "save_sprint",
+    "schedule_gate_active",
+    "schedule_gate_active_data",
     "scheduled_file_domains_overlap",
     "select_closing_stories",
     "select_in_motion_stories",
@@ -307,10 +320,10 @@ __all__ = [
 def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     """Return the recorded branch_name for a story, or empty string.
 
-    Powers /xp-story-close's JIT-next gate: a non-empty branch_name
-    means the branch already exists (parallel teammate batch at
-    /xp-assign), so JIT-create is skipped. Empty means solo mode —
-    create the branch off the just-merged sprint tip.
+    Branch-existence check: a non-empty branch_name means the branch
+    already exists (a parallel teammate batch created at /xp-assign), so
+    creation is skipped. Empty means none yet. Branch creation lives in
+    /xp-schedule (solo, JIT off the sprint tip) and /xp-assign (teammate).
 
     Returns "" when the sprint is missing OR the story is missing OR
     branch_name is unset, to keep the CLI contract simple (caller can
@@ -325,6 +338,46 @@ def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     return story.get("branch_name", "") or ""
 
 
+def _story_id_sort_key(story_id: str) -> tuple[int, str]:
+    """Numeric sort by trailing -NNN — lexical would order story-10 before
+    story-2. Project convention zero-pads (story-001) but the numeric key
+    removes the latent footgun. Malformed ids (typos like `story-2a` that
+    escaped schema validation) fall back to a large sentinel so they sort
+    last instead of crashing the close pipeline with an uncaught ValueError.
+    """
+    tail = story_id.rsplit("-", 1)[-1]
+    try:
+        return (int(tail), story_id)
+    except ValueError:
+        return (sys.maxsize, story_id)
+
+
+def _deps_satisfied(story: dict, by_id: dict, overrides: set[str]) -> bool:
+    """True when every dep is `done` (or asserted via `overrides`).
+
+    `overrides` (treat_as_done) lets a caller assert "this id is about to
+    be done" without it being marked done on disk yet — e.g. a promotion
+    query that runs while the just-closed story is still `closing`.
+    Cascade-defer falls out naturally: a deferred dep's status is
+    "deferred", not "done", so dependents fail the check and are skipped.
+    """
+    return all(
+        (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
+        for dep in story.get("dependencies", [])
+    )
+
+
+def _eligible_sorted_ids(data: dict, status: str, overrides: set[str]) -> list[str]:
+    """Stories with `status` whose deps are all satisfied, sorted by id."""
+    by_id = {s["id"]: s for s in data["stories"]}
+    eligible = [
+        s["id"]
+        for s in data["stories"]
+        if s["status"] == status and _deps_satisfied(s, by_id, overrides)
+    ]
+    return sorted(eligible, key=_story_id_sort_key)
+
+
 def _next_story_id_with_status(
     smm_dir: Path,
     status: str,
@@ -333,51 +386,66 @@ def _next_story_id_with_status(
 ) -> str | None:
     """Lowest-id story with `status` whose deps are ALL done. None if none.
 
-    Powers JIT branch creation in /xp-story-close: the next story's
-    branch is born off the merged tip of the just-accepted story, but
-    only when the candidate's deps are actually satisfied. Cascade-defer
-    naturally excludes blocked stories — a deferred story's status is
-    "deferred", not "done", so any matching story depending on it fails
-    the "all deps done" check and is skipped.
+    Backs the `next-in-progress` sprint_cli query — surfaces the next
+    dep-satisfied story for promotion/branching, which /xp-schedule owns
+    (off the merged sprint tip), only when the candidate's deps are
+    actually satisfied.
 
-    `treat_as_done` lets the caller assert "this id is about to be
-    done" without it actually being marked done on disk yet. Closes
-    the JIT-next race: /xp-story-close Step 8 runs BEFORE /xp-accept
-    Step 4 marks the just-closed story `done`, so a dep-gated next
-    story would never be promoted in solo mode without this override.
+    See `_deps_satisfied` for the `treat_as_done` override semantics.
     """
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return None
-    by_id = {s["id"]: s for s in sprint["stories"]}
-    overrides = treat_as_done or set()
+    eligible = _eligible_sorted_ids(sprint, status, treat_as_done or set())
+    return eligible[0] if eligible else None
 
-    def _deps_done(story: dict) -> bool:
-        return all(
-            (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
-            for dep in story.get("dependencies", [])
-        )
 
-    eligible = [
-        s["id"] for s in sprint["stories"] if s["status"] == status and _deps_done(s)
-    ]
-    if not eligible:
-        return None
+def ready_frontier_data(
+    data: dict, *, treat_as_done: set[str] | None = None
+) -> list[str]:
+    """The ready frontier from a loaded sprint dict (pure).
 
-    # Numeric sort by trailing -NNN — lexical min would order story-10
-    # before story-2. Project convention zero-pads (story-001) but a
-    # numeric key removes the latent footgun. Malformed ids (typos
-    # like `story-2a` that escaped schema validation) fall back to a
-    # large sentinel so they sort last instead of crashing the close
-    # pipeline with an uncaught ValueError.
-    def _id_sort_key(s: str) -> tuple[int, str]:
-        tail = s.rsplit("-", 1)[-1]
-        try:
-            return (int(tail), s)
-        except ValueError:
-            return (sys.maxsize, s)
+    The frontier /xp-schedule promotes: dep-satisfied `scheduled` stories,
+    sorted by id. Lifecycle is ready→scheduled (work-selection)→in-progress
+    (/xp-schedule), so the frontier is over `scheduled`, not `ready`. Sibling
+    to `ready_frontier` for callers that already hold the sprint dict.
+    """
+    return _eligible_sorted_ids(data, "scheduled", treat_as_done or set())
 
-    return min(eligible, key=_id_sort_key)
+
+def ready_frontier(
+    smm_dir: Path, *, treat_as_done: set[str] | None = None
+) -> list[str]:
+    """The ready frontier: dep-satisfied `scheduled` stories, sorted by id.
+
+    Consumed by skills/xp-schedule/preload.sh to decide solo vs parallel.
+    Empty list when no sprint or no eligible scheduled story. See
+    `_deps_satisfied` for the `treat_as_done` override.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return []
+    return ready_frontier_data(sprint, treat_as_done=treat_as_done)
+
+
+def ready_frontier_report(
+    smm_dir: Path, *, treat_as_done: set[str] | None = None
+) -> dict:
+    """The ready frontier plus its parallelizable verdict, in one load.
+
+    Returns ``{"frontier": [ids...], "parallelizable": bool}`` for the
+    /xp-schedule preload. Parallelizable means a genuine fan-out: two or more
+    frontier stories with disjoint file domains (a single-story frontier or
+    overlapping domains is solo). Empty/false when no sprint.
+    """
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return {"frontier": [], "parallelizable": False}
+    frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
+    parallelizable = len(frontier) >= 2 and not file_domains_overlap_data(
+        sprint, frontier
+    )
+    return {"frontier": frontier, "parallelizable": parallelizable}
 
 
 def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
@@ -416,12 +484,12 @@ def next_in_progress_story_id(
 ) -> str | None:
     """Lowest-id in-progress story whose deps are ALL done. None if none.
 
-    Powers /xp-story-close's JIT branch creation: the next story's branch
-    is born off the merged tip of the just-accepted story, but only when
-    its deps are actually satisfied. Cascade-defer naturally excludes
-    blocked stories — a deferred story's status is "deferred", not
-    "done", so any in-progress story depending on it fails the
-    "all deps done" check and is skipped.
+    Backs the `next-in-progress` query — surfaces the next dep-satisfied
+    in-progress story for /xp-schedule promotion/branching off the merged
+    sprint tip, but only when its deps are actually satisfied. Cascade-defer
+    naturally excludes blocked stories — a deferred story's status is
+    "deferred", not "done", so any in-progress story depending on it fails
+    the "all deps done" check and is skipped.
 
     See `_next_story_id_with_status` for the `treat_as_done` override
     semantics — exposed here for symmetry with `next_scheduled_story_id`.
@@ -436,9 +504,9 @@ def next_scheduled_story_id(
 ) -> str | None:
     """Lowest-id scheduled story whose deps are ALL done. None if none.
 
-    Powers /xp-story-close's JIT-next dispatch when no in-progress story
-    remains: promotes the next scheduled story to in-progress + creates
-    its branch off the merged sprint tip. Same cascade-defer semantics
+    Backs the `next-scheduled` query — surfaces the next dep-satisfied
+    scheduled story so /xp-schedule can promote it to in-progress and
+    branch it off the merged sprint tip. Same cascade-defer semantics
     as next_in_progress_story_id.
     """
     return _next_story_id_with_status(smm_dir, "scheduled", treat_as_done=treat_as_done)

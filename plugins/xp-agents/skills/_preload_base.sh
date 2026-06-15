@@ -262,78 +262,12 @@ emit_hook_guidance() {
     fi
 }
 
-# Route git through ${TEAMMATE_CWD} so dump_diff / get_changed_files
-# capture the teammate worktree's diff during /xp-accept fix-cycles —
-# without this, the orchestrator's incidental cwd edits would mask the
-# teammate's actual changes in /xp-quality-review.
-_git() {
-    if [ -n "${TEAMMATE_CWD:-}" ]; then
-        git -C "$TEAMMATE_CWD" "$@"
-    else
-        git "$@"
-    fi
-}
-
-# List all changed files (staged + unstaged + untracked), one per line.
-# Usage: get_changed_files
-get_changed_files() {
-    { _git diff HEAD --name-only 2>/dev/null
-      _git ls-files --others --exclude-standard 2>/dev/null
-    } | sort -u
-}
-
-# Show uncommitted changes. Default: stat only. Pass "full" for complete diffs.
-# Usage: dump_diff        # stat + new file list
-#        dump_diff full   # staged/unstaged diffs + new files
-dump_diff() {
-    local mode="${1:-stat}"
-    local staged_stat unstaged_stat untracked
-
-    staged_stat=$(_git diff --cached --stat 2>/dev/null || true)
-    unstaged_stat=$(_git diff --stat 2>/dev/null || true)
-    untracked=$(_git ls-files --others --exclude-standard 2>/dev/null || true)
-
-    if [ -z "$staged_stat" ] && [ -z "$unstaged_stat" ] && [ -z "$untracked" ]; then
-        echo "## No Changes"
-        echo "(no staged, unstaged, or untracked changes detected)"
-        return
-    fi
-
-    if [ "$mode" = "full" ]; then
-        if [ -n "$staged_stat" ]; then
-            echo "## Staged Changes"
-            echo "$staged_stat"
-            echo ""
-            echo "## Staged Diff"
-            _git diff --cached 2>/dev/null || true
-        fi
-        if [ -n "$unstaged_stat" ]; then
-            echo ""
-            echo "## Unstaged Changes"
-            echo "$unstaged_stat"
-            echo ""
-            echo "## Unstaged Diff"
-            _git diff 2>/dev/null || true
-        fi
-    else
-        echo "## Recent Changes"
-        if [ -n "$staged_stat" ]; then
-            echo "Staged:"
-            echo "$staged_stat"
-        fi
-        if [ -n "$unstaged_stat" ]; then
-            echo "Unstaged:"
-            echo "$unstaged_stat"
-        fi
-    fi
-
-    if [ -n "$untracked" ]; then
-        echo ""
-        echo "## New Files (untracked)"
-        echo "$untracked"
-    fi
-    echo ""
-}
+# Git-diff helpers (_git, get_changed_files, dump_diff, and their committed-
+# range variants) live in a sibling module — extracted when this file crossed
+# the 500-line cap. Sourced here so every preload that sources _preload_base.sh
+# gets them transitively, with no call-site changes.
+# shellcheck source=_preload_diff.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_preload_diff.sh"
 
 smm_has_section() {
     python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" has-section "$1" 2>/dev/null
@@ -451,6 +385,23 @@ branching_list_story_orphans() {
 branching_stage() {
     python3 "${PLUGIN_ROOT}/scripts/branching.py" \
         --smm-dir "$SMM_DIR" stage 2>/dev/null
+}
+
+# Read the session's review cadence ('commit' or 'story') via markers.py.
+# Fail-safes to 'commit' when the marker is unset or python3/markers is
+# unavailable. Single source for the inline python3 -c bootstrap shared by
+# the quality-review (READ) and story-close (READ) preloads — see open
+# concern 5b7c5da87d94 (kickoff WRITE side still inlines its own bootstrap;
+# this dedups the two READ sides only).
+# Usage: cadence=$(_get_review_cadence)
+_get_review_cadence() {
+    python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
+from pathlib import Path
+import markers
+print(markers.read_review_cadence(Path(sys.argv[3])))
+' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" 2>/dev/null || echo commit
 }
 
 # Marker helpers (thin wrappers over markers.py).

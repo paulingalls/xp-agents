@@ -207,12 +207,13 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-plan` | Execution planning — transforms design sources into ordered milestones with change zones | Before implementation |
 | `/xp-system-context` | Autonomous codebase analysis — produces system description, architecture, constraints | Before planning or on demand |
 | `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
+| `/xp-schedule` | Promote the next dependency-satisfied frontier (`scheduled → in-progress`), pick solo vs teammate mode, set each story's `execution_mode`, and (solo) JIT-create the branch | Before planning each frontier — invoked by the kickoff tail and `/xp-accept`'s post-loop; state-derived gates enforce it |
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
-| `/xp-assign` | Analyze plan steps, select execution mode (solo vs CLI teammates), spawn if parallel | After sprint stories are ready |
+| `/xp-assign` | Split a reviewed teammate-mode plan per teammate, create their branches, and spawn parallel CLI teammates (mode already selected by `/xp-schedule`) | After `/xp-schedule` promotes the teammate batch and the plan is reviewed |
 | `/xp-scaffold-acceptance` | Interactive scaffold of an acceptance test harness (pytest/playwright/bats/cargo/etc.) for a `system_context.json` surface | On demand when adding an automated AC surface |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
-| `/xp-story-close` | Per-accepted-story merge into the sprint base; in solo mode, JIT-creates the next scheduled story's branch off the merged tip | Auto-invoked by `/xp-accept` per accepted story |
+| `/xp-story-close` | Per-accepted-story merge into the sprint base and cleanup — no promotion or branching of the next story (that's `/xp-schedule`, via `/xp-accept`'s post-loop) | Auto-invoked by `/xp-accept` per accepted story |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
 | `/xp-sprint-close` | Push sprint branch, fork close-reviewer, merge into target, cleanup | After sprint review |
 | `/xp-plan-close` | Push plan branch, fork close-reviewer, merge into primary, archive | After last milestone's sprint-close |
@@ -301,15 +302,15 @@ The retrospective runs at session *start*, not session end — resilient to forc
 | 5th | Tried experiments validated or dropped. |
 | 10th | Genuine institutional memory. |
 
-### Sprint Execution: Solo and Worktree Subagents
+### Sprint Execution: Frontier Scheduling, Solo and Worktree Subagents
 
-After planning, the `/xp-assign` skill analyzes the plan's steps and selects an execution mode:
+Sprint stories advance in **frontiers** — the set of `scheduled` stories whose dependencies are satisfied. At each frontier, **before planning**, the `/xp-schedule` skill promotes the frontier (`scheduled → in-progress`), picks the execution mode, and sets each story's `execution_mode`. State-derived gates make this structurally unskippable: while `scheduled` stories exist with none `in-progress`, the write gate and the EnterPlanMode gate both block until `/xp-schedule` runs.
 
-**Solo** (sequential) — the lead executes stories one at a time. Best when stories have dependencies between them, overlapping file domains, or are all small (S-sized). This is the default and most common mode.
+**Solo** (sequential) — the lead executes one story at a time. Chosen when the frontier is a single story, or stories share file domains. `/xp-schedule` promotes the lowest-id story, JIT-creates its branch, and the lead enters plan mode for it. No `/xp-assign` step — the lead codes straight after plan review.
 
-**CLI Teammates** (parallel) — each independent step group gets its own `claude -p` process running in an isolated git worktree. Teammates have full autonomy: they write tests, implement, run the review cycle (`/simplify`, `/xp-quality-review`), and commit independently. Tier 2/3 security review fires at story acceptance and close. The lead merges branches after all teammates complete.
+**CLI Teammates** (parallel) — chosen when two or more frontier stories have non-overlapping file domains (the user confirms). `/xp-schedule` promotes the whole frontier as a teammate batch; the lead plans it and runs `/xp-review-plan`; then `/xp-assign` splits the reviewed plan per teammate, creates each branch, and spawns each in an isolated `claude -p` worktree. Teammates have full autonomy: they write tests, implement, run the review cycle, and commit independently. Tier 2/3 security review fires at story acceptance and close. The lead merges each branch at `/xp-story-close`.
 
-`/xp-assign` chooses CLI teammates when two or more step groups are substantial, have no dependencies between them, and have non-overlapping file domains. The mode decision is presented to the user for confirmation before spawning.
+After each story closes, `/xp-accept`'s post-loop calls `/xp-schedule` again for the next frontier — or dispatches `/xp-sprint-review` when none remain. `/xp-story-close` itself only merges and cleans up; it never promotes the next story.
 
 Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
 

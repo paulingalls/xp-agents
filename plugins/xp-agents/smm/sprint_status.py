@@ -138,6 +138,61 @@ def has_scheduled_stories(smm_dir: Path) -> bool:
     return has_stories_with_status(smm_dir, "scheduled")
 
 
+def schedule_gate_active(smm_dir: Path) -> bool:
+    """True in the pre-promotion window: scheduled stories exist AND zero
+    in-progress.
+
+    The trigger the /xp-schedule write + EnterPlanMode gates fire on. It is
+    state-derived (no marker to rm past): the only legitimate exit is
+    /xp-schedule promoting a frontier scheduled->in-progress, which flips the
+    in-progress check and self-clears the gate. False when no sprint.
+    """
+    from sprint_store import load_sprint
+
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return schedule_gate_active_data(sprint)
+
+
+def schedule_gate_active_data(data: dict) -> bool:
+    """True if the sprint dict has scheduled stories and none in-progress.
+
+    Sibling to schedule_gate_active for callers holding the loaded dict.
+    """
+    return has_stories_with_status_data(
+        data, "scheduled"
+    ) and not has_stories_with_status_data(data, "in-progress")
+
+
+def in_progress_is_teammate(smm_dir: Path) -> bool:
+    """True iff any in-progress story has execution_mode == 'teammate'.
+
+    The signal subagent_stop's plan-review gate keys on: at plan-review-done
+    time the just-planned story is in-progress, and /xp-schedule promotes a
+    homogeneous batch. Only teammate-mode plans need /xp-assign, so a solo or
+    unset in-progress story leaves no .assign-pending marker. Conservative
+    default False (no sprint / no in-progress / solo / unset).
+    """
+    from sprint_store import load_sprint
+
+    sprint = load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return in_progress_is_teammate_data(sprint)
+
+
+def in_progress_is_teammate_data(data: dict) -> bool:
+    """True iff the sprint dict has an in-progress story with
+    execution_mode == 'teammate'. Sibling to in_progress_is_teammate for
+    callers holding the loaded dict.
+    """
+    return any(
+        s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
+        for s in data.get("stories", [])
+    )
+
+
 def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
     """True when 2+ scheduled stories share at least one file in their
     file_domain.
@@ -156,15 +211,30 @@ def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
     sprint = load_sprint(smm_dir)
     if sprint is None:
         return False
-    scheduled = [s for s in sprint["stories"] if s.get("status") == "scheduled"]
-    if len(scheduled) < 2:
-        return False
+    scheduled = [s["id"] for s in sprint["stories"] if s.get("status") == "scheduled"]
+    return file_domains_overlap_data(sprint, scheduled)
 
-    # Conservative-overlap=True when a story declares a glob: xp-assign picks
-    # solo rather than degrade to "no overlap → ask parallel".
+
+def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
+    """True when 2+ of the named stories share a file in their file_domain.
+
+    Pure helper over a loaded sprint dict. Powers both the /xp-assign
+    auto-pick-solo check (over all scheduled stories) and the /xp-schedule
+    ready-frontier parallelizable verdict (over just the frontier subset).
+    Returns False for fewer than two named stories (no pair to overlap).
+
+    Reuses the canonical em-dash splitter from `triage` so parsing matches
+    every other consumer of file_domain entries. Conservative: returns True
+    when a story declares a glob (extract raises ValueError) so callers pick
+    solo rather than degrade to "no overlap → safe to parallelize".
+    """
+    wanted = set(story_ids)
+    stories = [s for s in data["stories"] if s.get("id") in wanted]
+    if len(stories) < 2:
+        return False
     try:
         path_sets = [
-            extract_file_domain_paths(s.get("file_domain") or []) for s in scheduled
+            extract_file_domain_paths(s.get("file_domain") or []) for s in stories
         ]
     except ValueError:
         return True

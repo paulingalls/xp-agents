@@ -202,7 +202,10 @@ passing from /xp-accept needed — and owns:
   regression risk)
 - Auto-resolve MAYBE ADDRESSED concerns
 - Confirm and run `close_common.py merge`
-- (Solo) JIT-create the next scheduled story's branch off the merged tip
+
+Close stops at the merge — it does NOT promote or branch the next
+story. The next-frontier promotion is owned by Step 8's post-loop
+dispatch (the sole owner of `scheduled → in-progress`).
 
 **Merge-failure semantics:** on abort (preflight fails, reviewer Block,
 user picks abort, merge conflicts) the story stays in `closing`;
@@ -274,14 +277,15 @@ teammate-worktree cleanup is owned by /xp-story-close (Step 2).
 
 ## Step 8: Continue to next story
 
-If Step 7 did not fire, run:
+If Step 7 did not fire, run `/xp-schedule` ONCE — the per-story close
+loop is complete, so this is a single dispatch per accept run.
+`/xp-schedule` promotes the next frontier (scheduled → in-progress),
+sets each story's execution_mode, and (solo) JIT-creates the branch
+off the merged sprint tip; then follow its handoff into the plan cycle
+(enter plan mode → `/xp-review-plan` → teammate-mode `/xp-assign`).
+Story-close no longer pre-promotes — `/xp-schedule` is the sole owner
+of `scheduled → in-progress`.
 
-```bash
-NEXT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> next-in-progress)
-```
-
-If `NEXT` is non-empty (rc=0 — a fresh JIT-promote from
-`/xp-story-close`), call the `EnterPlanMode` tool (no args; the new
-story is the planning subject) so the plan cycle starts immediately
-on the next iteration. If `NEXT` is empty (rc=1), no further work —
-stop.
+If `/xp-schedule` reports no ready frontier (FRONTIER_COUNT 0 — every
+remaining story is blocked, done, or deferred), the sprint is
+effectively complete: run `/xp-sprint-review` (the Step 7 fallthrough).

@@ -491,13 +491,8 @@ class TestTransitiveActiveDependents(_SMMTestCase):
         self.assertEqual(result, ["story-002"])
 
 
-# ===========================================================================
-# Status-module extraction + re-export shim (story-008)
-# ===========================================================================
-# When sprint_store grew past 500 lines, the 8 status-check functions were
-# moved into a sibling module sprint_status. This class pins both the new
-# import path AND the legacy import path through sprint_store, so the 16+
-# existing callers keep working without churn (constraint 2c19173dad39).
+# ready_frontier{,_data} tests live in test_sprint_frontier.py — split
+# for the 500-line cap (the frontier query is a distinct read-path concern).
 
 
 if __name__ == "__main__":

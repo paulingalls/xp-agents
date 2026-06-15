@@ -44,6 +44,13 @@ def has_in_motion_stories(smm_dir: Path) -> bool:
     return _fn(smm_dir)
 
 
+def in_progress_is_teammate(smm_dir: Path) -> bool:
+    """True iff an in-progress story has execution_mode == 'teammate'."""
+    from sprint_store import in_progress_is_teammate as _fn
+
+    return _fn(smm_dir)
+
+
 def read_sprint_content(smm_dir: Path) -> dict | None:
     """Load sprint data from sprint.json. Returns None if missing."""
     from sprint_store import load_sprint
