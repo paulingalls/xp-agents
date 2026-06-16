@@ -241,6 +241,16 @@ SPRINT_SCHEDULED_ONLY = _sprint_json(
     [_s("story-001", "As a user I can log in", "scheduled")]
 )
 
+# The /xp-story-close window: one story closing, the next frontier still
+# scheduled. No story is in-progress, but the schedule gate must stay quiet —
+# review-cycle fixes belong to the closing story, not the unpromoted next one.
+SPRINT_CLOSING_WITH_NEXT_SCHEDULED = _sprint_json(
+    [
+        _s("story-001", "As a user I can log in", "closing"),
+        _s("story-002", "As a user I can register", "scheduled"),
+    ]
+)
+
 SPRINT_ALL_DONE = _sprint_json(
     [
         _s("story-001", "As a user I can log in", "done"),

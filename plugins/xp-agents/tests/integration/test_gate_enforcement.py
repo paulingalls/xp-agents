@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
+    SPRINT_CLOSING_WITH_NEXT_SCHEDULED,
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     SPRINT_SCHEDULED_ONLY,
@@ -257,6 +258,19 @@ class TestScheduleGateEnforcement(_IntegrationTestCase):
 
         # /xp-schedule promotes a frontier scheduled -> in-progress.
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+
+        write_ok = self._run_script("pre_tool_write.py", self._write_input())
+        self.assertEqual(write_ok.returncode, 0, write_ok.stderr)
+
+        plan_ok = self._run_script("pre_tool_plan_mode.py", self._plan_mode_input())
+        self.assertEqual(plan_ok.returncode, 0, plan_ok.stderr)
+
+    def test_write_allowed_during_close_window(self):
+        # /xp-story-close window: story-001 closing, story-002 still scheduled.
+        # No story is in-progress, but the close is in motion — the gate must
+        # NOT block a review-cycle fix to the closing story by demanding a
+        # /xp-schedule that would wrongly promote the next frontier mid-close.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_WITH_NEXT_SCHEDULED)
 
         write_ok = self._run_script("pre_tool_write.py", self._write_input())
         self.assertEqual(write_ok.returncode, 0, write_ok.stderr)

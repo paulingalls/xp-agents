@@ -584,9 +584,13 @@ class TestCountByStatus(unittest.TestCase):
 
 class TestScheduleGateActive(_SMMTestCase):
     """schedule_gate_active{,_data}: the trigger the /xp-schedule gates fire
-    on — scheduled stories exist AND zero in-progress. That is exactly the
-    "work-selection scheduled work, no frontier promoted yet" window;
-    /xp-schedule is the sole legitimate exit (promotes scheduled->in-progress).
+    on — scheduled stories exist AND no story is in motion (in-progress,
+    reviewing, or closing). That is exactly the "work-selection scheduled
+    work, no frontier promoted yet" window; /xp-schedule is the sole
+    legitimate exit (promotes scheduled->in-progress). The in-motion guard
+    keeps the gate quiet during the /xp-story-close window so review-cycle
+    fixes to the closing story aren't blocked by a demand to promote the
+    still-scheduled next frontier.
     """
 
     def _write(self, stories):
@@ -605,6 +609,37 @@ class TestScheduleGateActive(_SMMTestCase):
         self._write(
             [
                 _make_story(id="story-001", status="in-progress"),
+                _make_story(id="story-002", status="scheduled"),
+            ]
+        )
+        self.assertFalse(sprint_store.schedule_gate_active(self.smm_dir))
+
+    def test_inactive_when_story_closing(self):
+        """The /xp-story-close window: one story closing, next still
+        scheduled. The gate must stay quiet so review-cycle fixes to the
+        closing story aren't blocked by a /xp-schedule demand that would
+        wrongly promote the next frontier mid-close.
+        """
+        import sprint_store
+
+        self._write(
+            [
+                _make_story(id="story-001", status="closing"),
+                _make_story(id="story-002", status="scheduled"),
+            ]
+        )
+        self.assertFalse(sprint_store.schedule_gate_active(self.smm_dir))
+
+    def test_inactive_when_story_reviewing(self):
+        """The /xp-accept review window: one story reviewing, next still
+        scheduled. Same as closing — fix-cycle writes belong to the
+        reviewing story, not the next frontier.
+        """
+        import sprint_store
+
+        self._write(
+            [
+                _make_story(id="story-001", status="reviewing"),
                 _make_story(id="story-002", status="scheduled"),
             ]
         )
@@ -631,8 +666,15 @@ class TestScheduleGateActive(_SMMTestCase):
                 _make_story(id="story-002", status="in-progress"),
             ]
         )
+        closing = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="scheduled"),
+                _make_story(id="story-002", status="closing"),
+            ]
+        )
         self.assertTrue(sprint_status.schedule_gate_active_data(active))
         self.assertFalse(sprint_status.schedule_gate_active_data(blocked))
+        self.assertFalse(sprint_status.schedule_gate_active_data(closing))
 
 
 class TestInProgressIsTeammate(_SMMTestCase):
