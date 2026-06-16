@@ -241,6 +241,19 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
 
     work_sigs = build_work_signals(unanalyzed)
 
+    # Cadence context for the retro agent: how many commits in the window
+    # deferred their review to /xp-story-close. A low quality_reviews-to-commits
+    # ratio is BY DESIGN when this is high (one cumulative review per story),
+    # not a discipline gap. The deterministic quality_reviews_missing flag is
+    # already suppressed for these commits; this surfaces the same fact to the
+    # LLM prose so it doesn't editorialize a false "fewer reviews than commits".
+    story_cadence_commits = sum(
+        1
+        for e in unanalyzed
+        if e.get("type") == _common.COMMIT
+        and (e.get("metadata") or {}).get("review_cadence") == "story"
+    )
+
     return {
         "signal_events": signal_events,
         "status_summary": status_summary,
@@ -250,6 +263,7 @@ def _build_retro_digest(events: list[dict], start_idx: int, resolutions: dict) -
         "resolved_concern_count": len(resolved_concern_ids),
         "dropped_tries_recent": dropped_tries_recent,
         "security_close_ran": security_close_ran,
+        "story_cadence_commits": story_cadence_commits,
         "resolutions": build_resolutions_map(resolutions),
     }
 

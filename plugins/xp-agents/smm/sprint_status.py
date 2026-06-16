@@ -139,13 +139,20 @@ def has_scheduled_stories(smm_dir: Path) -> bool:
 
 
 def schedule_gate_active(smm_dir: Path) -> bool:
-    """True in the pre-promotion window: scheduled stories exist AND zero
-    in-progress.
+    """True in the pre-promotion window: scheduled stories exist AND no story
+    is in motion (in-progress, reviewing, or closing).
 
     The trigger the /xp-schedule write + EnterPlanMode gates fire on. It is
     state-derived (no marker to rm past): the only legitimate exit is
-    /xp-schedule promoting a frontier scheduled->in-progress, which flips the
-    in-progress check and self-clears the gate. False when no sprint.
+    /xp-schedule promoting a frontier scheduled->in-progress, which puts a
+    story in motion and self-clears the gate. False when no sprint.
+
+    The in-motion guard (not just no-in-progress) keeps the gate quiet through
+    the /xp-accept review + /xp-story-close window: a story reviewing/closing
+    with the next frontier still scheduled is NOT the pre-promotion window, so
+    review-cycle fixes to the in-motion story must not be blocked by a demand
+    to promote the next frontier mid-close. Once the close lands (story->done)
+    nothing is in motion and the gate re-fires to force scheduling the next.
     """
     from sprint_store import load_sprint
 
@@ -156,13 +163,13 @@ def schedule_gate_active(smm_dir: Path) -> bool:
 
 
 def schedule_gate_active_data(data: dict) -> bool:
-    """True if the sprint dict has scheduled stories and none in-progress.
+    """True if the sprint dict has scheduled stories and no story in motion.
 
     Sibling to schedule_gate_active for callers holding the loaded dict.
     """
     return has_stories_with_status_data(
         data, "scheduled"
-    ) and not has_stories_with_status_data(data, "in-progress")
+    ) and not has_in_motion_stories_data(data)
 
 
 def in_progress_is_teammate(smm_dir: Path) -> bool:

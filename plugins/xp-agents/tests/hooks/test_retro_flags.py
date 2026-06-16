@@ -271,6 +271,38 @@ class TestQualityReviews(unittest.TestCase):
         names = [f["metric"] for f in flags]
         self.assertIn("quality_reviews_missing", names)
 
+    def test_story_cadence_commits_do_not_fire_quality_reviews_missing(self):
+        """End-to-end guard for the user's symptom: in story cadence, many
+        commits but few reviews is BY DESIGN (review deferred to story-close).
+        build_honesty_signals exempts story-cadence commits from
+        review_required_commits, so the flag must not fire even when
+        quality_reviews << commits. Builds real signals from commit events
+        rather than hand-setting review_required_commits.
+        """
+        import honesty_signals
+        from event_schema import EVENT_TYPE_COMMIT
+
+        events = [
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content=f"Story step {i}",
+                metadata={
+                    "code_commit": True,
+                    "code_file_count": 3,
+                    "review_cadence": "story",
+                },
+            )
+            for i in range(4)
+        ]
+        h = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(h["review_required_commits"], 0)
+
+        _, w, s, ss = _healthy_signals()
+        s["quality_reviews"] = 1  # one story-close review covering all 4 commits
+        flags = retro_flags.evaluate_flags(h, w, s, ss)
+        names = [f["metric"] for f in flags]
+        self.assertNotIn("quality_reviews_missing", names)
+
 
 class TestFlagStructure(unittest.TestCase):
     def test_flag_has_required_fields(self):

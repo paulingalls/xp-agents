@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.8.2 — story-cadence gate + retro-metric fixes
+
+Two fixes for the *story* review-cadence path, both surfaced by real use.
+
+- **Schedule gate no longer blocks close-window fixes.** `schedule_gate_active`
+  fired on `scheduled stories exist AND no story in-progress`, which also matched
+  the `/xp-accept` review + `/xp-story-close` window (a story `reviewing`/`closing`
+  with the next frontier still `scheduled`). Review-cycle fixes to the closing
+  story were wrongly blocked by a demand to run `/xp-schedule` — which would have
+  promoted the *next* frontier mid-close. The gate now suppresses whenever a story
+  is in motion (in-progress, reviewing, or closing) and re-fires once the close
+  lands (`closing → done`), so the next frontier is still forced through
+  `/xp-schedule`. Symmetric with the `not-under-acceptance` guard already on the
+  accept-marker re-arm.
+- **Retro no longer flags story cadence as a review gap.** `review_required_commits`
+  counted every over-threshold code commit, so the `quality_reviews_missing` flag
+  fired falsely in story mode — where the per-commit review is deferred to
+  `/xp-story-close` (one cumulative review covering many commits, by design).
+  Commit events now carry the active `review_cadence`, and story-cadence commits
+  are exempt from the review-required denominator (joining the existing
+  `is_merge` / escape-hatch exemptions). Commit-cadence and free-mode commits are
+  unaffected, so a genuinely-skipped review is still caught. The retro digest
+  also exposes a `story_cadence_commits` count and the retro agent is told to
+  read a low reviews-to-commits ratio in story mode as by-design — so the
+  narrative layer doesn't re-introduce the false signal the flag no longer fires.
+
 ## v3.8.1 — `cadence_cli.py` extraction
 
 Internal refactor — no user-facing behavior change. The session review cadence

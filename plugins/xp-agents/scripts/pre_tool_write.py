@@ -312,9 +312,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         sprint_data = sprint_state.read_sprint_content(smm_dir)
 
         # Schedule gate (state-derived, no marker). In the pre-promotion window
-        # (scheduled stories exist, none in-progress) force /xp-schedule before
+        # (scheduled stories exist, no story in motion) force /xp-schedule before
         # implementation writes. SMM writes exempt (plan files already excluded
-        # above). Self-clears the instant a frontier is promoted to in-progress.
+        # above). The in-motion guard keeps the gate quiet through the
+        # /xp-accept review + /xp-story-close window so review-cycle fixes to the
+        # closing story aren't blocked. Self-clears the instant a frontier is
+        # promoted to in-progress.
         if (
             sprint_data is not None
             and schedule_gate_active_data(sprint_data)

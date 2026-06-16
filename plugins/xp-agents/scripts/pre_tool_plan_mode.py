@@ -2,13 +2,14 @@
 """PreToolUse hook for EnterPlanMode: the schedule plan-mode gate.
 
 Blocks entering plan mode in the schedule trigger window (scheduled stories
-exist, none in-progress) so /xp-schedule sets the planning scope first — solo
+exist, no story in motion) so /xp-schedule sets the planning scope first — solo
 plans one story; teammate plans the batch so /xp-assign can split it. Without
 this, the agent can plan the wrong unit before deciding mode.
 
 State-derived (no marker to rm past): the only legitimate exit is /xp-schedule
 promoting a frontier scheduled->in-progress, which self-clears the gate. Free
-mode / no sprint / a fully-promoted sprint never fire.
+mode / no sprint / a fully-promoted sprint / an in-motion close window never
+fire.
 """
 
 import sys
