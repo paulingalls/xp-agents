@@ -21,7 +21,10 @@ Two fixes for the *story* review-cadence path, both surfaced by real use.
   Commit events now carry the active `review_cadence`, and story-cadence commits
   are exempt from the review-required denominator (joining the existing
   `is_merge` / escape-hatch exemptions). Commit-cadence and free-mode commits are
-  unaffected, so a genuinely-skipped review is still caught.
+  unaffected, so a genuinely-skipped review is still caught. The retro digest
+  also exposes a `story_cadence_commits` count and the retro agent is told to
+  read a low reviews-to-commits ratio in story mode as by-design — so the
+  narrative layer doesn't re-introduce the false signal the flag no longer fires.
 
 ## v3.8.1 — `cadence_cli.py` extraction
 

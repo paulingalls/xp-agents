@@ -681,5 +681,57 @@ class TestSecurityCloseRan(unittest.TestCase):
         self.assertFalse(digest["security_close_ran"])
 
 
+class TestStoryCadenceCommits(unittest.TestCase):
+    """digest.story_cadence_commits counts commits stamped review_cadence=
+    'story' in the window. Gives the retro agent cadence context so a low
+    quality_reviews-to-commits ratio in story mode reads as by-design (review
+    deferred to /xp-story-close), not a discipline gap. The deterministic
+    quality_reviews_missing flag is already suppressed; this is the LLM-prose
+    safeguard.
+    """
+
+    @staticmethod
+    def _commit(cadence: str | None) -> dict:
+        meta = {"code_commit": True, "code_file_count": 3}
+        if cadence is not None:
+            meta["review_cadence"] = cadence
+        return make_event(EVENT_TYPE_COMMIT, content="work", metadata=meta)
+
+    def test_counts_only_story_cadence_commits(self):
+        import resolution
+        import retro_metrics
+
+        events = [
+            self._commit("story"),
+            self._commit("story"),
+            self._commit("commit"),
+            self._commit(None),  # untagged == commit cadence
+        ]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertEqual(digest["story_cadence_commits"], 2)
+
+    def test_zero_when_no_story_cadence_commits(self):
+        import resolution
+        import retro_metrics
+
+        events = [self._commit("commit"), self._commit(None)]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 0, resolutions)
+        self.assertEqual(digest["story_cadence_commits"], 0)
+
+    def test_respects_unanalyzed_window(self):
+        """Only commits in events[start_idx:] are counted — a story-cadence
+        commit before the watermark must not leak into the current window.
+        """
+        import resolution
+        import retro_metrics
+
+        events = [self._commit("story"), self._commit("story")]
+        resolutions = resolution.compute_resolutions(events)
+        digest = retro_metrics._build_retro_digest(events, 1, resolutions)
+        self.assertEqual(digest["story_cadence_commits"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
