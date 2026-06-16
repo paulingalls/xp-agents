@@ -63,12 +63,17 @@ def build_honesty_signals(events: list[dict]) -> dict:
                 cfc = meta.get("code_file_count")
                 # Merge HEADs aggregate already-reviewed work; escape-hatch
                 # commits ([release]/[chore]/[sprint-direct]) bypass the
-                # review-cycle gate by design. Neither requires its own
-                # review, so neither belongs in the review-required
+                # review-cycle gate by design; story-cadence commits defer their
+                # review to /xp-story-close (which reviews the cumulative diff
+                # and ticks quality_reviews once). None requires its own
+                # per-commit review, so none belongs in the review-required
                 # denominator — counting them is a quality_reviews_missing
-                # false positive (the Feedback flag fires on merge/release noise).
-                review_exempt = meta.get("is_merge") or commits.is_escape_hatch_message(
-                    content
+                # false positive (the Feedback flag fires on merge/release noise
+                # or, in story mode, on the by-design reviews-fewer-than-commits).
+                review_exempt = (
+                    meta.get("is_merge")
+                    or commits.is_escape_hatch_message(content)
+                    or meta.get("review_cadence") == "story"
                 )
                 if not review_exempt and (cfc is None or cfc >= REVIEW_CYCLE_THRESHOLD):
                     review_required_commits += 1

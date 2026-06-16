@@ -249,6 +249,7 @@ def make_commit_event(
     has_resolves_trailer: bool = False,
     is_merge: bool = False,
     is_free_session: bool = False,
+    review_cadence: str | None = None,
 ) -> dict:
     """Build a type=commit event from the shared metadata shape.
 
@@ -270,6 +271,11 @@ def make_commit_event(
         out of the rate ONLY when it carries no trailer (exploration);
         a free commit with a trailer counts both ways (rewards the
         voluntary fix-and-link behavior visibly).
+      - ``review_cadence``: the session review cadence at commit time
+        (``"commit"`` | ``"story"``). Only ``"story"`` is stamped (the
+        non-default), mirroring ``is_free_session``; ``honesty_signals``
+        exempts story-cadence commits from ``review_required_commits``
+        since their review defers to ``/xp-story-close``.
 
     Callers pass ``code_file_count`` already computed (both sites
     compute it earlier for their own thresholds — recomputing here
@@ -298,6 +304,10 @@ def make_commit_event(
         metadata["is_merge"] = True
     if is_free_session:
         metadata["is_free_session"] = True
+    # Only the non-default cadence lands (keeps events lean, mirrors the
+    # is_free_session/is_merge only-when-true idiom). Absence == commit cadence.
+    if review_cadence == "story":
+        metadata["review_cadence"] = "story"
     return _common.make_event(
         _common.COMMIT, agent_id, body, files=files, metadata=metadata
     )
@@ -386,6 +396,10 @@ def _handle_commit(
         identity.get_current_branch(effective_cwd)
     )
 
+    # Stamp the active review cadence so retro metrics can tell a story-cadence
+    # commit (review deferred to /xp-story-close) from a commit-cadence one.
+    review_cadence = markers.read_review_cadence(smm_dir)
+
     pending: list[dict] = [
         make_commit_event(
             agent_id,
@@ -398,6 +412,7 @@ def _handle_commit(
             resolves=resolves,
             has_resolves_trailer=has_trailer,
             is_free_session=is_free_session,
+            review_cadence=review_cadence,
         )
     ]
 

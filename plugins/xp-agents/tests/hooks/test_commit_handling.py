@@ -133,6 +133,41 @@ class TestMakeCommitEvent(unittest.TestCase):
         )
         self.assertNotIn("is_free_session", ev_default["metadata"])
 
+    def test_story_cadence_shape(self):
+        """review_cadence="story" tags metadata.review_cadence; the default
+        (commit cadence) omits the key. Mirror of is_free_session — only the
+        non-default lands, keeping events lean. Honored by
+        honesty_signals as a review-required exemption (story commits defer
+        their review to /xp-story-close)."""
+        ev = commit_handling.make_commit_event(
+            "main",
+            "story step",
+            commit_hash="abc1234",
+            files=["scripts/x.py"],
+            code_file_count=3,
+            review_cadence="story",
+        )
+        self.assertEqual(ev["metadata"]["review_cadence"], "story")
+
+        ev_default = commit_handling.make_commit_event(
+            "main",
+            "commit-cadence work",
+            commit_hash="abc1234",
+            files=["scripts/x.py"],
+            code_file_count=3,
+            review_cadence="commit",
+        )
+        self.assertNotIn("review_cadence", ev_default["metadata"])
+
+        ev_unset = commit_handling.make_commit_event(
+            "main",
+            "untagged work",
+            commit_hash="abc1234",
+            files=["scripts/x.py"],
+            code_file_count=3,
+        )
+        self.assertNotIn("review_cadence", ev_unset["metadata"])
+
     def test_no_commit_hash_omits_key(self):
         """commit_hash=None → key omitted (not stored as None) so
         downstream dedupe-by-hash matchers see absence, not a None

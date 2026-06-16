@@ -278,6 +278,62 @@ class TestReviewRequiredCommits(unittest.TestCase):
         self.assertEqual(signals["review_required_commits"], 0)
         self.assertEqual(signals["code_commits"], 3)
 
+    def test_story_cadence_commits_excluded_from_review_required(self):
+        """In story review-cadence the per-commit review is deferred to
+        /xp-story-close (which reviews the cumulative diff and ticks
+        quality_reviews once). Intermediate story-cadence commits therefore
+        don't individually require a review — counting them inflates the
+        quality_reviews_missing denominator and fires the Feedback flag
+        falsely (far fewer reviews than commits is BY DESIGN in story mode).
+        """
+        import honesty_signals
+
+        events = [
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="Story step 1",
+                metadata={
+                    "code_commit": True,
+                    "code_file_count": 3,
+                    "review_cadence": "story",
+                },
+            ),
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="Story step 2",
+                metadata={
+                    "code_commit": True,
+                    "code_file_count": 4,
+                    "review_cadence": "story",
+                },
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["review_required_commits"], 0)
+        # Still real code commits — only the review denominator changes.
+        self.assertEqual(signals["code_commits"], 2)
+
+    def test_commit_cadence_commits_still_review_required(self):
+        """A commit explicitly tagged commit-cadence (or untagged, the
+        default) still requires a per-commit review — the story exemption
+        must not over-reach and silence the genuine commit-cadence signal.
+        """
+        import honesty_signals
+
+        events = [
+            make_event(
+                EVENT_TYPE_COMMIT,
+                content="Commit-cadence change",
+                metadata={
+                    "code_commit": True,
+                    "code_file_count": 3,
+                    "review_cadence": "commit",
+                },
+            ),
+        ]
+        signals = honesty_signals.build_honesty_signals(events)
+        self.assertEqual(signals["review_required_commits"], 1)
+
 
 class TestCommitAsSignalEvent(_HookTestCase):
     """Commit events should appear in the retro digest as signal events."""
