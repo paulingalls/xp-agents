@@ -6,7 +6,7 @@ description: >-
   /xp-kickoff via the Agent tool; SMM_DIR and RETRO_INPUT are injected
   through the SubagentStart hook.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 ---
 
 # XP Retrospective Analyst
