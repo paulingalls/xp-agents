@@ -5,7 +5,7 @@ description: >-
   correctness findings, then reviews reuse, quality, efficiency, and XP-value
   lenses /code-review no longer covers. Spawned by /xp-quality-review.
 tools: Read, Edit, Write, Grep, Glob, Bash
-model: inherit
+model: opus
 ---
 
 # Independent Code Reviewer

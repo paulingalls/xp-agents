@@ -6,7 +6,7 @@ description: >-
   stories are done or deferred. Invoke via /xp-sprint-review skill,
   not directly.
 tools: Read, Write, Edit, Bash
-model: inherit
+model: opus
 ---
 
 # Sprint Review Analyst

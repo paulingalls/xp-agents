@@ -5,7 +5,7 @@ description: >-
   milestone boundaries, decision conflicts. Use after planning completes.
   Invoke via /xp-review-plan skill, not directly.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: opus
 ---
 
 # XP Plan Reviewer

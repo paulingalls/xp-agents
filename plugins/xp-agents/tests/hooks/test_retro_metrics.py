@@ -14,9 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import open_concern_event
 from conftest import make_event
 from event_schema import (
     EVENT_TYPE_COMMIT,
+    EVENT_TYPE_DEBT,
+    EVENT_TYPE_QUESTION,
     EVENT_TYPE_STATUS,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_LINT_RESOLVED,
@@ -46,10 +49,71 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
 
+    def test_commit_overlapping_no_open_concern_excluded(self):
+        # Candidate gate: an eligible commit touching files no open concern
+        # references should NOT count toward the denominator.
+        import retro_metrics
+
+        concern = open_concern_event(files=("scripts/auth.py",))
+        # commit touches scripts/x.py, not the concern's scripts/auth.py
+        commit = self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00")
+        result = retro_metrics._compute_resolves_link_rate(
+            [concern, commit], "2026-04-01"
+        )
+        self.assertEqual(result["resolves_trailer_total"], 0)
+        self.assertEqual(result["resolves_link_rate"], 0.0)
+
+    def test_commit_resolving_its_overlapping_concern_still_counts(self):
+        # Perfect-sprint guard: a commit that closes its OWN overlapping concern
+        # via trailer stays in the denominator (open-at-commit-time, not retro).
+        import retro_metrics
+
+        concern = open_concern_event()
+        commit = self._code_commit([concern["id"]], "2026-04-05T10:00:00+00:00")
+        result = retro_metrics._compute_resolves_link_rate(
+            [concern, commit], "2026-04-01"
+        )
+        self.assertEqual(result["resolves_trailer_total"], 1)
+        self.assertEqual(result["resolves_trailer_hits"], 1)
+        self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
+
+    def test_open_debt_gates_denominator_like_concern(self):
+        # debt (and question) are candidate issue types too, not just concern.
+        import retro_metrics
+
+        debt = make_event(
+            EVENT_TYPE_DEBT,
+            content="debt",
+            ts="2026-04-05T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        commit = self._code_commit(["zzz"], "2026-04-05T10:00:00+00:00")
+        result = retro_metrics._compute_resolves_link_rate([debt, commit], "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 1)
+        self.assertEqual(result["resolves_trailer_hits"], 1)
+
+    def test_open_question_gates_denominator_like_concern(self):
+        # question is a candidate issue type too, alongside concern and debt.
+        import retro_metrics
+
+        question = make_event(
+            EVENT_TYPE_QUESTION,
+            content="question",
+            ts="2026-04-05T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        commit = self._code_commit(["zzz"], "2026-04-05T10:00:00+00:00")
+        result = retro_metrics._compute_resolves_link_rate(
+            [question, commit], "2026-04-01"
+        )
+        self.assertEqual(result["resolves_trailer_total"], 1)
+        self.assertEqual(result["resolves_trailer_hits"], 1)
+
     def test_two_of_three_commits_have_trailers(self):
         import retro_metrics
 
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit([], "2026-04-05T11:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00"),
@@ -71,6 +135,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "agent-1"),
             self._code_commit([], "2026-04-05T11:00:00+00:00", "agent-1"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00", "agent-2"),
@@ -86,6 +151,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [
+            open_concern_event(ts="2026-03-01T00:00:00+00:00"),
             self._code_commit(["aaa"], "2026-03-15T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T10:00:00+00:00"),
         ]
@@ -95,9 +161,8 @@ class TestDirectTrailerCount(unittest.TestCase):
 
     def test_story_commits_excluded_from_denominator(self):
         """metadata.story_id-tagged commits do the story's work and aren't
-        expected to carry Resolves-Event trailers — the story IS the unit
-        of resolution. Counting them structurally floors the rate. Must
-        be filtered out of both numerator and denominator."""
+        expected to carry Resolves-Event trailers — the story IS the unit of
+        resolution. Filtered from both numerator and denominator."""
         import retro_metrics
 
         story_event = make_event(
@@ -113,6 +178,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             story_event,
@@ -141,6 +207,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             free_event,
@@ -178,8 +245,9 @@ class TestDirectTrailerCount(unittest.TestCase):
                 "resolves": ["concern-id-123"],
             },
         )
+        concern = open_concern_event(files=("scripts/x.py", "scripts/y.py"))
         result = retro_metrics._compute_resolves_link_rate(
-            [main_no_trailer, free_with_trailer], "2026-04-01"
+            [concern, main_no_trailer, free_with_trailer], "2026-04-01"
         )
         self.assertEqual(result["resolves_trailer_total"], 2)
         self.assertEqual(result["resolves_trailer_hits"], 1)
@@ -204,6 +272,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             merge_event,
@@ -232,6 +301,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             release_event,
@@ -270,6 +340,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             story_cadence_no_trailer,

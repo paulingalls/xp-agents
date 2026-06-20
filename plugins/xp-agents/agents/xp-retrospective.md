@@ -130,7 +130,7 @@ Omit if none.
 
 **Resolution-Link Adoption** — only when `sizing_analysis.resolves_link_rate` is present (otherwise omit entirely):
 
-- **Overall trailer rate** (`resolves_link_rate`): % of all code commits with a Resolves-Event trailer. Print `X% (hits/total)`. Below 0.80 → flag as Fix under Communication.
+- **Overall trailer rate** (`resolves_link_rate`): of the commits that *should have linked* — eligible code commits that, at commit time, touched the files of an open concern/debt/question — the % that carried a Resolves-Event trailer. Feature/refactor commits touching no tracked issue are NOT in the denominator. Print `X% (hits/total)`. Below 0.80 → flag as Fix under Communication.
 
 ## Debt in Retrospectives
 
