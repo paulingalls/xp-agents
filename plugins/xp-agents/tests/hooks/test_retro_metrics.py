@@ -19,6 +19,7 @@ from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
+    EVENT_TYPE_QUESTION,
     EVENT_TYPE_STATUS,
     STATUS_ACTION_FILE_WRITE,
     STATUS_ACTION_LINT_RESOLVED,
@@ -49,8 +50,8 @@ class TestDirectTrailerCount(unittest.TestCase):
         )
 
     def _open_concern(self, files=("scripts/x.py",), ts="2026-04-05T09:00:00+00:00"):
-        # An open (never-resolved) concern whose files the _code_commit commits
-        # overlap — keeps them in the candidate-gated denominator.
+        # Open (never-resolved) concern overlapping _code_commit's files —
+        # keeps those commits in the candidate-gated denominator.
         return make_event(
             EVENT_TYPE_CONCERN, content="open concern", ts=ts, files=list(files)
         )
@@ -61,9 +62,8 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         concern = self._open_concern(files=("scripts/auth.py",))
-        commit = self._code_commit(
-            ["aaa"], "2026-04-05T10:00:00+00:00"
-        )  # files=scripts/x.py
+        # commit touches scripts/x.py, not the concern's scripts/auth.py
+        commit = self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00")
         result = retro_metrics._compute_resolves_link_rate(
             [concern, commit], "2026-04-01"
         )
@@ -96,6 +96,23 @@ class TestDirectTrailerCount(unittest.TestCase):
         )
         commit = self._code_commit(["zzz"], "2026-04-05T10:00:00+00:00")
         result = retro_metrics._compute_resolves_link_rate([debt, commit], "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 1)
+        self.assertEqual(result["resolves_trailer_hits"], 1)
+
+    def test_open_question_gates_denominator_like_concern(self):
+        # question is a candidate issue type too, alongside concern and debt.
+        import retro_metrics
+
+        question = make_event(
+            EVENT_TYPE_QUESTION,
+            content="question",
+            ts="2026-04-05T09:00:00+00:00",
+            files=["scripts/x.py"],
+        )
+        commit = self._code_commit(["zzz"], "2026-04-05T10:00:00+00:00")
+        result = retro_metrics._compute_resolves_link_rate(
+            [question, commit], "2026-04-01"
+        )
         self.assertEqual(result["resolves_trailer_total"], 1)
         self.assertEqual(result["resolves_trailer_hits"], 1)
 
@@ -151,9 +168,8 @@ class TestDirectTrailerCount(unittest.TestCase):
 
     def test_story_commits_excluded_from_denominator(self):
         """metadata.story_id-tagged commits do the story's work and aren't
-        expected to carry Resolves-Event trailers — the story IS the unit
-        of resolution. Counting them structurally floors the rate. Must
-        be filtered out of both numerator and denominator."""
+        expected to carry Resolves-Event trailers — the story IS the unit of
+        resolution. Filtered from both numerator and denominator."""
         import retro_metrics
 
         story_event = make_event(

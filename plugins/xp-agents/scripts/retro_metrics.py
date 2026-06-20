@@ -364,21 +364,21 @@ def _compute_resolves_link_rate(
     # stays a candidate for commit C while issue.ts < C.ts <= earliest-resolve-ts
     # (<= keeps the resolving commit itself a candidate). Reuses
     # triage.find_overlapping_commits (overlap + commit-after-issue) — no dup loop.
-    _ISSUE_TYPES = (_common.CONCERN, _common.DEBT, _common.QUESTION)
-    _resolve_ts: dict[str, str] = {}
-    for _e in events:
-        for _rid in (_e.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []:
-            _t = _e.get("ts", "")
-            if _rid not in _resolve_ts or _t < _resolve_ts[_rid]:
-                _resolve_ts[_rid] = _t
-    _candidate_ids: set[str] = set()
-    for _k in events:
-        if _k.get("type") not in _ISSUE_TYPES or not _k.get("files"):
+    issue_types = (_common.CONCERN, _common.DEBT, _common.QUESTION)
+    resolve_ts: dict[str, str] = {}
+    for ev in events:
+        for rid in (ev.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []:
+            ts = ev.get("ts", "")
+            if rid not in resolve_ts or ts < resolve_ts[rid]:
+                resolve_ts[rid] = ts
+    candidate_ids: set[str] = set()
+    for issue in events:
+        if issue.get("type") not in issue_types or not issue.get("files"):
             continue
-        _k_res = _resolve_ts.get(_k.get("id", ""))
-        for _c in triage.find_overlapping_commits(_k, events):
-            if _k_res is None or _c.get("ts", "") <= _k_res:
-                _candidate_ids.add(_c.get("id", ""))
+        issue_resolved_ts = resolve_ts.get(issue.get("id", ""))
+        for commit in triage.find_overlapping_commits(issue, events):
+            if issue_resolved_ts is None or commit.get("ts", "") <= issue_resolved_ts:
+                candidate_ids.add(commit.get("id", ""))
 
     # Filter the denominator to "commits we'd expect to carry a Resolves
     # trailer". Exclusions, each for its own reason:
@@ -425,7 +425,7 @@ def _compute_resolves_link_rate(
             return False
         # Candidate gate: no open issue's files overlapped this commit at commit
         # time → nothing it should have linked → out of the denominator.
-        if e.get("id") not in _candidate_ids:
+        if e.get("id") not in candidate_ids:
             return False
         # Free-session commits include conditionally: present-with-trailer
         # rewards voluntary fix-and-link; no-trailer is exploration.
