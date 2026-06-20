@@ -106,6 +106,8 @@ def recover(smm_dir: Path, cwd: str) -> str | None:
     if state is None:
         return None
     if _merge_in_progress(cwd):
-        _git(["git", "merge", "--abort"], cwd)
+        r = _git(["git", "merge", "--abort"], cwd)
+        if r.returncode != 0:
+            raise ValueError(f"git merge --abort failed: {r.stderr.strip()}")
     restore(cwd, branching.get_story_base_branch(smm_dir, cwd))
     return state

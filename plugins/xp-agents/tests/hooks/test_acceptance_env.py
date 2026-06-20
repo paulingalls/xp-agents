@@ -65,8 +65,12 @@ class TestAcceptanceEnv(unittest.TestCase):
         self._git("checkout", "-b", "B")
         (Path(self.repo) / "base.txt").write_text("B change\n")
         self._git("commit", "-am", "B edit")
-        # Conflicting merge: non-zero, leaves MERGE_HEAD in place.
-        self._git("merge", "A")
+        # Conflicting merge: non-zero, leaves MERGE_HEAD in place. Assert the
+        # in-progress state so a future non-conflicting edit can't silently
+        # make the merge-recovery tests vacuous.
+        r = self._git("merge", "A")
+        self.assertNotEqual(r.returncode, 0, "merge was expected to conflict")
+        self.assertTrue((Path(self.repo) / ".git" / "MERGE_HEAD").exists())
 
     # ---- resolve_story_tip ------------------------------------------------
 
@@ -92,6 +96,16 @@ class TestAcceptanceEnv(unittest.TestCase):
         # HEAD untouched on refusal.
         self.assertEqual(get_current_branch(self.repo), "main")
         self.assertEqual(get_head_sha(self.repo), before)
+
+    def test_checkout_story_tip_raises_on_bogus_sha(self):
+        # Clean tree (passes the dirty precondition), but the SHA doesn't
+        # resolve — git checkout fails and the error must surface.
+        with self.assertRaises(ValueError):
+            acceptance_env.checkout_story_tip(self.repo, "deadbeef" * 5)
+
+    def test_restore_raises_on_missing_ref(self):
+        with self.assertRaises(ValueError):
+            acceptance_env.restore(self.repo, "no-such-branch")
 
     # ---- E2E checkout -> restore roundtrip --------------------------------
 
