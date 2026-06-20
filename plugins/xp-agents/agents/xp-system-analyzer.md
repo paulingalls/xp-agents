@@ -6,7 +6,7 @@ description: >-
   its architecture, and technical constraints.
   Invoke via /xp-system-context skill, not directly.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: opus
 ---
 
 # System Context Analyst
