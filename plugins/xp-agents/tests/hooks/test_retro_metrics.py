@@ -241,6 +241,44 @@ class TestDirectTrailerCount(unittest.TestCase):
         self.assertEqual(result["resolves_trailer_hits"], 2)
         self.assertAlmostEqual(result["resolves_link_rate"], 1.0, places=6)
 
+    def test_story_cadence_commit_without_story_id_included(self):
+        """metadata.review_cadence=="story" is deliberately NOT a denominator
+        filter — the inverse of honesty_signals.review_required_commits, which
+        DOES exempt story-cadence commits. Review cadence gates WHEN review
+        happens; the Resolves-Event trailer is orthogonal — a non-story code
+        commit closing a concern must carry the trailer regardless of cadence.
+        Story-mode story work is already excluded by story_id; a non-story
+        story-cadence commit is a real code commit and belongs in the rate.
+
+        This pins the asymmetry: applying the v3.8.2 story-cadence exemption
+        pattern here (filtering on review_cadence) would silently drop this
+        commit and inflate the rate. Pairs with
+        test_retrospective_signals.test_story_cadence_commits_excluded_from_review_required."""
+        import retro_metrics
+
+        story_cadence_no_trailer = make_event(
+            EVENT_TYPE_COMMIT,
+            content="cross-cutting fix on sprint base",
+            ts="2026-04-05T13:00:00+00:00",
+            files=["scripts/x.py"],
+            metadata={
+                "code_commit": True,
+                "commit_hash": "cadence-sha",
+                "review_cadence": "story",
+                # no story_id, no trailer, not merge/escape-hatch/free —
+                # a genuine code commit that SHOULD carry a trailer.
+            },
+        )
+        events = [
+            self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
+            self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
+            story_cadence_no_trailer,
+        ]
+        result = retro_metrics._compute_resolves_link_rate(events, "2026-04-01")
+        self.assertEqual(result["resolves_trailer_total"], 3)
+        self.assertEqual(result["resolves_trailer_hits"], 2)
+        self.assertAlmostEqual(result["resolves_link_rate"], 2 / 3, places=6)
+
 
 class TestClassifyLifecycleEvents(unittest.TestCase):
     """_classify_lifecycle_events dispatches on metadata.action for review-cycle
