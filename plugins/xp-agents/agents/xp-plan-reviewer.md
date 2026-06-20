@@ -31,7 +31,7 @@ Read before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constraints/Risks for
 ### 3. Milestone Boundaries
 - Each milestone completes before moving to the next. Flag any scope creep beyond the current milestone's acceptance criteria.
 - **Check Intent pillar for session mode.** Free session → all work standalone, do NOT raise blocking questions about sprint scope. Sprint session → check milestone alignment normally.
-- **Mid-stream re-plans need a decision event.** If this review replaces an earlier plan in the same session — layer collapse, domain spillover, free-mode detour, scope expansion uncovered mid-flight — surface a blocking question demanding an explicit `decision` event before proceeding. Skip on first plan of the session, or when SMM already shows a fresh decision event covering the re-plan rationale.
+- **Mid-stream re-plans need the user's sign-off.** If this review replaces an earlier plan in the same session — layer collapse, domain spillover, free-mode detour, scope expansion uncovered mid-flight — raise a 🔴 blocking question so the main agent runs AskUserQuestion; the user's answer is what gets recorded as the re-plan decision. Do NOT tell the agent to hand-write a `decision` event to clear the gate — only AskUserQuestion clears a 🔴 gate, and a self-recorded decision fabricates a sign-off never given. Skip on first plan of the session, or when SMM already shows a fresh decision event covering the re-plan rationale.
 
 ### 4. Decision Conflicts
 Check the plan against the SMM's **Constraints** pillar. Flag conflicts explicitly, referencing the specific decision or convention.
