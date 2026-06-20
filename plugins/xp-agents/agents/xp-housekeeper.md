@@ -6,7 +6,7 @@ description: >-
   /xp-kickoff via the Agent tool after work selection; SMM_DIR and
   CURATION_INPUT are injected through the SubagentStart hook.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 ---
 
 # SMM Curator
