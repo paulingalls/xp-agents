@@ -289,20 +289,48 @@ class TestAcceptPostLoopSchedule(unittest.TestCase):
         )
 
 
-class TestAcceptCwdSubshell(unittest.TestCase):
-    """SKILL.md worktree-acceptance must use a subshell so the parent
-    shell's cwd doesn't persist into subsequent Bash calls."""
+class TestAcceptMainCheckoutWireup(unittest.TestCase):
+    """story-002: teammate-story acceptance runs serially in the provisioned
+    MAIN checkout via accept-env prepare/restore — NOT by cd-ing into the
+    dep-less teammate worktree. The prose is the contract."""
 
     @classmethod
     def setUpClass(cls):
         cls.text = _SKILL_MD.read_text()
 
-    def test_acceptance_command_uses_subshell_pattern(self):
-        # Pin the literal subshell shape `(cd <abs-path> && <command>)`
-        # — the prose is the contract. A single precise pin beats two
-        # loose substring checks (`(cd ` + `&&` would match unrelated
-        # bash snippets).
-        self.assertIn("(cd <abs-path> && <command>)", self.text)
+    def test_uses_prepare_restore_not_cd_wrap(self):
+        # prepare detaches the main checkout onto the story tip; the command
+        # runs in the main cwd; restore returns to base. The old
+        # cd-into-worktree subshell wrap must be gone.
+        self.assertIn("accept-env prepare", self.text)
+        self.assertIn("accept-env restore", self.text)
+        self.assertNotIn("(cd <abs-path> && <command>)", self.text)
+
+    def test_loop_start_recovers_and_refuses_dirty(self):
+        # AC#1: before any checkout, heal an interrupted main checkout and
+        # refuse on a dirty tree. The preload's MAIN_STATE flag is the trigger.
+        self.assertIn("accept-env recover", self.text)
+        self.assertIn("MAIN_STATE", self.text)
+        self.assertIn("dirty", self.text.lower())
+
+    def test_restore_precedes_pass_fail_branch(self):
+        # AC#3: restore runs on every exit path — before the pass/fail
+        # disposition, so an abort mid-prompt can't strand a detached checkout.
+        _assert_text_ordering(
+            self,
+            self.text,
+            "accept-env prepare",
+            "accept-env restore",
+            "Non-zero exit",
+            msg="restore must precede the pass/fail disposition branch",
+        )
+
+    def test_debug_rerun_fixes_in_worktree_then_reprepares(self):
+        # The critical nuance: a fix committed in the detached main checkout is
+        # orphaned on restore, so fixes land in the teammate worktree (git -C),
+        # then re-prepare picks up the new tip.
+        self.assertIn("git -C <worktree-path>", self.text)
+        self.assertIn("re-prepare", self.text.lower())
 
 
 class TestProcessGuideLifecycle(unittest.TestCase):

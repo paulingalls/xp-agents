@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import branching
 import markers
 import pre_tool_write
 import sprint_state
@@ -27,6 +28,7 @@ from _branching_fixtures import (
     branch_exists,
     create_teammate_worktree_with_commit,
     get_current_branch_at,
+    get_head_sha,
     git_log_oneline_at,
     make_commit,
     merge_teammate_branch,
@@ -272,6 +274,83 @@ class TestM6SoloScheduleHandoff(_IntegrationTestCase):
             "/xp-schedule's branching.py create must record branch_name",
         )
         self.assertTrue(branch_exists(str(self.tmpdir), promoted["branch_name"]))
+
+
+class TestMultiStoryPrepareRestore(_IntegrationTestCase):
+    """story-002 (multi-story facet): serial accept across two teammate
+    stories — each prepares onto its OWN tip in the MAIN checkout and
+    restores to base independently. Own class so the HEAD-detaching
+    prepare/restore is isolated from the lifecycle tests' committed state."""
+
+    def _accept_env(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(_PLUGIN_ROOT / "scripts" / "branching.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+                "accept-env",
+                *args,
+            ],
+            cwd=str(self.tmpdir),
+            env=self._test_env,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_multi_story_prepare_restore_isolation(self):
+        (self.tmpdir / ".gitignore").write_text(".claude/worktrees/\n")
+        env = self._test_env
+        subprocess.run(
+            ["git", "add", ".gitignore"], cwd=self.tmpdir, env=env, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "ignore worktrees"],
+            cwd=self.tmpdir,
+            env=env,
+            capture_output=True,
+            check=True,
+        )
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "Teammate A", "in-progress"),
+                    _s("story-002", "Teammate B", "in-progress"),
+                ],
+                sprint_id="sprint-test",
+                started="2026-06-20",
+            )
+        )
+        wt_a = create_teammate_worktree_with_commit(
+            str(self.tmpdir), "story-001", env.copy()
+        )
+        wt_b = create_teammate_worktree_with_commit(
+            str(self.tmpdir), "story-002", env.copy()
+        )
+        base_sha = get_head_sha(str(self.tmpdir))
+        tip_a, tip_b = get_head_sha(wt_a), get_head_sha(wt_b)
+        self.assertNotEqual(tip_a, tip_b)
+
+        for story_id, tip in (("story-001", tip_a), ("story-002", tip_b)):
+            prep = self._accept_env(
+                "prepare", "--cwd", str(self.tmpdir), "--story", story_id
+            )
+            self.assertEqual(prep.returncode, 0, prep.stderr)
+            self.assertEqual(
+                get_head_sha(str(self.tmpdir)),
+                tip,
+                f"main must detach onto {story_id}'s own tip",
+            )
+            restore = self._accept_env(
+                "restore", "--cwd", str(self.tmpdir), "--restore-ref", "main"
+            )
+            self.assertEqual(restore.returncode, 0, restore.stderr)
+            self.assertEqual(
+                get_head_sha(str(self.tmpdir)),
+                base_sha,
+                f"main must return to base after {story_id}",
+            )
+        self.assertTrue(branching.is_worktree_clean(str(self.tmpdir)))
 
 
 if __name__ == "__main__":
