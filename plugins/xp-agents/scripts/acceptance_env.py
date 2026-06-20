@@ -16,6 +16,7 @@ local ``_git`` mirrors the branch_lifecycle.py import-isolation precedent.
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -27,6 +28,16 @@ import worktree
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+def _tip_of_worktree(story_id: str, wt_path: str) -> str:
+    """Return the worktree's HEAD commit SHA; raise on a git failure."""
+    r = _git(["git", "rev-parse", "HEAD"], wt_path)
+    if r.returncode != 0:
+        raise ValueError(
+            f"cannot resolve tip of {story_id} worktree: {r.stderr.strip()}"
+        )
+    return r.stdout.strip()
 
 
 def resolve_story_tip(smm_dir: Path, cwd: str, story_id: str) -> tuple[str, str]:
@@ -48,12 +59,10 @@ def resolve_story_tip(smm_dir: Path, cwd: str, story_id: str) -> tuple[str, str]
     )
     if wt_path is None:
         raise ValueError(f"no live teammate worktree for {story_id}")
-    r = _git(["git", "rev-parse", "HEAD"], wt_path)
-    if r.returncode != 0:
-        raise ValueError(
-            f"cannot resolve tip of {story_id} worktree: {r.stderr.strip()}"
-        )
-    return r.stdout.strip(), branching.get_story_base_branch(smm_dir, cwd)
+    return (
+        _tip_of_worktree(story_id, wt_path),
+        branching.get_story_base_branch(smm_dir, cwd),
+    )
 
 
 def checkout_story_tip(cwd: str, tip_sha: str) -> None:
@@ -113,23 +122,44 @@ def recover(smm_dir: Path, cwd: str) -> str | None:
     return state
 
 
-def inspect(smm_dir: Path, cwd: str) -> dict:
+class InspectRow(NamedTuple):
+    story_id: str
+    wt_path: str
+    tip_sha: str
+    restore_ref: str
+
+
+class InspectSnapshot(NamedTuple):
+    rows: list[InspectRow]
+    main_state: str | None
+
+
+def inspect(smm_dir: Path, cwd: str) -> InspectSnapshot:
     """Read-only prepare-readiness snapshot for the /xp-accept preload.
 
     Touches nothing — the preload runs on every load and must be
-    side-effect-free. Each ``rows`` entry is
-    ``(story_id, wt_path, tip_sha, restore_ref)`` for a live teammate worktree
+    side-effect-free. Each ``rows`` entry is an ``InspectRow``
+    (``story_id, wt_path, tip_sha, restore_ref``) for a live teammate worktree
     (the tip + base the SKILL would prepare against). ``main_state`` flags a
     window that needs healing before a detached-HEAD checkout: an interrupted
     state (``detect_interrupted``) takes precedence over a merely ``"dirty"``
     tree, since the SKILL needs the specific recover signal. None when the tree
     is clean on a normal branch.
+
+    The base ref is identical for every row, so it is read once rather than
+    per-row — this runs on every /xp-accept load.
     """
-    rows = [
-        (story_id, wt_path, *resolve_story_tip(smm_dir, cwd, story_id))
-        for story_id, wt_path in worktree.list_live_teammate_worktree_paths(cwd)
-    ]
+    worktrees = worktree.list_live_teammate_worktree_paths(cwd)
+    rows: list[InspectRow] = []
+    if worktrees:
+        restore_ref = branching.get_story_base_branch(smm_dir, cwd)
+        rows = [
+            InspectRow(
+                story_id, wt_path, _tip_of_worktree(story_id, wt_path), restore_ref
+            )
+            for story_id, wt_path in worktrees
+        ]
     main_state = detect_interrupted(cwd)
     if main_state is None and not branching.is_worktree_clean(cwd):
         main_state = "dirty"
-    return {"rows": rows, "main_state": main_state}
+    return InspectSnapshot(rows=rows, main_state=main_state)

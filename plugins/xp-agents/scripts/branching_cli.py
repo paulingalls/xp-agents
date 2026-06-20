@@ -248,10 +248,10 @@ def _cmd_accept_env_inspect(args: argparse.Namespace) -> int:
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
         return 1
-    for story_id, path, tip, restore_ref in snap["rows"]:
-        print(f"{story_id}\t{path}\t{tip}\t{restore_ref}")
-    if snap["main_state"]:
-        print(f"MAIN_STATE\t{snap['main_state']}")
+    for row in snap.rows:
+        print(f"{row.story_id}\t{row.wt_path}\t{row.tip_sha}\t{row.restore_ref}")
+    if snap.main_state:
+        print(f"MAIN_STATE\t{snap.main_state}")
     return 0
 
 

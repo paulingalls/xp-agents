@@ -24,7 +24,7 @@ from _branching_fixtures import (
     create_teammate_worktree_with_commit,
     get_current_branch,
     get_head_sha,
-    init_repo,
+    init_repo_with_ignored_worktrees,
     make_conflicted_merge,
 )
 
@@ -35,11 +35,7 @@ class TestAcceptEnvCli(unittest.TestCase):
     def setUp(self):
         self._repo_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.repo = self._repo_td.name
-        init_repo(self.repo)
-        (Path(self.repo) / ".gitignore").write_text(".claude/worktrees/\n")
-        (Path(self.repo) / "base.txt").write_text("base\n")
-        self._git("add", ".gitignore", "base.txt")
-        self._git("commit", "-m", "seed")
+        init_repo_with_ignored_worktrees(self.repo)
 
         self._smm_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.smm = self._smm_td.name
