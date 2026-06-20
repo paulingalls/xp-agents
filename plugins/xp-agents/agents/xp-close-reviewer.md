@@ -8,7 +8,7 @@ description: >-
   prompt forbids mutating commands. Mode-aware focus
   (sprint/plan/free/story). Invoke via the close skills, not directly.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: opus
 ---
 
 # Close-Branch Reviewer
