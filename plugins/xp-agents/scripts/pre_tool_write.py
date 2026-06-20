@@ -295,7 +295,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     question_gate = smm_dir and markers.marker_exists(smm_dir, markers.QUESTION_GATE)
     if question_gate:
         raise _common.BlockedError(
-            "A blocking question needs your answer. Use AskUserQuestion.",
+            "A blocking question needs the user's answer. AskUserQuestion is "
+            "the ONLY way to clear this — it records the answer and lifts the "
+            "gate. Do NOT record a decision/status event resolving the question "
+            "id: it does not clear the gate and fabricates an answer the user "
+            "never gave.",
             "Blocking question requires user answer.",
         )
 

@@ -63,6 +63,34 @@ def init_repo(td: str) -> None:
     )
 
 
+def init_repo_with_ignored_worktrees(td: str) -> None:
+    """Init a repo and seed it for acceptance-env tests.
+
+    Builds on ``init_repo`` then commits a ``.gitignore`` that excludes
+    ``.claude/worktrees/`` plus a ``base.txt``, so the main tree stays clean
+    once a teammate worktree is created under the gitignored path (mirrors
+    production). Shared by the acceptance-env lib + CLI suites, which both
+    detach/conflict-merge HEAD and so need a clean-room repo per test.
+    """
+    init_repo(td)
+    (Path(td) / ".gitignore").write_text(".claude/worktrees/\n")
+    (Path(td) / "base.txt").write_text("base\n")
+    subprocess.run(
+        ["git", "add", ".gitignore", "base.txt"],
+        cwd=td,
+        env=GIT_ENV,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "seed"],
+        cwd=td,
+        env=GIT_ENV,
+        capture_output=True,
+        check=True,
+    )
+
+
 def init_repo_in_spaced_parent(parent: str, repo_name: str = "repo") -> str:
     """Init a fresh git repo under ``<parent>/has space/<repo_name>`` and
     return its path. Used by tests that need a worktree at a path with a
@@ -221,6 +249,36 @@ def merge_teammate_branch(
             target,
         ],
         cwd=repo_cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
+def run_accept_env(
+    smm_dir: Path,
+    cwd: str,
+    *args: str,
+    env: dict = GIT_ENV,
+) -> subprocess.CompletedProcess:
+    """Run `branching.py accept-env <args>` at ``cwd``.
+
+    Single-source-of-truth wrapper for the acceptance-env prepare/restore
+    subprocess calls — replaces the byte-identical ``_accept_env`` method
+    duplicated across the story-002 main-checkout accept test classes
+    (TestTeammateAcceptMainCheckout, TestMultiStoryPrepareRestore).
+    """
+    branching_py = Path(__file__).parent.parent / "scripts" / "branching.py"
+    return subprocess.run(
+        [
+            sys.executable,
+            str(branching_py),
+            "--smm-dir",
+            str(smm_dir),
+            "accept-env",
+            *args,
+        ],
+        cwd=cwd,
         env=env,
         capture_output=True,
         text=True,

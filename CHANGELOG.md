@@ -1,5 +1,36 @@
 # Changelog
 
+## v3.9.0 — serial main-repo acceptance for teammate stories
+
+Completes the "Serial, Main-Repo Acceptance" plan (sprint-101 + sprint-102).
+The headline is a workflow change to how teammate-story acceptance runs;
+plus a gate-clarity fix, a metric fix, and a model-tier reversal.
+
+- **Teammate-story acceptance now runs serially in the provisioned main
+  checkout**, not in the bare teammate worktree. The worktree has the code
+  but no installed deps, so acceptance/e2e suites failed there; parallel
+  runs also collided on shared stateful resources. `/xp-accept` now detaches
+  the main checkout onto each story's tip via the new `accept-env` mechanics
+  (`prepare` → run setup+command in the main cwd → `restore` on every exit
+  path), with a start-of-loop `recover`/refuse-dirty precondition. The
+  `(cd <worktree> && cmd)` wrap is gone; the ephemeral checkout preserves
+  accept-before-merge (the permanent merge stays in `/xp-story-close`).
+  New: `acceptance_env.py` (detached-HEAD checkout/restore/recovery +
+  read-only `inspect`), `accept-env` CLI subcommands, and an enriched
+  `TEAMMATE_WORKTREES` preload (tip SHA + restore ref + `MAIN_STATE` flag).
+- **Blocking-question (🔴) gate clarity.** The gate message, PROCESS_GUIDE
+  Resolution Discipline, and the plan-reviewer prose now make explicit that
+  AskUserQuestion is the ONLY way to clear a 🔴 gate — a `decision`/`status`
+  event resolving the question id does not clear it and fabricates an answer
+  never given. Regression-guarded.
+- **`resolves_link_rate` denominator fix.** The metric now candidate-gates
+  its denominator on commits that had an open concern/debt/question to
+  resolve, instead of dividing by all eligible code commits.
+- **Judgment-critical subagents pinned to Opus (200k).** Reverses v3.8.4's
+  "reviewers stay `model: inherit`": the four reviewers + `xp-system-analyzer`
+  now pin `model: opus`, guaranteeing an Opus floor independent of the
+  session model; digest-fed curators stay Sonnet.
+
 ## v3.8.4 — pin curator subagents to Sonnet
 
 Internal — no user-facing behavior change. A cost/latency optimization for
