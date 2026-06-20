@@ -32,11 +32,16 @@ stories when present (teammate self-promote path), else `in-progress`
 **If ERROR or NO_STORIES_TO_ACCEPT**, explain and stop.
 
 If the preload shows a **TEAMMATE_WORKTREES** section, each row is
-`story-id<TAB>abs-path` (literal tab — split on tab, not space; paths
-may contain spaces). Teammate branches are NOT merged yet (per-story
-merge is `/xp-story-close`'s job in Step 2). Use the path to `cd` into
-each story's worktree when running its acceptance command — unmerged
-teammate edits live there, not in the orchestrator's HEAD.
+`story-id<TAB>abs-path<TAB>tip-sha<TAB>restore-ref` (literal tab —
+split on tab, not space; paths may contain spaces). Teammate branches
+are NOT merged yet (per-story merge is `/xp-story-close`'s job in
+Step 2). Teammate-story acceptance runs **serially in the provisioned
+main checkout**, detached onto the story's tip via `accept-env`
+(prepare → run → restore) — never by `cd`-ing into the teammate
+worktree, which has the code but no installed deps. A trailing
+`MAIN_STATE<TAB><in-progress-merge|detached-HEAD|dirty>` line flags a
+main checkout that needs recovery before any checkout (Step 1's
+precondition below handles it).
 
 ## Step 1: Review Each Story Under Acceptance
 
@@ -44,6 +49,21 @@ Read the sprint file at `SPRINT_FILE`. For each story in the selected set
 (reviewing or in-progress per `SELECTED_STATUS`), check its
 `acceptance_execution` field (the preload's `### Acceptance Types`
 section shows the type per story for quick reference).
+
+### Precondition: heal the main checkout
+
+If the preload shows a `MAIN_STATE` line (under `### TEAMMATE_WORKTREES`),
+heal the main checkout before any `accept-env prepare` — gate on the flag, not
+teammate-vs-solo (a leftover interrupted state surfaces even with no live worktree):
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  accept-env recover --cwd .
+```
+
+`recover` aborts an interrupted merge / detached HEAD and restores the
+base. If the tree is still **dirty** (or `MAIN_STATE` was `dirty`),
+**refuse** — do not checkout. No `MAIN_STATE` line → nothing to heal, skip.
 
 ### Step 1.0: Promote to `reviewing` (idempotent)
 
@@ -74,34 +94,53 @@ reviewing middle state.
 
 ### Automated acceptance (type != "manual")
 
-When `acceptance_execution` is present and `type` is not `"manual"`:
+When `acceptance_execution` is present and `type` is not `"manual"`, run
+the prepare → run → restore → disposition flow below in order:
 
-1. Present the story title and acceptance criteria.
-2. If `acceptance_execution.setup` is present, run it first via Bash.
-3. Run the acceptance command(s) via Bash. Schema accepts
-   `acceptance_execution.command: str` OR `commands: list[str]` (run
-   in order, fail on first non-zero). For multi-command, prefer
-   `verify_acceptance.py --story <story-id> --smm-dir <SMM_DIR>` which
-   handles iteration, first-red exit, and failing-command stderr.
-   If the story's id appears in TEAMMATE_WORKTREES, wrap in a subshell
-   so cwd doesn't persist: `(cd <abs-path> && <command>)`. Otherwise
-   run bare from the main repo.
-4. **Exit code 0 = pass. Auto-proceed to Step 2 without an extra
-   confirmation prompt** — the green exit IS the confirmation, and
-   `/xp-story-close` owns merge confirmation.
-5. **Non-zero exit = fail.** Show the output and ask via
-   `AskUserQuestion` with three options: **Debug and re-run**,
-   **Override with concern**, **Defer**.
+**Present.** Show the story title and acceptance criteria.
 
-**Debug and re-run.** Revert to `in-progress` (Step 1.0's revert
-command), fix, re-run. When the fix lands in a teammate worktree
-(story-id in TEAMMATE_WORKTREES), commit from the orchestrator with
-`git -C <worktree-path> commit ...` — never
-`cd <worktree> && git commit && cd -` (the cd-back fires before the
-PostToolUse trailer-extract hook reads HEAD, silently breaking
-`Resolves-Event:` auto-links). If invoking `/xp-quality-review`, set
-`TEAMMATE_CWD=<worktree-path>` so QR's diff/debt scan routes to the
-worktree.
+**Prepare.** **Teammate story (id in TEAMMATE_WORKTREES):** detach the
+main checkout onto the story's tip and capture the restore ref
+(`accept-env prepare`); for a **solo** story (no worktree), skip
+prepare/restore and run bare from the main repo.
+
+```bash
+RESTORE_REF=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
+  --smm-dir <SMM_DIR> accept-env prepare --cwd . --story story-NNN)
+```
+
+**Run.** Run `acceptance_execution.setup` (if present) AND the command(s)
+**bare in the main-checkout cwd** — no `cd`-into-worktree wrap.
+`command: str` or `commands: list[str]` (fail on first non-zero);
+multi-command prefers `verify_acceptance.py --story <id> --smm-dir
+<SMM_DIR>` (runs in the process cwd = main checkout). Capture the exit code.
+
+**Restore on every exit path** — pass OR fail, before the disposition
+branch and any `AskUserQuestion` (solo: nothing to restore). The
+checkout is ephemeral; the permanent merge is in `/xp-story-close`.
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
+  accept-env restore --cwd . --restore-ref "$RESTORE_REF"
+```
+
+**Pass.** **Exit code 0 = pass. Auto-proceed to Step 2 without an extra
+confirmation prompt** — the green exit IS the confirmation, and
+`/xp-story-close` owns merge confirmation.
+
+**Fail.** **Non-zero exit = fail.** Show the output and ask via
+`AskUserQuestion` with three options: **Debug and re-run**,
+**Override with concern**, **Defer**.
+
+**Debug and re-run.** The **Restore** step above already returned the
+main checkout to the base, so you are NOT on the detached tip — never
+commit a fix there (it would be orphaned on restore). Revert to `in-progress` (Step 1.0's revert), then
+fix in the teammate **worktree**, committing from the orchestrator with
+`git -C <worktree-path> commit ...` — never `cd <worktree> && git commit
+&& cd -` (the cd-back fires before the PostToolUse trailer-extract hook
+reads HEAD, breaking `Resolves-Event:` auto-links). If invoking
+`/xp-quality-review`, set `TEAMMATE_CWD=<worktree-path>`. Then
+**re-prepare** (loop back to the prepare step) — the new tip has the fix.
 
 **Override with concern.** Mark as passing despite failure. Records a
 `concern` event with the story's `file_domain` for structural
