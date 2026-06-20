@@ -368,6 +368,15 @@ def _compute_resolves_link_rate(
     #                          both ways (rewards the voluntary fix-and-link
     #                          behavior visibly — see Option B' in the
     #                          rate-denominator-fix free plan).
+    #
+    # NOTE: review_cadence=="story" is deliberately NOT an exclusion here —
+    # the inverse of honesty_signals.review_required_commits, which DOES exempt
+    # story-cadence commits. Cadence gates WHEN review happens; the trailer is
+    # orthogonal — a non-story code commit closing a concern must link it
+    # regardless of cadence. Story-mode story work is already excluded by
+    # story_id above. Do not "consistency"-port the story-cadence exemption
+    # pattern here; it would silently drop real commits and inflate the rate.
+    # Pinned by test_retro_metrics.test_story_cadence_commit_without_story_id_included.
     def _included(e: dict) -> bool:
         if e.get("type") != _common.COMMIT:
             return False

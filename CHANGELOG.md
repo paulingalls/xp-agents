@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.8.3 — pin trailer-metric cadence asymmetry
+
+Internal — no user-facing behavior change. Hardening + a design note,
+from a free-session investigation into how *story* review cadence affects
+the Resolves-Event trailer metric.
+
+- **Pinned the `review_cadence` asymmetry in `resolves_link_rate`.** Story
+  mode does *not* distort the trailer metric: it only runs in sprints, story
+  work is already excluded by `story_id`, and the trailer is orthogonal to
+  review timing. So `review_cadence` is deliberately *not* a denominator
+  filter here — the inverse of `honesty_signals.review_required_commits`,
+  which *does* exempt story-cadence commits. That asymmetry was unprotected:
+  a future "consistency"-port of the v3.8.2 exemption pattern would silently
+  drop real commits and inflate the rate. Added a characterization test (a
+  story-cadence commit without a `story_id` *is* counted) and a comment in
+  `_included`, cross-linked to the paired honesty-signals test.
+- **Design note: serial main-repo acceptance for teammate stories**
+  (`docs/ideas/`). Captures the problem (teammate acceptance fails in the
+  bare worktree; parallel stateful e2e suites collide) and a proposed
+  direction (relocate only the teammate acceptance loop to run serially in
+  the provisioned main checkout). Idea-stage, not built.
+
 ## v3.8.2 — story-cadence gate + retro-metric fixes
 
 Two fixes for the *story* review-cadence path, both surfaced by real use.
