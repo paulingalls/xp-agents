@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import execution_plan_store
+from _event_fixtures import make_event
 from _system_context_fixtures import valid_doc
+from event_schema import EVENT_TYPE_CONCERN
 
 GIT_ENV = {
     **os.environ,
@@ -93,6 +95,46 @@ def get_head_sha(cwd: str) -> str:
         capture_output=True,
         text=True,
     ).stdout.strip()
+
+
+def open_concern_event(
+    files=("scripts/x.py",), ts: str = "2026-04-05T09:00:00+00:00"
+) -> dict:
+    """An open (never-resolved) CONCERN event over ``files``.
+
+    Shared builder for retro candidate-gate tests: a commit overlapping these
+    files stays in the candidate-gated resolves_link_rate denominator.
+    Assertion-free — callers assert on the computed rate.
+    """
+    return make_event(
+        EVENT_TYPE_CONCERN, content="open concern", ts=ts, files=list(files)
+    )
+
+
+def make_conflicted_merge(repo: str, env: dict = GIT_ENV) -> None:
+    """Leave ``repo`` with an in-progress conflicted merge (MERGE_HEAD set).
+
+    Two branches edit the same line of ``base.txt`` (which the caller must have
+    committed), then ``git merge`` fails leaving the merge in progress on branch
+    B. Guards with plain ``assert`` that the merge actually conflicted so a
+    future non-conflicting edit can't silently make recovery tests vacuous.
+    """
+
+    def _g(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", *args], cwd=repo, env=env, capture_output=True, text=True
+        )
+
+    _g("checkout", "-b", "A")
+    (Path(repo) / "base.txt").write_text("A change\n")
+    _g("commit", "-am", "A edit")
+    _g("checkout", "main")
+    _g("checkout", "-b", "B")
+    (Path(repo) / "base.txt").write_text("B change\n")
+    _g("commit", "-am", "B edit")
+    r = _g("merge", "A")
+    assert r.returncode != 0, "merge was expected to conflict"
+    assert (Path(repo) / ".git" / "MERGE_HEAD").exists()
 
 
 def create_teammate_worktree_with_commit(

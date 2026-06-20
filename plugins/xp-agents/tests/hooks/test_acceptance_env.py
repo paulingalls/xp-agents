@@ -29,6 +29,7 @@ from _branching_fixtures import (
     get_current_branch,
     get_head_sha,
     init_repo,
+    make_conflicted_merge,
 )
 
 
@@ -55,22 +56,6 @@ class TestAcceptanceEnv(unittest.TestCase):
         return subprocess.run(
             ["git", *args], cwd=self.repo, env=GIT_ENV, capture_output=True, text=True
         )
-
-    def _make_conflicted_merge(self) -> None:
-        """Leave the repo with an in-progress conflicted merge on branch B."""
-        self._git("checkout", "-b", "A")
-        (Path(self.repo) / "base.txt").write_text("A change\n")
-        self._git("commit", "-am", "A edit")
-        self._git("checkout", "main")
-        self._git("checkout", "-b", "B")
-        (Path(self.repo) / "base.txt").write_text("B change\n")
-        self._git("commit", "-am", "B edit")
-        # Conflicting merge: non-zero, leaves MERGE_HEAD in place. Assert the
-        # in-progress state so a future non-conflicting edit can't silently
-        # make the merge-recovery tests vacuous.
-        r = self._git("merge", "A")
-        self.assertNotEqual(r.returncode, 0, "merge was expected to conflict")
-        self.assertTrue((Path(self.repo) / ".git" / "MERGE_HEAD").exists())
 
     # ---- resolve_story_tip ------------------------------------------------
 
@@ -133,7 +118,7 @@ class TestAcceptanceEnv(unittest.TestCase):
         self.assertEqual(acceptance_env.detect_interrupted(self.repo), "detached-HEAD")
 
     def test_detect_interrupted_in_progress_merge(self):
-        self._make_conflicted_merge()
+        make_conflicted_merge(self.repo)
         self.assertEqual(
             acceptance_env.detect_interrupted(self.repo), "in-progress-merge"
         )
@@ -148,7 +133,7 @@ class TestAcceptanceEnv(unittest.TestCase):
         self.assertIsNone(acceptance_env.detect_interrupted(self.repo))
 
     def test_recover_from_in_progress_merge_aborts_and_restores(self):
-        self._make_conflicted_merge()
+        make_conflicted_merge(self.repo)
         state = acceptance_env.recover(self.smm, self.repo)
         self.assertEqual(state, "in-progress-merge")
         self.assertEqual(get_current_branch(self.repo), "main")  # restore target

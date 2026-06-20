@@ -13,10 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import open_concern_event
 from conftest import _HookTestCase, make_event
 from event_schema import (
     EVENT_TYPE_COMMIT,
-    EVENT_TYPE_CONCERN,
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
 )
@@ -196,13 +196,6 @@ class TestResolvesLinkRate(_HookTestCase):
             },
         )
 
-    def _concern(self, ts: str = "2026-04-02T00:00:00+00:00") -> dict:
-        # Open concern overlapping the commits' files — keeps them in the
-        # candidate-gated denominator (retro_metrics._compute_resolves_link_rate).
-        return make_event(
-            EVENT_TYPE_CONCERN, content="open concern", ts=ts, files=["scripts/x.py"]
-        )
-
     def _sprint_end(self) -> dict:
         return make_event(
             EVENT_TYPE_SPRINT,
@@ -224,7 +217,7 @@ class TestResolvesLinkRate(_HookTestCase):
     def test_three_commits_two_with_trailers_one_without(self):
         self._write_sprint_json()
         events = [
-            self._concern(),
+            open_concern_event(),
             self._commit(["aaaaaaaaaaaa"], "2026-04-05T10:01:00+00:00", "h1"),
             self._commit(["bbbbbbbbbbbb"], "2026-04-06T10:01:00+00:00", "h2"),
             self._commit([], "2026-04-07T10:01:00+00:00", "h3"),
@@ -257,7 +250,7 @@ class TestResolvesLinkRate(_HookTestCase):
         """Commit with resolves=[X] -> hit."""
         self._write_sprint_json()
         events = [
-            self._concern(),
+            open_concern_event(),
             self._commit(["abc123def456"], "2026-04-05T10:01:00+00:00", "h1"),
             self._sprint_end(),
         ]
@@ -271,7 +264,7 @@ class TestResolvesLinkRate(_HookTestCase):
         """Commit with empty resolves -> miss."""
         self._write_sprint_json()
         events = [
-            self._concern(),
+            open_concern_event(),
             self._commit([], "2026-04-05T10:01:00+00:00", "h1"),
             self._sprint_end(),
         ]
@@ -285,7 +278,7 @@ class TestResolvesLinkRate(_HookTestCase):
         """Commits from before the sprint's started date do not count."""
         self._write_sprint_json()
         events = [
-            self._concern(ts="2026-03-01T00:00:00+00:00"),
+            open_concern_event(ts="2026-03-01T00:00:00+00:00"),
             self._commit([], "2026-03-15T10:01:00+00:00", "h0"),
             self._commit([], "2026-04-05T10:01:00+00:00", "h1"),
             self._sprint_end(),

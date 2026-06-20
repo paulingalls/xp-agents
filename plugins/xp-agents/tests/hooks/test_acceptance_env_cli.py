@@ -25,6 +25,7 @@ from _branching_fixtures import (
     get_current_branch,
     get_head_sha,
     init_repo,
+    make_conflicted_merge,
 )
 
 _SCRIPT = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
@@ -59,19 +60,6 @@ class TestAcceptEnvCli(unittest.TestCase):
             text=True,
             env=GIT_ENV,
         )
-
-    def _make_conflicted_merge(self) -> None:
-        """Leave the repo with an in-progress conflicted merge (MERGE_HEAD set)."""
-        self._git("checkout", "-b", "A")
-        (Path(self.repo) / "base.txt").write_text("A change\n")
-        self._git("commit", "-am", "A edit")
-        self._git("checkout", "main")
-        self._git("checkout", "-b", "B")
-        (Path(self.repo) / "base.txt").write_text("B change\n")
-        self._git("commit", "-am", "B edit")
-        r = self._git("merge", "A")
-        self.assertNotEqual(r.returncode, 0, "merge was expected to conflict")
-        self.assertTrue((Path(self.repo) / ".git" / "MERGE_HEAD").exists())
 
     def test_prepare_detaches_to_tip_and_prints_base(self):
         wt = create_teammate_worktree_with_commit(self.repo, "story-042", GIT_ENV)
@@ -120,7 +108,7 @@ class TestAcceptEnvCli(unittest.TestCase):
         self.assertIsNone(acceptance_env.detect_interrupted(self.repo))
 
     def test_recover_from_in_progress_merge(self):
-        self._make_conflicted_merge()
+        make_conflicted_merge(self.repo)
         r = self._run("recover", "--cwd", self.repo)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "in-progress-merge")

@@ -14,10 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import open_concern_event
 from conftest import make_event
 from event_schema import (
     EVENT_TYPE_COMMIT,
-    EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_STATUS,
@@ -49,19 +49,12 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
 
-    def _open_concern(self, files=("scripts/x.py",), ts="2026-04-05T09:00:00+00:00"):
-        # Open (never-resolved) concern overlapping _code_commit's files —
-        # keeps those commits in the candidate-gated denominator.
-        return make_event(
-            EVENT_TYPE_CONCERN, content="open concern", ts=ts, files=list(files)
-        )
-
     def test_commit_overlapping_no_open_concern_excluded(self):
         # Candidate gate: an eligible commit touching files no open concern
         # references should NOT count toward the denominator.
         import retro_metrics
 
-        concern = self._open_concern(files=("scripts/auth.py",))
+        concern = open_concern_event(files=("scripts/auth.py",))
         # commit touches scripts/x.py, not the concern's scripts/auth.py
         commit = self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00")
         result = retro_metrics._compute_resolves_link_rate(
@@ -75,7 +68,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         # via trailer stays in the denominator (open-at-commit-time, not retro).
         import retro_metrics
 
-        concern = self._open_concern()
+        concern = open_concern_event()
         commit = self._code_commit([concern["id"]], "2026-04-05T10:00:00+00:00")
         result = retro_metrics._compute_resolves_link_rate(
             [concern, commit], "2026-04-01"
@@ -120,7 +113,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit([], "2026-04-05T11:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00"),
@@ -142,7 +135,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "agent-1"),
             self._code_commit([], "2026-04-05T11:00:00+00:00", "agent-1"),
             self._code_commit(["bbb"], "2026-04-05T12:00:00+00:00", "agent-2"),
@@ -158,7 +151,7 @@ class TestDirectTrailerCount(unittest.TestCase):
         import retro_metrics
 
         events = [
-            self._open_concern(ts="2026-03-01T00:00:00+00:00"),
+            open_concern_event(ts="2026-03-01T00:00:00+00:00"),
             self._code_commit(["aaa"], "2026-03-15T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T10:00:00+00:00"),
         ]
@@ -185,7 +178,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             story_event,
@@ -214,7 +207,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             free_event,
@@ -252,7 +245,7 @@ class TestDirectTrailerCount(unittest.TestCase):
                 "resolves": ["concern-id-123"],
             },
         )
-        concern = self._open_concern(files=("scripts/x.py", "scripts/y.py"))
+        concern = open_concern_event(files=("scripts/x.py", "scripts/y.py"))
         result = retro_metrics._compute_resolves_link_rate(
             [concern, main_no_trailer, free_with_trailer], "2026-04-01"
         )
@@ -279,7 +272,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             merge_event,
@@ -308,7 +301,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             release_event,
@@ -347,7 +340,7 @@ class TestDirectTrailerCount(unittest.TestCase):
             },
         )
         events = [
-            self._open_concern(),
+            open_concern_event(),
             self._code_commit(["aaa"], "2026-04-05T10:00:00+00:00"),
             self._code_commit(["bbb"], "2026-04-05T11:00:00+00:00"),
             story_cadence_no_trailer,
