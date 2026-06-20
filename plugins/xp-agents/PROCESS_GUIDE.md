@@ -6,15 +6,15 @@
 - **Simplicity**: Simplest thing that works. Deliver what was asked before adding extras.
 - **Feedback**: Fix what `/code-review` or `/xp-quality-review` flags. Tests are production code.
 - **Courage**: Make the tough call. Use the better way; flag the old with a concern.
-- **Honesty**: Record decisions, assumptions, concerns in the SMM. State assumptions explicitly. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes`.
+- **Honesty**: Record decisions, assumptions, and concerns in the SMM. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes`.
 
 ## Sequential Discipline
 
-The harness instructs you to batch independent tool calls in parallel. XP flows are the opposite: step-gated and sequential. Inside any xp skill, suppress the parallel instinct — run one step per turn: make the call, observe the result, then decide the next. Batching a gated step with the one after it races state that isn't settled yet, and one failure in the block cancels the whole batch.
+The harness batches independent tool calls in parallel; XP flows are step-gated and sequential. Inside any xp skill, run one step per turn — make the call, observe, then decide the next. Batching a gated step with the next races unsettled state, and one failure cancels the whole batch.
 
 - Never place an `AskUserQuestion` and the action that consumes its answer in the same block — the action runs against a guessed answer.
 - Never spawn the same subagent more than once; duplicates collide on shared preload/marker state.
-- The exemption: genuinely independent, read-only calls (Glob, Grep, Read of unrelated files) may still batch. The rule targets dependent and gated calls, not parallel reads.
+- Exemption: genuinely independent read-only calls (Glob, Grep, Read of unrelated files) may still batch — the rule targets dependent/gated calls only.
 
 ## Pillars
 
@@ -28,9 +28,11 @@ Read Intent and Risks at plan or sprint start; check Constraints when choosing a
 ## Resolution Discipline
 
 Three link types close events and risk pillar items:
-- **STRONG**: `metadata.resolves=[id]` (required when a decision answers a question). Risk IDs shown as `[id]` in rendered SMM.
+- **STRONG**: `metadata.resolves=[id]` (required when a decision answers a *non-blocking* question). Risk IDs shown as `[id]` in rendered SMM.
 - **WEAK**: `references=[id]` on flag concerns — cascade-closes with the root.
 - **STRUCTURAL**: `files=[...]` on reviewer concerns — commit-auto-link nudges for a `Resolves-Event:` trailer.
+
+**A 🔴 question gates writes and clears ONLY via AskUserQuestion** (records the `answer`). A `decision`/`status` resolving the question id does NOT clear it and fabricates an answer never given.
 
 ## When to Run XP Skills
 

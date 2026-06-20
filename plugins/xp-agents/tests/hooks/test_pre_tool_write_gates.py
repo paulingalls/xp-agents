@@ -225,6 +225,50 @@ class TestQuestionGate(_HookTestCase):
         if result:
             self.assertNotIn("AskUserQuestion", result)
 
+    def test_question_gate_message_names_self_resolve_antipattern(self):
+        """The gate message must say AskUserQuestion is the ONLY clear path and
+        warn that a decision/status self-resolve does not clear it — the wording
+        that keeps a literal-minded agent off the self-resolve anti-pattern."""
+        (self.smm_dir / ".question-gate").write_text("test-question-id")
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        msg = str(ctx.exception)
+        self.assertIn("AskUserQuestion", msg)
+        self.assertIn("only", msg.lower())
+        # Names the anti-pattern: a decision/status event does not clear it.
+        self.assertIn("decision", msg.lower())
+        self.assertIn("fabricat", msg.lower())
+
+    def test_gate_persists_after_decision_metadata_resolves(self):
+        """Regression guard: a decision with metadata.resolves=[question_id]
+        must NOT clear the gate (only AskUserQuestion's answer event does).
+        Characterizes already-correct behavior so a future change can't quietly
+        let an event self-resolve the gate."""
+        question_id = "test-question-id"
+        gate = self.smm_dir / ".question-gate"
+        gate.write_text(question_id)
+        # The anti-pattern: agent records a decision resolving the question id.
+        _common.append_safe(
+            self.smm_dir,
+            _common.make_event(
+                "decision",
+                "main",
+                "Self-resolve attempt",
+                topic="bogus",
+                metadata={"resolves": [question_id]},
+            ),
+        )
+        self.assertTrue(gate.exists(), "decision event must not consume the gate")
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("AskUserQuestion", str(ctx.exception))
+
 
 class TestAcceptMarker(_HookTestCase):
     """pre_tool_write sets accept marker when in-progress stories exist."""
