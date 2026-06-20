@@ -28,7 +28,7 @@ from _branching_fixtures import (
     create_teammate_worktree_with_commit,
     get_current_branch,
     get_head_sha,
-    init_repo,
+    init_repo_with_ignored_worktrees,
     make_conflicted_merge,
 )
 
@@ -37,13 +37,9 @@ class TestAcceptanceEnv(unittest.TestCase):
     def setUp(self):
         self._repo_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.repo = self._repo_td.name
-        init_repo(self.repo)
         # Mirror production: worktrees live under a gitignored path, so the
         # main tree stays clean once a teammate worktree is created.
-        (Path(self.repo) / ".gitignore").write_text(".claude/worktrees/\n")
-        (Path(self.repo) / "base.txt").write_text("base\n")
-        self._git("add", ".gitignore", "base.txt")
-        self._git("commit", "-m", "seed")
+        init_repo_with_ignored_worktrees(self.repo)
 
         self._smm_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.smm = Path(self._smm_td.name)
@@ -142,6 +138,44 @@ class TestAcceptanceEnv(unittest.TestCase):
     def test_recover_noop_when_clean(self):
         self.assertIsNone(acceptance_env.recover(self.smm, self.repo))
         self.assertEqual(get_current_branch(self.repo), "main")
+
+    # ---- inspect (read-only preload snapshot) -----------------------------
+
+    def test_inspect_enriches_rows_with_tip_and_ref(self):
+        wt = create_teammate_worktree_with_commit(self.repo, "story-042", GIT_ENV)
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertEqual(snapshot.rows, [("story-042", wt, get_head_sha(wt), "main")])
+
+    def test_inspect_empty_rows_when_solo(self):
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertEqual(snapshot.rows, [])
+
+    def test_inspect_no_flag_when_clean(self):
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertIsNone(snapshot.main_state)
+
+    def test_inspect_flags_dirty(self):
+        (Path(self.repo) / "dirty.txt").write_text("uncommitted")
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertEqual(snapshot.main_state, "dirty")
+
+    def test_inspect_flags_detached_head(self):
+        self._git("checkout", "--detach", get_head_sha(self.repo))
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertEqual(snapshot.main_state, "detached-HEAD")
+
+    def test_inspect_flags_in_progress_merge(self):
+        make_conflicted_merge(self.repo)
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertEqual(snapshot.main_state, "in-progress-merge")
+
+    def test_inspect_interrupted_takes_precedence_over_dirty(self):
+        # A conflicted merge leaves the tree both interrupted AND dirty; the
+        # specific recover signal must win over the generic "dirty" flag.
+        make_conflicted_merge(self.repo)
+        self.assertFalse(branching.is_worktree_clean(self.repo))
+        snapshot = acceptance_env.inspect(self.smm, self.repo)
+        self.assertEqual(snapshot.main_state, "in-progress-merge")
 
 
 if __name__ == "__main__":

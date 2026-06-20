@@ -234,6 +234,27 @@ def _cmd_accept_env_recover(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_accept_env_inspect(args: argparse.Namespace) -> int:
+    """Print a read-only prepare-readiness snapshot for the /xp-accept preload.
+
+    One TSV row per live teammate worktree:
+    ``story_id<TAB>path<TAB>tip<TAB>restore_ref``. A trailing
+    ``MAIN_STATE<TAB><state>`` line flags a window needing recovery before a
+    detached-HEAD checkout (interrupted state, else dirty); omitted on a clean
+    tree. Tab-delimited because macOS paths can contain spaces.
+    """
+    try:
+        snap = acceptance_env.inspect(Path(args.smm_dir), args.cwd)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    for row in snap.rows:
+        print(f"{row.story_id}\t{row.wt_path}\t{row.tip_sha}\t{row.restore_ref}")
+    if snap.main_state:
+        print(f"MAIN_STATE\t{snap.main_state}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Branch lifecycle operations")
     parser.add_argument("--smm-dir", required=True, help="SMM directory path")
@@ -356,6 +377,11 @@ def main() -> int:
     ae_rec = ae.add_parser("recover", help="Heal an interrupted main checkout")
     ae_rec.add_argument("--cwd", required=True)
     ae_rec.set_defaults(func=_cmd_accept_env_recover)
+    ae_insp = ae.add_parser(
+        "inspect", help="Read-only prepare-readiness snapshot (rows + MAIN_STATE flag)"
+    )
+    ae_insp.add_argument("--cwd", required=True)
+    ae_insp.set_defaults(func=_cmd_accept_env_inspect)
 
     args = parser.parse_args()
     return args.func(args)
