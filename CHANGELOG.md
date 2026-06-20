@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.8.4 — pin curator subagents to Sonnet
+
+Internal — no user-facing behavior change. A cost/latency optimization for
+the per-session kickoff subagents.
+
+- **`xp-retrospective` and `xp-housekeeper` now run on Sonnet** (`model:
+  sonnet`, was `inherit`). Both are digest-fed curators: they consume a
+  bounded, pre-computed input (`RETRO_INPUT` / `CURATION_INPUT`) and apply
+  mechanical Keep/Fix/Try and pillar-curation judgment, so Sonnet is
+  sufficient — cutting cost and the Opus-tier latency/529s seen at session
+  start. The four reviewers and the exploration-fed `xp-system-analyzer`
+  deliberately stay `model: inherit`: reviewers carry adversarial
+  correctness judgment, and the analyzer reads broad codebase context
+  (200k can bind) for a durable `system_context.json`.
+- **`test_agent_model_tiers.py` pins both halves of the boundary** so a
+  future "downgrade everything" sweep can't silently weaken the
+  judgment-critical agents. Decision recorded under topic
+  `agent-model-tier-boundary`.
+
 ## v3.8.3 — pin trailer-metric cadence asymmetry
 
 Internal — no user-facing behavior change. Hardening + a design note,
