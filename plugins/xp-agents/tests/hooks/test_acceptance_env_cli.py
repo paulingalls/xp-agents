@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import acceptance_env
 import branching
 from _branching_fixtures import (
     GIT_ENV,
@@ -59,6 +60,19 @@ class TestAcceptEnvCli(unittest.TestCase):
             env=GIT_ENV,
         )
 
+    def _make_conflicted_merge(self) -> None:
+        """Leave the repo with an in-progress conflicted merge (MERGE_HEAD set)."""
+        self._git("checkout", "-b", "A")
+        (Path(self.repo) / "base.txt").write_text("A change\n")
+        self._git("commit", "-am", "A edit")
+        self._git("checkout", "main")
+        self._git("checkout", "-b", "B")
+        (Path(self.repo) / "base.txt").write_text("B change\n")
+        self._git("commit", "-am", "B edit")
+        r = self._git("merge", "A")
+        self.assertNotEqual(r.returncode, 0, "merge was expected to conflict")
+        self.assertTrue((Path(self.repo) / ".git" / "MERGE_HEAD").exists())
+
     def test_prepare_detaches_to_tip_and_prints_base(self):
         wt = create_teammate_worktree_with_commit(self.repo, "story-042", GIT_ENV)
         tip = get_head_sha(wt)
@@ -73,7 +87,10 @@ class TestAcceptEnvCli(unittest.TestCase):
         (Path(self.repo) / "dirty.txt").write_text("uncommitted")
         r = self._run("prepare", "--cwd", self.repo, "--story", "story-042")
         self.assertNotEqual(r.returncode, 0)
-        self.assertTrue(r.stderr.strip())
+        # Explanatory message on stderr (not stdout) — a regression routing it
+        # elsewhere or genericizing it would still leave a non-empty stderr.
+        self.assertEqual(r.stdout.strip(), "")
+        self.assertIn("dirty", r.stderr)
         self.assertEqual(get_current_branch(self.repo), "main")  # HEAD untouched
 
     def test_restore_returns_to_ref(self):
@@ -99,6 +116,22 @@ class TestAcceptEnvCli(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "detached-HEAD")
         self.assertEqual(get_current_branch(self.repo), "main")
+        # Interrupted state fully cleared — not merely back on a branch.
+        self.assertIsNone(acceptance_env.detect_interrupted(self.repo))
+
+    def test_recover_from_in_progress_merge(self):
+        self._make_conflicted_merge()
+        r = self._run("recover", "--cwd", self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "in-progress-merge")
+        # Merge aborted, HEAD back on a normal branch, nothing left interrupted.
+        self.assertNotEqual(get_current_branch(self.repo), "HEAD")
+        self.assertIsNone(acceptance_env.detect_interrupted(self.repo))
+
+    def test_restore_bad_ref_errors(self):
+        r = self._run("restore", "--cwd", self.repo, "--restore-ref", "no-such-branch")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertTrue(r.stderr.strip())
 
     def test_bare_accept_env_errors(self):
         # nested subparser required=True → bare `accept-env` exits non-zero.
