@@ -50,10 +50,11 @@ Read the sprint file at `SPRINT_FILE`. For each story in the selected set
 `acceptance_execution` field (the preload's `### Acceptance Types`
 section shows the type per story for quick reference).
 
-### Precondition: heal the main checkout (teammate stories)
+### Precondition: heal the main checkout
 
-If the preload's `### TEAMMATE_WORKTREES` shows a `MAIN_STATE` line, heal
-the main checkout before any `accept-env prepare`:
+If the preload shows a `MAIN_STATE` line (under `### TEAMMATE_WORKTREES`),
+heal the main checkout before any `accept-env prepare` — gate on the flag, not
+teammate-vs-solo (a leftover interrupted state surfaces even with no live worktree):
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
@@ -62,7 +63,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
 
 `recover` aborts an interrupted merge / detached HEAD and restores the
 base. If the tree is still **dirty** (or `MAIN_STATE` was `dirty`),
-**refuse** — do not checkout. Solo / no-worktree runs skip this.
+**refuse** — do not checkout. No `MAIN_STATE` line → nothing to heal, skip.
 
 ### Step 1.0: Promote to `reviewing` (idempotent)
 
