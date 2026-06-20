@@ -93,41 +93,47 @@ reviewing middle state.
 
 ### Automated acceptance (type != "manual")
 
-When `acceptance_execution` is present and `type` is not `"manual"`:
+When `acceptance_execution` is present and `type` is not `"manual"`, run
+the prepare → run → restore → disposition flow below in order:
 
-1. Present the story title and acceptance criteria.
-2. **Teammate story (id in TEAMMATE_WORKTREES):** detach the main
-   checkout onto the story's tip and capture the restore ref (`accept-env
-   prepare`); for a **solo** story (no worktree), skip prepare/restore and
-   run bare from the main repo.
+**Present.** Show the story title and acceptance criteria.
+
+**Prepare.** **Teammate story (id in TEAMMATE_WORKTREES):** detach the
+main checkout onto the story's tip and capture the restore ref
+(`accept-env prepare`); for a **solo** story (no worktree), skip
+prepare/restore and run bare from the main repo.
 
 ```bash
 RESTORE_REF=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
   --smm-dir <SMM_DIR> accept-env prepare --cwd . --story story-NNN)
 ```
-3. Run `acceptance_execution.setup` (if present) AND the command(s)
-   **bare in the main-checkout cwd** — no `cd`-into-worktree wrap.
-   `command: str` or `commands: list[str]` (fail on first non-zero);
-   multi-command prefers `verify_acceptance.py --story <id> --smm-dir
-   <SMM_DIR>` (runs in the process cwd = main checkout). Capture the exit code.
-4. **Restore on every exit path** — pass OR fail, before the disposition
-   branch and any `AskUserQuestion` (solo: nothing to restore). The
-   checkout is ephemeral; the permanent merge is in `/xp-story-close`.
+
+**Run.** Run `acceptance_execution.setup` (if present) AND the command(s)
+**bare in the main-checkout cwd** — no `cd`-into-worktree wrap.
+`command: str` or `commands: list[str]` (fail on first non-zero);
+multi-command prefers `verify_acceptance.py --story <id> --smm-dir
+<SMM_DIR>` (runs in the process cwd = main checkout). Capture the exit code.
+
+**Restore on every exit path** — pass OR fail, before the disposition
+branch and any `AskUserQuestion` (solo: nothing to restore). The
+checkout is ephemeral; the permanent merge is in `/xp-story-close`.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> \
   accept-env restore --cwd . --restore-ref "$RESTORE_REF"
 ```
-5. **Exit code 0 = pass. Auto-proceed to Step 2 without an extra
-   confirmation prompt** — the green exit IS the confirmation, and
-   `/xp-story-close` owns merge confirmation.
-6. **Non-zero exit = fail.** Show the output and ask via
-   `AskUserQuestion` with three options: **Debug and re-run**,
-   **Override with concern**, **Defer**.
 
-**Debug and re-run.** Step 4 already restored the main checkout, so you
-are NOT on the detached tip — never commit a fix there (it would be
-orphaned on restore). Revert to `in-progress` (Step 1.0's revert), then
+**Pass.** **Exit code 0 = pass. Auto-proceed to Step 2 without an extra
+confirmation prompt** — the green exit IS the confirmation, and
+`/xp-story-close` owns merge confirmation.
+
+**Fail.** **Non-zero exit = fail.** Show the output and ask via
+`AskUserQuestion` with three options: **Debug and re-run**,
+**Override with concern**, **Defer**.
+
+**Debug and re-run.** The **Restore** step above already returned the
+main checkout to the base, so you are NOT on the detached tip — never
+commit a fix there (it would be orphaned on restore). Revert to `in-progress` (Step 1.0's revert), then
 fix in the teammate **worktree**, committing from the orchestrator with
 `git -C <worktree-path> commit ...` — never `cd <worktree> && git commit
 && cd -` (the cd-back fires before the PostToolUse trailer-extract hook

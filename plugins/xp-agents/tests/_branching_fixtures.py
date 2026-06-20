@@ -255,6 +255,36 @@ def merge_teammate_branch(
     )
 
 
+def run_accept_env(
+    smm_dir: Path,
+    cwd: str,
+    *args: str,
+    env: dict = GIT_ENV,
+) -> subprocess.CompletedProcess:
+    """Run `branching.py accept-env <args>` at ``cwd``.
+
+    Single-source-of-truth wrapper for the acceptance-env prepare/restore
+    subprocess calls — replaces the byte-identical ``_accept_env`` method
+    duplicated across the story-002 main-checkout accept test classes
+    (TestTeammateAcceptMainCheckout, TestMultiStoryPrepareRestore).
+    """
+    branching_py = Path(__file__).parent.parent / "scripts" / "branching.py"
+    return subprocess.run(
+        [
+            sys.executable,
+            str(branching_py),
+            "--smm-dir",
+            str(smm_dir),
+            "accept-env",
+            *args,
+        ],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+
 def make_commit(
     cwd: str,
     branch: str,

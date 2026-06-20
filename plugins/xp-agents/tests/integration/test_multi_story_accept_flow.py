@@ -32,6 +32,7 @@ from _branching_fixtures import (
     git_log_oneline_at,
     make_commit,
     merge_teammate_branch,
+    run_accept_env,
     write_system_context,
 )
 from conftest import (
@@ -283,20 +284,7 @@ class TestMultiStoryPrepareRestore(_IntegrationTestCase):
     prepare/restore is isolated from the lifecycle tests' committed state."""
 
     def _accept_env(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [
-                sys.executable,
-                str(_PLUGIN_ROOT / "scripts" / "branching.py"),
-                "--smm-dir",
-                str(self.smm_dir),
-                "accept-env",
-                *args,
-            ],
-            cwd=str(self.tmpdir),
-            env=self._test_env,
-            capture_output=True,
-            text=True,
-        )
+        return run_accept_env(self.smm_dir, str(self.tmpdir), *args, env=self._test_env)
 
     def test_multi_story_prepare_restore_isolation(self):
         (self.tmpdir / ".gitignore").write_text(".claude/worktrees/\n")

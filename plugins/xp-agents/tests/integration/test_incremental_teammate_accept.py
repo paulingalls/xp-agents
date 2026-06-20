@@ -15,7 +15,6 @@ suppression of .accept re-arm, source-branch survives merge failure).
 """
 
 import subprocess
-import sys
 import unittest
 
 import branching
@@ -23,7 +22,6 @@ import markers
 import pre_tool_write
 import sprint_state
 import sprint_store
-from _bases import _PLUGIN_ROOT
 from _branching_fixtures import (
     branch_exists,
     create_teammate_worktree_with_commit,
@@ -31,6 +29,7 @@ from _branching_fixtures import (
     get_head_sha,
     git_log_oneline_at,
     merge_teammate_branch,
+    run_accept_env,
 )
 from conftest import (
     _extract_preload_var,
@@ -310,20 +309,7 @@ class TestTeammateAcceptMainCheckout(_IntegrationTestCase):
     tests' committed state in the class-shared repo."""
 
     def _accept_env(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [
-                sys.executable,
-                str(_PLUGIN_ROOT / "scripts" / "branching.py"),
-                "--smm-dir",
-                str(self.smm_dir),
-                "accept-env",
-                *args,
-            ],
-            cwd=str(self.tmpdir),
-            env=self._test_env,
-            capture_output=True,
-            text=True,
-        )
+        return run_accept_env(self.smm_dir, str(self.tmpdir), *args, env=self._test_env)
 
     def test_teammate_accept_runs_and_restores_in_main_checkout(self):
         # story-002 AC#2/#3: accept-env prepare detaches the MAIN checkout
