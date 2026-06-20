@@ -23,7 +23,9 @@ from conftest import (
 )
 
 SKILL_BUDGETS: dict[str, int] = {
-    "xp-accept": 300,
+    # Bumped 300->330 for story-002's main-checkout acceptance flow
+    # (accept-env recover precondition + prepare/run/restore steps).
+    "xp-accept": 330,
     "xp-assign": 200,
     "xp-end-session": 130,
     "xp-free-close": 140,

@@ -17,6 +17,7 @@ suppression of .accept re-arm, source-branch survives merge failure).
 import subprocess
 import unittest
 
+import branching
 import markers
 import pre_tool_write
 import sprint_state
@@ -25,8 +26,10 @@ from _branching_fixtures import (
     branch_exists,
     create_teammate_worktree_with_commit,
     get_current_branch_at,
+    get_head_sha,
     git_log_oneline_at,
     merge_teammate_branch,
+    run_accept_env,
 )
 from conftest import (
     _extract_preload_var,
@@ -297,6 +300,76 @@ class TestIncrementalTeammateAccept(_IntegrationTestCase):
             branch_exists(str(self.tmpdir), teammate_branch),
             f"teammate branch {teammate_branch} must survive a failed merge",
         )
+
+
+class TestTeammateAcceptMainCheckout(_IntegrationTestCase):
+    """story-002: teammate-story acceptance runs in the provisioned MAIN
+    checkout via accept-env prepare → run → restore. Own class so the
+    HEAD-detaching prepare/restore is isolated from the sibling lifecycle
+    tests' committed state in the class-shared repo."""
+
+    def _accept_env(self, *args: str) -> subprocess.CompletedProcess:
+        return run_accept_env(self.smm_dir, str(self.tmpdir), *args, env=self._test_env)
+
+    def test_teammate_accept_runs_and_restores_in_main_checkout(self):
+        # story-002 AC#2/#3: accept-env prepare detaches the MAIN checkout
+        # onto the teammate tip (so the acceptance command runs there, seeing
+        # the teammate's files + the provisioned deps), and restore returns to
+        # base on EVERY exit path — even after a failing command.
+        # Gitignore the worktrees path + commit so the main tree stays clean
+        # after the worktree is created (else prepare refuses on a dirty tree).
+        (self.tmpdir / ".gitignore").write_text(".claude/worktrees/\n")
+        env = self._test_env
+        subprocess.run(
+            ["git", "add", ".gitignore"], cwd=self.tmpdir, env=env, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "ignore worktrees"],
+            cwd=self.tmpdir,
+            env=env,
+            capture_output=True,
+            check=True,
+        )
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Teammate story", "in-progress")],
+                sprint_id="sprint-test",
+                started="2026-06-20",
+            )
+        )
+        wt = create_teammate_worktree_with_commit(
+            str(self.tmpdir), "story-001", env.copy()
+        )
+        base_sha = get_head_sha(str(self.tmpdir))
+        tip = get_head_sha(wt)
+        self.assertNotEqual(base_sha, tip)
+
+        # prepare: detach main onto the teammate tip; stdout is the restore ref.
+        prep = self._accept_env(
+            "prepare", "--cwd", str(self.tmpdir), "--story", "story-001"
+        )
+        self.assertEqual(prep.returncode, 0, prep.stderr)
+        self.assertEqual(prep.stdout.strip(), "main")
+        self.assertEqual(
+            get_head_sha(str(self.tmpdir)), tip, "main detached onto teammate tip"
+        )
+        self.assertTrue(
+            (self.tmpdir / "story-001-feature.txt").exists(),
+            "teammate's file is visible in the main checkout after prepare",
+        )
+
+        # A FAILING acceptance command must not prevent restore (AC#3).
+        self.assertNotEqual(subprocess.run(["false"], cwd=self.tmpdir).returncode, 0)
+        restore = self._accept_env(
+            "restore", "--cwd", str(self.tmpdir), "--restore-ref", "main"
+        )
+        self.assertEqual(restore.returncode, 0, restore.stderr)
+
+        # Back on base, clean, teammate file gone from the main worktree.
+        self.assertEqual(get_current_branch_at(self.tmpdir), "main")
+        self.assertEqual(get_head_sha(str(self.tmpdir)), base_sha)
+        self.assertTrue(branching.is_worktree_clean(str(self.tmpdir)))
+        self.assertFalse((self.tmpdir / "story-001-feature.txt").exists())
 
 
 if __name__ == "__main__":
