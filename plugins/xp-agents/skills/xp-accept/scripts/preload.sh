@@ -50,13 +50,17 @@ echo ""
 python3 "${SKILL_DIR}/scripts/acceptance_types.py" --sprint-file "${SPRINT_FILE}" || true
 echo ""
 
-# Tab-delimited `story-id<TAB>abs-path` per live teammate worktree (macOS
-# paths can contain spaces). The SKILL prose cd's into each before
-# running its acceptance command.
-teammate_wts=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" --smm-dir "${SMM_DIR}" \
-    list-teammate-worktree-paths --cwd . 2>/dev/null || true)
-if [ -n "$teammate_wts" ]; then
+# Read-only prepare-readiness snapshot for the serial main-checkout
+# acceptance flow. One tab-delimited row per live teammate worktree —
+# `story-id<TAB>abs-path<TAB>tip-sha<TAB>restore-ref` (macOS paths can
+# contain spaces) — plus a trailing `MAIN_STATE<TAB><state>` line when the
+# main checkout needs recovery (in-progress-merge | detached-HEAD | dirty)
+# before a detached-HEAD acceptance run. Side-effect-free; the SKILL drives
+# accept-env prepare/restore per row off this data.
+accept_env=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" --smm-dir "${SMM_DIR}" \
+    accept-env inspect --cwd . 2>/dev/null || true)
+if [ -n "$accept_env" ]; then
     echo ""
     echo "### TEAMMATE_WORKTREES"
-    echo "$teammate_wts"
+    echo "$accept_env"
 fi

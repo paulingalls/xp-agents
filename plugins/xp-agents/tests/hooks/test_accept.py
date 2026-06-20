@@ -8,6 +8,7 @@ of the PostToolUse:Skill replacement plan).
 """
 
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -16,6 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import (
+    create_teammate_worktree_with_commit,
+    get_head_sha,
+)
 from conftest import (
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
@@ -78,6 +83,81 @@ class TestAcceptPreload(_IntegrationTestCase):
             (self.smm_dir / ".accept").exists(),
             ".accept marker should be cleared by preload",
         )
+
+
+class TestAcceptPreloadInspect(_IntegrationTestCase):
+    """story-001: preload surfaces prepare-readiness data for the serial
+    main-checkout acceptance flow — enriched TEAMMATE_WORKTREES rows (tip +
+    restore ref) and a MAIN_STATE flag when the main checkout needs recovery
+    before a detached-HEAD acceptance run."""
+
+    def setUp(self):
+        super().setUp()
+        # Worktrees live under a gitignored path, so creating one leaves the
+        # main tree clean (mirrors production). Commit the ignore so the
+        # no-flag assertion sees a clean tree; idempotent across methods.
+        (self.tmpdir / ".gitignore").write_text(".claude/worktrees/\n")
+        subprocess.run(
+            ["git", "add", ".gitignore"],
+            cwd=self.tmpdir,
+            env=self._test_env,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "ignore worktrees"],
+            cwd=self.tmpdir,
+            env=self._test_env,
+            capture_output=True,
+        )
+
+    def _seed_in_progress(self):
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+
+    def test_preload_enriches_teammate_rows(self):
+        """AC#1: each TEAMMATE_WORKTREES row carries tip SHA + restore ref."""
+        self._seed_in_progress()
+        wt = create_teammate_worktree_with_commit(
+            str(self.tmpdir), "story-001", self._test_env.copy()
+        )
+        tip = get_head_sha(wt)
+        r = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("### TEAMMATE_WORKTREES", r.stdout)
+        self.assertIn("story-001\t", r.stdout)
+        self.assertIn(f"\t{tip}\tmain", r.stdout)
+
+    def test_preload_no_main_state_flag_when_clean(self):
+        """AC#3: clean tree on a normal branch emits no MAIN_STATE flag."""
+        self._seed_in_progress()
+        create_teammate_worktree_with_commit(
+            str(self.tmpdir), "story-001", self._test_env.copy()
+        )
+        r = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("MAIN_STATE", r.stdout)
+
+    def test_preload_flags_dirty_main(self):
+        """AC#2: a dirty main tree surfaces the MAIN_STATE flag."""
+        self._seed_in_progress()
+        create_teammate_worktree_with_commit(
+            str(self.tmpdir), "story-001", self._test_env.copy()
+        )
+        # Untracked, non-ignored file dirties the tree; the base setUp scrubs
+        # it between tests (unlike a modified tracked file, which would leak).
+        (self.tmpdir / "dirty.txt").write_text("uncommitted")
+        r = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("MAIN_STATE\tdirty", r.stdout)
+
+    def test_preload_flag_surfaces_solo_dirty(self):
+        """Section prints when EITHER rows OR a flag exist — a solo (no
+        worktree) dirty tree still surfaces the flag."""
+        self._seed_in_progress()
+        (self.tmpdir / "dirty.txt").write_text("uncommitted")
+        r = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("### TEAMMATE_WORKTREES", r.stdout)
+        self.assertIn("MAIN_STATE\tdirty", r.stdout)
 
 
 _SKILL_MD = Path(__file__).parent.parent.parent / "skills" / "xp-accept" / "SKILL.md"
