@@ -126,6 +126,33 @@ class TestAcceptEnvCli(unittest.TestCase):
         r = self._run()
         self.assertNotEqual(r.returncode, 0)
 
+    # ---- inspect (read-only preload snapshot) -----------------------------
+
+    def test_inspect_prints_enriched_tsv_row(self):
+        wt = create_teammate_worktree_with_commit(self.repo, "story-042", GIT_ENV)
+        tip = get_head_sha(wt)
+        r = self._run("inspect", "--cwd", self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), f"story-042\t{wt}\t{tip}\tmain")
+
+    def test_inspect_flags_dirty_main_state(self):
+        (Path(self.repo) / "dirty.txt").write_text("uncommitted")
+        r = self._run("inspect", "--cwd", self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("MAIN_STATE\tdirty", r.stdout)
+
+    def test_inspect_interrupted_takes_precedence_over_dirty(self):
+        make_conflicted_merge(self.repo)
+        r = self._run("inspect", "--cwd", self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("MAIN_STATE\tin-progress-merge", r.stdout)
+        self.assertNotIn("dirty", r.stdout)
+
+    def test_inspect_omits_flag_when_clean_and_no_worktree(self):
+        r = self._run("inspect", "--cwd", self.repo)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()
