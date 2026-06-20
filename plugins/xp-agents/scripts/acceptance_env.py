@@ -111,3 +111,25 @@ def recover(smm_dir: Path, cwd: str) -> str | None:
             raise ValueError(f"git merge --abort failed: {r.stderr.strip()}")
     restore(cwd, branching.get_story_base_branch(smm_dir, cwd))
     return state
+
+
+def inspect(smm_dir: Path, cwd: str) -> dict:
+    """Read-only prepare-readiness snapshot for the /xp-accept preload.
+
+    Touches nothing — the preload runs on every load and must be
+    side-effect-free. Each ``rows`` entry is
+    ``(story_id, wt_path, tip_sha, restore_ref)`` for a live teammate worktree
+    (the tip + base the SKILL would prepare against). ``main_state`` flags a
+    window that needs healing before a detached-HEAD checkout: an interrupted
+    state (``detect_interrupted``) takes precedence over a merely ``"dirty"``
+    tree, since the SKILL needs the specific recover signal. None when the tree
+    is clean on a normal branch.
+    """
+    rows = [
+        (story_id, wt_path, *resolve_story_tip(smm_dir, cwd, story_id))
+        for story_id, wt_path in worktree.list_live_teammate_worktree_paths(cwd)
+    ]
+    main_state = detect_interrupted(cwd)
+    if main_state is None and not branching.is_worktree_clean(cwd):
+        main_state = "dirty"
+    return {"rows": rows, "main_state": main_state}
