@@ -29,7 +29,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import acceptance_env
 import branching
+import close_verify_gate
 import code_files
 import commit_handling
 import commits
@@ -37,8 +39,6 @@ import git_hooks
 import git_remote
 import identity
 import sprint_store
-import verify_acceptance
-import verify_paths
 import worktree
 from event_schema import METADATA_KEY_COMMIT_HASH
 
@@ -92,11 +92,80 @@ def cmd_push(args: argparse.Namespace) -> int:
     if not git_remote.has_remote(args.cwd):
         print("skipped: no remote configured")
         return 0
-    return _run_or_relay(
-        ["git", "push", "-u", "origin", args.branch],
-        cwd=args.cwd,
-        success_msg=f"pushed: {args.branch}",
+    # Solo: the branch is checked out in this checkout — push directly (HEAD is
+    # already the story tip, deps present). Teammate: the branch is held by the
+    # teammate worktree and this (main) checkout sits on the story base.
+    # Pushing from the worktree fires the project's pre-push hook THERE, where a
+    # fresh worktree has no installed deps (v3.9.0 design) → ERR_MODULE_NOT_FOUND.
+    # Relocate the push to the main checkout instead (see _push_relocated).
+    if identity.get_current_branch(args.cwd) == args.branch:
+        return _run_or_relay(
+            ["git", "push", "-u", "origin", args.branch],
+            cwd=args.cwd,
+            success_msg=f"pushed: {args.branch}",
+        )
+    return _push_relocated(args)
+
+
+def _push_relocated(args: argparse.Namespace) -> int:
+    """Push a teammate story branch from the main checkout, not its worktree.
+
+    The branch is held by the teammate worktree (which has the code but no
+    installed deps). Detach the main checkout onto the story tip so the
+    project's pre-push hook runs with the main checkout's deps against the
+    story's code, push, then restore — reusing acceptance_env's Mechanism A.
+    The story tip is the branch ref (shared across worktrees); the restore
+    target is the story base branch the orchestrator sits on. `restore` runs in
+    a `finally` so a red pre-push hook never leaves the main checkout detached.
+    """
+    if not args.smm_dir:
+        sys.stderr.write(
+            "push relocate refused: --smm-dir is required to resolve the base "
+            "ref for a teammate-worktree branch\n"
+        )
+        return 1
+    smm_dir = Path(args.smm_dir)
+    tip = subprocess.run(
+        ["git", "rev-parse", args.branch], cwd=args.cwd, capture_output=True, text=True
     )
+    if tip.returncode != 0:
+        sys.stderr.write(tip.stderr)
+        return 1
+    tip_sha = tip.stdout.strip()
+    restore_ref = branching.get_story_base_branch(smm_dir, args.cwd)
+    try:
+        acceptance_env.recover(smm_dir, args.cwd)
+        acceptance_env.checkout_story_tip(args.cwd, tip_sha)
+    except ValueError as exc:
+        sys.stderr.write(f"push relocate refused: {exc}\n")
+        return 1
+    restore_err: ValueError | None = None
+    try:
+        push_rc = _run_or_relay(
+            ["git", "push", "-u", "origin", args.branch],
+            cwd=args.cwd,
+            success_msg=f"pushed: {args.branch}",
+        )
+    finally:
+        # Restore is mandatory — always attempted even when the push raised or
+        # returned non-zero, so a red pre-push hook never leaves main detached.
+        # A restore failure is captured (not re-raised here) and surfaced below
+        # so it never masks an in-flight push exception (no `return` in finally).
+        try:
+            acceptance_env.restore(args.cwd, restore_ref)
+        except ValueError as exc:
+            restore_err = exc
+    # A restore failure must never be a bare traceback or a silent rc=0 with
+    # main detached: surface it loud + actionable and force non-zero.
+    if restore_err is not None:
+        sys.stderr.write(
+            f"push relocate: {restore_err}\n"
+            f"pushed but FAILED to restore the main checkout to "
+            f"{restore_ref}; it may be left detached — run "
+            f"`git -C {args.cwd} checkout {restore_ref}`\n"
+        )
+        return 1
+    return push_rc
 
 
 def cmd_create_pr(args: argparse.Namespace) -> int:
@@ -162,87 +231,6 @@ def cmd_diff_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _verify_gate_block(args: argparse.Namespace) -> str | None:
-    """Deterministic close-gate backstop: re-derive the gate signal and return
-    a refusal reason, or None to proceed.
-
-    Defends against an LLM that skips the SKILL prose gate. Both gates fail
-    CLOSED on their own signal; on git/SMM errors the touch gate fails OPEN
-    (matching verify_paths' established contract — an unreadable range can't
-    block a legitimate merge, and a broken ref would fail the merge anyway).
-
-    Inert when no --verify-gate (plan/free close). Refuses (rather than
-    silently no-op'ing) when --verify-gate is set without --smm-dir: a
-    misconfigured invocation must not invisibly disable the backstop.
-    """
-    if not args.verify_gate:
-        return None
-    if not args.smm_dir:
-        return "merge refused: --verify-gate requires --smm-dir"
-    smm_dir = Path(args.smm_dir)
-
-    match args.verify_gate:
-        case "touch":
-            # Self-derived from sprint.json + git: refuse when the story's
-            # declared acceptance-test paths are untouched on target..source
-            # and no [verify-deferred] commit defers them.
-            story_id = identity.extract_story_id(args.source)
-            if not story_id:
-                return None
-            try:
-                story = sprint_store.get_story(smm_dir, story_id)
-            except sprint_store.SprintCorruptError as exc:
-                return f"merge refused: sprint.json is corrupt or schema-invalid: {exc}"
-            except (ValueError, OSError):
-                return None  # missing sprint/story (or symlink) → fail open
-            paths = verify_paths.extract_verify_paths(story)
-            if not paths:
-                return None
-            try:
-                untouched = verify_paths.untouched_verify_paths(
-                    paths, args.cwd, base=args.target, head=args.source
-                )
-            except ValueError:
-                return None  # fail open: unreadable range can't block
-            if untouched and not commit_handling.branch_has_verify_deferred(
-                args.cwd, args.target, head=args.source
-            ):
-                return (
-                    f"merge refused: no commit on {args.target}..{args.source} "
-                    f"touched {untouched}; add a touching commit or commit with "
-                    "[verify-deferred] <reason>"
-                )
-            return None
-
-        case "acceptance":
-            # Reads the last sprint-verify event (cwd-independent): refuse on
-            # red unless the SKILL passed --force-verify (the --force-close path,
-            # which already recorded the bypass as debt).
-            try:
-                sprint = sprint_store.load_sprint(smm_dir)
-            except sprint_store.SprintCorruptError as exc:
-                return f"merge refused: sprint.json is corrupt or schema-invalid: {exc}"
-            except OSError:
-                return None  # symlinked sprint path → fail open (matches touch gate)
-            if sprint is None:
-                return None
-            status, failing = verify_acceptance._last_verify(
-                smm_dir, sprint["sprint_id"]
-            )
-            if status == verify_acceptance.VERIFY_STATUS_RED and not args.force_verify:
-                items = ", ".join(
-                    f"{r.get('story', '?')} {r.get('command', '')}" for r in failing
-                )
-                return (
-                    "merge refused: sprint acceptance is red: "
-                    f"{items}; fix and re-run /xp-sprint-review, or "
-                    "/xp-sprint-close --force-close <reason>"
-                )
-            return None
-
-    return None
-
-
 def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> None:
     """Append a type=commit event for the merge HEAD just produced by
     ``branching.merge_branch``.
@@ -279,7 +267,7 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     code_file_count = sum(1 for f in files if code_files.is_code_file(f))
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
-    # remote-prune chain must continue. Matches _verify_gate_block's
+    # remote-prune chain must continue. Matches close_verify_gate's
     # established fail-open posture for SMM-state errors here.
     try:
         sprint = sprint_store.load_sprint(smm_dir)
@@ -317,13 +305,13 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
     A deterministic verify-gate backstop runs FIRST (before merge), so a
     skipped SKILL prose gate can't merge an untouched/red story. See
-    _verify_gate_block.
+    close_verify_gate.verify_gate_block.
 
     branching.merge_branch sys.exit(1)s on conflict (with git's stderr
     already emitted), so we trust it to bail. delete_branch returns
     False on failure (e.g. unmerged commits) — we surface and abort.
     """
-    block = _verify_gate_block(args)
+    block = close_verify_gate.verify_gate_block(args)
     if block:
         sys.stderr.write(block + "\n")
         return 1
@@ -402,6 +390,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="push branch if remote exists, else skip",
     )
     p.add_argument("--branch", required=True)
+    p.add_argument(
+        "--smm-dir",
+        default=None,
+        help="SMM dir; required to relocate a teammate-worktree branch's push "
+        "to the main checkout (resolves the base ref). Omit for solo pushes.",
+    )
     p.set_defaults(func=cmd_push)
 
     p = sub.add_parser(

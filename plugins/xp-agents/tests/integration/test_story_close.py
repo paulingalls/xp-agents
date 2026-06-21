@@ -375,27 +375,45 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "its loop completes (decision e30e9e91e61a)",
         )
 
-    def test_steps_1_2_3_use_teammate_cwd_token_but_step_7_does_not(self):
-        # Story-002 sprint-057 (corrected by story-003 capstone):
-        # preflight/push/create-pr route at the teammate worktree
-        # (`${TEAMMATE_CWD:-.}`). Merge does NOT — `git merge` checks
-        # out the target branch which is held by the orchestrator's
-        # worktree; routing merge at TEAMMATE_CWD fails with
-        # "'<target>' is already used by worktree" (caught by capstone).
+    def test_preflight_createpr_use_teammate_cwd_push_relocates_merge_does_not(self):
+        # preflight/create-pr route at the teammate worktree
+        # (`${TEAMMATE_CWD:-.}`) — they read the story's diff/PR base.
+        # PUSH does NOT: it relocates to the MAIN checkout (`--cwd .` +
+        # `--smm-dir`). Pushing from the teammate worktree fires the project's
+        # pre-push hook THERE, where a fresh worktree has no installed deps
+        # → ERR_MODULE_NOT_FOUND. close_common.py detaches the main checkout
+        # onto the story tip and pushes from there (deps present). Merge ALSO
+        # runs at orchestrator cwd — `git merge` checks out the target branch
+        # held by the orchestrator worktree.
         self.assertIn(
             "${TEAMMATE_CWD:-.}",
             self.text,
-            "SKILL.md must route close_common.py at ${TEAMMATE_CWD:-.} so "
-            "teammate close ops run from the worktree (story-002 sprint-057).",
+            "SKILL.md must route preflight/create-pr at ${TEAMMATE_CWD:-.} so "
+            "those teammate ops run from the worktree (story-002 sprint-057).",
         )
-        # Pin: preflight/push/create-pr MUST use the token (DOTALL since
-        # the token sits on the line after the subcommand).
-        for subcmd in ("preflight", "push", "create-pr"):
+        # Pin: preflight/create-pr MUST use the token (DOTALL since the token
+        # sits on the line after the subcommand).
+        for subcmd in ("preflight", "create-pr"):
             self.assertRegex(
                 self.text,
                 rf"(?s)close_common\.py\s+{re.escape(subcmd)}[\s\S]*?\$\{{TEAMMATE_CWD:-\.\}}",
                 f"close_common.py {subcmd} must route at ${{TEAMMATE_CWD:-.}}",
             )
+        # Push relocates to the main checkout: --cwd . (NOT TEAMMATE_CWD) and
+        # passes --smm-dir so the relocate can resolve the story base ref.
+        self.assertRegex(
+            self.text,
+            r"close_common\.py\s+push[^\n]*\n\s*--cwd\s+\.",
+            "close_common.py push must relocate to the main checkout (--cwd .) "
+            "so the pre-push hook runs with the main checkout's deps, not the "
+            "depsless teammate worktree.",
+        )
+        self.assertRegex(
+            self.text,
+            r"close_common\.py\s+push[\s\S]{0,160}?--smm-dir",
+            "close_common.py push must pass --smm-dir so the relocate can "
+            "resolve the story base ref.",
+        )
         # Inverse pin for merge: must NOT route at TEAMMATE_CWD (always
         # orchestrator cwd because merge checks out target).
         self.assertNotRegex(
