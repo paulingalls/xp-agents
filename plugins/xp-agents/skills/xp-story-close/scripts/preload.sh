@@ -9,22 +9,23 @@ set -euo pipefail
 source "$(dirname "$0")/../../_preload_base.sh"
 
 # Implicit teammate-worktree discovery: when
-# /xp-accept dispatches /xp-story-close after marking a teammate story
-# done, the orchestrator sits on the SPRINT branch — not the story
+# /xp-accept dispatches /xp-story-close after promoting a teammate story
+# to `closing`, the orchestrator sits on the SPRINT branch — not the story
 # branch. Pair the live teammate worktree against sprint.json status
-# to discover the worktree of the just-done story; emit TEAMMATE_CWD
+# to discover the worktree of the in-closing story; emit TEAMMATE_CWD
 # + override CURRENT_BRANCH from the worktree's HEAD. Empty TEAMMATE_CWD
 # means solo flow (orchestrator IS on the story branch).
 #
-# Multi-match (two `done` stories with live worktrees) signals broken
+# Multi-match (two `closing` stories with live worktrees) signals broken
 # /xp-accept iteration — surface the helper's stderr and propagate the
 # non-zero exit (set -e) rather than masking it as solo flow. The
 # helper's "fail loud" contract only holds if its callers don't swallow.
 #
 # CLI emits `<abs-path>\t<branch>`: tab is the unambiguous split
-# point — worktree paths can contain spaces on macOS.
-CLOSING=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
-    --smm-dir "${SMM_DIR}" find-closing-teammate-worktree --cwd .)
+# point — worktree paths can contain spaces on macOS. The shared
+# find_closing_teammate_worktree wrapper (in _preload_base.sh) owns the
+# CLI command/flags so this and xp-quality-review's preload stay in sync.
+CLOSING=$(find_closing_teammate_worktree)
 if [ -n "$CLOSING" ]; then
     TEAMMATE_CWD="${CLOSING%$'\t'*}"
     CURRENT_BRANCH="${CLOSING##*$'\t'}"

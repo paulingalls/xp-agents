@@ -42,8 +42,10 @@ otherwise. Shared pipeline lives in
 sits on the sprint branch; teammate commits live in
 `.claude/worktrees/worktree-<story-id>`). Requires the story in
 `closing` state (set by `/xp-accept` Step 1.5) — the worktree lookup
-keys on it. Steps 1, 2, 3 route `close_common.py` at
-`--cwd ${TEAMMATE_CWD:-.}`. Step 7 (merge) ALWAYS runs at orchestrator
+keys on it. Steps 1 and 3 route `close_common.py` at
+`--cwd ${TEAMMATE_CWD:-.}` (they read the story's diff/PR base). Step 2
+(push) instead relocates to the main checkout (`--cwd .`) — see Step 2.
+Step 7 (merge) ALWAYS runs at orchestrator
 cwd (`--cwd .`) — `git merge` checks out the target branch held by the
 orchestrator's worktree, so running it from the teammate cwd fails with
 `'<target>' is already used by worktree`. Step 7b also runs at
@@ -93,8 +95,18 @@ If `VERIFY_UNTOUCHED` is empty, the gate passes — proceed.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py push \
-  --cwd ${TEAMMATE_CWD:-.} --branch <CURRENT_BRANCH>
+  --cwd . --branch <CURRENT_BRANCH> --smm-dir <SMM_DIR>
 ```
+
+Always at orchestrator cwd (`--cwd .`), never the teammate worktree. Pushing
+from a teammate worktree fires the project's pre-push hook *there*, where a
+fresh worktree has no installed deps (`node_modules`/`.env`/e2e) →
+`ERR_MODULE_NOT_FOUND`. For a teammate branch (held by the worktree) `push`
+relocates: it detaches the main checkout onto the story tip, pushes (so the
+hook runs with the main checkout's installed deps against the story's code),
+then restores the main checkout to its base — reusing `accept-env`'s
+Mechanism A. Solo branches (already checked out here) push directly. `--smm-dir`
+lets the relocate resolve the base ref.
 
 Stdout is `pushed: <branch>` or `skipped: no remote configured`.
 
