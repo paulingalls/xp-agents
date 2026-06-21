@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.9.1 — teammate-worktree close fixes
+
+Two bug fixes for parallel CLI-teammate sessions, both rewiring an existing
+mechanism rather than adding new machinery.
+
+- **`/xp-quality-review` now reviews the story actually being closed.** Its
+  preload auto-detected a teammate worktree by "whichever `worktree-story-*`
+  has uncommitted changes", so a second teammate finishing in the background
+  could hijack the target (closing story-014, it reviewed story-015's diff).
+  Detection now keys on the sprint-`closing` story — the same singleton signal
+  `/xp-story-close`'s preload uses (`find-closing-teammate-worktree`) — so it
+  tracks the story being closed, not worktree dirtiness; two `closing` stories
+  fail loud instead of guessing. The CLI call + tab-split is now a shared
+  `_preload_base.sh` helper (`find_closing_teammate_worktree`) used by both
+  preloads.
+- **`/xp-story-close` push no longer trips the worktree's pre-push gate.**
+  Step 2 pushed from the teammate worktree, firing the project's pre-push hook
+  there — where a fresh worktree has no installed deps (`node_modules`/`.env`/
+  e2e) — so a Python-only story died on `ERR_MODULE_NOT_FOUND`. `close_common.py
+  push` now relocates a teammate-branch push to the main checkout: it detaches
+  the main checkout onto the story tip, pushes (the hook runs with the main
+  checkout's deps against the story's code), then restores — reusing
+  `accept-env`'s Mechanism A. Solo / sprint / plan / free pushes (branch
+  checked out in the push cwd) are unchanged. A restore failure is surfaced
+  loud and forces a non-zero exit so the main checkout is never silently left
+  detached. The deterministic merge-gate backstop moved to `close_verify_gate.py`
+  to keep `close_common.py` under the 500-line target.
+
 ## v3.9.0 — serial main-repo acceptance for teammate stories
 
 Completes the "Serial, Main-Repo Acceptance" plan (sprint-101 + sprint-102).
