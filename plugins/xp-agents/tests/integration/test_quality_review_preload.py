@@ -2,11 +2,18 @@
 """xp-quality-review preload TEAMMATE_CWD auto-detect (concern 4886fe014abb).
 
 Caller-set TEAMMATE_CWD always wins (explicit pass-through, decision
-798a27b425a7). When unset, auto-detect routes to a teammate worktree
-ONLY when the orchestrator has zero uncommitted changes AND exactly
-one teammate worktree has changes. This narrow trigger avoids the
-hijack risk that motivated removing the prior auto-detect: an
-orchestrator with its own in-flight work is never overridden.
+798a27b425a7). When unset, auto-detect keys on the sprint-`closing` story —
+the same singleton signal /xp-story-close's preload uses
+(branching.py find-closing-teammate-worktree). Quality-review runs at
+story-close Step 4.5b against the story being closed, so the worktree of the
+story whose sprint.json status is `closing` is the correct review target.
+
+This replaces an earlier change-existence heuristic ("orchestrator clean +
+exactly one teammate worktree with uncommitted changes") that grabbed
+WHICHEVER worktree had changes — mis-targeting a different teammate that
+finished in the background. Keying on `closing` status, not dirtiness, ties
+detection to the story actually being closed. Two `closing` stories with live
+worktrees is a broken /xp-accept iteration → fail loud (the helper raises).
 """
 
 import subprocess
@@ -18,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from _bases import _PLUGIN_ROOT
+from _branching_fixtures import seed_sprint_with_stories
 from _worktree_fixtures import make_teammate_worktree
 from conftest import _IntegrationTestCase
 
@@ -34,34 +42,6 @@ def _extract_var(stdout: str, name: str) -> str | None:
 
 
 class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        # Mirror real-repo .gitignore — without this, the orchestrator's
-        # untracked-files check sees the .claude/worktrees/ dir itself
-        # (which contains teammate worktrees) and reports the orchestrator
-        # as "dirty", defeating the hijack-guard. Done once at class level
-        # because per-test setUp wipes the worktree but not .git's HEAD —
-        # a per-test re-add+commit would no-op the second test (file
-        # restored to HEAD content) and break check=True.
-        gitignore = cls.tmpdir / ".gitignore"
-        gitignore.write_text(".claude/worktrees/\n")
-        subprocess.run(
-            ["git", "add", ".gitignore"],
-            cwd=str(cls.tmpdir),
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "test: gitignore worktrees"],
-            cwd=str(cls.tmpdir),
-            capture_output=True,
-            check=True,
-        )
-        # Refresh _IntegrationTestCase's snapshot to include the new HEAD
-        # state (the base setUpClass snapshotted SMM dir contents only;
-        # tmpdir HEAD is unaffected by per-test setUp restore).
-
     def setUp(self):
         super().setUp()
         # Setup wipes .claude/ but leaves git's worktree registry stale —
@@ -77,15 +57,6 @@ class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
                 cwd=str(self.tmpdir),
                 capture_output=True,
             )
-        # Per-test setUp wiped .gitignore from worktree (it's not in the
-        # base's preserve-list). Restore from HEAD so the orchestrator
-        # is clean for tests that depend on the hijack-guard.
-        subprocess.run(
-            ["git", "checkout", "--", ".gitignore"],
-            cwd=str(self.tmpdir),
-            capture_output=True,
-            check=True,
-        )
 
     def _run_preload(
         self, env_overrides: dict | None = None
@@ -112,70 +83,74 @@ class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
     def _stage_change_in(self, path: Path, filename: str = "scratch.py") -> None:
         (path / filename).write_text("x = 1\n")
 
-    def test_no_teammate_worktrees_yields_empty_teammate_cwd(self):
-        """Solo flow: orchestrator has its own diff, no auto-detect target."""
-        self._stage_change_in(self.tmpdir)
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
-
-    def test_orchestrator_has_diff_blocks_auto_detect(self):
-        """Hijack guard: when orchestrator has any uncommitted work, do NOT
-        auto-route to teammate even if a teammate worktree has changes."""
+    def test_closing_story_with_worktree_auto_detects(self):
+        """The story being closed (status `closing`) has a live worktree →
+        auto-set TEAMMATE_CWD to it. Dirtiness is irrelevant: a clean worktree
+        still resolves, because detection keys on `closing` status."""
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "closing")])
         wt = self._make_teammate_worktree("042")
-        self._stage_change_in(self.tmpdir, "orch.py")
-        self._stage_change_in(wt, "team.py")
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
+        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), str(wt))
 
-    def test_orchestrator_clean_one_teammate_with_diff_auto_detects(self):
-        """Trigger case: orchestrator clean + exactly one teammate has
-        changes → auto-set TEAMMATE_CWD to that worktree."""
-        wt = self._make_teammate_worktree("042")
-        self._stage_change_in(wt, "team.py")
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            _extract_var(result.stdout, "TEAMMATE_CWD"),
-            str(wt.resolve()),
-        )
-
-    def test_orchestrator_clean_two_teammates_with_diff_skips_auto_detect(self):
-        """Ambiguity guard: 2+ teammate worktrees with changes → empty
-        TEAMMATE_CWD (caller must pick explicitly)."""
-        wt1 = self._make_teammate_worktree("042")
-        wt2 = self._make_teammate_worktree("043")
-        self._stage_change_in(wt1, "a.py")
-        self._stage_change_in(wt2, "b.py")
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
-
-    def test_orchestrator_clean_teammate_clean_yields_empty(self):
-        """Teammate worktree exists but has no diff → no auto-route."""
+    def test_worktree_present_but_story_not_closing_yields_empty(self):
+        """A live teammate worktree whose story is NOT `closing` (e.g.
+        in-progress, finished in the background) must NOT be auto-selected —
+        this is the mis-targeting bug. TEAMMATE_CWD stays empty → review `.`."""
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "in-progress")])
         self._make_teammate_worktree("042")
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
+
+    def test_sprint_present_no_closing_dirty_worktree_yields_empty(self):
+        """Regression for the old change-existence heuristic: a single teammate
+        worktree with UNCOMMITTED changes but no `closing` story must yield
+        empty. The old logic would have auto-selected the dirty worktree;
+        keying on `closing` status ignores dirtiness."""
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "in-progress")])
+        wt = self._make_teammate_worktree("042")
+        self._stage_change_in(wt, "team.py")
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
+
+    def test_no_sprint_yields_empty(self):
+        """No sprint.json (solo/standalone) → no closing story → empty."""
+        self._make_teammate_worktree("042")
+        result = self._run_preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
+
+    def test_closing_story_no_worktree_yields_empty(self):
+        """Story marked `closing` but no live worktree (solo close) → empty."""
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "closing")])
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), "")
 
     def test_explicit_teammate_cwd_wins_over_auto_detect(self):
         """Caller-set TEAMMATE_CWD is preserved; auto-detect must NOT
-        overwrite it. Use a different worktree as the explicit target so
-        auto-detect could plausibly pick the other one — preserved-as-set
-        is the assertion. Explicit pass-through wins per 798a27b425a7."""
-        wt_auto_candidate = self._make_teammate_worktree("042")
-        self._stage_change_in(wt_auto_candidate, "team.py")
+        overwrite it, even with a closing-story worktree present. Explicit
+        pass-through wins per 798a27b425a7."""
+        seed_sprint_with_stories(self.smm_dir, [("story-042", "closing")])
+        self._make_teammate_worktree("042")
         wt_explicit = self._make_teammate_worktree("043")
-        self._stage_change_in(wt_explicit, "explicit.py")
-        result = self._run_preload(
-            env_overrides={"TEAMMATE_CWD": str(wt_explicit.resolve())}
-        )
+        result = self._run_preload(env_overrides={"TEAMMATE_CWD": str(wt_explicit)})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            _extract_var(result.stdout, "TEAMMATE_CWD"),
-            str(wt_explicit.resolve()),
+        self.assertEqual(_extract_var(result.stdout, "TEAMMATE_CWD"), str(wt_explicit))
+
+    def test_two_closing_stories_fail_loud(self):
+        """Two `closing` stories with live worktrees signals a broken
+        /xp-accept iteration — the helper raises and the CLI exits non-zero;
+        `set -e` propagates it so the preload fails loud rather than guessing."""
+        seed_sprint_with_stories(
+            self.smm_dir, [("story-042", "closing"), ("story-043", "closing")]
         )
+        self._make_teammate_worktree("042")
+        self._make_teammate_worktree("043")
+        result = self._run_preload()
+        self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

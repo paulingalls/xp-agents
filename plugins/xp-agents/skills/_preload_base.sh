@@ -387,6 +387,24 @@ branching_stage() {
         --smm-dir "$SMM_DIR" stage 2>/dev/null
 }
 
+# Emit the raw `<abs-path>\t<branch>` line for the live teammate worktree
+# whose sprint.json story is `closing`, or empty when none matches (solo /
+# no teammate mid-close). Callers split the tab themselves:
+#   path:   ${closing%$'\t'*}     branch: ${closing##*$'\t'}
+# Single source of truth for the CLI command + flags, shared by the
+# xp-story-close and xp-quality-review preloads (both route story-close
+# work to the same worktree).
+#
+# Deliberately NO `2>/dev/null`/`|| echo` swallow: multi-match raises in the
+# CLI (exit 1) — a broken /xp-accept iteration — and that non-zero MUST
+# propagate through the caller's `closing=$(...)` under `set -e` to fail
+# loud. The missing-sprint.json case is already graceful (load_sprint→None
+# → CLI exit 0, empty stdout). Usage: closing=$(find_closing_teammate_worktree)
+find_closing_teammate_worktree() {
+    python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "${SMM_DIR}" find-closing-teammate-worktree --cwd .
+}
+
 # Read the session's review cadence ('commit' or 'story') via cadence_cli.py.
 # Fail-safes to 'commit' when the marker is unset or python3/cadence_cli is
 # unavailable. Both the READ side (quality-review + story-close preloads, here)

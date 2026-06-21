@@ -4,27 +4,21 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-# Auto-detect: when explicit TEAMMATE_CWD is unset AND orchestrator cwd is
-# clean AND exactly one teammate worktree has uncommitted changes, route
-# to that worktree. Orch-empty + single-match guards prevent hijacking
-# orchestrator's own work or ambiguous multi-worktree cases.
+# Auto-detect: when explicit TEAMMATE_CWD is unset, route to the worktree of
+# the story actually being closed — the sprint-`closing` story. Quality-review
+# runs at story-close Step 4.5b against that story, so its worktree is the
+# correct review target. Keying on `closing` status (not "whichever worktree
+# has uncommitted changes") prevents mis-targeting a different teammate that
+# finished in the background. This mirrors story-close's own preload; the
+# helper raises (non-zero) on two `closing` stories — a broken /xp-accept
+# iteration — and `set -e` propagates it rather than guessing. Empty (no
+# sprint / no closing story) → falls back to `.`.
 _qr_auto_detect_teammate_cwd() {
-    [ -n "${TEAMMATE_CWD:-}" ] && return 0
-    if ! git diff --quiet HEAD 2>/dev/null \
-       || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
-        return 0
-    fi
-    local matches=()
-    while IFS= read -r wt; do
-        [ -z "$wt" ] && continue
-        if ! git -C "$wt" diff --quiet HEAD 2>/dev/null \
-           || [ -n "$(git -C "$wt" ls-files --others --exclude-standard 2>/dev/null)" ]; then
-            matches+=("$wt")
-        fi
-    done < <(git worktree list --porcelain 2>/dev/null \
-             | awk '/^worktree / { if ($2 ~ /\/\.claude\/worktrees\/worktree-story-/) print $2 }')
-    if [ "${#matches[@]}" -eq 1 ]; then
-        TEAMMATE_CWD="${matches[0]}"
+    [ -n "${TEAMMATE_CWD:-}" ] && return 0   # explicit pass-through wins (798a27b425a7)
+    local closing
+    closing=$(find_closing_teammate_worktree)   # emits "<abs-path>\t<branch>"
+    if [ -n "$closing" ]; then
+        TEAMMATE_CWD="${closing%$'\t'*}"
         export TEAMMATE_CWD
     fi
 }
