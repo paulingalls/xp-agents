@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.9.4 — accept-gate false-fire + teammate merge attribution
+
+- **`/xp-accept` no longer trips its own stop gate.** While `/xp-accept` ran —
+  notably while awaiting background acceptance tests — the sprint stop gate
+  fired "Stories need acceptance. Run /xp-accept" even though the agent was
+  already inside the skill. Step 1.0 promotes the story to `reviewing` before
+  tests run and the `.accept` marker is consumed at preload, so the gate had no
+  "accept is running" signal to defer on. A new `ACCEPT_IN_FLIGHT` suppression
+  marker is armed by the preload, honored by `sprint_stop_gate._deferred()`,
+  consumed at the skill's terminal handoff, and swept at SessionStart if accept
+  is abandoned mid-flight. Suppression-only — removing the marker only makes the
+  gate fire harder, never bypasses it.
+- **Parallel-teammate stories no longer read as "0 commits."** In teammate mode
+  the worktree's own code commits are often never recorded as events, so
+  per-story `sizing_analysis` showed every teammate-executed story with 0
+  commits even though its branch shipped. `story_metrics` excluded the
+  close-cycle merge (to avoid +1 inflation), dropping the one reliable per-story
+  signal. It now counts the attributed merge as shipping evidence when a story
+  has no recorded code commits (the +1 guard still holds when real commits
+  exist) and exposes a `merged` flag. The underlying teammate-commit-recording
+  gap is tracked for an empirical follow-up.
+
 ## v3.9.3 — retro Try defer/drop budget fix
 
 - **`/xp-work-selection` can defer/drop long retro Try items.** Deferring or
