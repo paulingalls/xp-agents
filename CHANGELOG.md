@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.9.2 — story-cadence commit attribution fix
+
+One bug fix for per-story metrics under story (per-story review) cadence.
+
+- **Story-cadence review commits no longer lose their story attribution.** In
+  story cadence the review cycle runs at `/xp-story-close` Step 4.5b, while the
+  story is in `closing` status — not `in-progress`. `_resolve_story_id`
+  early-returned `None` (no in-progress story) *before* consulting the explicit
+  `[story-NNN]` commit-message prefix, so those review-fix commits were dropped
+  from per-story attribution and surfaced as "story commits = 0" in
+  retrospectives and sizing analysis. Tier 0 now honors the `[story-NNN]` prefix
+  for any *in-motion* story (in-progress / reviewing / closing) via the existing
+  `sprint_status.select_in_motion_stories` helper, checked before the in-progress
+  gate; `done`/`deferred` prefixes still fall through as likely-stale tags.
+  Commit cadence was unaffected (review runs inline while the story is
+  in-progress). Historical event logs can be reconciled with
+  `backfill_story_id.py --apply`.
+
 ## v3.9.1 — teammate-worktree close fixes
 
 Two bug fixes for parallel CLI-teammate sessions, both rewiring an existing
