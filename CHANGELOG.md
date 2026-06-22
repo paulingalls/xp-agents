@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.9.2 — story-cadence commit attribution fix
+
+Per-story metrics under story (per-story review) cadence were dropping the
+review-fix commits authored during `/xp-story-close` — the story has moved to
+`closing` (none `in-progress`) by the time those commits land, so
+`_resolve_story_id` returned `None` and the commits surfaced as "story commits
+= 0" in retrospectives and sizing. Commit cadence was unaffected (review runs
+inline while the story is in-progress). Two complementary fixes close the gap:
+
+- **Explicit `[story-NNN]` prefix (Tier 0) now honors in-motion stories.** The
+  prefix check moved ahead of the in-progress gate and matches any *in-motion*
+  story (in-progress / reviewing / closing) via the existing
+  `sprint_status.select_in_motion_stories` helper; `done`/`deferred` prefixes
+  still fall through as likely-stale tags. Recovers projects that tag commits
+  `[story-NNN]`. Historical logs can be reconciled with
+  `backfill_story_id.py --apply`.
+- **Prefix-less close commits (Tier 2.5) attribute to the lone closing story.**
+  Projects using conventional-commit messages (`fix(e2e): …`, no `[story-NNN]`
+  prefix) had no signal for the prefix tier to match. When no story is
+  in-progress but exactly one is in motion, an *unprefixed* commit is now
+  attributed to that story. A bracket-tagged message (`[sprint-*]`, `[release]`,
+  a stale `[story-NNN]`, …) is left to aggregate at sprint level rather than
+  guessed, so genuinely cross-cutting commits stay unattributed. Go-forward
+  only — prefix-less historical events can't be reconstructed (the sprint
+  status at commit time is transient and unlogged).
+
+Internal: the `[verify-deferred]` marker + verify-path code moved to a new
+`verify_deferred.py` module to keep `commit_handling.py` under the 500-line cap.
+
 ## v3.9.1 — teammate-worktree close fixes
 
 Two bug fixes for parallel CLI-teammate sessions, both rewiring an existing

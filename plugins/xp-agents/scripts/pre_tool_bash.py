@@ -268,11 +268,11 @@ def _verify_touch_nudge(
     silent off a story branch, when the story declares no verify paths, when
     every path is already touched, or when git can't be read.
 
-    commit_handling is imported lazily (not top-level): pre_tool_bash loads on
+    verify_deferred is imported lazily (not top-level): pre_tool_bash loads on
     every Bash call, but only commits reach this helper, so we avoid pulling
-    commit_handling's post-commit dependency tree into the common path.
+    the post-commit dependency tree into the common path.
     """
-    from commit_handling import parse_verify_deferred, untouched_paths_for_story
+    from verify_deferred import parse_verify_deferred, untouched_paths_for_story
 
     if parse_verify_deferred(commits.extract_commit_message(command)) is not None:
         return None

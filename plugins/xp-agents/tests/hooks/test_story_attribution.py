@@ -166,6 +166,100 @@ class TestResolveStoryId(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_tier25_lone_closing_story_no_prefix(self):
+        """Unprefixed commit attributes to the lone closing story.
+
+        Story-cadence review fixes are committed during /xp-story-close while
+        the (only) active story is `closing` — no story is in-progress. When
+        the commit carries no [story-NNN] prefix (e.g. a conventional-commit
+        message), attribute to the single in-motion story rather than dropping
+        it from per-story metrics.
+        """
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "E2E",
+                        "closing",
+                        file_domain=["src/e2e.ts — harness"],
+                    ),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["tests/e2e/util.ts"],  # need not overlap the domain
+            message="fix(e2e): make cropToPortrait aspect-agnostic",
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_tier25_lone_reviewing_story_no_prefix(self):
+        """Unprefixed commit attributes to the lone reviewing story."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "E2E", "reviewing", file_domain=["src/e2e.ts — x"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir, "/proj", ["src/other.ts"], message="refactor: tidy"
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_tier25_skipped_for_nonstory_bracket_prefix(self):
+        """A [sprint-*]/[release] tag stays sprint-level even mid-close.
+
+        An explicit non-story bracket prefix signals cross-cutting work; do
+        not attribute it to the lone closing story.
+        """
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "E2E", "closing", file_domain=["src/e2e.ts — x"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["scripts/e2e/env.sh"],
+            message="[sprint-direct] fix(e2e): guard seed reset",
+        )
+        self.assertIsNone(result)
+
+    def test_tier25_skipped_when_multiple_in_motion(self):
+        """Two in-motion stories → ambiguous → None (aggregate at sprint)."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "closing", file_domain=["src/a.ts — x"]),
+                    _s("story-002", "B", "reviewing", file_domain=["src/b.ts — y"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir, "/proj", ["src/c.ts"], message="fix: shared tweak"
+        )
+        self.assertIsNone(result)
+
+    def test_tier25_not_fired_when_story_in_progress(self):
+        """In-progress story present → Tier 2 handles it, Tier 2.5 irrelevant."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "closing", file_domain=["src/a.ts — x"]),
+                    _s("story-002", "B", "in-progress", file_domain=["src/b.ts — y"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir, "/proj", ["src/b.ts"], message="fix: tweak b"
+        )
+        self.assertEqual(result, "story-002")
+
     def test_commit_metadata_includes_story_id(self):
         """Commit event metadata includes story_id when resolved."""
         import worktree
@@ -249,96 +343,6 @@ class TestResolveStoryId(_HookTestCase):
         )
         result = commit_handling._resolve_story_id(
             self.smm_dir, "/proj", ["scripts/auth.py"]
-        )
-        self.assertEqual(result, "story-001")
-
-    def test_tier0_commit_message_prefix_overrides_file_overlap(self):
-        """[story-NNN] prefix in commit message wins over file-domain overlap.
-
-        Real bug from sprint-033: solo agent with multiple in-progress
-        stories had story-001 commits attributed to story-002 because the
-        commit's files overlapped story-002's declared domain (the rename
-        commit touched xp-sprint-close/SKILL.md which was in story-002's
-        domain). Commit message prefix is the ground truth — every commit
-        was authored as `[story-001] Rename merge-sprint...` — so the
-        prefix overrides file-overlap when both are present.
-        """
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json(
-                [
-                    _s(
-                        "story-001",
-                        "Marker",
-                        "in-progress",
-                        file_domain=["scripts/markers.py — new entry"],
-                    ),
-                    _s(
-                        "story-002",
-                        "Sprint-close edit",
-                        "in-progress",
-                        file_domain=["skills/xp-sprint-close/SKILL.md — append"],
-                    ),
-                ]
-            )
-        )
-        # Files overlap story-002's domain only — but the message says story-001.
-        result = commit_handling._resolve_story_id(
-            self.smm_dir,
-            "/proj",
-            ["skills/xp-sprint-close/SKILL.md"],
-            message="[story-001] Rename merge-sprint to merge-branch",
-        )
-        self.assertEqual(result, "story-001")
-
-    def test_tier0_prefix_must_match_in_progress_story(self):
-        """[story-NNN] prefix only matches when that story is in-progress."""
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json(
-                [
-                    _s(
-                        "story-001",
-                        "Marker",
-                        "done",  # NOT in-progress
-                        file_domain=["scripts/markers.py — new entry"],
-                    ),
-                    _s(
-                        "story-002",
-                        "Sprint-close edit",
-                        "in-progress",
-                        file_domain=["skills/xp-sprint-close/SKILL.md — append"],
-                    ),
-                ]
-            )
-        )
-        # Message claims story-001 but story-001 isn't in-progress; fall
-        # through to file-overlap (which picks story-002).
-        result = commit_handling._resolve_story_id(
-            self.smm_dir,
-            "/proj",
-            ["skills/xp-sprint-close/SKILL.md"],
-            message="[story-001] Stale tag",
-        )
-        self.assertEqual(result, "story-002")
-
-    def test_tier0_no_prefix_falls_through_to_file_overlap(self):
-        """Commit messages without [story-NNN] prefix fall through to Tier 2."""
-        (self.smm_dir / "sprint.json").write_text(
-            _sprint_json(
-                [
-                    _s(
-                        "story-001",
-                        "Auth",
-                        "in-progress",
-                        file_domain=["scripts/auth.py — login"],
-                    ),
-                ]
-            )
-        )
-        result = commit_handling._resolve_story_id(
-            self.smm_dir,
-            "/proj",
-            ["scripts/auth.py"],
-            message="Refactor login flow",
         )
         self.assertEqual(result, "story-001")
 
