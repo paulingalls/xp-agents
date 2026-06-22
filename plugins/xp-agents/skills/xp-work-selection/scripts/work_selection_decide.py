@@ -392,6 +392,11 @@ def run(
                 convention_content,
                 topic=convention_topic,
             )
+            # Fit to the convention budget, same as the main-event chokepoint —
+            # an over-long rationale shouldn't fail the drop's convention record.
+            conv_event["content"] = _common.truncate(
+                conv_event["content"], get_required_budget(_common.CONVENTION)
+            )
             conv_errors = validate_event(conv_event)
             if conv_errors:
                 raise ValueError(

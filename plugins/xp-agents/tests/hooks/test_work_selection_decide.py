@@ -1079,6 +1079,27 @@ class TestForceDropConventionEmission(_ForceCloseTestCase):
         self.assertEqual(convention["topic"], "retro-drop-security-review-diff-only")
         self.assertIn("diff-only", convention["content"])
 
+    def test_force_drop_convention_overbudget_content_truncates(self):
+        """An over-budget convention rationale truncates rather than failing.
+
+        Mirrors the main-event chokepoint so the convention path can't raise
+        "Content exceeds convention budget" and abort the drop's record.
+        """
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        long_rationale = "Never re-propose this kind of Try because " + "w" * 250
+        self.assertGreater(len(long_rationale), 250)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Drop forever [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+            convention_topic="retro-drop-overbudget-rationale",
+            convention_content=long_rationale,
+        )
+        convention = self._read_events()[-1]
+        self.assertEqual(convention["type"], EVENT_TYPE_CONVENTION)
+        self.assertLessEqual(len(convention["content"]), 250)
+
     def test_force_drop_without_convention_flags_emits_only_drop(self):
         """Default behavior unchanged: force-drop alone emits one event."""
         self._seed_prior_defers("aaaaaaaaaaaa", 3)
