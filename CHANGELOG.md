@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.9.3 — retro Try defer/drop budget fix
+
+- **`/xp-work-selection` can defer/drop long retro Try items.** Deferring or
+  dropping a Try records its text as a `status` event (200-char budget); a
+  carried Try whose prose ran even a couple chars over raised "Content exceeds
+  status budget", making a valid Try un-deferrable without hand-trimming.
+  `work_selection_decide.py` now fits event content to the event type's budget
+  at a single chokepoint before validation. The `[refs: …]` suffix and cascade
+  hex IDs are already consumed into metadata by then, so truncation is lossless
+  for linkage and the FORCE-CLOSE gate (the canonical Try text lives in the
+  retrospective). The redundant inline truncate in the triage path was removed;
+  the chokepoint also now bounds the `adopt`→decision path.
+
 ## v3.9.2 — story-cadence commit attribution fix
 
 Per-story metrics under story (per-story review) cadence were dropping the

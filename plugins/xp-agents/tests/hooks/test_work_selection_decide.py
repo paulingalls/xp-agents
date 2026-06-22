@@ -147,6 +147,27 @@ class TestDefer(_DecideTestCase):
             },
         )
 
+    def test_defer_overbudget_content_truncates_preserves_refs(self):
+        """A Try whose prose exceeds the 200-char status budget defers
+        successfully — content is truncated to the budget, refs preserved.
+
+        Regression: defer used to raise "Content exceeds status budget" for a
+        Try only a couple of chars over, making valid carried Tries
+        un-deferrable through the normal path.
+        """
+        prose = "Implement a blocking pre-commit gate that " + "x" * 200
+        self.assertGreater(len(prose), 200)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"{prose} [refs: abc123def456]",
+        )
+        event = self._last_event()
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
+        self.assertLessEqual(len(event["content"]), 200)
+        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["metadata"]["disposition"], "deferred")
+
     def test_defer_without_refs_has_only_disposition(self):
         self.mod.run(
             action="defer",
@@ -195,6 +216,16 @@ class TestDrop(_DecideTestCase):
             event["metadata"],
             {"resolves": ["abc123def456"], "disposition": "dropped"},
         )
+
+    def test_drop_overbudget_content_truncates(self):
+        """drop of an over-budget Try truncates to the status budget."""
+        prose = "Drop this stale Try about " + "y" * 200
+        self.assertGreater(len(prose), 200)
+        self.mod.run(action="drop", smm_dir=self.smm_dir, content=prose)
+        event = self._last_event()
+        self.assertEqual(event["type"], EVENT_TYPE_STATUS)
+        self.assertLessEqual(len(event["content"]), 200)
+        self.assertEqual(event["metadata"]["disposition"], "dropped")
 
 
 class TestRefParsing(_DecideTestCase):
@@ -871,6 +902,20 @@ class TestDropContentCascade(_DecideTestCase):
         self.assertEqual(event["metadata"]["disposition"], "dropped")
         self.assertIn(debt["id"], event["metadata"].get("resolves", []))
 
+    def test_drop_cascade_survives_content_truncation(self):
+        """A debt id mentioned past the 200-char budget still cascades.
+
+        Guards fix ordering: cascade hex-token scan must run on the full
+        content BEFORE the budget truncation, or a trailing id is lost.
+        """
+        debt = self._seed_event(EVENT_TYPE_DEBT, "9c3f5406cacd", {"files": ["x.py"]})
+        prose = "Drop this Try " + "z" * 220 + f" closes {debt['id']}"
+        self.assertGreater(prose.index(debt["id"]), 200)
+        self.mod.run(action="drop", smm_dir=self.smm_dir, content=prose)
+        event = self._last_event()
+        self.assertLessEqual(len(event["content"]), 200)
+        self.assertIn(debt["id"], event["metadata"].get("resolves", []))
+
     def test_drop_resolves_concern_in_content(self):
         concern = self._seed_event(
             EVENT_TYPE_CONCERN, "aaaaaaaaaaaa", {"severity": "medium", "files": []}
@@ -1033,6 +1078,27 @@ class TestForceDropConventionEmission(_ForceCloseTestCase):
         self.assertEqual(convention["type"], EVENT_TYPE_CONVENTION)
         self.assertEqual(convention["topic"], "retro-drop-security-review-diff-only")
         self.assertIn("diff-only", convention["content"])
+
+    def test_force_drop_convention_overbudget_content_truncates(self):
+        """An over-budget convention rationale truncates rather than failing.
+
+        Mirrors the main-event chokepoint so the convention path can't raise
+        "Content exceeds convention budget" and abort the drop's record.
+        """
+        self._seed_prior_defers("aaaaaaaaaaaa", 3)
+        long_rationale = "Never re-propose this kind of Try because " + "w" * 250
+        self.assertGreater(len(long_rationale), 250)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Drop forever [refs: aaaaaaaaaaaa]",
+            force_drop=True,
+            convention_topic="retro-drop-overbudget-rationale",
+            convention_content=long_rationale,
+        )
+        convention = self._read_events()[-1]
+        self.assertEqual(convention["type"], EVENT_TYPE_CONVENTION)
+        self.assertLessEqual(len(convention["content"]), 250)
 
     def test_force_drop_without_convention_flags_emits_only_drop(self):
         """Default behavior unchanged: force-drop alone emits one event."""
