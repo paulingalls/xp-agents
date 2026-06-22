@@ -400,8 +400,10 @@ class TestSessionStartStaleMarkerSweep(_HookTestCase):
         cases = [
             (".close-cycle-active", "startup"),
             (".accept", "startup"),
+            (".accept-in-flight", "startup"),
             (".close-cycle-active", "clear"),
             (".accept", "clear"),
+            (".accept-in-flight", "clear"),
         ]
         for marker_name, source in cases:
             with self.subTest(marker=marker_name, source=source):
@@ -422,8 +424,10 @@ class TestSessionStartStaleMarkerSweep(_HookTestCase):
         cases = [
             (".close-cycle-active", "resume"),
             (".accept", "resume"),
+            (".accept-in-flight", "resume"),
             (".close-cycle-active", "compact"),
             (".accept", "compact"),
+            (".accept-in-flight", "compact"),
         ]
         for marker_name, source in cases:
             with self.subTest(marker=marker_name, source=source):

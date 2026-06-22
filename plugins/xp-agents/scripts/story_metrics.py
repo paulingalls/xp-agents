@@ -103,6 +103,9 @@ def _attribute_commits(
 
     commit_counts: dict[str, int] = {sid: 0 for sid in story_ids}
     all_files: dict[str, set[str]] = {sid: set() for sid in story_ids}
+    # Close-cycle merge attribution, tracked separately from code commits.
+    merged: dict[str, bool] = {sid: False for sid in story_ids}
+    merge_files: dict[str, set[str]] = {sid: set() for sid in story_ids}
 
     for commit in commit_events:
         committed_files = set(commit.get("files", []))
@@ -110,17 +113,26 @@ def _attribute_commits(
             continue
 
         metadata = commit.get("metadata") or {}
-        # Skip close-cycle merge events: a story-close merge of
-        # paul/story-NNN-* carries metadata.story_id=story-NNN but
-        # aggregates already-counted story commits — counting the merge
-        # inflates per-story `commits` by +1 every close. Mirrors the
-        # is_merge exclusion in retro_metrics._compute_resolves_link_rate
-        # for cross-metric coherence.
-        if metadata.get("is_merge"):
-            continue
-
         story_id = metadata.get("story_id")
         if not story_id or story_id not in story_ids:
+            continue
+
+        # A story-close merge of paul/story-NNN-* carries
+        # metadata.story_id=story-NNN but aggregates the story's own commits.
+        # When real code commits were recorded it would inflate `commits` by
+        # +1 every close, so it is NOT counted alongside them here.
+        #
+        # This is NOT the same rule as retro_metrics._compute_resolves_link_rate,
+        # which excludes is_merge UNCONDITIONALLY: that metric scores
+        # commit->concern Resolves-Event linking, and a merge HEAD carries no
+        # trailer of its own — counting it would only dilute the rate. Here we
+        # measure per-story shipping, and the merge IS the reliable shipping
+        # signal in parallel-teammate mode, where the teammate worktree's own
+        # code commits are often never recorded as events. So we track it as a
+        # fallback (see below) — used only when no real code commit exists.
+        if metadata.get("is_merge"):
+            merged[story_id] = True
+            merge_files[story_id] |= committed_files
             continue
 
         commit_counts[story_id] += 1
@@ -129,6 +141,14 @@ def _attribute_commits(
     metrics: dict[str, dict] = {}
     for s in stories:
         sid = s["id"]
+        # Fallback: a story whose code commits were never recorded but whose
+        # branch was merged ships via that merge — count it as one commit and
+        # use the merge's files so the story doesn't read as attribution-blind
+        # (0 commits). The +1 guard above keeps this from double-counting when
+        # real code commits exist.
+        if commit_counts[sid] == 0 and merged[sid]:
+            commit_counts[sid] = 1
+            all_files[sid] |= merge_files[sid]
         files = all_files[sid]
         domain = story_domains[sid]
         cascade = sum(1 for f in files if not file_matches_domain(f, domain))
@@ -136,6 +156,7 @@ def _attribute_commits(
             "commits": commit_counts[sid],
             "files_changed": len(files),
             "cascade_size": cascade,
+            "merged": merged[sid],
         }
 
     return metrics

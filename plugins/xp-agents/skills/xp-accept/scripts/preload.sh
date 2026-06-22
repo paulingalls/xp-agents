@@ -37,6 +37,14 @@ fi
 # is never asked to run rm.
 consume_marker ACCEPT
 
+# Arm ACCEPT_IN_FLIGHT for the whole accept session: Step 1.0 promotes the
+# story to `reviewing` before tests run, so the stop gate would otherwise
+# tell the agent to "run /xp-accept" while it is already inside this skill
+# (notably while awaiting background acceptance tests). sprint_stop_gate
+# defers on this marker; the SKILL consumes it at its terminal handoff, and
+# the SessionStart sweep clears it if accept is abandoned mid-flight.
+write_marker ACCEPT_IN_FLIGHT "1"
+
 echo "### STORIES_TO_ACCEPT"
 echo "Sprint has ${SELECTED_COUNT} ${SELECTED_STATUS} stories to verify."
 echo "SELECTED_STATUS=${SELECTED_STATUS}"

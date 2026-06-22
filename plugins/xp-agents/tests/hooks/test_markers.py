@@ -273,6 +273,34 @@ class TestMarkerNameConstants(unittest.TestCase):
 
         self.assertEqual(marker_names.NEEDS_SYSTEM_CONTEXT, ".needs-system-context")
 
+    def test_accept_in_flight_exists(self):
+        import marker_names
+
+        self.assertEqual(marker_names.ACCEPT_IN_FLIGHT, ".accept-in-flight")
+
+
+class TestAcceptInFlightMarker(_HookTestCase):
+    """The ACCEPT_IN_FLIGHT suppression marker round-trips and is swept."""
+
+    def test_round_trip(self):
+        import markers
+
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+        self.assertEqual(
+            markers.marker_consume(self.smm_dir, markers.ACCEPT_IN_FLIGHT), "1"
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_swept_as_stale_session_marker(self):
+        import markers
+
+        self.assertIn(markers.ACCEPT_IN_FLIGHT, markers._STALE_SESSION_MARKERS)
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        markers.sweep_stale_session_markers(self.smm_dir)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
 
 # [story-004] Removed test_accept_active_exists + TestAcceptActiveMarker —
 # the ACCEPT_ACTIVE marker name + MarkerDef are deleted; close-then-done

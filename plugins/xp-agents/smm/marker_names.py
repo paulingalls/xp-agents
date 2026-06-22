@@ -15,6 +15,7 @@ markdown output.
 KICKOFF = ".needs-kickoff"
 NEEDS_SPRINT = ".needs-sprint"
 ACCEPT = ".accept"
+ACCEPT_IN_FLIGHT = ".accept-in-flight"
 PLAN_AWAITING_REVIEW = ".plan-awaiting-review"
 QUESTION_GATE = ".question-gate"
 ASKING_USER = ".asking-user"
