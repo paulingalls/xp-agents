@@ -352,12 +352,21 @@ def run(
             event = _common.make_event(
                 "status",
                 agent_id,
-                _common.truncate(triage_content, get_required_budget("status")),
+                triage_content,
                 working_on=[],
                 metadata=metadata,
             )
         case _:
             raise ValueError(f"Unknown action: {action}")
+
+    # Fit content to the event-type budget. Carried Try prose (often with its
+    # rationale) can exceed the 200-char status budget; the `[refs: ...]`
+    # suffix and any cascade hex IDs are already consumed into metadata by the
+    # builders above, so truncating content here is lossless for linkage and
+    # the FORCE-CLOSE gate. The canonical Try text lives in the retrospective.
+    event["content"] = _common.truncate(
+        event["content"], get_required_budget(event["type"])
+    )
 
     errors = validate_event(event)
     if errors:
