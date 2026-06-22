@@ -126,8 +126,13 @@ def _resolve_story_id(
     """Resolve story_id for a commit using four-tier attribution.
 
     Tier 0: `[story-NNN]` prefix in commit message — authoritative when
-            the named story is currently in-progress. Falls through when
-            the prefix is absent or names a non-in-progress story.
+            the named story is *in motion* (in-progress, reviewing, or
+            closing). Honoring the closing/reviewing states is what keeps
+            story-cadence review-fix commits (authored during
+            /xp-story-close Step 4.5b, when the story has left in-progress)
+            attributed instead of dropped. Falls through when the prefix is
+            absent or names a non-in-motion (done/deferred) story — a likely
+            stale tag.
     Tier 1: Teammate with .story-assignment-{name} file.
     Tier 2: Solo sprint — single in-progress story, or the unique
             highest-overlap in-progress story by file domain. Ties
@@ -135,6 +140,7 @@ def _resolve_story_id(
             so cross-cutting commits aggregate at sprint level.
     Tier 3: Non-sprint / infrastructure — returns None.
     """
+    import sprint_status
     import sprint_store
     import story_metrics
 
@@ -153,16 +159,20 @@ def _resolve_story_id(
     if sprint is None:
         return None
 
-    in_progress = sprint_store.list_stories(sprint, status="in-progress")
-    if not in_progress:
-        return None
-
+    # Tier 0: explicit prefix wins for any in-motion story. Checked before
+    # the in-progress gate so a closing/reviewing story (no story is
+    # in-progress during its close) keeps its tagged review commits.
     if message:
         m = story_metrics.STORY_PREFIX_RE.match(message)
         if m:
             tagged = m.group(1)
-            if any(s["id"] == tagged for s in in_progress):
+            in_motion = sprint_status.select_in_motion_stories(sprint["stories"])
+            if any(s["id"] == tagged for s in in_motion):
                 return tagged
+
+    in_progress = sprint_store.list_stories(sprint, status="in-progress")
+    if not in_progress:
+        return None
 
     if len(in_progress) == 1:
         return in_progress[0]["id"]
