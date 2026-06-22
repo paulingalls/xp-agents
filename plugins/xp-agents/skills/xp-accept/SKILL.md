@@ -76,21 +76,17 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
 
 The promote is **idempotent** — no-op when `SELECTED_STATUS=reviewing`
 (teammate self-promoted), real transition when `in-progress` (solo).
-`pre_tool_write`'s `.accept`-marker re-arm predicate skips while a
-story is in `reviewing` OR `closing`, so fix-cycle Edits during the
-acceptance/close window don't re-arm the marker.
+Fix-cycle Edits during the `reviewing`/`closing` window don't re-arm the
+`.accept` marker.
 
-If acceptance fails and the user picks **Debug and re-run**, revert
-before fixing — the story is actively-worked again:
+If acceptance fails and the user picks **Debug and re-run**, revert to
+`in-progress` before fixing — the story is actively-worked again (applies
+from `reviewing` OR Step 1.5's `closing`, skipping the middle state):
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN in-progress
 ```
-
-The same revert command applies if acceptance fails after Step 1.5's
-reviewing→closing transition: `closing → in-progress` skips the
-reviewing middle state.
 
 ### Automated acceptance (type != "manual")
 
@@ -132,15 +128,15 @@ confirmation prompt** — the green exit IS the confirmation, and
 `AskUserQuestion` with three options: **Debug and re-run**,
 **Override with concern**, **Defer**.
 
-**Debug and re-run.** The **Restore** step above already returned the
-main checkout to the base, so you are NOT on the detached tip — never
-commit a fix there (it would be orphaned on restore). Revert to `in-progress` (Step 1.0's revert), then
+**Debug and re-run.** **Restore** already returned the main checkout to
+the base, so you are NOT on the detached tip — never commit a fix there
+(orphaned on restore). Revert to `in-progress` (Step 1.0's revert), then
 fix in the teammate **worktree**, committing from the orchestrator with
 `git -C <worktree-path> commit ...` — never `cd <worktree> && git commit
 && cd -` (the cd-back fires before the PostToolUse trailer-extract hook
 reads HEAD, breaking `Resolves-Event:` auto-links). If invoking
 `/xp-quality-review`, set `TEAMMATE_CWD=<worktree-path>`. Then
-**re-prepare** (loop back to the prepare step) — the new tip has the fix.
+**re-prepare** (loop to prepare) — the new tip has the fix.
 
 **Override with concern.** Mark as passing despite failure. Records a
 `concern` event with the story's `file_domain` for structural
@@ -307,8 +303,14 @@ For cascaded deferrals, include the cascade reason (e.g., "deferred: depends on 
 
 ## Step 6: Summary
 
-Present: how many stories marked done, how many deferred. Per-story
-teammate-worktree cleanup is owned by /xp-story-close (Step 2).
+Present: how many stories marked done, how many deferred (per-story
+teammate-worktree cleanup is owned by /xp-story-close Step 2). The
+per-story loop is done — run the terminal handoff:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py --smm-dir <SMM_DIR> \
+  consume ACCEPT_IN_FLIGHT
+```
 
 ## Step 7: Sprint Review
 
@@ -316,15 +318,13 @@ teammate-worktree cleanup is owned by /xp-story-close (Step 2).
 
 ## Step 8: Continue to next story
 
-If Step 7 did not fire, run `/xp-schedule` ONCE — the per-story close
-loop is complete, so this is a single dispatch per accept run.
-`/xp-schedule` promotes the next frontier (scheduled → in-progress),
-sets each story's execution_mode, and (solo) JIT-creates the branch
-off the merged sprint tip; then follow its handoff into the plan cycle
-(enter plan mode → `/xp-review-plan` → teammate-mode `/xp-assign`).
-Story-close no longer pre-promotes — `/xp-schedule` is the sole owner
-of `scheduled → in-progress`.
+If Step 7 did not fire, run `/xp-schedule` ONCE (single dispatch per
+accept run) — the sole owner of `scheduled → in-progress`. It promotes
+the next frontier, sets each story's execution_mode, and (solo)
+JIT-creates the branch off the merged sprint tip; then follow its handoff
+into the plan cycle (enter plan mode → `/xp-review-plan` → teammate-mode
+`/xp-assign`).
 
 If `/xp-schedule` reports no ready frontier (FRONTIER_COUNT 0 — every
-remaining story is blocked, done, or deferred), the sprint is
-effectively complete: run `/xp-sprint-review` (the Step 7 fallthrough).
+remaining story blocked, done, or deferred), the sprint is complete: run
+`/xp-sprint-review` (the Step 7 fallthrough).

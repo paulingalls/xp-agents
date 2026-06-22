@@ -53,6 +53,7 @@ NEEDS_EXECUTION_PLAN = MarkerDef(marker_names.NEEDS_EXECUTION_PLAN, "text")
 NEEDS_SYSTEM_CONTEXT = MarkerDef(marker_names.NEEDS_SYSTEM_CONTEXT, "text")
 NEEDS_SPRINT = MarkerDef(marker_names.NEEDS_SPRINT, "text")
 ACCEPT = MarkerDef(marker_names.ACCEPT, "text")
+ACCEPT_IN_FLIGHT = MarkerDef(marker_names.ACCEPT_IN_FLIGHT, "text")
 PLAN_AWAITING_REVIEW = MarkerDef(marker_names.PLAN_AWAITING_REVIEW, "text")
 QUESTION_GATE = MarkerDef(marker_names.QUESTION_GATE, "text")
 ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
@@ -218,8 +219,13 @@ def write_review_cadence(smm_dir: Path, cadence: str) -> None:
 # Markers that should never survive across SessionStart. CLOSE_CYCLE_ACTIVE
 # leaks when a close-skill aborts before the xp-close-reviewer fork; ACCEPT
 # leaks after teammate-worktree close-cycle Edits when /xp-accept's
-# no-reviewing-stories path skips the consume.
-_STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (CLOSE_CYCLE_ACTIVE, ACCEPT)
+# no-reviewing-stories path skips the consume; ACCEPT_IN_FLIGHT leaks when
+# /xp-accept is abandoned mid-flight before its terminal consume.
+_STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
+    CLOSE_CYCLE_ACTIVE,
+    ACCEPT,
+    ACCEPT_IN_FLIGHT,
+)
 
 
 def sweep_stale_session_markers(smm_dir: Path) -> None:
@@ -262,7 +268,9 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 # etc.) has its own deterministic writer in a hook or skill — the CLI is
 # intentionally NOT a back door for those flows.
 # Add a marker here only when a skill prose step needs to drive it.
-_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE"})
+# ACCEPT_IN_FLIGHT: armed by xp-accept's preload, consumed by the SKILL's
+# terminal Summary step via this CLI (the SessionStart sweep is the backstop).
+_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE", "ACCEPT_IN_FLIGHT"})
 
 
 def main(argv: list[str] | None = None) -> int:

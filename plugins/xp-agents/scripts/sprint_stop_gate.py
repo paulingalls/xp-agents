@@ -58,6 +58,13 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # Mid-AskUserQuestion dialogue — cheapest check, most common interactive hit
     if markers.marker_exists(smm_dir, markers.ASKING_USER):
         return True
+    # Mid-/xp-accept: the skill arms ACCEPT_IN_FLIGHT at preload and consumes
+    # it at its terminal handoff. While armed, suppress the accept gate so it
+    # never tells the agent to run the skill it is already inside (e.g. while
+    # awaiting background acceptance tests). A leak self-heals via the
+    # SessionStart stale-marker sweep.
+    if markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):
+        return True
     cycle = markers.read_review_cycle(smm_dir, agent_id)
     flags = [bool(cycle.get(f)) for f in _REVIEW_FLAGS]
     if any(flags) and not all(flags):

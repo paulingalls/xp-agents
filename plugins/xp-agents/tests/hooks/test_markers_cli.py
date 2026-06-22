@@ -57,6 +57,12 @@ class TestMarkersCLI(_HookTestCase):
         result = run_cli(_MARKERS_PY, ["write", "ASSIGN_PENDING"], self.smm_dir)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_consume_accept_in_flight(self):
+        """xp-accept's terminal Summary step disarms the marker via the CLI."""
+        result = run_cli(_MARKERS_PY, ["consume", "ACCEPT_IN_FLIGHT"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse((self.smm_dir / ".accept-in-flight").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

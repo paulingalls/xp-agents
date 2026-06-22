@@ -148,6 +148,56 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         self.assertIsNone(result)
 
+    def test_accept_in_flight_marker_suppresses_reviewing(self):
+        """Inside /xp-accept (marker armed), a reviewing story doesn't fire.
+
+        The accept stop gate must not tell the agent to run the skill it is
+        already inside — e.g. while awaiting background acceptance tests.
+        """
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        # Baseline: without the marker, a reviewing story blocks "run /xp-accept"
+        baseline = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        baseline = self._assert_not_none(baseline)
+        self.assertIn("xp-accept", baseline)
+        # Armed: /xp-accept in flight — the gate defers
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_accept_in_flight_marker_suppresses_closing(self):
+        """Marker also covers the /xp-story-close window dispatched from accept."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
+        baseline = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        baseline = self._assert_not_none(baseline)
+        self.assertIn("xp-accept", baseline)
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_deferred_returns_true_for_accept_in_flight(self):
+        """Direct unit: _deferred honors the ACCEPT_IN_FLIGHT marker."""
+        import markers
+        import sprint_stop_gate
+
+        self.assertFalse(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        self.assertTrue(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
+
+    def test_reviewing_blocks_without_accept_in_flight(self):
+        """Regression: marker absent — reviewing still blocks (safety net intact)."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
 
 class TestSprintStopGateAcceptCascade(_HookTestCase):
     """Cascade step 1: accept gating."""
