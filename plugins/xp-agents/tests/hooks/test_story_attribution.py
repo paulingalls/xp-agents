@@ -166,6 +166,100 @@ class TestResolveStoryId(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_tier25_lone_closing_story_no_prefix(self):
+        """Unprefixed commit attributes to the lone closing story.
+
+        Story-cadence review fixes are committed during /xp-story-close while
+        the (only) active story is `closing` — no story is in-progress. When
+        the commit carries no [story-NNN] prefix (e.g. a conventional-commit
+        message), attribute to the single in-motion story rather than dropping
+        it from per-story metrics.
+        """
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "E2E",
+                        "closing",
+                        file_domain=["src/e2e.ts — harness"],
+                    ),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["tests/e2e/util.ts"],  # need not overlap the domain
+            message="fix(e2e): make cropToPortrait aspect-agnostic",
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_tier25_lone_reviewing_story_no_prefix(self):
+        """Unprefixed commit attributes to the lone reviewing story."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "E2E", "reviewing", file_domain=["src/e2e.ts — x"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir, "/proj", ["src/other.ts"], message="refactor: tidy"
+        )
+        self.assertEqual(result, "story-001")
+
+    def test_tier25_skipped_for_nonstory_bracket_prefix(self):
+        """A [sprint-*]/[release] tag stays sprint-level even mid-close.
+
+        An explicit non-story bracket prefix signals cross-cutting work; do
+        not attribute it to the lone closing story.
+        """
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "E2E", "closing", file_domain=["src/e2e.ts — x"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir,
+            "/proj",
+            ["scripts/e2e/env.sh"],
+            message="[sprint-direct] fix(e2e): guard seed reset",
+        )
+        self.assertIsNone(result)
+
+    def test_tier25_skipped_when_multiple_in_motion(self):
+        """Two in-motion stories → ambiguous → None (aggregate at sprint)."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "closing", file_domain=["src/a.ts — x"]),
+                    _s("story-002", "B", "reviewing", file_domain=["src/b.ts — y"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir, "/proj", ["src/c.ts"], message="fix: shared tweak"
+        )
+        self.assertIsNone(result)
+
+    def test_tier25_not_fired_when_story_in_progress(self):
+        """In-progress story present → Tier 2 handles it, Tier 2.5 irrelevant."""
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "closing", file_domain=["src/a.ts — x"]),
+                    _s("story-002", "B", "in-progress", file_domain=["src/b.ts — y"]),
+                ]
+            )
+        )
+        result = commit_handling._resolve_story_id(
+            self.smm_dir, "/proj", ["src/b.ts"], message="fix: tweak b"
+        )
+        self.assertEqual(result, "story-002")
+
     def test_commit_metadata_includes_story_id(self):
         """Commit event metadata includes story_id when resolved."""
         import worktree

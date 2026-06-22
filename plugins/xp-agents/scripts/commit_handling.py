@@ -8,14 +8,12 @@ test-only-commit detector (`_prior_commit_was_test_only`). bash_post_tool
 imports the entry points it actually calls in `run()` —
 `_handle_commit` and `_prior_commit_was_test_only`.
 
-CLI: `commit_handling.py has-verify-deferred --cwd <dir> --base <ref>` prints
-true/false — the story-close preload's single source for the [verify-deferred]
-marker check (reuses parse_verify_deferred, no duplicate bash regex).
+The [verify-deferred] marker parsing + verify-path bookkeeping lives in the
+sibling `verify_deferred` module (extracted to keep this file under the
+500-line cap); `_handle_commit` reuses it for the post-commit debt event.
 """
 
-import argparse
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -37,83 +35,16 @@ from event_schema import (
     event_action,
 )
 from pre_tool_write import is_test_file
+from verify_deferred import (
+    METADATA_KEY_VERIFY_DEFERRED,
+    VERIFY_DEBT_CONTENT_LIMIT,
+    parse_verify_deferred,
+    untouched_paths_for_story,
+)
 
 _WATERMARK_ID = "bash-post-tool"
 
 COMMIT_SIZE_THRESHOLD = 12
-
-_VERIFY_DEFERRED_RE = re.compile(
-    r"^\s*\[verify-deferred\]\s*(.*)", re.IGNORECASE | re.DOTALL
-)
-_VERIFY_DEBT_CONTENT_LIMIT = 180
-_METADATA_KEY_VERIFY_DEFERRED = "verify_deferred"
-
-
-def parse_verify_deferred(message: str | None) -> str | None:
-    """Return the rationale after a [verify-deferred] prefix, or None.
-
-    A bare prefix (no trailing text) yields "(no rationale)" so callers can
-    distinguish "deferred without reason" from "not deferred" (None). Kept
-    separate from commits.is_escape_hatch_commit: [verify-deferred] bypasses
-    only the verify-touch gate, never branch protection.
-    """
-    if not message:
-        return None
-    m = _VERIFY_DEFERRED_RE.match(message)
-    if not m:
-        return None
-    return m.group(1).strip() or "(no rationale)"
-
-
-def branch_has_verify_deferred(cwd: str, base: str, head: str = "HEAD") -> bool:
-    """True when any commit subject on base..head carries [verify-deferred].
-
-    Single source for the marker check — reuses parse_verify_deferred so the
-    commit-time nudge/debt and the story-close gate share one regex (no
-    duplicate bash pattern). `head` defaults to HEAD; the close-gate backstop
-    passes the source branch (it runs on the target branch). Returns False on
-    git failure (fail-open: an unreadable range defers nothing).
-    """
-    try:
-        result = subprocess.run(
-            ["git", "log", f"{base}..{head}", "--format=%s"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=cwd,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-    if result.returncode != 0:
-        return False
-    return any(
-        parse_verify_deferred(line) is not None for line in result.stdout.splitlines()
-    )
-
-
-def untouched_paths_for_story(smm_dir: Path, cwd: str, story_id: str) -> list[str]:
-    """Verify paths the story declares that no commit on its branch touched.
-
-    The shared fail-open pipeline behind both the pre-commit nudge and the
-    post-commit [verify-deferred] debt: returns [] (and never raises) when the
-    story is gone, declares no verify paths, or git can't be read.
-    """
-    import branching
-    import sprint_store
-    import verify_paths
-
-    try:
-        story = sprint_store.get_story(smm_dir, story_id)
-    except (ValueError, OSError):
-        return []
-    paths = verify_paths.extract_verify_paths(story)
-    if not paths:
-        return []
-    base = branching.get_story_base_branch(smm_dir, cwd)
-    try:
-        return verify_paths.untouched_verify_paths(paths, cwd, base)
-    except ValueError:
-        return []
 
 
 def _resolve_story_id(
@@ -138,6 +69,12 @@ def _resolve_story_id(
             highest-overlap in-progress story by file domain. Ties
             (multiple stories with equal non-zero overlap) return None
             so cross-cutting commits aggregate at sprint level.
+    Tier 2.5: No story in-progress but exactly one in motion
+            (closing/reviewing) — attribute an UNPREFIXED commit to it.
+            Recovers prefix-less story-cadence review fixes authored during
+            /xp-story-close. A bracket-tagged message (stale `[story-NNN]`,
+            `[sprint-*]`, `[release]`, ...) is left to aggregate at sprint
+            level rather than guessed.
     Tier 3: Non-sprint / infrastructure — returns None.
     """
     import sprint_status
@@ -172,6 +109,18 @@ def _resolve_story_id(
 
     in_progress = sprint_store.list_stories(sprint, status="in-progress")
     if not in_progress:
+        # Tier 2.5: no story in-progress, but work is still being committed —
+        # e.g. story-cadence review fixes authored during /xp-story-close,
+        # when the lone active story has moved to `closing`/`reviewing`.
+        # Attribute an UNPREFIXED commit to the single in-motion story so it
+        # isn't dropped from per-story metrics. A bracket-tagged message
+        # (`[story-NNN]` stale, `[sprint-*]`, `[release]`, ...) is an explicit
+        # signal — respect it and aggregate at sprint level instead of guessing.
+        if message and story_metrics.BRACKET_PREFIX_RE.match(message):
+            return None
+        in_motion = sprint_status.select_in_motion_stories(sprint["stories"])
+        if len(in_motion) == 1:
+            return in_motion[0]["id"]
         return None
 
     if len(in_progress) == 1:
@@ -449,11 +398,11 @@ def _handle_commit(
                 _common.make_event(
                     _common.DEBT,
                     agent_id,
-                    f"[verify-deferred] {rationale}"[:_VERIFY_DEBT_CONTENT_LIMIT],
+                    f"[verify-deferred] {rationale}"[:VERIFY_DEBT_CONTENT_LIMIT],
                     files=deferred,
                     metadata={
                         "story_id": story_id,
-                        _METADATA_KEY_VERIFY_DEFERRED: True,
+                        METADATA_KEY_VERIFY_DEFERRED: True,
                     },
                 )
             )
@@ -505,26 +454,3 @@ def _prior_commit_was_test_only(smm_dir: Path) -> bool:
             return False
         return all(is_test_file(f) for f in files)
     return False
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="commit-handling queries")
-    sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser(
-        "has-verify-deferred",
-        help="Print true/false: any [verify-deferred] commit on base..HEAD",
-    )
-    p.add_argument("--cwd", default=".", help="Repo working directory")
-    p.add_argument("--base", required=True, help="Base ref")
-    args = parser.parse_args()
-
-    match args.command:
-        case "has-verify-deferred":
-            deferred = branch_has_verify_deferred(args.cwd, args.base)
-            print("true" if deferred else "false")
-            return 0
-    return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

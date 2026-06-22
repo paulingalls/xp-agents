@@ -20,14 +20,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
-import commit_handling
 import sprint_store
+import verify_deferred
 from _bases import _PLUGIN_ROOT, _TempRepoTestCase
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, make_sprint_dict, make_story_dict
 from event_helpers import events_of_type
 
-_COMMIT_HANDLING = _PLUGIN_ROOT / "scripts" / "commit_handling.py"
+_VERIFY_DEFERRED = _PLUGIN_ROOT / "scripts" / "verify_deferred.py"
 
 
 class TestVerifyDeferredDebt(_HookTestCase):
@@ -124,7 +124,7 @@ class TestBranchHasVerifyDeferred(_TempRepoTestCase):
         base = self._head()
         self._commit("[verify-deferred] shipping under deadline")
         self.assertTrue(
-            commit_handling.branch_has_verify_deferred(str(self.tmpdir), base)
+            verify_deferred.branch_has_verify_deferred(str(self.tmpdir), base)
         )
 
     def test_false_when_no_deferred_commit_in_range(self):
@@ -132,12 +132,12 @@ class TestBranchHasVerifyDeferred(_TempRepoTestCase):
         base = self._head()
         self._commit("ordinary work")
         self.assertFalse(
-            commit_handling.branch_has_verify_deferred(str(self.tmpdir), base)
+            verify_deferred.branch_has_verify_deferred(str(self.tmpdir), base)
         )
 
     def test_false_on_git_failure(self):
         self.assertFalse(
-            commit_handling.branch_has_verify_deferred(
+            verify_deferred.branch_has_verify_deferred(
                 str(self.tmpdir), "no-such-ref-xyz"
             )
         )
@@ -149,7 +149,7 @@ class TestBranchHasVerifyDeferred(_TempRepoTestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                str(_COMMIT_HANDLING),
+                str(_VERIFY_DEFERRED),
                 "has-verify-deferred",
                 "--cwd",
                 str(self.tmpdir),
@@ -203,11 +203,11 @@ class TestBranchHasVerifyDeferredHeadArg(_TempRepoTestCase):
         self._git("checkout", base)
         # Default head=HEAD (=base): the deferred commit is out of range.
         self.assertFalse(
-            commit_handling.branch_has_verify_deferred(str(self.tmpdir), base)
+            verify_deferred.branch_has_verify_deferred(str(self.tmpdir), base)
         )
         # head="feat": the deferred commit is seen.
         self.assertTrue(
-            commit_handling.branch_has_verify_deferred(
+            verify_deferred.branch_has_verify_deferred(
                 str(self.tmpdir), base, head="feat"
             )
         )

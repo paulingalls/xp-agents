@@ -15,10 +15,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-import commit_handling
 import identity
 import sprint_store
 import verify_acceptance
+import verify_deferred
 import verify_paths
 
 
@@ -64,7 +64,7 @@ def verify_gate_block(args: argparse.Namespace) -> str | None:
                 )
             except ValueError:
                 return None  # fail open: unreadable range can't block
-            if untouched and not commit_handling.branch_has_verify_deferred(
+            if untouched and not verify_deferred.branch_has_verify_deferred(
                 args.cwd, args.target, head=args.source
             ):
                 return (
