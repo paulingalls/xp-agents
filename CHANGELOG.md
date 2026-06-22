@@ -2,21 +2,32 @@
 
 ## v3.9.2 — story-cadence commit attribution fix
 
-One bug fix for per-story metrics under story (per-story review) cadence.
+Per-story metrics under story (per-story review) cadence were dropping the
+review-fix commits authored during `/xp-story-close` — the story has moved to
+`closing` (none `in-progress`) by the time those commits land, so
+`_resolve_story_id` returned `None` and the commits surfaced as "story commits
+= 0" in retrospectives and sizing. Commit cadence was unaffected (review runs
+inline while the story is in-progress). Two complementary fixes close the gap:
 
-- **Story-cadence review commits no longer lose their story attribution.** In
-  story cadence the review cycle runs at `/xp-story-close` Step 4.5b, while the
-  story is in `closing` status — not `in-progress`. `_resolve_story_id`
-  early-returned `None` (no in-progress story) *before* consulting the explicit
-  `[story-NNN]` commit-message prefix, so those review-fix commits were dropped
-  from per-story attribution and surfaced as "story commits = 0" in
-  retrospectives and sizing analysis. Tier 0 now honors the `[story-NNN]` prefix
-  for any *in-motion* story (in-progress / reviewing / closing) via the existing
-  `sprint_status.select_in_motion_stories` helper, checked before the in-progress
-  gate; `done`/`deferred` prefixes still fall through as likely-stale tags.
-  Commit cadence was unaffected (review runs inline while the story is
-  in-progress). Historical event logs can be reconciled with
+- **Explicit `[story-NNN]` prefix (Tier 0) now honors in-motion stories.** The
+  prefix check moved ahead of the in-progress gate and matches any *in-motion*
+  story (in-progress / reviewing / closing) via the existing
+  `sprint_status.select_in_motion_stories` helper; `done`/`deferred` prefixes
+  still fall through as likely-stale tags. Recovers projects that tag commits
+  `[story-NNN]`. Historical logs can be reconciled with
   `backfill_story_id.py --apply`.
+- **Prefix-less close commits (Tier 2.5) attribute to the lone closing story.**
+  Projects using conventional-commit messages (`fix(e2e): …`, no `[story-NNN]`
+  prefix) had no signal for the prefix tier to match. When no story is
+  in-progress but exactly one is in motion, an *unprefixed* commit is now
+  attributed to that story. A bracket-tagged message (`[sprint-*]`, `[release]`,
+  a stale `[story-NNN]`, …) is left to aggregate at sprint level rather than
+  guessed, so genuinely cross-cutting commits stay unattributed. Go-forward
+  only — prefix-less historical events can't be reconstructed (the sprint
+  status at commit time is transient and unlogged).
+
+Internal: the `[verify-deferred]` marker + verify-path code moved to a new
+`verify_deferred.py` module to keep `commit_handling.py` under the 500-line cap.
 
 ## v3.9.1 — teammate-worktree close fixes
 
