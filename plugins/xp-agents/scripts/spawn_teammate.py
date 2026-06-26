@@ -342,7 +342,13 @@ def main(argv: list[str] | None = None) -> None:
 
     cwd = os.getcwd()
     wt_path = create_worktree(name, cwd, branch=args.branch)
-    cmd = build_command(name, args.model, args.plugin_dir)
+    # --plugin-dir is a correctness-critical invariant: without it the headless
+    # teammate loads none of the xp-agents skills/agents/hooks (ungated). Self-
+    # resolve from CLAUDE_PLUGIN_ROOT when omitted so a caller that forgets the
+    # flag can't silently re-spawn the plugin-less teammate this release fixes;
+    # an explicit --plugin-dir still wins.
+    plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
+    cmd = build_command(name, args.model, plugin_dir)
 
     write_story_assignment(Path(args.smm_dir), name, args.story_id)
 

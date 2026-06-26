@@ -62,8 +62,14 @@ def extract_story_id(branch_name: str) -> str | None:
     return m.group(1) if m else None
 
 
-def extract_worktree_name(cwd: str) -> str | None:
-    """Extract worktree directory name from cwd, or None if not in worktree."""
+def extract_worktree_name(cwd: str | None) -> str | None:
+    """Extract worktree directory name from cwd, or None if not in worktree.
+
+    Tolerates a missing/None cwd (hook payloads may carry an explicit
+    `"cwd": null`); returns None rather than raising on falsy input.
+    """
+    if not cwd:
+        return None
     idx = cwd.find(_WORKTREE_PATH_MARKER)
     if idx < 0:
         return None

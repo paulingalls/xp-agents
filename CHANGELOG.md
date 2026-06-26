@@ -11,7 +11,10 @@
   `--plugin-dir ${CLAUDE_PLUGIN_ROOT}` to `spawn_teammate.py`, loading the same
   plugin version the lead runs. Verified empirically: an identical worktree
   session with `--plugin-dir` loads the plugin + 18 skills + all xp agents +
-  hooks, where without it none load.
+  hooks, where without it none load. As a safety net, `spawn_teammate.py`
+  self-resolves `--plugin-dir` from `CLAUDE_PLUGIN_ROOT` when the flag is
+  omitted, so a caller that forgets it can't silently re-spawn a plugin-less
+  (ungated) teammate.
 - **`spawn_teammate.py` gains an optional `--model` flag.** Threads `--model`
   into the teammate's `claude -p` command so a teammate can run on a chosen tier
   (e.g. `sonnet`); omitted by default (inherits the `claude -p` default).
