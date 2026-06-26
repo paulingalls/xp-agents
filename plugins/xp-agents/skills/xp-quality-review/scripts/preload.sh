@@ -26,6 +26,13 @@ _qr_auto_detect_teammate_cwd
 
 echo "SMM_DIR=${SMM_DIR}"
 echo "TEAMMATE_CWD=${TEAMMATE_CWD:-}"
+# MODE discriminator: a fresh /code-review this cycle (simplify_done set for the
+# review target's agent_id) => consume-findings; else => self-find. Resolved
+# from TEAMMATE_CWD (the closing-story worktree, else the main checkout) so the
+# read keys match the per-commit gate's writer. Defaults to self-find on error.
+MODE=$(python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/review_mode.py" \
+    --smm-dir "$SMM_DIR" --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "self-find")
+echo "MODE=${MODE}"
 echo ""
 
 # Cadence-aware diff scope. Commit cadence reviews the staged/working diff
