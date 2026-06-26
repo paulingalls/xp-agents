@@ -50,8 +50,6 @@ _REVIEW_MESSAGE = (
     "Sprint complete. Run /xp-sprint-review to review what shipped before stopping."
 )
 
-_REVIEW_FLAGS = markers._REVIEW_FLAGS
-
 
 def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     """Return True if we should defer blocking (mid-workflow, teammates active)."""
@@ -65,9 +63,13 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # SessionStart stale-marker sweep.
     if markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):
         return True
+    # Defer only while a close-cycle review is mid-flight: /code-review has set
+    # simplify_done but /xp-quality-review hasn't set quality_review_done yet.
+    # A standalone self-find review sets quality_review_done WITHOUT
+    # simplify_done — that is a COMPLETED review, not mid-cycle, so it must not
+    # defer (the old `any and not all` heuristic wrongly suppressed the gate).
     cycle = markers.read_review_cycle(smm_dir, agent_id)
-    flags = [bool(cycle.get(f)) for f in _REVIEW_FLAGS]
-    if any(flags) and not all(flags):
+    if cycle.get("simplify_done") and not cycle.get("quality_review_done"):
         return True
     if coordination.has_active_teammates(smm_dir, agent_id):
         return True

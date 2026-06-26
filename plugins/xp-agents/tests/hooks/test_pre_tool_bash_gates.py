@@ -35,17 +35,24 @@ class TestPreToolBashReviewCycle(_HookTestCase):
 
     _CODE_FILES_PATCH = "commits.get_code_files_for_review"
 
-    def test_above_threshold_blocks_no_code_review(self):
-        """3+ code files, no flags set -> blocks for /code-review."""
+    def test_above_threshold_blocks_without_quality_review(self):
+        """3+ code files, no flags set -> blocks for /xp-quality-review.
+
+        Per-increment review is now /xp-quality-review only (xp-code-reviewer
+        self-finds correctness); /code-review no longer gates a commit."""
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             with self.assertRaises(_common.BlockedError) as ctx:
                 pre_tool_bash.run(
                     _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
                 )
-            self.assertIn("/code-review", str(ctx.exception))
+            self.assertIn("/xp-quality-review", str(ctx.exception))
+            self.assertNotIn("/code-review", str(ctx.exception))
 
-    def test_above_threshold_blocks_no_quality_review(self):
-        """simplify_done=True -> blocks for /xp-quality-review."""
+    def test_simplify_done_alone_still_blocks(self):
+        """simplify_done=True but quality_review_done=False -> still blocks.
+
+        simplify_done no longer satisfies the per-commit gate; only
+        quality_review_done clears it."""
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             with self.assertRaises(_common.BlockedError) as ctx:
@@ -54,9 +61,9 @@ class TestPreToolBashReviewCycle(_HookTestCase):
                 )
             self.assertIn("/xp-quality-review", str(ctx.exception))
 
-    def test_above_threshold_passes_all_done(self):
-        """All flags True -> commit allowed."""
-        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+    def test_above_threshold_passes_quality_review_only(self):
+        """quality_review_done=True alone -> commit allowed (simplify_done
+        not required)."""
         markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
         with patch(self._CODE_FILES_PATCH, return_value=["a.py", "b.py", "c.py"]):
             pre_tool_bash.run(

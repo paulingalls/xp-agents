@@ -2,8 +2,8 @@
 """Stop command hook: teammate review cycle + commit gate.
 
 Blocks CLI teammates (detected via worktree cwd path) from stopping if
-they have uncommitted changes without completing the review cycle
-(/code-review → quality-review) and committing.
+they have uncommitted changes without completing the per-increment review
+(/xp-quality-review, which self-finds correctness) and committing.
 """
 
 import subprocess
@@ -54,10 +54,10 @@ def run(
     agent_id = identity.resolve_agent_id(input_data)
     cycle = markers.read_review_cycle(smm_dir, agent_id) if agent_id else {}
 
-    if not cycle.get("simplify_done"):
-        return "You have uncommitted changes. Run /code-review before stopping."
+    # Per-increment review is /xp-quality-review only — the xp-code-reviewer it
+    # spawns self-finds correctness; the workflow /code-review runs at close.
     if not cycle.get("quality_review_done"):
-        return "Code review complete. Run /xp-quality-review before stopping."
+        return "You have uncommitted changes. Run /xp-quality-review before stopping."
 
     return "Review cycle complete. Commit your changes before stopping."
 

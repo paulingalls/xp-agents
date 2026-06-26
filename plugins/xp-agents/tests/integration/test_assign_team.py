@@ -53,11 +53,12 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
         return data
 
     def test_full_review_cycle_sequence(self):
-        """Walk through the M-4 stop gate sequence end-to-end.
+        """Walk through the teammate stop gate sequence end-to-end.
 
-        Post-M-4 ladder: simplify → quality-review → commit. The per-commit
-        security rung was removed when LLM /security-review moved to the
-        close-skill Step 4.5 (cumulative diff at sprint/plan/free close).
+        Ladder: quality-review → commit. Per-increment review is
+        /xp-quality-review only (xp-code-reviewer self-finds correctness); the
+        workflow /code-review runs once at sprint/plan/free close, and LLM
+        /security-review runs at the close-skill Step 4 (cumulative diff).
         """
         import markers
         import teammate_stop_gate
@@ -66,12 +67,8 @@ class TestTeammateReviewCycleE2E(_IntegrationTestCase):
 
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/code-review", result)
-
-        markers.set_review_flag(self.smm_dir, "worktree-story-1", "simplify_done")
-        result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
-        assert result is not None
         self.assertIn("/xp-quality-review", result)
+        self.assertNotIn("/code-review", result)
 
         markers.set_review_flag(self.smm_dir, "worktree-story-1", "quality_review_done")
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)

@@ -133,6 +133,28 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         result = self._assert_not_none(result)
         self.assertIn("xp-accept", result)
 
+    def test_self_find_completed_review_does_not_defer(self):
+        """Self-find per-increment review sets quality_review_done without
+        simplify_done. That is a COMPLETED review, not mid-cycle — must NOT
+        defer (the old `any and not all` heuristic wrongly deferred it)."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        markers.write_review_cycle(
+            self.smm_dir,
+            "main",
+            {
+                "simplify_done": False,
+                "quality_review_done": True,
+                "last_review_commit": "abc123",
+            },
+        )
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
     def test_asking_user_marker_allows_stop(self):
         """Defer when the main agent is mid-AskUserQuestion dialogue."""
         import markers
