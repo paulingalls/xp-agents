@@ -49,6 +49,30 @@ class TestCodeReviewerPin(unittest.TestCase):
             f"rather than append a fresh debt — none of {update_synonyms} found",
         )
 
+    def test_body_directs_self_find_when_no_findings(self):
+        # Role-lever design: per-increment, /code-review does NOT run, so the
+        # reviewer is handed an empty findings list and must run the
+        # correctness pass ITSELF (self-find). Pin both the conditional ("no
+        # findings" / "none" / "empty") and the self-find directive so the
+        # agent doesn't silently skip correctness when nothing was handed in.
+        self_find_tokens = ("self-find", "yourself", "run the correctness")
+        self.assertTrue(
+            any(token in self.body_lower for token in self_find_tokens),
+            "xp-code-reviewer body must direct it to self-find correctness "
+            f"when no findings are handed in — none of {self_find_tokens} found",
+        )
+
+    def test_body_drops_dont_re_run_correctness_directive(self):
+        # The old guideline told the reviewer NOT to re-run correctness
+        # (/code-review owned it). Under the role lever the reviewer owns
+        # correctness per-increment, so that prohibition must be gone.
+        self.assertNotIn(
+            "don't re-run correctness",
+            self.body_lower,
+            "xp-code-reviewer must no longer be told to skip correctness — "
+            "it self-finds correctness per increment now",
+        )
+
     def test_body_names_resolves_link_mechanism(self):
         # The directive is only actionable if the agent knows HOW to retire
         # the older debt. Pin `metadata.resolves` — the universal resolution
