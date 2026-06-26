@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.10.0 — per-increment review drops the workflow /code-review (cost lever)
+
+- **The expensive multi-agent `/code-review` workflow no longer runs per commit
+  or per story.** When `/code-review` became workflow-backed at `high`+ effort it
+  fanned out ~18–100 subagents (measured ~5–18M tokens/run) and the review cycle
+  fired it on every commit (commit cadence) or every story (story cadence). Per
+  increment now runs `/xp-quality-review` only; the independent `xp-code-reviewer`
+  it spawns **self-finds correctness** (validating handed-in `/code-review`
+  findings when present, else running the correctness angles itself) on top of
+  its existing reuse/quality/efficiency/drift/debt/XP-value review.
+- **The broad `/code-review` workflow runs once at branch close.** A new shared
+  Step 4b runs `/code-review high` → `/xp-quality-review` (consume-findings) at
+  `/xp-{sprint,plan,free}-close`, **threshold-gated** on the cumulative close
+  diff's code-file count (`>= REVIEW_CYCLE_THRESHOLD`). Story-close runs
+  `/xp-quality-review` only and never triggers it.
+- **Gates repointed.** The per-commit commit gate, the teammate stop gate, and
+  the sprint stop gate's mid-cycle deferral now key on `quality_review_done`
+  alone; `simplify_done` is repurposed as the `MODE` discriminator the
+  `/xp-quality-review` preload emits (`consume-findings` vs `self-find`).
+
 ## v3.9.4 — accept-gate false-fire + teammate merge attribution
 
 - **`/xp-accept` no longer trips its own stop gate.** While `/xp-accept` ran —

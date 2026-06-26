@@ -148,18 +148,19 @@ Agent(
 )
 ```
 
-### Step 4.5b: Full review cycle (REVIEW_PATH=full-cycle)
+### Step 4.5b: Quality review (REVIEW_PATH=full-cycle)
 
-Story cadence relaxed the per-commit gate, so the full review runs **here** — the
-single gate keeping the sprint base reviewed. Run the per-commit cycle on the
-**cumulative** diff (`<TARGET_BRANCH>...HEAD`), not a staged diff:
+Story cadence runs the review **here** (the merge), not per-commit. Run
+`/xp-quality-review` on the **cumulative** diff (`<TARGET_BRANCH>...HEAD`), not a
+staged diff:
 
-1. `/code-review` — correctness pass over the cumulative diff.
-2. `/xp-quality-review` — spawns the independent `xp-code-reviewer`; fix findings
-   inline (or record as debt with a reason), as in the per-commit flow.
+- `/xp-quality-review` — its preload emits `MODE=self-find`, so the independent
+  `xp-code-reviewer` self-finds correctness plus quality/drift/debt; fix findings
+  inline (or record as debt with a reason), as in the per-commit flow.
 
-Do not also fork `xp-close-reviewer` here — the full cycle subsumes it. Step 6's
-"no Block in Step 4.5's reviewer summary" holds vacuously (no close-reviewer ran).
+Do not fork `xp-close-reviewer` here — the quality review subsumes it; the broad
+multi-agent code review runs at sprint close. Step 6's "no Block in Step 4.5's
+reviewer summary" holds vacuously (no close-reviewer ran).
 
 ## Steps 5–6: Apply shared close-pipeline reference
 

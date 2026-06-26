@@ -231,6 +231,21 @@ def cmd_diff_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_close_review_gate(args: argparse.Namespace) -> int:
+    """Emit CLOSE_CODE_FILE_COUNT and the RUN_FULL_CODE_REVIEW threshold flag.
+
+    The shared Step 4b runs the broad workflow /code-review at sprint/plan/free
+    close ONLY when the cumulative close diff (``<target>...HEAD``) has at least
+    REVIEW_CYCLE_THRESHOLD code files — per-increment self-find already covered
+    smaller diffs. Fails safe to false (count 0) when the range can't resolve.
+    """
+    count = len(commits.get_code_files_in_range(args.cwd, args.target))
+    run_full = count >= commits.REVIEW_CYCLE_THRESHOLD
+    print(f"CLOSE_CODE_FILE_COUNT={count}")
+    print(f"RUN_FULL_CODE_REVIEW={'true' if run_full else 'false'}")
+    return 0
+
+
 def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> None:
     """Append a type=commit event for the merge HEAD just produced by
     ``branching.merge_branch``.
@@ -423,6 +438,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pr-output", required=True)
     p.add_argument("--target", required=True)
     p.set_defaults(func=cmd_diff_command)
+
+    p = sub.add_parser(
+        "close-review-gate",
+        parents=[cwd_parent],
+        help="emit RUN_FULL_CODE_REVIEW threshold flag for the cumulative close diff",
+    )
+    p.add_argument("--target", required=True)
+    p.set_defaults(func=cmd_close_review_gate)
 
     p = sub.add_parser(
         "merge",

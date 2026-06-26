@@ -247,8 +247,11 @@ class TestTeammateStopGate(_HookTestCase):
         )
         self.assertIsNone(result)
 
-    def test_uncommitted_no_review_blocks_simplify(self):
-        """Uncommitted changes + no review cycle → block: run /code-review."""
+    def test_uncommitted_no_review_blocks_quality(self):
+        """Uncommitted changes + no review cycle → block: run /xp-quality-review.
+
+        Per-increment review is /xp-quality-review only (xp-code-reviewer
+        self-finds correctness); /code-review no longer gates a stop."""
         import teammate_stop_gate
 
         result = teammate_stop_gate.run(
@@ -257,10 +260,12 @@ class TestTeammateStopGate(_HookTestCase):
             has_uncommitted=True,
         )
         assert result is not None
-        self.assertIn("/code-review", result)
+        self.assertIn("/xp-quality-review", result)
+        self.assertNotIn("/code-review", result)
 
-    def test_simplify_done_blocks_quality(self):
-        """simplify done but not quality → block: run /xp-quality-review."""
+    def test_simplify_done_alone_still_blocks_quality(self):
+        """simplify_done alone no longer satisfies the gate → still block
+        for /xp-quality-review."""
         import teammate_stop_gate
 
         self._set_review_flags(simplify_done=True)
@@ -273,13 +278,10 @@ class TestTeammateStopGate(_HookTestCase):
         self.assertIn("/xp-quality-review", result)
 
     def test_full_review_blocks_commit(self):
-        """Full review cycle done but uncommitted → block: commit."""
+        """quality_review_done set but uncommitted → block: commit."""
         import teammate_stop_gate
 
-        self._set_review_flags(
-            simplify_done=True,
-            quality_review_done=True,
-        )
+        self._set_review_flags(quality_review_done=True)
         result = teammate_stop_gate.run(
             _make_teammate_stop_input(),
             smm_dir=self.smm_dir,
@@ -300,15 +302,18 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/code-review", result)
+        self.assertIn("/xp-quality-review", result)
 
     def test_worktree_cwd_resolves_agent_id(self):
-        """Worktree cwd resolves agent_id from worktree directory name."""
+        """Worktree cwd resolves agent_id from worktree directory name.
+
+        quality_review_done set under the worktree id → the gate reads that
+        marker and advances to the commit message, proving id resolution."""
         import markers
         import teammate_stop_gate
 
         markers.set_review_flag(
-            self.smm_dir, "worktree-story-abc12345", "simplify_done"
+            self.smm_dir, "worktree-story-abc12345", "quality_review_done"
         )
         inp = {
             "session_id": "t",
@@ -316,10 +321,12 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/xp-quality-review", result)
+        self.assertEqual(
+            result, "Review cycle complete. Commit your changes before stopping."
+        )
 
-    def test_worktree_cwd_no_marker_blocks_simplify(self):
-        """Worktree cwd with no marker file blocks for code-review."""
+    def test_worktree_cwd_no_marker_blocks_quality(self):
+        """Worktree cwd with no marker file blocks for /xp-quality-review."""
         import teammate_stop_gate
 
         inp = {
@@ -328,7 +335,7 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/code-review", result)
+        self.assertIn("/xp-quality-review", result)
 
     def test_cli_teammate_worktree_detected(self):
         """CLI teammate worktree path (teammate-*) is detected."""
@@ -340,21 +347,25 @@ class TestTeammateStopGate(_HookTestCase):
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/code-review", result)
+        self.assertIn("/xp-quality-review", result)
 
     def test_cli_teammate_resolves_agent_id_for_markers(self):
         """CLI teammate uses resolve_agent_id for marker scoping."""
         import markers
         import teammate_stop_gate
 
-        markers.set_review_flag(self.smm_dir, "worktree-story-001", "simplify_done")
+        markers.set_review_flag(
+            self.smm_dir, "worktree-story-001", "quality_review_done"
+        )
         inp = {
             "session_id": "t",
             "cwd": "/proj/.claude/worktrees/worktree-story-001",
         }
         result = teammate_stop_gate.run(inp, smm_dir=self.smm_dir, has_uncommitted=True)
         assert result is not None
-        self.assertIn("/xp-quality-review", result)
+        self.assertEqual(
+            result, "Review cycle complete. Commit your changes before stopping."
+        )
 
     def test_no_smm_dir_graceful(self):
         """Missing SMM dir exits cleanly."""

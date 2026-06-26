@@ -374,18 +374,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 parts.append(
                     f"Story cadence: per-commit review deferred to "
                     f"/xp-story-close ({len(code_files)} code files changed "
-                    f"since last review). /code-review + /xp-quality-review "
-                    f"run at story close."
-                )
-            elif not cycle.get("simplify_done"):
-                raise _common.BlockedError(
-                    f"Run /code-review before committing — "
-                    f"{len(code_files)} code files changed since last review.",
-                    "Code review required before committing.",
+                    f"since last review). /xp-quality-review runs at story "
+                    f"close."
                 )
             elif not cycle.get("quality_review_done"):
+                # Per-increment review is /xp-quality-review only — the
+                # xp-code-reviewer it spawns self-finds correctness. The
+                # workflow /code-review runs once at sprint/plan/free close.
                 raise _common.BlockedError(
-                    "Run /xp-quality-review before committing.",
+                    f"Run /xp-quality-review before committing — "
+                    f"{len(code_files)} code files changed since last review.",
                     "Quality review required before committing.",
                 )
 

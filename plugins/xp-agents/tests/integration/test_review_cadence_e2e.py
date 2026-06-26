@@ -81,7 +81,7 @@ class TestReviewCadenceE2E(_IntegrationTestCase):
         self._set_cadence("commit")
         with self.assertRaises(_common.BlockedError) as ctx:
             self._commit_gate()
-        self.assertIn("/code-review", str(ctx.exception))
+        self.assertIn("/xp-quality-review", str(ctx.exception))
 
     def test_e2e_story_loop_reviews_once_at_close(self):
         """AC#4: the marker is the single switch — story defers to one review

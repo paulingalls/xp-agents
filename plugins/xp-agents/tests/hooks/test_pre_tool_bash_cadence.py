@@ -53,7 +53,7 @@ class TestStoryCadenceCommitGate(_HookTestCase):
         self.assertIn("/xp-story-close", result or "")
 
     def test_commit_cadence_still_blocks(self):
-        """AC#2: default ('commit') cadence still blocks for /code-review."""
+        """AC#2: default ('commit') cadence still blocks for /xp-quality-review."""
         with (
             patch(_CODE_FILES_PATCH, return_value=list(_OVER_THRESHOLD)),
             self.assertRaises(_common.BlockedError) as ctx,
@@ -61,7 +61,7 @@ class TestStoryCadenceCommitGate(_HookTestCase):
             pre_tool_bash.run(
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
             )
-        self.assertIn("/code-review", str(ctx.exception))
+        self.assertIn("/xp-quality-review", str(ctx.exception))
 
     @patch("commits.get_staged_diff")
     def test_story_cadence_security_still_blocks(self, mock_diff):

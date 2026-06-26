@@ -14,7 +14,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import markers
 from _bases import _PLUGIN_ROOT
 from conftest import _IntegrationTestCase
 
@@ -72,6 +74,28 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("## No Changes", result.stdout)
+
+    def _extract_var(self, stdout: str, name: str) -> str | None:
+        prefix = f"{name}="
+        for line in stdout.splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix) :]
+        return None
+
+    def test_mode_self_find_by_default(self):
+        """No fresh /code-review this cycle → MODE=self-find (per-increment)."""
+        self._checkout_main_clean()
+        result = self._run_preload(_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._extract_var(result.stdout, "MODE"), "self-find")
+
+    def test_mode_consume_findings_after_code_review(self):
+        """simplify_done set (a /code-review ran this cycle) → consume-findings."""
+        self._checkout_main_clean()
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        result = self._run_preload(_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
 
     def test_story_cadence_changed_files_feed_debt(self):
         """AC4 + E2E: get_changed_files_range surfaces the committed file to the

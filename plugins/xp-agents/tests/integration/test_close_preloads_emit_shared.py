@@ -54,6 +54,15 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "preload must emit the shared close-pipeline heading",
         )
 
+    def test_emits_step4b_full_code_review_heading(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "### Step 4b: Full code review (conditional)",
+            result.stdout,
+            "preload must emit the shared Step 4b (full code review) heading",
+        )
+
     def test_emits_step5_present_findings_marker(self):
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -488,6 +497,24 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
             f"story-close preload must not create marker at {marker_path}",
         )
 
+    def test_does_not_emit_run_full_code_review_flag(self):
+        # Inverse-pin: story-close runs /xp-quality-review only (self-find);
+        # the broad Step 4b workflow /code-review never runs at story close, so
+        # the preload must NOT emit RUN_FULL_CODE_REVIEW. The shared Step 4b
+        # prose is still catted (gated on the absent flag → skipped).
+        source = self._PRELOAD.read_text()
+        self.assertNotIn(
+            "close-review-gate",
+            source,
+            "story-close preload must NOT compute the Step 4b review gate",
+        )
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(
+            _extract_preload_var(result.stdout, "RUN_FULL_CODE_REVIEW"),
+            "story-close preload must not emit RUN_FULL_CODE_REVIEW",
+        )
+
     def test_does_not_emit_close_started_event(self):
         # Inverse-pin: story-close has no Step 4 security review, so its
         # preload MUST NOT emit a close_started event. Sourced by
@@ -511,6 +538,14 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
 
 class TestSprintClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
+
+    def test_emits_run_full_code_review_flag(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(
+            _extract_preload_var(result.stdout, "RUN_FULL_CODE_REVIEW"),
+            "sprint-close preload must emit RUN_FULL_CODE_REVIEW for Step 4b",
+        )
 
     def test_emits_close_started_event_sprint(self):
         result = self._preload()
@@ -538,6 +573,14 @@ class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTest
 
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-plan-close" / "scripts" / "preload.sh"
 
+    def test_emits_run_full_code_review_flag(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(
+            _extract_preload_var(result.stdout, "RUN_FULL_CODE_REVIEW"),
+            "plan-close preload must emit RUN_FULL_CODE_REVIEW for Step 4b",
+        )
+
     def test_emits_close_started_event_plan(self):
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -563,6 +606,14 @@ class TestFreeClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTest
     """
 
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh"
+
+    def test_emits_run_full_code_review_flag(self):
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(
+            _extract_preload_var(result.stdout, "RUN_FULL_CODE_REVIEW"),
+            "free-close preload must emit RUN_FULL_CODE_REVIEW for Step 4b",
+        )
 
     def test_emits_close_started_event_free(self):
         result = self._preload()

@@ -55,14 +55,15 @@ class TestStoryCloseCadenceProse(unittest.TestCase):
         cls.body = _SKILL_MD.read_text()
 
     def test_skill_has_4_5a_and_4_5b(self):
-        """AC#3: 4.5a/4.5b routed by REVIEW_PATH; 4.5b runs the full cycle."""
+        """AC#3: 4.5a/4.5b routed by REVIEW_PATH; 4.5b runs /xp-quality-review."""
         self.assertIn("Step 4.5a", self.body)
         self.assertIn("Step 4.5b", self.body)
         self.assertIn("REVIEW_PATH=close-reviewer", self.body)
         self.assertIn("REVIEW_PATH=full-cycle", self.body)
-        # 4.5b runs the relocated full review cycle.
-        self.assertIn("/code-review", self.body)
+        # 4.5b runs /xp-quality-review only — the per-story workflow /code-review
+        # was removed (role lever); the full /code-review runs at sprint close.
         self.assertIn("/xp-quality-review", self.body)
+        self.assertNotIn("/code-review", self.body)
 
     def test_retains_domain_drift_surface(self):
         """AC#3: the deterministic file_domain drift surface (Step 1b) stays."""

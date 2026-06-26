@@ -17,6 +17,11 @@ echo "CURRENT_BRANCH=${CURRENT_BRANCH}"
 echo "TARGET_BRANCH=${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
+# Threshold-gated full code review (shared Step 4b): emit CLOSE_CODE_FILE_COUNT
+# + RUN_FULL_CODE_REVIEW for the cumulative close diff. Story-close omits this.
+python3 "${PLUGIN_ROOT}/scripts/close_common.py" close-review-gate \
+    --cwd . --target "${TARGET_BRANCH}" 2>/dev/null \
+    || echo "RUN_FULL_CODE_REVIEW=false"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 echo "CLOSE_START_TS=$(now_iso)"
