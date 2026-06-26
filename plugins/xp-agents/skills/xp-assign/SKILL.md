@@ -78,13 +78,19 @@ entry) to `/tmp/prompt-step-N.txt`. The teammate has no prior context. Include:
 
 ### 2. Spawn Teammates
 
-Launch each via Bash with `run_in_background`, passing `--story-id story-NNN` and
-`--branch <story-branch>`:
+Launch each via Bash with `run_in_background`, passing `--story-id story-NNN`,
+`--branch <story-branch>`, and `--plugin-dir ${CLAUDE_PLUGIN_ROOT}`. The
+`--plugin-dir` is **required**: a headless `claude -p` worktree session does not
+apply the project-scoped marketplace enablement, so without it the teammate
+loads none of the xp-agents skills, agents, or hooks (no TDD/review/commit gates,
+no SMM event recording). `${CLAUDE_PLUGIN_ROOT}` resolves to the lead's live
+plugin dir, so the teammate runs the same plugin version as the lead.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name worktree-story-NNN \
   --smm-dir ${SMM_DIR} --prompt-file /tmp/prompt-step-N.txt \
-  --story-id story-NNN --branch <story-branch> 2>&1 \
+  --story-id story-NNN --branch <story-branch> \
+  --plugin-dir ${CLAUDE_PLUGIN_ROOT} 2>&1 \
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id worktree-story-NNN
 ```

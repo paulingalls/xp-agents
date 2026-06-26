@@ -377,6 +377,31 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         self.assertFalse(cycle["simplify_done"])
         self.assertFalse(cycle["quality_review_done"])
 
+    def test_worktree_cwd_scopes_review_flag(self):
+        """SubagentStop in a teammate worktree scopes the flag to that
+        teammate, not 'main'."""
+        subagent_stop.run(
+            self._stop_input(
+                "task-1",
+                agent_type="code-review",
+                cwd="/proj/.claude/worktrees/teammate-story-001",
+            ),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "teammate-story-001")
+        self.assertTrue(cycle["simplify_done"])
+
+    def test_null_cwd_does_not_raise_and_falls_back_to_main(self):
+        """An explicit `"cwd": null` SubagentStop payload must not raise
+        (.get('cwd', '') returns None, not ''); the flag falls back to
+        'main' so the hook still records and arms the review flag."""
+        subagent_stop.run(
+            self._stop_input("task-1", agent_type="code-review", cwd=None),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertTrue(cycle["simplify_done"])
+
 
 class TestPlanReviewerSetsAssignPending(_HookTestCase):
     """SubagentStop for xp-plan-reviewer sets .assign-pending — but only in

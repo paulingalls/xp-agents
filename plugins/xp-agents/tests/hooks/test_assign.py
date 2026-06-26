@@ -195,6 +195,14 @@ class TestSkillMdCliSpawning(unittest.TestCase):
         """No Agent tool with xp-teammate subagent_type."""
         self.assertNotIn('subagent_type: "xp-teammate"', self.content)
 
+    def test_spawn_passes_plugin_dir(self):
+        """Spawn command passes --plugin-dir ${CLAUDE_PLUGIN_ROOT}. Without it
+        the headless worktree teammate loads none of the xp-agents skills,
+        agents, or hooks (project-scoped marketplace enablement is not applied
+        in that session), silently dropping the entire review/commit gate
+        lifecycle the CLI-teammate design depends on."""
+        self.assertIn("--plugin-dir ${CLAUDE_PLUGIN_ROOT}", self.content)
+
 
 class TestSkillMdNarrowedToTeammate(unittest.TestCase):
     """story-003: xp-assign narrowed to parallel-only. The decide-half (mode

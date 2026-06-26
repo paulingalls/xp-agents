@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Tests for spawn_teammate.py — CLI teammate launcher.
 
-Covers: build_command, --story-id / --branch / --name argv plumbing,
-worktree cleanup, story-assignment env wiring, mechanical promote on
-clean exit, and the no-sys.path.insert guard. Prompt + stdout pipeline
-tests live in test_spawn_teammate_pipeline.py; liveness watchdog tests
-live in test_spawn_teammate_watchdog.py.
+Covers: build_command flag shape, --name pass-through, worktree cleanup,
+story-assignment env wiring, mechanical promote on clean exit, and the
+no-sys.path.insert guard. CLI argument plumbing (--story-id / --branch /
+--model / --plugin-dir parse_args + flow-through) lives in
+test_spawn_teammate_args.py; prompt + stdout pipeline tests live in
+test_spawn_teammate_pipeline.py; liveness watchdog tests live in
+test_spawn_teammate_watchdog.py.
 """
 
 import subprocess
@@ -50,12 +52,26 @@ class TestBuildCommand(unittest.TestCase):
         for tool in ("Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"):
             self.assertIn(tool, tools)
 
-    def test_no_plugin_dir_flag(self):
-        """Command does not include --plugin-dir (teammate inherits via SMM_DIR env)."""
+    def test_omits_plugin_dir_when_not_provided(self):
+        """No --plugin-dir when none is passed."""
         import spawn_teammate
 
         cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertNotIn("--plugin-dir", cmd)
+
+    def test_includes_plugin_dir_when_provided(self):
+        """--plugin-dir <path> is appended when given, so the headless
+        teammate session loads the xp-agents plugin (and its skills, agents,
+        and hooks). Without it the worktree session loads none of them —
+        project-scoped marketplace enablement is not applied there."""
+        import spawn_teammate
+
+        cmd = spawn_teammate.build_command(
+            name="teammate-step-1", plugin_dir="/plugins/xp-agents"
+        )
+        self.assertIn("--plugin-dir", cmd)
+        idx = cmd.index("--plugin-dir")
+        self.assertEqual(cmd[idx + 1], "/plugins/xp-agents")
 
     def test_no_input_file_flag(self):
         """Command does not include --input-file (prompt piped via stdin)."""
@@ -75,67 +91,23 @@ class TestBuildCommand(unittest.TestCase):
         cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertIn("--include-partial-messages", cmd)
 
-
-class TestStoryIdArg(unittest.TestCase):
-    """--story-id CLI arg for story attribution."""
-
-    def test_story_id_optional(self):
-        """--story-id defaults to None when not provided."""
+    def test_omits_model_flag_when_not_provided(self):
+        """No --model flag when model is None — teammate inherits the
+        claude -p default model."""
         import spawn_teammate
 
-        args = spawn_teammate.parse_args(
-            ["--name", "t1", "--smm-dir", "/smm", "--prompt-file", "/p.txt"]
-        )
-        self.assertIsNone(args.story_id)
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
+        self.assertNotIn("--model", cmd)
 
-    def test_story_id_accepted(self):
-        """--story-id is accepted and stored."""
+    def test_includes_model_flag_when_provided(self):
+        """--model <name> is appended when a model is passed, so a delegated
+        teammate can run on a chosen tier (e.g. sonnet)."""
         import spawn_teammate
 
-        args = spawn_teammate.parse_args(
-            [
-                "--name",
-                "t1",
-                "--smm-dir",
-                "/smm",
-                "--prompt-file",
-                "/p.txt",
-                "--story-id",
-                "story-001",
-            ]
-        )
-        self.assertEqual(args.story_id, "story-001")
-
-
-class TestBranchArg(unittest.TestCase):
-    """--branch CLI arg for story branch checkout."""
-
-    def test_branch_arg_optional(self):
-        """--branch defaults to None when not provided."""
-        import spawn_teammate
-
-        args = spawn_teammate.parse_args(
-            ["--name", "t1", "--smm-dir", "/smm", "--prompt-file", "/p.txt"]
-        )
-        self.assertIsNone(args.branch)
-
-    def test_branch_arg_accepted(self):
-        """--branch is accepted and stored."""
-        import spawn_teammate
-
-        args = spawn_teammate.parse_args(
-            [
-                "--name",
-                "t1",
-                "--smm-dir",
-                "/smm",
-                "--prompt-file",
-                "/p.txt",
-                "--branch",
-                "paulingalls/story-001-schema-store",
-            ]
-        )
-        self.assertEqual(args.branch, "paulingalls/story-001-schema-store")
+        cmd = spawn_teammate.build_command(name="teammate-step-1", model="sonnet")
+        self.assertIn("--model", cmd)
+        idx = cmd.index("--model")
+        self.assertEqual(cmd[idx + 1], "sonnet")
 
 
 class TestStoryAssignmentFile(_IntegrationTestCase):

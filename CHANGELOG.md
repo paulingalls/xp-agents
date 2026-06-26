@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.11.0 — teammates load the plugin (`--plugin-dir`) + spawn model selection
+
+- **Spawned CLI teammates now load the xp-agents plugin.** A headless `claude -p`
+  worktree session does not apply project-scoped marketplace enablement, so
+  teammates were running with **zero** xp-agents skills, agents, or hooks — no
+  TDD/review/commit gates and no SMM event recording. The "full hook lifecycle"
+  the CLI-teammate design depends on was silently absent (and the likely root
+  cause of the teammate commit-recording gap). `/xp-assign` now passes
+  `--plugin-dir ${CLAUDE_PLUGIN_ROOT}` to `spawn_teammate.py`, loading the same
+  plugin version the lead runs. Verified empirically: an identical worktree
+  session with `--plugin-dir` loads the plugin + 18 skills + all xp agents +
+  hooks, where without it none load. As a safety net, `spawn_teammate.py`
+  self-resolves `--plugin-dir` from `CLAUDE_PLUGIN_ROOT` when the flag is
+  omitted, so a caller that forgets it can't silently re-spawn a plugin-less
+  (ungated) teammate.
+- **`spawn_teammate.py` gains an optional `--model` flag.** Threads `--model`
+  into the teammate's `claude -p` command so a teammate can run on a chosen tier
+  (e.g. `sonnet`); omitted by default (inherits the `claude -p` default).
+- **SubagentStop review flags scope to the resolving teammate.**
+  `subagent_stop._update_review_cycle_flags` wrote `simplify_done` /
+  `quality_review_done` under a hardcoded `"main"`, disagreeing with the
+  per-skill writer (`review_cycle_done`) that scopes by resolved agent id — a
+  latent split-brain in teammate worktrees. It now resolves the id from the
+  worktree cwd (`resolve_agent_id_from_cwd`), falling back to `"main"` when no
+  cwd is present (zero regression on the no-cwd path).
+
 ## v3.10.0 — per-increment review drops the workflow /code-review (cost lever)
 
 - **The expensive multi-agent `/code-review` workflow no longer runs per commit
