@@ -12,7 +12,8 @@ Usage:
         --prompt-file /tmp/prompt.txt \
         [--story-id story-001] \
         [--branch paulingalls/story-001-foo] \
-        [--model sonnet]
+        [--model sonnet] \
+        [--plugin-dir /path/to/plugins/xp-agents]
 """
 
 import argparse
@@ -72,12 +73,20 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
 _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 
-def build_command(name: str, model: str | None = None) -> list[str]:
+def build_command(
+    name: str, model: str | None = None, plugin_dir: str | None = None
+) -> list[str]:
     """Construct the claude -p command for a teammate.
 
     Prompt is piped via stdin, not passed as a CLI flag. When *model* is
     given, a --model flag selects the teammate's tier (e.g. sonnet for a
     delegated solo teammate); otherwise the claude -p default is inherited.
+
+    When *plugin_dir* is given, a --plugin-dir flag loads that plugin into the
+    headless teammate session. This is REQUIRED for the teammate to get the
+    xp-agents skills, agents, and hooks: a worktree `claude -p` session does
+    not apply the project-scoped marketplace enablement, so without
+    --plugin-dir the plugin (and its full hook lifecycle) never loads.
     """
     cmd = [
         "claude",
@@ -94,6 +103,8 @@ def build_command(name: str, model: str | None = None) -> list[str]:
     ]
     if model is not None:
         cmd += ["--model", model]
+    if plugin_dir is not None:
+        cmd += ["--plugin-dir", plugin_dir]
     return cmd
 
 
@@ -320,6 +331,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--story-id", default=None)
     parser.add_argument("--branch", default=None)
     parser.add_argument("--model", default=None)
+    parser.add_argument("--plugin-dir", default=None)
     return parser.parse_args(argv)
 
 
@@ -330,7 +342,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cwd = os.getcwd()
     wt_path = create_worktree(name, cwd, branch=args.branch)
-    cmd = build_command(name, args.model)
+    cmd = build_command(name, args.model, args.plugin_dir)
 
     write_story_assignment(Path(args.smm_dir), name, args.story_id)
 

@@ -50,12 +50,26 @@ class TestBuildCommand(unittest.TestCase):
         for tool in ("Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"):
             self.assertIn(tool, tools)
 
-    def test_no_plugin_dir_flag(self):
-        """Command does not include --plugin-dir (teammate inherits via SMM_DIR env)."""
+    def test_omits_plugin_dir_when_not_provided(self):
+        """No --plugin-dir when none is passed."""
         import spawn_teammate
 
         cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertNotIn("--plugin-dir", cmd)
+
+    def test_includes_plugin_dir_when_provided(self):
+        """--plugin-dir <path> is appended when given, so the headless
+        teammate session loads the xp-agents plugin (and its skills, agents,
+        and hooks). Without it the worktree session loads none of them —
+        project-scoped marketplace enablement is not applied there."""
+        import spawn_teammate
+
+        cmd = spawn_teammate.build_command(
+            name="teammate-step-1", plugin_dir="/plugins/xp-agents"
+        )
+        self.assertIn("--plugin-dir", cmd)
+        idx = cmd.index("--plugin-dir")
+        self.assertEqual(cmd[idx + 1], "/plugins/xp-agents")
 
     def test_no_input_file_flag(self):
         """Command does not include --input-file (prompt piped via stdin)."""
@@ -222,6 +236,76 @@ class TestModelArg(unittest.TestCase):
             cmd = captured_cmd["value"]
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+
+class TestPluginDirArg(unittest.TestCase):
+    """--plugin-dir CLI arg loads the plugin into the teammate session."""
+
+    def test_plugin_dir_optional(self):
+        """--plugin-dir defaults to None when not provided."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            ["--name", "t1", "--smm-dir", "/smm", "--prompt-file", "/p.txt"]
+        )
+        self.assertIsNone(args.plugin_dir)
+
+    def test_plugin_dir_accepted(self):
+        """--plugin-dir is accepted and stored."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            [
+                "--name",
+                "t1",
+                "--smm-dir",
+                "/smm",
+                "--prompt-file",
+                "/p.txt",
+                "--plugin-dir",
+                "/plugins/xp-agents",
+            ]
+        )
+        self.assertEqual(args.plugin_dir, "/plugins/xp-agents")
+
+    def test_plugin_dir_flows_through_main_to_command(self):
+        """--plugin-dir passed to main() reaches the claude -p argv."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        captured_cmd = {}
+
+        def capture_run(cmd, *args, **kwargs):
+            captured_cmd["value"] = cmd
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_run),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-001",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                        "--plugin-dir",
+                        "/plugins/xp-agents",
+                    ]
+                )
+            cmd = captured_cmd["value"]
+            self.assertIn("--plugin-dir", cmd)
+            self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/plugins/xp-agents")
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
