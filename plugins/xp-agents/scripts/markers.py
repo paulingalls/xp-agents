@@ -185,6 +185,28 @@ def set_review_flag(
     write_review_cycle(smm_dir, agent_id, data)
 
 
+def review_mid_cycle(smm_dir: Path, agent_id: str) -> bool:
+    """True when a review cycle is mid-flight for ``agent_id``.
+
+    Mid-cycle = /code-review (or /simplify) has set ``simplify_done`` but
+    /xp-quality-review has not yet set ``quality_review_done``. This is the
+    single source of truth for both Stop gates that must defer while a review
+    is in flight:
+
+    - sprint_stop_gate defers the accept/review nudge mid-cycle.
+    - close_cycle_stop_gate defers the close-reviewer nudge during the
+      close /code-review's async Step 4b window.
+
+    Load-bearing invariant: a standalone self-find review sets
+    ``quality_review_done`` WITHOUT ``simplify_done`` — that is a COMPLETED
+    review, not mid-cycle, so it returns False. The old ``any and not all``
+    heuristic wrongly treated it as mid-cycle; keeping the predicate here
+    means that invariant lives in exactly one place.
+    """
+    cycle = read_review_cycle(smm_dir, agent_id)
+    return bool(cycle.get("simplify_done")) and not cycle.get("quality_review_done")
+
+
 # ---------------------------------------------------------------------------
 # Review cadence convenience functions (session-scoped: commit | story)
 # ---------------------------------------------------------------------------
