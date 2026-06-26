@@ -304,13 +304,12 @@ For cascaded deferrals, include the cascade reason (e.g., "deferred: depends on 
 ## Step 6: Summary
 
 Present: how many stories marked done, how many deferred (per-story
-teammate-worktree cleanup is owned by /xp-story-close Step 2). The
-per-story loop is done — run the terminal handoff:
+teammate-worktree cleanup is owned by /xp-story-close Step 2).
 
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py --smm-dir <SMM_DIR> \
-  consume ACCEPT_IN_FLIGHT
-```
+The `ACCEPT_IN_FLIGHT` suppression marker is consumed by the sprint stop
+gate itself — state-derived, once the accept loop drains (no
+reviewing/closing/in-progress stories remain). No prose consume step is
+needed; the SessionStart sweep is the abandonment backstop.
 
 ## Step 7: Sprint Review
 
