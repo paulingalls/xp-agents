@@ -13,7 +13,7 @@ Take small steps. Don't try to implement everything at once.
 
 ## Review Cycle
 
-Before each commit: `/code-review` (identify-only correctness scan) → `/xp-quality-review` (reuse, quality, efficiency, courage, drift, debt) → `git commit` (pre-commit hooks enforce tests + format).
+Before each commit: `/xp-quality-review` → `git commit` (pre-commit hooks enforce tests + format). `/xp-quality-review` spawns the independent `xp-code-reviewer`, which self-finds correctness plus reuse, quality, efficiency, courage, drift, and debt. The broad multi-agent `/code-review` workflow is not per-commit — it runs once at sprint close.
 
 Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff. There is no on-demand triage skill.
 

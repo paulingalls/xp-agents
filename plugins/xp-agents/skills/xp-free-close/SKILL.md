@@ -66,8 +66,7 @@ Apply the shared `### Step 4: Security Review` block above with `<close-mode>` â
 
 ## Step 4b: Apply shared Full Code Review (conditional)
 
-Apply the shared `### Step 4b: Full code review (conditional)` block above â€”
-run it only when the preload emitted `RUN_FULL_CODE_REVIEW=true`; skip otherwise.
+Apply the shared `### Step 4b: Full code review (conditional)` block above.
 
 ## Step 4.5: Fork the close-reviewer
 

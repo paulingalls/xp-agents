@@ -4,7 +4,7 @@
 
 - **Communication**: Share *why*, not just *what*. Answer open questions promptly.
 - **Simplicity**: Simplest thing that works. Deliver what was asked before adding extras.
-- **Feedback**: Fix what `/code-review` or `/xp-quality-review` flags. Tests are production code.
+- **Feedback**: Fix what `/xp-quality-review` flags. Tests are production code.
 - **Courage**: Make the tough call. Use the better way; flag the old with a concern.
 - **Honesty**: Record decisions, assumptions, and concerns in the SMM. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes`.
 
@@ -38,7 +38,7 @@ Three link types close events and risk pillar items:
 
 **Plan cycle:** `/xp-schedule` → `EnterPlanMode` → `ExitPlanMode` → `/xp-review-plan` → (teammate only) `/xp-assign` → execute. Multi-file changes (3+ files). State-derived gates: the schedule gate (pre-promotion window) blocks writes + plan-entry until `/xp-schedule` promotes; `.plan-awaiting-review` until reviewed; `.assign-pending` until assigned (teammate-mode plans only).
 
-**Per commit (cadence set at kickoff):** *commit* — `/code-review` → `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers (advisory); full review runs at `/xp-story-close` Step 4.5b. Deterministic patterns scan staged diffs; LLM `/security-review` at `/xp-{free,sprint,plan}-close` Step 4.
+**Per commit (cadence set at kickoff):** *commit* — `/xp-quality-review` → `git commit`, gate blocks if skipped. *story* — gate defers; review at `/xp-story-close` Step 4.5b. At `/xp-{free,sprint,plan}-close`: threshold-gated `/code-review` (Step 4b) + LLM `/security-review` (Step 4). Deterministic patterns scan staged diffs.
 
 **Sprint flow:** `/xp-plan` → `/xp-sprint-start` → `/xp-schedule` → plan → `/xp-review-plan` → (teammate) `/xp-assign` → implement → `/xp-accept` → `/xp-sprint-review` → `/xp-sprint-close`. Story lifecycle: `ready` → `scheduled` → `in-progress` → `reviewing` → `closing` (Step 1.5 singleton lock) → `done`/`deferred`; AC-fail reverts to `in-progress`. `/xp-schedule` (kickoff tail + `/xp-accept` post-loop) solely owns promotion + `execution_mode`; `/xp-story-close` merges + cleans up only. Stop gate fires on in-motion stories.
 

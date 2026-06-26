@@ -26,7 +26,7 @@ Read before reviewing: `PLAN_FILE` (the plan), `SMM_FILE` (Constraints/Risks for
 
 **2a. Tests Before Implementation** — Verify test files appear before implementation in plan ordering. "Implement X, then write tests for X" → flag. Tests come first.
 
-**2b. Commit Cadence** — Each green phase needs a commit step. Multiple red/green cycles without a commit between them → flag. Commits trigger the review cycle (/code-review, /xp-quality-review); skipping commits skips quality checks.
+**2b. Commit Cadence** — Each green phase needs a commit step. Multiple red/green cycles without a commit between them → flag. Commits trigger the per-increment review (/xp-quality-review, which self-finds correctness); skipping commits skips quality checks.
 
 ### 3. Milestone Boundaries
 - Each milestone completes before moving to the next. Flag any scope creep beyond the current milestone's acceptance criteria.

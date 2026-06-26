@@ -95,7 +95,7 @@ Tell the user which branch is in use. Then jump to Step 5.
 
 **Review cadence (opt-in).** Ask the user via AskUserQuestion: **"Review cadence: per-commit or per-story?"**
 
-- **commit** (default) — the full review cycle (`/code-review` → `/xp-quality-review`) runs before every commit.
+- **commit** (default) — `/xp-quality-review` runs before every commit (its xp-code-reviewer self-finds correctness).
 - **story** — review relocates to `/xp-story-close` (the merge); intermediate commits proceed with a one-line deferral advisory. Nothing reaches the sprint base unreviewed.
 
 Only when the user chooses **story**, write the cadence marker (the careful `commit` default needs no write — session-start already reset it):
