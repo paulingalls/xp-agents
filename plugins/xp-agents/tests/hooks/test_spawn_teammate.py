@@ -75,6 +75,24 @@ class TestBuildCommand(unittest.TestCase):
         cmd = spawn_teammate.build_command(name="teammate-step-1")
         self.assertIn("--include-partial-messages", cmd)
 
+    def test_omits_model_flag_when_not_provided(self):
+        """No --model flag when model is None — teammate inherits the
+        claude -p default model."""
+        import spawn_teammate
+
+        cmd = spawn_teammate.build_command(name="teammate-step-1")
+        self.assertNotIn("--model", cmd)
+
+    def test_includes_model_flag_when_provided(self):
+        """--model <name> is appended when a model is passed, so a delegated
+        teammate can run on a chosen tier (e.g. sonnet)."""
+        import spawn_teammate
+
+        cmd = spawn_teammate.build_command(name="teammate-step-1", model="sonnet")
+        self.assertIn("--model", cmd)
+        idx = cmd.index("--model")
+        self.assertEqual(cmd[idx + 1], "sonnet")
+
 
 class TestStoryIdArg(unittest.TestCase):
     """--story-id CLI arg for story attribution."""
@@ -136,6 +154,76 @@ class TestBranchArg(unittest.TestCase):
             ]
         )
         self.assertEqual(args.branch, "paulingalls/story-001-schema-store")
+
+
+class TestModelArg(unittest.TestCase):
+    """--model CLI arg selects the teammate's claude -p model tier."""
+
+    def test_model_arg_optional(self):
+        """--model defaults to None when not provided."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            ["--name", "t1", "--smm-dir", "/smm", "--prompt-file", "/p.txt"]
+        )
+        self.assertIsNone(args.model)
+
+    def test_model_arg_accepted(self):
+        """--model is accepted and stored."""
+        import spawn_teammate
+
+        args = spawn_teammate.parse_args(
+            [
+                "--name",
+                "t1",
+                "--smm-dir",
+                "/smm",
+                "--prompt-file",
+                "/p.txt",
+                "--model",
+                "sonnet",
+            ]
+        )
+        self.assertEqual(args.model, "sonnet")
+
+    def test_model_flows_through_main_to_command(self):
+        """--model passed to main() reaches the claude -p argv via build_command."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        captured_cmd = {}
+
+        def capture_run(cmd, *args, **kwargs):
+            captured_cmd["value"] = cmd
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_run),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-001",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                        "--model",
+                        "sonnet",
+                    ]
+                )
+            cmd = captured_cmd["value"]
+            self.assertIn("--model", cmd)
+            self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
 
 
 class TestStoryAssignmentFile(_IntegrationTestCase):

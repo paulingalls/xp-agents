@@ -11,7 +11,8 @@ Usage:
         --smm-dir /path/to/smm \
         --prompt-file /tmp/prompt.txt \
         [--story-id story-001] \
-        [--branch paulingalls/story-001-foo]
+        [--branch paulingalls/story-001-foo] \
+        [--model sonnet]
 """
 
 import argparse
@@ -71,12 +72,14 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
 _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 
-def build_command(name: str) -> list[str]:
+def build_command(name: str, model: str | None = None) -> list[str]:
     """Construct the claude -p command for a teammate.
 
-    Prompt is piped via stdin, not passed as a CLI flag.
+    Prompt is piped via stdin, not passed as a CLI flag. When *model* is
+    given, a --model flag selects the teammate's tier (e.g. sonnet for a
+    delegated solo teammate); otherwise the claude -p default is inherited.
     """
-    return [
+    cmd = [
         "claude",
         "-p",
         "--name",
@@ -89,6 +92,9 @@ def build_command(name: str) -> list[str]:
         "--include-partial-messages",
         "--verbose",
     ]
+    if model is not None:
+        cmd += ["--model", model]
+    return cmd
 
 
 def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> None:
@@ -313,6 +319,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--story-id", default=None)
     parser.add_argument("--branch", default=None)
+    parser.add_argument("--model", default=None)
     return parser.parse_args(argv)
 
 
@@ -323,7 +330,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cwd = os.getcwd()
     wt_path = create_worktree(name, cwd, branch=args.branch)
-    cmd = build_command(name)
+    cmd = build_command(name, args.model)
 
     write_story_assignment(Path(args.smm_dir), name, args.story_id)
 
