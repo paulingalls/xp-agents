@@ -41,8 +41,9 @@ consume_marker ACCEPT
 # story to `reviewing` before tests run, so the stop gate would otherwise
 # tell the agent to "run /xp-accept" while it is already inside this skill
 # (notably while awaiting background acceptance tests). sprint_stop_gate
-# defers on this marker; the SKILL consumes it at its terminal handoff, and
-# the SessionStart sweep clears it if accept is abandoned mid-flight.
+# defers on this marker; the gate consumes it itself (state-derived, once the
+# accept loop drains — no SKILL prose step), and the SessionStart sweep clears
+# it if accept is abandoned mid-flight.
 write_marker ACCEPT_IN_FLIGHT "1"
 
 echo "### STORIES_TO_ACCEPT"

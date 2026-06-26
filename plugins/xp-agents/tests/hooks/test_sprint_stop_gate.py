@@ -448,6 +448,86 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestSprintStopGateAcceptInFlightConsume(_HookTestCase):
+    """State-derived consume of ACCEPT_IN_FLIGHT in the Stop gate.
+
+    The marker is armed by /xp-accept's preload and suppresses the accept
+    gate while the skill runs. The consume is hook-driven (here), not a SKILL
+    prose step: once the accept loop has drained — no under-acceptance
+    (reviewing/closing) stories AND no in-progress stories — the gate consumes
+    the marker and falls through to normal evaluation. A skipped prose step can
+    no longer leak the marker.
+    """
+
+    def test_consumed_when_accept_loop_drained(self):
+        """Armed + no under-acceptance + no in-progress (sprint complete) →
+        consume the marker, then fall through to the sprint-review gate."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_COMPLETE_WITH_ID)
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+        # Marker consumed by the hook (not deferred on) ...
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+        # ... and the gate falls through to normal eval (sprint-review nudge).
+        result = self._assert_not_none(result)
+        self.assertIn("xp-sprint-review", result)
+
+    def test_kept_with_reviewing_story(self):
+        """Armed + a reviewing story → accept still in flight: defer, KEEP."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+        self.assertIsNone(result)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_kept_with_closing_story(self):
+        """Armed + a closing story (no reviewing) → still mid-accept: defer,
+        KEEP. The closing-window case `has_reviewing_stories` would have broken
+        (reviewing count is 0 while the story is still closing) — the
+        under-acceptance signal covers it."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+        self.assertIsNone(result)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_kept_in_post_arm_pre_promotion_window(self):
+        """The narrow window after preload arms the marker but BEFORE Step 1.0
+        promotes the first story to `reviewing`: armed + zero under-acceptance
+        + an in-progress story (carrying the `.accept` marker from earlier
+        implementation Edits). The consume must NOT fire — accept has not
+        demonstrably progressed — and the gate must NOT re-expose "run
+        /xp-accept" while the skill is already running it. Empty cwd makes
+        `_in_progress_has_work` return True (fire path), so this also proves
+        no premature re-exposure."""
+        import markers
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+        # Suppressed (no re-exposure) and marker KEPT (accept still pre-promotion).
+        self.assertIsNone(result)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+
 class TestSprintStopGateCommitsAheadRefinement(_HookTestCase):
     """In-progress + ACCEPT marker only fires when the story branch has
     commits ahead of base — otherwise /xp-accept would verify an empty

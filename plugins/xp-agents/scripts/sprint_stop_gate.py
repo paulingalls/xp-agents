@@ -56,11 +56,12 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # Mid-AskUserQuestion dialogue — cheapest check, most common interactive hit
     if markers.marker_exists(smm_dir, markers.ASKING_USER):
         return True
-    # Mid-/xp-accept: the skill arms ACCEPT_IN_FLIGHT at preload and consumes
-    # it at its terminal handoff. While armed, suppress the accept gate so it
-    # never tells the agent to run the skill it is already inside (e.g. while
-    # awaiting background acceptance tests). A leak self-heals via the
-    # SessionStart stale-marker sweep.
+    # Mid-/xp-accept: the skill arms ACCEPT_IN_FLIGHT at preload. While armed,
+    # suppress the accept gate so it never tells the agent to run the skill it
+    # is already inside (e.g. while awaiting background acceptance tests). The
+    # consume is hook-driven and state-derived (`_consume_drained_accept_in_flight`
+    # in run() clears it once the accept loop drains); the SessionStart sweep is
+    # the abandonment backstop.
     if markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):
         return True
     # Defer only while a close-cycle review is mid-flight: /code-review has set
@@ -146,6 +147,32 @@ def _compute_block_message(smm_dir: Path, sprint_data: dict, cwd: str) -> str | 
     return None
 
 
+def _consume_drained_accept_in_flight(smm_dir: Path, sprint_data: dict) -> None:
+    """Hook-driven, state-derived consume of the ACCEPT_IN_FLIGHT marker.
+
+    /xp-accept's preload arms the marker and the gate suppresses the accept
+    nudge while it is set (see `_deferred`). The consume is owned here — not a
+    SKILL prose step — so a skipped Step 6 can never leak it.
+
+    Consume once the accept loop has demonstrably drained: no UNDER_ACCEPTANCE
+    story (reviewing OR closing) AND no in-progress story remains. The
+    under-acceptance signal (not `has_reviewing_stories`) keeps the marker
+    through the `closing` window where the solo single-story reviewing count
+    is already 0. The extra no-in-progress guard handles the post-arm /
+    pre-promotion window (armed + zero under-acceptance + the first story still
+    in-progress): consuming there would re-expose the accept gate at the very
+    start of the skill. While either remains, accept is still in flight — keep
+    the marker. The SessionStart sweep remains the abandonment backstop.
+    """
+    if not markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):
+        return
+    if has_under_acceptance_stories_data(sprint_data):
+        return
+    if has_in_progress_stories_data(sprint_data):
+        return
+    markers.marker_consume(smm_dir, markers.ACCEPT_IN_FLIGHT)
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Return block message for the first triggered cascade step, or None."""
     if _common.is_xp_agent(input_data):
@@ -160,6 +187,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     sprint_data = sprint_state.read_sprint_content(smm_dir)
     if sprint_data is None:
         return None
+
+    _consume_drained_accept_in_flight(smm_dir, sprint_data)
 
     cwd = input_data.get("cwd", "") or ""
     block_message = _compute_block_message(smm_dir, sprint_data, cwd)
