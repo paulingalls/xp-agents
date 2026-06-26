@@ -1,8 +1,8 @@
 ## Shared close-pipeline reference
 
-Apply Steps 4 → 6 below in order after the close skill's Step 3 (PR
+Apply Steps 4 → 4b → 6 below in order after the close skill's Step 3 (PR
 creation), then continue with the close skill's mode-specific tail
-(Step 7+). Story-close skips Step 4.
+(Step 7+). Story-close skips Steps 4 and 4b.
 
 ### Step 4: Security Review
 
@@ -39,6 +39,23 @@ result is invisible to them. Step 4 findings bypass Step 5c (the
 classifier scopes to close-reviewer findings only) and flow directly
 to the Step 6 count. Do NOT pass them to xp-close-reviewer in Step
 4.5 — clean separation. Quality and security are independent streams.
+
+### Step 4b: Full code review (conditional)
+
+Run only when the preload emitted `RUN_FULL_CODE_REVIEW=true` (cumulative close
+diff ≥ `REVIEW_CYCLE_THRESHOLD` code files); skip otherwise — story-close and
+below-threshold closes never set it. This is the one broad multi-agent
+correctness pass over the whole close diff (per-increment used self-find). Run:
+
+```
+Skill(skill: "code-review", args: "high <TARGET_BRANCH>...HEAD")
+Skill(skill: "xp-quality-review")
+```
+
+`/code-review` identifies (fixes nothing); the `/xp-quality-review` that follows
+sees `MODE=consume-findings` and spawns xp-code-reviewer to validate & fix, plus
+quality/drift/debt. Fix inline or record as debt. Like Step 4, handled here —
+not Step 5c.
 
 ### Step 5: Present findings
 

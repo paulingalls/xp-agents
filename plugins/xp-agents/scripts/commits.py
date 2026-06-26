@@ -331,6 +331,24 @@ def get_code_files_for_review(
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
 
 
+def get_code_files_in_range(cwd: str, base: str) -> list[str]:
+    """Code files changed in ``base...HEAD`` (merge-base diff).
+
+    Used by the close pipeline to size the cumulative close diff and decide
+    whether the broad workflow /code-review is worth running. Returns an empty
+    list on git failure (no base, detached, etc.) so callers fail safe to
+    "don't run the expensive review".
+    """
+    out = _run_git(["git", "diff", "--name-only", f"{base}...HEAD"], cwd)
+    if out is None:
+        return []
+    return [
+        f.strip()
+        for f in out.splitlines()
+        if f.strip() and code_files.is_code_file(f.strip())
+    ]
+
+
 def get_uncommitted_code_files(cwd: str) -> list[str]:
     """Get non-test code files with uncommitted changes (staged + unstaged).
 

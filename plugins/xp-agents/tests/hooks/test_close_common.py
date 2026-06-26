@@ -332,6 +332,52 @@ class TestMerge(unittest.TestCase):
             )
 
 
+class TestCloseReviewGate(unittest.TestCase):
+    """close-review-gate counts code files in target...HEAD and emits the
+    RUN_FULL_CODE_REVIEW threshold flag for the shared Step 4b."""
+
+    def _run_gate(self, td: str) -> str:
+        result = _run(["close-review-gate", "--cwd", td, "--target", "main"], cwd=td)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    def test_two_code_files_runs_full_review(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            _bf.make_commit(td, "feature", "a.py", "x = 1\n", "a")
+            _bf.append_commit(td, "b.py")
+            out = self._run_gate(td)
+            self.assertIn("CLOSE_CODE_FILE_COUNT=2", out)
+            self.assertIn("RUN_FULL_CODE_REVIEW=true", out)
+
+    def test_one_code_file_below_threshold(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            _bf.make_commit(td, "feature", "a.py", "x = 1\n", "a")
+            out = self._run_gate(td)
+            self.assertIn("CLOSE_CODE_FILE_COUNT=1", out)
+            self.assertIn("RUN_FULL_CODE_REVIEW=false", out)
+
+    def test_non_code_files_do_not_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            _bf.make_commit(td, "feature", "README.md", "# doc\n", "docs")
+            _bf.append_commit(td, "NOTES.md")
+            out = self._run_gate(td)
+            self.assertIn("CLOSE_CODE_FILE_COUNT=0", out)
+            self.assertIn("RUN_FULL_CODE_REVIEW=false", out)
+
+    def test_bad_target_fails_safe_to_false(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            result = _run(
+                ["close-review-gate", "--cwd", td, "--target", "no-such-branch"],
+                cwd=td,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RUN_FULL_CODE_REVIEW=false", result.stdout)
+
+
 class TestDiffCommand(unittest.TestCase):
     """diff-command picks gh-pr-diff vs git-diff based on PR_OUTPUT shape.
 

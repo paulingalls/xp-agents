@@ -25,7 +25,7 @@ allowed-tools:
 # Plan Close
 
 > **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 4.5 → 5–6 → 7 → 8
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7 → 8
 > strictly, one step per turn — make the call, observe, then decide the next.
 > Don't batch a step with the one that depends on it (e.g. archiving or merging
 > before the forked xp-close-reviewer returns); never spawn the same subagent
@@ -67,6 +67,11 @@ PR_OUTPUT=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py create-pr \
 
 Apply the shared `### Step 4: Security Review` block above with
 `<close-mode>` → `plan` and `<close-skill-name>` → `xp-plan-close`.
+
+## Step 4b: Apply shared Full Code Review (conditional)
+
+Apply the shared `### Step 4b: Full code review (conditional)` block above —
+run it only when the preload emitted `RUN_FULL_CODE_REVIEW=true`; skip otherwise.
 
 ## Step 4.5: Fork the close-reviewer
 
