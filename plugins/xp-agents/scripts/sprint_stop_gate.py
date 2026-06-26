@@ -64,13 +64,11 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # the abandonment backstop.
     if markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):
         return True
-    # Defer only while a close-cycle review is mid-flight: /code-review has set
-    # simplify_done but /xp-quality-review hasn't set quality_review_done yet.
-    # A standalone self-find review sets quality_review_done WITHOUT
-    # simplify_done — that is a COMPLETED review, not mid-cycle, so it must not
-    # defer (the old `any and not all` heuristic wrongly suppressed the gate).
-    cycle = markers.read_review_cycle(smm_dir, agent_id)
-    if cycle.get("simplify_done") and not cycle.get("quality_review_done"):
+    # Defer only while a review is mid-flight (simplify_done set,
+    # quality_review_done not yet). The predicate — incl. the self-find
+    # invariant — lives in markers.review_mid_cycle, shared with
+    # close_cycle_stop_gate so the rule has one home.
+    if markers.review_mid_cycle(smm_dir, agent_id):
         return True
     if coordination.has_active_teammates(smm_dir, agent_id):
         return True

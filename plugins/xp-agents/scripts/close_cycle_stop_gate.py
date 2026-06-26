@@ -7,8 +7,15 @@ is written by close skills before /security-review runs and consumed by
 subagent_stop.py when xp-close-reviewer completes.
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
-Review-cycle/teammates deferrals are intentionally NOT applied — the
-close cycle wants to block mid-cycle by design.
+Also defers during the close /code-review's async Step 4b window —
+`markers.review_mid_cycle` (simplify_done set when the workflow launched,
+quality_review_done not yet set when /xp-quality-review consumes its
+findings). Pushing xp-close-reviewer there would run Step 4.5 BEFORE the
+background /code-review returns; deferring (return None) lets the agent
+yield and be re-woken by the workflow-completion notification. The
+abandonment path (stop_hook_active bypass below) still fires in that
+window. Teammates deferral is intentionally NOT applied — outside Step 4b
+the close cycle wants to block mid-cycle by design.
 
 stop_hook_active bypass: Claude Code latches `stop_hook_active=True`
 session-wide once any Stop hook returns a `reason` (e.g.,
@@ -120,6 +127,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     if marker_active:
+        # Step 4b window: the close /code-review workflow is in flight
+        # (review mid-cycle). Defer the close-reviewer nudge until the
+        # workflow returns and /xp-quality-review consumes its findings —
+        # same predicate sprint_stop_gate uses, keyed to the gate's
+        # resolved agent_id so the close /code-review's simplify_done
+        # (written under that same key) is read here.
+        agent_id = identity.resolve_agent_id(input_data)
+        if markers.review_mid_cycle(smm_dir, agent_id):
+            return None
         return _BLOCK_MESSAGE
     return None
 

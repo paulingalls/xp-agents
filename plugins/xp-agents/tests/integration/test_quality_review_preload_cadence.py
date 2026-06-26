@@ -97,6 +97,55 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
 
+    def test_consume_findings_reviews_target_range(self):
+        """Fix 2: at a close, MODE=consume-findings reviews the committed
+        TARGET...HEAD range, not the empty working-tree dump. The close diff
+        is already committed, so the staged/working dump would be empty and the
+        xp-code-reviewer would validate findings against 'No Changes'. simplify_
+        done (a /code-review ran this cycle) selects consume-findings; the close
+        commits live on a branch ahead of the merge target (main)."""
+        self._checkout_main_clean()
+        self._commit_on_branch("close-branch", "qux.py")
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        result = self._run_preload(_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
+        self.assertIn("qux.py", result.stdout)
+        self.assertNotIn("## No Changes", result.stdout)
+        # The range path renders the "cumulative since <target>" header.
+        self.assertIn("cumulative since", result.stdout)
+
+    def test_consume_findings_degenerate_range_falls_back(self):
+        """Fix 2 guard: consume-findings but on the merge target (empty
+        TARGET...HEAD range) → graceful working-tree fallback, not an empty
+        review. On main with a staged change, main...HEAD is empty, so the
+        staged dump must surface the file instead."""
+        self._checkout_main_clean()
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        (self.tmpdir / "wip.py").write_text("z = 3\n")
+        self._git("add", "wip.py")
+        result = self._run_preload(_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
+        self.assertIn("wip.py", result.stdout)  # working-tree fallback
+        self.assertNotIn("cumulative since", result.stdout)  # not the range path
+
+    def test_self_find_uses_working_tree_dump(self):
+        """Fix 2 regression: MODE=self-find (no /code-review this cycle) keeps
+        the working-tree dump even when committed commits exist ahead of the
+        target — only consume-findings relocates to the target range."""
+        self._checkout_main_clean()
+        self._commit_on_branch("self-find-branch", "committed.py")
+        # No simplify_done → self-find. A staged working-tree change is what
+        # self-find reviews; the committed file must NOT pull in the range path.
+        (self.tmpdir / "staged.py").write_text("s = 1\n")
+        self._git("add", "staged.py")
+        result = self._run_preload(_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._extract_var(result.stdout, "MODE"), "self-find")
+        self.assertIn("staged.py", result.stdout)
+        self.assertNotIn("cumulative since", result.stdout)
+
     def test_story_cadence_changed_files_feed_debt(self):
         """AC4 + E2E: get_changed_files_range surfaces the committed file to the
         Debt section under story cadence."""

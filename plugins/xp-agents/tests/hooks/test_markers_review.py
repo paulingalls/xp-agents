@@ -93,6 +93,33 @@ class TestReviewCycle(_HookTestCase):
         self.assertNotIn("security_review_done", markers._DEFAULT_REVIEW_CYCLE)
 
 
+class TestReviewMidCycle(_HookTestCase):
+    """Direct truth-table coverage for the shared mid-cycle predicate —
+    the single source of truth both Stop gates route through."""
+
+    def test_no_flags_not_mid_cycle(self):
+        """Missing marker (defaults) is not mid-cycle."""
+        self.assertFalse(markers.review_mid_cycle(self.smm_dir, "main"))
+
+    def test_simplify_only_is_mid_cycle(self):
+        """simplify_done set, quality_review_done not yet — review in flight."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        self.assertTrue(markers.review_mid_cycle(self.smm_dir, "main"))
+
+    def test_both_flags_not_mid_cycle(self):
+        """Both set — completed full cycle, not mid-flight."""
+        markers.set_review_flag(self.smm_dir, "main", "simplify_done")
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.assertFalse(markers.review_mid_cycle(self.smm_dir, "main"))
+
+    def test_quality_only_not_mid_cycle(self):
+        """Load-bearing invariant: quality_review_done WITHOUT simplify_done is
+        a completed standalone self-find review, NOT mid-cycle (the old
+        `any and not all` heuristic wrongly treated this as in-flight)."""
+        markers.set_review_flag(self.smm_dir, "main", "quality_review_done")
+        self.assertFalse(markers.review_mid_cycle(self.smm_dir, "main"))
+
+
 # ---------------------------------------------------------------------------
 # cleanup_agent_markers
 # ---------------------------------------------------------------------------

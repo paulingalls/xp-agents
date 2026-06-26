@@ -3,8 +3,10 @@
 
 Mirrors sprint_stop_gate.py shape but with a single block trigger:
 the CLOSE_CYCLE_ACTIVE marker. ASKING_USER deferral preserves
-AskUserQuestion dialogue flow; review-cycle/teammates deferrals are
-intentionally NOT applied (close cycle wants to block mid-cycle).
+AskUserQuestion dialogue flow; the review-mid-cycle deferral applies
+only inside the close /code-review's Step 4b window (markers.review_mid_cycle)
+so the close-reviewer nudge waits for the async workflow — otherwise the
+close cycle wants to block mid-cycle. Teammates deferral is NOT applied.
 """
 
 import contextlib
@@ -164,6 +166,94 @@ class TestCloseCycleStopGate(_HookTestCase):
 
         concerns = [e for e in self._read_events() if e.get("type") == "concern"]
         self.assertEqual(len(concerns), 1)
+
+    def test_no_block_during_step_4b_review_mid_cycle(self):
+        """Fix 1: during Step 4b the close /code-review workflow is in flight
+        (simplify_done set when it launched, quality_review_done not yet set).
+        The gate must NOT push xp-close-reviewer — Step 4.5 comes AFTER the
+        async workflow returns and /xp-quality-review (consume-findings)
+        validates its findings. Defer (return None) so the agent yields and is
+        re-woken by the workflow-completion notification.
+
+        Same-key keying: the flag is written under the SAME agent_id the gate
+        resolves via identity.resolve_agent_id — mirroring sprint_stop_gate."""
+        import close_cycle_stop_gate
+        import identity
+        import markers
+
+        input_data = _make_stop_input()
+        agent_id = identity.resolve_agent_id(input_data)
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_blocks_after_quality_review_done(self):
+        """Fix 1 regression: once /xp-quality-review sets quality_review_done
+        (Step 4b complete) the cycle is no longer mid-flight — the gate
+        resumes nudging xp-close-reviewer."""
+        import close_cycle_stop_gate
+        import identity
+        import markers
+
+        input_data = _make_stop_input()
+        agent_id = identity.resolve_agent_id(input_data)
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        markers.write_review_cycle(
+            self.smm_dir,
+            agent_id,
+            {
+                "simplify_done": True,
+                "quality_review_done": True,
+                "last_review_commit": "abc123",
+            },
+        )
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_blocks_before_step_4b_neither_flag(self):
+        """Fix 1 regression: before Step 4b (no review flags set) the cycle is
+        not mid-flight — the gate still nudges. Only the in-flight window is
+        suppressed."""
+        import close_cycle_stop_gate
+        import identity
+        import markers
+
+        input_data = _make_stop_input()
+        agent_id = identity.resolve_agent_id(input_data)
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        # quality_review_done WITHOUT simplify_done is a completed self-find
+        # review, not mid-cycle — must NOT suppress (the load-bearing invariant
+        # shared with sprint_stop_gate).
+        markers.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_bypass_records_concern_even_when_mid_cycle(self):
+        """Fix 1: mid-cycle suppression must not swallow abandonment detection.
+        A stop_hook_active latch during the Step 4b window still records the
+        high-severity bypass concern — only the in-flight nudge is suppressed,
+        not the abandonment signal."""
+        import close_cycle_stop_gate
+        import identity
+        import markers
+
+        input_data = _make_stop_input(stop_hook_active=True)
+        agent_id = identity.resolve_agent_id(input_data)
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1, "abandonment concern must still record")
+        self.assertEqual(concerns[0]["severity"], "high")
 
     def test_no_block_when_asking_user(self):
         """Defer when AskUserQuestion dialogue is in flight."""
