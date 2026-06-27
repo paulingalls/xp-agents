@@ -1,5 +1,52 @@
 # Changelog
 
+## v3.11.2 — per-increment review floor: state/lifecycle angle + risk-gated escalation
+
+Sprint-103 raises the per-increment review floor so subtle state-machine
+regressions get caught BEFORE the once-per-close `/code-review high` backstop.
+The previous floor (single xp-code-reviewer self-find) missed two confirmed
+v3.11 regressions (`d69748e92ad1` latch-off stop gate; `8e0264cfcf43`
+never-draining accept marker) — three independent cheap reviews let them
+through; only the broad close-time pass caught them.
+
+- **xp-code-reviewer gains a state/lifecycle/concurrency angle + bounded
+  self-verify.** Section 1 explicitly hunts state-field lifecycle bugs (set/clear
+  paths, latch state, token acquire/release on every path, idempotency
+  across callbacks/workflow steps). Section 1b makes one in-agent adversarial
+  refute pass over its own candidate findings — defaults to refuted on
+  uncertainty BUT spares any candidate with a plausible failure path (the
+  spare-clause protects multi-step state-machine findings from over-refutation).
+- **New project-agnostic risk classifier** at
+  `plugins/xp-agents/skills/xp-quality-review/scripts/risk_classifier.py`.
+  Scores each changed `.py` file on generic CS signals — state-field density,
+  exit/decision blocks, lock/async primitives, lifecycle method pairs,
+  async complexity — and returns `{risk: high|low, signals: [...]}`. Content
+  heuristics, NOT path patterns: same logic ships to every project.
+- **xp-quality-review preload emits a `## Risk Signal` block** (`RISK=high|low`
+  + `SIGNALS=<file>:<sig>+<sig> ...`). Safe-fallback on classifier error keeps
+  `RISK=low` so a crash never blocks the increment.
+- **SKILL routes RISK=high (MODE=self-find) to bounded parallel 3-spawn
+  fan-out.** Three xp-code-reviewer subagents run in parallel with distinct
+  angle prompts (state-lifecycle / concurrency / decision-path), findings
+  deduped by (file, line, summary). Never escalates beyond 3 spawns — the
+  unbounded multi-agent path stays the close-skill's `/code-review` job.
+- **Project-agnosticism guardrail.** Sprint twice leaked this repo's own
+  surface names into shipped prose/AC; now pinned at two layers — a
+  `system_context.json` principle (read at planning time) plus an SMM
+  Constraint (rendered into reviewer context). Use generic CS terminology
+  (state field, lock, lifecycle method, decision/exit point) in shipped
+  prose; the xp-agents repo is a test fixture, not the implementation
+  vocabulary.
+- **Regression-replay validation.** New integration test reads the actual
+  pre-fix file content from history for both v3.11 regression commits via
+  `git show <fix>~1:<path>` and asserts the classifier flags them
+  high-risk (genuine replay, not synthetic shape-exemplars). Both pre-fix
+  files trip `exit-decision` — that single narrow signal is enough.
+- **Dogfood evidence (AC 3).** During the sprint's close cycle, xp-code-
+  reviewer caught a regex false-pos/false-neg bug in the new classifier
+  itself under THIS floor without `/code-review high` involvement — same
+  floor, same scrutiny surface as state-machine bugs.
+
 ## v3.11.1 — close-pipeline timing/diff fixes + accept-marker robustness
 
 - **`ACCEPT_IN_FLIGHT` consume is now hook-driven.** The marker that suppresses
