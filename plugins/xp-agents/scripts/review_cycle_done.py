@@ -9,6 +9,10 @@ Each appends a canonical status event with metadata.action so consumers
 can detect completions without regex-matching LLM-authored content. The
 per-commit review flag is set only for /code-review and /xp-quality-review.
 
+Also detects /xp-schedule and /xp-sprint-review — accept's terminal dispatch —
+and consumes ACCEPT_IN_FLIGHT there (the deterministic flip-to-in-progress
+drain; no lifecycle event, no review flag). See _ACCEPT_TERMINAL_TARGETS.
+
 TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
 /xp-assign runs only for the teammate batch /xp-schedule already promoted —
 by then the execution mode is settled, so the nudge can describe
@@ -34,6 +38,11 @@ _TARGET_SECURITY_REVIEW = "security-review"
 _TARGET_PLAN_REVIEW = "review-plan"
 _TARGET_ASSIGN = "assign"
 _TARGET_HOUSEKEEPING = "housekeeping"
+# Accept's terminal dispatch: /xp-accept always ends by invoking exactly one of
+# these. Their handling drains ACCEPT_IN_FLIGHT but emits NO lifecycle event and
+# sets NO review flag (see _ACCEPT_TERMINAL_TARGETS).
+_TARGET_SCHEDULE = "schedule"
+_TARGET_SPRINT_REVIEW = "sprint-review"
 
 
 def _detect_target(target_name: str) -> str | None:
@@ -51,6 +60,16 @@ def _detect_target(target_name: str) -> str | None:
         return _TARGET_SECURITY_REVIEW
     if "review-plan" in target_name:
         return _TARGET_PLAN_REVIEW
+    # /xp-sprint-review — accept's all-done terminal dispatch. "sprint-review" is
+    # not a substring of any review skill matched above (quality-review /
+    # security-review / review-plan / code-review), so the ordering here is safe.
+    # The xp-sprint-reviewer AGENT name also contains "sprint-review" and maps
+    # here — harmless: it fires within accept's terminal window and only drains
+    # ACCEPT_IN_FLIGHT (no flag, no lifecycle event).
+    if "sprint-review" in target_name:
+        return _TARGET_SPRINT_REVIEW
+    if "schedule" in target_name:
+        return _TARGET_SCHEDULE
     if "assign" in target_name:
         return _TARGET_ASSIGN
     if "housekeeping" in target_name or "housekeeper" in target_name:
@@ -96,6 +115,15 @@ _TARGET_FLAG: dict[str, str] = {
     _TARGET_SIMPLIFY: "simplify_done",
     _TARGET_QUALITY_REVIEW: "quality_review_done",
 }
+
+
+# Accept's terminal dispatch consumes ACCEPT_IN_FLIGHT (Fix 2). These targets
+# deliberately have NO _TARGET_LIFECYCLE entry — the lookup in run() is guarded
+# with .get() so they emit no spurious review-lifecycle event (consumers count
+# those) and raise no KeyError.
+_ACCEPT_TERMINAL_TARGETS: frozenset[str] = frozenset(
+    {_TARGET_SCHEDULE, _TARGET_SPRINT_REVIEW}
+)
 
 
 _NEXT_STEP: dict[str, str] = {
@@ -164,12 +192,25 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     agent_id = identity.resolve_agent_id(input_data)
 
+    # /xp-accept's terminal dispatch (exactly one of /xp-schedule or
+    # /xp-sprint-review) is accept's deterministic terminal signal. Drain
+    # ACCEPT_IN_FLIGHT here — at the real flip-to-in-progress
+    # event (/xp-schedule promotes the next frontier story) — rather than via a
+    # state-derived check that can never observe a drained loop once the next
+    # story is promoted. Idempotent: marker_consume is a no-op when unarmed
+    # (e.g. the kickoff-tail /xp-schedule). This is a pre-emit side-effect; the
+    # guarded lifecycle lookup below skips emit for these no-entry targets.
+    if target in _ACCEPT_TERMINAL_TARGETS:
+        markers.marker_consume(smm_dir, markers.ACCEPT_IN_FLIGHT)
+
     flag = _TARGET_FLAG.get(target)
     if flag:
         markers.set_review_flag(smm_dir, agent_id, flag)
 
-    action, content = _TARGET_LIFECYCLE[target]
-    _emit_action_event(smm_dir, action, content, agent_id)
+    lifecycle = _TARGET_LIFECYCLE.get(target)
+    if lifecycle is not None:
+        action, content = lifecycle
+        _emit_action_event(smm_dir, action, content, agent_id)
 
     if target == _TARGET_HOUSEKEEPING:
         return plugin_loader.load_process_guide() or None

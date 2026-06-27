@@ -35,16 +35,32 @@ MODE=$(python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/review_mode.py" 
 echo "MODE=${MODE}"
 echo ""
 
-# Cadence-aware diff scope. Commit cadence reviews the staged/working diff
-# (review runs before the commit). Story cadence relocates review to
-# story-close, where the work is already committed — so review the cumulative
-# range against the sprint-branch base instead (else the staged diff is empty
-# and the reviewer sees nothing). REVIEW_BASE stays empty (→ staged fallback)
-# unless cadence is 'story' AND a base resolves AND the committed range is
-# non-empty (guards on-base / stage-0 / no-divergence).
+# Diff scope. Default: the staged/working diff (review runs before the commit).
+# Two cases relocate review to a committed range because the work is already
+# committed by the time the review runs — else the staged diff is empty and the
+# reviewer sees nothing. Both reuse REVIEW_BASE + the dump_diff_range plumbing
+# below; precedence is explicit:
+#
+#   1. MODE=consume-findings (free/sprint/plan close, per the v3.10.0 role
+#      split — story-close + per-increment are self-find, never consume). The
+#      close diff is already committed, so review TARGET...HEAD against the
+#      merge target. This is checked FIRST: a close is not story cadence, so
+#      the two never collide, but consume-findings is the more specific signal.
+#   2. else CADENCE=story (story-close Step 4.5b): review BASE...HEAD against
+#      the sprint-branch base.
+#
+# REVIEW_BASE stays empty (→ working-tree fallback) unless a ref resolves AND
+# its committed range is non-empty (guards on-target/on-base, stage-0, and
+# no-divergence — symmetric to the story branch).
 REVIEW_BASE=""
 CADENCE=$(_get_review_cadence)
-if [ "$CADENCE" = "story" ]; then
+if [ "$MODE" = "consume-findings" ]; then
+    target=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "${SMM_DIR}" get-target --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "")
+    if [ -n "$target" ] && [ -n "$(get_changed_files_range "$target")" ]; then
+        REVIEW_BASE="$target"
+    fi
+elif [ "$CADENCE" = "story" ]; then
     base=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
         --smm-dir "${SMM_DIR}" get-base --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "")
     if [ -n "$base" ] && [ -n "$(get_changed_files_range "$base")" ]; then
@@ -55,6 +71,20 @@ fi
 if [ -n "$REVIEW_BASE" ]; then
     dump_diff_range "$REVIEW_BASE" full
     changed_files=$(get_changed_files_range "$REVIEW_BASE")
+elif [ "$MODE" = "consume-findings" ]; then
+    # Close path could NOT resolve a non-empty TARGET...HEAD range (get-target
+    # errored/empty, or the committed range is empty). The close diff is already
+    # committed, so a working-tree dump_diff would emit "No Changes" and the
+    # reviewer would validate /code-review's findings against an EMPTY diff —
+    # silently shipping unverified findings. Surface it loudly instead of the
+    # silent fallback; the reviewer must review the committed close diff manually.
+    echo "## Close diff unavailable"
+    echo "MODE=consume-findings but the cumulative close range (TARGET...HEAD)"
+    echo "could not be resolved (merge target empty/unresolvable, or no"
+    echo "divergence). Do NOT treat this as 'no changes': review the committed"
+    echo "close diff manually (e.g. \`git diff <merge-target>...HEAD\`) before"
+    echo "validating the /code-review findings."
+    changed_files=""
 else
     dump_diff
     changed_files=$(get_changed_files)

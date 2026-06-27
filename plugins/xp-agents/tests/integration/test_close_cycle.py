@@ -186,22 +186,18 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             "never fires — close-cycle MUST NOT auto-resume",
         )
 
-    def test_stop_hook_active_bypass_with_young_marker_keeps_safety_net(self):
-        """Loud-bypass instrumentation; young marker preserved.
+    def test_stop_hook_active_bypass_with_young_marker_is_silent(self):
+        """Young marker + stop_hook_active is a live in-flight cycle, NOT abandonment.
 
-        When Claude Code fires Stop with stop_hook_active=True AND the
-        CLOSE_CYCLE_ACTIVE marker is still set, the gate:
-          1. Records a high-severity concern + emits stderr (loud signal).
-          2. Leaves the marker in place IF younger than the cycle-age
-             threshold — protects a genuine in-progress cycle whose
-             stop_hook_active was latched by an unrelated earlier hook.
-
-        Root cause: Claude Code latches stop_hook_active=True
-        session-wide once any Stop hook returns a 'reason' — does NOT
-        reset per-turn. The age gate distinguishes a recently-started
-        (likely genuine) cycle from a truly abandoned one. Unit-level
-        coverage for the old-marker-consumed branch lives in
-        tests/hooks/test_close_cycle_stop_gate.py.
+        stop_hook_active latches session-wide once any Stop hook returns a
+        'reason', so by close time it is usually already True. A legitimate
+        yield during the async Step 4b /code-review wait (CLOSE_CYCLE_ACTIVE
+        still young) must therefore NOT be treated as abandonment: the gate
+        records no concern, emits no bypass stderr, and leaves the young marker
+        in place. The workflow-completion notification re-wakes the agent and
+        the close finishes; the SessionStart sweep is the backstop if a young
+        cycle is genuinely abandoned. Only an AGED marker records the loud
+        bypass concern — unit coverage in tests/hooks/test_close_cycle_stop_gate.py.
         """
         import event_schema
         import markers
@@ -220,14 +216,12 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             },
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        # Pass-through, not block — defer-on-stop_hook_active stays for
-        # loop prevention. No JSON decision payload on stdout.
+        # Pass-through, not block — defer-on-stop_hook_active stays for loop
+        # prevention. No JSON decision payload on stdout.
         self.assertEqual(result.stdout.strip(), "")
-        # Loud signal on stderr names the bypass for debugging.
-        self.assertIn("close-cycle gate bypassed", result.stderr.lower())
+        # No spurious bypass signal for a young in-flight cycle.
+        self.assertNotIn("close-cycle gate bypassed", result.stderr.lower())
 
-        # Concern landed in events.jsonl with the bypass discriminator
-        # so retros surface it instead of the bypass being invisible.
         events, _ = materialize.parse_events(self.smm_dir)
         bypass_concerns = [
             e
@@ -238,18 +232,14 @@ class TestCloseCycleE2E(_IntegrationTestCase):
         ]
         self.assertEqual(
             len(bypass_concerns),
-            1,
-            "exactly one close_cycle_bypass concern must be recorded",
+            0,
+            "young in-flight marker must NOT record a spurious abandonment concern",
         )
 
-        # Young marker preserved — likely a genuine in-progress cycle
-        # whose stop_hook_active was latched by an unrelated earlier
-        # hook. xp-close-reviewer will consume it normally when it runs.
+        # Young marker preserved — the cycle is still in-flight.
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
-            "young marker must be preserved on bypass — the cycle is "
-            "likely still in-flight, and xp-close-reviewer will consume "
-            "the marker normally.",
+            "young marker must be preserved on bypass",
         )
 
     def test_stop_hook_active_without_marker_no_concern(self):

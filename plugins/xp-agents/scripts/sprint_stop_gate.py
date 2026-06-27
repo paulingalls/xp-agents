@@ -56,20 +56,21 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # Mid-AskUserQuestion dialogue — cheapest check, most common interactive hit
     if markers.marker_exists(smm_dir, markers.ASKING_USER):
         return True
-    # Mid-/xp-accept: the skill arms ACCEPT_IN_FLIGHT at preload and consumes
-    # it at its terminal handoff. While armed, suppress the accept gate so it
-    # never tells the agent to run the skill it is already inside (e.g. while
-    # awaiting background acceptance tests). A leak self-heals via the
-    # SessionStart stale-marker sweep.
+    # Mid-/xp-accept: the skill arms ACCEPT_IN_FLIGHT at preload. While armed,
+    # suppress the accept gate so it never tells the agent to run the skill it
+    # is already inside (e.g. while awaiting background acceptance tests). The
+    # consume is hook-driven at accept's terminal dispatch — review_cycle_done
+    # drains it on the /xp-schedule or /xp-sprint-review completion that ends
+    # the skill (the old state-derived drain here could never fire mid-sprint
+    # once /xp-schedule promoted the next story). The SessionStart sweep is the
+    # abandonment backstop.
     if markers.marker_exists(smm_dir, markers.ACCEPT_IN_FLIGHT):
         return True
-    # Defer only while a close-cycle review is mid-flight: /code-review has set
-    # simplify_done but /xp-quality-review hasn't set quality_review_done yet.
-    # A standalone self-find review sets quality_review_done WITHOUT
-    # simplify_done — that is a COMPLETED review, not mid-cycle, so it must not
-    # defer (the old `any and not all` heuristic wrongly suppressed the gate).
-    cycle = markers.read_review_cycle(smm_dir, agent_id)
-    if cycle.get("simplify_done") and not cycle.get("quality_review_done"):
+    # Defer only while a review is mid-flight (simplify_done set,
+    # quality_review_done not yet). The predicate — incl. the self-find
+    # invariant — lives in markers.review_mid_cycle, shared with
+    # close_cycle_stop_gate so the rule has one home.
+    if markers.review_mid_cycle(smm_dir, agent_id):
         return True
     if coordination.has_active_teammates(smm_dir, agent_id):
         return True

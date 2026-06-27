@@ -185,6 +185,28 @@ def set_review_flag(
     write_review_cycle(smm_dir, agent_id, data)
 
 
+def review_mid_cycle(smm_dir: Path, agent_id: str) -> bool:
+    """True when a review cycle is mid-flight for ``agent_id``.
+
+    Mid-cycle = /code-review (or /simplify) has set ``simplify_done`` but
+    /xp-quality-review has not yet set ``quality_review_done``. This is the
+    single source of truth for both Stop gates that must defer while a review
+    is in flight:
+
+    - sprint_stop_gate defers the accept/review nudge mid-cycle.
+    - close_cycle_stop_gate defers the close-reviewer nudge during the
+      close /code-review's async Step 4b window.
+
+    Load-bearing invariant: a standalone self-find review sets
+    ``quality_review_done`` WITHOUT ``simplify_done`` — that is a COMPLETED
+    review, not mid-cycle, so it returns False. The old ``any and not all``
+    heuristic wrongly treated it as mid-cycle; keeping the predicate here
+    means that invariant lives in exactly one place.
+    """
+    cycle = read_review_cycle(smm_dir, agent_id)
+    return bool(cycle.get("simplify_done")) and not cycle.get("quality_review_done")
+
+
 # ---------------------------------------------------------------------------
 # Review cadence convenience functions (session-scoped: commit | story)
 # ---------------------------------------------------------------------------
@@ -220,7 +242,9 @@ def write_review_cadence(smm_dir: Path, cadence: str) -> None:
 # leaks when a close-skill aborts before the xp-close-reviewer fork; ACCEPT
 # leaks after teammate-worktree close-cycle Edits when /xp-accept's
 # no-reviewing-stories path skips the consume; ACCEPT_IN_FLIGHT leaks when
-# /xp-accept is abandoned mid-flight before its terminal consume.
+# /xp-accept is abandoned before its terminal dispatch (/xp-schedule or
+# /xp-sprint-review completion, where review_cycle_done drains it). This sweep
+# is the abandonment backstop.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ACTIVE,
     ACCEPT,
@@ -268,8 +292,10 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 # etc.) has its own deterministic writer in a hook or skill — the CLI is
 # intentionally NOT a back door for those flows.
 # Add a marker here only when a skill prose step needs to drive it.
-# ACCEPT_IN_FLIGHT: armed by xp-accept's preload, consumed by the SKILL's
-# terminal Summary step via this CLI (the SessionStart sweep is the backstop).
+# ACCEPT_IN_FLIGHT: armed by xp-accept's preload via this CLI. The consume is
+# hook-driven (review_cycle_done clears it on accept's terminal /xp-schedule or
+# /xp-sprint-review dispatch; the SessionStart sweep is the backstop) — no prose
+# consume step, but it stays allowlisted because the preload still arms it here.
 _CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE", "ACCEPT_IN_FLIGHT"})
 
 
