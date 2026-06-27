@@ -449,19 +449,24 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
 
 
 class TestSprintStopGateAcceptInFlightConsume(_HookTestCase):
-    """State-derived consume of ACCEPT_IN_FLIGHT in the Stop gate.
+    """ACCEPT_IN_FLIGHT suppression in the Stop gate (Fix 2 / 8e0264cfcf43).
 
-    The marker is armed by /xp-accept's preload and suppresses the accept
-    gate while the skill runs. The consume is hook-driven (here), not a SKILL
-    prose step: once the accept loop has drained — no under-acceptance
-    (reviewing/closing) stories AND no in-progress stories — the gate consumes
-    the marker and falls through to normal evaluation. A skipped prose step can
-    no longer leak the marker.
+    The marker is armed by /xp-accept's preload and suppresses the accept gate
+    while the skill runs (`_deferred`). The state-derived self-consume that used
+    to live here was the source of the regression — /xp-accept's post-loop
+    /xp-schedule promotes the NEXT frontier story to in-progress BEFORE the Stop
+    fires, so the no-in-progress drain condition never held mid-sprint and the
+    nudge stayed suppressed for every later story. The consume now lives at
+    accept's terminal dispatch (review_cycle_done on /xp-schedule or
+    /xp-sprint-review); the SessionStart sweep is the abandonment backstop. This
+    gate only suppresses while the marker exists — it never self-consumes.
     """
 
-    def test_consumed_when_accept_loop_drained(self):
-        """Armed + no under-acceptance + no in-progress (sprint complete) →
-        consume the marker, then fall through to the sprint-review gate."""
+    def test_complete_sprint_armed_marker_defers_and_keeps(self):
+        """Regression pin for the removed self-consume: a complete sprint with
+        the marker still armed defers (the skill is mid-flight) and KEEPS the
+        marker — the gate no longer drains it from sprint state. The terminal
+        /xp-sprint-review dispatch (or the SessionStart sweep) owns the drain."""
         import markers
         import sprint_stop_gate
 
@@ -470,11 +475,23 @@ class TestSprintStopGateAcceptInFlightConsume(_HookTestCase):
 
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
 
-        # Marker consumed by the hook (not deferred on) ...
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
-        # ... and the gate falls through to normal eval (sprint-review nudge).
+        self.assertIsNone(result)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_nudge_fires_for_later_story_once_marker_drained(self):
+        """The fix's payoff: after accept's terminal dispatch drains the marker,
+        a subsequent reviewing story is no longer suppressed — the accept nudge
+        fires again. The regression left it suppressed for the rest of the
+        session because the marker never drained mid-sprint."""
+        import sprint_stop_gate
+
+        # Marker absent (drained by /xp-schedule completion). A later teammate
+        # has self-promoted to reviewing.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
         result = self._assert_not_none(result)
-        self.assertIn("xp-sprint-review", result)
+        self.assertIn("xp-accept", result)
 
     def test_kept_with_reviewing_story(self):
         """Armed + a reviewing story → accept still in flight: defer, KEEP."""

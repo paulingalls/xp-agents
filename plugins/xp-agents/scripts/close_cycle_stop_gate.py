@@ -76,6 +76,23 @@ _BYPASS_STDERR = (
 )
 
 
+def _marker_young(smm_dir: Path) -> bool:
+    """True if the CLOSE_CYCLE_ACTIVE marker is younger than the age threshold.
+
+    A young marker means the close cycle plausibly just started (the async
+    Step 4b /code-review workflow is still running, or stop_hook_active was
+    latched by an unrelated hook). A stat() OSError means the marker raced
+    away between marker_exists() and here — treat as NOT young so callers fall
+    toward surfacing (block / consume) rather than a silent latch.
+    """
+    marker_path = markers.marker_path(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+    try:
+        age = time.time() - marker_path.stat().st_mtime
+    except OSError:
+        return False
+    return age < _CLOSE_CYCLE_AGE_THRESHOLD_SEC
+
+
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     """Record a concern, emit stderr, and conditionally consume the marker.
 
@@ -83,9 +100,9 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     Marker consumption is age-gated: old markers (abandoned cycle) get
     consumed so subsequent Stops don't re-fire; young markers (likely a
     genuine in-progress cycle latched by an unrelated hook) stay so
-    xp-close-reviewer can consume them normally. A stat() OSError means
-    the marker raced away between marker_exists() and here — skip
-    cleanly.
+    xp-close-reviewer can consume them normally. A stat() race (marker
+    vanished) counts as not-young → consume the now-absent marker (a
+    harmless no-op) rather than leaving a phantom latched.
     """
     sys.stderr.write(_BYPASS_STDERR)
     agent_id = identity.resolve_agent_id(input_data)
@@ -98,12 +115,7 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     )
     _common.append_safe(smm_dir, concern)
 
-    marker_path = markers.marker_path(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-    try:
-        age = time.time() - marker_path.stat().st_mtime
-    except OSError:
-        return
-    if age >= _CLOSE_CYCLE_AGE_THRESHOLD_SEC:
+    if not _marker_young(smm_dir):
         markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
@@ -133,8 +145,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # same predicate sprint_stop_gate uses, keyed to the gate's
         # resolved agent_id so the close /code-review's simplify_done
         # (written under that same key) is read here.
+        #
+        # Age-bound the defer (same threshold _record_bypass uses): defer
+        # ONLY while the marker is young (workflow plausibly still running).
+        # Once it ages past the threshold the mid-cycle flag is stuck — a
+        # /xp-quality-review consume that never set quality_review_done — so
+        # an unbounded defer would silently abandon the close forever. Fall
+        # through to the block; the next stop_hook_active bypass then consumes
+        # the aged marker and records the abandonment concern.
         agent_id = identity.resolve_agent_id(input_data)
-        if markers.review_mid_cycle(smm_dir, agent_id):
+        if markers.review_mid_cycle(smm_dir, agent_id) and _marker_young(smm_dir):
             return None
         return _BLOCK_MESSAGE
     return None

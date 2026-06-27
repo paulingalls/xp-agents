@@ -274,6 +274,122 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestCloseCycleMidCycleAgeGate(_HookTestCase):
+    """Fix 1: the review_mid_cycle defer is age-bounded.
+
+    The Step 4b defer (mid-cycle + young marker) is legitimate — the async
+    /code-review workflow is plausibly still running. But if /xp-quality-review
+    never sets quality_review_done (interrupted/errored consume), review_mid_cycle
+    stays True on every Stop and the unbounded defer silently abandons the close
+    (CLOSE_CYCLE_ACTIVE stuck, security-review + close-reviewer never run). Bound
+    the defer to the same age threshold _record_bypass uses: once the marker is
+    older than the threshold the consume is stuck — block instead of defer, so the
+    next stop_hook_active bypass consumes the marker and records the abandonment
+    concern.
+    """
+
+    def _arm_mid_cycle(self) -> dict:
+        import identity
+        import markers
+
+        input_data = _make_stop_input()
+        agent_id = identity.resolve_agent_id(input_data)
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+        return input_data
+
+    def _backdate_marker(self) -> None:
+        import os
+
+        import close_cycle_stop_gate
+        import markers
+
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        backdate = close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC + 60
+        old = marker_path.stat().st_mtime - backdate
+        os.utime(marker_path, (old, old))
+
+    def test_aged_marker_mid_cycle_blocks_not_defers(self):
+        """Aged marker + mid-cycle → the stuck consume no longer latches the gate
+        off: it blocks (nudges the close-reviewer) instead of deferring."""
+        import close_cycle_stop_gate
+
+        input_data = self._arm_mid_cycle()
+        self._backdate_marker()
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_aged_mid_cycle_then_bypass_unsticks(self):
+        """Full unstick: aged marker + mid-cycle blocks, then the NEXT Stop
+        (stop_hook_active latched) consumes the now-aged marker AND records the
+        abandonment concern — the gate doesn't just block every Stop forever."""
+        import close_cycle_stop_gate
+        import markers
+
+        input_data = self._arm_mid_cycle()
+        self._backdate_marker()
+
+        # First Stop: blocks (no longer defers), marker still present.
+        blocked = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNotNone(blocked)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
+
+        # Next Stop with stop_hook_active latched: bypass consumes the aged
+        # marker and records the abandonment concern.
+        bypassed = close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True), smm_dir=self.smm_dir
+        )
+        self.assertIsNone(bypassed)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "aged marker must be consumed on the bypass — gate unsticks",
+        )
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0]["severity"], "high")
+
+    def test_young_marker_mid_cycle_still_defers(self):
+        """Regression: a young marker (workflow plausibly still running) +
+        mid-cycle still defers — the legitimate Step 4b wait is preserved."""
+        import close_cycle_stop_gate
+
+        input_data = self._arm_mid_cycle()  # marker just written → young
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_stat_race_in_defer_path_blocks(self):
+        """A stat() race (marker vanished between marker_exists and the age read)
+        is treated as NOT young — block, never silently latch off. Fail toward
+        surfacing. Simulated by making marker_exists lie 'present' for
+        CLOSE_CYCLE_ACTIVE only (ASKING_USER must still be False) with no file on
+        disk, so the age read's stat() raises. The review flag is written for
+        real so review_mid_cycle (which reads the review-cycle marker, not
+        marker_exists) is genuinely True."""
+        from unittest.mock import patch
+
+        import close_cycle_stop_gate
+        import identity
+        import markers
+
+        input_data = _make_stop_input()
+        agent_id = identity.resolve_agent_id(input_data)
+        markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
+
+        def _selective(_smm_dir, marker, _agent_id=""):
+            return marker == markers.CLOSE_CYCLE_ACTIVE
+
+        with patch(
+            "close_cycle_stop_gate.markers.marker_exists",
+            side_effect=_selective,
+        ):
+            result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+
 class TestCloseCycleStopGateRegistration(HooksJsonTestCase):
     """Hook is registered in hooks.json Stop array between sprint_stop_gate
     and housekeeping_stop_gate."""
