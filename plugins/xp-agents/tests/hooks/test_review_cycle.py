@@ -255,6 +255,105 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(main_cycle.get("simplify_done", False))
 
 
+class TestAcceptInFlightConsumeOnTerminalDispatch(_HookTestCase):
+    """Fix 2 (concern 8e0264cfcf43): /xp-accept's terminal dispatch drains
+    ACCEPT_IN_FLIGHT.
+
+    /xp-accept always ends by invoking exactly one of /xp-schedule (more
+    stories) or /xp-sprint-review (all done/deferred). Those completions are
+    accept's deterministic terminal signal — the PostToolUse:Skill hook
+    consumes the marker there, at the real flip-to-in-progress event
+    (/xp-schedule promotes the next frontier story). The old state-derived
+    consume in sprint_stop_gate could never drain mid-sprint because the
+    promoted next story kept an in-progress story present, so the accept
+    nudge stayed suppressed for every later story that session.
+
+    These completions consume the marker but emit NO review-lifecycle status
+    event (consumers count those; a spurious event would skew the counters)
+    and set NO review flags — schedule/sprint-review aren't review skills.
+    """
+
+    def test_schedule_completion_consumes_accept_in_flight(self):
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        review_cycle_done.run(_make_skill_input("xp-schedule"), smm_dir=self.smm_dir)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_sprint_review_completion_consumes_accept_in_flight(self):
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        review_cycle_done.run(
+            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_qualified_schedule_name_consumes(self):
+        """Plugin-qualified xp-agents:xp-schedule also drains the marker."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        review_cycle_done.run(
+            _make_skill_input("xp-agents:xp-schedule"), smm_dir=self.smm_dir
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_kickoff_tail_schedule_unarmed_is_noop(self):
+        """Regression: the kickoff-tail /xp-schedule runs with no armed marker.
+        The consume is idempotent (no-op), raises no KeyError (schedule has no
+        _TARGET_LIFECYCLE entry), and returns no nudge."""
+        result = review_cycle_done.run(
+            _make_skill_input("xp-schedule"), smm_dir=self.smm_dir
+        )
+        self.assertIsNone(result)
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+
+    def test_schedule_does_not_set_review_flags(self):
+        review_cycle_done.run(_make_skill_input("xp-schedule"), smm_dir=self.smm_dir)
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+
+    def test_sprint_reviewer_agent_completion_consumes(self):
+        """Collision pin (mirrors the xp-code-reviewer guard): /xp-sprint-review
+        spawns the xp-sprint-reviewer AGENT, whose completion arrives via
+        tool_input.subagent_type in the MAIN agent's PostToolUse context — the
+        is_xp_agent skip checks the INVOKING agent (main, non-xp), so it does NOT
+        fire. The subagent name contains the 'sprint-review' substring, so it
+        routes to _TARGET_SPRINT_REVIEW and drains ACCEPT_IN_FLIGHT. This is
+        benign — the reviewer is only ever spawned by the /xp-sprint-review
+        terminal dispatch, so the (slightly early) consume stays inside accept's
+        terminal window — but it must stay explicit so a future refactor of the
+        substring routing doesn't silently break the drain or, worse, the
+        unrelated counters.
+        """
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        review_cycle_done.run(
+            _make_agent_input("xp-sprint-reviewer"), smm_dir=self.smm_dir
+        )
+        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+        # No review flag, no lifecycle event — same as the skill path.
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+        self.assertFalse(cycle["quality_review_done"])
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        status_events = [e for e in events if e["type"] == EVENT_TYPE_STATUS]
+        self.assertEqual(len(status_events), 0)
+
+    def test_schedule_emits_no_lifecycle_event(self):
+        """schedule/sprint-review must NOT emit a review-lifecycle status event —
+        consumers count those, so a spurious event would skew the counters."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        review_cycle_done.run(_make_skill_input("xp-schedule"), smm_dir=self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        status_events = [e for e in events if e["type"] == EVENT_TYPE_STATUS]
+        self.assertEqual(len(status_events), 0)
+
+    def test_sprint_review_emits_no_lifecycle_event(self):
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        review_cycle_done.run(
+            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
+        )
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        status_events = [e for e in events if e["type"] == EVENT_TYPE_STATUS]
+        self.assertEqual(len(status_events), 0)
+
+
 class TestAgentIdSemantics(_HookTestCase):
     """agent_id is teammate attribution; metadata.action carries skill identity.
 
