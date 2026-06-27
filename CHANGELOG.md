@@ -2,19 +2,21 @@
 
 ## v3.11.1 — close-pipeline timing/diff fixes + accept-marker robustness
 
-- **`ACCEPT_IN_FLIGHT` consume is now hook-driven and state-derived.** The marker
-  that suppresses the sprint stop gate during `/xp-accept` was consumed by a SKILL
-  prose step (Step 6) — a skipped step leaked it until the SessionStart sweep. The
-  sprint stop gate now consumes it once the accept loop drains (no `reviewing`/
-  `closing` AND no `in-progress` story remains, via `has_under_acceptance_stories`
-  — symmetric with the gate's own fire condition, so the `closing` window doesn't
-  re-expose it). A skipped prose step is now harmless.
+- **`ACCEPT_IN_FLIGHT` consume is now hook-driven.** The marker that suppresses
+  the sprint stop gate during `/xp-accept` was consumed by a SKILL prose step
+  (Step 6) — a skipped step leaked it until the SessionStart sweep. It is now
+  consumed deterministically at `/xp-accept`'s terminal dispatch — when
+  `/xp-schedule` (next story) or `/xp-sprint-review` (all done) completes, via
+  `review_cycle_done`. This drains the marker at the real flip-to-in-progress
+  event regardless of the next story's state; the SessionStart sweep remains the
+  abandonment backstop. A skipped prose step is now harmless.
 - **The close-cycle gate no longer nudges out of order during Step 4b.** When
   `/code-review` went workflow-backed (async/background), `close_cycle_stop_gate`
   kept firing "invoke xp-close-reviewer" while the agent was waiting for the
   background workflow. It now defers during the Step 4b window (review mid-cycle:
   `simplify_done AND NOT quality_review_done`, the shared `markers.review_mid_cycle`
-  predicate both stop gates route through); abandonment detection (`stop_hook_active`
+  predicate both stop gates route through) — **age-bounded** so a stuck/interrupted
+  consume cannot latch the gate off; abandonment detection (`stop_hook_active`
   bypass) is preserved.
 - **Close-time `/xp-quality-review` reviews the real diff.** At a free/sprint/plan
   close the working tree is already committed, so the `consume-findings` preload
@@ -22,8 +24,10 @@
   It now resolves the merge target (`branching.py get-target`) and reviews
   `target...HEAD` when `MODE=consume-findings` (a close-only signal), with a
   degenerate-range fallback to the working-tree dump.
-- **Docs:** added `docs/ideas/TEAMMATE_PLANNING_PIPELINE.md` — a design idea for
-  per-story plan→review→async-launch parallel teammate orchestration.
+- **Docs:** added `docs/ideas/TEAMMATE_PLANNING_PIPELINE.md` (per-story
+  plan→review→async-launch parallel teammate orchestration) and
+  `docs/ideas/XP_CODE_REVIEWER_MULTI_ANGLE_VERIFY.md` (strengthen the
+  per-increment reviewer with multi-angle finders + an independent verify pass).
 
 ## v3.11.0 — teammates load the plugin (`--plugin-dir`) + spawn model selection
 
