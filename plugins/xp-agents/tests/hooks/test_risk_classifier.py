@@ -197,6 +197,46 @@ class TestRiskClassifierAPI(unittest.TestCase):
         matched = next(s["matched"] for s in result["signals"] if s["file"] == f)
         self.assertIn("async-complexity", matched)
 
+    # --- regex edge cases (self-assign discriminator) ---
+
+    def test_self_eq_comparison_does_not_count_as_state_write(self):
+        """`self.X == Y` is a boolean comparison, NOT a state write.
+
+        Without the trailing `(?!=)` guard the bare `=` regex matches the
+        first `=` of `==`, inflating state-field-density and tripping RISK=high
+        on conditional-heavy code that mutates nothing.
+        """
+        src = textwrap.dedent("""
+            def check(self):
+                self.foo == 1
+                self.bar == 2
+                self.baz == 3
+                self.qux == 4
+        """).strip()
+        f = self._write("compare_only.py", src)
+        self.assertEqual(self._classify(f)["risk"], "low")
+
+    def test_augmented_assignment_counts_as_state_write(self):
+        """`self.X += ...` (and `-=`, `*=`, `//=`, ...) is a state mutation.
+
+        The bare `=` regex would miss these. A counter/flag class that mutates
+        purely via augmented ops is exactly the state-machine shape this signal
+        exists to catch.
+        """
+        src = textwrap.dedent("""
+            class Counter:
+                def tick(self):
+                    self.count += 1
+                    self.errors -= 1
+                    self.total *= 2
+                    self.rate //= 3
+        """).strip()
+        f = self._write("counter.py", src)
+        result = self._classify(f)
+        self.assertEqual(result["risk"], "high")
+        matched = next(s["matched"] for s in result["signals"] if s["file"] == f)
+        self.assertIn("state-field-density", matched)
+
     # --- mixed / multi-file ---
 
     def test_mixed_signals_multifile_names_each(self):

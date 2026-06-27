@@ -29,7 +29,15 @@ from pathlib import Path
 # small/normal files. See test_pure_data_module_low for the negative case.
 _FILE_HIGH_THRESHOLD = 1
 
-_SELF_ASSIGN_RE = re.compile(r"^\s*self\.[A-Za-z_][A-Za-z0-9_]*\s*=", re.MULTILINE)
+# Matches `self.X = ...` and augmented assigns (`self.X += 1`, `//=`, `**=` ...).
+# The trailing `(?!=)` rejects `self.X == Y` comparisons (false positive on
+# statement-level boolean expressions); the optional augmented-op alternation
+# captures mutations the bare `=` form would miss (false negative on counters
+# / flags mutated via `+=`).
+_SELF_ASSIGN_RE = re.compile(
+    r"^\s*self\.[A-Za-z_][A-Za-z0-9_]*\s*(?:[+\-*/%&|^@]|//|\*\*|>>|<<)?=(?!=)",
+    re.MULTILINE,
+)
 _EXIT_DECISION_RE = re.compile(
     r"\b(?:sys\.exit\s*\(|raise\s+SystemExit\b|os\._exit\s*\()"
 )
