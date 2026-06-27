@@ -104,3 +104,20 @@ echo ""
 echo "## Open Plan Concerns"
 python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/open_plan_concerns.py" \
     --smm-dir "$SMM_DIR" 2>/dev/null || echo "(lookup unavailable)"
+
+# Risk signal: project-agnostic content-heuristic classifier scores each
+# changed .py file (state-field density, exit/decision blocks, lock/async
+# primitives, lifecycle pairs, async complexity). The SKILL routes RISK=high
+# to a bounded parallel multi-angle escalation (3 angle-focused reviewer
+# spawns); RISK=low keeps the default single-spawn path. Safe-fallback on
+# classifier error → RISK=low so a crash never blocks the increment.
+echo ""
+echo "## Risk Signal"
+if [ -z "$changed_files" ]; then
+    echo "RISK=low"
+    echo "SIGNALS="
+else
+    # shellcheck disable=SC2086
+    python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/risk_classifier.py" \
+        $changed_files 2>/dev/null || { echo "RISK=low"; echo "SIGNALS=(classifier error)"; }
+fi

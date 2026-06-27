@@ -28,7 +28,9 @@ allowed-tools:
 > parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 strictly, one
 > step per turn — make the call, observe, then decide the next. Don't batch a
 > step with the one that depends on it (e.g. acting on the xp-code-reviewer's
-> findings before it returns); never spawn that reviewer subagent more than once.
+> findings before it returns); never spawn that reviewer subagent more than once
+> **except** on the RISK=high escalation path (Step 1.5 below), where THREE
+> angle-focused reviewer spawns issue in a SINGLE message as one step.
 > Independent read-only calls may still batch.
 
 Independent review of the current diff. The preload's `MODE` line selects Step 1's
@@ -52,6 +54,20 @@ Format as a numbered list for the prompt — file, line, the finding summary, an
 1. file.py:123 — "summary of the bug" (failure: <failure_scenario>)
 2. other.py:45 — "summary of the bug" (failure: <failure_scenario>)
 ```
+
+### Step 1.5: Risk-Gated Escalation (self-find only)
+
+The preload's `## Risk Signal` block emits `RISK=high|low`. When `MODE=self-find`:
+
+- **RISK=low** (default, most diffs) — single `xp-code-reviewer` spawn as below.
+- **RISK=high** — spawn **THREE** `xp-code-reviewer` subagents **in parallel** (single message, three Agent tool calls) with distinct angle prompts. The diff/debt/SMM context blocks are identical across the three; only the `## Review Focus` block differs:
+  - **[A] state-lifecycle**: "Focus on state field lifecycles: who sets each state field, who clears it, whether every set has a reachable clear on every path. Flag any latch/drain bug."
+  - **[B] concurrency**: "Focus on concurrency and ordering: lock acquisition order, callback ordering, idempotency assumptions, race conditions between writers."
+  - **[C] decision-path**: "Focus on decision/exit points: every `sys.exit`, `raise`, conditional return — confirm each branch is reachable, intentional, and not masking errors."
+
+After all three return, **dedupe findings by (file, line, summary)** before acting on them. Cap total findings considered at 30. **Never escalate beyond 3 spawns** — that is the close-skill's `/code-review` job, gated at the close.
+
+`MODE=consume-findings` (close path) is unaffected by RISK — the close already ran `/code-review` fan-out; the reviewer validates those findings.
 
 ### Build the Prompt and Spawn
 
