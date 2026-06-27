@@ -32,7 +32,9 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-kickoff": 180,
     "xp-plan": 210,
     "xp-plan-close": 140,
-    "xp-quality-review": 110,
+    # Bumped 110->130 for story-002's Step 1.5 risk-gated escalation
+    # (RISK=high routing to bounded parallel 3-spawn multi-angle fan-out).
+    "xp-quality-review": 130,
     "xp-review-plan": 20,
     "xp-scaffold-acceptance": 520,
     "xp-schedule": 120,
