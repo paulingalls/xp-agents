@@ -306,10 +306,9 @@ For cascaded deferrals, include the cascade reason (e.g., "deferred: depends on 
 Present: how many stories marked done, how many deferred (per-story
 teammate-worktree cleanup is owned by /xp-story-close Step 2).
 
-The `ACCEPT_IN_FLIGHT` suppression marker is consumed by the sprint stop
-gate itself — state-derived, once the accept loop drains (no
-reviewing/closing/in-progress stories remain). No prose consume step is
-needed; the SessionStart sweep is the abandonment backstop.
+The `ACCEPT_IN_FLIGHT` suppression marker is consumed automatically by a hook
+at accept's terminal handoff (the next-story scheduling or the sprint review) —
+no prose consume step; the SessionStart sweep is the abandonment backstop.
 
 ## Step 7: Sprint Review
 

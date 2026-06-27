@@ -9,6 +9,10 @@ Each appends a canonical status event with metadata.action so consumers
 can detect completions without regex-matching LLM-authored content. The
 per-commit review flag is set only for /code-review and /xp-quality-review.
 
+Also detects /xp-schedule and /xp-sprint-review — accept's terminal dispatch —
+and consumes ACCEPT_IN_FLIGHT there (the deterministic flip-to-in-progress
+drain; no lifecycle event, no review flag). See _ACCEPT_TERMINAL_TARGETS.
+
 TaskCreate nudge fires after /xp-assign (not /xp-review-plan) because
 /xp-assign runs only for the teammate batch /xp-schedule already promoted —
 by then the execution mode is settled, so the nudge can describe
@@ -56,8 +60,12 @@ def _detect_target(target_name: str) -> str | None:
         return _TARGET_SECURITY_REVIEW
     if "review-plan" in target_name:
         return _TARGET_PLAN_REVIEW
-    # Checked before the generic "review" never matches here: "sprint-review"
-    # shares no substring with the review skills above, so order is incidental.
+    # /xp-sprint-review — accept's all-done terminal dispatch. "sprint-review" is
+    # not a substring of any review skill matched above (quality-review /
+    # security-review / review-plan / code-review), so the ordering here is safe.
+    # The xp-sprint-reviewer AGENT name also contains "sprint-review" and maps
+    # here — harmless: it fires within accept's terminal window and only drains
+    # ACCEPT_IN_FLIGHT (no flag, no lifecycle event).
     if "sprint-review" in target_name:
         return _TARGET_SPRINT_REVIEW
     if "schedule" in target_name:

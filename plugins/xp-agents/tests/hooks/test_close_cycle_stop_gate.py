@@ -69,11 +69,18 @@ class TestCloseCycleStopGate(_HookTestCase):
         and include a recovery instruction in both the concern content and
         stderr — so xp-end-session's high-severity 'watch' surfaces it next
         session and the terminating agent leaves a visible breadcrumb on
-        stderr right now."""
+        stderr right now. Only an AGED marker (truly abandoned) records; a
+        young in-flight marker is left alone (see the mid-cycle test)."""
+        import os
+
         import close_cycle_stop_gate
         import markers
 
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        backdate = close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC + 60
+        old = marker_path.stat().st_mtime - backdate
+        os.utime(marker_path, (old, old))
         stderr_buf = io.StringIO()
         with contextlib.redirect_stderr(stderr_buf):
             result = close_cycle_stop_gate.run(
@@ -93,11 +100,11 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIn("Recovery:", stderr)
         self.assertIn("xp-close-reviewer", stderr)
 
-    def test_bypass_keeps_young_marker(self):
-        """Young marker (< threshold) stays put on bypass — preserves
-        the safety net for a genuine in-progress cycle when
-        stop_hook_active was latched by an unrelated earlier hook
-        (concern 07ab750a5487)."""
+    def test_bypass_keeps_young_marker_and_records_no_concern(self):
+        """Young marker (< threshold) on bypass is a live in-flight cycle: the
+        marker stays put AND no abandonment concern is recorded — recording one
+        for a young (e.g. Step 4b async-wait) yield is a false positive. The
+        SessionStart sweep is the backstop if a young cycle is truly abandoned."""
         import close_cycle_stop_gate
         import markers
 
@@ -112,7 +119,11 @@ class TestCloseCycleStopGate(_HookTestCase):
             "young marker must be preserved on bypass",
         )
         concerns = [e for e in self._read_events() if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 1)
+        self.assertEqual(
+            len(concerns),
+            0,
+            "young in-flight marker must NOT record an abandonment concern",
+        )
 
     def test_bypass_consumes_old_marker(self):
         """Old marker (>= threshold) is consumed — cycle empirically
@@ -234,11 +245,14 @@ class TestCloseCycleStopGate(_HookTestCase):
         result = self._assert_not_none(result)
         self.assertIn("xp-close-reviewer", result)
 
-    def test_bypass_records_concern_even_when_mid_cycle(self):
-        """Fix 1: mid-cycle suppression must not swallow abandonment detection.
-        A stop_hook_active latch during the Step 4b window still records the
-        high-severity bypass concern — only the in-flight nudge is suppressed,
-        not the abandonment signal."""
+    def test_bypass_during_step_4b_records_no_spurious_concern(self):
+        """A stop_hook_active latch during the Step 4b window (young marker,
+        simplify_done set, agent yielding for the async /code-review) must NOT
+        record an abandonment concern — that was the false positive: stop_hook_active
+        is usually already latched session-wide by close time, so a legitimate
+        Step 4b yield would otherwise log a spurious high-severity 'close
+        abandoned' concern even though the workflow notification re-wakes the
+        agent and the close finishes. The young marker is left intact."""
         import close_cycle_stop_gate
         import identity
         import markers
@@ -252,8 +266,13 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIsNone(result)
 
         concerns = [e for e in self._read_events() if e.get("type") == "concern"]
-        self.assertEqual(len(concerns), 1, "abandonment concern must still record")
-        self.assertEqual(concerns[0]["severity"], "high")
+        self.assertEqual(
+            len(concerns), 0, "young Step 4b yield must not record a spurious concern"
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "young marker preserved through the Step 4b yield",
+        )
 
     def test_no_block_when_asking_user(self):
         """Defer when AskUserQuestion dialogue is in flight."""
@@ -356,6 +375,27 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
         import close_cycle_stop_gate
 
         input_data = self._arm_mid_cycle()  # marker just written → young
+
+        result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_long_running_workflow_under_threshold_still_defers(self):
+        """Regression for the outdated 600s bound: an async /code-review high
+        workflow routinely runs 10-15 min. A marker aged ~15 min (well past the
+        former 600s threshold, but under the current one) must STILL defer — the
+        old bound expired mid-Step-4b and re-fired the premature close-reviewer
+        nudge the defer exists to prevent."""
+        import os
+
+        import close_cycle_stop_gate
+        import markers
+
+        input_data = self._arm_mid_cycle()
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        # 900s old: > the retired 600s bound, < the current threshold.
+        assert close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC > 900
+        old = marker_path.stat().st_mtime - 900
+        os.utime(marker_path, (old, old))
 
         result = close_cycle_stop_gate.run(input_data, smm_dir=self.smm_dir)
         self.assertIsNone(result)

@@ -71,6 +71,20 @@ fi
 if [ -n "$REVIEW_BASE" ]; then
     dump_diff_range "$REVIEW_BASE" full
     changed_files=$(get_changed_files_range "$REVIEW_BASE")
+elif [ "$MODE" = "consume-findings" ]; then
+    # Close path could NOT resolve a non-empty TARGET...HEAD range (get-target
+    # errored/empty, or the committed range is empty). The close diff is already
+    # committed, so a working-tree dump_diff would emit "No Changes" and the
+    # reviewer would validate /code-review's findings against an EMPTY diff —
+    # silently shipping unverified findings. Surface it loudly instead of the
+    # silent fallback; the reviewer must review the committed close diff manually.
+    echo "## Close diff unavailable"
+    echo "MODE=consume-findings but the cumulative close range (TARGET...HEAD)"
+    echo "could not be resolved (merge target empty/unresolvable, or no"
+    echo "divergence). Do NOT treat this as 'no changes': review the committed"
+    echo "close diff manually (e.g. \`git diff <merge-target>...HEAD\`) before"
+    echo "validating the /code-review findings."
+    changed_files=""
 else
     dump_diff
     changed_files=$(get_changed_files)

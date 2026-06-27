@@ -115,11 +115,14 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
         # The range path renders the "cumulative since <target>" header.
         self.assertIn("cumulative since", result.stdout)
 
-    def test_consume_findings_degenerate_range_falls_back(self):
-        """Fix 2 guard: consume-findings but on the merge target (empty
-        TARGET...HEAD range) → graceful working-tree fallback, not an empty
-        review. On main with a staged change, main...HEAD is empty, so the
-        staged dump must surface the file instead."""
+    def test_consume_findings_degenerate_range_surfaces_loudly(self):
+        """consume-findings but no resolvable TARGET...HEAD range (e.g. on the
+        merge target, empty range) must NOT silently fall back to the working
+        tree — at a real close the working tree is committed-clean, so that
+        would review an empty diff and validate /code-review's findings against
+        'No Changes', silently shipping unverified findings. Instead it emits a
+        loud 'Close diff unavailable' marker and does NOT surface a staged
+        working-tree file as if it were the close diff."""
         self._checkout_main_clean()
         markers.set_review_flag(self.smm_dir, "main", "simplify_done")
         (self.tmpdir / "wip.py").write_text("z = 3\n")
@@ -127,8 +130,9 @@ class TestQualityReviewPreloadCadence(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self._extract_var(result.stdout, "MODE"), "consume-findings")
-        self.assertIn("wip.py", result.stdout)  # working-tree fallback
-        self.assertNotIn("cumulative since", result.stdout)  # not the range path
+        self.assertIn("Close diff unavailable", result.stdout)
+        self.assertNotIn("## No Changes", result.stdout)
+        self.assertNotIn("wip.py", result.stdout)  # not a silent working-tree fallback
 
     def test_self_find_uses_working_tree_dump(self):
         """Fix 2 regression: MODE=self-find (no /code-review this cycle) keeps
