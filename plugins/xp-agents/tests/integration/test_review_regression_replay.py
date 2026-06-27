@@ -33,6 +33,7 @@ same scrutiny surface. Structural assertions below pin the floor's
 prose so an accidental removal surfaces loudly.
 """
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -88,9 +89,7 @@ class TestRegressionReplay(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = Path(tempfile.mkdtemp(prefix="regression_replay_"))
-        self.addCleanup(
-            lambda: __import__("shutil").rmtree(self.tmpdir, ignore_errors=True)
-        )
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
 
     def _stage_pre_fix(self, fix_commit: str, path: str, local_name: str) -> str:
         """Write pre-fix content to tmpdir; return path relative to tmpdir."""
