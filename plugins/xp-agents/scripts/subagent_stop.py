@@ -63,20 +63,53 @@ def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
     )
 
 
+_OUR_NAMESPACE_PREFIX = "xp-agents:"
+
+
+def _strip_our_namespace(name: str) -> str | None:
+    """Return the bare form when `name` is unqualified or in our namespace.
+
+    Third-party-plugin qualified names (e.g. `otherplugin:code-review`) are
+    not ours — return None so the caller treats them as a non-match.
+    """
+    if ":" not in name:
+        return name
+    if name.startswith(_OUR_NAMESPACE_PREFIX):
+        return name[len(_OUR_NAMESPACE_PREFIX) :]
+    return None
+
+
 def _is_code_review(name: str) -> bool:
     """True for the built-in /code-review skill, but NOT our own
     xp-code-reviewer agent (which also contains the substring "code-review").
-    This guard matters because _update_review_cycle_flags runs BEFORE the
-    is_xp_agent skip, so without it the xp-code-reviewer's completion would
-    falsely set simplify_done."""
-    return "code-review" in name and "code-reviewer" not in name
+    Also rejects third-party plugin qualified forms (`otherplugin:code-review`).
+
+    Kept substring-based on the bare/our-namespace form because `agent_id`
+    legitimately carries prefix-style instance identifiers like
+    `code-review-reuse-1` (pinned by test_code_review_agent_id_sets_flag).
+    """
+    bare = _strip_our_namespace(name)
+    if bare is None:
+        return False
+    return "code-review" in bare and "code-reviewer" not in bare
+
+
+_QUALITY_REVIEW_BARE_NAMES: frozenset[str] = frozenset({"xp-quality-review"})
 
 
 def _is_quality_review(name: str) -> bool:
-    """True for /xp-quality-review, but NOT a hypothetical xp-quality-reviewer
-    or xp-quality-reviewer-helper. Symmetric guard mirroring `_is_code_review`
-    — closes the parallel false-positive defect class in this hook."""
-    return "quality-review" in name and "quality-reviewer" not in name
+    """True only for the canonical xp-quality-review name (bare or our-plugin
+    qualified). Exact-match allowlist — closes both `xp-quality-reviewer*`
+    AND `xp-quality-review-*` helper families by construction. The narrower
+    `not in name` guard (used by `_is_code_review`) couldn't distinguish
+    `xp-quality-review-helper` from a legitimate instance id, so we exit
+    that pattern here. No production caller passes a quality-review instance
+    id (no test pins one), so exact-match loses nothing today.
+    """
+    bare = _strip_our_namespace(name)
+    if bare is None:
+        return False
+    return bare in _QUALITY_REVIEW_BARE_NAMES
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:

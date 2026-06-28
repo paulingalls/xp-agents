@@ -386,6 +386,18 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
+    def test_other_plugin_qualified_code_review_does_not_set_flag(self):
+        """sprint-close finding A6 (subagent_stop leg): a third-party plugin's
+        completion (e.g. 'otherplugin:code-review' as agent_type) must NOT
+        clear our simplify_done flag. The substring _is_code_review currently
+        matches; tighten by scoping the qualified form to our namespace."""
+        subagent_stop.run(
+            self._stop_input("o-1", agent_type="otherplugin:code-review"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+
     def test_xp_code_reviewer_agent_does_not_set_flag(self):
         """Collision guard: our own xp-code-reviewer agent (spawned by
         /xp-quality-review) contains the substring 'code-review' but must NOT
@@ -407,6 +419,19 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
+
+    def test_xp_quality_review_helper_does_not_set_flag(self):
+        """sprint-close finding A5: the symmetric guard 'quality-reviewer not in'
+        only excludes the 'er'-spelling. A helper agent named
+        'xp-quality-review-helper' (no 'er') would still flip the flag —
+        exactly the defect class story-006 was meant to close. Exact-match
+        allowlist closes both spellings."""
+        subagent_stop.run(
+            self._stop_input("h-1", agent_type="xp-quality-review-helper"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["quality_review_done"])
 
     def test_xp_quality_reviewer_helper_does_not_set_flag(self):
         """story-006 symmetric guard: a future name like 'xp-quality-reviewer-helper'
