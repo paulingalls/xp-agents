@@ -13,7 +13,6 @@ import _common
 import branching
 import commits
 import concerns
-import coordination
 import git_commits
 import identity
 import lint_check
@@ -21,8 +20,6 @@ import markers
 import resolution
 import security_patterns
 import security_scanner
-import worktree
-from bash_target_detect import detect_bash_target_files
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
 # ---------------------------------------------------------------------------
@@ -420,78 +417,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _CD_WORKTREE_GIT_PATTERN.search(command):
         parts.append(_CD_WORKTREE_GIT_WARNING)
 
-    # File-modification block — mirrors pre_tool_write.check_working_on_overlap.
-    # On the FIRST overlap: append a high-severity concern, then raise so the
-    # Bash never executes. Multi-target commands (`mv a b && cp c d`) block on
-    # the first hit; the teammate retries after coordinating. Closes the
-    # Advisory bypass that let `mv`/`sed -i` overwrite a claimed file.
-    if smm_dir is not None:
-        target_files = detect_bash_target_files(command)
-        if target_files:
-            coord_data = coordination.read_coordination(smm_dir)
-            # Pre-normalize the coord side ONCE — for a multi-target Bash
-            # (`mv a b && cp c d`) the old shape re-walked every claim and
-            # re-normalized the same paths per target. O(targets x claims)
-            # path-resolution calls collapse to O(claims) here.
-            normalized_claims: dict[str, set[str]] = {}
-            for aid, entry in coord_data.items():
-                if aid == agent_id:
-                    continue
-                norms: set[str] = set()
-                for f in entry.get("working_on", []):
-                    try:
-                        norms.add(worktree.normalize_path(f, cwd))
-                    except (ValueError, OSError):
-                        continue
-                if norms:
-                    normalized_claims[aid] = norms
-            for target_file in target_files:
-                try:
-                    normalized_target = worktree.normalize_path(target_file, cwd)
-                except (ValueError, OSError) as e:
-                    # Fail-loud per CLAUDE.md: silent skip would let a malformed
-                    # target bypass the coordination gate — exactly the bypass
-                    # class story-004 closes. Record + skip THIS target; other
-                    # targets in the same Bash still get checked.
-                    _common.append_safe(
-                        smm_dir,
-                        _common.make_event(
-                            _common.CONCERN,
-                            agent_id,
-                            f"normalize_path failed for Bash target '{target_file}' "
-                            f"({type(e).__name__}); coordination gate skipped this "
-                            f"target. Cmd was: {command[:120]}",
-                            severity="medium",
-                            files=[target_file],
-                        ),
-                    )
-                    continue
-                for aid, norms in normalized_claims.items():
-                    if normalized_target not in norms:
-                        continue
-                    conflict = (
-                        f"CONFLICT: Agent '{aid}' is working on "
-                        f"'{target_file}'. Coordinate before modifying."
-                    )
-                    concern_event = _common.make_event(
-                        _common.CONCERN,
-                        agent_id,
-                        conflict,
-                        severity="high",
-                        files=[target_file],
-                    )
-                    _common.append_safe(smm_dir, concern_event)
-                    # Surface accumulated advisories (cd-into-worktree-git
-                    # warning, TDD nudge, verify-touch) alongside the
-                    # CONFLICT so they're not dropped on the raise — the
-                    # cd-warning in particular is load-bearing per
-                    # feedback_cd_persists_in_bash.
-                    full_message = "\n\n".join([*parts, conflict])
-                    raise _common.BlockedError(
-                        full_message,
-                        "File conflict detected — another agent is "
-                        "working on this file.",
-                    )
+    # No pre-tool Bash file-modification coordination gate: pre_tool_write
+    # handles Edit/Write (the common case), and CLI teammates run in isolated
+    # git worktrees so cross-agent damage from `mv`/`sed -i`/redirects only
+    # materializes at story-close merge where git is the deterministic safety
+    # net. A shlex-based detector that previously lived here was unsound
+    # (bash isn't statically parseable); trust+merge is the honest model.
 
     if not parts:
         return None
