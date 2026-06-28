@@ -429,43 +429,53 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         target_files = detect_bash_target_files(command)
         if target_files:
             coord_data = coordination.read_coordination(smm_dir)
+            # Pre-normalize the coord side ONCE — for a multi-target Bash
+            # (`mv a b && cp c d`) the old shape re-walked every claim and
+            # re-normalized the same paths per target. O(targets x claims)
+            # path-resolution calls collapse to O(claims) here.
+            normalized_claims: dict[str, set[str]] = {}
+            for aid, entry in coord_data.items():
+                if aid == agent_id:
+                    continue
+                norms: set[str] = set()
+                for f in entry.get("working_on", []):
+                    try:
+                        norms.add(worktree.normalize_path(f, cwd))
+                    except (ValueError, OSError):
+                        continue
+                if norms:
+                    normalized_claims[aid] = norms
             for target_file in target_files:
                 try:
                     normalized_target = worktree.normalize_path(target_file, cwd)
                 except (ValueError, OSError):
                     continue
-                for aid, entry in coord_data.items():
-                    if aid == agent_id:
+                for aid, norms in normalized_claims.items():
+                    if normalized_target not in norms:
                         continue
-                    for f in entry.get("working_on", []):
-                        try:
-                            if worktree.normalize_path(f, cwd) != normalized_target:
-                                continue
-                        except (ValueError, OSError):
-                            continue
-                        conflict = (
-                            f"CONFLICT: Agent '{aid}' is working on "
-                            f"'{target_file}'. Coordinate before modifying."
-                        )
-                        concern_event = _common.make_event(
-                            _common.CONCERN,
-                            agent_id,
-                            conflict,
-                            severity="high",
-                            files=[target_file],
-                        )
-                        _common.append_safe(smm_dir, concern_event)
-                        # Surface accumulated advisories (cd-into-worktree-git
-                        # warning, TDD nudge, verify-touch) alongside the
-                        # CONFLICT so they're not dropped on the raise — the
-                        # cd-warning in particular is load-bearing per
-                        # feedback_cd_persists_in_bash.
-                        full_message = "\n\n".join([*parts, conflict])
-                        raise _common.BlockedError(
-                            full_message,
-                            "File conflict detected — another agent is "
-                            "working on this file.",
-                        )
+                    conflict = (
+                        f"CONFLICT: Agent '{aid}' is working on "
+                        f"'{target_file}'. Coordinate before modifying."
+                    )
+                    concern_event = _common.make_event(
+                        _common.CONCERN,
+                        agent_id,
+                        conflict,
+                        severity="high",
+                        files=[target_file],
+                    )
+                    _common.append_safe(smm_dir, concern_event)
+                    # Surface accumulated advisories (cd-into-worktree-git
+                    # warning, TDD nudge, verify-touch) alongside the
+                    # CONFLICT so they're not dropped on the raise — the
+                    # cd-warning in particular is load-bearing per
+                    # feedback_cd_persists_in_bash.
+                    full_message = "\n\n".join([*parts, conflict])
+                    raise _common.BlockedError(
+                        full_message,
+                        "File conflict detected — another agent is "
+                        "working on this file.",
+                    )
 
     if not parts:
         return None
