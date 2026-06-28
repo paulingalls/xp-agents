@@ -32,7 +32,7 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-kickoff": 180,
     "xp-plan": 210,
     "xp-plan-close": 140,
-    "xp-quality-review": 110,
+    "xp-quality-review": 140,
     "xp-review-plan": 20,
     "xp-scaffold-acceptance": 520,
     "xp-schedule": 120,

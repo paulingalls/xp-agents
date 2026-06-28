@@ -59,7 +59,7 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
     # Mid-/xp-accept: the skill arms ACCEPT_IN_FLIGHT at preload. While armed,
     # suppress the accept gate so it never tells the agent to run the skill it
     # is already inside (e.g. while awaiting background acceptance tests). The
-    # consume is hook-driven at accept's terminal dispatch — review_cycle_done
+    # consume is hook-driven at accept's terminal dispatch — accept_terminal
     # drains it on the /xp-schedule or /xp-sprint-review completion that ends
     # the skill (the old state-derived drain here could never fire mid-sprint
     # once /xp-schedule promoted the next story). The SessionStart sweep is the

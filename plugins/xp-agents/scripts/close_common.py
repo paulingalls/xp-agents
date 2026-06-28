@@ -38,6 +38,7 @@ import commits
 import git_hooks
 import git_remote
 import identity
+import markers
 import sprint_store
 import worktree
 from event_schema import METADATA_KEY_COMMIT_HASH
@@ -270,7 +271,11 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     commit_hash = commits.get_head_commit_hash(cwd)
     if not commit_hash:
         return
-    events, _ = _common.load_events_with_resolutions(smm_dir)
+    # Read events under shared flock for dedup — we only need the events list
+    # (commit-hash lookup is a linear scan), not the resolution graph. Using
+    # load_events_with_resolutions here would pay an O(N) resolution.compute
+    # pass on every close-cycle merge and throw the result away.
+    events = _common.read_events_locked(smm_dir, "close-common-merge-dedup")
     if any(
         e.get("type") == _common.COMMIT
         and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
@@ -309,6 +314,28 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
         is_free_session=branching.is_free_branch(source),
     )
     _common.bulk_append_safe(smm_dir, [event])
+
+    # Reset the orchestrator's review cycle to the merge HEAD. The Bash
+    # PreToolUse hook only matches top-level `git commit` shells, so the
+    # `commit_handling._handle_commit` reset that fires for normal commits
+    # is bypassed for merges driven by `branching.merge_branch` here. Left
+    # alone, the prior commit's `quality_review_done=True` marker would
+    # latch the review gate against the next solo commit on the sprint
+    # branch.
+    agent_id = identity.resolve_agent_id_from_cwd(cwd)
+    # Same fail-open posture as the sprint_store load above: the merge already
+    # succeeded on target and the surrounding push/delete/remote-prune chain
+    # must continue. A symlinked / unwritable marker path is a SMM-state
+    # problem, not a merge-correctness problem — surface it on stderr but
+    # don't abort the chain (leaving the source merged-but-unpushed would
+    # force the user into a manual cleanup that re-merge can't redo).
+    try:
+        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(
+            f"warn: failed to reset review cycle after merge ({exc}); "
+            "next commit's review gate may need a manual reset\n"
+        )
 
 
 def cmd_merge(args: argparse.Namespace) -> int:

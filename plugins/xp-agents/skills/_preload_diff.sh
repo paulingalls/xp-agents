@@ -90,14 +90,21 @@ get_changed_files_range() {
     _git diff "$1...HEAD" --name-only 2>/dev/null | sort -u
 }
 
-# Usage: dump_diff_range <base-ref> [stat|full]
+# Usage: dump_diff_range <base-ref> [stat|full] [known_files]
+# When the caller already resolved `get_changed_files_range "$base"` (e.g.
+# to gate the call), pass it as the optional 3rd arg to skip the internal
+# repeat — saves one `git diff --name-only` shellout on a hot preload path.
 dump_diff_range() {
-    local base="$1" mode="${2:-stat}" stat files
+    local base="$1" mode="${2:-stat}" known_files="${3:-}" stat files
     # Guard on the range's file set (--name-only) — the authoritative
     # "did anything change" signal, symmetric with get_changed_files_range.
     # The --stat is rendered below for the human/LLM view, not used as the
     # presence test.
-    files=$(_git diff "$base...HEAD" --name-only 2>/dev/null || true)
+    if [ -n "$known_files" ]; then
+        files="$known_files"
+    else
+        files=$(_git diff "$base...HEAD" --name-only 2>/dev/null || true)
+    fi
     if [ -z "$files" ]; then
         echo "## No Changes"
         echo "(no committed changes since ${base})"

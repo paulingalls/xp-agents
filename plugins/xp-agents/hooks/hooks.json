@@ -196,6 +196,12 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_cycle_done.py",
             "timeout": 5000,
             "statusMessage": "Updating review cycle..."
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/accept_terminal.py",
+            "timeout": 5000,
+            "statusMessage": "Draining accept marker..."
           }
         ]
       },

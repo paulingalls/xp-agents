@@ -78,7 +78,7 @@ class TestCloseCycleStopGate(_HookTestCase):
 
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC + 60
+        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
         stderr_buf = io.StringIO()
@@ -135,7 +135,7 @@ class TestCloseCycleStopGate(_HookTestCase):
 
         markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate_sec = close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC + 60
+        backdate_sec = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
         old_mtime = marker_path.stat().st_mtime - backdate_sec
         os.utime(marker_path, (old_mtime, old_mtime))
 
@@ -324,7 +324,7 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
         import markers
 
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        backdate = close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC + 60
+        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
         old = marker_path.stat().st_mtime - backdate
         os.utime(marker_path, (old, old))
 
@@ -392,8 +392,8 @@ class TestCloseCycleMidCycleAgeGate(_HookTestCase):
 
         input_data = self._arm_mid_cycle()
         marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
-        # 900s old: > the retired 600s bound, < the current threshold.
-        assert close_cycle_stop_gate._CLOSE_CYCLE_AGE_THRESHOLD_SEC > 900
+        # 900s old: > the retired 600s bound, < the current defer window.
+        assert close_cycle_stop_gate._CLOSE_CYCLE_DEFER_WINDOW_SEC > 900
         old = marker_path.stat().st_mtime - 900
         os.utime(marker_path, (old, old))
 

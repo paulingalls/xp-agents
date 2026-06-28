@@ -21,8 +21,8 @@ session-wide once any Stop hook returns a `reason` (e.g.,
 `session_end_warning`'s nudge) — it does NOT reset per-turn. Once the
 flag is True, this gate's block message can no longer reach the agent
 reliably. The bypass is **age-gated**: only when the CLOSE_CYCLE_ACTIVE
-marker is OLDER than `_CLOSE_CYCLE_AGE_THRESHOLD_SEC` is the cycle treated
-as truly abandoned — then the gate records a high-severity concern + emits
+marker is OLDER than `_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC` is the cycle
+treated as truly abandoned — then the gate records a high-severity concern + emits
 stderr (loud signal) and consumes the marker. A YOUNG marker is a live
 in-flight cycle (e.g. the agent yielding during the async Step 4b wait
 with stop_hook_active already latched); recording an abandonment concern
@@ -43,15 +43,25 @@ import event_schema
 import identity
 import markers
 
-# A close legitimately stays in-flight for the whole Step 4b window, whose
-# threshold-gated `/code-review high` is an async multi-agent workflow that
-# alone runs ~10-15 min (observed). The "still legitimately in-flight" window
-# must therefore exceed that, plus headroom for /xp-quality-review consume,
-# /security-review, and concern-triage AskUserQuestion sessions. Only markers
-# OLDER than this are treated as truly-abandoned (block / record / consume);
-# younger ones are a live cycle and are left alone. (Was 600s, which predated
-# the workflow-backed /code-review and expired mid-Step-4b.)
-_CLOSE_CYCLE_AGE_THRESHOLD_SEC = 1800
+# Two distinct timescales, previously sharing one knob:
+#
+#   1. DEFER WINDOW — Step 4b is in flight, suppress the close-reviewer
+#      nudge. Must EXCEED /code-review high's observed ~10-15 min runtime
+#      plus headroom for /xp-quality-review consume + /security-review +
+#      concern-triage AskUserQuestion. (Was 600s, which predated the
+#      workflow-backed /code-review and expired mid-Step-4b; bumped to 1800s.)
+#
+#   2. ABANDONMENT TIMEOUT — the bypass-recorded "close abandoned" concern.
+#      Must be SUBSTANTIALLY LONGER than the defer window so a slow but
+#      legitimate close (security-review prompts, slow agent turns,
+#      multi-round concern triage) doesn't trip a false-positive
+#      abandonment.
+#
+# A single shared value forced a compromise that fails both: too long for
+# defer (delays surfacing real abandonment) or too short for abandonment
+# (false positives). The split keeps each knob honest to its purpose.
+_CLOSE_CYCLE_DEFER_WINDOW_SEC = 1800
+_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC = 3600
 
 _BLOCK_MESSAGE = (
     "Close cycle mid-flight. Run /security-review then invoke "
@@ -76,21 +86,32 @@ _BYPASS_STDERR = (
 )
 
 
-def _marker_young(smm_dir: Path) -> bool:
-    """True if the CLOSE_CYCLE_ACTIVE marker is younger than the age threshold.
+def _marker_age(smm_dir: Path) -> float | None:
+    """Marker age in seconds, or None if stat fails (marker raced away).
 
-    A young marker means the close cycle plausibly just started (the async
-    Step 4b /code-review workflow is still running, or stop_hook_active was
-    latched by an unrelated hook). A stat() OSError means the marker raced
-    away between marker_exists() and here — treat as NOT young so callers fall
-    toward surfacing (block / consume) rather than a silent latch.
+    Callers should treat None as 'cannot prove young' — fall toward
+    surfacing (block / consume) rather than a silent latch.
     """
     marker_path = markers.marker_path(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
     try:
-        age = time.time() - marker_path.stat().st_mtime
+        return time.time() - marker_path.stat().st_mtime
     except OSError:
+        return None
+
+
+def _marker_age_under(smm_dir: Path, threshold_sec: int) -> bool:
+    """True if the CLOSE_CYCLE_ACTIVE marker is younger than ``threshold_sec``.
+
+    Single helper for both the defer-window and abandonment-window checks —
+    the two callers pass different constants but apply the identical
+    None-handling semantics: a stat() OSError counts as NOT within the
+    window so callers fall toward surfacing (block / consume / record)
+    rather than silently latching.
+    """
+    age = _marker_age(smm_dir)
+    if age is None:
         return False
-    return age < _CLOSE_CYCLE_AGE_THRESHOLD_SEC
+    return age < threshold_sec
 
 
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
@@ -110,7 +131,7 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     so subsequent Stops don't re-fire. A stat() race (marker vanished) counts as
     not-young → falls through to consume (a harmless no-op).
     """
-    if _marker_young(smm_dir):
+    if _marker_age_under(smm_dir, _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC):
         return
     sys.stderr.write(_BYPASS_STDERR)
     agent_id = identity.resolve_agent_id(input_data)
@@ -160,7 +181,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # through to the block; the next stop_hook_active bypass then consumes
         # the aged marker and records the abandonment concern.
         agent_id = identity.resolve_agent_id(input_data)
-        if markers.review_mid_cycle(smm_dir, agent_id) and _marker_young(smm_dir):
+        mid_cycle = markers.review_mid_cycle(smm_dir, agent_id)
+        if mid_cycle and _marker_age_under(smm_dir, _CLOSE_CYCLE_DEFER_WINDOW_SEC):
             return None
         return _BLOCK_MESSAGE
     return None
