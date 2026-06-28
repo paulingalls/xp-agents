@@ -180,17 +180,16 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(cycle["quality_review_done"])
 
     def test_assign_nudge_covers_taskcreate_solo_and_teammates(self):
-        """Mode-aware nudge after /xp-assign: must mention TaskCreate AND
-        address both solo (per-step tasks) and teammate (coordination:
-        wait/accept/close per story) modes so the agent knows what to
-        track regardless of which mode xp-assign chose."""
+        """Teammate-mode nudge after /xp-assign: must mention TaskCreate AND
+        the per-story coordination tasks (plan next story, wait+accept on
+        this teammate). /xp-assign is teammate-only — /xp-schedule branches
+        solo directly — so the nudge no longer needs to address solo mode."""
         result = review_cycle_done.run(
             _make_skill_input("xp-assign"), smm_dir=self.smm_dir
         )
         assert result is not None
         self.assertIn("TaskCreate", result)
         lower = result.lower()
-        self.assertIn("solo", lower)
         self.assertIn("teammate", lower)
         self.assertIn("/xp-accept", result)
 
@@ -255,103 +254,75 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(main_cycle.get("simplify_done", False))
 
 
-class TestAcceptInFlightConsumeOnTerminalDispatch(_HookTestCase):
-    """Fix 2 (concern 8e0264cfcf43): /xp-accept's terminal dispatch drains
-    ACCEPT_IN_FLIGHT.
+class TestDetectTargetAllowlist(unittest.TestCase):
+    """story-006: _detect_target uses an explicit allowlist (no substring matching).
 
-    /xp-accept always ends by invoking exactly one of /xp-schedule (more
-    stories) or /xp-sprint-review (all done/deferred). Those completions are
-    accept's deterministic terminal signal — the PostToolUse:Skill hook
-    consumes the marker there, at the real flip-to-in-progress event
-    (/xp-schedule promotes the next frontier story). The old state-derived
-    consume in sprint_stop_gate could never drain mid-sprint because the
-    promoted next story kept an in-progress story present, so the accept
-    nudge stayed suppressed for every later story that session.
-
-    These completions consume the marker but emit NO review-lifecycle status
-    event (consumers count those; a spurious event would skew the counters)
-    and set NO review flags — schedule/sprint-review aren't review skills.
+    Closes the false-positive class where a future skill like
+    `xp-quality-reviewer-helper` would route to `_TARGET_QUALITY_REVIEW`
+    under the old substring chain. Mirrors the precedent in
+    `accept_terminal._is_terminal_target` (sprint-104 commit 1173083f).
     """
 
-    def test_schedule_completion_consumes_accept_in_flight(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        review_cycle_done.run(_make_skill_input("xp-schedule"), smm_dir=self.smm_dir)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+    _KNOWN_TARGETS = (
+        ("code-review", review_cycle_done._TARGET_SIMPLIFY),
+        ("xp-quality-review", review_cycle_done._TARGET_QUALITY_REVIEW),
+        ("security-review", review_cycle_done._TARGET_SECURITY_REVIEW),
+        ("xp-review-plan", review_cycle_done._TARGET_PLAN_REVIEW),
+        ("xp-assign", review_cycle_done._TARGET_ASSIGN),
+        ("xp-housekeeper", review_cycle_done._TARGET_HOUSEKEEPING),
+    )
 
-    def test_sprint_review_completion_consumes_accept_in_flight(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        review_cycle_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
+    def test_each_known_target_routes(self):
+        for name, expected in self._KNOWN_TARGETS:
+            with self.subTest(name=name):
+                self.assertEqual(review_cycle_done._detect_target(name), expected)
+
+    def test_each_qualified_name_routes(self):
+        """Plugin-qualified form `xp-agents:<bare>` resolves to the same target."""
+        for bare, expected in self._KNOWN_TARGETS:
+            # Built-ins (code-review, security-review) can also be qualified
+            # by the harness; cover them in the same loop.
+            qualified = f"xp-agents:{bare}"
+            with self.subTest(name=qualified):
+                self.assertEqual(review_cycle_done._detect_target(qualified), expected)
+
+    def test_xp_code_reviewer_routes_to_none(self):
+        """AC #1: xp-code-reviewer (contains 'code-review' substring) must
+        NOT route to SIMPLIFY — the allowlist excludes it by construction."""
+        self.assertIsNone(review_cycle_done._detect_target("xp-code-reviewer"))
+        self.assertIsNone(
+            review_cycle_done._detect_target("xp-agents:xp-code-reviewer")
         )
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
 
-    def test_qualified_schedule_name_consumes(self):
-        """Plugin-qualified xp-agents:xp-schedule also drains the marker."""
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        review_cycle_done.run(
-            _make_skill_input("xp-agents:xp-schedule"), smm_dir=self.smm_dir
-        )
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+    def test_unknown_helper_names_route_to_none(self):
+        """AC #2: hypothetical helper-suffix names (which the substring chain
+        would have matched) must return None under the allowlist."""
+        false_positives = [
+            "xp-quality-reviewer-helper",  # substring code returns QUALITY_REVIEW
+            "xp-housekeeper-helper",  # substring code returns HOUSEKEEPING
+            # Belt-and-braces: these don't match either path, but pin the
+            # closed-set guarantee.
+            "xp-assignment",
+            "xp-review-plan-tool",
+        ]
+        for name in false_positives:
+            with self.subTest(name=name):
+                self.assertIsNone(review_cycle_done._detect_target(name))
 
-    def test_kickoff_tail_schedule_unarmed_is_noop(self):
-        """Regression: the kickoff-tail /xp-schedule runs with no armed marker.
-        The consume is idempotent (no-op), raises no KeyError (schedule has no
-        _TARGET_LIFECYCLE entry), and returns no nudge."""
-        result = review_cycle_done.run(
-            _make_skill_input("xp-schedule"), smm_dir=self.smm_dir
-        )
-        self.assertIsNone(result)
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
+    def test_empty_target_returns_none(self):
+        """Empty input is benign — already returned None implicitly; pin it."""
+        self.assertIsNone(review_cycle_done._detect_target(""))
 
-    def test_schedule_does_not_set_review_flags(self):
-        review_cycle_done.run(_make_skill_input("xp-schedule"), smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertFalse(cycle["simplify_done"])
-        self.assertFalse(cycle["quality_review_done"])
-
-    def test_sprint_reviewer_agent_completion_consumes(self):
-        """Collision pin (mirrors the xp-code-reviewer guard): /xp-sprint-review
-        spawns the xp-sprint-reviewer AGENT, whose completion arrives via
-        tool_input.subagent_type in the MAIN agent's PostToolUse context — the
-        is_xp_agent skip checks the INVOKING agent (main, non-xp), so it does NOT
-        fire. The subagent name contains the 'sprint-review' substring, so it
-        routes to _TARGET_SPRINT_REVIEW and drains ACCEPT_IN_FLIGHT. This is
-        benign — the reviewer is only ever spawned by the /xp-sprint-review
-        terminal dispatch, so the (slightly early) consume stays inside accept's
-        terminal window — but it must stay explicit so a future refactor of the
-        substring routing doesn't silently break the drain or, worse, the
-        unrelated counters.
-        """
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        review_cycle_done.run(
-            _make_agent_input("xp-sprint-reviewer"), smm_dir=self.smm_dir
-        )
-        self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
-        # No review flag, no lifecycle event — same as the skill path.
-        cycle = markers.read_review_cycle(self.smm_dir, "main")
-        self.assertFalse(cycle["simplify_done"])
-        self.assertFalse(cycle["quality_review_done"])
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        status_events = [e for e in events if e["type"] == EVENT_TYPE_STATUS]
-        self.assertEqual(len(status_events), 0)
-
-    def test_schedule_emits_no_lifecycle_event(self):
-        """schedule/sprint-review must NOT emit a review-lifecycle status event —
-        consumers count those, so a spurious event would skew the counters."""
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        review_cycle_done.run(_make_skill_input("xp-schedule"), smm_dir=self.smm_dir)
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        status_events = [e for e in events if e["type"] == EVENT_TYPE_STATUS]
-        self.assertEqual(len(status_events), 0)
-
-    def test_sprint_review_emits_no_lifecycle_event(self):
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        review_cycle_done.run(
-            _make_skill_input("xp-sprint-review"), smm_dir=self.smm_dir
-        )
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        status_events = [e for e in events if e["type"] == EVENT_TYPE_STATUS]
-        self.assertEqual(len(status_events), 0)
+    def test_other_plugin_qualified_name_routes_to_none(self):
+        """sprint-close finding A6: only the 'xp-agents:' namespace is ours.
+        A third-party plugin's '/otherplugin:code-review' would otherwise
+        falsely set simplify_done via the bare-form fallback."""
+        for entry in self._KNOWN_TARGETS:
+            qualified = f"otherplugin:{entry[0]}"
+            with self.subTest(name=qualified):
+                self.assertIsNone(review_cycle_done._detect_target(qualified))
+        # Also pin the empty/malformed namespace case.
+        self.assertIsNone(review_cycle_done._detect_target(":code-review"))
 
 
 class TestAgentIdSemantics(_HookTestCase):
@@ -425,6 +396,18 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
 
+    def test_other_plugin_qualified_code_review_does_not_set_flag(self):
+        """sprint-close finding A6 (subagent_stop leg): a third-party plugin's
+        completion (e.g. 'otherplugin:code-review' as agent_type) must NOT
+        clear our simplify_done flag. The substring _is_code_review currently
+        matches; tighten by scoping the qualified form to our namespace."""
+        subagent_stop.run(
+            self._stop_input("o-1", agent_type="otherplugin:code-review"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["simplify_done"])
+
     def test_xp_code_reviewer_agent_does_not_set_flag(self):
         """Collision guard: our own xp-code-reviewer agent (spawned by
         /xp-quality-review) contains the substring 'code-review' but must NOT
@@ -446,6 +429,39 @@ class TestSubagentStopReviewFlags(_HookTestCase):
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(cycle["simplify_done"])
+
+    def test_xp_quality_review_helper_does_not_set_flag(self):
+        """sprint-close finding A5: the symmetric guard 'quality-reviewer not in'
+        only excludes the 'er'-spelling. A helper agent named
+        'xp-quality-review-helper' (no 'er') would still flip the flag —
+        exactly the defect class story-006 was meant to close. Exact-match
+        allowlist closes both spellings."""
+        subagent_stop.run(
+            self._stop_input("h-1", agent_type="xp-quality-review-helper"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["quality_review_done"])
+
+    def test_xp_quality_reviewer_helper_does_not_set_flag(self):
+        """story-006 symmetric guard: a future name like 'xp-quality-reviewer-helper'
+        contains the substring 'quality-review' but must NOT set the
+        quality_review_done flag. Mirrors `_is_code_review`'s 'code-reviewer not in'
+        exclusion. Closes the parallel defect class in `_update_review_cycle_flags`
+        (debt b2389e3f725d)."""
+        subagent_stop.run(
+            self._stop_input("helper-1", agent_type="xp-quality-reviewer-helper"),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["quality_review_done"])
+        # Same guard must hold for agent_id-driven matches.
+        subagent_stop.run(
+            self._stop_input("xp-quality-reviewer-helper-9", agent_type=""),
+            smm_dir=self.smm_dir,
+        )
+        cycle = markers.read_review_cycle(self.smm_dir, "main")
+        self.assertFalse(cycle["quality_review_done"])
 
     def test_legacy_simplify_agent_type_no_longer_sets_flag(self):
         """Cutover: a subagent named 'simplify' no longer sets the flag."""

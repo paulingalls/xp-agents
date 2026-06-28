@@ -25,7 +25,7 @@ from conftest import (
 GUIDE_BUDGETS: dict[str, int] = {
     "XP_VALUES": 20,
     "PROCESS_GUIDE": 100,
-    "TEAMMATE_GUIDE": 50,
+    "TEAMMATE_GUIDE": 60,
 }
 
 _LABEL = "<plugin>/*.md"

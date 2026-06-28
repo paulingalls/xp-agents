@@ -243,7 +243,7 @@ def write_review_cadence(smm_dir: Path, cadence: str) -> None:
 # leaks after teammate-worktree close-cycle Edits when /xp-accept's
 # no-reviewing-stories path skips the consume; ACCEPT_IN_FLIGHT leaks when
 # /xp-accept is abandoned before its terminal dispatch (/xp-schedule or
-# /xp-sprint-review completion, where review_cycle_done drains it). This sweep
+# /xp-sprint-review completion, where accept_terminal drains it). This sweep
 # is the abandonment backstop.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ACTIVE,
@@ -293,7 +293,7 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 # intentionally NOT a back door for those flows.
 # Add a marker here only when a skill prose step needs to drive it.
 # ACCEPT_IN_FLIGHT: armed by xp-accept's preload via this CLI. The consume is
-# hook-driven (review_cycle_done clears it on accept's terminal /xp-schedule or
+# hook-driven (accept_terminal clears it on accept's terminal /xp-schedule or
 # /xp-sprint-review dispatch; the SessionStart sweep is the backstop) — no prose
 # consume step, but it stays allowlisted because the preload still arms it here.
 _CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE", "ACCEPT_IN_FLIGHT"})

@@ -277,7 +277,7 @@ Hard ceilings (`MAX_CONTENT_LENGTH`, `MAX_EVENT_BYTES`, same module) cap unbound
 | UserPromptSubmit | Nugget: new signal events since last prompt (watermark-based) | ~50-100 tokens |
 | SubagentStart | Tiered: Explore gets Intent+Constraints, Plan/default gets full SMM | ~200-500 tokens |
 
-**No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, `.review-cycle-{agent_id}.json` for commit-gated review cycle, TDD tracker for test enforcement. Zero event log reads. Coordination conflicts are detected and blocked (Write) or warned (Bash heuristic) — not injected as nuggets.
+**No PreToolUse delta.** PreToolUse hooks (`pre_tool_write.py` for Write/Edit/MultiEdit, `pre_tool_bash.py` for Bash) use only file-based checks: `.coordination.json` for conflicts, marker files for plan review, `.review-cycle-{agent_id}.json` for commit-gated review cycle, TDD tracker for test enforcement. Zero event log reads. Coordination conflicts are detected and blocked on Write/Edit; Bash file-mods are not gated here — cross-agent damage is caught at story-close merge.
 
 ---
 
@@ -350,7 +350,7 @@ Tiered context injection based on subagent type. Explore subagents get only Inte
 
 Conflict detection is handled by PreToolUse hooks, not mid-session nuggets:
 - **Write/Edit/MultiEdit:** `pre_tool_write.py` reads `.coordination.json` and **blocks** if another agent claims the same file.
-- **Bash:** `pre_tool_bash.py` uses a heuristic to detect file-modifying commands (`>`, `tee`, `sed -i`, `mv`, `cp`) and **warns** (advisory, never blocks) if overlap detected.
+- **Bash:** no coordination gate — bash isn't statically parseable. CLI teammates run in isolated git worktrees; cross-agent damage from `mv`/`sed -i`/redirects materializes at story-close merge where git is the deterministic safety net (sprint-105 decision).
 
 ---
 

@@ -53,24 +53,39 @@ echo ""
 # its committed range is non-empty (guards on-target/on-base, stage-0, and
 # no-divergence — symmetric to the story branch).
 REVIEW_BASE=""
+REVIEW_BASE_FILES=""
 CADENCE=$(_get_review_cadence)
+# Compute the candidate ref's --name-only ONCE per branch; reused as the
+# presence test below AND as the changed-files block when REVIEW_BASE wins.
+# Avoids three separate `git diff <ref>...HEAD --name-only` shellouts for the
+# same ref on a latency-sensitive preload path.
 if [ "$MODE" = "consume-findings" ]; then
     target=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
         --smm-dir "${SMM_DIR}" get-target --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "")
-    if [ -n "$target" ] && [ -n "$(get_changed_files_range "$target")" ]; then
-        REVIEW_BASE="$target"
+    if [ -n "$target" ]; then
+        REVIEW_BASE_FILES=$(get_changed_files_range "$target")
+        if [ -n "$REVIEW_BASE_FILES" ]; then
+            REVIEW_BASE="$target"
+        fi
     fi
 elif [ "$CADENCE" = "story" ]; then
     base=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
         --smm-dir "${SMM_DIR}" get-base --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "")
-    if [ -n "$base" ] && [ -n "$(get_changed_files_range "$base")" ]; then
-        REVIEW_BASE="$base"
+    if [ -n "$base" ]; then
+        REVIEW_BASE_FILES=$(get_changed_files_range "$base")
+        if [ -n "$REVIEW_BASE_FILES" ]; then
+            REVIEW_BASE="$base"
+        fi
     fi
 fi
 
 if [ -n "$REVIEW_BASE" ]; then
-    dump_diff_range "$REVIEW_BASE" full
-    changed_files=$(get_changed_files_range "$REVIEW_BASE")
+    # Pass REVIEW_BASE_FILES as known_files so dump_diff_range skips its
+    # internal --name-only repeat. Collapses three identical shellouts
+    # (gate + dump_diff_range internal + final changed_files assignment)
+    # to a single one upstream.
+    dump_diff_range "$REVIEW_BASE" full "$REVIEW_BASE_FILES"
+    changed_files="$REVIEW_BASE_FILES"
 elif [ "$MODE" = "consume-findings" ]; then
     # Close path could NOT resolve a non-empty TARGET...HEAD range (get-target
     # errored/empty, or the committed range is empty). The close diff is already
@@ -78,6 +93,10 @@ elif [ "$MODE" = "consume-findings" ]; then
     # reviewer would validate /code-review's findings against an EMPTY diff —
     # silently shipping unverified findings. Surface it loudly instead of the
     # silent fallback; the reviewer must review the committed close diff manually.
+    # The deterministic key=value flag disambiguates this state from a clean
+    # tree for any downstream parser (the prose block alone is human-only).
+    echo "CLOSE_DIFF_UNAVAILABLE=true"
+    echo ""
     echo "## Close diff unavailable"
     echo "MODE=consume-findings but the cumulative close range (TARGET...HEAD)"
     echo "could not be resolved (merge target empty/unresolvable, or no"
@@ -88,6 +107,18 @@ elif [ "$MODE" = "consume-findings" ]; then
 else
     dump_diff
     changed_files=$(get_changed_files)
+fi
+
+echo ""
+echo "## Changed Files"
+if [ -z "$changed_files" ]; then
+    echo "(none)"
+else
+    # `changed_files` is already one path per line (both `get_changed_files`
+    # and `get_changed_files_range` emit `--name-only`). Do NOT pipe through
+    # `tr ' ' '\n'` — that would split paths containing literal spaces into
+    # two non-existent entries and silently drop them from review.
+    echo "$changed_files"
 fi
 
 echo ""

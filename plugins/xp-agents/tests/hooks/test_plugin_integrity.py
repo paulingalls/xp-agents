@@ -51,6 +51,8 @@ _CONTENT_SKILL_NAMES = (
 _PLUGIN_JSON = _PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 _REPO_ROOT = _PLUGIN_ROOT.parent.parent
 _CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
+# v1-v3 history was archived at the v4.0 cut; pre-v4 fact pins read from here.
+_CHANGELOG_PRE_V4 = _REPO_ROOT / "changelog_pre_v4.md"
 
 
 _VERSION_HEADING_RE = re.compile(r"^## v(\d+\.\d+\.\d+)\b")
@@ -116,8 +118,9 @@ class TestChangelogFactsPins(unittest.TestCase):
     def test_changelog_v3_1_0_names_security_migration(self):
         # Pin the load-bearing M-8 facts so a future edit can't quietly
         # drop them: the migration target, the deletions, and the
-        # additive metadata key.
-        content = _CHANGELOG.read_text()
+        # additive metadata key. Reads from the archived pre-v4 changelog
+        # (the v4.0 release cut split history out of CHANGELOG.md).
+        content = _CHANGELOG_PRE_V4.read_text()
         # Scope to the v3.1.0 section only.
         v310_start = content.find("## v3.1.0")
         v310_end = content.find("\n## ", v310_start + 1)

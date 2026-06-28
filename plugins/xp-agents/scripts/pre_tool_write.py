@@ -286,8 +286,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     )
     if assign_marker:
         raise _common.BlockedError(
-            "Run /xp-assign to split the reviewed teammate plan and spawn "
-            "worktree subagents before writing code.",
+            "Run /xp-assign to create the next story's branch and spawn its "
+            "teammate (per-story pipeline — one spawn per invocation) "
+            "before writing code.",
             "Work assignment required before implementation.",
         )
 

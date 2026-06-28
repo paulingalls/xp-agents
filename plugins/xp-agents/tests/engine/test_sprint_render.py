@@ -43,6 +43,27 @@ class TestRenderMarkdown(unittest.TestCase):
         md = sprint_render.render_markdown(_make_sprint())
         self.assertIn("sprint-001", md)
 
+    def test_render_includes_executor_model_when_set(self):
+        """sprint-close finding C4: durable schema slots (executor_model,
+        execution_mode) must surface in render output so the lead can audit
+        per-story tier and mode without raw JSON inspection."""
+        import sprint_render
+
+        story = _make_story(executor_model="opus", execution_mode="teammate")
+        md = sprint_render.render_markdown(_make_sprint(stories=[story]))
+        self.assertIn("opus", md)
+        self.assertIn("teammate", md)
+
+    def test_render_omits_executor_model_when_absent(self):
+        """When executor_model is absent/null, no `**Executor Model:**` line —
+        match the existing pattern for milestone_ref / context / etc."""
+        import sprint_render
+
+        story = _make_story()  # no executor_model, no execution_mode
+        md = sprint_render.render_markdown(_make_sprint(stories=[story]))
+        self.assertNotIn("Executor Model", md)
+        self.assertNotIn("Execution Mode", md)
+
     def test_render_acceptance_execution(self):
         import sprint_render
 

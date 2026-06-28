@@ -44,6 +44,13 @@ UNDER_ACCEPTANCE_STORY_STATUSES = frozenset({"reviewing", "closing"})
 # absent means not-yet-promoted.
 VALID_EXECUTION_MODES = frozenset({"solo", "teammate"})
 
+# Which model the lead picks for a teammate's spawn during per-story
+# planning. Forwarded by /xp-assign to spawn_teammate.py --model.
+# Optional story field — absent means inherit the lead's model.
+# Closed plugin-side enum; widen here if a new tier ships
+# (tests/agents/test_agent_model_tiers.py is the per-tier classification).
+VALID_EXECUTOR_MODELS = frozenset({"sonnet", "opus", "haiku", "fable"})
+
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,
 }
@@ -171,6 +178,17 @@ def _validate_story(
             valid = sorted(VALID_EXECUTION_MODES)
             errors.append(
                 f"stories[{idx}].execution_mode must be one of {valid}, got {em!r}"
+            )
+
+    em_executor = story.get("executor_model")
+    if em_executor is not None:
+        if not isinstance(em_executor, str):
+            errors.append(f"stories[{idx}].executor_model must be a string or null")
+        elif em_executor not in VALID_EXECUTOR_MODELS:
+            valid = sorted(VALID_EXECUTOR_MODELS)
+            errors.append(
+                f"stories[{idx}].executor_model must be one of {valid}, "
+                f"got {em_executor!r}"
             )
 
     return errors
