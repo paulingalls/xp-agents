@@ -37,6 +37,9 @@ OPUS_AGENTS = (
     "xp-system-analyzer",
 )
 
+# Bounded-classification agents — pinned to Haiku (cheap/fast, single-shot output).
+HAIKU_AGENTS = ("xp-risk-classifier",)
+
 
 def _agent_model(name: str) -> str:
     frontmatter, _ = _split_frontmatter_body((_AGENTS_DIR / f"{name}.md").read_text())
@@ -56,10 +59,15 @@ class TestAgentModelTiers(unittest.TestCase):
             with self.subTest(agent=name):
                 self.assertEqual(_agent_model(name), "opus")
 
+    def test_classifiers_pinned_to_haiku(self):
+        for name in HAIKU_AGENTS:
+            with self.subTest(agent=name):
+                self.assertEqual(_agent_model(name), "haiku")
+
     def test_no_agent_pins_1m_context(self):
         # The whole point of pinning opus is to shed the [1m] 1M-context beta;
         # no agent's model field may carry it.
-        for name in SONNET_AGENTS + OPUS_AGENTS:
+        for name in SONNET_AGENTS + OPUS_AGENTS + HAIKU_AGENTS:
             with self.subTest(agent=name):
                 self.assertNotIn("[1m]", _agent_model(name))
 
