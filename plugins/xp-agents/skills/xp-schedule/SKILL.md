@@ -30,10 +30,11 @@ allowed-tools:
 
 Decide solo vs parallel for the **ready frontier** — the dep-satisfied
 `scheduled` stories — then promote it. This precedes planning because the choice
-sets the planning scope: solo plans one story; parallel plans the whole batch so
-`/xp-assign` can split it per teammate. The preload computes the frontier; this
-skill consumes it. `execution_mode` is a durable story field (`solo`/`teammate`)
-read later by the plan-review gate (`subagent_stop`) and retro analysis.
+sets the planning scope: solo plans one story; parallel locks per-story
+file-domain disjointness up front, then the lead per-story plans→reviews→spawns
+each teammate in turn. The preload computes the frontier; this skill consumes
+it. `execution_mode` is a durable story field (`solo`/`teammate`) read later by
+the plan-review gate (`subagent_stop`) and retro analysis.
 
 ## Step 1: Read the frontier
 
@@ -98,5 +99,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
 
 Then emit the next step:
 - **Solo** → "Proceeding solo on `$FIRST` — enter plan mode for it."
-- **Parallel** → "Frontier promoted as teammate batch — plan the batch, then
-  `/xp-assign` splits + spawns."
+- **Parallel** → "Frontier promoted as teammate batch —
+  per-story plan→review→spawn. For each story: EnterPlanMode →
+  /xp-review-plan → /xp-assign spawns that teammate async, then
+  continue to the next story while it runs."

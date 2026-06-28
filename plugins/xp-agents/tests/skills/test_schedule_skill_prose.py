@@ -53,6 +53,23 @@ class TestScheduleSkillProse(unittest.TestCase):
     def test_promotes_to_in_progress(self):
         self.assertIn("in-progress", self.body)
 
+    def test_parallel_handoff_names_per_story_pipeline(self):
+        # Story-001: /xp-schedule's parallel-mode tail must point the lead at
+        # per-story plan→review→spawn (the M2 pipeline), not the legacy single
+        # batch plan. The full phrase is distinctive enough to detect drift.
+        self.assertIn("per-story plan→review→spawn", self.body)
+
+    def test_parallel_handoff_drops_legacy_batch_plan_phrase(self):
+        # Negative guard: the old tail message ("plan the batch") explicitly
+        # instructed a single batch plan; the M2 reshape removes that flow.
+        self.assertNotIn("plan the batch", self.body)
+
+    def test_parallel_handoff_drops_legacy_splits_spawns_phrase(self):
+        # Negative guard: the old tail also said "/xp-assign splits + spawns".
+        # /xp-assign reshapes to per-story spawn in story-003; the tail must
+        # stop advertising the split-N-ways shape now.
+        self.assertNotIn("splits + spawns", self.body)
+
 
 if __name__ == "__main__":
     unittest.main()
