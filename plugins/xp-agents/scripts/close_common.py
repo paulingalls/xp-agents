@@ -38,6 +38,7 @@ import commits
 import git_hooks
 import git_remote
 import identity
+import markers
 import sprint_store
 import worktree
 from event_schema import METADATA_KEY_COMMIT_HASH
@@ -309,6 +310,16 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
         is_free_session=branching.is_free_branch(source),
     )
     _common.bulk_append_safe(smm_dir, [event])
+
+    # Reset the orchestrator's review cycle to the merge HEAD. The Bash
+    # PreToolUse hook only matches top-level `git commit` shells, so the
+    # `commit_handling._handle_commit` reset that fires for normal commits
+    # is bypassed for merges driven by `branching.merge_branch` here. Left
+    # alone, the prior commit's `quality_review_done=True` marker would
+    # latch the review gate against the next solo commit on the sprint
+    # branch.
+    agent_id = identity.resolve_agent_id_from_cwd(cwd)
+    markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
 
 def cmd_merge(args: argparse.Namespace) -> int:
