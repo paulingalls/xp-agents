@@ -154,7 +154,7 @@ Forked skills delegate to a subagent above. Inline skills run in the main agent 
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred, dispatch `/xp-story-close` per accepted story; post-loop dispatches `/xp-schedule` for the next frontier (or `/xp-sprint-review` when none remain)
 - `/xp-schedule` — sole owner of `scheduled → in-progress`: promote the next dependency-satisfied frontier, decide mode (solo vs CLI teammates), set each story's `execution_mode`, and (solo) JIT-create the branch. Runs before planning; state-derived gates (write + EnterPlanMode) enforce it
-- `/xp-assign` — split a reviewed teammate-mode plan per teammate, create their branches, and spawn teammates via `spawn_teammate.py`. Teammate-only — mode selection and solo branching belong to `/xp-schedule`. Auto-runs after `/xp-schedule` promotion and `/xp-review-plan`
+- `/xp-assign` — per-story: read the most-recent per-story plan, target the lowest-id un-spawned teammate story, create its branch, and spawn ONE teammate via `spawn_teammate.py` (per-story plan→review→spawn loop, NOT a batch fan-out). Teammate-only — mode selection and solo branching belong to `/xp-schedule`. Auto-runs after `/xp-schedule` promotion and `/xp-review-plan` (one story at a time)
 - `/xp-story-close` — per-accepted-story: review (close-reviewer mode=story), merge into sprint base via `close_common.py merge`, cleanup teammate worktree if present. Does NOT promote or branch the next story
 - `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
 - `/xp-plan-close` — push plan branch, fork close-reviewer, merge into primary, archive plan
@@ -375,13 +375,13 @@ Mode selection happens at `/xp-schedule`, **before** planning — not at `/xp-as
 
 **Solo mode** — chosen when the frontier is a single story, or 2+ stories share file domains. `/xp-schedule` promotes the lowest-id story, sets `execution_mode=solo`, JIT-creates its branch, and the lead plans + executes it directly (no `/xp-assign`).
 
-**CLI teammate mode** — chosen when 2+ frontier stories have non-overlapping file domains (user confirms). `/xp-schedule` promotes the whole frontier (`execution_mode=teammate`); the lead plans the batch; then `/xp-assign` splits + spawns.
+**CLI teammate mode** — chosen when 2+ frontier stories have non-overlapping file domains (user confirms). `/xp-schedule` promotes the whole frontier (`execution_mode=teammate`); the lead then loops plan→review→`/xp-assign` per story, one at a time.
 
 Flow:
 1. `/xp-schedule` reads the frontier, picks mode, promotes (`scheduled → in-progress`), sets `execution_mode`; solo also JIT-branches.
 2. State-derived gates (write + EnterPlanMode) blocked everything until this ran.
-3. Lead enters plan mode (solo: one story; teammate: the batch) → `/xp-review-plan`.
-4. Teammate mode only: `_handle_plan_review_done` arms `.assign-pending`, so `/xp-assign` runs — it splits the reviewed plan per teammate, creates one branch per story, and spawns each via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`.
+3. Lead enters plan mode for ONE story → `/xp-review-plan`.
+4. Teammate mode only: `_handle_plan_review_done` arms `.assign-pending`, so `/xp-assign` runs — it targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`. Lead then loops back to step 3 for the next story.
 5. Each teammate gets a self-contained prompt and works independently: TDD, review cycle, commits — all in its own worktree.
 6. Lead runs `/xp-accept`; each accepted story merges at `/xp-story-close` (close does not promote the next story).
 7. `/xp-accept`'s post-loop calls `/xp-schedule` for the next frontier, repeating the loop.

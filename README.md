@@ -167,7 +167,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, `.plan-awaiting-review` gate blocks writes until `/xp-review-plan` clears it, `.assign-pending` gate blocks writes until `/xp-assign` clears it (worktree teammates exempt) | TDD, Planning Game |
-| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
+| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), cd-into-worktree-git advisory. No Bash file-modification coordination gate — `pre_tool_write` covers Edit/Write; cross-agent Bash damage is caught at story-close merge. | Coding Standards, Refactoring |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
