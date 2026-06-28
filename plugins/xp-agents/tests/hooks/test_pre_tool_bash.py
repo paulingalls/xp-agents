@@ -589,6 +589,23 @@ class TestPreToolBashCoordinationConflict(_HookTestCase):
             smm_dir=self.smm_dir,
         )
 
+    def test_mv_source_overlap_blocks(self):
+        """sprint-close finding A1: `mv <claimed-source> renamed` MUST block.
+        The original mv pattern only captured the destination, so an agent could
+        overwrite/move a claimed source file while only the (unclaimed) destination
+        was checked. story-004's stated promise ('closes Bash bypass that let mv
+        overwrite a claimed file') was half-fulfilled — this test pins the
+        source-side coverage that completes the promise."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"mv {self._TARGET} /tmp/renamed.py"),
+                smm_dir=self.smm_dir,
+            )
+        msg = str(ctx.exception)
+        self.assertIn("CONFLICT", msg)
+        self.assertIn(self._TARGET, msg)
+
 
 if __name__ == "__main__":
     unittest.main()

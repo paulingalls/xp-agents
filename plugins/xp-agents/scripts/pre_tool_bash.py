@@ -32,7 +32,9 @@ _FILE_MODIFY_PATTERNS = [
     re.compile(r">\s*(\S+)"),  # echo > file
     re.compile(r"tee\s+(\S+)"),
     re.compile(r"sed\s+-i\S*\s+\S+\s+(\S+)"),
-    re.compile(r"mv\s+\S+\s+(\S+)"),
+    re.compile(r"mv\s+\S+\s+(\S+)"),  # mv dest
+    # mv source — `mv <claimed> renamed` overwrites/moves the claimed source.
+    re.compile(r"mv\s+(\S+)\s+\S+"),
     re.compile(r"cp\s+\S+\s+(\S+)"),
 ]
 
