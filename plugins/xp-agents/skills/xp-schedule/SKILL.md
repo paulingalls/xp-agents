@@ -88,7 +88,7 @@ done
 
 **Stage 0-1:** skip branch creation; promotion + `execution_mode` still apply.
 
-**Per-story `executor_model` (optional).** Each story's `executor_model` schema slot (`sonnet`/`opus`/`haiku`/`fable`/null) drives `/xp-assign`'s `--model` flag. Default null = inherit orchestrator. Set per story before `/xp-assign` runs when tier matters (mechanical refactor = `haiku`, architecture-heavy = `opus`). Substitute the literal story id — the `$sid` from the promotion loop is out of scope by this point:
+**Per-story `executor_model` (optional).** Each story's `executor_model` schema slot (`sonnet`/`opus`/`haiku`/`fable`/null) drives `/xp-assign`'s `--model` flag. Default null = inherit orchestrator. Set per story before `/xp-assign` runs when tier matters (mechanical refactor = `haiku`, architecture-heavy = `opus`). Substitute the literal story id — the `$sid` from the promotion loop is bound to the LAST iteration's id by this point (bash has no block scope), which is rarely the story you want:
 ```bash
 echo '{"executor_model":"haiku"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
   --smm-dir ${SMM_DIR} edit-story story-NNN
