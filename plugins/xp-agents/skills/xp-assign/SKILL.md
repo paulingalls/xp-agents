@@ -65,11 +65,12 @@ later stories are planned and assigned.
 ## Step 1: Read the story's executor_model (optional)
 
 ```bash
-EXECUTOR_MODEL=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
-  get-story "$TARGET" | python3 -c "import json,sys; print(json.load(sys.stdin).get('executor_model') or '')")
+STORY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} get-story "$TARGET") \
+  || { echo "get-story failed for $TARGET — fix sprint.json before spawning" >&2; exit 1; }
+EXECUTOR_MODEL=$(echo "$STORY_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('executor_model') or '')")
 ```
 
-`executor_model` (story-002 schema slot) is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below. When absent, no `--model` flag is passed (the spawned teammate inherits the orchestrator's model).
+`executor_model` (story-002 schema slot) is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below. When absent, no `--model` flag is passed (the spawned teammate inherits the orchestrator's model). The two-step shape (capture-then-parse) surfaces get-story failures explicitly instead of pipe-swallowing them into an empty `$EXECUTOR_MODEL` — a silently-empty value would otherwise drift the spawn to the orchestrator's tier when the story actually specified one.
 
 ## Step 2: Create the story branch (Stage 1+)
 

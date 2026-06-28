@@ -216,9 +216,9 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     _emit_subagent_complete(smm_dir, input_data)
 
     return (
-        "IMPORTANT: Run /xp-assign NOW. Do NOT skip — it splits the reviewed "
-        "teammate-mode plan per teammate, creates their branches, and spawns "
-        "the worktree subagents."
+        "IMPORTANT: Run /xp-assign NOW. Do NOT skip — it creates the branch "
+        "and spawns ONE teammate for the next un-spawned story (per-story "
+        "pipeline, not a batch). Plan + review + assign one story at a time."
     )
 
 
