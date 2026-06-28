@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""PreToolUse hook for Bash: commit security gate + file-modification detection."""
+"""PreToolUse hook for Bash: commit-time review/security/ruff gates +
+cd-into-worktree-git advisory + decision-time SMM nudges.
+
+No file-modification coordination gate — `pre_tool_write` covers Edit/Write
+and trust+merge handles cross-agent Bash file-mods at story-close (see
+sprint-105 decision). The shlex-based detector that previously lived here
+was unsound; bash isn't statically parseable.
+"""
 
 import json
 import re
@@ -13,7 +20,6 @@ import _common
 import branching
 import commits
 import concerns
-import coordination
 import git_commits
 import identity
 import lint_check
@@ -21,20 +27,7 @@ import markers
 import resolution
 import security_patterns
 import security_scanner
-import worktree
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
-
-# ---------------------------------------------------------------------------
-# Bash file-modification heuristic
-# ---------------------------------------------------------------------------
-
-_FILE_MODIFY_PATTERNS = [
-    re.compile(r">\s*(\S+)"),  # echo > file
-    re.compile(r"tee\s+(\S+)"),
-    re.compile(r"sed\s+-i\S*\s+\S+\s+(\S+)"),
-    re.compile(r"mv\s+\S+\s+(\S+)"),
-    re.compile(r"cp\s+\S+\s+(\S+)"),
-]
 
 # ---------------------------------------------------------------------------
 # cd-into-worktree-then-git advisory
@@ -57,17 +50,6 @@ _CD_WORKTREE_GIT_WARNING = (
     "so the PostToolUse trailer-extract reads the wrong HEAD and "
     "Resolves-Event auto-link silently breaks. Use `git -C <worktree> ...` instead."
 )
-
-
-def detect_bash_target_files(command: str) -> list[str]:
-    """Best-effort extraction of files a Bash command might modify."""
-    files = []
-    for pattern in _FILE_MODIFY_PATTERNS:
-        for match in pattern.finditer(command):
-            f = match.group(1)
-            if f and not f.startswith("-"):
-                files.append(f)
-    return files
 
 
 # ---------------------------------------------------------------------------
@@ -442,25 +424,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _CD_WORKTREE_GIT_PATTERN.search(command):
         parts.append(_CD_WORKTREE_GIT_WARNING)
 
-    # File-modification heuristic — advisory only, never blocks
-    if smm_dir is not None:
-        target_files = detect_bash_target_files(command)
-        if target_files:
-            coord_data = coordination.read_coordination(smm_dir)
-            for target_file in target_files:
-                normalized_target = worktree.normalize_path(target_file, cwd)
-                for aid, entry in coord_data.items():
-                    if aid == agent_id:
-                        continue
-                    for f in entry.get("working_on", []):
-                        try:
-                            if worktree.normalize_path(f, cwd) == normalized_target:
-                                parts.append(
-                                    f"Advisory: Agent '{aid}' may be working on "
-                                    f"'{target_file}'. Coordinate before modifying."
-                                )
-                        except (ValueError, OSError):
-                            continue
+    # No pre-tool Bash file-modification coordination gate: pre_tool_write
+    # handles Edit/Write (the common case), and CLI teammates run in isolated
+    # git worktrees so cross-agent damage from `mv`/`sed -i`/redirects only
+    # materializes at story-close merge where git is the deterministic safety
+    # net. A shlex-based detector that previously lived here was unsound
+    # (bash isn't statically parseable); trust+merge is the honest model.
 
     if not parts:
         return None

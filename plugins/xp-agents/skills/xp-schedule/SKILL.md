@@ -30,10 +30,11 @@ allowed-tools:
 
 Decide solo vs parallel for the **ready frontier** — the dep-satisfied
 `scheduled` stories — then promote it. This precedes planning because the choice
-sets the planning scope: solo plans one story; parallel plans the whole batch so
-`/xp-assign` can split it per teammate. The preload computes the frontier; this
-skill consumes it. `execution_mode` is a durable story field (`solo`/`teammate`)
-read later by the plan-review gate (`subagent_stop`) and retro analysis.
+sets the planning scope: solo plans one story; parallel locks per-story
+file-domain disjointness up front, then the lead per-story plans→reviews→spawns
+each teammate in turn. The preload computes the frontier; this skill consumes
+it. `execution_mode` is a durable story field (`solo`/`teammate`) read later by
+the plan-review gate (`subagent_stop`) and retro analysis.
 
 ## Step 1: Read the frontier
 
@@ -74,8 +75,8 @@ The rest of the frontier stays `scheduled` — the next frontier is re-assessed 
 the following `/xp-schedule` run.
 
 **Parallel** — for each `FRONTIER_IDS` story, set `execution_mode=teammate` and
-promote to `in-progress`. Do **not** create branches — `/xp-assign` creates the
-teammate branches at spawn after the batch is planned and reviewed.
+promote to `in-progress`. Do **not** create branches — `/xp-assign` creates each
+teammate branch at spawn time, per story, after that story's plan is reviewed.
 ```bash
 for sid in $FRONTIER_IDS; do
   echo '{"execution_mode":"teammate"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
@@ -86,6 +87,12 @@ done
 ```
 
 **Stage 0-1:** skip branch creation; promotion + `execution_mode` still apply.
+
+**Per-story `executor_model` (optional).** Each story's `executor_model` schema slot (`sonnet`/`opus`/`haiku`/`fable`/null) drives `/xp-assign`'s `--model` flag. Default null = inherit orchestrator. Set per story before `/xp-assign` runs when tier matters (mechanical refactor = `haiku`, architecture-heavy = `opus`). Substitute the literal story id — the `$sid` from the promotion loop is bound to the LAST iteration's id by this point (bash has no block scope), which is rarely the story you want:
+```bash
+echo '{"executor_model":"haiku"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
+  --smm-dir ${SMM_DIR} edit-story story-NNN
+```
 
 ## Step 4: Record + emit next step
 
@@ -98,5 +105,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
 
 Then emit the next step:
 - **Solo** → "Proceeding solo on `$FIRST` — enter plan mode for it."
-- **Parallel** → "Frontier promoted as teammate batch — plan the batch, then
-  `/xp-assign` splits + spawns."
+- **Parallel** → "Frontier promoted as teammate batch —
+  per-story plan→review→spawn. For each story: EnterPlanMode →
+  /xp-review-plan → /xp-assign spawns that teammate async, then
+  continue to the next story while it runs."

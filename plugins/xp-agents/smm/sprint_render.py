@@ -75,6 +75,10 @@ def _render_story(lines: list[str], s: dict[str, Any]) -> None:
         lines.append(f"- **Milestone:** {s['milestone_ref']}")
     if s.get("design_sources"):
         lines.append(f"- **Design Sources:** {s['design_sources']}")
+    if s.get("execution_mode"):
+        lines.append(f"- **Execution Mode:** {s['execution_mode']}")
+    if s.get("executor_model"):
+        lines.append(f"- **Executor Model:** {s['executor_model']}")
 
     if s.get("context"):
         lines.append("")

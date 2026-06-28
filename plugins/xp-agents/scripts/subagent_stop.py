@@ -19,6 +19,7 @@ import identity
 import marker_names
 import markers
 import sprint_state
+import target_routing
 from event_schema import (
     EVENT_TYPE_SPRINT,
     SPRINT_ACTION_END,
@@ -31,10 +32,13 @@ from event_schema import (
 
 _WATERMARK_ID = "subagent-stop"
 
-_HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
-_SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
-_PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
-_CLOSE_REVIEWER_AGENT_TYPES = {"xp-close-reviewer", "xp-agents:xp-close-reviewer"}
+# Bare agent-type names. The hooks compare via `target_routing.strip_our_namespace`
+# so both bare and `xp-agents:`-qualified forms route correctly without
+# hand-enumerating the pair per slot.
+_HOUSEKEEPER_BARE = "xp-housekeeper"
+_SPRINT_REVIEWER_BARE = "xp-sprint-reviewer"
+_PLAN_REVIEWER_BARE = "xp-plan-reviewer"
+_CLOSE_REVIEWER_BARE = "xp-close-reviewer"
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
@@ -66,10 +70,34 @@ def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
 def _is_code_review(name: str) -> bool:
     """True for the built-in /code-review skill, but NOT our own
     xp-code-reviewer agent (which also contains the substring "code-review").
-    This guard matters because _update_review_cycle_flags runs BEFORE the
-    is_xp_agent skip, so without it the xp-code-reviewer's completion would
-    falsely set simplify_done."""
-    return "code-review" in name and "code-reviewer" not in name
+    Also rejects third-party plugin qualified forms (`otherplugin:code-review`).
+
+    Kept substring-based on the bare/our-namespace form because `agent_id`
+    legitimately carries prefix-style instance identifiers like
+    `code-review-reuse-1` (pinned by test_code_review_agent_id_sets_flag).
+    """
+    bare = target_routing.strip_our_namespace(name)
+    if bare is None:
+        return False
+    return "code-review" in bare and "code-reviewer" not in bare
+
+
+_QUALITY_REVIEW_BARE_NAMES: frozenset[str] = frozenset({"xp-quality-review"})
+
+
+def _is_quality_review(name: str) -> bool:
+    """True only for the canonical xp-quality-review name (bare or our-plugin
+    qualified). Exact-match allowlist — closes both `xp-quality-reviewer*`
+    AND `xp-quality-review-*` helper families by construction. The narrower
+    `not in name` guard (used by `_is_code_review`) couldn't distinguish
+    `xp-quality-review-helper` from a legitimate instance id, so we exit
+    that pattern here. No production caller passes a quality-review instance
+    id (no test pins one), so exact-match loses nothing today.
+    """
+    bare = target_routing.strip_our_namespace(name)
+    if bare is None:
+        return False
+    return bare in _QUALITY_REVIEW_BARE_NAMES
 
 
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
@@ -80,7 +108,7 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
     flag: str | None = None
     if _is_code_review(agent_type) or _is_code_review(agent_id_val):
         flag = "simplify_done"
-    elif "quality-review" in agent_type or "quality-review" in agent_id_val:
+    elif _is_quality_review(agent_type) or _is_quality_review(agent_id_val):
         flag = "quality_review_done"
 
     if flag is not None:
@@ -95,7 +123,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
     happens elsewhere (PostToolUse:Skill|Agent in review_cycle_done.py).
     """
     agent_type = input_data.get("agent_type", "")
-    if agent_type not in _HOUSEKEEPER_AGENT_TYPES:
+    if target_routing.strip_our_namespace(agent_type) != _HOUSEKEEPER_BARE:
         return None
 
     markers.marker_consume(smm_dir, markers.KICKOFF)
@@ -119,7 +147,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
 
 def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
     agent_type = input_data.get("agent_type", "")
-    if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
+    if target_routing.strip_our_namespace(agent_type) != _SPRINT_REVIEWER_BARE:
         return None
 
     sprint_data = sprint_state.read_sprint_content(smm_dir)
@@ -158,20 +186,22 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
     Must run BEFORE the is_xp_agent skip — close-reviewer is xp-*, would
     otherwise be silently skipped and leave the close-cycle gate blocking.
     """
-    if input_data.get("agent_type") not in _CLOSE_REVIEWER_AGENT_TYPES:
+    agent_type = input_data.get("agent_type", "")
+    if target_routing.strip_our_namespace(agent_type) != _CLOSE_REVIEWER_BARE:
         return
     markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
 def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     agent_type = input_data.get("agent_type", "")
-    if agent_type not in _PLAN_REVIEWER_AGENT_TYPES:
+    if target_routing.strip_our_namespace(agent_type) != _PLAN_REVIEWER_BARE:
         return None
 
-    # Narrow the assign gate to teammate-mode plans: only a teammate batch
-    # needs /xp-assign to split + spawn. Solo/unset plan reviews leave no
-    # marker so the agent codes straight through — but still record the
-    # reviewer's completion (the generic path below skips xp-* agents).
+    # Narrow the assign gate to teammate-mode plans: only teammate mode
+    # needs /xp-assign to create the branch and spawn the teammate (per
+    # story). Solo/unset plan reviews leave no marker so the agent codes
+    # straight through — but still record the reviewer's completion (the
+    # generic path below skips xp-* agents).
     if not sprint_state.in_progress_is_teammate(smm_dir):
         _emit_subagent_complete(smm_dir, input_data)
         return None
@@ -191,9 +221,9 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     _emit_subagent_complete(smm_dir, input_data)
 
     return (
-        "IMPORTANT: Run /xp-assign NOW. Do NOT skip — it splits the reviewed "
-        "teammate-mode plan per teammate, creates their branches, and spawns "
-        "the worktree subagents."
+        "IMPORTANT: Run /xp-assign NOW. Do NOT skip — it creates the branch "
+        "and spawns ONE teammate for the next un-spawned story (per-story "
+        "pipeline, not a batch). Plan + review + assign one story at a time."
     )
 
 

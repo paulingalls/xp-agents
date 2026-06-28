@@ -29,6 +29,7 @@ import event_schema
 import identity
 import markers
 import plugin_loader
+import target_routing
 
 # Canonical target names; mapped from skill/agent names by _detect_target.
 _TARGET_SIMPLIFY = "simplify"
@@ -39,26 +40,31 @@ _TARGET_ASSIGN = "assign"
 _TARGET_HOUSEKEEPING = "housekeeping"
 
 
+# Explicit allowlist: incoming skill/agent name -> canonical target. Closed set
+# (built-in skills + plugin-internal xp-* names). The xp-code-reviewer agent's
+# bare and qualified forms are absent by construction, so no substring guard
+# is needed; future names like xp-quality-reviewer-helper are also safe.
+_TARGET_BY_NAME: dict[str, str] = {
+    "code-review": _TARGET_SIMPLIFY,
+    "xp-quality-review": _TARGET_QUALITY_REVIEW,
+    "security-review": _TARGET_SECURITY_REVIEW,
+    "xp-review-plan": _TARGET_PLAN_REVIEW,
+    "xp-assign": _TARGET_ASSIGN,
+    "xp-housekeeper": _TARGET_HOUSEKEEPING,
+}
+
+
 def _detect_target(target_name: str) -> str | None:
-    """Map a possibly-prefixed skill/agent name to its canonical target."""
-    # Built-in /code-review (formerly /simplify). Our own xp-code-reviewer agent
-    # name also contains "code-review", and it arrives here via tool_input.
-    # subagent_type when /xp-quality-review spawns it — but in the MAIN agent's
-    # PostToolUse context, so the is_xp_agent skip in run() (which checks the
-    # invoking agent_type, not subagent_type) does NOT fire. Guard explicitly.
-    if "code-review" in target_name and "code-reviewer" not in target_name:
-        return _TARGET_SIMPLIFY
-    if "quality-review" in target_name:
-        return _TARGET_QUALITY_REVIEW
-    if "security-review" in target_name:
-        return _TARGET_SECURITY_REVIEW
-    if "review-plan" in target_name:
-        return _TARGET_PLAN_REVIEW
-    if "assign" in target_name:
-        return _TARGET_ASSIGN
-    if "housekeeping" in target_name or "housekeeper" in target_name:
-        return _TARGET_HOUSEKEEPING
-    return None
+    """Map a skill/agent name to its canonical target via explicit allowlist.
+
+    Accepts bare (`xp-assign`) and OUR-plugin-qualified
+    (`xp-agents:xp-assign`) forms via `target_routing.strip_our_namespace`.
+    Third-party plugins (`otherplugin:<name>`) return None.
+    """
+    bare = target_routing.strip_our_namespace(target_name)
+    if bare is None:
+        return None
+    return _TARGET_BY_NAME.get(bare)
 
 
 # Single dispatch table — target → (action, content). Hook is the sole
@@ -108,13 +114,12 @@ _NEXT_STEP: dict[str, str] = {
 
 
 _TASK_CREATION_NUDGE = (
-    "Use TaskCreate to track the upcoming work. Solo mode: one task per "
-    "planned step (each = a red-green-commit cycle). Teammate mode: "
-    "coordination tasks for waiting for each teammate to self-promote a "
-    "story to `reviewing`, then running /xp-accept incrementally (it "
-    "dispatches /xp-story-close per accepted story). Loop until all "
-    "teammates finish; do not wait for the slowest. Mark tasks "
-    "in_progress when you start them and completed when done."
+    "Use TaskCreate to track the upcoming work. This /xp-assign just spawned "
+    "ONE teammate (per-story pipeline — not a batch); add a task to plan the "
+    "NEXT teammate-mode story (EnterPlanMode -> /xp-review-plan -> /xp-assign), "
+    "plus a coordination task to read this teammate's task-notification when it "
+    "lands and run /xp-accept on it. Mark tasks in_progress when you start "
+    "them and completed when done."
 )
 
 

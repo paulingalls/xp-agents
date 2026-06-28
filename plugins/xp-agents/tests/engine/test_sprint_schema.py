@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import sprint_schema
+from conftest import _SMMTestCase
 from conftest import (
     make_sprint_dict as _make_sprint,
 )
@@ -322,6 +323,88 @@ class TestStoryExecutionModeField(unittest.TestCase):
         self.assertEqual(
             sprint_schema.VALID_EXECUTION_MODES, frozenset({"solo", "teammate"})
         )
+
+
+class TestStoryExecutorModelField(unittest.TestCase):
+    """Optional executor_model story field: "sonnet" | "opus" | "haiku" | absent.
+
+    Set by the lead during per-story planning (M2 reshape); read by
+    /xp-assign to forward to spawn_teammate's --model flag. Optional —
+    absent means inherit the lead's model.
+    """
+
+    def test_story_without_executor_model_valid(self):
+        sprint = _make_sprint()
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_executor_model_sonnet_valid(self):
+        story = _make_story(executor_model="sonnet")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_executor_model_opus_valid(self):
+        story = _make_story(executor_model="opus")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_executor_model_haiku_valid(self):
+        story = _make_story(executor_model="haiku")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_executor_model_null_valid(self):
+        story = _make_story(executor_model=None)
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_executor_model_fable_valid(self):
+        """sprint-close finding C3: spawn_teammate.py --model accepts any string
+        the harness recognizes (incl. 'fable'). The validator must include
+        every tier spawn_teammate can forward, else `executor_model: 'fable'`
+        would be rejected at save_sprint while the spawn would have worked."""
+        story = _make_story(executor_model="fable")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
+    def test_executor_model_unknown_value_rejected(self):
+        story = _make_story(executor_model="gpt5")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(
+            any("executor_model" in e and "gpt5" in e for e in errors), errors
+        )
+
+    def test_executor_model_non_string_rejected(self):
+        story = _make_story(executor_model=2)
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("executor_model" in e for e in errors), errors)
+
+    def test_valid_executor_models_constant(self):
+        self.assertEqual(
+            sprint_schema.VALID_EXECUTOR_MODELS,
+            frozenset({"sonnet", "opus", "haiku", "fable"}),
+        )
+
+
+class TestExecutorModelStoreRoundTrip(_SMMTestCase):
+    """E2E coverage for story-002 AC #3: a story's executor_model survives
+    save_sprint → load_sprint round-trip via the existing shallow-merge path."""
+
+    def test_executor_model_round_trips_through_store(self):
+        import sprint_store
+
+        sprint = _make_sprint(stories=[_make_story(executor_model="opus")])
+        sprint_store.save_sprint(self.smm_dir, sprint)
+        loaded = sprint_store.load_sprint(self.smm_dir)
+        assert loaded is not None
+        self.assertEqual(loaded["stories"][0]["executor_model"], "opus")
 
 
 class TestEmptySprint(unittest.TestCase):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for pre_tool_bash.py: commit security gate, file-modification heuristic."""
+"""Tests for pre_tool_bash.py: commit security/review gates + helpers."""
 
 import contextlib
 import sys
@@ -19,15 +19,8 @@ import git_commits
 import pre_tool_bash
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
 import security_scanner  # noqa: F401 - shim import: fail loudly if module renamed
-from conftest import (
-    _HookTestCase,
-    _make_bash_input,
-    make_event,
-)
-from event_schema import (
-    EVENT_TYPE_DECISION,
-    EVENT_TYPE_GOAL,
-)
+from conftest import _HookTestCase, _make_bash_input, make_event
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_GOAL
 from markers import write_review_cycle
 
 

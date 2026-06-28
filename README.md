@@ -167,7 +167,7 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, `.plan-awaiting-review` gate blocks writes until `/xp-review-plan` clears it, `.assign-pending` gate blocks writes until `/xp-assign` clears it (worktree teammates exempt) | TDD, Planning Game |
-| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), file-modification conflict heuristic (advisory) | Coding Standards, Refactoring |
+| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), cd-into-worktree-git advisory. No Bash file-modification coordination gate — `pre_tool_write` covers Edit/Write; cross-agent Bash damage is caught at story-close merge. | Coding Standards, Refactoring |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
 | **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
@@ -209,7 +209,7 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
 | `/xp-schedule` | Promote the next dependency-satisfied frontier (`scheduled → in-progress`), pick solo vs teammate mode, set each story's `execution_mode`, and (solo) JIT-create the branch | Before planning each frontier — invoked by the kickoff tail and `/xp-accept`'s post-loop; state-derived gates enforce it |
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
-| `/xp-assign` | Split a reviewed teammate-mode plan per teammate, create their branches, and spawn parallel CLI teammates (mode already selected by `/xp-schedule`) | After `/xp-schedule` promotes the teammate batch and the plan is reviewed |
+| `/xp-assign` | Per-story: create the next un-spawned story's branch and spawn ONE CLI teammate (per-story plan→review→spawn loop, NOT a batch fan-out; mode already selected by `/xp-schedule`) | After `/xp-schedule` promotes the teammate batch and each story's plan is reviewed (one /xp-assign per story) |
 | `/xp-scaffold-acceptance` | Interactive scaffold of an acceptance test harness (pytest/playwright/bats/cargo/etc.) for a `system_context.json` surface | On demand when adding an automated AC surface |
 | `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
@@ -308,7 +308,7 @@ Sprint stories advance in **frontiers** — the set of `scheduled` stories whose
 
 **Solo** (sequential) — the lead executes one story at a time. Chosen when the frontier is a single story, or stories share file domains. `/xp-schedule` promotes the lowest-id story, JIT-creates its branch, and the lead enters plan mode for it. No `/xp-assign` step — the lead codes straight after plan review.
 
-**CLI Teammates** (parallel) — chosen when two or more frontier stories have non-overlapping file domains (the user confirms). `/xp-schedule` promotes the whole frontier as a teammate batch; the lead plans it and runs `/xp-review-plan`; then `/xp-assign` splits the reviewed plan per teammate, creates each branch, and spawns each in an isolated `claude -p` worktree. Teammates have full autonomy: they write tests, implement, run the review cycle, and commit independently. Tier 2/3 security review fires at story acceptance and close. The lead merges each branch at `/xp-story-close`.
+**CLI Teammates** (parallel) — chosen when two or more frontier stories have non-overlapping file domains (the user confirms). `/xp-schedule` promotes the whole frontier as a teammate batch; the lead then loops per story: plan → `/xp-review-plan` → `/xp-assign` (which targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate in an isolated `claude -p` worktree). Each teammate has full autonomy: writes tests, implements, runs the review cycle, commits independently. Tier 2/3 security review fires at story acceptance and close. The lead merges each branch at `/xp-story-close`.
 
 After each story closes, `/xp-accept`'s post-loop calls `/xp-schedule` again for the next frontier — or dispatches `/xp-sprint-review` when none remain. `/xp-story-close` itself only merges and cleans up; it never promotes the next story.
 

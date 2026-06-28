@@ -104,7 +104,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **UserPromptSubmit** | | `kickoff_gate.py` | Block prompts until `/xp-kickoff` runs (allows the command itself through) |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
-| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit-gated review cycle (code-review → quality review; Tier 2/3 carry security), file-modification conflict heuristic (advisory) |
+| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit-gated review cycle (code-review → quality review; Tier 2/3 carry security), cd-into-worktree-git advisory. No file-modification coordination gate — pre_tool_write covers Edit/Write; trust+merge handles the rest (sprint-105 decision) |
 | **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
@@ -154,7 +154,7 @@ Forked skills delegate to a subagent above. Inline skills run in the main agent 
 - `/xp-sprint-start` — create sprint from execution plan milestones (`sprint.json`)
 - `/xp-accept` — acceptance testing gate, mark stories done/deferred, dispatch `/xp-story-close` per accepted story; post-loop dispatches `/xp-schedule` for the next frontier (or `/xp-sprint-review` when none remain)
 - `/xp-schedule` — sole owner of `scheduled → in-progress`: promote the next dependency-satisfied frontier, decide mode (solo vs CLI teammates), set each story's `execution_mode`, and (solo) JIT-create the branch. Runs before planning; state-derived gates (write + EnterPlanMode) enforce it
-- `/xp-assign` — split a reviewed teammate-mode plan per teammate, create their branches, and spawn teammates via `spawn_teammate.py`. Teammate-only — mode selection and solo branching belong to `/xp-schedule`. Auto-runs after `/xp-schedule` promotion and `/xp-review-plan`
+- `/xp-assign` — per-story: read the most-recent per-story plan, target the lowest-id un-spawned teammate story, create its branch, and spawn ONE teammate via `spawn_teammate.py` (per-story plan→review→spawn loop, NOT a batch fan-out). Teammate-only — mode selection and solo branching belong to `/xp-schedule`. Auto-runs after `/xp-schedule` promotion and `/xp-review-plan` (one story at a time)
 - `/xp-story-close` — per-accepted-story: review (close-reviewer mode=story), merge into sprint base via `close_common.py merge`, cleanup teammate worktree if present. Does NOT promote or branch the next story
 - `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
 - `/xp-plan-close` — push plan branch, fork close-reviewer, merge into primary, archive plan
@@ -180,7 +180,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | After housekeeping | PROCESS_GUIDE.md via PostToolUse:Skill\|Agent (`review_cycle_done.py`) when `xp-housekeeper` completes |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
-| Before Bash | Commit-gated review cycle (blocks until code-review/quality-review done; Tier 2/3 carry security), file-modification conflict heuristic (advisory) |
+| Before Bash | Commit-gated review cycle (blocks until code-review/quality-review done; Tier 2/3 carry security), cd-into-worktree-git advisory. NO Bash file-modification gate — see line 107 (sprint-105 dropped it; trust+merge model) |
 | Subagent spawn | Tiered context: Explore→Intent+Constraints; xp-code-reviewer→full SMM; Plan/general-purpose→full SMM+process guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.json |
 | After compaction | Full SMM re-injection |
 
@@ -235,7 +235,7 @@ Next prompt  → Gates pass through (marker cleared)
 ```
 UserPrompt   → prompt_nugget.py: inject new signal events since last prompt
 PreToolUse   → pre_tool_write.py (Write/Edit): conflicts, TDD, plan review gate (all file-based)
-             → pre_tool_bash.py (Bash): commit triage gate, file-modification heuristic
+             → pre_tool_bash.py (Bash): commit triage gate, cd-into-worktree-git advisory
 Tool executes
 PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
              → lint_check.py: linter (Write/Edit)
@@ -375,20 +375,20 @@ Mode selection happens at `/xp-schedule`, **before** planning — not at `/xp-as
 
 **Solo mode** — chosen when the frontier is a single story, or 2+ stories share file domains. `/xp-schedule` promotes the lowest-id story, sets `execution_mode=solo`, JIT-creates its branch, and the lead plans + executes it directly (no `/xp-assign`).
 
-**CLI teammate mode** — chosen when 2+ frontier stories have non-overlapping file domains (user confirms). `/xp-schedule` promotes the whole frontier (`execution_mode=teammate`); the lead plans the batch; then `/xp-assign` splits + spawns.
+**CLI teammate mode** — chosen when 2+ frontier stories have non-overlapping file domains (user confirms). `/xp-schedule` promotes the whole frontier (`execution_mode=teammate`); the lead then loops plan→review→`/xp-assign` per story, one at a time.
 
 Flow:
 1. `/xp-schedule` reads the frontier, picks mode, promotes (`scheduled → in-progress`), sets `execution_mode`; solo also JIT-branches.
 2. State-derived gates (write + EnterPlanMode) blocked everything until this ran.
-3. Lead enters plan mode (solo: one story; teammate: the batch) → `/xp-review-plan`.
-4. Teammate mode only: `_handle_plan_review_done` arms `.assign-pending`, so `/xp-assign` runs — it splits the reviewed plan per teammate, creates one branch per story, and spawns each via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`.
+3. Lead enters plan mode for ONE story → `/xp-review-plan`.
+4. Teammate mode only: `_handle_plan_review_done` arms `.assign-pending`, so `/xp-assign` runs — it targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`. Lead then loops back to step 3 for the next story.
 5. Each teammate gets a self-contained prompt and works independently: TDD, review cycle, commits — all in its own worktree.
 6. Lead runs `/xp-accept`; each accepted story merges at `/xp-story-close` (close does not promote the next story).
 7. `/xp-accept`'s post-loop calls `/xp-schedule` for the next frontier, repeating the loop.
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — code-review and quality review enforced at commit time; Tier 2/3 LLM security review moved to `/xp-accept` and close-reviewer), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, Write/Edit conflict detection (via `.coordination.json` in `pre_tool_write.py`; Bash file-mods are NOT gated — see sprint-105 decision in line 107 above; trust+merge handles cross-agent Bash damage at story-close), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — code-review and quality review enforced at commit time; Tier 2/3 LLM security review moved to `/xp-accept` and close-reviewer), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
 **Agent compliance needed (mitigated by process guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-kickoff` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 

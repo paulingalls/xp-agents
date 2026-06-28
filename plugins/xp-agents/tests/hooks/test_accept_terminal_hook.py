@@ -120,6 +120,20 @@ class TestAcceptTerminalHookDoesNotDrainOnNearMisses(_HookTestCase):
             "near-miss substring `sprint-review` must NOT drain under allowlist",
         )
 
+    def test_other_plugin_qualified_schedule_does_not_drain(self):
+        """sprint-close finding A6 (accept_terminal leg): only `xp-agents:`
+        is our namespace. A third-party plugin's `otherplugin:xp-schedule`
+        must NOT drain — they ship their own /xp-schedule and our marker is
+        scoped to our flow."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        accept_terminal.run(
+            _make_skill_input("otherplugin:xp-schedule"), smm_dir=self.smm_dir
+        )
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT),
+            "third-party plugin's xp-schedule must NOT drain our marker",
+        )
+
     def test_unrelated_skill_does_not_drain(self):
         markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
         accept_terminal.run(

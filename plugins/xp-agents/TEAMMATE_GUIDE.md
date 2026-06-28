@@ -35,6 +35,10 @@ Stay in your assigned domain for work you initiate. If you must step outside to 
 
 **Reviewer-suggested edits are different.** When `xp-code-reviewer` proposes an edit outside your domain (e.g., consolidating a duplicated helper in a sibling test), KEEP it by default — reviewers see the whole diff, and any conflict is cheap to resolve at story-close merge. Raise a concern instead only when the reviewer's edit is large (restructures, not polishes), off-topic for the diff, or touches files clearly owned by another in-progress story.
 
+## Escalate on Ambiguity
+
+If the spec is too ambiguous to execute safely (conflicting contracts, missing AC, undecided architecture), stop and raise a blocking concern (`--type concern --severity high`) naming what's unclear. Do not guess.
+
 ## Code Quality
 
 - Don't ignore code smells — fix unclear names, deep nesting, mixed responsibilities now
