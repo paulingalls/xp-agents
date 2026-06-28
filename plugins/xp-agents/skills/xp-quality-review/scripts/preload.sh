@@ -78,6 +78,10 @@ elif [ "$MODE" = "consume-findings" ]; then
     # reviewer would validate /code-review's findings against an EMPTY diff —
     # silently shipping unverified findings. Surface it loudly instead of the
     # silent fallback; the reviewer must review the committed close diff manually.
+    # The deterministic key=value flag disambiguates this state from a clean
+    # tree for any downstream parser (the prose block alone is human-only).
+    echo "CLOSE_DIFF_UNAVAILABLE=true"
+    echo ""
     echo "## Close diff unavailable"
     echo "MODE=consume-findings but the cumulative close range (TARGET...HEAD)"
     echo "could not be resolved (merge target empty/unresolvable, or no"
@@ -88,6 +92,14 @@ elif [ "$MODE" = "consume-findings" ]; then
 else
     dump_diff
     changed_files=$(get_changed_files)
+fi
+
+echo ""
+echo "## Changed Files"
+if [ -z "$changed_files" ]; then
+    echo "(none)"
+else
+    echo "$changed_files" | tr ' ' '\n'
 fi
 
 echo ""

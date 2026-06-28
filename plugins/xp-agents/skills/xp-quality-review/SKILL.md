@@ -37,7 +37,7 @@ run) — the xp-code-reviewer **self-finds correctness** itself; **`MODE=consume
 (close path, `/code-review` ran first) — Step 1 reads its JSON findings array and the
 reviewer validates & fixes them. Both modes also cover quality/drift/debt.
 
-## Step 1: Spawn Independent Code Reviewer
+## Step 1: Gather Reviewer Inputs
 
 ### Open concerns and debts the reviewer should see
 
@@ -53,14 +53,27 @@ Format as a numbered list for the prompt — file, line, the finding summary, an
 2. other.py:45 — "summary of the bug" (failure: <failure_scenario>)
 ```
 
-### Build the Prompt and Spawn
+## Step 1.4: Spawn Risk Classifier (MODE=self-find only)
 
-Use the Agent tool to spawn the `xp-code-reviewer` subagent. The prompt must include everything the reviewer needs for an independent assessment — it has no conversation context. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch.
+**SKIP this step when `MODE=consume-findings`** — `/code-review` already ran at close; the extra classifier call is wasted (sprint-103 lesson).
+
+On `MODE=self-find`, spawn `xp-risk-classifier` exactly once. Pass the diff + the `## Changed Files` block from preload. The classifier returns `RISK=high` or `RISK=low` on its **first line** — parse strictly (read only the first line; narrative tails legitimately contain "RISK" as prose). An optional second line `SIGNALS=<comma-list>` may name elevated angles.
+
+```
+Agent(subagent_type: "xp-agents:xp-risk-classifier",
+      prompt: "## Diff\n<diff>\n\n## Changed Files\n<list from preload>")
+```
+
+## Step 1.5: Build Reviewer Prompt and Spawn (single-spawn, optionally enriched)
+
+Build the `xp-code-reviewer` prompt now. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch. **If Step 1.4 returned `RISK=high`**, prepend a verbatim `## Review Focus` block naming the elevated angles. The angles come from the classifier's optional second line `SIGNALS=<comma-list>` (split on comma, drop the `SIGNALS=` prefix); when `SIGNALS=` is absent or empty, use the default `state/lifecycle/concurrency`. The agent's Section 1c recognizes the block and elevates the listed angles. On `RISK=low` (or MODE=consume-findings), spawn without the enrichment.
+
+**Single-spawn invariant.** Exactly ONE `xp-code-reviewer` spawn per cycle. Do NOT fan-out into multiple parallel spawns. Sprint-103's 3-spawn fan-out had irreducible coordination races (filesystem writes, SMM appends, dedupe-key fragility); single-spawn enriched avoids all of them.
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-code-reviewer",
-  prompt: "## Diff\n<diff from preload>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt from preload or 'None'>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: correctness (validate handed-in findings, or self-find), drift, debt, reuse/quality/efficiency + XP values."
+  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\n[if RISK=high]\n## Review Focus\nstate/lifecycle/concurrency\n\nReview all four areas: correctness, drift, debt, reuse/quality/efficiency + XP values."
 )
 ```
 
