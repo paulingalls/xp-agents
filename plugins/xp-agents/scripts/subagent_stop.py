@@ -72,6 +72,13 @@ def _is_code_review(name: str) -> bool:
     return "code-review" in name and "code-reviewer" not in name
 
 
+def _is_quality_review(name: str) -> bool:
+    """True for /xp-quality-review, but NOT a hypothetical xp-quality-reviewer
+    or xp-quality-reviewer-helper. Symmetric guard mirroring `_is_code_review`
+    — closes the parallel false-positive defect class in this hook."""
+    return "quality-review" in name and "quality-reviewer" not in name
+
+
 def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
     """Set review cycle flags. Runs even for xp- agents (xp-quality-review is xp-*)."""
     agent_type = input_data.get("agent_type", "").lower()
@@ -80,7 +87,7 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
     flag: str | None = None
     if _is_code_review(agent_type) or _is_code_review(agent_id_val):
         flag = "simplify_done"
-    elif "quality-review" in agent_type or "quality-review" in agent_id_val:
+    elif _is_quality_review(agent_type) or _is_quality_review(agent_id_val):
         flag = "quality_review_done"
 
     if flag is not None:
