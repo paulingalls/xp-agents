@@ -88,7 +88,7 @@ done
 
 **Stage 0-1:** skip branch creation; promotion + `execution_mode` still apply.
 
-**Per-story `executor_model` (optional).** Each story's `executor_model` schema slot (`sonnet`/`opus`/`haiku`/null) drives `/xp-assign`'s `--model` flag. Default null = inherit orchestrator. Set per story before `/xp-assign` runs when tier matters (mechanical refactor = `haiku`, architecture-heavy = `opus`):
+**Per-story `executor_model` (optional).** Each story's `executor_model` schema slot (`sonnet`/`opus`/`haiku`/`fable`/null) drives `/xp-assign`'s `--model` flag. Default null = inherit orchestrator. Set per story before `/xp-assign` runs when tier matters (mechanical refactor = `haiku`, architecture-heavy = `opus`):
 ```bash
 echo '{"executor_model":"haiku"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
   --smm-dir ${SMM_DIR} edit-story "$sid"

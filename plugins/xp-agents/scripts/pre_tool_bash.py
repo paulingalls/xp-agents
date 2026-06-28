@@ -448,7 +448,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             for target_file in target_files:
                 try:
                     normalized_target = worktree.normalize_path(target_file, cwd)
-                except (ValueError, OSError):
+                except (ValueError, OSError) as e:
+                    # Fail-loud per CLAUDE.md: silent skip would let a malformed
+                    # target bypass the coordination gate — exactly the bypass
+                    # class story-004 closes. Record + skip THIS target; other
+                    # targets in the same Bash still get checked.
+                    _common.append_safe(
+                        smm_dir,
+                        _common.make_event(
+                            _common.CONCERN,
+                            agent_id,
+                            f"normalize_path failed for Bash target '{target_file}' "
+                            f"({type(e).__name__}); coordination gate skipped this "
+                            f"target. Cmd was: {command[:120]}",
+                            severity="medium",
+                            files=[target_file],
+                        ),
+                    )
                     continue
                 for aid, norms in normalized_claims.items():
                     if normalized_target not in norms:

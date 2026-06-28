@@ -162,6 +162,13 @@ def _walk_tokens(tokens: list[str], depth: int = 0) -> list[str]:
     return targets
 
 
+# Cheap pre-filter: a command containing none of these substrings cannot
+# possibly carry a file-modification target the walker would find. Skipping
+# shlex tokenization on those (the supermajority of Bash calls: ls, grep,
+# pytest, git status, find, ...) is the highest-leverage hot-path savings.
+_FAST_PATH_MARKERS = ("mv", "cp", "tee", "sed", ">")
+
+
 def detect_bash_target_files(command: str) -> list[str]:
     """Best-effort extraction of files a Bash command might modify.
 
@@ -178,6 +185,8 @@ def detect_bash_target_files(command: str) -> list[str]:
     courtesy; failing-open lets the user's command execute, and the next
     pre-flight will catch a real conflict if one matters).
     """
+    if not any(marker in command for marker in _FAST_PATH_MARKERS):
+        return []
     try:
         tokens = shlex.split(command, posix=True, comments=False)
     except ValueError:

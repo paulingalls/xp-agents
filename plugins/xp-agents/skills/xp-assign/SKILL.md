@@ -69,7 +69,7 @@ EXECUTOR_MODEL=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM
   get-story "$TARGET" | python3 -c "import json,sys; print(json.load(sys.stdin).get('executor_model') or '')")
 ```
 
-`executor_model` (story-002 schema slot) is optional. When set to `sonnet`/`opus`/`haiku`, it is forwarded to spawn_teammate's `--model` flag below. When absent, no `--model` flag is passed (the spawned teammate inherits the orchestrator's model).
+`executor_model` (story-002 schema slot) is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below. When absent, no `--model` flag is passed (the spawned teammate inherits the orchestrator's model).
 
 ## Step 2: Create the story branch (Stage 1+)
 
@@ -129,9 +129,10 @@ Single Bash call with `run_in_background=true` — not a parallel batch. The tea
 The Bash above runs with `run_in_background=true`. You'll receive a `task-notification` when the teammate exits.
 
 **Surface the teammate's exit to the user when the notification fires** — don't silently move on:
-- **Read the teammate's output file** named in the notification (the `teammate_output_filter.py` tee'd it). The last line is the token-cost summary; earlier lines name the story branch and any report path.
+- **Read the teammate's stdout output file** named in the notification (the `teammate_output_filter.py` tee'd it). The last line is the token-cost summary; earlier lines name the story branch and the structured **report file path** the teammate wrote.
+- **Then open the report file** for the structured what-shipped narrative — this is what /xp-accept and the eventual retro need; don't skip it.
 - **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
-- **If exit was 0** — report: "Teammate for `$TARGET` finished. Run /xp-accept to verify + close." Continue with the next story (EnterPlanMode → /xp-review-plan → /xp-assign) while later spawns run.
+- **If exit was 0** — your NEXT step is `/xp-accept` for `$TARGET` (verify + close). Only AFTER that, plan the next story (EnterPlanMode → /xp-review-plan → /xp-assign) — do not chain spawns ahead of accepts, or unmerged in-flight teammates pile up and the sprint frontier drifts wrong.
 
 The orchestrator does NOT merge teammate branches. Each story branch stays
 alive on its teammate worktree until its `/xp-story-close` invocation

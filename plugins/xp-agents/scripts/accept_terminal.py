@@ -28,8 +28,10 @@ import _common
 import markers
 import target_routing
 
-# Bare and plugin-qualified forms of accept's terminal dispatches.
-# Exact match (or endswith for the qualified form) — never substring.
+# Bare and our-plugin-qualified forms of accept's terminal dispatches.
+# Routed through `target_routing.strip_our_namespace` — exact match against
+# this set after stripping `xp-agents:` prefix; never substring; third-party
+# plugin namespaces are rejected.
 _TERMINAL_SKILLS: frozenset[str] = frozenset({"xp-schedule", "xp-sprint-review"})
 
 
