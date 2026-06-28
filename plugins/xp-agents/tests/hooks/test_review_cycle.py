@@ -180,17 +180,16 @@ class TestReviewCycleDone(_HookTestCase):
         self.assertFalse(cycle["quality_review_done"])
 
     def test_assign_nudge_covers_taskcreate_solo_and_teammates(self):
-        """Mode-aware nudge after /xp-assign: must mention TaskCreate AND
-        address both solo (per-step tasks) and teammate (coordination:
-        wait/accept/close per story) modes so the agent knows what to
-        track regardless of which mode xp-assign chose."""
+        """Teammate-mode nudge after /xp-assign: must mention TaskCreate AND
+        the per-story coordination tasks (plan next story, wait+accept on
+        this teammate). /xp-assign is teammate-only — /xp-schedule branches
+        solo directly — so the nudge no longer needs to address solo mode."""
         result = review_cycle_done.run(
             _make_skill_input("xp-assign"), smm_dir=self.smm_dir
         )
         assert result is not None
         self.assertIn("TaskCreate", result)
         lower = result.lower()
-        self.assertIn("solo", lower)
         self.assertIn("teammate", lower)
         self.assertIn("/xp-accept", result)
 
