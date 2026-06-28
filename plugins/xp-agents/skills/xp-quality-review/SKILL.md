@@ -57,11 +57,11 @@ Format as a numbered list for the prompt — file, line, the finding summary, an
 
 **SKIP this step when `MODE=consume-findings`** — `/code-review` already ran at close; the extra classifier call is wasted (sprint-103 lesson).
 
-On `MODE=self-find`, spawn `xp-risk-classifier` exactly once. Pass the diff + the `## Changed Files` block from preload. The classifier returns `RISK=high` or `RISK=low` on its **first line** — parse strictly (read only the first line; narrative tails legitimately contain "RISK" as prose). An optional second line `SIGNALS=<comma-list>` may name elevated angles.
+On `MODE=self-find`, spawn `xp-risk-classifier` exactly once. Pass the diff body (the content of preload's `## Recent Changes` / `## Story Diff (cumulative since ...)` section, depending on cadence) wrapped under a `## Diff` heading the classifier expects, plus preload's `## Changed Files` block verbatim. The classifier returns `RISK=high` or `RISK=low` on its **first line** — parse strictly (read only the first line; narrative tails legitimately contain "RISK" as prose). An optional second line `SIGNALS=<comma-list>` may name elevated angles.
 
 ```
 Agent(subagent_type: "xp-agents:xp-risk-classifier",
-      prompt: "## Diff\n<diff>\n\n## Changed Files\n<list from preload>")
+      prompt: "## Diff\n<preload diff body>\n\n## Changed Files\n<preload ## Changed Files block verbatim>")
 ```
 
 ## Step 1.5: Build Reviewer Prompt and Spawn (single-spawn, optionally enriched)

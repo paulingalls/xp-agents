@@ -17,7 +17,7 @@ You receive a diff and classify it as `RISK=high` or `RISK=low` for the state/li
 
 Your **first line** MUST be `RISK=high` or `RISK=low`. No prefix, no quoting, no narrative before it. The downstream parser reads only the first line — narrative tails legitimately mention "RISK" as prose, so substring scans are wrong.
 
-Optionally, a **second line** `SIGNALS=<comma-list>` names 1-5 short keywords (e.g. `SIGNALS=latch,async-coordination`). Anything after that is free-form narrative the parser ignores.
+Optionally, a **second line** `SIGNALS=<comma-list>` names 1-5 short keywords (e.g. `SIGNALS=latch,async-coordination`). The parser splits on `,`, trims surrounding whitespace from each token, and drops empty tokens — `SIGNALS=latch, async-coordination` and `SIGNALS=latch,async-coordination` parse identically. Use commas only (no `;` or `|` separators). Anything after the SIGNALS line is free-form narrative the parser ignores.
 
 ## Cross-language judgment
 
