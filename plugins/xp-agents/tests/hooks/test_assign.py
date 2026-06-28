@@ -246,5 +246,53 @@ class TestSkillMdNarrowedToTeammate(unittest.TestCase):
         self.assertNotIn("solo vs CLI teammates", self.content)
 
 
+class TestSkillMdPerStoryShape(unittest.TestCase):
+    """story-003: xp-assign reshaped from "split one batch plan + parallel-spawn
+    all teammates" to "spawn ONE teammate per invocation — the next un-spawned
+    story in TEAMMATE_STORY_IDS, with executor_model forwarded to --model".
+    """
+
+    def setUp(self):
+        self.content = _SKILL_MD.read_text()
+
+    def test_documents_per_story_single_spawn(self):
+        # The prose names the new shape: exactly one spawn per invocation, not
+        # a parallel fan-out. "per-story" is the canonical vocabulary in the
+        # M2 design + the upstream /xp-schedule tail (shipped in story-001).
+        self.assertIn("per-story", self.content)
+
+    def test_documents_lowest_id_un_spawned_target(self):
+        # The auto-detect rule the prose codifies, distinctive enough to
+        # detect drift toward an alternative target-selection strategy.
+        self.assertIn("lowest-id un-spawned", self.content)
+
+    def test_uses_find_teammate_worktree_for_target_detection(self):
+        # The shipped detection helper the prose names for spawn idempotency.
+        # CLI form ("find-teammate-worktree") is what the skill invokes.
+        self.assertIn("find-teammate-worktree", self.content)
+
+    def test_pairs_executor_model_with_model_flag(self):
+        # Story-002 schema → story-003 forward. Prose must name both the
+        # source field and the destination flag in the same body so the
+        # contract is auditable.
+        self.assertIn("executor_model", self.content)
+        self.assertIn("--model", self.content)
+
+    def test_no_legacy_split_phrase(self):
+        # Current frontmatter description says "Split a reviewed teammate-mode
+        # plan per teammate" — the canonical legacy phrasing. The reshape
+        # removes both the action and the wording.
+        self.assertNotIn("Split a reviewed", self.content)
+
+    def test_no_parallel_spawn_fanout(self):
+        # The legacy CLI Teammate Mode ended with the instruction
+        # "Spawn all teammates in parallel (multiple Bash calls in one message)" —
+        # the parallel fan-out signature. The reshape spawns one per invocation;
+        # this directive must be gone. (Note: the new target-lookup legitimately
+        # uses its own `for sid in` loop to find the lowest un-spawned story,
+        # so pinning on the bare loop signature would over-trigger.)
+        self.assertNotIn("Spawn all teammates in parallel", self.content)
+
+
 if __name__ == "__main__":
     unittest.main()
