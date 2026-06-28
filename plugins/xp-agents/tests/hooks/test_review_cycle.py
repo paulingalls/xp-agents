@@ -314,6 +314,17 @@ class TestDetectTargetAllowlist(unittest.TestCase):
         """Empty input is benign — already returned None implicitly; pin it."""
         self.assertIsNone(review_cycle_done._detect_target(""))
 
+    def test_other_plugin_qualified_name_routes_to_none(self):
+        """sprint-close finding A6: only the 'xp-agents:' namespace is ours.
+        A third-party plugin's '/otherplugin:code-review' would otherwise
+        falsely set simplify_done via the bare-form fallback."""
+        for entry in self._KNOWN_TARGETS:
+            qualified = f"otherplugin:{entry[0]}"
+            with self.subTest(name=qualified):
+                self.assertIsNone(review_cycle_done._detect_target(qualified))
+        # Also pin the empty/malformed namespace case.
+        self.assertIsNone(review_cycle_done._detect_target(":code-review"))
+
 
 class TestAgentIdSemantics(_HookTestCase):
     """agent_id is teammate attribution; metadata.action carries skill identity.

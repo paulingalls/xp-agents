@@ -32,20 +32,25 @@ import markers
 _TERMINAL_SKILLS: frozenset[str] = frozenset({"xp-schedule", "xp-sprint-review"})
 
 
+_OUR_NAMESPACE = "xp-agents"
+
+
 def _is_terminal_target(target_name: str) -> bool:
     """True iff target_name names one of accept's terminal dispatch skills.
 
-    Accepts both bare (``xp-schedule``) and plugin-qualified
-    (``xp-agents:xp-schedule``) forms. Substring matches do NOT count.
+    Accepts both bare (``xp-schedule``) and OUR-plugin-qualified
+    (``xp-agents:xp-schedule``) forms. Third-party plugin qualified forms
+    (``otherplugin:xp-schedule``) do NOT count — they ship their own
+    `xp-schedule` skill but our ACCEPT_IN_FLIGHT marker is scoped to ours.
     """
     if not target_name:
         return False
     if target_name in _TERMINAL_SKILLS:
         return True
-    # Plugin-qualified: `<plugin>:<skill>`. Compare against the bare form.
     if ":" in target_name:
-        _, _, bare = target_name.partition(":")
-        return bare in _TERMINAL_SKILLS
+        plugin, _, bare = target_name.partition(":")
+        if plugin == _OUR_NAMESPACE:
+            return bare in _TERMINAL_SKILLS
     return False
 
 

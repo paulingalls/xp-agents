@@ -53,19 +53,25 @@ _TARGET_BY_NAME: dict[str, str] = {
 }
 
 
+_PLUGIN_NAMESPACE = "xp-agents"
+
+
 def _detect_target(target_name: str) -> str | None:
     """Map a skill/agent name to its canonical target via explicit allowlist.
 
-    Accepts bare (`xp-assign`) and plugin-qualified (`xp-agents:xp-assign`)
-    forms. Mirrors `accept_terminal._is_terminal_target`.
+    Accepts bare (`xp-assign`) and OUR-plugin-qualified
+    (`xp-agents:xp-assign`) forms. Third-party plugins shipping their own
+    `code-review`/`xp-assign`/etc. (qualified as `otherplugin:<name>`)
+    return None — their lifecycle events are not ours.
     """
     if not target_name:
         return None
     if target_name in _TARGET_BY_NAME:
         return _TARGET_BY_NAME[target_name]
     if ":" in target_name:
-        _, _, bare = target_name.partition(":")
-        return _TARGET_BY_NAME.get(bare)
+        plugin, _, bare = target_name.partition(":")
+        if plugin == _PLUGIN_NAMESPACE:
+            return _TARGET_BY_NAME.get(bare)
     return None
 
 
