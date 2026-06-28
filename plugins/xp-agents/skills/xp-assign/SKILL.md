@@ -60,6 +60,8 @@ later stories are planned and assigned.
 
    The auto-detect assumes the lead plans stories in id order. If you need to spawn out-of-order, plan + /xp-review-plan + /xp-assign one story at a time — never plan multiple stories then call /xp-assign repeatedly, or the wrong plan will be paired with the wrong story.
 
+   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE distinct cases: (a) story is genuinely un-spawned (correct target), (b) earlier spawn crashed before worktree-create (story still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`, not still in-progress). For the chosen `TARGET`, check sprint.json: if the story is already in-progress AND no `session_init` event references it, the prior spawn likely crashed. **Ask the user**: re-spawn fresh, defer the story, or investigate first — don't silently re-target.
+
 ## Step 1: Read the story's executor_model (optional)
 
 ```bash
