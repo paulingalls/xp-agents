@@ -49,7 +49,7 @@ VALID_EXECUTION_MODES = frozenset({"solo", "teammate"})
 # Optional story field — absent means inherit the lead's model.
 # Closed plugin-side enum; widen here if a new tier ships
 # (tests/agents/test_agent_model_tiers.py is the per-tier classification).
-VALID_EXECUTOR_MODELS = frozenset({"sonnet", "opus", "haiku"})
+VALID_EXECUTOR_MODELS = frozenset({"sonnet", "opus", "haiku", "fable"})
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,

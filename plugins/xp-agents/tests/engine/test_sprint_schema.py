@@ -362,6 +362,16 @@ class TestStoryExecutorModelField(unittest.TestCase):
         errors = sprint_schema.validate_sprint(sprint)
         self.assertEqual(errors, [])
 
+    def test_executor_model_fable_valid(self):
+        """sprint-close finding C3: spawn_teammate.py --model accepts any string
+        the harness recognizes (incl. 'fable'). The validator must include
+        every tier spawn_teammate can forward, else `executor_model: 'fable'`
+        would be rejected at save_sprint while the spawn would have worked."""
+        story = _make_story(executor_model="fable")
+        sprint = _make_sprint(stories=[story])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertEqual(errors, [])
+
     def test_executor_model_unknown_value_rejected(self):
         story = _make_story(executor_model="gpt5")
         sprint = _make_sprint(stories=[story])
@@ -379,7 +389,7 @@ class TestStoryExecutorModelField(unittest.TestCase):
     def test_valid_executor_models_constant(self):
         self.assertEqual(
             sprint_schema.VALID_EXECUTOR_MODELS,
-            frozenset({"sonnet", "opus", "haiku"}),
+            frozenset({"sonnet", "opus", "haiku", "fable"}),
         )
 
 
