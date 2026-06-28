@@ -479,8 +479,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                             files=[target_file],
                         )
                         _common.append_safe(smm_dir, concern_event)
+                        # Surface accumulated advisories (cd-into-worktree-git
+                        # warning, TDD nudge, verify-touch) alongside the
+                        # CONFLICT so they're not dropped on the raise — the
+                        # cd-warning in particular is load-bearing per
+                        # feedback_cd_persists_in_bash.
+                        full_message = "\n\n".join([*parts, conflict])
                         raise _common.BlockedError(
-                            conflict,
+                            full_message,
                             "File conflict detected — another agent is "
                             "working on this file.",
                         )

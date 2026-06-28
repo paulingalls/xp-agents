@@ -606,6 +606,27 @@ class TestPreToolBashCoordinationConflict(_HookTestCase):
         self.assertIn("CONFLICT", msg)
         self.assertIn(self._TARGET, msg)
 
+    def test_conflict_block_surfaces_cd_worktree_advisory(self):
+        """sprint-close finding C1: BlockedError must not discard accumulated
+        `parts` from prior checks. The cd-into-worktree-git advisory is
+        memory-load-bearing (feedback_cd_persists_in_bash) — if a Bash command
+        triggers BOTH the cd-warning AND a coordination conflict, the user must
+        see the cd-warning so the next attempt doesn't poison cwd.
+        """
+        self._claim_target()
+        # Command triggers cd-worktree-git pattern AND mv-source conflict.
+        # Use `git add` (not `git commit`) so the commit gate doesn't fire
+        # — the cd-worktree-git regex accepts add/commit/merge/push equally.
+        cmd = (
+            f"cd /Users/test/proj/.claude/worktrees/worktree-story-001 "
+            f"&& mv {self._TARGET} /tmp/x && git add ."
+        )
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(self._bash(cmd), smm_dir=self.smm_dir)
+        msg = str(ctx.exception)
+        self.assertIn("CONFLICT", msg)
+        self.assertIn("poisons the orchestrator's cwd", msg)
+
 
 if __name__ == "__main__":
     unittest.main()
