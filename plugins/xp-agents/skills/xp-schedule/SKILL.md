@@ -75,8 +75,8 @@ The rest of the frontier stays `scheduled` — the next frontier is re-assessed 
 the following `/xp-schedule` run.
 
 **Parallel** — for each `FRONTIER_IDS` story, set `execution_mode=teammate` and
-promote to `in-progress`. Do **not** create branches — `/xp-assign` creates the
-teammate branches at spawn after the batch is planned and reviewed.
+promote to `in-progress`. Do **not** create branches — `/xp-assign` creates each
+teammate branch at spawn time, per story, after that story's plan is reviewed.
 ```bash
 for sid in $FRONTIER_IDS; do
   echo '{"execution_mode":"teammate"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
