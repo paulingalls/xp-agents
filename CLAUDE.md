@@ -6,6 +6,20 @@ A Claude Code plugin that enforces XP practices via hooks. Broadcast event log (
 
 Read `docs/ARCHITECTURE.md` for design decisions, hook map, event types, and platform constraints.
 
+## 🚨 Project-agnostic guardrail (load-bearing)
+
+The plugin ships to projects in any language — Python, TypeScript/JavaScript, Rust, Go, Java, Ruby, anything. Sprint-103 leaked this assumption THREE times before being abandoned; see `docs/ideas/XP_CODE_REVIEWER_MULTI_ANGLE_VERIFY.md` "What sprint-103 taught us" for the case study.
+
+**Two layers of agnosticism, both required for any shipped agent/skill/script:**
+
+1. **Vocabulary**: shipped prose (agent.md, SKILL.md, classifier prompts) must NOT use xp-agents-internal surface names (`ACCEPT_IN_FLIGHT`, `close_cycle_stop_gate`, `simplify_done`, `.assign-pending`, `review_cycle_done`, etc.) as if they were the rule. Use generic CS terms (state field, marker, gate, lifecycle pair, decision/exit point). This repo serves as a TEST FIXTURE for the plugin, not as its implementation vocabulary.
+
+2. **Coverage**: shipped functionality must work on ANY language the user's projects use, not just the language the plugin is written in. **Language-specific implementation (regex, parser, language-tool integration) is a leak.** Acceptable: language-aware judgment (LLM subagents that read code in any language) or language-agnostic structural signals (works on bytes/lines, not on syntax). If you find yourself writing `if path.suffix != ".py":` in shipped plugin code, stop — that's the leak.
+
+**Catch this at plan time, not at close time.** The plan-reviewer and close-reviewer are explicit downstream gates; the cheaper catch is at planning. When designing a new agent/skill that processes code, ask: "Does my approach work on TS, Rust, Go projects that ship NO Python?" If no, redesign before implementing.
+
+System_context.json's `plugin-project-agnostic` principle is the formal pillar version of this; SMM convention `plugin-cross-language-coverage` reinforces it in the daily-rendered Constraints view.
+
 ## Scoping: CLAUDE.md vs PROCESS_GUIDE.md
 
 CLAUDE.md is NOT shipped with the plugin — it's for plugin developers (us). PROCESS_GUIDE.md IS shipped and serves all plugin users. Dedup is one-directional: CLAUDE.md may lean on PROCESS_GUIDE.md, never the reverse.
