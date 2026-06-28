@@ -668,6 +668,81 @@ class TestPreToolBashCoordinationConflict(_HookTestCase):
             # CONFLICT path is the regression we're guarding against.
             self.assertNotIn("CONFLICT", str(e))
 
+    def test_mv_multiarg_destination_blocks(self):
+        """sprint-close-2 finding A2: `mv src1 src2 destdir` — multi-arg mv
+        puts dest at LAST positional. Hardcoded (0,1) positions miss the real
+        dest. Fix uses 'all' positional spec for mv (every arg is touched:
+        sources removed, dest written/appended-to)."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"mv unclaimed1 unclaimed2 {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn(self._TARGET, str(ctx.exception))
+
+    def test_cp_multiarg_destination_blocks(self):
+        """sprint-close-2 finding A1: `cp src1 src2 destdir` puts dest at LAST.
+        Hardcoded pos-1 missed the real dest. Fix uses 'last' for cp."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"cp unclaimed1 unclaimed2 {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn(self._TARGET, str(ctx.exception))
+
+    def test_tee_multifile_blocks_any_claimed(self):
+        """sprint-close-2 finding A3: `tee f1 f2 f3` writes to ALL listed files.
+        Hardcoded pos-0 missed everything after the first. Fix uses 'all'."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"echo log | tee /tmp/unclaimed.log {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn(self._TARGET, str(ctx.exception))
+
+    def test_sed_in_place_long_form_blocks(self):
+        """sprint-close-2 finding A4: GNU sed `--in-place` long-form must
+        trigger the in-place check. Original `a.startswith('-i')` missed
+        --in-place (which starts with '-', not '-i')."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"sed --in-place 's/a/b/' {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn(self._TARGET, str(ctx.exception))
+
+    def test_bash_dash_c_body_blocks(self):
+        """sprint-close-2 finding B1: `bash -c '<body>'` collapses body to one
+        shlex token; walker never enters it. Old regex would have matched the
+        inner mv. Fix: detect `<shell> -c <body>` pattern + recursively walk
+        the body."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"bash -c 'mv {self._TARGET} /tmp/renamed.py'"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn(self._TARGET, str(ctx.exception))
+
+    def test_unquoted_heredoc_body_does_not_block(self):
+        """sprint-close-2 finding A5: `cat <<EOF > out.sh\\nmv claimed x\\nEOF`
+        — shlex with default settings tokenizes the unquoted heredoc body as
+        ordinary tokens, so the inner mv triggers a false-positive block on a
+        command that only writes to out.sh. Fix: detect heredoc start + skip
+        tokens until matching delimiter."""
+        self._claim_target()
+        cmd = f"cat <<EOF > /tmp/out.sh\nmv {self._TARGET} /tmp/renamed\nEOF"
+        try:
+            pre_tool_bash.run(self._bash(cmd), smm_dir=self.smm_dir)
+        except _common.BlockedError as e:
+            # CONFLICT for the heredoc body is the false-positive class we close.
+            # Other gates (commit gate, etc.) may still raise — those are fine.
+            self.assertNotIn("CONFLICT", str(e))
+
     def test_conflict_block_surfaces_cd_worktree_advisory(self):
         """sprint-close finding C1: BlockedError must not discard accumulated
         `parts` from prior checks. The cd-into-worktree-git advisory is
