@@ -442,25 +442,46 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if _CD_WORKTREE_GIT_PATTERN.search(command):
         parts.append(_CD_WORKTREE_GIT_WARNING)
 
-    # File-modification heuristic — advisory only, never blocks
+    # File-modification block — mirrors pre_tool_write.check_working_on_overlap.
+    # On the FIRST overlap: append a high-severity concern, then raise so the
+    # Bash never executes. Multi-target commands (`mv a b && cp c d`) block on
+    # the first hit; the teammate retries after coordinating. Closes the
+    # Advisory bypass that let `mv`/`sed -i` overwrite a claimed file.
     if smm_dir is not None:
         target_files = detect_bash_target_files(command)
         if target_files:
             coord_data = coordination.read_coordination(smm_dir)
             for target_file in target_files:
-                normalized_target = worktree.normalize_path(target_file, cwd)
+                try:
+                    normalized_target = worktree.normalize_path(target_file, cwd)
+                except (ValueError, OSError):
+                    continue
                 for aid, entry in coord_data.items():
                     if aid == agent_id:
                         continue
                     for f in entry.get("working_on", []):
                         try:
-                            if worktree.normalize_path(f, cwd) == normalized_target:
-                                parts.append(
-                                    f"Advisory: Agent '{aid}' may be working on "
-                                    f"'{target_file}'. Coordinate before modifying."
-                                )
+                            if worktree.normalize_path(f, cwd) != normalized_target:
+                                continue
                         except (ValueError, OSError):
                             continue
+                        conflict = (
+                            f"CONFLICT: Agent '{aid}' is working on "
+                            f"'{target_file}'. Coordinate before modifying."
+                        )
+                        concern_event = _common.make_event(
+                            _common.CONCERN,
+                            agent_id,
+                            conflict,
+                            severity="high",
+                            files=[target_file],
+                        )
+                        _common.append_safe(smm_dir, concern_event)
+                        raise _common.BlockedError(
+                            conflict,
+                            "File conflict detected — another agent is "
+                            "working on this file.",
+                        )
 
     if not parts:
         return None

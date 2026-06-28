@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import code_files
 import commits
+import coordination
 import git_commits
 import pre_tool_bash
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
@@ -495,6 +496,98 @@ class TestParseEffectiveCwdHeredoc(unittest.TestCase):
             result = commits.parse_effective_cwd(command, fallback="/")
             self.assertEqual(result, worktree_dir)
             self.assertNotEqual(result, "/tmp")
+
+
+class TestPreToolBashCoordinationConflict(_HookTestCase):
+    """story-004: Bash file-modification on a coordination-claimed file must
+    block (BlockedError + concern), not just warn. Closes the Advisory bypass
+    where teammates could `mv`/`sed -i` over a claimed path.
+
+    Mirrors the pre_tool_write.check_working_on_overlap pattern: same
+    'CONFLICT:' message shape, same severity=high concern with the target
+    file in `files`, same fail-stop on first hit.
+    """
+
+    _TARGET = "/tmp/src/foo.py"
+    _OTHER_AGENT = "teammate-other"
+
+    def _claim_target(self, agent_id: str = _OTHER_AGENT) -> None:
+        coordination.update_coordination(self.smm_dir, agent_id, [self._TARGET])
+
+    def _bash(self, command: str, **overrides) -> dict:
+        return _make_bash_input(command=command, **overrides)
+
+    def _latest_concern(self) -> dict | None:
+        events_path = self.smm_dir / "events.jsonl"
+        if not events_path.exists():
+            return None
+        for line in reversed(events_path.read_text(encoding="utf-8").splitlines()):
+            if not line.strip():
+                continue
+            import json as _json
+
+            ev = _json.loads(line)
+            if ev.get("type") == _common.CONCERN:
+                return ev
+        return None
+
+    def test_sed_conflict_blocks_with_concern(self):
+        """AC #1: sed -i on a claimed file raises BlockedError + appends concern."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"sed -i 's/a/b/' {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        msg = str(ctx.exception)
+        self.assertIn("CONFLICT", msg)
+        self.assertIn(self._OTHER_AGENT, msg)
+        concern = self._latest_concern()
+        self.assertIsNotNone(concern, "Bash conflict must append a concern event")
+        assert concern is not None  # narrow for type-checker
+        self.assertEqual(concern.get("severity"), "high")
+        self.assertIn(self._TARGET, concern.get("files", []))
+
+    def test_mv_conflict_blocks_naming_target(self):
+        """AC #2: mv onto a claimed file raises BlockedError naming the target."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"mv tmp {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn(self._TARGET, str(ctx.exception))
+
+    def test_no_conflict_does_not_block(self):
+        """Regression guard: no overlapping claim → no raise, no concern."""
+        # Same-agent claim must not self-conflict.
+        coordination.update_coordination(self.smm_dir, "main", [self._TARGET])
+        try:
+            pre_tool_bash.run(
+                self._bash(f"mv tmp {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        except _common.BlockedError as e:
+            self.fail(f"Same-agent claim must not conflict; got: {e}")
+        self.assertIsNone(
+            self._latest_concern(),
+            "No concern should be appended when there is no conflict",
+        )
+
+    def test_xp_agent_skips_conflict_check(self):
+        """Regression guard: xp- agents bypass conflict detection (existing
+        is_xp_agent short-circuit). Pins the contract so a future refactor
+        cannot accidentally subject xp- agents to teammate-coordination locks.
+        """
+        self._claim_target()
+        # No raise expected — xp- agent_type skips the whole hook.
+        pre_tool_bash.run(
+            self._bash(
+                f"mv tmp {self._TARGET}",
+                agent_type="xp-housekeeper",
+            ),
+            smm_dir=self.smm_dir,
+        )
 
 
 if __name__ == "__main__":
