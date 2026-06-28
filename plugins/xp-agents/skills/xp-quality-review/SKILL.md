@@ -73,7 +73,7 @@ Build the `xp-code-reviewer` prompt now. In `self-find` mode pass `## Code-Revie
 ```
 Agent(
   subagent_type: "xp-agents:xp-code-reviewer",
-  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\n[if RISK=high]\n## Review Focus\nstate/lifecycle/concurrency\n\nReview all four areas: correctness, drift, debt, reuse/quality/efficiency + XP values."
+  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\n[if RISK=high]\n## Review Focus\n<comma-list parsed from classifier SIGNALS=, e.g. `state/lifecycle/concurrency`; that exact default applies only when SIGNALS= is absent or empty>\n\nReview all four areas: correctness, drift, debt, reuse/quality/efficiency + XP values."
 )
 ```
 

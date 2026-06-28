@@ -79,53 +79,62 @@ class TestCloseCycleThresholdSplit(unittest.TestCase):
         )
 
     def test_defer_branch_uses_defer_window_constant(self):
-        """The Step 4b defer logic must use the defer-window constant.
+        """The Step 4b defer branch in run() must pass the defer-window constant.
 
-        Verified structurally by reading the gate's source: the
-        defer-branch helper (_marker_within_defer_window or equivalent)
-        must reference _CLOSE_CYCLE_DEFER_WINDOW_SEC.
+        Pinned structurally by inspecting the run() source: the defer branch
+        must call the age-check helper with _CLOSE_CYCLE_DEFER_WINDOW_SEC
+        (not the abandonment constant, which is a substantially longer
+        timescale meant for a different purpose).
         """
-        src = inspect.getsource(gate)
-        # The defer helper must exist by name and use the right constant.
+        run_src = inspect.getsource(gate.run)
         self.assertIn(
             "_CLOSE_CYCLE_DEFER_WINDOW_SEC",
-            src,
-            "module source must reference _CLOSE_CYCLE_DEFER_WINDOW_SEC",
+            run_src,
+            "run()'s defer branch must reference _CLOSE_CYCLE_DEFER_WINDOW_SEC",
         )
-        # The run() defer branch must call a helper that uses the defer constant.
-        # We pin by checking the helper exists.
-        has_defer_helper = any(
-            name in src
-            for name in (
-                "_marker_within_defer_window",
-                "def _marker_within_defer_window",
-            )
-        )
-        self.assertTrue(
-            has_defer_helper,
-            "close_cycle_stop_gate must define a _marker_within_defer_window helper "
-            "scoped to the defer-window constant",
+        self.assertIn(
+            "_marker_age_under",
+            run_src,
+            "run() must delegate the age check to the shared _marker_age_under helper",
         )
 
     def test_abandonment_branch_uses_abandonment_constant(self):
-        """The _record_bypass abandonment guard must use the abandonment constant."""
-        src = inspect.getsource(gate)
+        """The _record_bypass abandonment guard must pass the abandonment constant."""
+        bypass_src = inspect.getsource(gate._record_bypass)
         self.assertIn(
             "_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC",
-            src,
-            "module source must reference _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC",
+            bypass_src,
+            "_record_bypass must reference _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC",
         )
-        has_abandonment_helper = any(
-            name in src
-            for name in (
-                "_marker_within_abandonment_window",
-                "def _marker_within_abandonment_window",
-            )
+        self.assertIn(
+            "_marker_age_under",
+            bypass_src,
+            "_record_bypass must delegate the age check to _marker_age_under",
         )
+
+    def test_shared_age_helper_collapses_duplicate_wrappers(self):
+        """A single _marker_age_under helper backs both branches.
+
+        The defer and abandonment paths previously had near-duplicate one-line
+        wrappers (_marker_within_defer_window, _marker_within_abandonment_window)
+        differing only by the constant — a fix to one had to be mirrored in
+        the other or the two branches would silently diverge. Pin the single
+        helper so future divergence is impossible.
+        """
         self.assertTrue(
-            has_abandonment_helper,
-            "close_cycle_stop_gate must define a _marker_within_abandonment_window "
-            "helper scoped to the abandonment-timeout constant",
+            hasattr(gate, "_marker_age_under"),
+            "close_cycle_stop_gate must expose _marker_age_under as the single "
+            "age-check helper for both defer and abandonment branches",
+        )
+        self.assertFalse(
+            hasattr(gate, "_marker_within_defer_window"),
+            "_marker_within_defer_window wrapper must be removed in favor of "
+            "_marker_age_under(..., _CLOSE_CYCLE_DEFER_WINDOW_SEC)",
+        )
+        self.assertFalse(
+            hasattr(gate, "_marker_within_abandonment_window"),
+            "_marker_within_abandonment_window wrapper must be removed in favor of "
+            "_marker_age_under(..., _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC)",
         )
 
     def test_legacy_unified_constant_removed(self):

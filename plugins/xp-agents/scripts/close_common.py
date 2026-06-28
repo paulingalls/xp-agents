@@ -271,7 +271,11 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     commit_hash = commits.get_head_commit_hash(cwd)
     if not commit_hash:
         return
-    events, _ = _common.load_events_with_resolutions(smm_dir)
+    # Read events under shared flock for dedup — we only need the events list
+    # (commit-hash lookup is a linear scan), not the resolution graph. Using
+    # load_events_with_resolutions here would pay an O(N) resolution.compute
+    # pass on every close-cycle merge and throw the result away.
+    events = _common.read_events_locked(smm_dir, "close-common-merge-dedup")
     if any(
         e.get("type") == _common.COMMIT
         and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
@@ -319,7 +323,19 @@ def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> N
     # latch the review gate against the next solo commit on the sprint
     # branch.
     agent_id = identity.resolve_agent_id_from_cwd(cwd)
-    markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+    # Same fail-open posture as the sprint_store load above: the merge already
+    # succeeded on target and the surrounding push/delete/remote-prune chain
+    # must continue. A symlinked / unwritable marker path is a SMM-state
+    # problem, not a merge-correctness problem — surface it on stderr but
+    # don't abort the chain (leaving the source merged-but-unpushed would
+    # force the user into a manual cleanup that re-merge can't redo).
+    try:
+        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(
+            f"warn: failed to reset review cycle after merge ({exc}); "
+            "next commit's review gate may need a manual reset\n"
+        )
 
 
 def cmd_merge(args: argparse.Namespace) -> int:

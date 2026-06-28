@@ -99,30 +99,19 @@ def _marker_age(smm_dir: Path) -> float | None:
         return None
 
 
-def _marker_within_defer_window(smm_dir: Path) -> bool:
-    """True if the marker is young enough that defer is still legitimate.
+def _marker_age_under(smm_dir: Path, threshold_sec: int) -> bool:
+    """True if the CLOSE_CYCLE_ACTIVE marker is younger than ``threshold_sec``.
 
-    Scoped to `_CLOSE_CYCLE_DEFER_WINDOW_SEC` — the workflow's plausible
-    in-flight ceiling. A stat() OSError counts as NOT within the window.
+    Single helper for both the defer-window and abandonment-window checks —
+    the two callers pass different constants but apply the identical
+    None-handling semantics: a stat() OSError counts as NOT within the
+    window so callers fall toward surfacing (block / consume / record)
+    rather than silently latching.
     """
     age = _marker_age(smm_dir)
     if age is None:
         return False
-    return age < _CLOSE_CYCLE_DEFER_WINDOW_SEC
-
-
-def _marker_within_abandonment_window(smm_dir: Path) -> bool:
-    """True if the marker is still inside the abandonment grace window.
-
-    Scoped to `_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC` — substantially
-    longer than the defer window so a slow legitimate close doesn't trip
-    a false-positive abandonment concern. A stat() OSError counts as NOT
-    within the window.
-    """
-    age = _marker_age(smm_dir)
-    if age is None:
-        return False
-    return age < _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC
+    return age < threshold_sec
 
 
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
@@ -142,7 +131,7 @@ def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     so subsequent Stops don't re-fire. A stat() race (marker vanished) counts as
     not-young → falls through to consume (a harmless no-op).
     """
-    if _marker_within_abandonment_window(smm_dir):
+    if _marker_age_under(smm_dir, _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC):
         return
     sys.stderr.write(_BYPASS_STDERR)
     agent_id = identity.resolve_agent_id(input_data)
@@ -193,7 +182,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # the aged marker and records the abandonment concern.
         agent_id = identity.resolve_agent_id(input_data)
         mid_cycle = markers.review_mid_cycle(smm_dir, agent_id)
-        if mid_cycle and _marker_within_defer_window(smm_dir):
+        if mid_cycle and _marker_age_under(smm_dir, _CLOSE_CYCLE_DEFER_WINDOW_SEC):
             return None
         return _BLOCK_MESSAGE
     return None
