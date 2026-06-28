@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import target_routing
 
 _CODE_REVIEW_COURAGE = (
     "Courage means doing the right thing even when it's uncomfortable. "
@@ -28,8 +29,10 @@ def run(input_data: dict, **_kwargs) -> str | None:
         return None
 
     skill = input_data.get("tool_input", {}).get("skill", "")
-
-    if "code-review" in skill:
+    # Exact-match the built-in /code-review skill (bare or our-namespace-qualified).
+    # Substring matching would catch xp-code-reviewer (our agent, not the skill)
+    # and any third-party `otherplugin:code-review` skill.
+    if target_routing.strip_our_namespace(skill) == "code-review":
         return _CODE_REVIEW_COURAGE
 
     return None

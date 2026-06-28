@@ -21,6 +21,7 @@ import _common
 import marker_names
 import plugin_loader
 import smm_cli
+import target_routing
 from event_schema import (
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,
@@ -124,14 +125,14 @@ SEQUENTIAL_DISCIPLINE_NOTE = (
 )
 
 
+# Keyed by BARE agent-type names. Incoming `xp-agents:<bare>` qualified forms
+# are normalized via target_routing.strip_our_namespace before lookup so we
+# don't hand-enumerate the pair per slot (dogfoods the helper at all sites).
 _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "Explore": _inject_explore,
     "xp-code-reviewer": _inject_full,
-    "xp-agents:xp-code-reviewer": _inject_full,
     "xp-retrospective": _inject_retrospective,
-    "xp-agents:xp-retrospective": _inject_retrospective,
     "xp-housekeeper": _inject_housekeeper,
-    "xp-agents:xp-housekeeper": _inject_housekeeper,
 }
 
 
@@ -139,7 +140,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core subagent_start logic. Returns additionalContext or None."""
     agent_type = input_data.get("agent_type", "")
 
-    injector = _DISPATCH.get(agent_type)
+    bare = target_routing.strip_our_namespace(agent_type) or agent_type
+    injector = _DISPATCH.get(bare)
     if injector is None:
         injector = _inject_xp_agent if agent_type.startswith("xp-") else _inject_full
 
