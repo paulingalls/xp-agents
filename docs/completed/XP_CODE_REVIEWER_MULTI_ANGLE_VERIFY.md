@@ -100,7 +100,7 @@ the cheap pass so fewer regressions reach the close backstop." Targets:
   complementary **size-graduated effort ladder** (skip / medium / high by diff
   size) is a separate, lower-priority lever; this enhancement raises the *floor*,
   the ladder tunes the *ceiling*.
-- [[docs/ideas/TEAMMATE_PLANNING_PIPELINE.md]] — the other systemic-quality idea
+- [[docs/completed/TEAMMATE_PLANNING_PIPELINE.md]] — the other systemic-quality idea
   from this session (deep per-story planning for parallel teammates).
 
 ---

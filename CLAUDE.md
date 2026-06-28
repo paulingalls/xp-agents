@@ -8,7 +8,7 @@ Read `docs/ARCHITECTURE.md` for design decisions, hook map, event types, and pla
 
 ## 🚨 Project-agnostic guardrail (load-bearing)
 
-The plugin ships to projects in any language — Python, TypeScript/JavaScript, Rust, Go, Java, Ruby, anything. Sprint-103 leaked this assumption THREE times before being abandoned; see `docs/ideas/XP_CODE_REVIEWER_MULTI_ANGLE_VERIFY.md` "What sprint-103 taught us" for the case study.
+The plugin ships to projects in any language — Python, TypeScript/JavaScript, Rust, Go, Java, Ruby, anything. Sprint-103 leaked this assumption THREE times before being abandoned; see `docs/completed/XP_CODE_REVIEWER_MULTI_ANGLE_VERIFY.md` "What sprint-103 taught us" for the case study.
 
 **Two layers of agnosticism, both required for any shipped agent/skill/script:**
 

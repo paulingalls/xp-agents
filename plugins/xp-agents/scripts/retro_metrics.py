@@ -355,7 +355,7 @@ def _compute_resolves_link_rate(
     # carries no trailer and must not be scored a "miss" — counting all eligible
     # commits floored the rate near the fraction that happen to close a tracked
     # event (~1/3), making 0.80 unachievable. See
-    # docs/ideas/resolves-link-rate-denominator.md.
+    # docs/completed/resolves-link-rate-denominator.md.
     #
     # "Open AT COMMIT TIME", not open-at-retro (triage.find_unresolved): a concern
     # closed by a commit's OWN trailer would drop from the open set, removing the
