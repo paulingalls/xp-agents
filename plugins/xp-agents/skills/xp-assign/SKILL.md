@@ -124,7 +124,12 @@ Single Bash call with `run_in_background=true` — not a parallel batch. The tea
 
 ## Step 5: Post-spawn
 
-Report: "Spawned teammate for `$TARGET`. Continue with the next story (EnterPlanMode → /xp-review-plan → /xp-assign) while it runs; run /xp-accept per story as each teammate lands."
+The Bash above runs with `run_in_background=true`. You'll receive a `task-notification` when the teammate exits.
+
+**Surface the teammate's exit to the user when the notification fires** — don't silently move on:
+- **Read the teammate's output file** named in the notification (the `teammate_output_filter.py` tee'd it). The last line is the token-cost summary; earlier lines name the story branch and any report path.
+- **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
+- **If exit was 0** — report: "Teammate for `$TARGET` finished. Run /xp-accept to verify + close." Continue with the next story (EnterPlanMode → /xp-review-plan → /xp-assign) while later spawns run.
 
 The orchestrator does NOT merge teammate branches. Each story branch stays
 alive on its teammate worktree until its `/xp-story-close` invocation
