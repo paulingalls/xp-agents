@@ -66,7 +66,7 @@ Agent(subagent_type: "xp-agents:xp-risk-classifier",
 
 ## Step 1.5: Build Reviewer Prompt and Spawn (single-spawn, optionally enriched)
 
-Build the `xp-code-reviewer` prompt now. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch. **If Step 1.4 returned `RISK=high`**, prepend a verbatim `## Review Focus` block naming the elevated angle (default: `state/lifecycle/concurrency`). The agent's Section 1c recognizes the block and elevates the listed angles. On `RISK=low` (or MODE=consume-findings), spawn without the enrichment.
+Build the `xp-code-reviewer` prompt now. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch. **If Step 1.4 returned `RISK=high`**, prepend a verbatim `## Review Focus` block naming the elevated angles. The angles come from the classifier's optional second line `SIGNALS=<comma-list>` (split on comma, drop the `SIGNALS=` prefix); when `SIGNALS=` is absent or empty, use the default `state/lifecycle/concurrency`. The agent's Section 1c recognizes the block and elevates the listed angles. On `RISK=low` (or MODE=consume-findings), spawn without the enrichment.
 
 **Single-spawn invariant.** Exactly ONE `xp-code-reviewer` spawn per cycle. Do NOT fan-out into multiple parallel spawns. Sprint-103's 3-spawn fan-out had irreducible coordination races (filesystem writes, SMM appends, dedupe-key fragility); single-spawn enriched avoids all of them.
 
