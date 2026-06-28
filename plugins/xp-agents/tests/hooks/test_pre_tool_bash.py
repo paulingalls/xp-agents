@@ -606,6 +606,68 @@ class TestPreToolBashCoordinationConflict(_HookTestCase):
         self.assertIn("CONFLICT", msg)
         self.assertIn(self._TARGET, msg)
 
+    def test_append_redirect_blocks(self):
+        """sprint-close finding A3: `>>` append to a claimed file must block.
+        Regex-era code's `>\\s*(\\S+)` greedily captured the second `>` as part
+        of `\\S+`, so the normalized path didn't match the claim and the append
+        silently corrupted the claimed file. shlex tokenizer treats `>>` as its
+        own operator, capturing the target correctly."""
+        self._claim_target()
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"echo log >> {self._TARGET}"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("CONFLICT", str(ctx.exception))
+
+    def test_stderr_redirect_to_dev_null_does_not_block(self):
+        """sprint-close finding A3 (false-positive leg): `cmd 2> /dev/null` is a
+        common stderr-suppression idiom. /dev/null can never be claimed (it's
+        not a real file in coordination); the detector must filter it."""
+        # Even with a real claim on /tmp/src/foo.py, an unrelated 2> /dev/null
+        # command must not raise.
+        self._claim_target()
+        try:
+            pre_tool_bash.run(
+                self._bash("python myscript.py 2> /dev/null"),
+                smm_dir=self.smm_dir,
+            )
+        except _common.BlockedError as e:
+            self.fail(f"/dev/null target must not block; got: {e}")
+
+    def test_quoted_path_with_spaces_blocks(self):
+        """sprint-close finding A4: shlex preserves quoted paths with spaces.
+        Regex `\\S+` captured `"/path` (broken at the space), so a claim on a
+        spaced path would slip through. shlex.split unquotes naturally."""
+        spaced = "/tmp/dir with space/foo.py"
+        coordination.update_coordination(self.smm_dir, self._OTHER_AGENT, [spaced])
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_bash.run(
+                self._bash(f"sed -i 's/a/b/' '{spaced}'"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("CONFLICT", str(ctx.exception))
+        self.assertIn(spaced, str(ctx.exception))
+
+    def test_mv_in_heredoc_commit_body_does_not_block(self):
+        """sprint-close finding A2: a `mv` inside a heredoc commit-message body
+        must NOT block. Regex-era code matched the literal `mv` in the message
+        text and would block legit commits whose bodies referenced past mv work.
+        shlex tokenizes the entire `"$(cat <<...EOF)"` as ONE quoted argument;
+        the walker never sees `mv` as a command token."""
+        self._claim_target()
+        # The mv inside the message body names self._TARGET (which is claimed).
+        # Under regex parsing this matched and blocked. shlex sees the whole
+        # message as one string token, so no target is detected.
+        body = f"Refactor commit. Past work: mv {self._TARGET} renamed.py"
+        cmd = f"git -C /tmp commit --allow-empty -m '{body}'"
+        try:
+            pre_tool_bash.run(self._bash(cmd), smm_dir=self.smm_dir)
+        except _common.BlockedError as e:
+            # Tier-1 / ruff / review-cycle gates may still raise — only the
+            # CONFLICT path is the regression we're guarding against.
+            self.assertNotIn("CONFLICT", str(e))
+
     def test_conflict_block_surfaces_cd_worktree_advisory(self):
         """sprint-close finding C1: BlockedError must not discard accumulated
         `parts` from prior checks. The cd-into-worktree-git advisory is
