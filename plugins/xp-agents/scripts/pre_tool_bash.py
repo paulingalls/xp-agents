@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""PreToolUse hook for Bash: commit security gate + file-modification detection."""
+"""PreToolUse hook for Bash: commit-time review/security/ruff gates +
+cd-into-worktree-git advisory + decision-time SMM nudges.
+
+No file-modification coordination gate — `pre_tool_write` covers Edit/Write
+and trust+merge handles cross-agent Bash file-mods at story-close (see
+sprint-105 decision). The shlex-based detector that previously lived here
+was unsound; bash isn't statically parseable.
+"""
 
 import json
 import re

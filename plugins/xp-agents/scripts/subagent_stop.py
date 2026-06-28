@@ -32,10 +32,13 @@ from event_schema import (
 
 _WATERMARK_ID = "subagent-stop"
 
-_HOUSEKEEPER_AGENT_TYPES = {"xp-housekeeper", "xp-agents:xp-housekeeper"}
-_SPRINT_REVIEWER_AGENT_TYPES = {"xp-sprint-reviewer", "xp-agents:xp-sprint-reviewer"}
-_PLAN_REVIEWER_AGENT_TYPES = {"xp-plan-reviewer", "xp-agents:xp-plan-reviewer"}
-_CLOSE_REVIEWER_AGENT_TYPES = {"xp-close-reviewer", "xp-agents:xp-close-reviewer"}
+# Bare agent-type names. The hooks compare via `target_routing.strip_our_namespace`
+# so both bare and `xp-agents:`-qualified forms route correctly without
+# hand-enumerating the pair per slot.
+_HOUSEKEEPER_BARE = "xp-housekeeper"
+_SPRINT_REVIEWER_BARE = "xp-sprint-reviewer"
+_PLAN_REVIEWER_BARE = "xp-plan-reviewer"
+_CLOSE_REVIEWER_BARE = "xp-close-reviewer"
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
@@ -120,7 +123,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
     happens elsewhere (PostToolUse:Skill|Agent in review_cycle_done.py).
     """
     agent_type = input_data.get("agent_type", "")
-    if agent_type not in _HOUSEKEEPER_AGENT_TYPES:
+    if target_routing.strip_our_namespace(agent_type) != _HOUSEKEEPER_BARE:
         return None
 
     markers.marker_consume(smm_dir, markers.KICKOFF)
@@ -144,7 +147,7 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
 
 def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
     agent_type = input_data.get("agent_type", "")
-    if agent_type not in _SPRINT_REVIEWER_AGENT_TYPES:
+    if target_routing.strip_our_namespace(agent_type) != _SPRINT_REVIEWER_BARE:
         return None
 
     sprint_data = sprint_state.read_sprint_content(smm_dir)
@@ -183,14 +186,15 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
     Must run BEFORE the is_xp_agent skip — close-reviewer is xp-*, would
     otherwise be silently skipped and leave the close-cycle gate blocking.
     """
-    if input_data.get("agent_type") not in _CLOSE_REVIEWER_AGENT_TYPES:
+    agent_type = input_data.get("agent_type", "")
+    if target_routing.strip_our_namespace(agent_type) != _CLOSE_REVIEWER_BARE:
         return
     markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
 def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
     agent_type = input_data.get("agent_type", "")
-    if agent_type not in _PLAN_REVIEWER_AGENT_TYPES:
+    if target_routing.strip_our_namespace(agent_type) != _PLAN_REVIEWER_BARE:
         return None
 
     # Narrow the assign gate to teammate-mode plans: only a teammate batch

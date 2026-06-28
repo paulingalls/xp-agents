@@ -104,7 +104,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **UserPromptSubmit** | | `kickoff_gate.py` | Block prompts until `/xp-kickoff` runs (allows the command itself through) |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
-| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit-gated review cycle (code-review → quality review; Tier 2/3 carry security), file-modification conflict heuristic (advisory) |
+| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit-gated review cycle (code-review → quality review; Tier 2/3 carry security), cd-into-worktree-git advisory. No file-modification coordination gate — pre_tool_write covers Edit/Write; trust+merge handles the rest (sprint-105 decision) |
 | **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
@@ -180,7 +180,7 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 | After housekeeping | PROCESS_GUIDE.md via PostToolUse:Skill\|Agent (`review_cycle_done.py`) when `xp-housekeeper` completes |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
-| Before Bash | Commit-gated review cycle (blocks until code-review/quality-review done; Tier 2/3 carry security), file-modification conflict heuristic (advisory) |
+| Before Bash | Commit-gated review cycle (blocks until code-review/quality-review done; Tier 2/3 carry security), cd-into-worktree-git advisory. NO Bash file-modification gate — see line 107 (sprint-105 dropped it; trust+merge model) |
 | Subagent spawn | Tiered context: Explore→Intent+Constraints; xp-code-reviewer→full SMM; Plan/general-purpose→full SMM+process guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.json |
 | After compaction | Full SMM re-injection |
 
@@ -235,7 +235,7 @@ Next prompt  → Gates pass through (marker cleared)
 ```
 UserPrompt   → prompt_nugget.py: inject new signal events since last prompt
 PreToolUse   → pre_tool_write.py (Write/Edit): conflicts, TDD, plan review gate (all file-based)
-             → pre_tool_bash.py (Bash): commit triage gate, file-modification heuristic
+             → pre_tool_bash.py (Bash): commit triage gate, cd-into-worktree-git advisory
 Tool executes
 PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
              → lint_check.py: linter (Write/Edit)
@@ -388,7 +388,7 @@ Flow:
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, conflict detection (via `.coordination.json`), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — code-review and quality review enforced at commit time; Tier 2/3 LLM security review moved to `/xp-accept` and close-reviewer), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, Write/Edit conflict detection (via `.coordination.json` in `pre_tool_write.py`; Bash file-mods are NOT gated — see sprint-105 decision in line 107 above; trust+merge handles cross-agent Bash damage at story-close), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — code-review and quality review enforced at commit time; Tier 2/3 LLM security review moved to `/xp-accept` and close-reviewer), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
 **Agent compliance needed (mitigated by process guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-kickoff` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 
