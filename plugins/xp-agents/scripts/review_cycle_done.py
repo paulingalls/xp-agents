@@ -29,6 +29,7 @@ import event_schema
 import identity
 import markers
 import plugin_loader
+import target_routing
 
 # Canonical target names; mapped from skill/agent names by _detect_target.
 _TARGET_SIMPLIFY = "simplify"
@@ -53,26 +54,17 @@ _TARGET_BY_NAME: dict[str, str] = {
 }
 
 
-_PLUGIN_NAMESPACE = "xp-agents"
-
-
 def _detect_target(target_name: str) -> str | None:
     """Map a skill/agent name to its canonical target via explicit allowlist.
 
     Accepts bare (`xp-assign`) and OUR-plugin-qualified
-    (`xp-agents:xp-assign`) forms. Third-party plugins shipping their own
-    `code-review`/`xp-assign`/etc. (qualified as `otherplugin:<name>`)
-    return None — their lifecycle events are not ours.
+    (`xp-agents:xp-assign`) forms via `target_routing.strip_our_namespace`.
+    Third-party plugins (`otherplugin:<name>`) return None.
     """
-    if not target_name:
+    bare = target_routing.strip_our_namespace(target_name)
+    if bare is None:
         return None
-    if target_name in _TARGET_BY_NAME:
-        return _TARGET_BY_NAME[target_name]
-    if ":" in target_name:
-        plugin, _, bare = target_name.partition(":")
-        if plugin == _PLUGIN_NAMESPACE:
-            return _TARGET_BY_NAME.get(bare)
-    return None
+    return _TARGET_BY_NAME.get(bare)
 
 
 # Single dispatch table — target → (action, content). Hook is the sole

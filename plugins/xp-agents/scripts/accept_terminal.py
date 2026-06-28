@@ -26,32 +26,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import markers
+import target_routing
 
 # Bare and plugin-qualified forms of accept's terminal dispatches.
 # Exact match (or endswith for the qualified form) — never substring.
 _TERMINAL_SKILLS: frozenset[str] = frozenset({"xp-schedule", "xp-sprint-review"})
 
 
-_OUR_NAMESPACE = "xp-agents"
-
-
 def _is_terminal_target(target_name: str) -> bool:
     """True iff target_name names one of accept's terminal dispatch skills.
 
     Accepts both bare (``xp-schedule``) and OUR-plugin-qualified
-    (``xp-agents:xp-schedule``) forms. Third-party plugin qualified forms
-    (``otherplugin:xp-schedule``) do NOT count — they ship their own
-    `xp-schedule` skill but our ACCEPT_IN_FLIGHT marker is scoped to ours.
+    (``xp-agents:xp-schedule``) forms via `target_routing.strip_our_namespace`.
+    Third-party plugin qualified forms (``otherplugin:xp-schedule``) do NOT
+    count — they ship their own `xp-schedule` skill but our ACCEPT_IN_FLIGHT
+    marker is scoped to ours.
     """
-    if not target_name:
-        return False
-    if target_name in _TERMINAL_SKILLS:
-        return True
-    if ":" in target_name:
-        plugin, _, bare = target_name.partition(":")
-        if plugin == _OUR_NAMESPACE:
-            return bare in _TERMINAL_SKILLS
-    return False
+    bare = target_routing.strip_our_namespace(target_name)
+    return bare is not None and bare in _TERMINAL_SKILLS
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:

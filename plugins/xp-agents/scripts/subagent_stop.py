@@ -19,6 +19,7 @@ import identity
 import marker_names
 import markers
 import sprint_state
+import target_routing
 from event_schema import (
     EVENT_TYPE_SPRINT,
     SPRINT_ACTION_END,
@@ -63,22 +64,6 @@ def _emit_subagent_complete(smm_dir: Path, input_data: dict) -> None:
     )
 
 
-_OUR_NAMESPACE_PREFIX = "xp-agents:"
-
-
-def _strip_our_namespace(name: str) -> str | None:
-    """Return the bare form when `name` is unqualified or in our namespace.
-
-    Third-party-plugin qualified names (e.g. `otherplugin:code-review`) are
-    not ours — return None so the caller treats them as a non-match.
-    """
-    if ":" not in name:
-        return name
-    if name.startswith(_OUR_NAMESPACE_PREFIX):
-        return name[len(_OUR_NAMESPACE_PREFIX) :]
-    return None
-
-
 def _is_code_review(name: str) -> bool:
     """True for the built-in /code-review skill, but NOT our own
     xp-code-reviewer agent (which also contains the substring "code-review").
@@ -88,7 +73,7 @@ def _is_code_review(name: str) -> bool:
     legitimately carries prefix-style instance identifiers like
     `code-review-reuse-1` (pinned by test_code_review_agent_id_sets_flag).
     """
-    bare = _strip_our_namespace(name)
+    bare = target_routing.strip_our_namespace(name)
     if bare is None:
         return False
     return "code-review" in bare and "code-reviewer" not in bare
@@ -106,7 +91,7 @@ def _is_quality_review(name: str) -> bool:
     that pattern here. No production caller passes a quality-review instance
     id (no test pins one), so exact-match loses nothing today.
     """
-    bare = _strip_our_namespace(name)
+    bare = target_routing.strip_our_namespace(name)
     if bare is None:
         return False
     return bare in _QUALITY_REVIEW_BARE_NAMES
