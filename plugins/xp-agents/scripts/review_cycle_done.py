@@ -39,25 +39,33 @@ _TARGET_ASSIGN = "assign"
 _TARGET_HOUSEKEEPING = "housekeeping"
 
 
+# Explicit allowlist: incoming skill/agent name -> canonical target. Closed set
+# (built-in skills + plugin-internal xp-* names). The xp-code-reviewer agent's
+# bare and qualified forms are absent by construction, so no substring guard
+# is needed; future names like xp-quality-reviewer-helper are also safe.
+_TARGET_BY_NAME: dict[str, str] = {
+    "code-review": _TARGET_SIMPLIFY,
+    "xp-quality-review": _TARGET_QUALITY_REVIEW,
+    "security-review": _TARGET_SECURITY_REVIEW,
+    "xp-review-plan": _TARGET_PLAN_REVIEW,
+    "xp-assign": _TARGET_ASSIGN,
+    "xp-housekeeper": _TARGET_HOUSEKEEPING,
+}
+
+
 def _detect_target(target_name: str) -> str | None:
-    """Map a possibly-prefixed skill/agent name to its canonical target."""
-    # Built-in /code-review (formerly /simplify). Our own xp-code-reviewer agent
-    # name also contains "code-review", and it arrives here via tool_input.
-    # subagent_type when /xp-quality-review spawns it — but in the MAIN agent's
-    # PostToolUse context, so the is_xp_agent skip in run() (which checks the
-    # invoking agent_type, not subagent_type) does NOT fire. Guard explicitly.
-    if "code-review" in target_name and "code-reviewer" not in target_name:
-        return _TARGET_SIMPLIFY
-    if "quality-review" in target_name:
-        return _TARGET_QUALITY_REVIEW
-    if "security-review" in target_name:
-        return _TARGET_SECURITY_REVIEW
-    if "review-plan" in target_name:
-        return _TARGET_PLAN_REVIEW
-    if "assign" in target_name:
-        return _TARGET_ASSIGN
-    if "housekeeping" in target_name or "housekeeper" in target_name:
-        return _TARGET_HOUSEKEEPING
+    """Map a skill/agent name to its canonical target via explicit allowlist.
+
+    Accepts bare (`xp-assign`) and plugin-qualified (`xp-agents:xp-assign`)
+    forms. Mirrors `accept_terminal._is_terminal_target`.
+    """
+    if not target_name:
+        return None
+    if target_name in _TARGET_BY_NAME:
+        return _TARGET_BY_NAME[target_name]
+    if ":" in target_name:
+        _, _, bare = target_name.partition(":")
+        return _TARGET_BY_NAME.get(bare)
     return None
 
 
