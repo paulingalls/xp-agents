@@ -381,9 +381,9 @@ Flow:
 1. `/xp-schedule` reads the frontier, picks mode, promotes (`scheduled → in-progress`), sets `execution_mode`; solo also JIT-branches.
 2. State-derived gates (write + EnterPlanMode) blocked everything until this ran.
 3. Lead enters plan mode for ONE story → `/xp-review-plan`.
-4. Teammate mode only: `_handle_plan_review_done` arms `.assign-pending`, so `/xp-assign` runs — it targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`. Lead then loops back to step 3 for the next story.
+4. Teammate mode only: `_handle_plan_review_done` arms `.assign-pending`, so `/xp-assign` runs — it targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate via `Bash run_in_background` calling `spawn_teammate.py | teammate_output_filter.py`. Lead then loops back to step 3 for the next story (the spawned teammate runs async).
 5. Each teammate gets a self-contained prompt and works independently: TDD, review cycle, commits — all in its own worktree.
-6. Lead runs `/xp-accept`; each accepted story merges at `/xp-story-close` (close does not promote the next story).
+6. As each teammate's task-notification fires, the lead pauses planning to run `/xp-accept` on THAT teammate; each accepted story merges at `/xp-story-close` (close does not promote the next story). Spawns and accepts **interleave** — don't accumulate unaccepted teammates.
 7. `/xp-accept`'s post-loop calls `/xp-schedule` for the next frontier, repeating the loop.
 
 ## Enforcement vs. Agent Compliance
