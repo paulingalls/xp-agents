@@ -177,7 +177,7 @@ class TestStemExtractorRegistryLock(unittest.TestCase):
     """Pin the schema's _VALID_STEM_EXTRACTORS to the runtime
     STEM_EXTRACTORS dict in sister_tests. Drifting these out of sync
     re-opens the silent-failure path (schema accepts a typo'd extractor,
-    discovery raises ValueError, save_sprint swallows it, no sisters)."""
+    discovery raises ValueError, sprint_save swallows it, no sisters)."""
 
     def test_schema_extractors_match_runtime_registry(self) -> None:
         sister_tests = _load_sister_tests()
