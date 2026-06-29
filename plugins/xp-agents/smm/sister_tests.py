@@ -11,15 +11,13 @@ from __future__ import annotations
 import functools
 import posixpath
 import re
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-# glob_translator is a sibling module in smm/; insert this module's own dir
-# so the import resolves at runtime even when smm/ isn't already on sys.path.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+# glob_translator is a same-dir sibling in smm/; smm/ is always on sys.path
+# before this module is imported (own dir as a script; inserted by every
+# importer), so a self-insert shim is unnecessary.
 import glob_translator  # pyright: ignore[reportMissingImports]
 
 

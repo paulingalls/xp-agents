@@ -11,8 +11,10 @@ import sys
 import unittest
 from pathlib import Path
 
-# test_sister_tests lives in tests/hooks/, which conftest does not put on
-# sys.path; insert it so the shared base imports regardless of collection order.
+# sister_tests lives in smm/ and test_sister_tests in tests/hooks/ — neither is
+# on sys.path under the `python3 -m unittest` fallback (no conftest auto-load).
+# Insert both so imports resolve regardless of collection order.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
 
 from sister_tests import (  # pyright: ignore[reportMissingImports]

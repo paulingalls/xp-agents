@@ -24,8 +24,10 @@ import re
 import sys
 from pathlib import Path
 
+# This module lives in smm/, so smm/ is always on sys.path before it is imported
+# (own dir when run as a script; inserted by every cross-dir importer). Only the
+# scripts/ insert is load-bearing — for _common, concerns, identity, etc.
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
@@ -242,17 +244,21 @@ def _auto_include_sister_tests(
         domain = story.get("file_domain")
         if not isinstance(domain, list):
             continue
+        # Parse each entry once: seed existing_paths from every entry and cache
+        # the parsed paths for the discovery pass below (snapshot taken before
+        # the domain.extend at the end, so it never iterates a mutating list).
         existing_paths: set[str] = set()
+        parsed_entries: list[tuple[str, list[str]]] = []
         for e in domain:
             if isinstance(e, str):
-                existing_paths.update(triage.entry_to_paths(e))
+                paths = triage.entry_to_paths(e)
+                existing_paths.update(paths)
+                parsed_entries.append((e, paths))
         additions: list[str] = []
-        for entry in list(domain):  # snapshot — don't iterate over a mutating list
-            if not isinstance(entry, str):
-                continue
+        for entry, srcs in parsed_entries:
             if " — sister test for " in entry:
                 continue  # prevents sister-of-sister expansion
-            for src in triage.entry_to_paths(entry):
+            for src in srcs:
                 if not src:
                     continue
                 try:
