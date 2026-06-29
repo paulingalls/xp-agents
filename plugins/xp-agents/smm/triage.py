@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import event_schema
+import glob_translator
 
 _EM_DASH = "—"
 # The convention is "path — description" (em-dash), but " -- " (ASCII) is a
@@ -77,45 +78,8 @@ def find_overlapping_commits(
 
 
 def _glob_to_regex(pattern: str) -> str:
-    """Translate a shell-style glob to a regex.
-
-    Honors `**` as "zero or more path segments" (so `tests/**/*.py` matches
-    `tests/a.py` and `tests/sub/a.py`); `*` and `?` stop at slashes; bracket
-    classes pass through. `fnmatch.translate` would be reused if its `*`
-    didn't cross slashes (it does), so `**`-recursion can't be expressed —
-    hence the local translator.
-    """
-    out: list[str] = []
-    i = 0
-    n = len(pattern)
-    while i < n:
-        if pattern.startswith("**/", i):
-            out.append("(?:.*/)?")
-            i += 3
-        elif pattern.startswith("/**", i):
-            out.append("(?:/.*)?")
-            i += 3
-        elif pattern[i : i + 2] == "**":
-            out.append(".*")
-            i += 2
-        elif pattern[i] == "*":
-            out.append("[^/]*")
-            i += 1
-        elif pattern[i] == "?":
-            out.append("[^/]")
-            i += 1
-        elif pattern[i] == "[":
-            j = pattern.find("]", i)
-            if j == -1:
-                out.append(re.escape(pattern[i]))
-                i += 1
-            else:
-                out.append(pattern[i : j + 1])
-                i = j + 1
-        else:
-            out.append(re.escape(pattern[i]))
-            i += 1
-    return "".join(out)
+    """Translate a shell-style glob to a regex (delegates to shared primitive)."""
+    return glob_translator.glob_to_regex(pattern)
 
 
 @functools.lru_cache(maxsize=256)

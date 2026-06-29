@@ -55,7 +55,6 @@ from system_context_edit_cli import (
 from system_context_edit_cli import (
     cmd_edit_project_specific as _cmd_edit_project_specific,
 )
-from system_context_entry_validators import _validate_test_layout
 from system_context_nested_field_cli import (
     cmd_edit_branching_field as _cmd_edit_branching_field,
 )
@@ -274,6 +273,14 @@ def _cmd_edit_field(args: argparse.Namespace) -> int:
         store.save_system_context(args.smm_dir, data)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
+        # Optional top-level fields can be unset with stdin `null`; surface
+        # that affordance when a non-null edit fails validation, so future
+        # optional fields inherit the same UX without per-command duplication.
+        if name in _OPTIONAL_TOP_LEVEL_FIELDS:
+            print(
+                f"{name} can be unset by passing `null` on stdin.",
+                file=sys.stderr,
+            )
         return 1
     return 0
 
@@ -309,46 +316,9 @@ def _cmd_add_acceptance_surface(args: argparse.Namespace) -> int:
 
 
 def _cmd_edit_test_layout(args: argparse.Namespace) -> int:
-    """Set test_layout from stdin JSON.
-
-    - stdin `null` → unset the field (idempotent).
-    - stdin valid layout object → write atomically.
-    - stdin `{}` (or any other invalid shape) → reject; the validator
-      surfaces "missing required field: convention" and the CLI prints
-      a stderr hint pointing at the unset path.
-    """
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("No system context found.", file=sys.stderr)
-        return 1
-
-    raw = sys.stdin.read()
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    if value is None:
-        data.pop("test_layout", None)
-    else:
-        errors = _validate_test_layout(value)
-        if errors:
-            for e in errors:
-                print(e, file=sys.stderr)
-            print(
-                "test_layout requires `convention`; pass `null` to unset.",
-                file=sys.stderr,
-            )
-            return 1
-        data["test_layout"] = value
-
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
+    """Set test_layout from stdin JSON; `null` unsets (delegates to _cmd_edit_field)."""
+    args.name = "test_layout"
+    return _cmd_edit_field(args)
 
 
 def _cmd_get_test_layout(args: argparse.Namespace) -> int:

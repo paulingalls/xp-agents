@@ -7,9 +7,11 @@ first failing command (naming it in stderr). Back-compat: a story
 with the legacy `command: str` shape is treated as a one-element list.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -109,6 +111,28 @@ class TestVerifyAcceptance(_SMMTestCase):
         result = self._verify("story-001")
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stderr.strip())
+
+    def test_smm_dir_visible_in_subprocess(self):
+        # AC commands that reference $SMM_DIR (e.g. to read sprint state, append
+        # a marker, etc.) must see it in the child env. The fix is for
+        # verify_acceptance to inject it from its --smm-dir arg — relying on
+        # the caller to have exported SMM_DIR is the bug (sister concern of
+        # feedback_acceptance_command_path_drift).
+        #
+        # _SMMTestCase pins SMM_DIR in os.environ for test convenience, which
+        # masks the production gap (callers like /xp-accept do NOT export it).
+        # Strip it here to model the real-world parent env.
+        self._save_sprint_with_story(
+            {"type": "bash", "commands": ['test -n "$SMM_DIR"']}
+        )
+        env_no_smm = {k: v for k, v in os.environ.items() if k != "SMM_DIR"}
+        with patch.dict(os.environ, env_no_smm, clear=True):
+            result = self._verify("story-001")
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"$SMM_DIR not propagated to AC subprocess; stderr={result.stderr!r}",
+        )
 
 
 if __name__ == "__main__":

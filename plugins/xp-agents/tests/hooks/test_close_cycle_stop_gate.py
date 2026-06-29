@@ -36,6 +36,44 @@ class TestCloseCycleStopGate(_HookTestCase):
         result = self._assert_not_none(result)
         self.assertIn("xp-close-reviewer", result)
 
+    def test_block_message_names_all_three_close_phases(self):
+        # The mid-flight nudge must name every step the agent should run, in
+        # the canonical close-skill order: /security-review (Step 4),
+        # /code-review high (Step 4b, gated on RUN_FULL_CODE_REVIEW=true),
+        # then xp-close-reviewer (Step 4.5). The earlier message omitted
+        # /code-review high, so an agent re-entering the close cycle could
+        # read it as "skip Step 4b" — but post-merge there's no diff, so
+        # /code-review must run pre-merge or never. Order matters because the
+        # agent follows the nudge sequentially: /security-review precedes
+        # /code-review in the close skill, and the close-reviewer comes last.
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("/code-review", result)
+        self.assertIn("/security-review", result)
+        self.assertIn("xp-close-reviewer", result)
+        # `/code-review high` is load-bearing — bare `/code-review` would
+        # default to a lower effort and skip the full pre-merge workflow.
+        self.assertIn("/code-review high", result)
+        # Canonical order: security-review (Step 4) → code-review (Step 4b)
+        # → close-reviewer (Step 4.5). Substring positions enforce it.
+        sec = result.index("/security-review")
+        code = result.index("/code-review")
+        reviewer = result.index("xp-close-reviewer")
+        self.assertLess(
+            sec,
+            code,
+            "/security-review (Step 4) must precede /code-review (Step 4b)",
+        )
+        self.assertLess(
+            code,
+            reviewer,
+            "/code-review (Step 4b) must precede xp-close-reviewer (Step 4.5)",
+        )
+
     def test_no_block_when_marker_absent(self):
         import close_cycle_stop_gate
 
@@ -272,6 +310,29 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
             "young marker preserved through the Step 4b yield",
+        )
+
+    def test_bypass_concern_content_fits_concern_budget(self):
+        """The bypass concern content + the recovery hint together must stay
+        under the concern event's CONTENT_BUDGET (400 chars). append_safe
+        silently drops over-budget events — pre-this-test, extending
+        _BYPASS_RECOVERY pushed the content to ~440 chars and the bypass
+        concern stopped landing, breaking abandonment surfacing entirely.
+        Pin the budget so future recovery-string edits fail this test
+        loudly before they ship."""
+        import close_cycle_stop_gate
+        from event_schema import CONTENT_BUDGETS, EVENT_TYPE_CONCERN
+
+        budget = self._assert_not_none(
+            CONTENT_BUDGETS[EVENT_TYPE_CONCERN],
+            "concern budget must remain enforced",
+        )
+        self.assertLessEqual(
+            len(close_cycle_stop_gate._BYPASS_CONCERN_CONTENT),
+            budget,
+            "_BYPASS_CONCERN_CONTENT must fit the concern budget — otherwise "
+            "append_safe silently drops the bypass concern and abandonment "
+            "never surfaces",
         )
 
     def test_no_block_when_asking_user(self):

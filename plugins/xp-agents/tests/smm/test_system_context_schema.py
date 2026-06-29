@@ -11,6 +11,7 @@ acceptance command.
 import sys
 import unittest
 from pathlib import Path
+from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -22,6 +23,28 @@ from system_context_entry_validators import (
     _validate_test_layout,
 )
 from system_context_schema import validate_system_context
+
+_SKILL_SCRIPTS = (
+    Path(__file__).parent.parent.parent / "skills" / "xp-sprint-start" / "scripts"
+)
+
+
+def _load_sister_tests() -> ModuleType:
+    """Import sister_tests with an isolated sys.path mutation, then restore.
+
+    Two tests need the runtime BUILTIN_LAYOUTS / STEM_EXTRACTORS registries
+    to lock the schema enums against. The skill-scripts dir isn't on sys.path
+    by default; insert + try/import/finally-remove keeps the path mutation
+    scoped to one call so concurrent imports of unrelated modules can't
+    accidentally pick up shadowed names from skills/.
+    """
+    sys.path.insert(0, str(_SKILL_SCRIPTS))
+    try:
+        import sister_tests  # type: ignore[import-not-found]
+
+        return sister_tests
+    finally:
+        sys.path.remove(str(_SKILL_SCRIPTS))
 
 
 class TestTestLayoutValidator(unittest.TestCase):
@@ -142,17 +165,7 @@ class TestTestLayoutConventionEnumLock(unittest.TestCase):
     """
 
     def test_enum_equals_builtin_keys_plus_sentinels(self) -> None:
-        skill_scripts = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-sprint-start"
-            / "scripts"
-        )
-        sys.path.insert(0, str(skill_scripts))
-        try:
-            import sister_tests  # type: ignore[import-not-found]
-        finally:
-            sys.path.remove(str(skill_scripts))
+        sister_tests = _load_sister_tests()
         expected = frozenset(sister_tests.BUILTIN_LAYOUTS.keys()) | {
             "unknown",
             "custom",
@@ -167,17 +180,7 @@ class TestStemExtractorRegistryLock(unittest.TestCase):
     discovery raises ValueError, save_sprint swallows it, no sisters)."""
 
     def test_schema_extractors_match_runtime_registry(self) -> None:
-        skill_scripts = (
-            Path(__file__).parent.parent.parent
-            / "skills"
-            / "xp-sprint-start"
-            / "scripts"
-        )
-        sys.path.insert(0, str(skill_scripts))
-        try:
-            import sister_tests  # type: ignore[import-not-found]
-        finally:
-            sys.path.remove(str(skill_scripts))
+        sister_tests = _load_sister_tests()
         self.assertEqual(
             _VALID_STEM_EXTRACTORS,
             frozenset(sister_tests.STEM_EXTRACTORS),

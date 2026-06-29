@@ -38,6 +38,7 @@ import sister_tests  # noqa: E402  # pyright: ignore[reportMissingImports]
 import sprint_store  # noqa: E402
 import system_context_store  # noqa: E402
 import triage  # noqa: E402
+import worktree  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     STATUS_ACTION_ITERATION_COMPLETE,
@@ -191,38 +192,38 @@ def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
 
 def _warn_sister_skip_once(smm_dir: Path, reason: str) -> None:
     """One low-severity concern per session when sister-test discovery is
-    skipped. Cross-process state lives in the SISTER_TEST_LAYOUT_WARN
-    marker (SessionStart sweep clears it). The reason string distinguishes
-    the actual skip cause — layout unresolved vs project root not found vs
-    degenerate-custom — so the concern stays honest instead of always
-    blaming convention='unknown'.
+    skipped. The reason string distinguishes the actual skip cause —
+    layout unresolved vs project root not found vs degenerate-custom — so
+    the concern stays honest instead of always blaming convention='unknown'.
 
-    Uses the canonical markers API (marker_exists/marker_write) so symlink
-    protection applied to other marker files extends here too — raw
-    Path.touch() bypasses that guard. Marker is registered in scripts/
-    markers.py as SISTER_TEST_LAYOUT_WARN."""
-    if markers.marker_exists(smm_dir, markers.SISTER_TEST_LAYOUT_WARN):
-        return
-    _record_concern(
+    Delegates to markers.warn_once for the marker-gated append; that
+    primitive enforces the canonical markers API (symlink protection)
+    and is the single place future warn-once needs should land.
+    SISTER_TEST_LAYOUT_WARN is registered in _STALE_SESSION_MARKERS so
+    SessionStart re-arms the warn."""
+    agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
+    markers.warn_once(
         smm_dir,
+        markers.SISTER_TEST_LAYOUT_WARN,
         f"Sister-test auto-inclusion skipped: {reason}. Run /xp-system-context"
         " to detect a layout, or pipe a layout dict into"
         " system_context_cli.py edit-test-layout.",
+        agent_id,
     )
-    with contextlib.suppress(OSError, ValueError):
-        markers.marker_write(smm_dir, markers.SISTER_TEST_LAYOUT_WARN, "")
 
 
 def _resolve_project_root() -> Path | None:
-    """Walk up from cwd looking for .git/ (file or directory; in a worktree
-    .git is a regular file pointing to the worktree metadata). Returns the
-    project toplevel or None. None disables auto-include (defensive — some
-    test contexts and headless callers have no git root)."""
-    cur = Path.cwd().resolve()
-    for ancestor in (cur, *cur.parents):
-        if (ancestor / ".git").exists():
-            return ancestor
-    return None
+    """Delegate to worktree.resolve_git_root for the canonical lookup.
+
+    The prior local ancestor-walk implementation duplicated worktree's logic
+    and missed two real edge cases: GIT_DIR env override and submodule .git
+    files. Delegating eliminates the drift risk paired with the (now-resolved)
+    glob-translator dup (debt 8ccf898d97d3). worktree.resolve_git_root shells
+    `git rev-parse --show-toplevel` with per-cwd caching, so the runtime cost
+    is one subprocess per unique cwd per process.
+    """
+    root = worktree.resolve_git_root(os.getcwd())
+    return Path(root) if root else None
 
 
 def _auto_include_sister_tests(

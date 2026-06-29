@@ -358,8 +358,13 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
 
 
 def _make_git_project(tmpdir: Path) -> Path:
-    """_resolve_project_root looks for .git/; bare tmpdir has none. Init a
-    minimal git repo so the auto-include reaches the discovery path."""
+    """_resolve_project_root now delegates to worktree.resolve_git_root,
+    which shells `git rev-parse --show-toplevel` — a bare `.git/` directory
+    won't satisfy it (no HEAD, no refs, no objects). M7's mkdir-stub was
+    the right shortcut for the prior ancestor-walk probe; once M10 swapped
+    to git rev-parse the stub stopped working, so this reverts to a real
+    init. The ~20-50ms-per-test cost is back, but it's the correctness
+    floor."""
     subprocess.run(["git", "init", "-q", str(tmpdir)], check=True)
     return tmpdir
 
