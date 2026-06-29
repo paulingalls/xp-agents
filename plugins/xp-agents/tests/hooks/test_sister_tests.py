@@ -2,9 +2,16 @@
 """Tests for the sister-test discovery primitive."""
 
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# sister_tests lives in smm/ (relocated in sprint-108 M1). conftest adds smm/
+# under pytest, but the documented `python3 -m unittest` fallback does not load
+# conftest — insert smm/ so the import resolves in isolation, mirroring the
+# engine sister-test files.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "smm"))
 
 from sister_tests import (  # pyright: ignore[reportMissingImports]
     STEM_EXTRACTORS,
