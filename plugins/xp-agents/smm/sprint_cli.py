@@ -14,18 +14,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-# sprint_save is imported lazily inside _cmd_create / _cmd_add_story (the
-# only callers that need it) so the dozen+ read-only subcommands on this
-# hot path (get-story, list-stories, count, render, exists, etc.) don't
-# pay the cost of loading sister_tests + system_context_store +
-# BUILTIN_LAYOUTS construction on every invocation. sprint_save is an
-# engine-layer sibling in smm/ (relocated in sprint-108 M1) — no skill
-# sys.path insert needed; structural-mutation subcommands drive its full
-# pipeline (sister discovery + milestone transition + accept-marker handling),
-# while status-only edits (_cmd_edit_story) bypass it via store.edit_story.
 import sprint_render as render
 import sprint_store as store
 import triage
+
+# The 7 structural-mutation handlers (create, add-story, update-story,
+# update-story-if, edit-story, build-capstone, update-story-branch) live in
+# sprint_cli_mutate.py — split out in sprint-108 M1 to keep both modules
+# under the 500-line cap (decision d027fe5c9066). They are wired into the
+# argparse dispatch table in main() exactly as before. One-directional
+# import: sprint_cli -> sprint_cli_mutate -> sprint_store. validate-domain
+# and all read-only query handlers stay here (validate-domain still needs
+# triage, which sprint_cli_mutate must NOT import).
+from sprint_cli_mutate import (
+    _cmd_add_story,
+    _cmd_build_capstone,
+    _cmd_create,
+    _cmd_edit_story,
+    _cmd_update_story,
+    _cmd_update_story_branch,
+    _cmd_update_story_if,
+)
 from sprint_schema import VALID_STORY_STATUSES
 
 # Sorted to keep argparse help output stable across runs (frozenset
@@ -171,110 +180,6 @@ def _cmd_list_stories(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_create(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-    import sprint_save
-
-    try:
-        # Structural mutation — route through full pipeline (sister discovery
-        # + milestone transition + accept-marker handling).
-        sprint_save.run(data, args.smm_dir)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def _cmd_add_story(args: argparse.Namespace) -> int:
-    sprint = store.load_sprint(args.smm_dir)
-    if sprint is None:
-        print("No sprint found.", file=sys.stderr)
-        return 1
-    raw = sys.stdin.read()
-    try:
-        story = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-    new_id = story.get("id") if isinstance(story, dict) else None
-    if new_id and any(s.get("id") == new_id for s in sprint.get("stories", [])):
-        print(
-            f"Duplicate story id: {new_id!r} already exists in sprint "
-            f"{sprint.get('sprint_id', '<unknown>')}. add-story is idempotent "
-            "on the id field — use edit-story to mutate an existing story.",
-            file=sys.stderr,
-        )
-        return 1
-    sprint["stories"].append(story)
-    import sprint_save
-
-    try:
-        # Structural mutation (new story) — route through full pipeline.
-        # Dup-id guard above stays AHEAD of run() per locked decision
-        # (story-003 close): a dup never triggers run()'s side effects.
-        sprint_save.run(sprint, args.smm_dir)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def _cmd_update_story(args: argparse.Namespace) -> int:
-    try:
-        store.update_story_status(args.smm_dir, args.story_id, args.status)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def _cmd_update_story_if(args: argparse.Namespace) -> int:
-    """Atomic compare-and-swap on story status.
-
-    Exits 0 when the on-disk status matched --expected and the write
-    succeeded; 1 when the status differed (no-op, file untouched);
-    2 on validation/missing-id/missing-sprint errors. Callers can
-    distinguish "lost the race" (rc=1) from "bad input" (rc=2).
-    """
-    try:
-        ok = store.update_story_status_if(
-            args.smm_dir, args.story_id, expected=args.expected, new=args.new
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 2
-    return 0 if ok else 1
-
-
-def _cmd_edit_story(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
-    try:
-        updates = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-    # Status/metadata edits intentionally bypass sprint_save.run(). /xp-accept
-    # and /xp-schedule drive edit-story for status flips and execution_mode
-    # writes; firing the full run() pipeline on every flip would re-walk
-    # sister discovery and re-fire milestone transition on every accept
-    # (impact-zone constraint per plan-review e7b72bd57c84). store.edit_story
-    # already routes through sprint_store.save_sprint directly — the same
-    # atomic-write that sprint_save.save() wraps — so the architectural split
-    # is preserved without duplicating the isinstance / immutable-fields /
-    # load-find-update guards here.
-    try:
-        store.edit_story(args.smm_dir, args.story_id, updates)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
 def _cmd_validate_domain(args: argparse.Namespace) -> int:
     """Diff git-changed files (since base) against the story's declared
     file_domain. Exits 0 on clean match (or no commits since base);
@@ -340,38 +245,6 @@ def _cmd_validate_domain(args: argparse.Namespace) -> int:
         return 0
 
     print(f"clean: {len(actual)} file(s) match declared domain")
-    return 0
-
-
-def _cmd_build_capstone(args: argparse.Namespace) -> int:
-    """Print a deterministic capstone story as JSON on stdout.
-
-    Pure (no sprint read/write) — the skill pipes the output into
-    `add-story`. Comma-separated --surfaces and --depends-on are split
-    into lists; empty strings yield empty lists.
-    """
-
-    def _split(raw: str) -> list[str]:
-        return [p for p in (s.strip() for s in raw.split(",")) if p]
-
-    story = store.build_capstone_story(
-        args.story_id,
-        args.milestone,
-        _split(args.surfaces),
-        _split(args.depends_on),
-        milestone_ref=args.milestone_ref,
-        harness=args.harness,
-    )
-    print(json.dumps(story, indent=2))
-    return 0
-
-
-def _cmd_update_story_branch(args: argparse.Namespace) -> int:
-    try:
-        store.set_story_branch(args.smm_dir, args.story_id, args.branch_name)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
     return 0
 
 
