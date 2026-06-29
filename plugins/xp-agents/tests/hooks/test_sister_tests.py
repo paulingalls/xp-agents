@@ -178,6 +178,16 @@ class TestLiteralPrefix(unittest.TestCase):
     def test_charclass_cuts_to_dir(self):
         self.assertEqual(_literal_prefix("a/b/foo[12].txt"), "a/b/")
 
+    def test_brace_in_prefix_cuts_to_dir(self):
+        # Brace-alternation is a glob metachar — a brace-prefixed segment
+        # must be treated as non-literal so {mirror} substitution uses the
+        # correct strip prefix. Without this, source_pattern='src/{a,b}/**/*.py'
+        # returned literal prefix 'src/{a,b}/' and downstream mirror calc
+        # failed to strip 'src/' from the source's parent dir.
+        self.assertEqual(_literal_prefix("src/{a,b}/**/*.py"), "src/")
+        self.assertEqual(_literal_prefix("lib/{x,y,z}/*.rb"), "lib/")
+        self.assertEqual(_literal_prefix("{foo,bar}/*.py"), "")
+
 
 class TestResolveTestGlob(unittest.TestCase):
     """_resolve_test_glob substitutes {stem}, {dir}, {mirror} then brace-expands."""
@@ -373,6 +383,29 @@ class TestDiscoveryEdgeCases(_DiscoveryTestCase):
         # File on disk would otherwise match — but the source itself is excluded.
         _touch(self.root, "obj/FooTests.cs")
         self.assertEqual(discover_sister_tests("obj/Foo.cs", layout, self.root), [])
+
+    def test_source_excludes_honors_brace_alternation(self):
+        # source_excludes must brace-expand like source_pattern. Without
+        # symmetry, a customer override `source_excludes=['test/{foo,bar}/**']`
+        # would silently match only the literal pattern and let real
+        # test/foo/... files through. Mirrors _match_any semantics.
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="{dir}/test_{stem}.py",
+                    source_excludes=("test/{foo,bar}/**",),
+                ),
+            ),
+        )
+        _touch(self.root, "test/foo/test_x.py")
+        _touch(self.root, "test/bar/test_y.py")
+        # Both source paths must be excluded — same as if the rule listed
+        # 'test/foo/**' and 'test/bar/**' separately.
+        self.assertEqual(discover_sister_tests("test/foo/x.py", layout, self.root), [])
+        self.assertEqual(discover_sister_tests("test/bar/y.py", layout, self.root), [])
 
     def test_returns_sorted_deduped_posix_strings(self):
         # Two rules both produce the same sister file -> single result.

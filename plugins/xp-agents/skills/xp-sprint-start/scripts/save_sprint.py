@@ -225,17 +225,6 @@ def _resolve_project_root() -> Path | None:
     return None
 
 
-def _entry_paths(entry: str) -> list[str]:
-    """Return all path components of a file_domain entry.
-
-    Delegates to triage._entry_to_paths so dedup/discovery understands
-    every separator the rest of the codebase already handles: em-dash
-    ' — ', ASCII ' -- ', and comma-joined paths. Maintaining two
-    translators silently desyncs (saw it: ASCII-dash entries used to
-    leak through dedup and get re-appended as duplicates each save)."""
-    return triage._entry_to_paths(entry)
-
-
 def _auto_include_sister_tests(
     data: dict,
     layout: "sister_tests.TestLayout",
@@ -245,7 +234,7 @@ def _auto_include_sister_tests(
     source paths in its file_domain and append new entries formatted as
     '<rel> — sister test for <src>'. Dedups against existing file_domain
     entries (every path the entry declares — em-dash, ASCII-dash, and
-    comma-joined forms all parse identically via triage._entry_to_paths).
+    comma-joined forms all parse identically via triage.entry_to_paths).
     Skips entries already marked as sisters (prevents sister-of-sister
     expansion). Mutates data in place. No SMM writes."""
     for story in data.get("stories", []):
@@ -255,14 +244,14 @@ def _auto_include_sister_tests(
         existing_paths: set[str] = set()
         for e in domain:
             if isinstance(e, str):
-                existing_paths.update(_entry_paths(e))
+                existing_paths.update(triage.entry_to_paths(e))
         additions: list[str] = []
         for entry in list(domain):  # snapshot — don't iterate over a mutating list
             if not isinstance(entry, str):
                 continue
             if " — sister test for " in entry:
                 continue  # prevents sister-of-sister expansion
-            for src in _entry_paths(entry):
+            for src in triage.entry_to_paths(entry):
                 if not src:
                     continue
                 try:

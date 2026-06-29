@@ -20,7 +20,7 @@ _EM_DASH = "—"
 _ASCII_DESC_SEP = " -- "
 
 
-def _entry_to_paths(entry: str) -> list[str]:
+def entry_to_paths(entry: str) -> list[str]:
     """Split one file_domain entry into its declared path(s).
 
     An entry is "path — description", "path -- description", or just
@@ -147,7 +147,7 @@ def extract_file_domain_paths(
 
     Entries are "path — description" (em-dash convention), "path --
     description" (common ASCII deviation), or just "path"; several paths
-    may be comma-joined in one entry. See `_entry_to_paths`. When a path
+    may be comma-joined in one entry. See `entry_to_paths`. When a path
     contains glob metacharacters (`*`, `?`, `[...]`) the entry expands to
     matching files: against `candidate_files` via fnmatch-style regex when
     provided
@@ -169,7 +169,7 @@ def extract_file_domain_paths(
     candidates_list: list[str] | None = None  # materialized lazily on first glob
     glob_root = Path(cwd) if cwd is not None else None
     for entry in file_domain:
-        for path in _entry_to_paths(entry):
+        for path in entry_to_paths(entry):
             if not _glob.has_magic(path):
                 paths.add(path)
                 continue

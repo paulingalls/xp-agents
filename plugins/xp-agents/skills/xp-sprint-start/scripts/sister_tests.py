@@ -150,8 +150,11 @@ def _literal_prefix(pattern: str) -> str:
     the whole string (no metachars at all). Used to compute ``{mirror}``
     substitutions in :func:`_resolve_test_glob`.
     """
+    # `{` is a glob metachar (brace-alternation, handled by _expand_braces);
+    # treat it as non-literal so 'src/{a,b}/**/*.py' returns 'src/' — not
+    # 'src/{a,b}/' — and {mirror} substitution strips the right prefix.
     for i, ch in enumerate(pattern):
-        if ch in "*?[":
+        if ch in "*?[{":
             return pattern[: pattern.rfind("/", 0, i) + 1]
     return pattern
 
@@ -422,10 +425,10 @@ def discover_sister_tests(
             continue
         if any(source_path.endswith(s) for s in rule.skip_suffixes):
             continue
-        if any(
-            _compile_source_pattern(ex).fullmatch(source_path)
-            for ex in rule.source_excludes
-        ):
+        # source_excludes must brace-expand symmetrically with source_pattern;
+        # a customer override 'test/{foo,bar}/**' otherwise would only match
+        # the literal pattern, silently leaking real test/foo/... paths.
+        if any(_match_any(source_path, ex) for ex in rule.source_excludes):
             continue
         if not _match_any(source_path, rule.source_pattern):
             continue

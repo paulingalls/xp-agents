@@ -699,7 +699,7 @@ class TestRunIntegratesSisterTestsAndSoftWarn(_HookTestCase):
         domains = loaded["stories"][0]["file_domain"]
         # tests/test_bar.py must appear exactly once — not duplicated as
         # a sister entry just because the original used ASCII dash.
-        bar_paths = [triage._entry_to_paths(e) for e in domains]
+        bar_paths = [triage.entry_to_paths(e) for e in domains]
         flattened = [p for paths in bar_paths for p in paths]
         self.assertEqual(
             flattened.count("tests/test_bar.py"),
