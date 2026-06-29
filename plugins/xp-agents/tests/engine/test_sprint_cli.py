@@ -1029,9 +1029,9 @@ class TestReadyFrontierCommand(_SMMTestCase):
 
 
 class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
-    """Story-004: _cmd_create + _cmd_add_story route through save_sprint.run()
+    """Story-004: _cmd_create + _cmd_add_story route through sprint_save.run()
     (structural mutations — full pipeline). _cmd_edit_story routes through
-    save_sprint.save() (status flips — side-effect-free). Lock-in tests.
+    sprint_save.save() (status flips — side-effect-free). Lock-in tests.
 
     Observable side-effect of run() used here: the soft-warn marker for
     sister-test layout (Q1(b)) — touched only by run(), never by save().
@@ -1049,7 +1049,7 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
         self.assertTrue(
             (self.smm_dir / self._MARKER).exists(),
             "expected sister-test soft-warn marker after _cmd_create — proves "
-            "_cmd_create routes through save_sprint.run()",
+            "_cmd_create routes through sprint_save.run()",
         )
 
     def test_add_story_fires_run_pipeline(self):
@@ -1064,7 +1064,7 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
         )
 
     def test_add_story_dup_id_stays_above_run(self):
-        """story-003's locked contract: dup-id guard runs BEFORE save_sprint.run.
+        """story-003's locked contract: dup-id guard runs BEFORE sprint_save.run.
         A duplicate-id payload must NOT fire run()'s side effects (no marker,
         no transition concerns)."""
         sprint = self._sample_sprint()
@@ -1075,7 +1075,7 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
         self.assertIn("Duplicate story id", result.stderr)
         self.assertFalse(
             (self.smm_dir / self._MARKER).exists(),
-            "dup-id rejection MUST short-circuit before save_sprint.run — "
+            "dup-id rejection MUST short-circuit before sprint_save.run — "
             "marker should NOT exist (locks story-003 contract)",
         )
 

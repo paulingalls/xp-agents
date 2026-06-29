@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for save_sprint.py: atomic writer, acceptance flow, milestones.
+"""Tests for sprint_save.py: atomic writer, acceptance flow, milestone transition.
 
-Preload script tests live in test_sprint_start_preload.py.
+Relocated from tests/hooks/test_sprint_start.py in sprint-108 M1 when the
+sprint-mutation pipeline (run/save) moved from the xp-sprint-start skill into
+the engine module smm/sprint_save.py. Sister-test auto-inclusion lives in
+test_sprint_save_sisters.py.
 """
 
-import importlib
 import json
 import os
 import subprocess
@@ -15,36 +17,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+# Temporary skill-scripts path for sister_tests (still skill-layer until
+# story-002 relocates it into smm/). Inserted explicitly so the import works
+# regardless of import ordering; story-002 drops this line + the sister_tests
+# import once sister_tests lives in smm/ (conftest already adds smm/).
+sys.path.insert(
+    0,
+    str(Path(__file__).parent.parent.parent / "skills" / "xp-sprint-start" / "scripts"),
+)
 
-from conftest import _HookTestCase, make_milestone_dict, triage
+import sister_tests  # pyright: ignore[reportMissingImports]
+import sprint_save
+from conftest import _SMMTestCase, make_milestone_dict, triage
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, event_action
 
-# ===========================================================================
-# save_sprint.py -- Atomic writer for sprint.json
-# ===========================================================================
 
-_SAVE_SCRIPT = (
-    Path(__file__).parent.parent.parent
-    / "skills"
-    / "xp-sprint-start"
-    / "scripts"
-    / "save_sprint.py"
-)
-
-
-class TestSaveSprint(_HookTestCase):
-    """Tests for the save_sprint.py atomic writer."""
+class TestSaveSprint(_SMMTestCase):
+    """Tests for the sprint_save.py atomic writer."""
 
     def _run_save(self, data: dict) -> None:
-        """Import and call save_sprint.run() directly."""
-        if not _SAVE_SCRIPT.is_file():
-            self.skipTest("save_sprint.py not yet created")
-        sys.path.insert(0, str(_SAVE_SCRIPT.parent))
-
-        mod = importlib.import_module("save_sprint")
-        importlib.reload(mod)  # ensure fresh import
-        mod.run(data, self.smm_dir)
+        """Call sprint_save.run() directly."""
+        sprint_save.run(data, self.smm_dir)
 
     def _sample_sprint(self, **overrides) -> dict:
         from conftest import _s
@@ -117,17 +111,11 @@ def _local_sprint(status="done"):
     }
 
 
-class TestSaveSprintAcceptanceFlow(_HookTestCase):
-    """save_sprint.py handles .accept marker and iteration_complete."""
+class TestSaveSprintAcceptanceFlow(_SMMTestCase):
+    """sprint_save.py handles .accept marker and iteration_complete."""
 
     def _run_save(self, data: dict) -> None:
-        if not _SAVE_SCRIPT.is_file():
-            self.skipTest("save_sprint.py not yet created")
-        sys.path.insert(0, str(_SAVE_SCRIPT.parent))
-
-        mod = importlib.import_module("save_sprint")
-        importlib.reload(mod)
-        mod.run(data, self.smm_dir)
+        sprint_save.run(data, self.smm_dir)
 
     def _read_events(self) -> list[dict]:
         events_file = self.smm_dir / "events.jsonl"
@@ -202,7 +190,7 @@ class TestSaveSprintAcceptanceFlow(_HookTestCase):
 
 
 # ===========================================================================
-# save_sprint.py -- Milestone status transition (story-005)
+# sprint_save.py -- Milestone status transition (story-005)
 # ===========================================================================
 
 
@@ -219,15 +207,11 @@ def _plan_with_milestones(milestones: list[dict]) -> dict:
 _make_milestone = make_milestone_dict
 
 
-class TestSaveSprintMilestoneTransition(_HookTestCase):
-    """save_sprint flips target milestone from planned to in-progress."""
+class TestSaveSprintMilestoneTransition(_SMMTestCase):
+    """sprint_save flips target milestone from planned to in-progress."""
 
     def _run_save(self, data: dict) -> None:
-        sys.path.insert(0, str(_SAVE_SCRIPT.parent))
-
-        mod = importlib.import_module("save_sprint")
-        importlib.reload(mod)
-        mod.run(data, self.smm_dir)
+        sprint_save.run(data, self.smm_dir)
 
     def _write_plan(self, milestones: list[dict]) -> None:
         (self.smm_dir / "execution_plan.json").write_text(
@@ -252,7 +236,7 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
         }
 
     def test_planned_milestone_flipped_to_in_progress(self):
-        """planned milestone becomes in-progress after save_sprint."""
+        """planned milestone becomes in-progress after sprint_save."""
         self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
         self._run_save(self._sprint("Milestone 1: Kickoff migration"))
 
@@ -353,123 +337,29 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
 
 
 # ===========================================================================
-# Story-004: sister-test auto-inclusion (_auto_include_sister_tests)
+# _resolve_layout + run()/save() sister-test integration
 # ===========================================================================
 
 
 def _make_git_project(tmpdir: Path) -> Path:
-    """_resolve_project_root now delegates to worktree.resolve_git_root,
-    which shells `git rev-parse --show-toplevel` — a bare `.git/` directory
-    won't satisfy it (no HEAD, no refs, no objects). M7's mkdir-stub was
-    the right shortcut for the prior ancestor-walk probe; once M10 swapped
-    to git rev-parse the stub stopped working, so this reverts to a real
-    init. The ~20-50ms-per-test cost is back, but it's the correctness
-    floor."""
+    """_resolve_project_root delegates to worktree.resolve_git_root, which
+    shells `git rev-parse --show-toplevel` — a bare `.git/` directory won't
+    satisfy it (no HEAD, no refs, no objects), so a real init is required.
+    Only the run()-driven tests below need it; TestAutoIncludeSisterTests
+    passes project_root directly and lives in test_sprint_save_sisters.py."""
     subprocess.run(["git", "init", "-q", str(tmpdir)], check=True)
     return tmpdir
 
 
-def _import_save_sprint():
-    sys.path.insert(0, str(_SAVE_SCRIPT.parent))
-
-    mod = importlib.import_module("save_sprint")
-    importlib.reload(mod)
-    return mod
-
-
-class TestAutoIncludeSisterTests(_HookTestCase):
-    """_auto_include_sister_tests appends discovered sister-test paths to
-    each story's file_domain, dedups against existing entries, and skips
-    entries already marked as sisters (prevents sister-of-sister)."""
-
-    def setUp(self):
-        super().setUp()
-
-        self._tmp = Path(tempfile.mkdtemp(prefix="story-004-"))
-        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self._tmp)]))
-        _make_git_project(self._tmp)
-        self.mod = _import_save_sprint()
-        self.sister_tests = importlib.import_module("sister_tests")
-
-    def _make_layout(self, convention: str = "python_pytest"):
-        return self.sister_tests.BUILTIN_LAYOUTS[convention]
-
-    def _write_file(self, rel: str, content: str = "") -> Path:
-        p = self._tmp / rel
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content)
-        return p
-
-    def test_python_pytest_layout_appends_existing_sister(self):
-        self._write_file("src/foo.py", "x = 1")
-        self._write_file("tests/test_foo.py", "def test_x(): pass")
-        data = {"stories": [{"id": "s1", "file_domain": ["src/foo.py — impl"]}]}
-        self.mod._auto_include_sister_tests(data, self._make_layout(), self._tmp)
-        self.assertIn(
-            "tests/test_foo.py — sister test for src/foo.py",
-            data["stories"][0]["file_domain"],
-        )
-
-    def test_no_sister_on_disk_is_noop(self):
-        self._write_file("src/foo.py", "x = 1")
-        data = {"stories": [{"id": "s1", "file_domain": ["src/foo.py — impl"]}]}
-        before = list(data["stories"][0]["file_domain"])
-        self.mod._auto_include_sister_tests(data, self._make_layout(), self._tmp)
-        self.assertEqual(data["stories"][0]["file_domain"], before)
-
-    def test_dedups_existing_manual_sister(self):
-        self._write_file("src/foo.py", "x = 1")
-        self._write_file("tests/test_foo.py", "def test_x(): pass")
-        data = {
-            "stories": [
-                {
-                    "id": "s1",
-                    "file_domain": [
-                        "src/foo.py — impl",
-                        "tests/test_foo.py — manual",
-                    ],
-                }
-            ]
-        }
-        self.mod._auto_include_sister_tests(data, self._make_layout(), self._tmp)
-        paths = [e.split(" — ")[0] for e in data["stories"][0]["file_domain"]]
-        self.assertEqual(paths.count("tests/test_foo.py"), 1)
-
-    def test_skips_sister_marked_entries(self):
-        """An entry whose note is 'sister test for X' must NOT be re-walked
-        (sister-of-sister discovery would expand file_domain unboundedly)."""
-        self._write_file("src/foo.py", "x = 1")
-        self._write_file("tests/test_foo.py", "def test_x(): pass")
-        self._write_file("tests/test_test_foo.py", "def test_meta(): pass")
-        data = {
-            "stories": [
-                {
-                    "id": "s1",
-                    "file_domain": [
-                        "src/foo.py — impl",
-                        "tests/test_foo.py — sister test for src/foo.py",
-                    ],
-                }
-            ]
-        }
-        self.mod._auto_include_sister_tests(data, self._make_layout(), self._tmp)
-        for entry in data["stories"][0]["file_domain"]:
-            self.assertNotIn(
-                "test_test_foo.py",
-                entry,
-                f"sister-of-sister leaked: {entry}",
-            )
-
-
-class TestResolveLayout(_HookTestCase):
+class TestResolveLayout(_SMMTestCase):
     """_resolve_layout reads system_context.test_layout and constructs a
     TestLayout instance. Returns None when absent, when convention is
     'unknown', or when system_context is missing/unreadable."""
 
     def setUp(self):
         super().setUp()
-        self.mod = _import_save_sprint()
-        self.sister_tests = importlib.import_module("sister_tests")
+        self.mod = sprint_save
+        self.sister_tests = sister_tests
 
     def _write_sc(self, test_layout=None):
         from _system_context_fixtures import valid_doc, write_doc
@@ -492,8 +382,7 @@ class TestResolveLayout(_HookTestCase):
 
     def test_returns_builtin_layout_for_python_pytest(self):
         self._write_sc({"convention": "python_pytest", "overrides": []})
-        layout = self.mod._resolve_layout(self.smm_dir)
-        self.assertIsNotNone(layout)
+        layout = self._assert_not_none(self.mod._resolve_layout(self.smm_dir))
         self.assertEqual(layout.convention, "python_pytest")
         self.assertEqual(
             layout.rules,
@@ -513,8 +402,7 @@ class TestResolveLayout(_HookTestCase):
                 ],
             }
         )
-        layout = self.mod._resolve_layout(self.smm_dir)
-        self.assertIsNotNone(layout)
+        layout = self._assert_not_none(self.mod._resolve_layout(self.smm_dir))
         self.assertEqual(layout.convention, "custom")
         self.assertEqual(layout.rules, ())
         self.assertEqual(len(layout.overrides), 1)
@@ -536,8 +424,7 @@ class TestResolveLayout(_HookTestCase):
                 ],
             }
         )
-        layout = self.mod._resolve_layout(self.smm_dir)
-        self.assertIsNotNone(layout)
+        layout = self._assert_not_none(self.mod._resolve_layout(self.smm_dir))
         rule = layout.overrides[0]
         self.assertIsInstance(rule.skip_basenames, tuple)
         self.assertEqual(rule.skip_basenames, ("__init__.py", "conftest.py"))
@@ -545,14 +432,14 @@ class TestResolveLayout(_HookTestCase):
         self.assertEqual(rule.source_excludes, ("obj/**",))
 
 
-class TestRunIntegratesSisterTestsAndSoftWarn(_HookTestCase):
+class TestRunIntegratesSisterTestsAndSoftWarn(_SMMTestCase):
     """run() invokes _auto_include_sister_tests when layout resolves; calls
-    _warn_unknown_layout_once otherwise. Soft-warn is marker-based so it
+    _warn_sister_skip_once otherwise. Soft-warn is marker-based so it
     survives the subprocess-per-CLI-call model the production CLI uses."""
 
     def setUp(self):
         super().setUp()
-        self.mod = _import_save_sprint()
+        self.mod = sprint_save
         self._tmp = Path(tempfile.mkdtemp(prefix="story-004-run-"))
         self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self._tmp)]))
         _make_git_project(self._tmp)

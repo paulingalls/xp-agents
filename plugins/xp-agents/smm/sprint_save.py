@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Save sprint: write sprint.json atomically + handle acceptance flow.
+"""Save sprint: full sprint-mutation pipeline (atomic write + side effects).
 
-Called by xp-sprint-start, xp-work-selection, and xp-accept to persist
-sprint.json. After writing, it:
+Engine-layer home for the sprint-mutation pipeline (relocated from the
+xp-sprint-start skill in sprint-108 M1). Driven by sprint_cli's structural
+subcommands (create, add-story); reached indirectly by xp-sprint-start,
+xp-work-selection, and xp-accept. After writing sprint.json it:
 
 - Clears the .needs-sprint marker if sprint now has active stories.
 - If the .accept marker was present and no in-progress stories remain,
@@ -11,7 +13,7 @@ sprint.json. After writing, it:
   prints a sprint-review nudge to stdout for the main agent to see.
 
 Usage:
-    echo '<json>' | python3 save_sprint.py --smm-dir DIR
+    echo '<json>' | python3 sprint_save.py --smm-dir DIR
 """
 
 import argparse
@@ -22,11 +24,13 @@ import re
 import sys
 from pathlib import Path
 
-_PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_SKILL_SCRIPTS = Path(__file__).resolve().parent
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
-sys.path.insert(0, str(_SKILL_SCRIPTS))
+# TEMPORARY skill-layer insert for sister_tests. story-002 (sprint-108 M1)
+# relocates sister_tests into smm/ and removes this line, completing the
+# engine→skill layer inversion.
+sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
 
 import _common  # noqa: E402
 import concerns  # noqa: E402
@@ -298,7 +302,7 @@ def run(data: dict, smm_dir: Path) -> None:
     # through the same once-per-session marker with an honest reason —
     # silently skipping the project-root case (the prior shape: else
     # attached to `if layout`) left customers with no signal when
-    # save_sprint ran from a tmpfs / non-git cwd.
+    # sprint_save ran from a tmpfs / non-git cwd.
     layout = _resolve_layout(smm_dir)
     if layout is None:
         _warn_sister_skip_once(
