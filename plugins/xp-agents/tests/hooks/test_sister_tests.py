@@ -514,5 +514,33 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestGoNative(_DiscoveryTestCase):
+    """go_native: foo.go -> foo_test.go in the same dir."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["go_native"]
+
+    def test_finds_colocated_test(self):
+        _touch(self.root, "pkg/foo_test.go")
+        self.assertEqual(
+            discover_sister_tests("pkg/foo.go", self.layout, self.root),
+            ["pkg/foo_test.go"],
+        )
+
+    def test_test_file_as_source_is_skipped(self):
+        # foo_test.go IS the test — don't re-resolve it via the _test suffix.
+        _touch(self.root, "pkg/foo_test_test.go")  # would match if not skipped
+        self.assertEqual(
+            discover_sister_tests("pkg/foo_test.go", self.layout, self.root),
+            [],
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("pkg/bar.go", self.layout, self.root), []
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

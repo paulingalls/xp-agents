@@ -206,6 +206,17 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "go_native": TestLayout(
+        convention="go_native",
+        rules=(
+            TestLayoutRule(
+                source_pattern="**/*.go",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/{stem}_test.go",
+                skip_suffixes=("_test.go",),
+            ),
+        ),
+    ),
 }
 
 
