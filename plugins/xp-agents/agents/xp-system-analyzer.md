@@ -157,6 +157,30 @@ Detect the project's full automated-test command and populate `stack.test_comman
 
 **Update mode:** if `test_command` already exists, leave it alone unless detection signals strongly contradict it (e.g., runner switch) — the user may have set it deliberately. The schema treats `test_command` as optional.
 
+### Step 3.8: Test Layout Detection
+
+Populate optional `test_layout` for sister-test discovery. Scan markers top-to-bottom — first match wins (matters in monorepos):
+
+| Convention | Marker signals |
+|---|---|
+| `python_pytest` | `pytest.ini`; `pyproject.toml` with `[tool.pytest.ini_options]`; `setup.cfg` with `[tool:pytest]`; `tox.ini` with `[pytest]` |
+| `go_native` | `go.mod` |
+| `js_unit` | `package.json` jest/vitest dep or `"bun test"` script; `jest.config.*`; `vitest.config.*`; `bun.lockb` |
+| `rust_cargo` | `Cargo.toml` |
+| `ruby_rspec` | `Gemfile` with rspec; `.rspec` |
+| `java_junit` | `pom.xml`; `build.gradle`; `build.gradle.kts` |
+| `csharp_xunit` | `*.csproj` referencing xunit; `*.sln` (weaker) |
+| `elixir_exunit` | `mix.exs` |
+| `swift_xctest` | `Package.swift`; `*.xcodeproj/`; `*.xcworkspace/` |
+| `php_phpunit` | `composer.json` with phpunit; `phpunit.xml`; `phpunit.xml.dist` |
+
+No marker → `{"convention": "unknown", "overrides": []}` (valid state, no concern). Multi-match → write first in table-order AND append an `assumption` event naming matches + chosen. Malformed marker → treat as missing. Existing `test_layout` (especially `"custom"` with `overrides`) → leave alone unless signals strongly contradict; pipe `null` to unset.
+
+```bash
+echo '{"convention": "<detected>", "overrides": []}' \
+  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-test-layout
+```
+
 ### Step 4: Build system_context JSON
 
 **Record what defines this project, not what was decided along the way.**
