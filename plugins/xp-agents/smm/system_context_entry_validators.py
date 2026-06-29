@@ -15,6 +15,54 @@ ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH: int = 100
 _ACCEPTANCE_SURFACE_REQUIRED = frozenset({"name", "signals", "status"})
 _VALID_SURFACE_STATUSES = frozenset({"covered", "gap"})
 
+# Locked 12-entry convention enum for the optional top-level
+# `test_layout` field. The 10 builtin names mirror story-001's
+# BUILTIN_LAYOUTS keys; `unknown` is the analyzer's "no marker found"
+# state and `custom` lets a customer declare rules-only via `overrides`.
+_VALID_TEST_LAYOUT_CONVENTIONS = frozenset(
+    {
+        "python_pytest",
+        "go_native",
+        "js_unit",
+        "rust_cargo",
+        "ruby_rspec",
+        "java_junit",
+        "csharp_xunit",
+        "elixir_exunit",
+        "swift_xctest",
+        "php_phpunit",
+        "unknown",
+        "custom",
+    }
+)
+
+
+def _validate_test_layout(layout: object, *, enforce_budget: bool = True) -> list[str]:
+    """Validate the optional top-level test_layout field.
+
+    Returns list of error strings (empty = valid). Never raises.
+    Schema: required `convention` in the 12-entry enum, optional
+    `overrides` list of dicts (3 required + 3 optional keys each).
+    """
+    errors: list[str] = []
+    if not isinstance(layout, dict):
+        return ["test_layout must be an object"]
+
+    if "convention" not in layout:
+        errors.append("test_layout missing required field: convention")
+        return errors
+
+    convention = layout["convention"]
+    if not isinstance(convention, str):
+        errors.append("test_layout.convention must be a string")
+    elif convention not in _VALID_TEST_LAYOUT_CONVENTIONS:
+        errors.append(
+            f"test_layout.convention must be one of"
+            f" {sorted(_VALID_TEST_LAYOUT_CONVENTIONS)} (got {convention!r})"
+        )
+
+    return errors
+
 
 def _validate_acceptance_surface_entry(
     entry: object, idx: int, *, enforce_budget: bool = True
