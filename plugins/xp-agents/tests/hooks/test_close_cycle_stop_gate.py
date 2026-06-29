@@ -36,6 +36,41 @@ class TestCloseCycleStopGate(_HookTestCase):
         result = self._assert_not_none(result)
         self.assertIn("xp-close-reviewer", result)
 
+    def test_block_message_names_all_three_close_phases(self):
+        # The mid-flight nudge must name every step the agent should run, in
+        # the canonical close-skill order: /security-review (Step 4),
+        # /code-review high (Step 4b, gated on RUN_FULL_CODE_REVIEW=true),
+        # then xp-close-reviewer (Step 4.5). The earlier message omitted
+        # /code-review high, so an agent re-entering the close cycle could
+        # read it as "skip Step 4b" — but post-merge there's no diff, so
+        # /code-review must run pre-merge or never. Order matters because the
+        # agent follows the nudge sequentially: /security-review precedes
+        # /code-review in the close skill, and the close-reviewer comes last.
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("/code-review", result)
+        self.assertIn("/security-review", result)
+        self.assertIn("xp-close-reviewer", result)
+        # Canonical order: security-review (Step 4) → code-review (Step 4b)
+        # → close-reviewer (Step 4.5). Substring positions enforce it.
+        sec = result.index("/security-review")
+        code = result.index("/code-review")
+        reviewer = result.index("xp-close-reviewer")
+        self.assertLess(
+            sec,
+            code,
+            "/security-review (Step 4) must precede /code-review (Step 4b)",
+        )
+        self.assertLess(
+            code,
+            reviewer,
+            "/code-review (Step 4b) must precede xp-close-reviewer (Step 4.5)",
+        )
+
     def test_no_block_when_marker_absent(self):
         import close_cycle_stop_gate
 

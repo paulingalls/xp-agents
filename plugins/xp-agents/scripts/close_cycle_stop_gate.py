@@ -64,8 +64,10 @@ _CLOSE_CYCLE_DEFER_WINDOW_SEC = 1800
 _CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC = 3600
 
 _BLOCK_MESSAGE = (
-    "Close cycle mid-flight. Run /security-review then invoke "
-    "xp-close-reviewer (Agent tool); then continue Steps 5-7."
+    "Close cycle mid-flight. Run /security-review (Step 4) then "
+    "/code-review high (Step 4b, if RUN_FULL_CODE_REVIEW=true) then "
+    "invoke xp-close-reviewer (Agent tool, Step 4.5); then continue "
+    "Steps 5-7."
 )
 
 _BYPASS_RECOVERY = (
