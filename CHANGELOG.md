@@ -2,6 +2,73 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.1.0 — Sister-test discovery + V4 pipeline validation
+
+Project-generic sister-test auto-inclusion driven by a new `system_context.test_layout` field, plus the deferred sprint-105 validation capstone closing out the v4.0.0 paradigm shift. Shipped via the per-story teammate pipeline itself (3 parallel teammates + 1 solo wiring + 1 capstone) — the decomposition was the live test bed.
+
+### Sister-test discovery (M-1)
+
+**Pure-function primitive in `plugins/xp-agents/skills/xp-sprint-start/scripts/sister_tests.py`** discovers existing sister-test files for source paths in any story's `file_domain`. The auto-include runs inside `save_sprint.run()` so sprint mutations that introduce a new story (or new source) get their sister tests appended without manual bookkeeping.
+
+- **10 BUILTIN_LAYOUTS**: `python_pytest`, `go_native`, `js_unit` (jest/vitest/bun), `rust_cargo`, `ruby_rspec`, `java_junit`, `csharp_xunit`, `elixir_exunit`, `swift_xctest`, `php_phpunit`. Each is a `TestLayout` carrying `TestLayoutRule[]` with `source_pattern` / `stem_extractor` / `test_glob` (+ optional `skip_basenames` / `skip_suffixes` / `source_excludes`).
+- Customer overrides via `system_context.test_layout.overrides` for projects whose convention isn't covered.
+- Cross-version-portable glob compiler (`_compile_source_pattern`) — token-walks mid-pattern `**` because `PurePosixPath.match` doesn't honor it until Python 3.13.
+- Path-escape guard rejects resolved candidates starting with `/`, `../`, or equal to `..` so customer-authored `{dir}/../...` templates can't escape `project_root`.
+- Brace-aware throughout: source_pattern, test_glob, AND source_excludes route through `_expand_braces` for symmetric semantics.
+
+### New `system_context.test_layout` surface (M-1)
+
+Optional top-level field on `system_context.json` declaring which sister-test convention the project uses.
+
+- **Schema enum** (`_VALID_TEST_LAYOUT_CONVENTIONS`): 10 builtin names + `unknown` + `custom`. Drift-locked against `BUILTIN_LAYOUTS.keys()` via `TestTestLayoutConventionEnumLock`.
+- **`stem_extractor` enum** (`_VALID_STEM_EXTRACTORS`): schema validator rejects unknown extractors at write time. Drift-locked against `STEM_EXTRACTORS` registry.
+- **New CLI subcommands**: `system_context_cli.py edit-test-layout` (stdin `null` unsets, `{}` rejects) and `get-test-layout`.
+- **xp-system-analyzer Step 3.8**: probes 10 marker sets; writes detected convention (or `unknown`); records `assumption` event when multiple markers match.
+
+### save_sprint.run/save split (M-1)
+
+`save_sprint.py` now exposes both:
+- `run(data, smm_dir)` — full pipeline: sister discovery → atomic save → milestone transition → accept-marker handling. Called by `sprint_cli._cmd_create` and `_cmd_add_story` (structural sprint mutations).
+- `save(data, smm_dir)` — atomic write only, no side effects. Symmetry helper / test surface; status-flip callers (`/xp-accept`, `/xp-schedule`) bypass save_sprint via `store.edit_story` to preserve the M1 impact-zone constraint.
+
+### sprint_cli dup-id rejection (M-1)
+
+`_cmd_add_story` rejects duplicate-id payloads (exit 1 + clear stderr message). Guard runs AHEAD of `save_sprint.run()` so a dup never triggers run()'s side effects.
+
+### Soft-warn-once for missing test_layout (Q1(b))
+
+`save_sprint._warn_sister_skip_once(smm_dir, reason)` appends one low-severity concern per session when `test_layout` is unset, `convention='unknown'`, or `project_root` can't be resolved. Persisted via `SISTER_TEST_LAYOUT_WARN` marker (SessionStart sweeps it). Survives the `sprint_cli`-as-subprocess model.
+
+### V4 pipeline validation capstone (M-1, sprint-105 carryover)
+
+`docs/ideas/V4_TEAMMATE_PIPELINE_VALIDATION.md` documents the live observation of v4.0.0's per-story teammate pipeline running on sprint-107 itself. Verdict: **KEEP** — no regression vs v3.11.0 baseline.
+
+### Idea docs filed for sprint-108
+
+- `RISK_CLASSIFIER_RUBRIC_BROADENING.md` — broaden xp-risk-classifier signals beyond state/lifecycle/concurrency (project-agnostic shapes; debt `8e4728768671`).
+- `TEAMMATE_TIER_PICKER.md` — 4-layer design: kickoff bundle for teammate-support + default model; /xp-schedule respects flag; /xp-assign universal entry; xp-plan-reviewer recommends executor_model per story (debt `ccf0cc5e13d8`).
+
+### Notable debts filed for sprint-108
+
+- `5e180220db1a` /xp-plan-reviewer output suppression (load-bearing for tier picker)
+- `23c492fe63ad` / `35b9f08a95ac` / `e428c29f0edf` file-size cap violations (3 engine + 3 test files)
+- `8ccf898d97d3` duplicate glob translators
+- `ba6d355070c6` verify_acceptance.py SMM_DIR propagation
+- `ebda28b72eac` stop-hook close-cycle message missing /code-review mention
+- `d0c2f84acdf5` _resolve_project_root duplicates worktree.resolve_git_root
+- `b380e493e7a7` discover_sister_tests N×M tree walks at scale
+- `f32e57c380ec` warn-once primitive generalization
+- Plus `aa468aa96fb3`, `823f7ba4a56f`, `d77c1785873d`, `e7578400e015` (flag-cascade closure quirk), `fe953be9e665` (analyzer Step 3.8 fixture), `5c63d3ac4248` (save() dead-API), `0aa5e8be097a` (test sys.path shim duplication), `bf30e8462e1b` (in-place dict mutation).
+
+### Gates
+- /security-review clean at sprint-107 close AND plan-close.
+- /code-review high ran at sprint-107 close (10 findings → 7 fix + 2 debt + 1 concern) AND plan-close (10 NEW findings → 3 fix + 2 concern + 5 refuted).
+- xp-close-reviewer ran at sprint-107 (4 concerns → 2 fix + 2 debt-pinned) AND plan-close (5 concerns → all debt-pinned, 0 Blocks).
+- Full suite: 5752 passed, 2 skipped.
+
+### Honest release-hygiene note
+This v4.1.0 version bump landed as a post-merge `[release]` commit on main, NOT before the plan-close merge as `feedback_release_bump_before_close` prescribes. The commit immediately preceding this one (b6d860cf, plan merge) shipped v4.1-content under the v4.0.0 version string for the brief window before this bump landed. Sprint-108 retro should capture the gap.
+
 ## v4.0.0 — Systemic Quality v2: per-story teammate pipeline + cross-language review floor
 
 This release ships two milestones from the **Systemic Quality v2** plan.
