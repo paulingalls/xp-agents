@@ -27,10 +27,6 @@ from pathlib import Path
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
-# TEMPORARY skill-layer insert for sister_tests. story-002 (sprint-108 M1)
-# relocates sister_tests into smm/ and removes this line, completing the
-# engine→skill layer inversion.
-sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
 
 import _common  # noqa: E402
 import concerns  # noqa: E402

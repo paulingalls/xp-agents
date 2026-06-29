@@ -16,10 +16,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-# smm/ holds the shared glob_translator primitive; mirror the path-insert
-# pattern sprint_save.py uses so sister_tests can be imported directly
-# from tests (conftest already adds smm/) and from sprint_save at runtime.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "smm"))
+# glob_translator is a sibling module in smm/; insert this module's own dir
+# so the import resolves at runtime even when smm/ isn't already on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import glob_translator  # pyright: ignore[reportMissingImports]
 

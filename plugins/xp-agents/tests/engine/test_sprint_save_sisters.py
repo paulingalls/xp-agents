@@ -17,13 +17,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-# Temporary skill-scripts path for sister_tests (still skill-layer until
-# story-002 relocates it into smm/); story-002 drops this + the sister_tests
-# import once sister_tests lives in smm/ (conftest already adds smm/).
-sys.path.insert(
-    0,
-    str(Path(__file__).parent.parent.parent / "skills" / "xp-sprint-start" / "scripts"),
-)
 
 import sister_tests  # pyright: ignore[reportMissingImports]
 import sprint_save
