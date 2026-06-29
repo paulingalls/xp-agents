@@ -36,6 +36,50 @@ _VALID_TEST_LAYOUT_CONVENTIONS = frozenset(
     }
 )
 
+_TEST_LAYOUT_ALLOWED_KEYS = frozenset({"convention", "overrides"})
+
+_OVERRIDE_REQUIRED_STR_KEYS = frozenset(
+    {"source_pattern", "stem_extractor", "test_glob"}
+)
+_OVERRIDE_OPTIONAL_LIST_KEYS = frozenset(
+    {"skip_basenames", "skip_suffixes", "source_excludes"}
+)
+_OVERRIDE_ALLOWED_KEYS = _OVERRIDE_REQUIRED_STR_KEYS | _OVERRIDE_OPTIONAL_LIST_KEYS
+
+
+def _validate_test_layout_override(entry: object, idx: int) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(entry, dict):
+        return [f"test_layout.overrides[{idx}] must be an object"]
+
+    for key in _OVERRIDE_REQUIRED_STR_KEYS:
+        if key not in entry:
+            errors.append(f"test_layout.overrides[{idx}] missing required field: {key}")
+        elif not isinstance(entry[key], str):
+            errors.append(f"test_layout.overrides[{idx}].{key} must be a string")
+
+    for key in _OVERRIDE_OPTIONAL_LIST_KEYS:
+        if key not in entry:
+            continue
+        value = entry[key]
+        if not isinstance(value, list):
+            errors.append(f"test_layout.overrides[{idx}].{key} must be a list")
+            continue
+        for si, item in enumerate(value):
+            if not isinstance(item, str):
+                errors.append(
+                    f"test_layout.overrides[{idx}].{key}[{si}] must be a string"
+                )
+
+    unknown = sorted(set(entry.keys()) - _OVERRIDE_ALLOWED_KEYS)
+    if unknown:
+        errors.append(
+            f"test_layout.overrides[{idx}] has unknown key(s): {unknown}"
+            f" (allowed: {sorted(_OVERRIDE_ALLOWED_KEYS)})"
+        )
+
+    return errors
+
 
 def _validate_test_layout(layout: object, *, enforce_budget: bool = True) -> list[str]:
     """Validate the optional top-level test_layout field.
@@ -59,6 +103,21 @@ def _validate_test_layout(layout: object, *, enforce_budget: bool = True) -> lis
         errors.append(
             f"test_layout.convention must be one of"
             f" {sorted(_VALID_TEST_LAYOUT_CONVENTIONS)} (got {convention!r})"
+        )
+
+    if "overrides" in layout:
+        overrides = layout["overrides"]
+        if not isinstance(overrides, list):
+            errors.append("test_layout.overrides must be a list")
+        else:
+            for idx, entry in enumerate(overrides):
+                errors.extend(_validate_test_layout_override(entry, idx))
+
+    unknown = sorted(set(layout.keys()) - _TEST_LAYOUT_ALLOWED_KEYS)
+    if unknown:
+        errors.append(
+            f"test_layout has unknown key(s): {unknown}"
+            f" (allowed: {sorted(_TEST_LAYOUT_ALLOWED_KEYS)})"
         )
 
     return errors
