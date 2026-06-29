@@ -459,5 +459,60 @@ class TestBuiltinLayoutsScaffold(unittest.TestCase):
         self.assertIsInstance(BUILTIN_LAYOUTS, dict)
 
 
+class TestPythonPytest(_DiscoveryTestCase):
+    """python_pytest: top-level tests/ tree AND co-located {dir}/tests/."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["python_pytest"]
+
+    def test_top_level_tests_dir_r1(self):
+        _touch(self.root, "tests/test_foo.py")
+        self.assertEqual(
+            discover_sister_tests("pkg/foo.py", self.layout, self.root),
+            ["tests/test_foo.py"],
+        )
+
+    def test_nested_top_level_tests_dir_r1(self):
+        # tests/**/test_<stem>*.py — nested OK
+        _touch(self.root, "tests/sub/test_foo.py")
+        self.assertEqual(
+            discover_sister_tests("pkg/foo.py", self.layout, self.root),
+            ["tests/sub/test_foo.py"],
+        )
+
+    def test_colocated_tests_dir_r2(self):
+        _touch(self.root, "pkg/tests/test_foo.py")
+        out = discover_sister_tests("pkg/foo.py", self.layout, self.root)
+        self.assertIn("pkg/tests/test_foo.py", out)
+
+    def test_suffix_wildcard_matches_extra_test_files(self):
+        # test_<stem>*.py matches test_foo_edge.py as well as test_foo.py.
+        _touch(self.root, "tests/test_foo_edge.py")
+        _touch(self.root, "tests/test_foo.py")
+        out = discover_sister_tests("pkg/foo.py", self.layout, self.root)
+        self.assertEqual(
+            out,
+            ["tests/test_foo.py", "tests/test_foo_edge.py"],
+        )
+
+    def test_skip_basenames_init_and_conftest(self):
+        # Source files named __init__.py / conftest.py must not produce results.
+        _touch(self.root, "tests/test___init__.py")
+        _touch(self.root, "tests/test_conftest.py")
+        self.assertEqual(
+            discover_sister_tests("pkg/__init__.py", self.layout, self.root), []
+        )
+        self.assertEqual(
+            discover_sister_tests("pkg/conftest.py", self.layout, self.root), []
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        # Negative: rule matches, no file -> [].
+        self.assertEqual(
+            discover_sister_tests("pkg/bar.py", self.layout, self.root), []
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

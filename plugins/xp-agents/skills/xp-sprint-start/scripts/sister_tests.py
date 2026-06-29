@@ -185,8 +185,28 @@ def _resolve_test_glob(
     return [posixpath.normpath(p) for p in _expand_braces(substituted)]
 
 
-# --- BUILTIN_LAYOUTS table (per-language entries added in subsequent commits) ---
-BUILTIN_LAYOUTS: dict[str, TestLayout] = {}
+# --- BUILTIN_LAYOUTS table -------------------------------------------------
+BUILTIN_LAYOUTS: dict[str, TestLayout] = {
+    "python_pytest": TestLayout(
+        convention="python_pytest",
+        rules=(
+            # R1: any test under tests/, name test_<stem>*.py
+            TestLayoutRule(
+                source_pattern="**/*.py",
+                stem_extractor="basename_no_ext",
+                test_glob="tests/**/test_{stem}*.py",
+                skip_basenames=("__init__.py", "conftest.py"),
+            ),
+            # R2: co-located tests/ subdir next to the source
+            TestLayoutRule(
+                source_pattern="**/*.py",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/tests/test_{stem}*.py",
+                skip_basenames=("__init__.py", "conftest.py"),
+            ),
+        ),
+    ),
+}
 
 
 def discover_sister_tests(
