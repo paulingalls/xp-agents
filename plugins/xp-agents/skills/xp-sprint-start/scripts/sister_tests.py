@@ -11,9 +11,17 @@ from __future__ import annotations
 import functools
 import posixpath
 import re
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+
+# smm/ holds the shared glob_translator primitive; mirror the path-insert
+# pattern save_sprint.py uses so sister_tests can be imported directly
+# from tests (conftest already adds smm/) and from save_sprint at runtime.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "smm"))
+
+import glob_translator  # pyright: ignore[reportMissingImports]
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,44 +101,22 @@ def _expand_braces(pattern: str) -> list[str]:
 
 @functools.lru_cache(maxsize=512)
 def _compile_source_pattern(pattern: str) -> re.Pattern:
-    """Translate a shell-style glob into a regex with cross-segment ``**``.
+    """Compile a shell-style glob to a regex, anchored for fullmatch.
 
-    fnmatch.translate would collapse ``**`` to ``.*`` and lose the segment
-    boundary that ``**/x`` needs (match ``x``, ``a/x``, ``a/b/x``). Token-walk
-    instead so ``**/`` becomes ``(?:.+/)?`` BEFORE any per-char escaping.
+    Delegates to the shared smm.glob_translator. The previous local
+    implementation emitted `(?:.+/)?` for `**/`; the unified primitive
+    emits `(?:.*/)?`. Both forms have an outer `?` making the whole
+    group optional, so both already allowed zero segments — `**/*.py`
+    matched root-level `foo.py` under the old form too. The two forms
+    only diverge for paths beginning with a literal `/`, which never
+    occurs for project-relative source paths. The unification is
+    therefore a pure DRY refactor with no behavior change at any
+    existing call site.
 
-    Required because ``PurePosixPath.match`` does NOT honor mid-pattern ``**``
-    until Python 3.13 (``full_match``); xp-agents' CI runs 3.11/3.12.
+    Required because PurePosixPath.match does NOT honor mid-pattern `**`
+    until Python 3.13 (`full_match`); xp-agents' CI runs 3.11/3.12.
     """
-    parts: list[str] = []
-    i = 0
-    n = len(pattern)
-    while i < n:
-        ch = pattern[i]
-        if pattern.startswith("**/", i):
-            parts.append("(?:.+/)?")
-            i += 3
-        elif pattern.startswith("**", i):
-            parts.append(".*")
-            i += 2
-        elif ch == "*":
-            parts.append("[^/]*")
-            i += 1
-        elif ch == "?":
-            parts.append("[^/]")
-            i += 1
-        elif ch == "[":
-            j = pattern.find("]", i)
-            if j == -1:
-                parts.append(re.escape(ch))
-                i += 1
-            else:
-                parts.append(pattern[i : j + 1])
-                i = j + 1
-        else:
-            parts.append(re.escape(ch))
-            i += 1
-    return re.compile("".join(parts))
+    return re.compile(glob_translator.glob_to_regex(pattern))
 
 
 def _match_any(src_str: str, pattern: str) -> bool:
