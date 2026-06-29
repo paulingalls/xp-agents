@@ -514,6 +514,40 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestElixirExunit(_DiscoveryTestCase):
+    """elixir_exunit: lib/foo/bar.ex -> test/foo/bar_test.exs (mirror)."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["elixir_exunit"]
+
+    def test_mirror_layout(self):
+        _touch(self.root, "test/foo/bar_test.exs")
+        self.assertEqual(
+            discover_sister_tests("lib/foo/bar.ex", self.layout, self.root),
+            ["test/foo/bar_test.exs"],
+        )
+
+    def test_source_directly_under_lib(self):
+        _touch(self.root, "test/bar_test.exs")
+        self.assertEqual(
+            discover_sister_tests("lib/bar.ex", self.layout, self.root),
+            ["test/bar_test.exs"],
+        )
+
+    def test_test_file_as_source_is_skipped(self):
+        _touch(self.root, "test/bar_test_test.exs")
+        self.assertEqual(
+            discover_sister_tests("lib/bar_test.exs", self.layout, self.root),
+            [],
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("lib/foo/bar.ex", self.layout, self.root), []
+        )
+
+
 class TestCsharpXunit(_DiscoveryTestCase):
     """csharp_xunit: Foo.cs -> FooTests.cs (sibling or sibling Tests dir).
 

@@ -206,6 +206,20 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "elixir_exunit": TestLayout(
+        convention="elixir_exunit",
+        rules=(
+            # Mix convention: lib/<x>.ex mirrors into test/<x>_test.exs.
+            # Source is .ex (module), test is .exs (script) — different
+            # extensions, same stem.
+            TestLayoutRule(
+                source_pattern="lib/**/*.ex",
+                stem_extractor="basename_no_ext",
+                test_glob="test/{mirror}/{stem}_test.exs",
+                skip_suffixes=("_test.exs", "_test.ex"),
+            ),
+        ),
+    ),
     "csharp_xunit": TestLayout(
         convention="csharp_xunit",
         rules=(
