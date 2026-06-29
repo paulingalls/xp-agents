@@ -13,7 +13,18 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+# Layer inversion: engine-layer sprint_cli imports the skill-layer save_sprint
+# helper so structural-mutation subcommands can drive the full pipeline
+# (sister discovery + milestone transition + accept-marker handling). Status-
+# only edits (_cmd_edit_story) route through save_sprint.save (the side-
+# effect-free entry point). If this becomes a broader pattern, move
+# save_sprint.run/save into sprint_store and leave skills as thin invokers.
+sys.path.insert(
+    0,
+    str(Path(__file__).parent.parent / "skills" / "xp-sprint-start" / "scripts"),
+)
 
+import save_sprint  # pyright: ignore[reportMissingImports]
 import sprint_render as render
 import sprint_store as store
 import triage
@@ -170,7 +181,9 @@ def _cmd_create(args: argparse.Namespace) -> int:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
     try:
-        store.save_sprint(args.smm_dir, data)
+        # Structural mutation — route through full pipeline (sister discovery
+        # + milestone transition + accept-marker handling).
+        save_sprint.run(data, args.smm_dir)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1
@@ -199,7 +212,10 @@ def _cmd_add_story(args: argparse.Namespace) -> int:
         return 1
     sprint["stories"].append(story)
     try:
-        store.save_sprint(args.smm_dir, sprint)
+        # Structural mutation (new story) — route through full pipeline.
+        # Dup-id guard above stays AHEAD of run() per locked decision
+        # (story-003 close): a dup never triggers run()'s side effects.
+        save_sprint.run(sprint, args.smm_dir)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1
@@ -240,8 +256,33 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
+    # Status/metadata edits route through save_sprint.save() — the side-
+    # effect-free entry point. /xp-accept and /xp-schedule drive edit-story
+    # for status flips and execution_mode writes; firing the full run()
+    # pipeline on every flip would re-walk discovery and re-fire milestone
+    # transition on every accept (impact-zone constraint per plan-review
+    # e7b72bd57c84). Load + mutate + save preserves all existing behavior.
+    if not isinstance(updates, dict):
+        print("Error: updates must be a JSON object", file=sys.stderr)
+        return 1
+    protected = store._IMMUTABLE_STORY_FIELDS & updates.keys()
+    if protected:
+        print(
+            f"Error: Cannot edit immutable fields: {sorted(protected)}",
+            file=sys.stderr,
+        )
+        return 1
+    sprint = store.load_sprint(args.smm_dir)
+    if sprint is None:
+        print("No sprint found.", file=sys.stderr)
+        return 1
+    story = next((s for s in sprint["stories"] if s.get("id") == args.story_id), None)
+    if story is None:
+        print(f"Story not found: {args.story_id}", file=sys.stderr)
+        return 1
+    story.update(updates)
     try:
-        store.edit_story(args.smm_dir, args.story_id, updates)
+        save_sprint.save(sprint, args.smm_dir)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
