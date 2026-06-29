@@ -2,6 +2,42 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.1.1 — Triage-sweep fixes (M1-M10)
+
+Free-session sweep delivering 10 ordered milestones from the kickoff triage backlog (4 retro Tries + 14 debts + 7 concerns adopted, 2 debts deferred, 1 concern dropped). Each milestone shipped TDD-ordered with `/xp-quality-review` + `Resolves-Event:` trailer; all 5774 plugin tests pass post-sweep.
+
+### Behavior fixes
+
+- **M1: verify_acceptance forwards `SMM_DIR` into AC subprocesses.** `_run_commands` and `_run_sprint` now inject `env={**os.environ, "SMM_DIR": str(smm_dir)}` via a new `_ac_env(smm_dir)` helper, so ACs that reference `$SMM_DIR` work on rerun without relying on the caller having exported it (sister-concern of `feedback_acceptance_command_path_drift`). Tests strip `SMM_DIR` from `os.environ` to model the production gap that `_SMMTestCase`'s pin would otherwise mask.
+- **M2: close-cycle Stop-gate names all three close phases in canonical order.** `_BLOCK_MESSAGE` previously omitted Step 4b's `/code-review high`. Now lists `/security-review` (Step 4) → `/code-review high` (Step 4b, gated on `RUN_FULL_CODE_REVIEW=true`) → `xp-close-reviewer` (Step 4.5). Test pins canonical order via `assertLess` substring-position so a reversed-order regression can't slip through `assertIn`.
+
+### Agent / skill prose
+
+- **M3: xp-plan-reviewer surfaces concerns/assumptions/blocking-questions in its final message.** New `## Final Message` section requires every reply to end with four enumerated blocks (Concerns, Assumptions, Blocking questions, Next step) plus an empty-case clause for each. The main agent no longer has to dig into `events.jsonl` to find what the reviewer recorded. Doctrine-prose test mirrors `test_sequential_pins.py`, scoped to the section so partial-bullet gutting can't slip through file-wide grep.
+
+### New primitives
+
+- **M8: `markers.warn_once(smm_dir, marker, message, agent_id, *, severity="low")`.** Replaces the hand-rolled marker_exists → concern-append → marker_write dance for session-gated warnings. Returns True if fired, False if already-warned. Lazy-imports `_common`/`concerns` so hook scripts that only need `marker_*` don't pay the import cost. Caller (`save_sprint._warn_sister_skip_once`) collapses to a two-line wrapper that resolves agent_id from cwd. Future warn-once needs (Q1(c), N-th language detection mismatch) should call this rather than copy the pattern.
+- **M9: `smm.glob_translator.glob_to_regex(pattern: str) -> str`.** Consolidates two near-duplicate translators (`triage._glob_to_regex`, `sister_tests._compile_source_pattern`). Both prior forms had an outer `?` making them effectively equivalent for project-relative paths — the audit determined the differences (`(?:.+/)?` vs `(?:.*/)?`) were cosmetic, not behavioral. The unified primitive uses triage's spelling as canonical. 12 new behavior tests pin zero-or-more `**/`, trailing `/**`, single-segment `*`, `?`, bracket classes, and malformed-bracket fallback.
+
+### Refactors
+
+- **M4: `_JS_UNIT_SKIP_SUFFIXES` tuple extracted in `sister_tests.py`.** All three js_unit rules now reference the constant; adding a new flavor like `.test.mts` lands in one place.
+- **M5: `_load_sister_tests()` helper in `test_system_context_schema.py`.** Collapses two duplicate `sys.path.insert`/try-import/finally-remove blocks.
+- **M6: `_cmd_edit_test_layout` collapsed to 3-line delegation; null-unset hint generalized.** The pre-validation in the test_layout edit cmd was redundant — `save_system_context`'s validator already wires `_validate_test_layout`. Collapsed to the `_cmd_edit_acceptance_surfaces` shape; the "pass `null` to unset" hint moved into `_cmd_edit_field`'s save-error path, gated on `_OPTIONAL_TOP_LEVEL_FIELDS` membership so future optional fields inherit the UX. File: 523 → 493 LOC (partial credit toward concern `15fc02bb40f4`).
+- **M10: `save_sprint._resolve_project_root` delegates to `worktree.resolve_git_root`.** Eliminates the duplicate ancestor-walk. Now honors `GIT_DIR` env override and submodule `.git` files via `git rev-parse --show-toplevel`. Verified no production code sets `GIT_DIR` — behavior delta is strictly positive.
+
+### Test-fixture churn
+
+- **M7 → M10:** M7 swapped `_make_git_project`'s `git init` fork for a `.git/` mkdir-stub (~500ms parallel-CI saving). M10's `git rev-parse` swap stopped accepting the stub (no HEAD/refs/objects), so the fork was reverted as the correctness floor. M7's commit message and docstring both flagged this exact dependency.
+
+### Triage-sweep stats
+
+- 4 retro Tries adopted (trailer gate, layer inversion, SMM_DIR fix, file splits — last three of which are partially or fully delivered here).
+- 14 debts triaged (12 adopted, 2 deferred: tier-picker design, risk-classifier rubric broadening — both larger plan-shaped work).
+- 7 concerns triaged (6 adopted, 1 dropped: commit-cadence discipline issue).
+- 16 commits on branch `paulingalls/free-2026-06-29-triage-concerns-debts`. 5774 tests pass.
+
 ## v4.1.0 — Sister-test discovery + V4 pipeline validation
 
 Project-generic sister-test auto-inclusion driven by a new `system_context.test_layout` field, plus the deferred sprint-105 validation capstone closing out the v4.0.0 paradigm shift. Shipped via the per-story teammate pipeline itself (3 parallel teammates + 1 solo wiring + 1 capstone) — the decomposition was the live test bed.
