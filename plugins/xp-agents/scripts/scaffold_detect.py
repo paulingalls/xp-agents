@@ -411,16 +411,19 @@ def _read_package_workspaces(repo_root: Path) -> list[str]:
 
 
 def _walk_nx_projects(repo_root: Path) -> list[str]:
-    """Collect parent dirs of project.json under nx convention dirs only."""
-    found: list[str] = []
+    """Collect parent dirs of project.json under nx convention dirs only.
+
+    Bounded to depth 1-2 (project root is 1-2 levels under packages/apps/libs
+    by Nx convention), mirroring the multi-pyproject sibling glob pair above.
+    A bounded glob avoids the rglob descent into node_modules/dist/.git.
+    """
+    found: set[str] = set()
     for top in ("packages", "apps", "libs"):
-        top_dir = repo_root / top
-        if not top_dir.is_dir():
-            continue
-        for proj in top_dir.rglob("project.json"):
-            if proj.parent.is_dir():
-                found.append(proj.parent.relative_to(repo_root).as_posix())
-    return sorted(set(found))
+        for depth in ("*/project.json", "*/*/project.json"):
+            for proj in (repo_root / top).glob(depth):
+                if proj.parent.is_dir():
+                    found.add(proj.parent.relative_to(repo_root).as_posix())
+    return sorted(found)
 
 
 def _expand_globs(repo_root: Path, patterns: list[str]) -> list[str]:
