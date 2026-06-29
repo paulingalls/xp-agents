@@ -122,7 +122,7 @@ class TestRenderTestLayoutSection(_SMMTestCase):
                 overrides=(
                     {
                         "source_pattern": "src/**/*.py",
-                        "stem_extractor": "stem",
+                        "stem_extractor": "basename_no_ext",
                         "test_glob": "tests/**/test_{stem}.py",
                     },
                 ),

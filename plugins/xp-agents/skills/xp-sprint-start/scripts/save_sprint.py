@@ -33,9 +33,11 @@ import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
 import identity  # noqa: E402
 import marker_names  # noqa: E402
+import markers  # noqa: E402
 import sister_tests  # noqa: E402  # pyright: ignore[reportMissingImports]
 import sprint_store  # noqa: E402
 import system_context_store  # noqa: E402
+import triage  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     STATUS_ACTION_ITERATION_COMPLETE,
@@ -149,8 +151,13 @@ def _coerce_overrides(raw: object) -> tuple["sister_tests.TestLayoutRule", ...]:
 
 def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
     """Load system_context.test_layout and construct a TestLayout. Returns
-    None when test_layout is absent, convention is 'unknown', or
-    system_context is missing/unreadable. Never writes events."""
+    None when test_layout is absent, convention is 'unknown', system_context
+    is missing/unreadable, OR the layout resolves to no rules and no
+    overrides (a degenerate "custom" with empty overrides). Never writes
+    events.
+
+    Returning None for the degenerate-custom case ensures the soft-warn
+    path fires once instead of silently no-op'ing every save."""
     try:
         sc = system_context_store.load_system_context(smm_dir)
     except (OSError, ValueError):
@@ -171,30 +178,39 @@ def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
             return None  # schema validator should catch this earlier
         rules = builtin.rules
     overrides = _coerce_overrides(layout_data.get("overrides", []))
+    if not rules and not overrides:
+        # Degenerate layout (convention='custom' with empty/malformed
+        # overrides) — discovery would iterate zero rules and return zero
+        # sisters on every save. Treat as "no layout configured" so the
+        # soft-warn path surfaces it.
+        return None
     return sister_tests.TestLayout(
         convention=convention, rules=rules, overrides=overrides
     )
 
 
-def _warn_unknown_layout_once(smm_dir: Path) -> None:
-    """Q1(b): one low-severity concern per session when test_layout is
-    unknown/unset. Cross-process state lives in a marker file in SMM_DIR;
-    the SessionStart hook clears the marker so each session warns at
-    most once. Module-level state would not survive sprint_cli's
-    subprocess invocation model — that was plan-review concern
-    3565573f3187 and the marker-file approach is its fix."""
-    marker = smm_dir / marker_names.SISTER_TEST_LAYOUT_WARN
-    if marker.exists():
+def _warn_sister_skip_once(smm_dir: Path, reason: str) -> None:
+    """One low-severity concern per session when sister-test discovery is
+    skipped. Cross-process state lives in the SISTER_TEST_LAYOUT_WARN
+    marker (SessionStart sweep clears it). The reason string distinguishes
+    the actual skip cause — layout unresolved vs project root not found vs
+    degenerate-custom — so the concern stays honest instead of always
+    blaming convention='unknown'.
+
+    Uses the canonical markers API (marker_exists/marker_write) so symlink
+    protection applied to other marker files extends here too — raw
+    Path.touch() bypasses that guard. Marker is registered in scripts/
+    markers.py as SISTER_TEST_LAYOUT_WARN."""
+    if markers.marker_exists(smm_dir, markers.SISTER_TEST_LAYOUT_WARN):
         return
     _record_concern(
         smm_dir,
-        "Sister-test auto-inclusion skipped: system_context.test_layout is "
-        "unset or convention='unknown'. Run /xp-system-context to detect a "
-        "layout, or pipe a layout dict into "
-        "system_context_cli.py edit-test-layout.",
+        f"Sister-test auto-inclusion skipped: {reason}. Run /xp-system-context"
+        " to detect a layout, or pipe a layout dict into"
+        " system_context_cli.py edit-test-layout.",
     )
-    with contextlib.suppress(OSError):
-        marker.touch()
+    with contextlib.suppress(OSError, ValueError):
+        markers.marker_write(smm_dir, markers.SISTER_TEST_LAYOUT_WARN, "")
 
 
 def _resolve_project_root() -> Path | None:
@@ -209,10 +225,15 @@ def _resolve_project_root() -> Path | None:
     return None
 
 
-def _extract_path(entry: str) -> str:
-    """file_domain entries are 'path/to/file — note' or just 'path/to/file'.
-    Return the path portion."""
-    return entry.split(" — ", 1)[0].strip()
+def _entry_paths(entry: str) -> list[str]:
+    """Return all path components of a file_domain entry.
+
+    Delegates to triage._entry_to_paths so dedup/discovery understands
+    every separator the rest of the codebase already handles: em-dash
+    ' — ', ASCII ' -- ', and comma-joined paths. Maintaining two
+    translators silently desyncs (saw it: ASCII-dash entries used to
+    leak through dedup and get re-appended as duplicates each save)."""
+    return triage._entry_to_paths(entry)
 
 
 def _auto_include_sister_tests(
@@ -223,32 +244,38 @@ def _auto_include_sister_tests(
     """For each story in data['stories'], discover sister tests for the
     source paths in its file_domain and append new entries formatted as
     '<rel> — sister test for <src>'. Dedups against existing file_domain
-    entries (by source-path-extracted key). Skips entries already marked
-    as sisters (prevents sister-of-sister expansion). Mutates data in
-    place. No SMM writes."""
+    entries (every path the entry declares — em-dash, ASCII-dash, and
+    comma-joined forms all parse identically via triage._entry_to_paths).
+    Skips entries already marked as sisters (prevents sister-of-sister
+    expansion). Mutates data in place. No SMM writes."""
     for story in data.get("stories", []):
         domain = story.get("file_domain")
         if not isinstance(domain, list):
             continue
-        existing_paths = {_extract_path(e) for e in domain if isinstance(e, str)}
+        existing_paths: set[str] = set()
+        for e in domain:
+            if isinstance(e, str):
+                existing_paths.update(_entry_paths(e))
         additions: list[str] = []
         for entry in list(domain):  # snapshot — don't iterate over a mutating list
             if not isinstance(entry, str):
                 continue
             if " — sister test for " in entry:
                 continue  # prevents sister-of-sister expansion
-            src = _extract_path(entry)
-            if not src:
-                continue
-            try:
-                sisters = sister_tests.discover_sister_tests(src, layout, project_root)
-            except ValueError:
-                continue  # bad source path; skip silently (validator owns shape)
-            for sister in sisters:
-                if sister in existing_paths:
+            for src in _entry_paths(entry):
+                if not src:
                     continue
-                additions.append(f"{sister} — sister test for {src}")
-                existing_paths.add(sister)
+                try:
+                    sisters = sister_tests.discover_sister_tests(
+                        src, layout, project_root
+                    )
+                except ValueError:
+                    continue  # bad source path; skip silently (validator owns shape)
+                for sister in sisters:
+                    if sister in existing_paths:
+                        continue
+                    additions.append(f"{sister} — sister test for {src}")
+                    existing_paths.add(sister)
         domain.extend(additions)
 
 
@@ -274,14 +301,28 @@ def run(data: dict, smm_dir: Path) -> None:
     accept_marker = smm_dir / marker_names.ACCEPT
     accept_marker_existed = accept_marker.exists()
 
-    # Sister-test auto-inclusion + Q1(b) soft-warn (story-004)
+    # Sister-test auto-inclusion + Q1(b) soft-warn (story-004). Both
+    # the "layout unresolved" and "project root not found" paths surface
+    # through the same once-per-session marker with an honest reason —
+    # silently skipping the project-root case (the prior shape: else
+    # attached to `if layout`) left customers with no signal when
+    # save_sprint ran from a tmpfs / non-git cwd.
     layout = _resolve_layout(smm_dir)
-    if layout is not None:
-        project_root = _resolve_project_root()
-        if project_root is not None:
-            _auto_include_sister_tests(data, layout, project_root)
+    if layout is None:
+        _warn_sister_skip_once(
+            smm_dir,
+            "system_context.test_layout is unset, convention='unknown', or"
+            " resolves to no rules",
+        )
     else:
-        _warn_unknown_layout_once(smm_dir)
+        project_root = _resolve_project_root()
+        if project_root is None:
+            _warn_sister_skip_once(
+                smm_dir,
+                "no project root found from cwd (no .git/ ancestor)",
+            )
+        else:
+            _auto_include_sister_tests(data, layout, project_root)
 
     save(data, smm_dir)
 

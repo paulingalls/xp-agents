@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_milestone_dict
+from conftest import _HookTestCase, make_milestone_dict, triage
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, event_action
 
@@ -616,6 +616,95 @@ class TestRunIntegratesSisterTestsAndSoftWarn(_HookTestCase):
             len(sister_concerns),
             1,
             f"expected exactly one sister-test concern; got {len(sister_concerns)}",
+        )
+
+    def test_run_warns_once_when_project_root_missing(self):
+        """If layout resolves but cwd has no .git/ ancestor, the warn
+        path must fire — the prior shape attached the else to
+        `if layout`, silently skipping discovery AND the warn when both
+        legs were short-circuited. (concern code-review #3)"""
+        from event_helpers import events_of_type
+
+        # Move out of the git project so _resolve_project_root() returns None
+        non_git = Path(tempfile.mkdtemp(prefix="story-004-no-git-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(non_git)]))
+        os.chdir(non_git)
+        self._write_sc({"convention": "python_pytest", "overrides": []})
+        data = self._sample_sprint()
+        self.mod.run(data, self.smm_dir)
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        sister_concerns = [
+            e
+            for e in events_of_type(events, EVENT_TYPE_CONCERN)
+            if "Sister-test auto-inclusion" in e.get("content", "")
+        ]
+        self.assertEqual(
+            len(sister_concerns),
+            1,
+            f"expected one project-root-missing concern; got {sister_concerns}",
+        )
+        self.assertIn(
+            "no project root",
+            sister_concerns[0]["content"],
+            f"reason should name project-root cause; got {sister_concerns[0]}",
+        )
+
+    def test_run_warns_once_when_custom_layout_has_no_overrides(self):
+        """convention='custom' with empty overrides resolves to no rules
+        and no overrides — a degenerate layout that would silently
+        no-op on every save. Must surface through the warn path.
+        (concern code-review #4)"""
+        from event_helpers import events_of_type
+
+        self._write_sc({"convention": "custom", "overrides": []})
+        data = self._sample_sprint()
+        self.mod.run(data, self.smm_dir)
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        sister_concerns = [
+            e
+            for e in events_of_type(events, EVENT_TYPE_CONCERN)
+            if "Sister-test auto-inclusion" in e.get("content", "")
+        ]
+        self.assertEqual(
+            len(sister_concerns),
+            1,
+            f"degenerate-custom must warn once; got {sister_concerns}",
+        )
+
+    def test_run_dedups_ascii_dash_sister_entries(self):
+        """file_domain entries using ASCII ' -- ' for description must
+        dedup correctly against sister discovery — the prior
+        _extract_path split only on em-dash and leaked ASCII-dash
+        entries past dedup, causing duplicates to accumulate on every
+        save. (concern code-review #2)"""
+        (self._tmp / "src/bar.py").write_text("x = 1")
+        (self._tmp / "tests/test_bar.py").write_text("def test_x(): pass")
+        self._write_sc({"convention": "python_pytest", "overrides": []})
+        data = self._sample_sprint(
+            file_domain=[
+                "src/bar.py -- impl (ASCII dash)",
+                "tests/test_bar.py -- manual (ASCII dash)",
+            ]
+        )
+        self.mod.run(data, self.smm_dir)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        domains = loaded["stories"][0]["file_domain"]
+        # tests/test_bar.py must appear exactly once — not duplicated as
+        # a sister entry just because the original used ASCII dash.
+        bar_paths = [triage._entry_to_paths(e) for e in domains]
+        flattened = [p for paths in bar_paths for p in paths]
+        self.assertEqual(
+            flattened.count("tests/test_bar.py"),
+            1,
+            f"ASCII-dash entry leaked dedup; got domains={domains}",
         )
 
     def test_save_skips_discovery_and_soft_warn(self):

@@ -26,7 +26,11 @@ sys.path.insert(
     str(Path(__file__).parent.parent / "skills" / "xp-sprint-start" / "scripts"),
 )
 
-import save_sprint  # pyright: ignore[reportMissingImports]
+# save_sprint is imported lazily inside _cmd_create / _cmd_add_story (the
+# only callers that need it) so the dozen+ read-only subcommands on this
+# hot path (get-story, list-stories, count, render, exists, etc.) don't
+# pay the cost of loading sister_tests + system_context_store +
+# BUILTIN_LAYOUTS construction on every invocation.
 import sprint_render as render
 import sprint_store as store
 import triage
@@ -182,6 +186,8 @@ def _cmd_create(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
+    import save_sprint  # pyright: ignore[reportMissingImports]
+
     try:
         # Structural mutation — route through full pipeline (sister discovery
         # + milestone transition + accept-marker handling).
@@ -213,6 +219,8 @@ def _cmd_add_story(args: argparse.Namespace) -> int:
         )
         return 1
     sprint["stories"].append(story)
+    import save_sprint  # pyright: ignore[reportMissingImports]
+
     try:
         # Structural mutation (new story) — route through full pipeline.
         # Dup-id guard above stays AHEAD of run() per locked decision

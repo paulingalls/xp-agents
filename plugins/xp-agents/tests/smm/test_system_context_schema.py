@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _system_context_fixtures import valid_doc, valid_test_layout
 from system_context_entry_validators import (
+    _VALID_STEM_EXTRACTORS,
     _VALID_TEST_LAYOUT_CONVENTIONS,
     _validate_test_layout,
 )
@@ -40,7 +41,10 @@ class TestTestLayoutValidator(unittest.TestCase):
 def _override(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
         "source_pattern": "src/**/*.py",
-        "stem_extractor": "stem",
+        # Must be a registered stem extractor — the engine schema validates
+        # this against _VALID_STEM_EXTRACTORS so a typo no longer drifts
+        # through to a swallowed ValueError at discovery time.
+        "stem_extractor": "basename_no_ext",
         "test_glob": "tests/**/test_{stem}.py",
     }
     base.update(overrides)
@@ -154,6 +158,42 @@ class TestTestLayoutConventionEnumLock(unittest.TestCase):
         )
 
 
+class TestStemExtractorRegistryLock(unittest.TestCase):
+    """Pin the schema's _VALID_STEM_EXTRACTORS to the runtime
+    STEM_EXTRACTORS dict in sister_tests. Drifting these out of sync
+    re-opens the silent-failure path (schema accepts a typo'd extractor,
+    discovery raises ValueError, save_sprint swallows it, no sisters)."""
+
+    def test_schema_extractors_match_runtime_registry(self) -> None:
+        skill_scripts = (
+            Path(__file__).parent.parent.parent
+            / "skills"
+            / "xp-sprint-start"
+            / "scripts"
+        )
+        sys.path.insert(0, str(skill_scripts))
+        try:
+            import sister_tests  # type: ignore[import-not-found]
+        finally:
+            sys.path.remove(str(skill_scripts))
+        self.assertEqual(
+            _VALID_STEM_EXTRACTORS,
+            frozenset(sister_tests.STEM_EXTRACTORS),
+            "Schema's _VALID_STEM_EXTRACTORS drifted from sister_tests."
+            "STEM_EXTRACTORS; updating the registry requires updating the"
+            " schema enum too (or invalid extractors silently fail at"
+            " discovery time).",
+        )
+
+    def test_unknown_stem_extractor_is_rejected(self) -> None:
+        bad = _override(stem_extractor="not_a_real_extractor")
+        errors = _validate_test_layout({"convention": "custom", "overrides": [bad]})
+        self.assertTrue(
+            any("not_a_real_extractor" in e for e in errors),
+            f"expected stem_extractor enum-rejection error; got {errors}",
+        )
+
+
 class TestTestLayoutSchemaIntegration(unittest.TestCase):
     """Validate test_layout is wired into the top-level validator."""
 
@@ -168,7 +208,7 @@ class TestTestLayoutSchemaIntegration(unittest.TestCase):
                 overrides=(
                     {
                         "source_pattern": "src/**/*.py",
-                        "stem_extractor": "stem",
+                        "stem_extractor": "basename_no_ext",
                         "test_glob": "tests/**/test_{stem}.py",
                     },
                 ),
