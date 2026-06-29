@@ -514,6 +514,35 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestPhpPhpunit(_DiscoveryTestCase):
+    """php_phpunit: src/Foo.php -> tests/FooTest.php (flat or mirror)."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["php_phpunit"]
+
+    def test_flat_tests_dir_r1(self):
+        _touch(self.root, "tests/FooTest.php")
+        out = discover_sister_tests("src/Foo.php", self.layout, self.root)
+        self.assertIn("tests/FooTest.php", out)
+
+    def test_mirror_layout_r2(self):
+        _touch(self.root, "tests/Bar/BazTest.php")
+        out = discover_sister_tests("src/Bar/Baz.php", self.layout, self.root)
+        self.assertIn("tests/Bar/BazTest.php", out)
+
+    def test_test_file_as_source_is_skipped(self):
+        _touch(self.root, "tests/FooTestTest.php")
+        self.assertEqual(
+            discover_sister_tests("src/FooTest.php", self.layout, self.root), []
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("src/Bar.php", self.layout, self.root), []
+        )
+
+
 class TestSwiftXCTest(_DiscoveryTestCase):
     """swift_xctest: Sources/<mod>/Foo.swift -> Tests/<any>/FooTests.swift."""
 

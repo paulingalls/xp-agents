@@ -206,6 +206,26 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "php_phpunit": TestLayout(
+        convention="php_phpunit",
+        rules=(
+            # R1: flat tests/<Stem>Test.php
+            TestLayoutRule(
+                source_pattern="src/**/*.php",
+                stem_extractor="basename_no_ext",
+                test_glob="tests/{stem}Test.php",
+                skip_suffixes=("Test.php",),
+            ),
+            # R2: mirror layout — strip 'src/' from src.parent so
+            # src/Bar/Baz.php projects into tests/Bar/BazTest.php.
+            TestLayoutRule(
+                source_pattern="src/**/*.php",
+                stem_extractor="basename_no_ext",
+                test_glob="tests/{mirror}/{stem}Test.php",
+                skip_suffixes=("Test.php",),
+            ),
+        ),
+    ),
     "swift_xctest": TestLayout(
         convention="swift_xctest",
         rules=(
