@@ -99,6 +99,49 @@ class TestEditTestLayoutNullUnsets(_SMMTestCase):
         self.assertNotIn("test_layout", _read_doc(self.smm_dir))
 
 
+class TestRenderTestLayoutSection(_SMMTestCase):
+    """Render-section subprocess assertions for the Test Layout block.
+
+    The plan keeps this assertion INSIDE the CLI test file (and inside
+    the acceptance command) instead of leaking into a renderer-test
+    path outside file_domain.
+    """
+
+    def test_render_includes_test_layout_section(self) -> None:
+        doc = valid_doc(test_layout=valid_test_layout(convention="python_pytest"))
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Test Layout", result.stdout)
+        self.assertIn("python_pytest", result.stdout)
+
+    def test_render_shows_override_count_when_present(self) -> None:
+        doc = valid_doc(
+            test_layout=valid_test_layout(
+                convention="custom",
+                overrides=(
+                    {
+                        "source_pattern": "src/**/*.py",
+                        "stem_extractor": "stem",
+                        "test_glob": "tests/**/test_{stem}.py",
+                    },
+                ),
+            )
+        )
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Test Layout", result.stdout)
+        self.assertIn("custom", result.stdout)
+        self.assertIn("1", result.stdout)  # one override rule
+
+    def test_render_omits_when_test_layout_absent(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("## Test Layout", result.stdout)
+
+
 class TestCreatePreservesTestLayout(_SMMTestCase):
     def test_create_without_test_layout_preserves_existing(self) -> None:
         existing = valid_doc(test_layout=valid_test_layout(convention="go_native"))

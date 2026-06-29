@@ -39,6 +39,7 @@ _SECTION_HEADINGS: dict[str, str] = {
     "principles": "Principles",
     "branching_strategy": "Branching Strategy",
     "acceptance_surfaces": "Acceptance Surfaces",
+    "test_layout": "Test Layout",
 }
 
 _STAGE_NAMES = {
@@ -61,6 +62,7 @@ ALL_SECTIONS: tuple[str, ...] = (
     "project_specific",
     "branching_strategy",
     "acceptance_surfaces",
+    "test_layout",
 )
 
 # Sections whose items carry an identifier field (`topic` / `name`)
@@ -136,6 +138,9 @@ def render_subset(
             case "acceptance_surfaces":
                 if "acceptance_surfaces" in data:
                     _render_acceptance_surfaces(lines, data["acceptance_surfaces"])
+            case "test_layout":
+                if "test_layout" in data:
+                    _render_test_layout(lines, data["test_layout"])
 
     return "\n".join(lines)
 
@@ -241,6 +246,21 @@ def _render_acceptance_surfaces(lines: list[str], surfaces: list[dict]) -> None:
         signals = ", ".join(s.get("signals", []))
         signals_str = f" — {signals}" if signals else ""
         lines.append(f"- **{s['name']}** ({s['status']}){harness}{signals_str}")
+    lines.append("")
+
+
+def _render_test_layout(lines: list[str], layout: dict | None) -> None:
+    lines.append("## Test Layout")
+    lines.append("")
+    if not layout:
+        lines.append("(none)")
+        lines.append("")
+        return
+    convention = layout.get("convention", "?")
+    overrides = layout.get("overrides", [])
+    lines.append(f"- **Convention:** {convention}")
+    if overrides:
+        lines.append(f"- **Overrides:** {len(overrides)} custom rule(s)")
     lines.append("")
 
 
