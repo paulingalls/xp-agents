@@ -159,20 +159,31 @@ def warn_once(
 
     Errors are suppressed: recording a warn must never cascade into the
     caller's main operation failing. Returns True if the concern fired,
-    False if the marker already existed (already-warned this session).
+    False if the marker already existed (already-warned this session) OR
+    the event failed schema validation (so the next call retries instead
+    of being latched off by an orphan marker — `_common.append_safe`
+    silently drops validate failures, so the only way the caller can
+    detect the drop is to pre-validate here).
     """
     # Lazy import avoids loading concerns/_common at hook-module import time
     # for the many hook scripts that only need marker_exists/write/consume.
+    import _append_impl
     import _common
     import concerns
 
     if marker_exists(smm_dir, marker):
         return False
+    try:
+        event = concerns.make_concern(message, severity, agent_id)
+    except (TypeError, ValueError):
+        return False
+    # `_common.append_safe` swallows validate errors (the event is silently
+    # dropped, no exception). Pre-validate so a malformed event doesn't
+    # silently no-op AND latch the marker off for the rest of the session.
+    if _append_impl.validate_event(event):
+        return False
     with contextlib.suppress(OSError, ValueError):
-        _common.append_safe(
-            smm_dir,
-            concerns.make_concern(message, severity, agent_id),
-        )
+        _common.append_safe(smm_dir, event)
     with contextlib.suppress(OSError, ValueError):
         marker_write(smm_dir, marker, "")
     return True

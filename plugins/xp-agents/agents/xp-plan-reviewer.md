@@ -172,7 +172,7 @@ You return to the main agent via your last reply — the main agent does NOT rea
 3. **Blocking questions** — bullet list of every 🔴 `question` event you appended, with the exact question text. Write `Blocking questions: none.` if you appended none.
 4. **Next step** — exactly one of: `BLOCKING — main agent must run AskUserQuestion on the question(s) above, then re-review.` (blocking questions exist), `Run /xp-assign to spawn the teammate(s).` (teammate mode, plan clean), `Begin implementation.` (solo mode, plan clean), or `Rework: <one-line reason>.` (plan needs revision).
 
-The four block headings (`Concerns`, `Assumptions`, `Blocking questions`, `Next step`) are load-bearing — the doctrine test in `tests/agents/test_plan_reviewer_prose.py` pins them.
+The four block headings (`Concerns`, `Assumptions`, `Blocking questions`, `Next step`) are load-bearing — a doctrine test pins them.
 
 ## SMM Content Trust
 

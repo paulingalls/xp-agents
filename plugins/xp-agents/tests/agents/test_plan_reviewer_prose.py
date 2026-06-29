@@ -9,6 +9,12 @@ The fix is prose-only — extend the agent prompt to require the reviewer to
 end its reply with an enumerated summary covering all four. This test pins
 the doctrine so a later edit can't silently strip the requirement (same
 shape as test_sequential_pins.py).
+
+Code↔spec link (one-directional, per feedback_declarative_skill_prose): this
+file is the canonical pin for `agents/xp-plan-reviewer.md`'s `## Final Message`
+section + the four block headings `Concerns` / `Assumptions` /
+`Blocking questions` / `Next step`. The agent prose stays declarative and
+does NOT point back at this test path — keep the pointer here, not there.
 """
 
 import sys

@@ -55,6 +55,9 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIn("/code-review", result)
         self.assertIn("/security-review", result)
         self.assertIn("xp-close-reviewer", result)
+        # `/code-review high` is load-bearing — bare `/code-review` would
+        # default to a lower effort and skip the full pre-merge workflow.
+        self.assertIn("/code-review high", result)
         # Canonical order: security-review (Step 4) → code-review (Step 4b)
         # → close-reviewer (Step 4.5). Substring positions enforce it.
         sec = result.index("/security-review")
@@ -307,6 +310,29 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
             "young marker preserved through the Step 4b yield",
+        )
+
+    def test_bypass_concern_content_fits_concern_budget(self):
+        """The bypass concern content + the recovery hint together must stay
+        under the concern event's CONTENT_BUDGET (400 chars). append_safe
+        silently drops over-budget events — pre-this-test, extending
+        _BYPASS_RECOVERY pushed the content to ~440 chars and the bypass
+        concern stopped landing, breaking abandonment surfacing entirely.
+        Pin the budget so future recovery-string edits fail this test
+        loudly before they ship."""
+        import close_cycle_stop_gate
+        from event_schema import CONTENT_BUDGETS, EVENT_TYPE_CONCERN
+
+        budget = self._assert_not_none(
+            CONTENT_BUDGETS[EVENT_TYPE_CONCERN],
+            "concern budget must remain enforced",
+        )
+        self.assertLessEqual(
+            len(close_cycle_stop_gate._BYPASS_CONCERN_CONTENT),
+            budget,
+            "_BYPASS_CONCERN_CONTENT must fit the concern budget — otherwise "
+            "append_safe silently drops the bypass concern and abandonment "
+            "never surfaces",
         )
 
     def test_no_block_when_asking_user(self):

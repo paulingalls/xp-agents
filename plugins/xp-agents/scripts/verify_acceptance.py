@@ -86,8 +86,15 @@ def _cmd_timeout() -> int:
 
 
 def _ac_env(smm_dir: Path) -> dict[str, str]:
-    """Child env for AC subprocesses — inject SMM_DIR so $SMM_DIR-using ACs work."""
-    return {**os.environ, "SMM_DIR": str(smm_dir)}
+    """Child env for AC subprocesses — inject SMM_DIR so $SMM_DIR-using ACs work.
+
+    The injected value is the resolved ABSOLUTE path. AC commands often shell
+    a `cd <dir> &&` prefix before referencing `$SMM_DIR`; a relative SMM_DIR
+    (--smm-dir ./smm at the CLI, or any caller passing a relative Path) would
+    then resolve against the child's cwd, not the parent's, and the AC's
+    `grep $SMM_DIR/events.jsonl` would silently miss.
+    """
+    return {**os.environ, "SMM_DIR": str(smm_dir.resolve())}
 
 
 def _run_commands(commands: list[str], smm_dir: Path) -> int:

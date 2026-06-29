@@ -71,9 +71,9 @@ _BLOCK_MESSAGE = (
 )
 
 _BYPASS_RECOVERY = (
-    "Recovery: in next session, manually run /security-review then invoke "
-    "xp-close-reviewer (Agent tool) to complete the close cycle, then "
-    "re-attempt /xp-{sprint,plan,free}-close."
+    "Recovery: next session, run /security-review then /code-review high "
+    "(if RUN_FULL_CODE_REVIEW=true) then invoke xp-close-reviewer (Agent "
+    "tool); then re-attempt /xp-{sprint,plan,free}-close."
 )
 _BYPASS_CONCERN_CONTENT = (
     "Close-cycle gate bypassed: agent terminated via stop_hook_active "
