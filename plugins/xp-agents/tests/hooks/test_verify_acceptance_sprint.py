@@ -16,6 +16,7 @@ The green/red signal is script-emitted (not reviewer prose) so the close gate
 reads a deterministic event and never recomputes.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -89,6 +90,40 @@ class TestFailingItemsCapped(_SprintCLITestCase):
         self.assertEqual(len(meta["failing"]), cap, "stored failing[] must be capped")
         # The human-readable count reflects the TRUE total, not the cap.
         self.assertIn(f"{n} failing", self._verify_events()[0]["content"])
+
+
+class TestSprintEnvPropagation(_SprintCLITestCase):
+    def test_smm_dir_visible_in_sprint_subprocess(self):
+        # Sprint-mode parallel: _run_sprint must also forward SMM_DIR into
+        # each AC subprocess. The story-mode test covers _run_commands;
+        # this covers _run_sprint's separate subprocess.run call site.
+        # See test_verify_acceptance.test_smm_dir_visible_in_subprocess for
+        # the same env-strip rationale.
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {
+                            "description": "needs SMM_DIR",
+                            "surface": "cli",
+                            "command": 'test -n "$SMM_DIR"',
+                        },
+                    ],
+                ),
+            ]
+        )
+        env_no_smm = {k: v for k, v in os.environ.items() if k != "SMM_DIR"}
+        with patch.dict(os.environ, env_no_smm, clear=True):
+            result = self._run("--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        meta = self._verify_events()[0]["metadata"]
+        self.assertEqual(
+            meta["verify_status"],
+            "green",
+            "$SMM_DIR not propagated to sprint-mode AC subprocess; "
+            f"failing={meta.get('failing')!r}",
+        )
 
 
 class TestSprintBatchMatrix(_SprintCLITestCase):

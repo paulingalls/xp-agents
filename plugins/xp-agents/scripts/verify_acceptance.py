@@ -85,14 +85,20 @@ def _cmd_timeout() -> int:
     return _DEFAULT_CMD_TIMEOUT_S
 
 
-def _run_commands(commands: list[str]) -> int:
+def _ac_env(smm_dir: Path) -> dict[str, str]:
+    """Child env for AC subprocesses — inject SMM_DIR so $SMM_DIR-using ACs work."""
+    return {**os.environ, "SMM_DIR": str(smm_dir)}
+
+
+def _run_commands(commands: list[str], smm_dir: Path) -> int:
     """Run each command in order; return 0 on all-green, else first non-zero exit."""
     multi = len(commands) > 1
+    env = _ac_env(smm_dir)
     for i, cmd in enumerate(commands):
         # shell=True: AC commands are shell strings (pytest, grep, bash
         # one-liners with pipes/redirects). Stories declare them; the SMM
         # is trusted local state, not external input.
-        result = subprocess.run(cmd, shell=True, check=False)
+        result = subprocess.run(cmd, shell=True, check=False, env=env)
         if result.returncode != 0:
             label = f"commands[{i}]" if multi else "command"
             print(
@@ -162,6 +168,7 @@ def _run_sprint(smm_dir: Path) -> int:
         return _EXIT_OK
 
     timeout = _cmd_timeout()
+    env = _ac_env(smm_dir)
     rows: list[dict] = []
     for sid, ac_idx, surface, cmd in items:
         # shell=True: AC commands are trusted shell strings declared by the
@@ -173,6 +180,7 @@ def _run_sprint(smm_dir: Path) -> int:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=env,
             )
             rc = proc.returncode
             output = proc.stderr or proc.stdout or ""
@@ -268,7 +276,7 @@ def _run_story(smm_dir: Path, story_id: str) -> int:
         )
         return 1
 
-    return _run_commands(extract_commands(ae))
+    return _run_commands(extract_commands(ae), smm_dir)
 
 
 def main() -> int:
