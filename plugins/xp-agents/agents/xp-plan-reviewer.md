@@ -165,7 +165,7 @@ Complete review (not summary), most actionable first. Blocking questions at top,
 
 ## Final Message
 
-You return to the main agent via your last reply — the main agent does NOT read `events.jsonl` to discover what you recorded. End your reply with these four blocks in order so nothing gets buried:
+You return to the main agent via your last reply — the main agent does NOT read `events.jsonl` to discover what you recorded. These four blocks are the **last thing you output**: end your reply with them, in order, and emit NOTHING after them. No trailing remark, no reaction to any context delivered after they're written — anything you add becomes your new last message and buries the blocks the main agent reads.
 
 1. **Concerns** — bullet list of every `concern` event you appended this run, each with `[severity]` and a one-line summary. Write `Concerns: none.` if you appended none.
 2. **Assumptions** — bullet list of every `assumption` event you appended, one line each. Write `Assumptions: none.` if you appended none.

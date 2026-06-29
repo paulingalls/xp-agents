@@ -119,8 +119,11 @@ def _update_review_cycle_flags(smm_dir: Path, input_data: dict) -> None:
 def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
     """Handle xp-housekeeper completion: consume markers, log event, return None.
 
-    SubagentStop does NOT support additionalContext — process guide injection
-    happens elsewhere (PostToolUse:Skill|Agent in review_cycle_done.py).
+    On SubagentStop, returned additionalContext is delivered to the SUBAGENT
+    and continues its turn — it does NOT reach the parent/main agent. So a
+    SubagentStop handler must never use additionalContext to message the
+    parent; main-agent messaging (e.g. process-guide injection) happens via
+    PostToolUse:Skill|Agent in review_cycle_done.py.
     """
     agent_type = input_data.get("agent_type", "")
     if target_routing.strip_our_namespace(agent_type) != _HOUSEKEEPER_BARE:
@@ -192,7 +195,17 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
     markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
-def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
+def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
+    """Record the plan reviewer's completion; arm the teammate assign gate.
+
+    Returns None and emits NO continuing context. On SubagentStop, returned
+    additionalContext is delivered to the SUBAGENT and continues its turn —
+    so nudging /xp-assign here made the reviewer take one more turn reacting
+    to the nudge, burying its four-block Final Message.
+    The real teammate gate is the ASSIGN_PENDING marker on disk plus the
+    plan_reviewed gate event, both written below; the reviewer's own
+    Next-step block already tells the main agent to run /xp-assign.
+    """
     agent_type = input_data.get("agent_type", "")
     if target_routing.strip_our_namespace(agent_type) != _PLAN_REVIEWER_BARE:
         return None
@@ -220,11 +233,7 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> str | None:
 
     _emit_subagent_complete(smm_dir, input_data)
 
-    return (
-        "IMPORTANT: Run /xp-assign NOW. Do NOT skip — it creates the branch "
-        "and spawns ONE teammate for the next un-spawned story (per-story "
-        "pipeline, not a batch). Plan + review + assign one story at a time."
-    )
+    return None
 
 
 def _record_completion(
@@ -239,8 +248,13 @@ def _record_completion(
     markers.cleanup_agent_markers(smm_dir, agent_id)
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Core SubagentStop logic. Returns context or None.
+def run(input_data: dict, smm_dir: Path | None = None) -> None:
+    """Core SubagentStop logic. Always returns None.
+
+    SubagentStop cannot deliver additionalContext to the main agent (the
+    platform routes it back to the finished SUBAGENT instead), so this hook
+    never returns continuing context — every handler records to the event log
+    or writes a marker. Main-agent messaging happens via PostToolUse hooks.
 
     Review cycle flags + the four xp-* completion handlers run BEFORE the
     is_xp_agent skip — those agent_types start with "xp-" but still need
@@ -252,9 +266,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         _handle_housekeeping_done(smm_dir, input_data)
         _handle_sprint_review_done(smm_dir, input_data)
         _handle_close_reviewer_done(smm_dir, input_data)
-        assign_result = _handle_plan_review_done(smm_dir, input_data)
-        if assign_result is not None:
-            return assign_result
+        _handle_plan_review_done(smm_dir, input_data)
 
     if _common.is_xp_agent(input_data):
         return None
@@ -299,7 +311,5 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
-    result = run(input_data)
-    if result:
-        _common.hook_output("SubagentStop", result)
+    run(input_data)
     sys.exit(0)

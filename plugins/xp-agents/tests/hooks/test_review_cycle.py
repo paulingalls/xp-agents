@@ -550,15 +550,17 @@ class TestPlanReviewerSetsAssignPending(_HookTestCase):
         marker = self.smm_dir / ".assign-pending"
         self.assertTrue(marker.exists(), "assign-pending marker not created")
 
-    def test_plan_reviewer_returns_nudge(self):
-        """Teammate-mode xp-plan-reviewer completion returns the /xp-assign nudge."""
+    def test_plan_reviewer_returns_none(self):
+        """Teammate-mode xp-plan-reviewer completion returns no continuing
+        context (debt 5e180220db1a). SubagentStop additionalContext is routed
+        back to the finished reviewer, where a nudge buried its Final Message;
+        the gate is the .assign-pending marker + plan_reviewed event instead."""
         self._write_teammate_sprint()
         result = subagent_stop.run(
             self._stop_input("review-1", agent_type="xp-plan-reviewer"),
             smm_dir=self.smm_dir,
         )
-        assert result is not None
-        self.assertIn("xp-assign", result)
+        self.assertIsNone(result)
 
     def test_non_reviewer_no_assign_marker(self):
         """Other xp-* agents don't set assign-pending marker."""
