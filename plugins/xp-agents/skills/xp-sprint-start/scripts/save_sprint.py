@@ -38,6 +38,7 @@ import sister_tests  # noqa: E402  # pyright: ignore[reportMissingImports]
 import sprint_store  # noqa: E402
 import system_context_store  # noqa: E402
 import triage  # noqa: E402
+import worktree  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     STATUS_ACTION_ITERATION_COMPLETE,
@@ -212,15 +213,17 @@ def _warn_sister_skip_once(smm_dir: Path, reason: str) -> None:
 
 
 def _resolve_project_root() -> Path | None:
-    """Walk up from cwd looking for .git/ (file or directory; in a worktree
-    .git is a regular file pointing to the worktree metadata). Returns the
-    project toplevel or None. None disables auto-include (defensive — some
-    test contexts and headless callers have no git root)."""
-    cur = Path.cwd().resolve()
-    for ancestor in (cur, *cur.parents):
-        if (ancestor / ".git").exists():
-            return ancestor
-    return None
+    """Delegate to worktree.resolve_git_root for the canonical lookup.
+
+    The prior local ancestor-walk implementation duplicated worktree's logic
+    and missed two real edge cases: GIT_DIR env override and submodule .git
+    files. Delegating eliminates the drift risk paired with the (now-resolved)
+    glob-translator dup (debt 8ccf898d97d3). worktree.resolve_git_root shells
+    `git rev-parse --show-toplevel` with per-cwd caching, so the runtime cost
+    is one subprocess per unique cwd per process.
+    """
+    root = worktree.resolve_git_root(os.getcwd())
+    return Path(root) if root else None
 
 
 def _auto_include_sister_tests(
