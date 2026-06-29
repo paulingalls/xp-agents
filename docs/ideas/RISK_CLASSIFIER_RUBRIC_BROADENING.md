@@ -139,3 +139,7 @@ call.
 - AC: classifier prose contains no plugin-internal vocabulary that wouldn't
   apply to a TS-only or Rust-only project (mirrors the project_specific
   `plugin-project-agnostic` principle).
+
+## See also
+
+- [TEAMMATE_TIER_PICKER.md](TEAMMATE_TIER_PICKER.md) — sibling concern at plan-time (different agent: xp-plan-reviewer; different decision: executor_model selection). Uses no SIGNAL vocabulary — keeps the two classifications cleanly independent. Cousin, not sibling.
