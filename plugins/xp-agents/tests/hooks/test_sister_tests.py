@@ -514,6 +514,57 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestJsUnit(_DiscoveryTestCase):
+    """js_unit: .test.{ext}, .spec.{ext}, and __tests__/{stem}.test.{ext}."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["js_unit"]
+
+    def test_dot_test_sibling_ts(self):
+        _touch(self.root, "src/foo.test.ts")
+        self.assertEqual(
+            discover_sister_tests("src/foo.ts", self.layout, self.root),
+            ["src/foo.test.ts"],
+        )
+
+    def test_dot_spec_sibling_js(self):
+        _touch(self.root, "src/bar.spec.js")
+        self.assertEqual(
+            discover_sister_tests("src/bar.js", self.layout, self.root),
+            ["src/bar.spec.js"],
+        )
+
+    def test_underscore_tests_subdir(self):
+        # __tests__/{stem}.test.{ext}
+        _touch(self.root, "src/__tests__/baz.test.tsx")
+        self.assertEqual(
+            discover_sister_tests("src/baz.tsx", self.layout, self.root),
+            ["src/__tests__/baz.test.tsx"],
+        )
+
+    def test_d_ts_source_is_skipped(self):
+        # foo.d.ts is a declaration file, not a real source.
+        _touch(self.root, "src/foo.test.ts")
+        self.assertEqual(
+            discover_sister_tests("src/foo.d.ts", self.layout, self.root),
+            [],
+        )
+
+    def test_test_file_as_source_is_skipped(self):
+        # foo.test.ts IS a test — skip when given as source.
+        _touch(self.root, "src/foo.test.test.ts")  # would match if not skipped
+        self.assertEqual(
+            discover_sister_tests("src/foo.test.ts", self.layout, self.root),
+            [],
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("src/bar.ts", self.layout, self.root), []
+        )
+
+
 class TestGoNative(_DiscoveryTestCase):
     """go_native: foo.go -> foo_test.go in the same dir."""
 

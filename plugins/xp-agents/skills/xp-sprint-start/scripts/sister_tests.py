@@ -206,6 +206,62 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "js_unit": TestLayout(
+        convention="js_unit",
+        rules=(
+            # R1: .test sibling
+            TestLayoutRule(
+                source_pattern="**/*.{js,jsx,ts,tsx}",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/{stem}.test.{js,jsx,ts,tsx}",
+                skip_suffixes=(
+                    ".d.ts",
+                    ".test.js",
+                    ".test.jsx",
+                    ".test.ts",
+                    ".test.tsx",
+                    ".spec.js",
+                    ".spec.jsx",
+                    ".spec.ts",
+                    ".spec.tsx",
+                ),
+            ),
+            # R2: .spec sibling (jest/jasmine flavor)
+            TestLayoutRule(
+                source_pattern="**/*.{js,jsx,ts,tsx}",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/{stem}.spec.{js,jsx,ts,tsx}",
+                skip_suffixes=(
+                    ".d.ts",
+                    ".test.js",
+                    ".test.jsx",
+                    ".test.ts",
+                    ".test.tsx",
+                    ".spec.js",
+                    ".spec.jsx",
+                    ".spec.ts",
+                    ".spec.tsx",
+                ),
+            ),
+            # R3: __tests__ subdir
+            TestLayoutRule(
+                source_pattern="**/*.{js,jsx,ts,tsx}",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/__tests__/{stem}.test.{js,jsx,ts,tsx}",
+                skip_suffixes=(
+                    ".d.ts",
+                    ".test.js",
+                    ".test.jsx",
+                    ".test.ts",
+                    ".test.tsx",
+                    ".spec.js",
+                    ".spec.jsx",
+                    ".spec.ts",
+                    ".spec.tsx",
+                ),
+            ),
+        ),
+    ),
     "go_native": TestLayout(
         convention="go_native",
         rules=(
