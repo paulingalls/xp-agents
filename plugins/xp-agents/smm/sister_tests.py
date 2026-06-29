@@ -11,16 +11,13 @@ from __future__ import annotations
 import functools
 import posixpath
 import re
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-# smm/ holds the shared glob_translator primitive; mirror the path-insert
-# pattern save_sprint.py uses so sister_tests can be imported directly
-# from tests (conftest already adds smm/) and from save_sprint at runtime.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "smm"))
-
+# glob_translator is a same-dir sibling in smm/; smm/ is always on sys.path
+# before this module is imported (own dir as a script; inserted by every
+# importer), so a self-insert shim is unnecessary.
 import glob_translator  # pyright: ignore[reportMissingImports]
 
 

@@ -153,7 +153,7 @@ def warn_once(
     """Append a concern at most once per session, gated on a presence marker.
 
     Replaces the hand-rolled marker_exists / append_concern / marker_write
-    dance in save_sprint._warn_sister_skip_once. The caller pre-registers
+    dance in sprint_save._warn_sister_skip_once. The caller pre-registers
     `marker` in `_STALE_SESSION_MARKERS` so SessionStart sweeps it — that
     re-arming is what makes the "once per session" semantics honest.
 

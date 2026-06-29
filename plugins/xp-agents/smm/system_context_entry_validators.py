@@ -47,12 +47,12 @@ _OVERRIDE_OPTIONAL_LIST_KEYS = frozenset(
 _OVERRIDE_ALLOWED_KEYS = _OVERRIDE_REQUIRED_STR_KEYS | _OVERRIDE_OPTIONAL_LIST_KEYS
 
 # Locked stem-extractor registry. Mirrors STEM_EXTRACTORS in
-# plugins/xp-agents/skills/xp-sprint-start/scripts/sister_tests.py — the
-# skill layer's pure-discovery primitive owns the actual implementations,
-# the engine schema validates declared names against that registry at
+# plugins/xp-agents/smm/sister_tests.py — the engine layer's pure-discovery
+# primitive owns the actual implementations, and the engine schema validates
+# declared names against that registry at
 # write time. Without this guard a typo'd extractor (e.g. "stem") passes
 # schema then raises ValueError inside discover_sister_tests, which the
-# save_sprint._auto_include path silently swallows — a silent
+# sprint_save._auto_include path silently swallows — a silent
 # feature-failure on every save. Sync test: test_system_context_schema
 # .TestStemExtractorRegistryLock pins these strings against the runtime
 # STEM_EXTRACTORS dict, so adding/renaming an extractor breaks the test
