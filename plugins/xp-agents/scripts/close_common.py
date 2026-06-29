@@ -277,9 +277,16 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # changes the return code; a sub-threshold ratio still merges. No-op when
     # --smm-dir is absent.
     if smm_dir is not None:
-        note = trailer_gate.advisory(smm_dir)
-        if note:
-            print(note)
+        # Fail-open: the advisory runs after the merge commits but before
+        # push/delete, so a print/encode error must never abort the chain
+        # (UnicodeEncodeError is a ValueError; OSError covers a broken stdout) —
+        # same posture as append_merge_commit_event's guards above.
+        try:
+            note = trailer_gate.advisory(smm_dir)
+            if note:
+                print(note)
+        except (OSError, ValueError) as exc:
+            sys.stderr.write(f"warn: trailer advisory skipped ({exc})\n")
 
     if git_remote.has_remote(args.cwd):
         rc = _run_or_relay(

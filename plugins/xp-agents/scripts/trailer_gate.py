@@ -73,7 +73,7 @@ def advisory(smm_dir: Path) -> str | None:
     pct = round(hits / total * 100)
     threshold_pct = round(THRESHOLD * 100)
     lines = [
-        f"⚠ Resolves-Event trailer advisory: {hits}/{total} ({pct}%) of eligible "
+        f"Resolves-Event trailer advisory: {hits}/{total} ({pct}%) of eligible "
         f"commits carry trailers, below the {threshold_pct}% target.",
         "Un-trailered eligible commits (touched a tracked concern/debt/question):",
     ]
@@ -84,6 +84,6 @@ def advisory(smm_dir: Path) -> str | None:
         lines.append(f"  - {short} {subject}".rstrip())
     lines.append(
         "Add Resolves-Event: <id> trailers while these commits are in reach "
-        "(advisory only — the merge proceeded)."
+        "(advisory only; the merge proceeded)."
     )
     return "\n".join(lines)

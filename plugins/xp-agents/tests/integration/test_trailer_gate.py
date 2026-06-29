@@ -70,6 +70,23 @@ class TestAdvisory(_AssertNotNoneMixin, unittest.TestCase):
         _write_events(self.smm, events)
         self.assertIsNone(trailer_gate.advisory(self.smm))
 
+    def test_advisory_is_ascii_only(self):
+        # Regression (concern 92521f97fa82): the advisory is print()ed to a
+        # stdout that may not be UTF-8; a non-ASCII char would raise
+        # UnicodeEncodeError after the merge commits but before push/delete,
+        # leaving the source merged-but-unpushed. Pin the text to pure ASCII.
+        import trailer_gate
+
+        events = [
+            open_concern_event(),
+            _code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "hash111", "did link"),
+            _code_commit(["bbb"], "2026-04-05T11:00:00+00:00", "hash222", "also link"),
+            _code_commit([], "2026-04-05T12:00:00+00:00", "deadbee", "forgot trailer"),
+        ]
+        _write_events(self.smm, events)
+        msg = self._assert_not_none(trailer_gate.advisory(self.smm))
+        self.assertTrue(msg.isascii(), f"advisory must be ASCII-only: {msg!r}")
+
     def test_below_threshold_returns_advisory_with_ratio_and_commits(self):
         # 2 of 3 eligible = 67% < 80% → advisory names the ratio and EACH
         # un-trailered eligible commit (short hash + subject).
