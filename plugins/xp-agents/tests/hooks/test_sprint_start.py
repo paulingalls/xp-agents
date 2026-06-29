@@ -358,9 +358,13 @@ class TestSaveSprintMilestoneTransition(_HookTestCase):
 
 
 def _make_git_project(tmpdir: Path) -> Path:
-    """_resolve_project_root looks for .git/; bare tmpdir has none. Init a
-    minimal git repo so the auto-include reaches the discovery path."""
-    subprocess.run(["git", "init", "-q", str(tmpdir)], check=True)
+    """_resolve_project_root only probes (ancestor/'.git').exists() — it
+    doesn't read git internals. A bare .git/ directory satisfies the probe
+    without paying for a real `git init` subprocess fork per setUp
+    (~20-50ms saved per test, across N tests). If M10's swap to
+    worktree.resolve_git_root lands and starts shelling out to
+    `git rev-parse`, this stub stops being enough and must become a real init."""
+    (tmpdir / ".git").mkdir(parents=True, exist_ok=True)
     return tmpdir
 
 
