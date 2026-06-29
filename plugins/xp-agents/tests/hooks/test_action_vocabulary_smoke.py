@@ -217,7 +217,7 @@ def _drive_question_close(smm_dir: Path) -> list[dict]:
 
 def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     # iteration_complete fires only when .accept exists and the sprint has
-    # no in-progress stories — otherwise save_sprint treats this as a
+    # no in-progress stories — otherwise sprint_save treats this as a
     # regular write and emits no lifecycle event.
     (smm_dir / ".accept").write_text("done")
     data = {

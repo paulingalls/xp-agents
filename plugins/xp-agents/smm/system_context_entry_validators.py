@@ -52,7 +52,7 @@ _OVERRIDE_ALLOWED_KEYS = _OVERRIDE_REQUIRED_STR_KEYS | _OVERRIDE_OPTIONAL_LIST_K
 # the engine schema validates declared names against that registry at
 # write time. Without this guard a typo'd extractor (e.g. "stem") passes
 # schema then raises ValueError inside discover_sister_tests, which the
-# save_sprint._auto_include path silently swallows — a silent
+# sprint_save._auto_include path silently swallows — a silent
 # feature-failure on every save. Sync test: test_system_context_schema
 # .TestStemExtractorRegistryLock pins these strings against the runtime
 # STEM_EXTRACTORS dict, so adding/renaming an extractor breaks the test
