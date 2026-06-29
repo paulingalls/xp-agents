@@ -272,8 +272,9 @@ def _auto_include_sister_tests(
 def save(data: dict, smm_dir: Path) -> None:
     """Atomic write only. No sister-test discovery, no milestone transition,
     no accept-marker handling. Symmetry helper exposing the side-effect-free
-    write path that run() composes; status-flip callers (sprint_cli._cmd_edit_story,
-    /xp-accept, /xp-schedule) reach sprint_store directly via store.edit_story /
+    write path that run() composes; status-flip callers
+    (sprint_cli_mutate._cmd_edit_story, /xp-accept, /xp-schedule) reach
+    sprint_store directly via store.edit_story /
     store.update_story_status — both routes produce the same atomic write
     without firing run()'s side-effect bundle. Kept for symmetry with run()
     and as a test surface for behaviors that need to lock the bypass.
@@ -284,7 +285,7 @@ def save(data: dict, smm_dir: Path) -> None:
 def run(data: dict, smm_dir: Path) -> None:
     """Full sprint-mutation pipeline: sister-test discovery + atomic save
     + milestone transition + accept-marker handling. Use for structural
-    sprint mutations (sprint_cli._cmd_create, _cmd_add_story).
+    sprint mutations (sprint_cli_mutate._cmd_create, _cmd_add_story).
 
     Args:
         data: Sprint data dict (validated by sprint_store).
