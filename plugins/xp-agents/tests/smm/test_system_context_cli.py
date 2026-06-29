@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _system_context_fixtures import write_doc
+from _system_context_fixtures import valid_doc, valid_test_layout, write_doc
 from conftest import _SMMTestCase, run_cli
 from system_context_schema import SYSTEM_CONTEXT_FILENAME
 
@@ -49,6 +49,79 @@ class TestGetTestLayoutAbsent(_SMMTestCase):
         result = run_cli(_CLI, ["get-test-layout"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), None)
+
+
+class TestEditTestLayoutValidation(_SMMTestCase):
+    def test_empty_object_is_rejected_with_hint(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(_CLI, ["edit-test-layout"], self.smm_dir, stdin_data="{}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("convention", result.stderr)
+        self.assertIn("null", result.stderr)
+        # On-disk doc must NOT have grown a test_layout field.
+        self.assertNotIn("test_layout", _read_doc(self.smm_dir))
+
+    def test_unknown_convention_is_rejected(self) -> None:
+        write_doc(self.smm_dir)
+        bad = {"convention": "totally_made_up"}
+        result = run_cli(
+            _CLI,
+            ["edit-test-layout"],
+            self.smm_dir,
+            stdin_data=json.dumps(bad),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("test_layout", _read_doc(self.smm_dir))
+
+    def test_invalid_json_is_rejected(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI, ["edit-test-layout"], self.smm_dir, stdin_data="not json {"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("test_layout", _read_doc(self.smm_dir))
+
+
+class TestEditTestLayoutNullUnsets(_SMMTestCase):
+    def test_null_clears_existing_layout(self) -> None:
+        doc = valid_doc(test_layout=valid_test_layout())
+        write_doc(self.smm_dir, doc)
+        self.assertIn("test_layout", _read_doc(self.smm_dir))
+
+        result = run_cli(_CLI, ["edit-test-layout"], self.smm_dir, stdin_data="null")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("test_layout", _read_doc(self.smm_dir))
+
+    def test_null_on_already_unset_is_idempotent(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(_CLI, ["edit-test-layout"], self.smm_dir, stdin_data="null")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("test_layout", _read_doc(self.smm_dir))
+
+
+class TestCreatePreservesTestLayout(_SMMTestCase):
+    def test_create_without_test_layout_preserves_existing(self) -> None:
+        existing = valid_doc(test_layout=valid_test_layout(convention="go_native"))
+        write_doc(self.smm_dir, existing)
+
+        # Re-create with NO test_layout key in the incoming doc.
+        incoming = valid_doc()
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        on_disk = _read_doc(self.smm_dir)
+        self.assertEqual(on_disk.get("test_layout"), {"convention": "go_native"})
+
+    def test_create_with_test_layout_null_drops_existing(self) -> None:
+        existing = valid_doc(test_layout=valid_test_layout())
+        write_doc(self.smm_dir, existing)
+        incoming = valid_doc(test_layout=None)
+        result = run_cli(
+            _CLI, ["create"], self.smm_dir, stdin_data=json.dumps(incoming)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("test_layout", _read_doc(self.smm_dir))
 
 
 if __name__ == "__main__":
