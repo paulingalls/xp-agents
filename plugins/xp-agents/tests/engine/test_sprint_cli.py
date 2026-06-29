@@ -397,6 +397,76 @@ class TestAddStoryCommand(_SMMTestCase):
         self.assertEqual(len(loaded["stories"]), 2)
 
 
+class TestAddStoryDupId(_SMMTestCase):
+    """add-story rejects payloads whose id collides with an existing
+    story (story-003). Non-dict / id-less payloads fall through to the
+    existing schema validator so their error messages stay stable."""
+
+    def test_dup_id_rejects_nonzero(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        sprint_path = self.smm_dir / "sprint.json"
+        sprint_path.write_text(json.dumps(sprint))
+        before = sprint_path.read_bytes()
+        dup_payload = _make_story(id="story-001", title="Collision")
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps(dup_payload),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Duplicate story id", result.stderr)
+        self.assertIn("story-001", result.stderr)
+        self.assertEqual(sprint_path.read_bytes(), before)
+
+    def test_new_id_succeeds(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps(_make_story(id="story-099", title="Fresh")),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        ids = [s["id"] for s in loaded["stories"]]
+        self.assertIn("story-099", ids)
+
+    def test_dup_check_preserves_jsondecodeerror_path(self):
+        # Pre-check must not swallow the existing parse-error branch.
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, "{not json")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid JSON", result.stderr)
+        self.assertNotIn("Duplicate story id", result.stderr)
+
+    def test_missing_id_falls_through_to_validator(self):
+        # An id-less dict isn't a dup candidate; the schema validator
+        # owns the rejection so its message stays the source of truth.
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps({"title": "no-id"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Validation error", result.stderr)
+        self.assertNotIn("Duplicate story id", result.stderr)
+
+    def test_non_dict_payload_falls_through_to_validator(self):
+        # Same contract for non-dict JSON shapes (list, string, ...).
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, "[]")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Validation error", result.stderr)
+        self.assertNotIn("Duplicate story id", result.stderr)
+
+
 class TestSprintCliHelp(_SMMTestCase):
     def test_help_contains_examples(self):
         result = run_cli(_CLI, ["--help"], self.smm_dir)
