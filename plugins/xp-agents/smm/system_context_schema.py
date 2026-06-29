@@ -21,6 +21,7 @@ from system_context_entry_validators import (  # noqa: F401
     PROJECT_SPECIFIC_NAME_MAXLENGTH,
     _validate_acceptance_surface_entry,
     _validate_project_specific_entry,
+    _validate_test_layout,
 )
 
 SYSTEM_CONTEXT_FILENAME = "system_context.json"
@@ -429,5 +430,10 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
                         )
                     else:
                         seen_surface_names.add(entry["name"])
+
+    if "test_layout" in data:
+        errors.extend(
+            _validate_test_layout(data["test_layout"], enforce_budget=enforce_budget)
+        )
 
     return errors
