@@ -29,7 +29,7 @@ AGENT_BUDGETS: dict[str, int] = {
     "xp-retrospective": 250,
     "xp-risk-classifier": 50,
     "xp-sprint-reviewer": 80,
-    "xp-system-analyzer": 275,
+    "xp-system-analyzer": 320,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
