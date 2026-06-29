@@ -13,24 +13,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-# Layer inversion: engine-layer sprint_cli imports the skill-layer save_sprint
-# helper so structural-mutation subcommands (_cmd_create, _cmd_add_story) can
-# drive the full pipeline (sister discovery + milestone transition + accept-
-# marker handling). Status-only edits (_cmd_edit_story) bypass save_sprint
-# entirely and use store.edit_story, which routes through sprint_store.save_sprint
-# directly — the same side-effect-free atomic write save_sprint.save() wraps.
-# If this becomes a broader pattern, move save_sprint.run/save into sprint_store
-# and leave skills as thin invokers.
-sys.path.insert(
-    0,
-    str(Path(__file__).parent.parent / "skills" / "xp-sprint-start" / "scripts"),
-)
 
-# save_sprint is imported lazily inside _cmd_create / _cmd_add_story (the
+# sprint_save is imported lazily inside _cmd_create / _cmd_add_story (the
 # only callers that need it) so the dozen+ read-only subcommands on this
 # hot path (get-story, list-stories, count, render, exists, etc.) don't
 # pay the cost of loading sister_tests + system_context_store +
-# BUILTIN_LAYOUTS construction on every invocation.
+# BUILTIN_LAYOUTS construction on every invocation. sprint_save is an
+# engine-layer sibling in smm/ (relocated in sprint-108 M1) — no skill
+# sys.path insert needed; structural-mutation subcommands drive its full
+# pipeline (sister discovery + milestone transition + accept-marker handling),
+# while status-only edits (_cmd_edit_story) bypass it via store.edit_story.
 import sprint_render as render
 import sprint_store as store
 import triage
@@ -186,12 +178,12 @@ def _cmd_create(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
-    import save_sprint  # pyright: ignore[reportMissingImports]
+    import sprint_save
 
     try:
         # Structural mutation — route through full pipeline (sister discovery
         # + milestone transition + accept-marker handling).
-        save_sprint.run(data, args.smm_dir)
+        sprint_save.run(data, args.smm_dir)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1
@@ -219,13 +211,13 @@ def _cmd_add_story(args: argparse.Namespace) -> int:
         )
         return 1
     sprint["stories"].append(story)
-    import save_sprint  # pyright: ignore[reportMissingImports]
+    import sprint_save
 
     try:
         # Structural mutation (new story) — route through full pipeline.
         # Dup-id guard above stays AHEAD of run() per locked decision
         # (story-003 close): a dup never triggers run()'s side effects.
-        save_sprint.run(sprint, args.smm_dir)
+        sprint_save.run(sprint, args.smm_dir)
     except ValueError as exc:
         print(f"Validation error: {exc}", file=sys.stderr)
         return 1
@@ -266,13 +258,13 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
-    # Status/metadata edits intentionally bypass save_sprint.run(). /xp-accept
+    # Status/metadata edits intentionally bypass sprint_save.run(). /xp-accept
     # and /xp-schedule drive edit-story for status flips and execution_mode
     # writes; firing the full run() pipeline on every flip would re-walk
     # sister discovery and re-fire milestone transition on every accept
     # (impact-zone constraint per plan-review e7b72bd57c84). store.edit_story
     # already routes through sprint_store.save_sprint directly — the same
-    # atomic-write that save_sprint.save() wraps — so the architectural split
+    # atomic-write that sprint_save.save() wraps — so the architectural split
     # is preserved without duplicating the isinstance / immutable-fields /
     # load-find-update guards here.
     try:

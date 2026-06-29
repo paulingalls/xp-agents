@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 # smm/ holds the shared glob_translator primitive; mirror the path-insert
-# pattern save_sprint.py uses so sister_tests can be imported directly
-# from tests (conftest already adds smm/) and from save_sprint at runtime.
+# pattern sprint_save.py uses so sister_tests can be imported directly
+# from tests (conftest already adds smm/) and from sprint_save at runtime.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "smm"))
 
 import glob_translator  # pyright: ignore[reportMissingImports]

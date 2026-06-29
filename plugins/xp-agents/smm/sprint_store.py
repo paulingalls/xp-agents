@@ -2,7 +2,7 @@
 """Load/save for sprint.json.
 
 Python API for sprint operations. Pure data store — no acceptance
-flow side effects (those stay in save_sprint.py). Internal scripts
+flow side effects (those stay in sprint_save.py). Internal scripts
 import these functions directly. Shell scripts and skills use
 sprint_cli.py.
 

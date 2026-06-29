@@ -2,7 +2,7 @@
 """Tests for the accept preload script.
 
 Stop-gate tests migrated to test_sprint_stop_gate.py.
-Accept-done behavior migrated to test_sprint_start.py (save_sprint.py
+Accept-done behavior migrated to test_sprint_save.py (sprint_save.py
 now handles .accept clearing and iteration_complete recording as part
 of the PostToolUse:Skill replacement plan).
 """

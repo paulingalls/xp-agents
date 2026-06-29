@@ -42,8 +42,8 @@ import post_tool_exit_plan
 import post_tool_use
 import review_cycle_done
 import smm_cli
+import sprint_save
 import subagent_stop
-from _bases import _PLUGIN_ROOT
 from _commit_helpers import patch_commits
 from concerns import LINT_CONCERN_PREFIX
 from conftest import (
@@ -65,9 +65,6 @@ from event_schema import (
     EVENT_TYPE_QUESTION,
     event_action,
 )
-
-sys.path.insert(0, str(_PLUGIN_ROOT / "skills" / "xp-sprint-start" / "scripts"))
-import save_sprint
 
 Driver = Callable[[Path], list[dict]]
 
@@ -220,7 +217,7 @@ def _drive_question_close(smm_dir: Path) -> list[dict]:
 
 def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     # iteration_complete fires only when .accept exists and the sprint has
-    # no in-progress stories — otherwise save_sprint treats this as a
+    # no in-progress stories — otherwise sprint_save treats this as a
     # regular write and emits no lifecycle event.
     (smm_dir / ".accept").write_text("done")
     data = {
@@ -230,7 +227,7 @@ def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
         "milestone": "",
         "stories": [_s("story-001", "Login", "done")],
     }
-    save_sprint.run(data, smm_dir)
+    sprint_save.run(data, smm_dir)
     return _events(smm_dir)
 
 

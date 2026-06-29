@@ -312,7 +312,7 @@ class TestWarnOnce(_HookTestCase):
     """Shared once-per-session warn primitive: marker-gated concern append.
 
     Replaces the hand-rolled marker_exists/concern-append/marker_write
-    dance in save_sprint._warn_sister_skip_once. Future warn-once
+    dance in sprint_save._warn_sister_skip_once. Future warn-once
     needs (Q1(c), N-th language detection mismatch, ...) should call
     this rather than copy the pattern.
     """
