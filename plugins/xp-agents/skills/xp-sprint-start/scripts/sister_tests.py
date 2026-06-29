@@ -206,6 +206,19 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "java_junit": TestLayout(
+        convention="java_junit",
+        rules=(
+            # Maven/Gradle convention: mirror src/main/java/ into src/test/java/.
+            # Three accepted suffixes: Test, Tests, IT (integration test).
+            TestLayoutRule(
+                source_pattern="src/main/java/**/*.java",
+                stem_extractor="basename_no_ext",
+                test_glob="src/test/java/{mirror}/{stem}{Test,Tests,IT}.java",
+                skip_suffixes=("Test.java", "Tests.java", "IT.java"),
+            ),
+        ),
+    ),
     "ruby_rspec": TestLayout(
         convention="ruby_rspec",
         rules=(

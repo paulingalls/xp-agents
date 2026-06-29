@@ -514,6 +514,59 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestJavaJunit(_DiscoveryTestCase):
+    """java_junit: src/main/java/<pkg>/Foo.java -> src/test/java/<pkg>/FooTest.java."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["java_junit"]
+
+    def test_test_suffix(self):
+        _touch(self.root, "src/test/java/com/acme/FooTest.java")
+        self.assertEqual(
+            discover_sister_tests(
+                "src/main/java/com/acme/Foo.java", self.layout, self.root
+            ),
+            ["src/test/java/com/acme/FooTest.java"],
+        )
+
+    def test_tests_suffix(self):
+        _touch(self.root, "src/test/java/com/acme/FooTests.java")
+        self.assertIn(
+            "src/test/java/com/acme/FooTests.java",
+            discover_sister_tests(
+                "src/main/java/com/acme/Foo.java", self.layout, self.root
+            ),
+        )
+
+    def test_it_suffix_integration(self):
+        _touch(self.root, "src/test/java/com/acme/FooIT.java")
+        self.assertIn(
+            "src/test/java/com/acme/FooIT.java",
+            discover_sister_tests(
+                "src/main/java/com/acme/Foo.java", self.layout, self.root
+            ),
+        )
+
+    def test_test_file_as_source_is_skipped(self):
+        # FooTest.java IS a test — must not re-resolve.
+        _touch(self.root, "src/test/java/com/acme/FooTestTest.java")
+        self.assertEqual(
+            discover_sister_tests(
+                "src/test/java/com/acme/FooTest.java", self.layout, self.root
+            ),
+            [],
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests(
+                "src/main/java/com/acme/Bar.java", self.layout, self.root
+            ),
+            [],
+        )
+
+
 class TestRubyRspec(_DiscoveryTestCase):
     """ruby_rspec: lib/foo/bar.rb -> spec/foo/bar_spec.rb (mirror layout)."""
 
