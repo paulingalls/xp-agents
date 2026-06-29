@@ -28,20 +28,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-import _common
 import acceptance_env
 import branching
 import close_verify_gate
-import code_files
-import commit_handling
 import commits
 import git_hooks
 import git_remote
 import identity
-import markers
-import sprint_store
+import trailer_gate
 import worktree
-from event_schema import METADATA_KEY_COMMIT_HASH
+from merge_commit_event import append_merge_commit_event
 
 
 def pre_commit_hook_present(repo_root: str) -> bool:
@@ -247,97 +243,6 @@ def cmd_close_review_gate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> None:
-    """Append a type=commit event for the merge HEAD just produced by
-    ``branching.merge_branch``.
-
-    Closes the merge-gap commit-event hole: the parent Bash PreToolUse hook
-    only matches top-level ``git commit`` shells, so the inner
-    ``git merge --no-ff`` subprocess spawned by ``branching.merge_branch``
-    leaves no event. We emit one here mirroring
-    ``commit_handling._handle_commit``'s metadata shape (action, code_commit,
-    code_file_count, commit_hash, story_id, sprint_id) so downstream
-    accounting (commit counts, story attribution, resolves-link rate) sees
-    close-cycle merges.
-
-    No-op when ``smm_dir`` is None — defends programmatic callers
-    (in-process tests, future scripts) that invoke ``cmd_merge`` without
-    threading ``--smm-dir``. All four shipped close skills now pass it.
-    Dedupes by ``commit_hash`` so a retried/"Already up to date" re-merge
-    cannot double-emit.
-    """
-    if smm_dir is None:
-        return
-    commit_hash = commits.get_head_commit_hash(cwd)
-    if not commit_hash:
-        return
-    # Read events under shared flock for dedup — we only need the events list
-    # (commit-hash lookup is a linear scan), not the resolution graph. Using
-    # load_events_with_resolutions here would pay an O(N) resolution.compute
-    # pass on every close-cycle merge and throw the result away.
-    events = _common.read_events_locked(smm_dir, "close-common-merge-dedup")
-    if any(
-        e.get("type") == _common.COMMIT
-        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
-        for e in events
-    ):
-        return
-    files = commits.get_committed_files(cwd)
-    body = commits.get_commit_message_body(cwd) or f"Merge {source}"
-    code_file_count = sum(1 for f in files if code_files.is_code_file(f))
-    # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
-    # itself already succeeded on target, and the surrounding push/delete/
-    # remote-prune chain must continue. Matches close_verify_gate's
-    # established fail-open posture for SMM-state errors here.
-    try:
-        sprint = sprint_store.load_sprint(smm_dir)
-    except (sprint_store.SprintCorruptError, OSError):
-        sprint = None
-    # is_merge=True excludes this event from resolves_link_rate accounting:
-    # the merge HEAD aggregates already-recorded story commits, each of
-    # which carries its own Resolves trailer. Counting the merge commit
-    # in the denominator would dilute the rate without a meaningful
-    # numerator (merge commit messages don't carry Resolves trailers).
-    # Tag merges whose source is a free branch — honored by retro_metrics
-    # alongside is_merge. (A free→primary merge is both: it carries is_merge
-    # from this code path AND should be flagged as free for any future metric
-    # that wants to bucket free-mode close cycles separately.)
-    event = commit_handling.make_commit_event(
-        "close_common",
-        body,
-        commit_hash=commit_hash,
-        files=files,
-        code_file_count=code_file_count,
-        story_id=identity.extract_story_id(source),
-        sprint_id=sprint["sprint_id"] if sprint is not None else None,
-        is_merge=True,
-        is_free_session=branching.is_free_branch(source),
-    )
-    _common.bulk_append_safe(smm_dir, [event])
-
-    # Reset the orchestrator's review cycle to the merge HEAD. The Bash
-    # PreToolUse hook only matches top-level `git commit` shells, so the
-    # `commit_handling._handle_commit` reset that fires for normal commits
-    # is bypassed for merges driven by `branching.merge_branch` here. Left
-    # alone, the prior commit's `quality_review_done=True` marker would
-    # latch the review gate against the next solo commit on the sprint
-    # branch.
-    agent_id = identity.resolve_agent_id_from_cwd(cwd)
-    # Same fail-open posture as the sprint_store load above: the merge already
-    # succeeded on target and the surrounding push/delete/remote-prune chain
-    # must continue. A symlinked / unwritable marker path is a SMM-state
-    # problem, not a merge-correctness problem — surface it on stderr but
-    # don't abort the chain (leaving the source merged-but-unpushed would
-    # force the user into a manual cleanup that re-merge can't redo).
-    try:
-        markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
-    except (OSError, ValueError) as exc:
-        sys.stderr.write(
-            f"warn: failed to reset review cycle after merge ({exc}); "
-            "next commit's review gate may need a manual reset\n"
-        )
-
-
 def cmd_merge(args: argparse.Namespace) -> int:
     """Chained merge --no-ff + (push target if remote) + delete source.
 
@@ -364,9 +269,24 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # Emit a commit event for the merge HEAD; closes the merge-gap hole
     # (the inner `git merge --no-ff` subprocess is invisible to the parent
     # Bash PreToolUse commit hook). No-op when --smm-dir is absent.
-    _append_merge_commit_event(
-        args.cwd, Path(args.smm_dir) if args.smm_dir else None, args.source
-    )
+    smm_dir = Path(args.smm_dir) if args.smm_dir else None
+    append_merge_commit_event(args.cwd, smm_dir, args.source)
+
+    # Surface the Resolves-Event trailer ratio as a pre-merge advisory while
+    # the un-trailered commits are still in reach. ADVISORY ONLY — it never
+    # changes the return code; a sub-threshold ratio still merges. No-op when
+    # --smm-dir is absent.
+    if smm_dir is not None:
+        # Fail-open: the advisory runs after the merge commits but before
+        # push/delete, so a print/encode error must never abort the chain
+        # (UnicodeEncodeError is a ValueError; OSError covers a broken stdout) —
+        # same posture as append_merge_commit_event's guards above.
+        try:
+            note = trailer_gate.advisory(smm_dir)
+            if note:
+                print(note)
+        except (OSError, ValueError) as exc:
+            sys.stderr.write(f"warn: trailer advisory skipped ({exc})\n")
 
     if git_remote.has_remote(args.cwd):
         rc = _run_or_relay(

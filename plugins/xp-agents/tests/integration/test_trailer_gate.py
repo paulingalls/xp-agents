@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Tests for scripts/trailer_gate.py — the pre-merge Resolves-Event advisory.
+
+The advisory is a thin reuse layer over retro_metrics' canonical eligibility
+(eligible_trailer_commits + has_resolves_trailer): it surfaces the trailer
+ratio at close-merge time, names the un-trailered eligible commits, and NEVER
+blocks the merge. These tests pin both the pure advisory() contract and the
+non-blocking wiring through close_common.cmd_merge over a real temp repo.
+"""
+
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import _branching_fixtures as _bf
+from _bases import _PLUGIN_ROOT, _AssertNotNoneMixin
+from _branching_fixtures import open_concern_event
+from _event_fixtures import make_event
+from event_schema import EVENT_TYPE_COMMIT
+
+_CLOSE_COMMON = _PLUGIN_ROOT / "scripts" / "close_common.py"
+
+
+def _code_commit(resolves: list[str], ts: str, commit_hash: str, subject: str) -> dict:
+    """An eligible code commit over scripts/x.py (overlaps the open concern)."""
+    return make_event(
+        EVENT_TYPE_COMMIT,
+        content=subject,
+        ts=ts,
+        files=["scripts/x.py"],
+        metadata={
+            "code_commit": True,
+            "commit_hash": commit_hash,
+            "resolves": resolves,
+        },
+    )
+
+
+def _write_events(smm_dir: Path, events: list[dict]) -> None:
+    (smm_dir / "events.jsonl").write_text(
+        "".join(json.dumps(e) + "\n" for e in events), encoding="utf-8"
+    )
+
+
+class TestAdvisory(_AssertNotNoneMixin, unittest.TestCase):
+    """Pure advisory() contract over a seeded events.jsonl (no merge)."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.smm = Path(self._td.name)
+        self.addCleanup(self._td.cleanup)
+
+    def test_at_or_above_threshold_returns_none(self):
+        # 4 of 5 eligible commits carry trailers = 80% >= THRESHOLD → no advisory.
+        import trailer_gate
+
+        events = [open_concern_event()]
+        for i in range(4):
+            events.append(
+                _code_commit(["aaa"], f"2026-04-05T1{i}:00:00+00:00", f"h{i}", f"c{i}")
+            )
+        events.append(_code_commit([], "2026-04-05T15:00:00+00:00", "h4", "no trailer"))
+        _write_events(self.smm, events)
+        self.assertIsNone(trailer_gate.advisory(self.smm))
+
+    def test_advisory_is_ascii_only(self):
+        # Regression (concern 92521f97fa82): the advisory is print()ed to a
+        # stdout that may not be UTF-8; a non-ASCII char would raise
+        # UnicodeEncodeError after the merge commits but before push/delete,
+        # leaving the source merged-but-unpushed. Pin the text to pure ASCII.
+        import trailer_gate
+
+        events = [
+            open_concern_event(),
+            _code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "hash111", "did link"),
+            _code_commit(["bbb"], "2026-04-05T11:00:00+00:00", "hash222", "also link"),
+            _code_commit([], "2026-04-05T12:00:00+00:00", "deadbee", "forgot trailer"),
+        ]
+        _write_events(self.smm, events)
+        msg = self._assert_not_none(trailer_gate.advisory(self.smm))
+        self.assertTrue(msg.isascii(), f"advisory must be ASCII-only: {msg!r}")
+
+    def test_below_threshold_returns_advisory_with_ratio_and_commits(self):
+        # 2 of 3 eligible = 67% < 80% → advisory names the ratio and EACH
+        # un-trailered eligible commit (short hash + subject).
+        import trailer_gate
+
+        events = [
+            open_concern_event(),
+            _code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "hash111", "did link"),
+            _code_commit(["bbb"], "2026-04-05T11:00:00+00:00", "hash222", "also link"),
+            _code_commit([], "2026-04-05T12:00:00+00:00", "deadbee", "forgot trailer"),
+        ]
+        _write_events(self.smm, events)
+        msg = self._assert_not_none(trailer_gate.advisory(self.smm))
+        self.assertIn("2/3", msg)
+        self.assertIn("80", msg)  # the threshold is named
+        # The un-trailered commit is surfaced by short hash + subject...
+        self.assertIn("deadbee", msg)
+        self.assertIn("forgot trailer", msg)
+        # ...and the trailered ones are NOT in the un-trailered list.
+        self.assertNotIn("did link", msg)
+        self.assertNotIn("also link", msg)
+
+    def test_no_eligible_commits_returns_none(self):
+        # No open concern overlapping the commit → candidate gate excludes it →
+        # empty denominator → no advisory (can't divide, nothing to nudge).
+        import trailer_gate
+
+        events = [
+            _code_commit([], "2026-04-05T10:00:00+00:00", "h0", "orphan commit"),
+        ]
+        _write_events(self.smm, events)
+        self.assertIsNone(trailer_gate.advisory(self.smm))
+
+
+class TestCmdMergeNonBlocking(unittest.TestCase):
+    """The advisory rides on cmd_merge but NEVER changes its exit code."""
+
+    def test_sub_threshold_merge_prints_advisory_and_returns_zero(self):
+        with (
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as repo_td,
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as smm_td,
+        ):
+            _bf.init_repo(repo_td)
+            main = _bf.get_current_branch(repo_td)
+            _bf.make_commit(repo_td, "feature-x", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=repo_td, capture_output=True, check=True
+            )
+
+            smm = Path(smm_td)
+            _write_events(
+                smm,
+                [
+                    open_concern_event(),
+                    _code_commit(
+                        ["aaa"], "2026-04-05T10:00:00+00:00", "hash111", "did link"
+                    ),
+                    _code_commit(
+                        [], "2026-04-05T11:00:00+00:00", "deadbee", "forgot trailer"
+                    ),
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(_CLOSE_COMMON),
+                    "merge",
+                    "--cwd",
+                    repo_td,
+                    "--source",
+                    "feature-x",
+                    "--target",
+                    main,
+                    "--smm-dir",
+                    str(smm),
+                ],
+                capture_output=True,
+                text=True,
+                env=_bf.GIT_ENV,
+            )
+            # Advisory printed AND the merge proceeded (exit 0, source merged).
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("1/2", result.stdout)
+            self.assertIn("deadbee", result.stdout)
+            self.assertFalse(_bf.branch_exists(repo_td, "feature-x"))
+
+
+class TestCloseCommonLineCap(unittest.TestCase):
+    """The extraction must land close_common.py back under the 500-line cap."""
+
+    def test_close_common_at_or_under_500_lines(self):
+        path = _PLUGIN_ROOT / "scripts" / "close_common.py"
+        line_count = len(path.read_text(encoding="utf-8").splitlines())
+        self.assertLessEqual(
+            line_count,
+            500,
+            f"close_common.py is {line_count} lines — extract more to stay "
+            f"under the 500-line cap",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

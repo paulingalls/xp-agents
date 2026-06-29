@@ -3,7 +3,7 @@
 
 The shared commit-event builder consolidates the metadata shape between
 bash-commit emissions (_handle_commit) and close-cycle merge emissions
-(close_common._append_merge_commit_event). Pinning its contract here
+(merge_commit_event.append_merge_commit_event). Pinning its contract here
 keeps the two callers honest — if either side drifts, the unit fails
 before the integration paths do (close-review concern ac839221498c).
 """

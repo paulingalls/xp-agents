@@ -66,7 +66,7 @@ def is_free_branch(name: str) -> bool:
     the shape ``free_branch_name`` emits.
 
     Used by ``commit_handling._handle_commit`` and
-    ``close_common._append_merge_commit_event`` to tag emitted commit
+    ``merge_commit_event.append_merge_commit_event`` to tag emitted commit
     events with ``metadata.is_free_session=True``, which
     ``retro_metrics._compute_resolves_link_rate`` honors via a
     conditional-include filter (count when the commit voluntarily

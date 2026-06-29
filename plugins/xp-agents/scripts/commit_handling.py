@@ -214,7 +214,7 @@ def make_commit_event(
 
     Single canonical builder for both regular `git commit` emissions
     (``_handle_commit``) and close-cycle merge emissions
-    (``close_common._append_merge_commit_event``). When either side
+    (``merge_commit_event.append_merge_commit_event``). When either side
     adds a metadata field, this builder is the one place to update —
     eliminates the drift risk two parallel builders would carry.
 
