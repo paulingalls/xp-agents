@@ -23,14 +23,17 @@ import sys
 from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_SKILL_SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+sys.path.insert(0, str(_SKILL_SCRIPTS))
 
 import _common  # noqa: E402
 import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
 import identity  # noqa: E402
 import marker_names  # noqa: E402
+import sister_tests  # noqa: E402
 import sprint_store  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
@@ -114,6 +117,49 @@ def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
             smm_dir,
             f"Failed to transition milestone {target_num} to in-progress: {exc}",
         )
+
+
+def _extract_path(entry: str) -> str:
+    """file_domain entries are 'path/to/file — note' or just 'path/to/file'.
+    Return the path portion."""
+    return entry.split(" — ", 1)[0].strip()
+
+
+def _auto_include_sister_tests(
+    data: dict,
+    layout: "sister_tests.TestLayout",
+    project_root: Path,
+) -> None:
+    """For each story in data['stories'], discover sister tests for the
+    source paths in its file_domain and append new entries formatted as
+    '<rel> — sister test for <src>'. Dedups against existing file_domain
+    entries (by source-path-extracted key). Skips entries already marked
+    as sisters (prevents sister-of-sister expansion). Mutates data in
+    place. No SMM writes."""
+    for story in data.get("stories", []):
+        domain = story.get("file_domain")
+        if not isinstance(domain, list):
+            continue
+        existing_paths = {_extract_path(e) for e in domain if isinstance(e, str)}
+        additions: list[str] = []
+        for entry in list(domain):  # snapshot — don't iterate over a mutating list
+            if not isinstance(entry, str):
+                continue
+            if " — sister test for " in entry:
+                continue  # prevents sister-of-sister expansion
+            src = _extract_path(entry)
+            if not src:
+                continue
+            try:
+                sisters = sister_tests.discover_sister_tests(src, layout, project_root)
+            except ValueError:
+                continue  # bad source path; skip silently (validator owns shape)
+            for sister in sisters:
+                if sister in existing_paths:
+                    continue
+                additions.append(f"{sister} — sister test for {src}")
+                existing_paths.add(sister)
+        domain.extend(additions)
 
 
 def run(data: dict, smm_dir: Path) -> None:
