@@ -55,6 +55,7 @@ from system_context_edit_cli import (
 from system_context_edit_cli import (
     cmd_edit_project_specific as _cmd_edit_project_specific,
 )
+from system_context_entry_validators import _validate_test_layout
 from system_context_nested_field_cli import (
     cmd_edit_branching_field as _cmd_edit_branching_field,
 )
@@ -307,6 +308,59 @@ def _cmd_add_acceptance_surface(args: argparse.Namespace) -> int:
     return _cmd_append_to_list(args, "acceptance_surfaces", create_if_missing=True)
 
 
+def _cmd_edit_test_layout(args: argparse.Namespace) -> int:
+    """Set test_layout from stdin JSON.
+
+    - stdin `null` → unset the field (idempotent).
+    - stdin valid layout object → write atomically.
+    - stdin `{}` (or any other invalid shape) → reject; the validator
+      surfaces "missing required field: convention" and the CLI prints
+      a stderr hint pointing at the unset path.
+    """
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("No system context found.", file=sys.stderr)
+        return 1
+
+    raw = sys.stdin.read()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON: {exc}", file=sys.stderr)
+        return 1
+
+    if value is None:
+        data.pop("test_layout", None)
+    else:
+        errors = _validate_test_layout(value)
+        if errors:
+            for e in errors:
+                print(e, file=sys.stderr)
+            print(
+                "test_layout requires `convention`; pass `null` to unset.",
+                file=sys.stderr,
+            )
+            return 1
+        data["test_layout"] = value
+
+    try:
+        store.save_system_context(args.smm_dir, data)
+    except ValueError as exc:
+        print(f"Validation error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_get_test_layout(args: argparse.Namespace) -> int:
+    """Print the current test_layout as JSON (or `null` when absent)."""
+    data = store.load_system_context(args.smm_dir)
+    if data is None:
+        print("No system context found.", file=sys.stderr)
+        return 1
+    print(json.dumps(data.get("test_layout")))
+    return 0
+
+
 # ── main ────────────────────────────────────────────────────────
 
 
@@ -382,6 +436,14 @@ def main() -> None:
         "add-acceptance-surface",
         help="Add one acceptance surface from stdin JSON",
     )
+    sub.add_parser(
+        "edit-test-layout",
+        help=("Set test_layout from stdin JSON (stdin `null` unsets the field)"),
+    )
+    sub.add_parser(
+        "get-test-layout",
+        help="Print test_layout as JSON (or `null` when unset)",
+    )
 
     for name, help_text in (
         ("retire-principle", "Retire a principle by topic"),
@@ -437,6 +499,8 @@ def main() -> None:
         "add-project-specific": _cmd_add_project_specific,
         "edit-acceptance-surfaces": _cmd_edit_acceptance_surfaces,
         "add-acceptance-surface": _cmd_add_acceptance_surface,
+        "edit-test-layout": _cmd_edit_test_layout,
+        "get-test-layout": _cmd_get_test_layout,
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,
