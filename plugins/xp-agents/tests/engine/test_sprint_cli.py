@@ -397,6 +397,76 @@ class TestAddStoryCommand(_SMMTestCase):
         self.assertEqual(len(loaded["stories"]), 2)
 
 
+class TestAddStoryDupId(_SMMTestCase):
+    """add-story rejects payloads whose id collides with an existing
+    story (story-003). Non-dict / id-less payloads fall through to the
+    existing schema validator so their error messages stay stable."""
+
+    def test_dup_id_rejects_nonzero(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        sprint_path = self.smm_dir / "sprint.json"
+        sprint_path.write_text(json.dumps(sprint))
+        before = sprint_path.read_bytes()
+        dup_payload = _make_story(id="story-001", title="Collision")
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps(dup_payload),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Duplicate story id", result.stderr)
+        self.assertIn("story-001", result.stderr)
+        self.assertEqual(sprint_path.read_bytes(), before)
+
+    def test_new_id_succeeds(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps(_make_story(id="story-099", title="Fresh")),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        ids = [s["id"] for s in loaded["stories"]]
+        self.assertIn("story-099", ids)
+
+    def test_dup_check_preserves_jsondecodeerror_path(self):
+        # Pre-check must not swallow the existing parse-error branch.
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, "{not json")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid JSON", result.stderr)
+        self.assertNotIn("Duplicate story id", result.stderr)
+
+    def test_missing_id_falls_through_to_validator(self):
+        # An id-less dict isn't a dup candidate; the schema validator
+        # owns the rejection so its message stays the source of truth.
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps({"title": "no-id"}),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Validation error", result.stderr)
+        self.assertNotIn("Duplicate story id", result.stderr)
+
+    def test_non_dict_payload_falls_through_to_validator(self):
+        # Same contract for non-dict JSON shapes (list, string, ...).
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, "[]")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Validation error", result.stderr)
+        self.assertNotIn("Duplicate story id", result.stderr)
+
+
 class TestSprintCliHelp(_SMMTestCase):
     def test_help_contains_examples(self):
         result = run_cli(_CLI, ["--help"], self.smm_dir)
@@ -956,6 +1026,78 @@ class TestReadyFrontierCommand(_SMMTestCase):
             extra_args=["--treat-as-done", "story-001"],
         )
         self.assertEqual(out["frontier"], ["story-002"])
+
+
+class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
+    """Story-004: _cmd_create + _cmd_add_story route through save_sprint.run()
+    (structural mutations — full pipeline). _cmd_edit_story routes through
+    save_sprint.save() (status flips — side-effect-free). Lock-in tests.
+
+    Observable side-effect of run() used here: the soft-warn marker for
+    sister-test layout (Q1(b)) — touched only by run(), never by save().
+    """
+
+    _MARKER = ".sister-test-layout-warn"
+
+    def _sample_sprint(self):
+        return _make_sprint(stories=[_make_story(id="story-001", status="ready")])
+
+    def test_create_fires_run_pipeline(self):
+        sprint = self._sample_sprint()
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(sprint))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            (self.smm_dir / self._MARKER).exists(),
+            "expected sister-test soft-warn marker after _cmd_create — proves "
+            "_cmd_create routes through save_sprint.run()",
+        )
+
+    def test_add_story_fires_run_pipeline(self):
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        new_story = _make_story(id="story-099", status="ready")
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, json.dumps(new_story))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            (self.smm_dir / self._MARKER).exists(),
+            "expected sister-test soft-warn marker after _cmd_add_story",
+        )
+
+    def test_add_story_dup_id_stays_above_run(self):
+        """story-003's locked contract: dup-id guard runs BEFORE save_sprint.run.
+        A duplicate-id payload must NOT fire run()'s side effects (no marker,
+        no transition concerns)."""
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        dup = _make_story(id="story-001", status="ready", title="dup")
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, json.dumps(dup))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Duplicate story id", result.stderr)
+        self.assertFalse(
+            (self.smm_dir / self._MARKER).exists(),
+            "dup-id rejection MUST short-circuit before save_sprint.run — "
+            "marker should NOT exist (locks story-003 contract)",
+        )
+
+    def test_edit_story_uses_save_not_run(self):
+        """Status flips via edit-story must NOT trigger sister discovery or
+        soft-warn (impact-zone constraint per plan-review e7b72bd57c84)."""
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"status": "in-progress"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(
+            (self.smm_dir / self._MARKER).exists(),
+            "edit-story MUST route through save() not run() — sister-test "
+            "soft-warn marker should NOT exist (locks the architectural split)",
+        )
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "in-progress")
 
 
 if __name__ == "__main__":

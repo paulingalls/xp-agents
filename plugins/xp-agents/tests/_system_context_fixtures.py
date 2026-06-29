@@ -55,6 +55,22 @@ def seed_entries(field: str, n: int) -> list:
     raise ValueError(f"unknown field: {field}")
 
 
+def valid_test_layout(
+    convention: str = "python_pytest",
+    overrides: tuple[dict, ...] = (),
+) -> dict:
+    """Build a valid test_layout object. Single object, not a list.
+
+    Default is python_pytest with no overrides. Pass a tuple of
+    well-formed override dicts (3 required + up to 3 optional keys)
+    when exercising the overrides path.
+    """
+    layout: dict[str, object] = {"convention": convention}
+    if overrides:
+        layout["overrides"] = list(overrides)
+    return layout
+
+
 def surfaces(*names: str) -> list[dict]:
     """Build covered acceptance_surfaces by name (signals stubbed)."""
     return [{"name": n, "signals": ["x"], "status": "covered"} for n in names]
