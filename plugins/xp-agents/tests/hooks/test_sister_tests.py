@@ -437,6 +437,53 @@ class TestDiscoveryEdgeCases(_DiscoveryTestCase):
         )
         self.assertEqual(discover_sister_tests("pkg/foo.py", layout, self.root), [])
 
+    def test_escaping_dotdot_resolved_path_is_filtered(self):
+        # Mirrors csharp_xunit R2 with a root-level source: {dir}/../Tests/...
+        # resolves to '../Tests/FooTests.cs' which escapes project_root.
+        # discover_sister_tests must drop these instead of returning lexical
+        # '../...' paths that violate the project-relative contract.
+        sibling = self.root.parent / "sister_tests_escape_target"
+        sibling.mkdir(parents=True, exist_ok=True)
+        try:
+            (sibling / "Tests").mkdir(exist_ok=True)
+            (sibling / "Tests" / "FooTests.cs").write_text("")
+            # Rename the sibling to land at <root>/../Tests via the rule.
+            tests_outside = self.root.parent / "Tests"
+            tests_outside.mkdir(exist_ok=True)
+            (tests_outside / "FooTests.cs").write_text("")
+            layout = TestLayout(
+                convention="custom",
+                rules=(
+                    TestLayoutRule(
+                        source_pattern="**/*.cs",
+                        stem_extractor="basename_no_ext",
+                        test_glob="{dir}/../Tests/{stem}Tests.cs",
+                    ),
+                ),
+            )
+            self.assertEqual(
+                discover_sister_tests("Foo.cs", layout, self.root),
+                [],
+            )
+        finally:
+            shutil.rmtree(sibling, ignore_errors=True)
+            shutil.rmtree(self.root.parent / "Tests", ignore_errors=True)
+
+    def test_absolute_resolved_path_is_filtered(self):
+        # A rule whose test_glob is absolute must be skipped — discover_sister_tests
+        # promises project-relative results.
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="/abs/tests/test_{stem}.py",
+                ),
+            ),
+        )
+        self.assertEqual(discover_sister_tests("pkg/foo.py", layout, self.root), [])
+
     def test_rule_matches_but_no_test_file_on_disk_returns_empty(self):
         layout = TestLayout(
             convention="custom",

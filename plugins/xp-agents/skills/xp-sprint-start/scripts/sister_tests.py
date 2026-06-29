@@ -433,6 +433,17 @@ def discover_sister_tests(
         if stem is None:
             continue
         for resolved in _resolve_test_glob(rule, stem, src):
+            # Defensive: a normalized glob like '../Tests/x.cs' (csharp_xunit
+            # R2 with a root-level source) escapes project_root. pathlib.glob
+            # would follow it and relative_to returns a lexical '../...' path
+            # — violating the docstring's "project-relative" promise. Drop
+            # absolute or escaping candidates before touching the filesystem.
+            if (
+                resolved.startswith("/")
+                or resolved.startswith("../")
+                or resolved == ".."
+            ):
+                continue
             for match in project_root.glob(resolved):
                 rel = match.relative_to(project_root).as_posix()
                 # Defensive: a glob hit named like a skipped basename
