@@ -250,6 +250,27 @@ class TestEditBranchingCommand(_SMMTestCase):
         )
         self.assertEqual(result.returncode, 1)
         self.assertIn("Validation error", result.stderr)
+        # _cmd_edit_field's generalized null-unset hint fires for any
+        # _OPTIONAL_TOP_LEVEL_FIELDS member; pin it for branching_strategy
+        # so a future regression re-gating on `name == "test_layout"` is
+        # caught by THIS test rather than a transitive test_layout test.
+        self.assertIn("null", result.stderr)
+
+    def test_edit_acceptance_surfaces_invalid_payload_emits_null_hint(self) -> None:
+        # Sister of test_edit_branching_invalid_stage — pins the generalized
+        # null-unset hint for the acceptance_surfaces branch of
+        # _OPTIONAL_TOP_LEVEL_FIELDS. acceptance_surfaces must be a list;
+        # a dict fails schema validation at save time.
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["edit-acceptance-surfaces"],
+            self.smm_dir,
+            stdin_data=json.dumps({"not": "a list"}),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Validation error", result.stderr)
+        self.assertIn("null", result.stderr)
 
     def test_edit_branching_no_existing_context(self) -> None:
         bs = {"stage": 1}
