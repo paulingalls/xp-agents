@@ -61,6 +61,7 @@ ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
 CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
 REVIEW_CADENCE = MarkerDef(marker_names.REVIEW_CADENCE, "text")
+SISTER_TEST_LAYOUT_WARN = MarkerDef(marker_names.SISTER_TEST_LAYOUT_WARN, "text")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
@@ -249,6 +250,7 @@ _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ACTIVE,
     ACCEPT,
     ACCEPT_IN_FLIGHT,
+    SISTER_TEST_LAYOUT_WARN,
 )
 
 

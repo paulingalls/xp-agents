@@ -1028,5 +1028,77 @@ class TestReadyFrontierCommand(_SMMTestCase):
         self.assertEqual(out["frontier"], ["story-002"])
 
 
+class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
+    """Story-004: _cmd_create + _cmd_add_story route through save_sprint.run()
+    (structural mutations — full pipeline). _cmd_edit_story routes through
+    save_sprint.save() (status flips — side-effect-free). Lock-in tests.
+
+    Observable side-effect of run() used here: the soft-warn marker for
+    sister-test layout (Q1(b)) — touched only by run(), never by save().
+    """
+
+    _MARKER = ".sister-test-layout-warn"
+
+    def _sample_sprint(self):
+        return _make_sprint(stories=[_make_story(id="story-001", status="ready")])
+
+    def test_create_fires_run_pipeline(self):
+        sprint = self._sample_sprint()
+        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(sprint))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            (self.smm_dir / self._MARKER).exists(),
+            "expected sister-test soft-warn marker after _cmd_create — proves "
+            "_cmd_create routes through save_sprint.run()",
+        )
+
+    def test_add_story_fires_run_pipeline(self):
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        new_story = _make_story(id="story-099", status="ready")
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, json.dumps(new_story))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            (self.smm_dir / self._MARKER).exists(),
+            "expected sister-test soft-warn marker after _cmd_add_story",
+        )
+
+    def test_add_story_dup_id_stays_above_run(self):
+        """story-003's locked contract: dup-id guard runs BEFORE save_sprint.run.
+        A duplicate-id payload must NOT fire run()'s side effects (no marker,
+        no transition concerns)."""
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        dup = _make_story(id="story-001", status="ready", title="dup")
+        result = run_cli(_CLI, ["add-story"], self.smm_dir, json.dumps(dup))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Duplicate story id", result.stderr)
+        self.assertFalse(
+            (self.smm_dir / self._MARKER).exists(),
+            "dup-id rejection MUST short-circuit before save_sprint.run — "
+            "marker should NOT exist (locks story-003 contract)",
+        )
+
+    def test_edit_story_uses_save_not_run(self):
+        """Status flips via edit-story must NOT trigger sister discovery or
+        soft-warn (impact-zone constraint per plan-review e7b72bd57c84)."""
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"status": "in-progress"}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(
+            (self.smm_dir / self._MARKER).exists(),
+            "edit-story MUST route through save() not run() — sister-test "
+            "soft-warn marker should NOT exist (locks the architectural split)",
+        )
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "in-progress")
+
+
 if __name__ == "__main__":
     unittest.main()

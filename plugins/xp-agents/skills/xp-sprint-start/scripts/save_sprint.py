@@ -23,15 +23,19 @@ import sys
 from pathlib import Path
 
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_SKILL_SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+sys.path.insert(0, str(_SKILL_SCRIPTS))
 
 import _common  # noqa: E402
 import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
 import identity  # noqa: E402
 import marker_names  # noqa: E402
+import sister_tests  # noqa: E402  # pyright: ignore[reportMissingImports]
 import sprint_store  # noqa: E402
+import system_context_store  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     STATUS_ACTION_ITERATION_COMPLETE,
@@ -116,8 +120,152 @@ def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
         )
 
 
+def _coerce_overrides(raw: object) -> tuple["sister_tests.TestLayoutRule", ...]:
+    """Coerce JSON list-of-dicts to tuple-of-TestLayoutRule. Round-trips
+    skip_basenames/skip_suffixes/source_excludes from JSON list to tuple.
+    Silently drops malformed entries — schema validator is the source of
+    truth; this is defensive."""
+    if not isinstance(raw, list):
+        return ()
+    out: list[sister_tests.TestLayoutRule] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            out.append(
+                sister_tests.TestLayoutRule(
+                    source_pattern=entry["source_pattern"],
+                    stem_extractor=entry["stem_extractor"],
+                    test_glob=entry["test_glob"],
+                    skip_basenames=tuple(entry.get("skip_basenames", ())),
+                    skip_suffixes=tuple(entry.get("skip_suffixes", ())),
+                    source_excludes=tuple(entry.get("source_excludes", ())),
+                )
+            )
+        except (KeyError, TypeError):
+            continue
+    return tuple(out)
+
+
+def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
+    """Load system_context.test_layout and construct a TestLayout. Returns
+    None when test_layout is absent, convention is 'unknown', or
+    system_context is missing/unreadable. Never writes events."""
+    try:
+        sc = system_context_store.load_system_context(smm_dir)
+    except (OSError, ValueError):
+        return None
+    if sc is None:
+        return None
+    layout_data = sc.get("test_layout")
+    if not isinstance(layout_data, dict):
+        return None
+    convention = layout_data.get("convention")
+    if not isinstance(convention, str) or convention == "unknown":
+        return None
+    if convention == "custom":
+        rules: tuple[sister_tests.TestLayoutRule, ...] = ()
+    else:
+        builtin = sister_tests.BUILTIN_LAYOUTS.get(convention)
+        if builtin is None:
+            return None  # schema validator should catch this earlier
+        rules = builtin.rules
+    overrides = _coerce_overrides(layout_data.get("overrides", []))
+    return sister_tests.TestLayout(
+        convention=convention, rules=rules, overrides=overrides
+    )
+
+
+def _warn_unknown_layout_once(smm_dir: Path) -> None:
+    """Q1(b): one low-severity concern per session when test_layout is
+    unknown/unset. Cross-process state lives in a marker file in SMM_DIR;
+    the SessionStart hook clears the marker so each session warns at
+    most once. Module-level state would not survive sprint_cli's
+    subprocess invocation model — that was plan-review concern
+    3565573f3187 and the marker-file approach is its fix."""
+    marker = smm_dir / marker_names.SISTER_TEST_LAYOUT_WARN
+    if marker.exists():
+        return
+    _record_concern(
+        smm_dir,
+        "Sister-test auto-inclusion skipped: system_context.test_layout is "
+        "unset or convention='unknown'. Run /xp-system-context to detect a "
+        "layout, or pipe a layout dict into "
+        "system_context_cli.py edit-test-layout.",
+    )
+    with contextlib.suppress(OSError):
+        marker.touch()
+
+
+def _resolve_project_root() -> Path | None:
+    """Walk up from cwd looking for .git/ (file or directory; in a worktree
+    .git is a regular file pointing to the worktree metadata). Returns the
+    project toplevel or None. None disables auto-include (defensive — some
+    test contexts and headless callers have no git root)."""
+    cur = Path.cwd().resolve()
+    for ancestor in (cur, *cur.parents):
+        if (ancestor / ".git").exists():
+            return ancestor
+    return None
+
+
+def _extract_path(entry: str) -> str:
+    """file_domain entries are 'path/to/file — note' or just 'path/to/file'.
+    Return the path portion."""
+    return entry.split(" — ", 1)[0].strip()
+
+
+def _auto_include_sister_tests(
+    data: dict,
+    layout: "sister_tests.TestLayout",
+    project_root: Path,
+) -> None:
+    """For each story in data['stories'], discover sister tests for the
+    source paths in its file_domain and append new entries formatted as
+    '<rel> — sister test for <src>'. Dedups against existing file_domain
+    entries (by source-path-extracted key). Skips entries already marked
+    as sisters (prevents sister-of-sister expansion). Mutates data in
+    place. No SMM writes."""
+    for story in data.get("stories", []):
+        domain = story.get("file_domain")
+        if not isinstance(domain, list):
+            continue
+        existing_paths = {_extract_path(e) for e in domain if isinstance(e, str)}
+        additions: list[str] = []
+        for entry in list(domain):  # snapshot — don't iterate over a mutating list
+            if not isinstance(entry, str):
+                continue
+            if " — sister test for " in entry:
+                continue  # prevents sister-of-sister expansion
+            src = _extract_path(entry)
+            if not src:
+                continue
+            try:
+                sisters = sister_tests.discover_sister_tests(src, layout, project_root)
+            except ValueError:
+                continue  # bad source path; skip silently (validator owns shape)
+            for sister in sisters:
+                if sister in existing_paths:
+                    continue
+                additions.append(f"{sister} — sister test for {src}")
+                existing_paths.add(sister)
+        domain.extend(additions)
+
+
+def save(data: dict, smm_dir: Path) -> None:
+    """Atomic write only. No sister-test discovery, no milestone transition,
+    no accept-marker handling. Use for status/metadata edits that should
+    NOT trigger the full run-bundle — sprint_cli._cmd_edit_story is the
+    canonical caller, since /xp-accept and /xp-schedule drive edit-story
+    purely for status flips. See plan-review concern e7b72bd57c84 for the
+    impact-zone constraint this preserves."""
+    sprint_store.save_sprint(smm_dir, data)
+
+
 def run(data: dict, smm_dir: Path) -> None:
-    """Write sprint.json and run the acceptance-flow side effects.
+    """Full sprint-mutation pipeline: sister-test discovery + atomic save
+    + milestone transition + accept-marker handling. Use for structural
+    sprint mutations (sprint_cli._cmd_create, _cmd_add_story).
 
     Args:
         data: Sprint data dict (validated by sprint_store).
@@ -126,7 +274,16 @@ def run(data: dict, smm_dir: Path) -> None:
     accept_marker = smm_dir / marker_names.ACCEPT
     accept_marker_existed = accept_marker.exists()
 
-    sprint_store.save_sprint(smm_dir, data)
+    # Sister-test auto-inclusion + Q1(b) soft-warn (story-004)
+    layout = _resolve_layout(smm_dir)
+    if layout is not None:
+        project_root = _resolve_project_root()
+        if project_root is not None:
+            _auto_include_sister_tests(data, layout, project_root)
+    else:
+        _warn_unknown_layout_once(smm_dir)
+
+    save(data, smm_dir)
 
     _transition_target_milestone(data, smm_dir)
 

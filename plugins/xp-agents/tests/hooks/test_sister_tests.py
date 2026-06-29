@@ -13,7 +13,7 @@ _SKILL_SCRIPTS = (
 )
 sys.path.insert(0, str(_SKILL_SCRIPTS))
 
-from sister_tests import (  # noqa: E402
+from sister_tests import (  # noqa: E402  # pyright: ignore[reportMissingImports]
     BUILTIN_LAYOUTS,
     STEM_EXTRACTORS,
     TestLayout,
@@ -179,17 +179,15 @@ class TestLiteralPrefix(unittest.TestCase):
         self.assertEqual(_literal_prefix("a/b/foo[12].txt"), "a/b/")
 
 
-# Need TestLayoutRule for _resolve_test_glob tests. Import lazily inside the
-# class to keep this commit's red phase honest — _resolve_test_glob is what's
-# being added now; TestLayoutRule comes in the next commit. For now we pass a
-# tiny shim object via a SimpleNamespace duck-type.
 class TestResolveTestGlob(unittest.TestCase):
     """_resolve_test_glob substitutes {stem}, {dir}, {mirror} then brace-expands."""
 
     def _make_rule(self, source_pattern, test_glob):
-        from types import SimpleNamespace
-
-        return SimpleNamespace(source_pattern=source_pattern, test_glob=test_glob)
+        return TestLayoutRule(
+            source_pattern=source_pattern,
+            stem_extractor="basename_no_ext",
+            test_glob=test_glob,
+        )
 
     def test_stem_substitution(self):
         from pathlib import PurePosixPath
