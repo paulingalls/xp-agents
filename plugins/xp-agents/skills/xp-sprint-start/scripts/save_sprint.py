@@ -35,6 +35,7 @@ import identity  # noqa: E402
 import marker_names  # noqa: E402
 import sister_tests  # noqa: E402
 import sprint_store  # noqa: E402
+import system_context_store  # noqa: E402
 from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     STATUS_ACTION_ITERATION_COMPLETE,
@@ -117,6 +118,62 @@ def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
             smm_dir,
             f"Failed to transition milestone {target_num} to in-progress: {exc}",
         )
+
+
+def _coerce_overrides(raw: object) -> tuple["sister_tests.TestLayoutRule", ...]:
+    """Coerce JSON list-of-dicts to tuple-of-TestLayoutRule. Round-trips
+    skip_basenames/skip_suffixes/source_excludes from JSON list to tuple.
+    Silently drops malformed entries — schema validator is the source of
+    truth; this is defensive."""
+    if not isinstance(raw, list):
+        return ()
+    out: list[sister_tests.TestLayoutRule] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            out.append(
+                sister_tests.TestLayoutRule(
+                    source_pattern=entry["source_pattern"],
+                    stem_extractor=entry["stem_extractor"],
+                    test_glob=entry["test_glob"],
+                    skip_basenames=tuple(entry.get("skip_basenames", ())),
+                    skip_suffixes=tuple(entry.get("skip_suffixes", ())),
+                    source_excludes=tuple(entry.get("source_excludes", ())),
+                )
+            )
+        except (KeyError, TypeError):
+            continue
+    return tuple(out)
+
+
+def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
+    """Load system_context.test_layout and construct a TestLayout. Returns
+    None when test_layout is absent, convention is 'unknown', or
+    system_context is missing/unreadable. Never writes events."""
+    try:
+        sc = system_context_store.load_system_context(smm_dir)
+    except (OSError, ValueError):
+        return None
+    if sc is None:
+        return None
+    layout_data = sc.get("test_layout")
+    if not isinstance(layout_data, dict):
+        return None
+    convention = layout_data.get("convention")
+    if not isinstance(convention, str) or convention == "unknown":
+        return None
+    if convention == "custom":
+        rules: tuple[sister_tests.TestLayoutRule, ...] = ()
+    else:
+        builtin = sister_tests.BUILTIN_LAYOUTS.get(convention)
+        if builtin is None:
+            return None  # schema validator should catch this earlier
+        rules = builtin.rules
+    overrides = _coerce_overrides(layout_data.get("overrides", []))
+    return sister_tests.TestLayout(
+        convention=convention, rules=rules, overrides=overrides
+    )
 
 
 def _extract_path(entry: str) -> str:

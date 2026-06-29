@@ -455,5 +455,89 @@ class TestAutoIncludeSisterTests(_HookTestCase):
             )
 
 
+class TestResolveLayout(_HookTestCase):
+    """_resolve_layout reads system_context.test_layout and constructs a
+    TestLayout instance. Returns None when absent, when convention is
+    'unknown', or when system_context is missing/unreadable."""
+
+    def setUp(self):
+        super().setUp()
+        self.mod = _import_save_sprint()
+        self.sister_tests = importlib.import_module("sister_tests")
+
+    def _write_sc(self, test_layout=None):
+        from _system_context_fixtures import valid_doc, write_doc
+
+        kwargs = {}
+        if test_layout is not None:
+            kwargs["test_layout"] = test_layout
+        write_doc(self.smm_dir, valid_doc(**kwargs))
+
+    def test_returns_none_when_system_context_absent(self):
+        self.assertIsNone(self.mod._resolve_layout(self.smm_dir))
+
+    def test_returns_none_when_test_layout_absent(self):
+        self._write_sc(test_layout=None)
+        self.assertIsNone(self.mod._resolve_layout(self.smm_dir))
+
+    def test_returns_none_when_convention_unknown(self):
+        self._write_sc({"convention": "unknown", "overrides": []})
+        self.assertIsNone(self.mod._resolve_layout(self.smm_dir))
+
+    def test_returns_builtin_layout_for_python_pytest(self):
+        self._write_sc({"convention": "python_pytest", "overrides": []})
+        layout = self.mod._resolve_layout(self.smm_dir)
+        self.assertIsNotNone(layout)
+        self.assertEqual(layout.convention, "python_pytest")
+        self.assertEqual(
+            layout.rules,
+            self.sister_tests.BUILTIN_LAYOUTS["python_pytest"].rules,
+        )
+
+    def test_custom_convention_has_empty_rules_only_overrides(self):
+        self._write_sc(
+            {
+                "convention": "custom",
+                "overrides": [
+                    {
+                        "source_pattern": "**/*.toml",
+                        "stem_extractor": "basename_no_ext",
+                        "test_glob": "tests/test_{stem}.py",
+                    }
+                ],
+            }
+        )
+        layout = self.mod._resolve_layout(self.smm_dir)
+        self.assertIsNotNone(layout)
+        self.assertEqual(layout.convention, "custom")
+        self.assertEqual(layout.rules, ())
+        self.assertEqual(len(layout.overrides), 1)
+        self.assertEqual(layout.overrides[0].source_pattern, "**/*.toml")
+
+    def test_overrides_coerce_list_to_tuple_for_skip_fields(self):
+        self._write_sc(
+            {
+                "convention": "python_pytest",
+                "overrides": [
+                    {
+                        "source_pattern": "src/*.py",
+                        "stem_extractor": "basename_no_ext",
+                        "test_glob": "tests/{stem}.py",
+                        "skip_basenames": ["__init__.py", "conftest.py"],
+                        "skip_suffixes": ["_test.py"],
+                        "source_excludes": ["obj/**"],
+                    }
+                ],
+            }
+        )
+        layout = self.mod._resolve_layout(self.smm_dir)
+        self.assertIsNotNone(layout)
+        rule = layout.overrides[0]
+        self.assertIsInstance(rule.skip_basenames, tuple)
+        self.assertEqual(rule.skip_basenames, ("__init__.py", "conftest.py"))
+        self.assertEqual(rule.skip_suffixes, ("_test.py",))
+        self.assertEqual(rule.source_excludes, ("obj/**",))
+
+
 if __name__ == "__main__":
     unittest.main()
