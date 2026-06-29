@@ -514,6 +514,39 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestSwiftXCTest(_DiscoveryTestCase):
+    """swift_xctest: Sources/<mod>/Foo.swift -> Tests/<any>/FooTests.swift."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["swift_xctest"]
+
+    def test_finds_test_in_any_module_tests_dir(self):
+        # SwiftPM convention: Tests/<ModuleNameTests>/FooTests.swift. We use
+        # the simpler glob Tests/**/FooTests.swift since the plan defers exact
+        # module-name derivation.
+        _touch(self.root, "Tests/MyLibTests/FooTests.swift")
+        self.assertEqual(
+            discover_sister_tests("Sources/MyLib/Foo.swift", self.layout, self.root),
+            ["Tests/MyLibTests/FooTests.swift"],
+        )
+
+    def test_test_file_as_source_is_skipped(self):
+        _touch(self.root, "Tests/MyLibTests/FooTestsTests.swift")
+        self.assertEqual(
+            discover_sister_tests(
+                "Sources/MyLib/FooTests.swift", self.layout, self.root
+            ),
+            [],
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("Sources/MyLib/Bar.swift", self.layout, self.root),
+            [],
+        )
+
+
 class TestElixirExunit(_DiscoveryTestCase):
     """elixir_exunit: lib/foo/bar.ex -> test/foo/bar_test.exs (mirror)."""
 

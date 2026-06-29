@@ -206,6 +206,22 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "swift_xctest": TestLayout(
+        convention="swift_xctest",
+        rules=(
+            # SwiftPM convention: Sources/<Module>/X.swift has a matching
+            # Tests/<ModuleTests>/XTests.swift. The exact module-name mapping
+            # (append "Tests" to the first segment) is deferred — for the
+            # initial BUILTIN, the simpler Tests/**/XTests.swift glob picks
+            # up the file regardless of which module dir it lives in.
+            TestLayoutRule(
+                source_pattern="Sources/**/*.swift",
+                stem_extractor="basename_no_ext",
+                test_glob="Tests/**/{stem}Tests.swift",
+                skip_suffixes=("Tests.swift",),
+            ),
+        ),
+    ),
     "elixir_exunit": TestLayout(
         convention="elixir_exunit",
         rules=(
