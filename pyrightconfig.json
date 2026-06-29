@@ -8,7 +8,6 @@
     "plugins/xp-agents/skills/xp-end-session/scripts",
     "plugins/xp-agents/skills/xp-quality-review/scripts",
     "plugins/xp-agents/skills/xp-sprint-review/scripts",
-    "plugins/xp-agents/skills/xp-sprint-start/scripts",
     "plugins/xp-agents/skills/xp-work-selection/scripts"
   ],
   "exclude": ["**/__pycache__", "**/.pytest_cache"],
