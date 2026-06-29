@@ -308,5 +308,81 @@ class TestAcceptInFlightMarker(_HookTestCase):
 # pre_tool_write (pinned in test_pre_tool_write_gates.py).
 
 
+class TestWarnOnce(_HookTestCase):
+    """Shared once-per-session warn primitive: marker-gated concern append.
+
+    Replaces the hand-rolled marker_exists/concern-append/marker_write
+    dance in save_sprint._warn_sister_skip_once. Future warn-once
+    needs (Q1(c), N-th language detection mismatch, ...) should call
+    this rather than copy the pattern.
+    """
+
+    _AGENT_ID = "test-warn-once"
+
+    def _concerns(self) -> list[dict]:
+        return [e for e in self._read_events() if e.get("type") == "concern"]
+
+    def test_first_call_writes_concern_and_marker(self):
+        fired = markers.warn_once(
+            self.smm_dir,
+            markers.SISTER_TEST_LAYOUT_WARN,
+            "hello",
+            self._AGENT_ID,
+        )
+        self.assertTrue(fired, "first call must return True")
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.SISTER_TEST_LAYOUT_WARN)
+        )
+        concerns = self._concerns()
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0]["content"], "hello")
+        self.assertEqual(concerns[0]["severity"], "low")
+        self.assertEqual(concerns[0]["agent_id"], self._AGENT_ID)
+
+    def test_second_call_is_noop_when_marker_exists(self):
+        markers.warn_once(
+            self.smm_dir,
+            markers.SISTER_TEST_LAYOUT_WARN,
+            "first",
+            self._AGENT_ID,
+        )
+        fired = markers.warn_once(
+            self.smm_dir,
+            markers.SISTER_TEST_LAYOUT_WARN,
+            "second",
+            self._AGENT_ID,
+        )
+        self.assertFalse(fired, "second call must return False (already-warned)")
+        concerns = self._concerns()
+        self.assertEqual(
+            len(concerns),
+            1,
+            "marker presence must suppress the second concern entirely",
+        )
+        self.assertEqual(concerns[0]["content"], "first")
+
+    def test_marker_registered_in_session_sweep(self):
+        # warn_once relies on the SessionStart sweep to clear the marker
+        # between sessions; a marker omitted from _STALE_SESSION_MARKERS
+        # would silently latch into permanent-warn.
+        self.assertIn(
+            markers.SISTER_TEST_LAYOUT_WARN,
+            markers._STALE_SESSION_MARKERS,
+        )
+
+    def test_severity_override(self):
+        fired = markers.warn_once(
+            self.smm_dir,
+            markers.SISTER_TEST_LAYOUT_WARN,
+            "loud",
+            self._AGENT_ID,
+            severity="high",
+        )
+        self.assertTrue(fired)
+        concerns = self._concerns()
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(concerns[0]["severity"], "high")
+
+
 if __name__ == "__main__":
     unittest.main()
