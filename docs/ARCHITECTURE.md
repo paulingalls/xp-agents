@@ -115,7 +115,7 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **PostToolUseFailure** | `AskUserQuestion` | `question_answered.py` | Record clarification when question is dismissed |
 | **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + process guide) + watermark |
-| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT markers, emit completion event — does NOT inject context; SubagentStop has no `additionalContext` support), `_handle_sprint_review_done` (record sprint end + velocity), `_handle_close_reviewer_done` (consume CLOSE_CYCLE_ACTIVE), `_handle_plan_review_done` (write ASSIGN_PENDING marker, nudge `/xp-assign`). Writes `.plan-awaiting-review` marker file for Plan subagent. |
+| **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT markers, emit completion event — does NOT return context; SubagentStop `additionalContext` is routed to the finished subagent, not the parent), `_handle_sprint_review_done` (record sprint end + velocity), `_handle_close_reviewer_done` (consume CLOSE_CYCLE_ACTIVE), `_handle_plan_review_done` (write ASSIGN_PENDING marker + plan_reviewed gate event, returns None — the reviewer's own Next-step block tells the main agent to run `/xp-assign`). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
 | **Stop** | | `sprint_stop_gate.py` | Sprint lifecycle cascade (accept → review): blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review |
 | **Stop** | | `close_cycle_stop_gate.py` | Block when CLOSE_CYCLE_ACTIVE marker present — nudges agent to run /security-review then invoke xp-close-reviewer. Defers on ASKING_USER. Records a high-severity concern + emits stderr if `stop_hook_active` bypass coincides with an active marker |
@@ -190,7 +190,7 @@ Injection order in SessionStart `additionalContext`:
 
 After the forked `xp-housekeeper` subagent finishes, the post-completion injection split is:
 
-- **SubagentStop** (`subagent_stop._handle_housekeeping_done`) consumes the KICKOFF and NEEDS_HOUSEKEEPING markers and emits a status event. **It does NOT inject context** — SubagentStop's `additionalContext` is silently dropped by the platform.
+- **SubagentStop** (`subagent_stop._handle_housekeeping_done`) consumes the KICKOFF and NEEDS_HOUSEKEEPING markers and emits a status event. **It does NOT return context** — SubagentStop's `additionalContext` is delivered to the finished subagent (continuing its turn), not the parent, so it cannot inject into the main agent.
 - **PostToolUse:Skill\|Agent** (`review_cycle_done.py`) fires for the same Agent-tool completion, detects `subagent_type == xp-housekeeper`, and returns PROCESS_GUIDE.md as `additionalContext`. The curated SMM is already in context because housekeeping step 8 has the agent Read the file.
 
 All injection is via `additionalContext` except the curated SMM file (Read by agent during housekeeping).
@@ -298,7 +298,7 @@ plugins/xp-agents/
 - PostToolUse supports `additionalContext` and `decision: "block"`
 - Prompt/agent hooks use `ok`/`reason` format, NOT `decision`/`block`
 - `!` command permissions in skills controlled by `allowed-tools` field — add `Bash(*/skills/*/scripts/*)` to pre-approve preload scripts
-- **SubagentStop only supports `decision:"block"` or silence** — `decision:"approve"` with `reason` is silently dropped. No `additionalContext` support. This limits enforcement options for plan review
+- **SubagentStop only supports `decision:"block"` or silence** — `decision:"approve"` with `reason` is silently dropped. `additionalContext` is delivered to the finished subagent (continuing its turn), not the parent — so it cannot message the main agent (and can bury a subagent's final message). This limits enforcement options for plan review
 - Plugin cache requires version bump to update — `/reload-plugins` alone isn't sufficient if version is unchanged
 - File-based coordination (`.retro-input.json`) is a race — design for graceful degradation
 - **`${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are NOT exported into the agent's Bash tool environment** in `claude -p` (and regular `claude`). Claude Code substitutes them when injecting `SKILL.md` content and hook command strings, but raw markdown loaded via our own loaders (e.g. `plugin_loader.load_process_guide`, `plugin_loader.load_teammate_guide`) leaks the literal variable into agent Bash, where it expands to empty. Loaders that inject guide content as `additionalContext` MUST run text through `plugin_loader.expand_plugin_root` first
