@@ -397,6 +397,29 @@ class TestAddStoryCommand(_SMMTestCase):
         self.assertEqual(len(loaded["stories"]), 2)
 
 
+class TestAddStoryDupId(_SMMTestCase):
+    """add-story rejects payloads whose id collides with an existing
+    story (story-003). Non-dict / id-less payloads fall through to the
+    existing schema validator so their error messages stay stable."""
+
+    def test_dup_id_rejects_nonzero(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001")])
+        sprint_path = self.smm_dir / "sprint.json"
+        sprint_path.write_text(json.dumps(sprint))
+        before = sprint_path.read_bytes()
+        dup_payload = _make_story(id="story-001", title="Collision")
+        result = run_cli(
+            _CLI,
+            ["add-story"],
+            self.smm_dir,
+            json.dumps(dup_payload),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Duplicate story id", result.stderr)
+        self.assertIn("story-001", result.stderr)
+        self.assertEqual(sprint_path.read_bytes(), before)
+
+
 class TestSprintCliHelp(_SMMTestCase):
     def test_help_contains_examples(self):
         result = run_cli(_CLI, ["--help"], self.smm_dir)

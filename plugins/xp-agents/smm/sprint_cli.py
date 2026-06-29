@@ -188,6 +188,15 @@ def _cmd_add_story(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
+    new_id = story.get("id") if isinstance(story, dict) else None
+    if new_id and any(s.get("id") == new_id for s in sprint.get("stories", [])):
+        print(
+            f"Duplicate story id: {new_id!r} already exists in sprint "
+            f"{sprint.get('sprint_id', '<unknown>')}. add-story is idempotent "
+            "on the id field — use edit-story to mutate an existing story.",
+            file=sys.stderr,
+        )
+        return 1
     sprint["stories"].append(story)
     try:
         store.save_sprint(args.smm_dir, sprint)
