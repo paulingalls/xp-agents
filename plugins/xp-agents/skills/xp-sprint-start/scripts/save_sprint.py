@@ -281,11 +281,13 @@ def _auto_include_sister_tests(
 
 def save(data: dict, smm_dir: Path) -> None:
     """Atomic write only. No sister-test discovery, no milestone transition,
-    no accept-marker handling. Use for status/metadata edits that should
-    NOT trigger the full run-bundle — sprint_cli._cmd_edit_story is the
-    canonical caller, since /xp-accept and /xp-schedule drive edit-story
-    purely for status flips. See plan-review concern e7b72bd57c84 for the
-    impact-zone constraint this preserves."""
+    no accept-marker handling. Symmetry helper exposing the side-effect-free
+    write path that run() composes; status-flip callers (sprint_cli._cmd_edit_story,
+    /xp-accept, /xp-schedule) reach sprint_store directly via store.edit_story /
+    store.update_story_status — both routes produce the same atomic write
+    without firing run()'s side-effect bundle. Kept for symmetry with run()
+    and as a test surface for behaviors that need to lock the bypass.
+    See plan-review concern e7b72bd57c84 for the impact-zone constraint."""
     sprint_store.save_sprint(smm_dir, data)
 
 

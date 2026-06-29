@@ -134,28 +134,30 @@ class TestTestLayoutOverrides(unittest.TestCase):
 
 
 class TestTestLayoutConventionEnumLock(unittest.TestCase):
-    """Lock the 12-entry convention enum (interface contract with story-001)."""
+    """Lock the convention enum to BUILTIN_LAYOUTS.keys() + sentinels.
 
-    def test_enum_is_exactly_twelve_locked_strings(self) -> None:
-        self.assertEqual(
-            _VALID_TEST_LAYOUT_CONVENTIONS,
-            frozenset(
-                {
-                    "python_pytest",
-                    "go_native",
-                    "js_unit",
-                    "rust_cargo",
-                    "ruby_rspec",
-                    "java_junit",
-                    "csharp_xunit",
-                    "elixir_exunit",
-                    "swift_xctest",
-                    "php_phpunit",
-                    "unknown",
-                    "custom",
-                }
-            ),
+    Derivation-based assertion (not hard-coded list) so adding a new BUILTIN
+    to sister_tests is FORCED to update _VALID_TEST_LAYOUT_CONVENTIONS, and
+    vice versa — closes close-reviewer concern 2a3984d3f35b.
+    """
+
+    def test_enum_equals_builtin_keys_plus_sentinels(self) -> None:
+        skill_scripts = (
+            Path(__file__).parent.parent.parent
+            / "skills"
+            / "xp-sprint-start"
+            / "scripts"
         )
+        sys.path.insert(0, str(skill_scripts))
+        try:
+            import sister_tests  # type: ignore[import-not-found]
+        finally:
+            sys.path.remove(str(skill_scripts))
+        expected = frozenset(sister_tests.BUILTIN_LAYOUTS.keys()) | {
+            "unknown",
+            "custom",
+        }
+        self.assertEqual(_VALID_TEST_LAYOUT_CONVENTIONS, expected)
 
 
 class TestStemExtractorRegistryLock(unittest.TestCase):
