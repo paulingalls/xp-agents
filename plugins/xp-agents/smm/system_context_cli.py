@@ -120,6 +120,7 @@ _OPTIONAL_TOP_LEVEL_FIELDS = frozenset(
     {
         "branching_strategy",
         "acceptance_surfaces",
+        "test_layout",
     }
 )
 

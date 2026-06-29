@@ -15,10 +15,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _system_context_fixtures import valid_doc, valid_test_layout
 from system_context_entry_validators import (
     _VALID_TEST_LAYOUT_CONVENTIONS,
     _validate_test_layout,
 )
+from system_context_schema import validate_system_context
 
 
 class TestTestLayoutValidator(unittest.TestCase):
@@ -150,6 +152,38 @@ class TestTestLayoutConventionEnumLock(unittest.TestCase):
                 }
             ),
         )
+
+
+class TestTestLayoutSchemaIntegration(unittest.TestCase):
+    """Validate test_layout is wired into the top-level validator."""
+
+    def test_valid_doc_with_test_layout_passes(self) -> None:
+        doc = valid_doc(test_layout=valid_test_layout())
+        self.assertEqual(validate_system_context(doc), [])
+
+    def test_valid_doc_with_custom_overrides_passes(self) -> None:
+        doc = valid_doc(
+            test_layout=valid_test_layout(
+                convention="custom",
+                overrides=(
+                    {
+                        "source_pattern": "src/**/*.py",
+                        "stem_extractor": "stem",
+                        "test_glob": "tests/**/test_{stem}.py",
+                    },
+                ),
+            )
+        )
+        self.assertEqual(validate_system_context(doc), [])
+
+    def test_invalid_test_layout_surfaces_in_top_level_errors(self) -> None:
+        doc = valid_doc(test_layout={"convention": "not_a_real_convention"})
+        errors = validate_system_context(doc)
+        self.assertTrue(any("not_a_real_convention" in e for e in errors), errors)
+
+    def test_test_layout_remains_optional(self) -> None:
+        # Bare doc without test_layout stays valid.
+        self.assertEqual(validate_system_context(valid_doc()), [])
 
 
 if __name__ == "__main__":
