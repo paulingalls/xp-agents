@@ -189,6 +189,22 @@ def _resolve_test_glob(
 
 
 # --- BUILTIN_LAYOUTS table -------------------------------------------------
+
+# Shared across all three js_unit rules (R1/.test, R2/.spec, R3/__tests__).
+# Adding a new test-file flavor (e.g. ".test.mts") here lands in every rule;
+# inlining the tuple three times would invite forgetting one.
+_JS_UNIT_SKIP_SUFFIXES: tuple[str, ...] = (
+    ".d.ts",
+    ".test.js",
+    ".test.jsx",
+    ".test.ts",
+    ".test.tsx",
+    ".spec.js",
+    ".spec.jsx",
+    ".spec.ts",
+    ".spec.tsx",
+)
+
 BUILTIN_LAYOUTS: dict[str, TestLayout] = {
     "python_pytest": TestLayout(
         convention="python_pytest",
@@ -336,51 +352,21 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
                 source_pattern="**/*.{js,jsx,ts,tsx}",
                 stem_extractor="basename_no_ext",
                 test_glob="{dir}/{stem}.test.{js,jsx,ts,tsx}",
-                skip_suffixes=(
-                    ".d.ts",
-                    ".test.js",
-                    ".test.jsx",
-                    ".test.ts",
-                    ".test.tsx",
-                    ".spec.js",
-                    ".spec.jsx",
-                    ".spec.ts",
-                    ".spec.tsx",
-                ),
+                skip_suffixes=_JS_UNIT_SKIP_SUFFIXES,
             ),
             # R2: .spec sibling (jest/jasmine flavor)
             TestLayoutRule(
                 source_pattern="**/*.{js,jsx,ts,tsx}",
                 stem_extractor="basename_no_ext",
                 test_glob="{dir}/{stem}.spec.{js,jsx,ts,tsx}",
-                skip_suffixes=(
-                    ".d.ts",
-                    ".test.js",
-                    ".test.jsx",
-                    ".test.ts",
-                    ".test.tsx",
-                    ".spec.js",
-                    ".spec.jsx",
-                    ".spec.ts",
-                    ".spec.tsx",
-                ),
+                skip_suffixes=_JS_UNIT_SKIP_SUFFIXES,
             ),
             # R3: __tests__ subdir
             TestLayoutRule(
                 source_pattern="**/*.{js,jsx,ts,tsx}",
                 stem_extractor="basename_no_ext",
                 test_glob="{dir}/__tests__/{stem}.test.{js,jsx,ts,tsx}",
-                skip_suffixes=(
-                    ".d.ts",
-                    ".test.js",
-                    ".test.jsx",
-                    ".test.ts",
-                    ".test.tsx",
-                    ".spec.js",
-                    ".spec.jsx",
-                    ".spec.ts",
-                    ".spec.tsx",
-                ),
+                skip_suffixes=_JS_UNIT_SKIP_SUFFIXES,
             ),
         ),
     ),
