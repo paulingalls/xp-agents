@@ -9,7 +9,9 @@ no mutation, no I/O beyond ``project_root.glob(...)``.
 from __future__ import annotations
 
 import functools
+import posixpath
 import re
+from pathlib import PurePosixPath
 
 
 def _expand_braces(pattern: str) -> list[str]:
@@ -82,3 +84,45 @@ def _match_any(src_str: str, pattern: str) -> bool:
         _compile_source_pattern(p).fullmatch(src_str) is not None
         for p in _expand_braces(pattern)
     )
+
+
+def _literal_prefix(pattern: str) -> str:
+    """Return the literal directory prefix of a glob.
+
+    Everything up to and INCLUDING the trailing ``/`` before the first
+    metachar. ``lib/**/*.rb`` -> ``lib/``, ``src/main/java/**/*.java``
+    -> ``src/main/java/``, ``**/*.py`` -> ``""``, ``docs/intro.md`` ->
+    the whole string (no metachars at all). Used to compute ``{mirror}``
+    substitutions in :func:`_resolve_test_glob`.
+    """
+    for i, ch in enumerate(pattern):
+        if ch in "*?[":
+            return pattern[: pattern.rfind("/", 0, i) + 1]
+    return pattern
+
+
+def _resolve_test_glob(rule, stem: str, src: PurePosixPath) -> list[str]:
+    """Apply ``{stem}``, ``{dir}``, ``{mirror}`` to ``rule.test_glob``.
+
+    ``{mirror}`` is ``src.parent`` with the rule's literal source prefix
+    stripped. Collapses to empty string when the source sits directly under
+    the prefix; ``posixpath.normpath`` then cleans the resulting double-slash.
+    The output is brace-expanded and normalized for use by ``project_root.glob``.
+    """
+    mirror = ""
+    if "{mirror}" in rule.test_glob:
+        prefix = _literal_prefix(rule.source_pattern).rstrip("/")
+        parent = str(src.parent)
+        if prefix and parent.startswith(prefix):
+            parent = parent[len(prefix) :]
+        mirror = parent.strip("/")
+    # str.replace, not str.format: test_glob can contain {js,ts,...} brace
+    # groups whose commas would make str.format treat the whole group as a
+    # field name and raise KeyError. After substitution, _expand_braces is
+    # safe to run because the only remaining { } are real alternation groups.
+    substituted = (
+        rule.test_glob.replace("{stem}", stem)
+        .replace("{dir}", str(src.parent))
+        .replace("{mirror}", mirror)
+    )
+    return [posixpath.normpath(p) for p in _expand_braces(substituted)]

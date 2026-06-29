@@ -14,7 +14,9 @@ sys.path.insert(0, str(_SKILL_SCRIPTS))
 from sister_tests import (  # noqa: E402
     _compile_source_pattern,
     _expand_braces,
+    _literal_prefix,
     _match_any,
+    _resolve_test_glob,
 )
 
 
@@ -138,6 +140,110 @@ class TestMatchAny(unittest.TestCase):
 
     def test_plain_pattern_no_expansion_needed(self):
         self.assertTrue(_match_any("a/b/c.go", "**/*.go"))
+
+
+class TestLiteralPrefix(unittest.TestCase):
+    """_literal_prefix slices a glob at the dir-segment before the first metachar."""
+
+    def test_no_metachars_returns_full_pattern(self):
+        # No glob metachar -> the whole thing is literal.
+        self.assertEqual(_literal_prefix("docs/intro.md"), "docs/intro.md")
+
+    def test_double_star_at_root(self):
+        self.assertEqual(_literal_prefix("**/*.py"), "")
+
+    def test_dir_then_double_star(self):
+        self.assertEqual(_literal_prefix("lib/**/*.rb"), "lib/")
+
+    def test_nested_dirs_then_double_star(self):
+        self.assertEqual(
+            _literal_prefix("src/main/java/**/*.java"),
+            "src/main/java/",
+        )
+
+    def test_single_star_in_basename_cuts_to_dir(self):
+        # 'src/bin/*.rs' -> 'src/bin/'
+        self.assertEqual(_literal_prefix("src/bin/*.rs"), "src/bin/")
+
+    def test_question_mark_cuts_to_dir(self):
+        self.assertEqual(_literal_prefix("a/b/foo?.txt"), "a/b/")
+
+    def test_charclass_cuts_to_dir(self):
+        self.assertEqual(_literal_prefix("a/b/foo[12].txt"), "a/b/")
+
+
+# Need TestLayoutRule for _resolve_test_glob tests. Import lazily inside the
+# class to keep this commit's red phase honest — _resolve_test_glob is what's
+# being added now; TestLayoutRule comes in the next commit. For now we pass a
+# tiny shim object via a SimpleNamespace duck-type.
+class TestResolveTestGlob(unittest.TestCase):
+    """_resolve_test_glob substitutes {stem}, {dir}, {mirror} then brace-expands."""
+
+    def _make_rule(self, source_pattern, test_glob):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(source_pattern=source_pattern, test_glob=test_glob)
+
+    def test_stem_substitution(self):
+        from pathlib import PurePosixPath
+
+        rule = self._make_rule("**/*.go", "{dir}/{stem}_test.go")
+        out = _resolve_test_glob(rule, "foo", PurePosixPath("pkg/foo.go"))
+        self.assertEqual(out, ["pkg/foo_test.go"])
+
+    def test_brace_expansion_after_substitution(self):
+        from pathlib import PurePosixPath
+
+        rule = self._make_rule(
+            "**/*.{js,ts}",
+            "{dir}/{stem}.test.{js,jsx,ts,tsx}",
+        )
+        out = _resolve_test_glob(rule, "foo", PurePosixPath("src/foo.js"))
+        self.assertEqual(
+            out,
+            [
+                "src/foo.test.js",
+                "src/foo.test.jsx",
+                "src/foo.test.ts",
+                "src/foo.test.tsx",
+            ],
+        )
+
+    def test_mirror_strips_literal_prefix(self):
+        from pathlib import PurePosixPath
+
+        # ruby_rspec R2 shape: prefix "lib/" stripped from src.parent.
+        rule = self._make_rule("lib/**/*.rb", "spec/{mirror}/{stem}_spec.rb")
+        out = _resolve_test_glob(rule, "bar", PurePosixPath("lib/foo/bar.rb"))
+        self.assertEqual(out, ["spec/foo/bar_spec.rb"])
+
+    def test_mirror_collapses_when_source_directly_under_prefix(self):
+        from pathlib import PurePosixPath
+
+        # Source 'lib/bar.rb' → mirror='' → 'spec//bar_spec.rb' → 'spec/bar_spec.rb'.
+        rule = self._make_rule("lib/**/*.rb", "spec/{mirror}/{stem}_spec.rb")
+        out = _resolve_test_glob(rule, "bar", PurePosixPath("lib/bar.rb"))
+        self.assertEqual(out, ["spec/bar_spec.rb"])
+
+    def test_mirror_with_nested_dirs(self):
+        from pathlib import PurePosixPath
+
+        # java_junit: prefix 'src/main/java/' stripped.
+        rule = self._make_rule(
+            "src/main/java/**/*.java",
+            "src/test/java/{mirror}/{stem}Test.java",
+        )
+        out = _resolve_test_glob(
+            rule, "Foo", PurePosixPath("src/main/java/com/acme/Foo.java")
+        )
+        self.assertEqual(out, ["src/test/java/com/acme/FooTest.java"])
+
+    def test_dir_substitution_no_mirror(self):
+        from pathlib import PurePosixPath
+
+        rule = self._make_rule("**/*.py", "{dir}/tests/test_{stem}.py")
+        out = _resolve_test_glob(rule, "foo", PurePosixPath("pkg/foo.py"))
+        self.assertEqual(out, ["pkg/tests/test_foo.py"])
 
 
 if __name__ == "__main__":
