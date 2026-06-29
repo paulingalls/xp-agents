@@ -514,6 +514,41 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestRustCargo(_DiscoveryTestCase):
+    """rust_cargo: src/bin/foo.rs -> tests/foo.rs (integration tests only)."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["rust_cargo"]
+
+    def test_bin_source_finds_integration_test(self):
+        _touch(self.root, "tests/foo.rs")
+        self.assertEqual(
+            discover_sister_tests("src/bin/foo.rs", self.layout, self.root),
+            ["tests/foo.rs"],
+        )
+
+    def test_lib_source_returns_empty(self):
+        # src/lib.rs and src/foo.rs don't follow the integration-test pattern.
+        _touch(self.root, "tests/lib.rs")
+        self.assertEqual(
+            discover_sister_tests("src/lib.rs", self.layout, self.root), []
+        )
+
+    def test_test_file_in_tests_dir_skipped_as_source(self):
+        # A file under tests/ that gets passed as source shouldn't re-resolve.
+        _touch(self.root, "tests/foo_test.rs")
+        self.assertEqual(
+            discover_sister_tests("tests/foo_test.rs", self.layout, self.root),
+            [],
+        )
+
+    def test_no_integration_test_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("src/bin/foo.rs", self.layout, self.root), []
+        )
+
+
 class TestJsUnit(_DiscoveryTestCase):
     """js_unit: .test.{ext}, .spec.{ext}, and __tests__/{stem}.test.{ext}."""
 

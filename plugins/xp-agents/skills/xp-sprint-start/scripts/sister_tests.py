@@ -206,6 +206,20 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "rust_cargo": TestLayout(
+        convention="rust_cargo",
+        rules=(
+            # Cargo's integration-test convention: src/bin/<name>.rs has a
+            # matching tests/<name>.rs. Lib/module sources don't follow the
+            # pattern (their tests live inline as #[cfg(test)] mod tests).
+            TestLayoutRule(
+                source_pattern="src/bin/*.rs",
+                stem_extractor="basename_no_ext",
+                test_glob="tests/{stem}.rs",
+                skip_suffixes=("_test.rs",),
+            ),
+        ),
+    ),
     "js_unit": TestLayout(
         convention="js_unit",
         rules=(
