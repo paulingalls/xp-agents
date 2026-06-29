@@ -6,6 +6,7 @@ Preload script tests live in test_sprint_start_preload.py.
 
 import importlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -537,6 +538,115 @@ class TestResolveLayout(_HookTestCase):
         self.assertEqual(rule.skip_basenames, ("__init__.py", "conftest.py"))
         self.assertEqual(rule.skip_suffixes, ("_test.py",))
         self.assertEqual(rule.source_excludes, ("obj/**",))
+
+
+class TestRunIntegratesSisterTestsAndSoftWarn(_HookTestCase):
+    """run() invokes _auto_include_sister_tests when layout resolves; calls
+    _warn_unknown_layout_once otherwise. Soft-warn is marker-based so it
+    survives the subprocess-per-CLI-call model the production CLI uses."""
+
+    def setUp(self):
+        super().setUp()
+        self.mod = _import_save_sprint()
+        self._tmp = Path(tempfile.mkdtemp(prefix="story-004-run-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self._tmp)]))
+        _make_git_project(self._tmp)
+        # Stage the sister-tests fixture inside the git project
+        (self._tmp / "src").mkdir()
+        (self._tmp / "tests").mkdir()
+        (self._tmp / "src/foo.py").write_text("x = 1")
+        (self._tmp / "tests/test_foo.py").write_text("def test_x(): pass")
+        self._orig_cwd = Path.cwd()
+        os.chdir(self._tmp)
+        self.addCleanup(lambda: os.chdir(self._orig_cwd))
+
+    def _write_sc(self, test_layout=None):
+        from _system_context_fixtures import valid_doc, write_doc
+
+        kwargs = {}
+        if test_layout is not None:
+            kwargs["test_layout"] = test_layout
+        write_doc(self.smm_dir, valid_doc(**kwargs))
+
+    def _sample_sprint(self, file_domain=None):
+        from conftest import _s
+
+        story = _s("story-001", "x", "ready")
+        story["file_domain"] = file_domain or ["src/foo.py — impl"]
+        return {
+            "sprint_id": "sprint-001",
+            "goal": "t",
+            "started": "2026-04-01",
+            "milestone": "",
+            "stories": [story],
+        }
+
+    def test_run_auto_includes_sister_when_layout_resolves(self):
+        self._write_sc({"convention": "python_pytest", "overrides": []})
+        data = self._sample_sprint()
+        self.mod.run(data, self.smm_dir)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        domains = loaded["stories"][0]["file_domain"]
+        self.assertTrue(
+            any("tests/test_foo.py" in e for e in domains),
+            f"sister not appended; got {domains}",
+        )
+
+    def test_run_warns_once_when_layout_unknown_marker_blocks_second(self):
+        """Marker-based: first run records concern + touches marker; second
+        run sees marker and is silent. This is the cross-process semantics
+        story-004 explicitly aims for."""
+        from event_helpers import events_of_type
+
+        self._write_sc({"convention": "unknown", "overrides": []})
+        data = self._sample_sprint()
+        self.mod.run(data, self.smm_dir)
+        self.mod.run(data, self.smm_dir)
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        sister_concerns = [
+            e
+            for e in events_of_type(events, EVENT_TYPE_CONCERN)
+            if "test_layout" in e.get("content", "")
+        ]
+        self.assertEqual(
+            len(sister_concerns),
+            1,
+            f"expected exactly one sister-test concern; got {len(sister_concerns)}",
+        )
+
+    def test_save_skips_discovery_and_soft_warn(self):
+        """save() is the side-effect-free path. Status flips via
+        _cmd_edit_story will call save(), not run() — so milestone
+        transition / discovery / soft-warn do NOT fire on those edits.
+        Locks the architectural decision (plan-review e7b72bd57c84)."""
+        from event_helpers import events_of_type
+
+        self._write_sc({"convention": "unknown", "overrides": []})
+        data = self._sample_sprint()
+        self.mod.save(data, self.smm_dir)
+        events_path = self.smm_dir / "events.jsonl"
+        events = (
+            [
+                json.loads(line)
+                for line in events_path.read_text().splitlines()
+                if line.strip()
+            ]
+            if events_path.exists()
+            else []
+        )
+        sister_concerns = [
+            e
+            for e in events_of_type(events, EVENT_TYPE_CONCERN)
+            if "test_layout" in e.get("content", "")
+        ]
+        self.assertEqual(sister_concerns, [])
+        # Marker NOT touched either
+        marker = self.smm_dir / ".sister-test-layout-warn"
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

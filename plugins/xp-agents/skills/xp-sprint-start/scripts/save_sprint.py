@@ -33,7 +33,7 @@ import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
 import identity  # noqa: E402
 import marker_names  # noqa: E402
-import sister_tests  # noqa: E402
+import sister_tests  # noqa: E402  # pyright: ignore[reportMissingImports]
 import sprint_store  # noqa: E402
 import system_context_store  # noqa: E402
 from event_schema import (  # noqa: E402
@@ -176,6 +176,39 @@ def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
     )
 
 
+def _warn_unknown_layout_once(smm_dir: Path) -> None:
+    """Q1(b): one low-severity concern per session when test_layout is
+    unknown/unset. Cross-process state lives in a marker file in SMM_DIR;
+    the SessionStart hook clears the marker so each session warns at
+    most once. Module-level state would not survive sprint_cli's
+    subprocess invocation model — that was plan-review concern
+    3565573f3187 and the marker-file approach is its fix."""
+    marker = smm_dir / marker_names.SISTER_TEST_LAYOUT_WARN
+    if marker.exists():
+        return
+    _record_concern(
+        smm_dir,
+        "Sister-test auto-inclusion skipped: system_context.test_layout is "
+        "unset or convention='unknown'. Run /xp-system-context to detect a "
+        "layout, or pipe a layout dict into "
+        "system_context_cli.py edit-test-layout.",
+    )
+    with contextlib.suppress(OSError):
+        marker.touch()
+
+
+def _resolve_project_root() -> Path | None:
+    """Walk up from cwd looking for .git/ (file or directory; in a worktree
+    .git is a regular file pointing to the worktree metadata). Returns the
+    project toplevel or None. None disables auto-include (defensive — some
+    test contexts and headless callers have no git root)."""
+    cur = Path.cwd().resolve()
+    for ancestor in (cur, *cur.parents):
+        if (ancestor / ".git").exists():
+            return ancestor
+    return None
+
+
 def _extract_path(entry: str) -> str:
     """file_domain entries are 'path/to/file — note' or just 'path/to/file'.
     Return the path portion."""
@@ -219,8 +252,20 @@ def _auto_include_sister_tests(
         domain.extend(additions)
 
 
+def save(data: dict, smm_dir: Path) -> None:
+    """Atomic write only. No sister-test discovery, no milestone transition,
+    no accept-marker handling. Use for status/metadata edits that should
+    NOT trigger the full run-bundle — sprint_cli._cmd_edit_story is the
+    canonical caller, since /xp-accept and /xp-schedule drive edit-story
+    purely for status flips. See plan-review concern e7b72bd57c84 for the
+    impact-zone constraint this preserves."""
+    sprint_store.save_sprint(smm_dir, data)
+
+
 def run(data: dict, smm_dir: Path) -> None:
-    """Write sprint.json and run the acceptance-flow side effects.
+    """Full sprint-mutation pipeline: sister-test discovery + atomic save
+    + milestone transition + accept-marker handling. Use for structural
+    sprint mutations (sprint_cli._cmd_create, _cmd_add_story).
 
     Args:
         data: Sprint data dict (validated by sprint_store).
@@ -229,7 +274,16 @@ def run(data: dict, smm_dir: Path) -> None:
     accept_marker = smm_dir / marker_names.ACCEPT
     accept_marker_existed = accept_marker.exists()
 
-    sprint_store.save_sprint(smm_dir, data)
+    # Sister-test auto-inclusion + Q1(b) soft-warn (story-004)
+    layout = _resolve_layout(smm_dir)
+    if layout is not None:
+        project_root = _resolve_project_root()
+        if project_root is not None:
+            _auto_include_sister_tests(data, layout, project_root)
+    else:
+        _warn_unknown_layout_once(smm_dir)
+
+    save(data, smm_dir)
 
     _transition_target_milestone(data, smm_dir)
 
