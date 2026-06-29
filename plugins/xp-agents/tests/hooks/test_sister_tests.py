@@ -514,6 +514,56 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestCsharpXunit(_DiscoveryTestCase):
+    """csharp_xunit: Foo.cs -> FooTests.cs (sibling or sibling Tests dir).
+
+    Sources under obj/ and bin/ are excluded (generated build artifacts).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["csharp_xunit"]
+
+    def test_sibling_tests_cs(self):
+        _touch(self.root, "src/Project/FooTests.cs")
+        self.assertIn(
+            "src/Project/FooTests.cs",
+            discover_sister_tests("src/Project/Foo.cs", self.layout, self.root),
+        )
+
+    def test_separate_tests_project(self):
+        # {dir}/../Tests/{stem}Tests.cs — common .NET layout with a sibling
+        # Tests project at src/Project.Tests/.
+        _touch(self.root, "src/Tests/FooTests.cs")
+        out = discover_sister_tests("src/Project/Foo.cs", self.layout, self.root)
+        self.assertIn("src/Tests/FooTests.cs", out)
+
+    def test_obj_dir_source_excluded(self):
+        # Generated code under obj/ must not produce sister-test lookups.
+        _touch(self.root, "obj/FooTests.cs")
+        self.assertEqual(
+            discover_sister_tests("obj/Foo.cs", self.layout, self.root), []
+        )
+
+    def test_bin_dir_source_excluded(self):
+        _touch(self.root, "bin/FooTests.cs")
+        self.assertEqual(
+            discover_sister_tests("bin/Foo.cs", self.layout, self.root), []
+        )
+
+    def test_test_file_as_source_is_skipped(self):
+        _touch(self.root, "src/Project/FooTestsTests.cs")
+        self.assertEqual(
+            discover_sister_tests("src/Project/FooTests.cs", self.layout, self.root),
+            [],
+        )
+
+    def test_no_test_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("src/Project/Bar.cs", self.layout, self.root), []
+        )
+
+
 class TestJavaJunit(_DiscoveryTestCase):
     """java_junit: src/main/java/<pkg>/Foo.java -> src/test/java/<pkg>/FooTest.java."""
 

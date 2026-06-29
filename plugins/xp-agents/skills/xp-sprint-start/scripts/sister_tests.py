@@ -206,6 +206,29 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "csharp_xunit": TestLayout(
+        convention="csharp_xunit",
+        rules=(
+            # R1: FooTests.cs sibling
+            TestLayoutRule(
+                source_pattern="**/*.cs",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/{stem}Tests.cs",
+                skip_suffixes=("Tests.cs",),
+                source_excludes=("obj/**", "bin/**", "**/obj/**", "**/bin/**"),
+            ),
+            # R2: sibling Tests/ project — common .NET convention to keep
+            # the test assembly in a parallel "<Name>.Tests" project, but
+            # the on-disk layout is just {parent}/Tests/{stem}Tests.cs.
+            TestLayoutRule(
+                source_pattern="**/*.cs",
+                stem_extractor="basename_no_ext",
+                test_glob="{dir}/../Tests/{stem}Tests.cs",
+                skip_suffixes=("Tests.cs",),
+                source_excludes=("obj/**", "bin/**", "**/obj/**", "**/bin/**"),
+            ),
+        ),
+    ),
     "java_junit": TestLayout(
         convention="java_junit",
         rules=(
