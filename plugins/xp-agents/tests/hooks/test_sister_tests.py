@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Tests for the sister-test discovery primitive."""
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,11 +14,16 @@ _SKILL_SCRIPTS = (
 sys.path.insert(0, str(_SKILL_SCRIPTS))
 
 from sister_tests import (  # noqa: E402
+    BUILTIN_LAYOUTS,
+    STEM_EXTRACTORS,
+    TestLayout,
+    TestLayoutRule,
     _compile_source_pattern,
     _expand_braces,
     _literal_prefix,
     _match_any,
     _resolve_test_glob,
+    discover_sister_tests,
 )
 
 
@@ -244,6 +251,212 @@ class TestResolveTestGlob(unittest.TestCase):
         rule = self._make_rule("**/*.py", "{dir}/tests/test_{stem}.py")
         out = _resolve_test_glob(rule, "foo", PurePosixPath("pkg/foo.py"))
         self.assertEqual(out, ["pkg/tests/test_foo.py"])
+
+
+def _make_tmp_project() -> Path:
+    """Create a temp dir and register it for cleanup at test end."""
+    return Path(tempfile.mkdtemp(prefix="sister_tests_"))
+
+
+def _touch(root: Path, rel: str) -> None:
+    """Create an empty file at ``root/rel``, including parent dirs."""
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("")
+
+
+class _DiscoveryTestCase(unittest.TestCase):
+    """Base: gives each test a temp project_root with auto-cleanup."""
+
+    def setUp(self):
+        self.root = _make_tmp_project()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+
+class TestExtractors(unittest.TestCase):
+    def test_basename_no_ext_registered(self):
+        self.assertIn("basename_no_ext", STEM_EXTRACTORS)
+
+    def test_basename_no_ext_strips_extension(self):
+        fn = STEM_EXTRACTORS["basename_no_ext"]
+        self.assertEqual(fn("pkg/foo.go"), "foo")
+        self.assertEqual(fn("a/b/c/bar.py"), "bar")
+
+    def test_basename_no_ext_returns_none_for_extensionless(self):
+        fn = STEM_EXTRACTORS["basename_no_ext"]
+        # An empty stem (no leading basename) returns None per design — guard
+        # for things like "/" or "" that shouldn't produce a stemless test glob.
+        self.assertIsNone(fn(""))
+
+    def test_skill_dir_xp_strip_not_registered(self):
+        # Per plan-review concern #5 (YAGNI): defer until consumer exists.
+        self.assertNotIn("skill_dir_xp_strip", STEM_EXTRACTORS)
+        self.assertNotIn("_skill_dir_xp_strip", STEM_EXTRACTORS)
+
+
+class TestDiscoveryEdgeCases(_DiscoveryTestCase):
+    def test_absolute_source_path_raises(self):
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="tests/test_{stem}.py",
+                ),
+            ),
+        )
+        with self.assertRaises(ValueError) as ctx:
+            discover_sister_tests("/abs/foo.py", layout, self.root)
+        self.assertIn("project-relative", str(ctx.exception))
+
+    def test_unknown_extractor_raises_naming_it(self):
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="not_a_real_extractor",
+                    test_glob="tests/test_{stem}.py",
+                ),
+            ),
+        )
+        with self.assertRaises(ValueError) as ctx:
+            discover_sister_tests("pkg/foo.py", layout, self.root)
+        self.assertIn("not_a_real_extractor", str(ctx.exception))
+
+    def test_skip_basename_filters_source(self):
+        _touch(self.root, "tests/test___init__.py")
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="tests/test_{stem}.py",
+                    skip_basenames=("__init__.py",),
+                ),
+            ),
+        )
+        self.assertEqual(
+            discover_sister_tests("pkg/__init__.py", layout, self.root), []
+        )
+
+    def test_skip_suffix_filters_source(self):
+        # Source 'pkg/foo_test.go' must be skipped — it IS a test file.
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.go",
+                    stem_extractor="basename_no_ext",
+                    test_glob="{dir}/{stem}_test.go",
+                    skip_suffixes=("_test.go",),
+                ),
+            ),
+        )
+        self.assertEqual(
+            discover_sister_tests("pkg/foo_test.go", layout, self.root), []
+        )
+
+    def test_source_excludes_filters_source(self):
+        # Mirrors csharp_xunit obj/bin exclusion shape.
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.cs",
+                    stem_extractor="basename_no_ext",
+                    test_glob="{dir}/{stem}Tests.cs",
+                    source_excludes=("obj/**", "bin/**"),
+                ),
+            ),
+        )
+        # File on disk would otherwise match — but the source itself is excluded.
+        _touch(self.root, "obj/FooTests.cs")
+        self.assertEqual(discover_sister_tests("obj/Foo.cs", layout, self.root), [])
+
+    def test_returns_sorted_deduped_posix_strings(self):
+        # Two rules both produce the same sister file -> single result.
+        _touch(self.root, "tests/test_foo.py")
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="tests/test_{stem}.py",
+                ),
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="tests/test_{stem}.py",
+                ),
+            ),
+        )
+        self.assertEqual(
+            discover_sister_tests("pkg/foo.py", layout, self.root),
+            ["tests/test_foo.py"],
+        )
+
+    def test_overrides_concatenate_with_rules(self):
+        _touch(self.root, "tests/test_foo.py")
+        _touch(self.root, "spec/foo_spec.py")
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="tests/test_{stem}.py",
+                ),
+            ),
+            overrides=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="spec/{stem}_spec.py",
+                ),
+            ),
+        )
+        self.assertEqual(
+            discover_sister_tests("pkg/foo.py", layout, self.root),
+            ["spec/foo_spec.py", "tests/test_foo.py"],
+        )
+
+    def test_no_matching_rule_returns_empty(self):
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.go",
+                    stem_extractor="basename_no_ext",
+                    test_glob="{dir}/{stem}_test.go",
+                ),
+            ),
+        )
+        self.assertEqual(discover_sister_tests("pkg/foo.py", layout, self.root), [])
+
+    def test_rule_matches_but_no_test_file_on_disk_returns_empty(self):
+        layout = TestLayout(
+            convention="custom",
+            rules=(
+                TestLayoutRule(
+                    source_pattern="**/*.py",
+                    stem_extractor="basename_no_ext",
+                    test_glob="tests/test_{stem}.py",
+                ),
+            ),
+        )
+        # No test file written -> empty result, no crash.
+        self.assertEqual(discover_sister_tests("pkg/foo.py", layout, self.root), [])
+
+
+class TestBuiltinLayoutsScaffold(unittest.TestCase):
+    """The BUILTIN_LAYOUTS dict exists; per-language entries land in later commits."""
+
+    def test_builtin_layouts_is_a_dict(self):
+        self.assertIsInstance(BUILTIN_LAYOUTS, dict)
 
 
 if __name__ == "__main__":

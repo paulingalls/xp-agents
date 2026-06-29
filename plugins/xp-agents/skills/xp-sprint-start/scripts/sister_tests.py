@@ -11,7 +11,62 @@ from __future__ import annotations
 import functools
 import posixpath
 import re
-from pathlib import PurePosixPath
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+
+
+@dataclass(frozen=True, slots=True)
+class TestLayoutRule:
+    """One rule in a TestLayout: when a source matches, what test paths to look for.
+
+    ``source_pattern`` is a shell-style glob (supports mid-pattern ``**``).
+    ``stem_extractor`` is a key in :data:`STEM_EXTRACTORS`. ``test_glob`` is a
+    template with ``{stem}``, ``{dir}``, ``{mirror}`` placeholders and optional
+    ``{a,b,c}`` brace-alternation groups. ``skip_basenames`` / ``skip_suffixes``
+    / ``source_excludes`` are short-circuit filters applied before pattern
+    matching.
+    """
+
+    # __test__ = False keeps pytest from collecting this dataclass as a test
+    # class (matches the project's `python_classes = Test*` discovery rule).
+    __test__ = False
+
+    source_pattern: str
+    stem_extractor: str
+    test_glob: str
+    skip_basenames: tuple[str, ...] = ()
+    skip_suffixes: tuple[str, ...] = ()
+    source_excludes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TestLayout:
+    """A named convention (rules) plus optional project-specific overrides.
+
+    Both ``rules`` and ``overrides`` are processed in order; matches union and
+    dedup at discovery time. Overrides do NOT replace rules — they concatenate.
+    """
+
+    __test__ = False
+
+    convention: str
+    rules: tuple[TestLayoutRule, ...]
+    overrides: tuple[TestLayoutRule, ...] = ()
+
+
+def _basename_no_ext(source_path: str) -> str | None:
+    """Stem from the last path segment, or None if empty."""
+    return PurePosixPath(source_path).stem or None
+
+
+STEM_EXTRACTORS: dict[str, Callable[[str], str | None]] = {
+    "basename_no_ext": _basename_no_ext,
+}
+# NOTE: a plugin-internal extractor (e.g. _skill_dir_xp_strip) is deferred per
+# plan-review concern #5 (YAGNI) until story-002's analyzer actually declares
+# an override that needs it. Adding a registry entry later IS a code change
+# whether we land it now or then — defer until the consumer exists.
 
 
 def _expand_braces(pattern: str) -> list[str]:
@@ -101,7 +156,9 @@ def _literal_prefix(pattern: str) -> str:
     return pattern
 
 
-def _resolve_test_glob(rule, stem: str, src: PurePosixPath) -> list[str]:
+def _resolve_test_glob(
+    rule: TestLayoutRule, stem: str, src: PurePosixPath
+) -> list[str]:
     """Apply ``{stem}``, ``{dir}``, ``{mirror}`` to ``rule.test_glob``.
 
     ``{mirror}`` is ``src.parent`` with the rule's literal source prefix
@@ -126,3 +183,55 @@ def _resolve_test_glob(rule, stem: str, src: PurePosixPath) -> list[str]:
         .replace("{mirror}", mirror)
     )
     return [posixpath.normpath(p) for p in _expand_braces(substituted)]
+
+
+# --- BUILTIN_LAYOUTS table (per-language entries added in subsequent commits) ---
+BUILTIN_LAYOUTS: dict[str, TestLayout] = {}
+
+
+def discover_sister_tests(
+    source_path: str,
+    layout: TestLayout,
+    project_root: Path,
+) -> list[str]:
+    """Return sorted, deduped, project-relative POSIX paths of sister tests.
+
+    Pure: no SMM writes, no mutation, no I/O beyond ``project_root.glob(...)``.
+    Iterates every rule + override; for each matching rule, extracts a stem
+    and resolves the test_glob to candidate paths, then globs the filesystem
+    and unions the on-disk hits.
+
+    Raises:
+        ValueError: when ``source_path`` is absolute or a rule names a
+            stem_extractor that is not in :data:`STEM_EXTRACTORS`.
+    """
+    if PurePosixPath(source_path).is_absolute():
+        raise ValueError(f"source_path must be project-relative: {source_path!r}")
+    src = PurePosixPath(source_path)
+    out: set[str] = set()
+    for rule in (*layout.rules, *layout.overrides):
+        if rule.stem_extractor not in STEM_EXTRACTORS:
+            raise ValueError(f"unknown stem_extractor: {rule.stem_extractor!r}")
+        if src.name in rule.skip_basenames:
+            continue
+        if any(source_path.endswith(s) for s in rule.skip_suffixes):
+            continue
+        if any(
+            _compile_source_pattern(ex).fullmatch(source_path)
+            for ex in rule.source_excludes
+        ):
+            continue
+        if not _match_any(source_path, rule.source_pattern):
+            continue
+        stem = STEM_EXTRACTORS[rule.stem_extractor](source_path)
+        if stem is None:
+            continue
+        for resolved in _resolve_test_glob(rule, stem, src):
+            for match in project_root.glob(resolved):
+                rel = match.relative_to(project_root).as_posix()
+                # Defensive: a glob hit named like a skipped basename
+                # (e.g. __init__.py) should also be filtered.
+                if PurePosixPath(rel).name in rule.skip_basenames:
+                    continue
+                out.add(rel)
+    return sorted(out)
