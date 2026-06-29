@@ -514,6 +514,45 @@ class TestPythonPytest(_DiscoveryTestCase):
         )
 
 
+class TestRubyRspec(_DiscoveryTestCase):
+    """ruby_rspec: lib/foo/bar.rb -> spec/foo/bar_spec.rb (mirror layout)."""
+
+    def setUp(self):
+        super().setUp()
+        self.layout = BUILTIN_LAYOUTS["ruby_rspec"]
+
+    def test_top_level_spec(self):
+        # R1: spec/{stem}_spec.rb regardless of nesting under lib/.
+        _touch(self.root, "spec/bar_spec.rb")
+        out = discover_sister_tests("lib/foo/bar.rb", self.layout, self.root)
+        self.assertIn("spec/bar_spec.rb", out)
+
+    def test_mirror_layout(self):
+        # R2: spec/{mirror}/{stem}_spec.rb — strip the 'lib/' prefix.
+        _touch(self.root, "spec/foo/bar_spec.rb")
+        out = discover_sister_tests("lib/foo/bar.rb", self.layout, self.root)
+        self.assertIn("spec/foo/bar_spec.rb", out)
+
+    def test_source_directly_under_lib(self):
+        # lib/bar.rb -> spec/bar_spec.rb via both R1 and the collapsed mirror R2.
+        _touch(self.root, "spec/bar_spec.rb")
+        out = discover_sister_tests("lib/bar.rb", self.layout, self.root)
+        self.assertEqual(out, ["spec/bar_spec.rb"])
+
+    def test_spec_file_as_source_is_skipped(self):
+        # bar_spec.rb IS a spec — don't re-resolve.
+        _touch(self.root, "spec/bar_spec_spec.rb")
+        self.assertEqual(
+            discover_sister_tests("lib/bar_spec.rb", self.layout, self.root),
+            [],
+        )
+
+    def test_no_spec_file_on_disk_returns_empty(self):
+        self.assertEqual(
+            discover_sister_tests("lib/foo/bar.rb", self.layout, self.root), []
+        )
+
+
 class TestRustCargo(_DiscoveryTestCase):
     """rust_cargo: src/bin/foo.rs -> tests/foo.rs (integration tests only)."""
 

@@ -206,6 +206,25 @@ BUILTIN_LAYOUTS: dict[str, TestLayout] = {
             ),
         ),
     ),
+    "ruby_rspec": TestLayout(
+        convention="ruby_rspec",
+        rules=(
+            # R1: spec/{stem}_spec.rb (flat)
+            TestLayoutRule(
+                source_pattern="lib/**/*.rb",
+                stem_extractor="basename_no_ext",
+                test_glob="spec/{stem}_spec.rb",
+                skip_suffixes=("_spec.rb",),
+            ),
+            # R2: spec/{mirror}/{stem}_spec.rb (mirrors lib/ layout)
+            TestLayoutRule(
+                source_pattern="lib/**/*.rb",
+                stem_extractor="basename_no_ext",
+                test_glob="spec/{mirror}/{stem}_spec.rb",
+                skip_suffixes=("_spec.rb",),
+            ),
+        ),
+    ),
     "rust_cargo": TestLayout(
         convention="rust_cargo",
         rules=(
