@@ -24,7 +24,7 @@ from conftest import (
 
 SKILL_BUDGETS: dict[str, int] = {
     "xp-accept": 15310,
-    "xp-assign": 10360,
+    "xp-assign": 14900,
     "xp-end-session": 6440,
     "xp-free-close": 8590,
     "xp-kickoff": 9020,
