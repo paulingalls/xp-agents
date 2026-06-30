@@ -137,8 +137,12 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Ship v1", result)
         self.assertNotIn("Teammate Guide", result)
 
-    def test_teammate_no_metadata_gets_smm_only(self):
-        """Agent without assigned_stories gets default."""
+    def test_general_purpose_gets_reference_not_eager_smm(self):
+        """A general-purpose agent is the generic reference tier: it gets a
+        pointer to the SMM, not the eager full render. Even with a sprint
+        active, no SMM/sprint content is injected — it self-serves on demand if
+        its task writes code. (Custom/unknown types still get full SMM — see
+        test_custom_agent_type_gets_full_smm.)"""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -148,7 +152,8 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         assert result is not None
-        self.assertIn("Ship v1", result)
+        self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+        self.assertNotIn("Ship v1", result)
         self.assertNotIn("sprint-001", result)
 
     def test_plan_reviewer_no_sprint_still_gets_values(self):
