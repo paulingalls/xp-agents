@@ -24,3 +24,10 @@ print("FRONTIER_IDS=" + " ".join(frontier))
 print("FRONTIER_COUNT=" + str(len(frontier)))
 print("PARALLELIZABLE=" + ("true" if r.get("parallelizable") else "false"))
 ' "$REPORT"
+
+# Emit teammate-support flag. Read the session TEAMMATE_CONFIG marker;
+# map token "off" -> false, any other token -> true. Fail-safe to true
+# when marker is absent (backward compat: teammates are enabled by default).
+TOKEN=$(python3 "${PLUGIN_ROOT}/scripts/teammate_config_cli.py" \
+    --smm-dir "${SMM_DIR}" read 2>/dev/null || echo "inherit")
+echo "TEAMMATE_ENABLED=$([ "$TOKEN" = "off" ] && echo "false" || echo "true")"
