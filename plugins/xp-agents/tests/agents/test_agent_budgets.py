@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Per-agent .md line budgets.
+"""Per-agent .md character budgets.
 
 Sprint-075 token audit (M-2): each agents/*.md is capped at roughly
 trimmed_size * 1.125 (rounded to nearest 10). Growth past the budget
 fails this test, forcing either a deliberate budget bump or a re-trim.
 
-Adding a new agent: measure wc -l on the new agent .md, compute
-round(lines * 1.125 / 10) * 10, add the entry below.
+Adding a new agent: measure len(Path("agents/<name>.md").read_text()),
+compute round(chars * 1.125 / 10) * 10, add the entry below.
 """
 
 import sys
@@ -22,14 +22,14 @@ from conftest import (
 )
 
 AGENT_BUDGETS: dict[str, int] = {
-    "xp-close-reviewer": 140,
-    "xp-code-reviewer": 100,
-    "xp-housekeeper": 220,
-    "xp-plan-reviewer": 210,
-    "xp-retrospective": 250,
-    "xp-risk-classifier": 50,
-    "xp-sprint-reviewer": 80,
-    "xp-system-analyzer": 320,
+    "xp-close-reviewer": 8980,
+    "xp-code-reviewer": 7860,
+    "xp-housekeeper": 11230,
+    "xp-plan-reviewer": 18800,
+    "xp-retrospective": 21770,
+    "xp-risk-classifier": 2730,
+    "xp-sprint-reviewer": 4660,
+    "xp-system-analyzer": 19640,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
