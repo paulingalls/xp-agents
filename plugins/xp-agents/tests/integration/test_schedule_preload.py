@@ -144,3 +144,54 @@ class TestSchedulePreload(_IntegrationTestCase):
         )
         self.assertEqual(story["status"], "in-progress")
         self.assertEqual(story["execution_mode"], "solo")
+
+    def test_teammate_enabled_when_config_token_off(self):
+        """AC#4: TEAMMATE_CONFIG token 'off' → emit TEAMMATE_ENABLED=false."""
+        from conftest import _TEAMMATES_CLI_PY
+        self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
+        env = self._test_env
+        subprocess.run(
+            [
+                sys.executable,
+                str(_TEAMMATES_CLI_PY),
+                "--smm-dir",
+                str(self.smm_dir),
+                "write",
+                "off",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "TEAMMATE_ENABLED"), "false")
+
+    def test_teammate_enabled_when_config_token_sonnet(self):
+        """When token is 'sonnet' (enabled), emit TEAMMATE_ENABLED=true."""
+        from conftest import _TEAMMATES_CLI_PY
+        self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
+        env = self._test_env
+        subprocess.run(
+            [
+                sys.executable,
+                str(_TEAMMATES_CLI_PY),
+                "--smm-dir",
+                str(self.smm_dir),
+                "write",
+                "sonnet",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "TEAMMATE_ENABLED"), "true")
+
+    def test_teammate_enabled_when_marker_absent(self):
+        """When marker absent, TEAMMATE_ENABLED defaults to true."""
+        self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
+        out = self._run()
+        enabled = _extract_preload_var(out, "TEAMMATE_ENABLED")
+        self.assertEqual(enabled, "true")
