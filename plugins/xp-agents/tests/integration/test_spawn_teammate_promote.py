@@ -12,6 +12,7 @@ sprint store, not the unit-level mocks of test_spawn_teammate.py.
 """
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -161,6 +162,82 @@ class TestSpawnTeammatePromoteE2E(_IntegrationTestCase):
         ):
             self._spawn()
         self.assertEqual(self._read_status(), "reviewing")
+
+
+class TestSpawnTeammateInPlace(_IntegrationTestCase):
+    """story-008: --in-place runs the teammate in the MAIN checkout (solo
+    delegation) instead of a worktree — skip create_worktree, run in the
+    process cwd, omit the worktree preamble, and DON'T promote to reviewing
+    (the story stays in-progress/solo so /xp-accept's solo path handles it)."""
+
+    def _seed_sprint(self, status: str = "in-progress") -> None:
+        sprint = make_sprint_dict(stories=[make_story_dict(status=status)])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def _read_status(self) -> str:
+        return json.loads((self.smm_dir / "sprint.json").read_text())["stories"][0][
+            "status"
+        ]
+
+    def _spawn_in_place(self, capture: dict) -> None:
+        """Drive spawn_teammate.main --in-place; create_worktree must NOT be
+        called, and run_with_tee's cwd + stdin are captured."""
+        import spawn_teammate
+
+        prompt_file = Path(self.tmpdir) / "p.prompt.txt"
+        prompt_file.write_text("BODY-MARKER")
+
+        def tee_capture(cmd, **kwargs):
+            capture["cwd"] = kwargs.get("cwd")
+            stdin = kwargs.get("stdin")
+            if stdin is not None:
+                capture["stdin"] = Path(stdin.name).read_text()
+
+        with (
+            unittest.mock.patch.object(
+                spawn_teammate,
+                "create_worktree",
+                side_effect=AssertionError("create_worktree called in --in-place mode"),
+            ),
+            unittest.mock.patch.object(
+                spawn_teammate, "run_with_tee", side_effect=tee_capture
+            ),
+        ):
+            spawn_teammate.main(
+                [
+                    "--name",
+                    "worktree-story-001",
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--prompt-file",
+                    str(prompt_file),
+                    "--story-id",
+                    "story-001",
+                    "--in-place",
+                ]
+            )
+
+    def test_in_place_skips_worktree_and_runs_in_main_checkout(self):
+        self._seed_sprint("in-progress")
+        cap: dict = {}
+        self._spawn_in_place(cap)
+        self.assertEqual(cap["cwd"], os.getcwd())
+        self.assertNotIn(".claude/worktrees", cap["cwd"])
+
+    def test_in_place_omits_worktree_preamble(self):
+        self._seed_sprint("in-progress")
+        cap: dict = {}
+        self._spawn_in_place(cap)
+        self.assertNotIn("Worktree Context", cap["stdin"])
+        self.assertIn("BODY-MARKER", cap["stdin"])
+
+    def test_in_place_does_not_promote_to_reviewing(self):
+        """In-place stays in-progress/solo — no self-promote (no worktree for
+        /xp-accept's reviewing path to detach onto)."""
+        self._seed_sprint("in-progress")
+        cap: dict = {}
+        self._spawn_in_place(cap)
+        self.assertEqual(self._read_status(), "in-progress")
 
 
 if __name__ == "__main__":

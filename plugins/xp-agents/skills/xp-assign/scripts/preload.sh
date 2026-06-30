@@ -52,19 +52,33 @@ smm_dir = Path(sys.argv[3])
 cwd = sys.argv[4]
 sprint = load_sprint(smm_dir)
 teammate_default = _token_from_config(read_teammate_config(smm_dir))
-batch = [] if sprint is None else [
+stories = [] if sprint is None else sprint["stories"]
+batch = [
     s["id"]
-    for s in sprint["stories"]
+    for s in stories
     if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
 ]
 
+# Solo target: with no teammate batch, a single in-progress solo story is the
+# in-place execution-shape target (story-008). A solo frontier promotes exactly
+# one story; >1 in-progress solo is ambiguous -> empty (the skill stops).
+solo_in_progress = [
+    s["id"]
+    for s in stories
+    if s.get("status") == "in-progress" and s.get("execution_mode") == "solo"
+]
+solo_target = solo_in_progress[0] if (not batch and len(solo_in_progress) == 1) else ""
+
 # Spawn target: the first un-spawned story in batch order. The skill pre-flight
 # iterates TEAMMATE_STORY_IDS in this same order, so the two never disagree.
+# Falls back to the solo target so the tier lookup + pin cover the solo story.
 target = ""
 for sid in batch:
     if not find_teammate_worktree_for_story(sid, cwd):
         target = sid
         break
+if not target:
+    target = solo_target
 
 tier = "none"
 if target:
@@ -95,6 +109,7 @@ if target:
 
 print("\n".join([
     "TEAMMATE_STORY_IDS=" + " ".join(batch),
+    "SOLO_TARGET=" + solo_target,
     "RECOMMENDED_TIER_STORY=" + target,
     "RECOMMENDED_TIER=" + tier,
     "TEAMMATE_DEFAULT=" + teammate_default,
@@ -102,7 +117,7 @@ print("\n".join([
 ' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "$(pwd)" 2>/dev/null) \
     || TEAMMATE_OUT=""
 if [ -z "$TEAMMATE_OUT" ]; then
-    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nTEAMMATE_DEFAULT=inherit'
+    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nSOLO_TARGET=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nTEAMMATE_DEFAULT=inherit'
 fi
 echo "$TEAMMATE_OUT"
 

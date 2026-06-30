@@ -55,8 +55,8 @@ spawns interleave; they're not serialized.
 1. If no `PLAN_FILE` — output "No plan file found. Enter plan mode for the next un-spawned story first." Stop.
 2. Read the plan at `PLAN_FILE` — this is the most-recent per-story plan, written by `/xp-review-plan`.
 3. If `SPRINT_FILE` provided, read it for story context (optional — status tracking only).
-4. If `TEAMMATE_STORY_IDS` is empty — there is no teammate batch to assign. Stop. A solo frontier never reaches xp-assign; `/xp-schedule` branched it directly.
-5. **Target lookup** — find the lowest-id story in `TEAMMATE_STORY_IDS` whose teammate worktree is NOT yet live:
+4. **Mode + target.** If `TEAMMATE_STORY_IDS` is non-empty → teammate batch (`MODE=teammate`); resolve `TARGET` via step 5. Else if `SOLO_TARGET` is non-empty → solo frontier (`MODE=solo`); set `TARGET=$SOLO_TARGET` and skip step 5 (no worktree to look up). Else nothing to assign — stop.
+5. **Target lookup (teammate batch only).** When `MODE=teammate`, find the lowest-id story in `TEAMMATE_STORY_IDS` whose teammate worktree is NOT yet live:
    ```bash
    TARGET=""
    for sid in $TEAMMATE_STORY_IDS; do
@@ -129,6 +129,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
 `metadata.action` is `tier_override` — the contract the override-audit analysis
 reads. The matching branches (1, 3, 4, 6) write no override event.
 
+**Solo spawn = in-place.** A `MODE=teammate` spawn runs Steps 2–4 (worktree); a
+`MODE=solo` spawn runs in the main checkout (Step 4 in-place variant) and keeps
+`execution_mode=solo` (solo accept/close path). In-agent outcomes never spawn.
+
 ## Step 1: Read the story's executor_model (optional)
 
 ```bash
@@ -194,6 +198,26 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET
 ```
 
 Single Bash call with `run_in_background=true` — not a parallel batch. The teammate runs asynchronously; this skill returns immediately so the lead can continue with the next story.
+
+**Solo in-place variant (`MODE=solo` spawn).** Skip Step 2 (the solo branch
+exists). Spawn **in the main checkout**: add `--in-place`, drop
+`--branch` (current branch), keep the `worktree-`-prefixed `--name` (detection
+keys on it):
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET" \
+  --smm-dir ${SMM_DIR} --prompt-file "/tmp/prompt-$TARGET.txt" \
+  --story-id "$TARGET" --in-place \
+  --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
+  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} 2>&1 \
+  | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
+  --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
+```
+
+`run_in_background=true`, then **wait**: end your turn and make NO edits in the
+main checkout until the task-notification fires (it commits to the solo branch in
+place). On it, run `/xp-accept` for `$TARGET` (still `in-progress`/solo → solo
+path).
 
 ## Step 5: Post-spawn
 

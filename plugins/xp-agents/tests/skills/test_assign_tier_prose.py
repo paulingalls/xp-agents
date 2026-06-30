@@ -116,6 +116,20 @@ class TestAssignTierProse(unittest.TestCase):
         execution-shape decision (may exit without spawning; valid for solo)."""
         self.assertRegex(self.body, r"(?i)execution.shape")
 
+    # --- story-008: solo frontiers reach the decision (in-place spawn) -----
+    def test_solo_frontier_reaches_decision(self):
+        """The pre-flight no longer hard-stops a solo frontier — the prior
+        'a solo frontier never reaches xp-assign' contradiction is gone, and a
+        SOLO_TARGET is the decision target when there is no teammate batch."""
+        self.assertNotIn("never reaches xp-assign", self.body)
+        self.assertIn("SOLO_TARGET", self.body)
+
+    def test_solo_in_place_spawn_documented(self):
+        """A solo spawn outcome runs the teammate IN-PLACE in the main checkout
+        (no worktree), via spawn_teammate --in-place."""
+        self.assertIn("--in-place", self.body)
+        self.assertRegex(self.body, r"(?i)main checkout")
+
     # --- Project-agnostic vocabulary (CLAUDE.md guardrail) ----------------
     def test_no_language_specific_tokens_in_decision_prose(self):
         """Tier is chosen by complexity, not language — the decision prose must

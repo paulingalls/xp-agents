@@ -575,18 +575,107 @@ class TestPreloadTierPicker(_IntegrationTestCase):
             _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "sonnet"
         )
 
-    def test_no_teammate_batch_yields_empty_target_and_none(self):
-        """Solo-only / no teammate batch → no target, RECOMMENDED_TIER=none."""
+    def test_no_recommendation_for_solo_target_yields_none(self):
+        """Solo target with no tier-recommendation → RECOMMENDED_TIER=none, but
+        the solo story is still pinned as the target (story-008: the solo
+        execution-shape decision reaches xp-assign)."""
         self._write_sprint(
             _sprint_json([_s("story-001", "A", "in-progress", execution_mode="solo")])
         )
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            (_extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY") or ""), ""
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-001"
         )
         self.assertEqual(
             _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "none"
+        )
+
+
+class TestPreloadSoloTarget(_IntegrationTestCase):
+    """story-008: when there is no teammate batch, a single in-progress SOLO
+    story is the in-place execution-shape target. SOLO_TARGET names it so the
+    skill pre-flight can run the decision table for solo (in-agent vs in-place
+    spawn) instead of hard-stopping."""
+
+    def _write_sprint(self, sprint_json: str) -> None:
+        (self.smm_dir / "sprint.json").write_text(sprint_json)
+
+    def test_single_solo_in_progress_surfaces_as_solo_target(self):
+        self._write_sprint(
+            _sprint_json([_s("story-001", "A", "in-progress", execution_mode="solo")])
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "SOLO_TARGET"), "story-001"
+        )
+        # The solo story is the tier-lookup target too (pin).
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-001"
+        )
+
+    def test_solo_target_empty_when_teammate_batch_present(self):
+        self._write_sprint(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "in-progress", execution_mode="teammate"),
+                    _s("story-002", "B", "in-progress", execution_mode="solo"),
+                ]
+            )
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # A live teammate batch owns the target; the solo story does not surface.
+        self.assertEqual((_extract_preload_var(result.stdout, "SOLO_TARGET") or ""), "")
+
+    def test_solo_target_empty_when_multiple_solo_in_progress(self):
+        """A solo frontier promotes ONE story; >1 in-progress solo is ambiguous
+        → no solo target (fail safe to empty, the skill stops)."""
+        self._write_sprint(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "in-progress", execution_mode="solo"),
+                    _s("story-002", "B", "in-progress", execution_mode="solo"),
+                ]
+            )
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((_extract_preload_var(result.stdout, "SOLO_TARGET") or ""), "")
+
+    def test_solo_target_empty_when_no_sprint(self):
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((_extract_preload_var(result.stdout, "SOLO_TARGET") or ""), "")
+
+    def test_solo_target_recommended_tier_resolves(self):
+        """The plan-reviewer's recommendation for the solo story surfaces as
+        RECOMMENDED_TIER (the tier lookup runs for the solo target)."""
+        self._write_sprint(
+            _sprint_json(
+                [_s("story-001", "A", "in-progress", execution_mode="solo")],
+                started="2026-04-01",
+            )
+        )
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    ts="2026-04-15T00:00:00+00:00",
+                    metadata={
+                        "recommended_model": "haiku",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                )
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "haiku"
         )
 
 

@@ -88,6 +88,15 @@ class TestTeammateGuideSessionStart(_HookTestCase):
         assert result is not None
         self.assertNotIn("xp-kickoff", result)
 
+    def test_teammate_guide_covers_in_place_main_checkout(self):
+        """story-008: the guide documents the in-place (main-checkout) solo
+        delegation case, not just the worktree case — a teammate may run in the
+        main checkout on the story branch directly."""
+        result = self._run_teammate()
+        assert result is not None
+        self.assertIn("in-place", result.lower())
+        self.assertIn("main checkout", result.lower())
+
     def test_non_teammate_worktree_gets_normal_path(self):
         """Non-teammate worktree gets normal SessionStart (with kickoff)."""
         self._write_events([])
