@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """SubagentStart hook: inject project context for subagents.
 
-Tiered injection via dispatch table (measured sizes):
-- Explore: Intent + Constraints + XP values (~5 KB)
-- xp-code-reviewer / Default: Full SMM + XP values (~10 KB)
-- xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values (~1.6 KB)
-- xp-close-reviewer: XP values only (close skill embeds review fields)
-- xp-housekeeper: curation path + work selection + XP values (~1.5-3 KB)
-- xp-* forked agents: XP values only (~1.4 KB)
+Tiered injection via dispatch table:
+- Explore: Intent + Constraints pillars + XP values
+- xp-code-reviewer / Default (unknown agent types): full SMM + XP values
+- xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values
+- xp-housekeeper: curation path + work-selection block + XP values
+- xp-* forked agents (close/plan/sprint reviewer, risk classifier): XP values only
+- workflow-subagent (generic Workflow-tool fan-out, e.g. /code-review): XP values
+  ONLY — no SMM, no sequential note. Purpose-blind + prompt-driven (task context
+  arrives via the workflow prompt) and the highest-fanout type, so the full-SMM
+  default was the worst fit.
+
+The sequential-discipline note is appended to every tier EXCEPT workflow-subagent.
 """
 
 import sys
@@ -41,8 +46,9 @@ def _inject_full(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     return [_common.wrap_smm_context(rendered)] if rendered.strip() else []
 
 
-def _inject_xp_agent(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
-    """xp-* forked agents: values only (data comes from preloads)."""
+def _inject_no_smm(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
+    """No SMM payload — for agents whose context arrives via preload/prompt, not
+    the hook: xp-* forked agents and the generic workflow-subagent."""
     return []
 
 
@@ -124,6 +130,11 @@ SEQUENTIAL_DISCIPLINE_NOTE = (
     "apply to dependent calls (e.g. save then verify) — only to independent reads."
 )
 
+# Agent types that do NOT receive the sequential-discipline note. A
+# workflow-subagent is prompt-driven and does independent reads (which the note
+# already exempts), so the note is a no-op for it.
+_NOTE_SKIP = frozenset({"workflow-subagent"})
+
 
 # Keyed by BARE agent-type names. Incoming `xp-agents:<bare>` qualified forms
 # are normalized via target_routing.strip_our_namespace before lookup so we
@@ -133,6 +144,8 @@ _DISPATCH: dict[str, Callable[..., list[str]]] = {
     "xp-code-reviewer": _inject_full,
     "xp-retrospective": _inject_retrospective,
     "xp-housekeeper": _inject_housekeeper,
+    # Generic Workflow-tool fan-out (e.g. /code-review): XP values only, no SMM.
+    "workflow-subagent": _inject_no_smm,
 }
 
 
@@ -143,13 +156,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     bare = target_routing.strip_our_namespace(agent_type) or agent_type
     injector = _DISPATCH.get(bare)
     if injector is None:
-        injector = _inject_xp_agent if agent_type.startswith("xp-") else _inject_full
+        injector = _inject_no_smm if agent_type.startswith("xp-") else _inject_full
 
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         values = plugin_loader.load_xp_values()
         parts = [values] if values else []
-        parts.append(SEQUENTIAL_DISCIPLINE_NOTE)
+        if bare not in _NOTE_SKIP:
+            parts.append(SEQUENTIAL_DISCIPLINE_NOTE)
         return "\n\n".join(parts)
 
     agent_id = input_data.get("agent_id", "subagent")
@@ -172,7 +186,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if values:
         parts.append(values)
 
-    parts.append(SEQUENTIAL_DISCIPLINE_NOTE)
+    if bare not in _NOTE_SKIP:
+        parts.append(SEQUENTIAL_DISCIPLINE_NOTE)
 
     return "\n\n".join(parts)
 

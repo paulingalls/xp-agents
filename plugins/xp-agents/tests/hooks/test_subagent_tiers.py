@@ -294,5 +294,59 @@ class TestSubagentSequentialNote(_HookTestCase):
         self.assertIn(self._EXEMPTION, result)
 
 
+class TestWorkflowSubagentValuesOnly(_HookTestCase):
+    """`workflow-subagent` (the generic Workflow-tool agent, e.g. /code-review's
+    fan-out) is purpose-blind and prompt-driven: inject XP values ONLY — no SMM
+    (its task context arrives via the workflow prompt) and no sequential note
+    (it does independent reads, which the note already exempts). It is the
+    highest-fanout agent type, so the heaviest default payload was the worst fit.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import subagent_start
+
+        self.subagent_start = subagent_start
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+            risks=[("Auth module fragile", "concern", "problem")],
+            wisdom=["TDD always"],
+        )
+
+    def _run(self):
+        return self.subagent_start.run(
+            {
+                "session_id": "t",
+                "agent_id": "wf-1",
+                "agent_type": "workflow-subagent",
+            },
+            smm_dir=self.smm_dir,
+        )
+
+    def test_gets_xp_values(self):
+        result = self._run()
+        assert result is not None
+        self.assertIn("Extreme Programming", result)
+
+    def test_no_smm_pillars_injected(self):
+        result = self._run()
+        assert result is not None
+        for token in (
+            "Ship v1",
+            "Python 3.10+",
+            "Auth module fragile",
+            "TDD always",
+            "<smm-context>",
+        ):
+            self.assertNotIn(token, result)
+
+    def test_no_sequential_note(self):
+        result = self._run()
+        assert result is not None
+        self.assertNotIn("single-purpose sequential agent", result)
+
+
 if __name__ == "__main__":
     unittest.main()
