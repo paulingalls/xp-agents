@@ -238,14 +238,16 @@ class TestSubagentStartTieredInjection(_HookTestCase):
 
 
 # ===========================================================================
-# Sequential-discipline note (sprint-098 story-001) — every tier EXCEPT
-# workflow-subagent (see TestWorkflowSubagentValuesOnly)
+# Sequential-discipline note (sprint-098 story-001) — every tier EXCEPT the
+# generic catch-alls (workflow-subagent / general-purpose / claude; see
+# TestGenericReferenceTier)
 # ===========================================================================
 
 
 class TestSubagentSequentialNote(_HookTestCase):
-    """The sequential-discipline note injects into every subagent tier except
-    workflow-subagent (which does independent reads, the case the note exempts)."""
+    """The sequential-discipline note injects into every subagent tier except the
+    generic catch-alls (workflow-subagent / general-purpose / claude), which do
+    independent reads — the case the note already exempts."""
 
     _SIGNATURE = "single-purpose sequential agent"
     _EXEMPTION = "only to independent reads"
