@@ -175,6 +175,67 @@ class TestCmdMergeNonBlocking(unittest.TestCase):
             self.assertFalse(_bf.branch_exists(repo_td, "feature-x"))
 
 
+class TestCmdMergeFailOpen(unittest.TestCase):
+    """The post-merge accounting (merge-commit event + trailer advisory) is
+    fail-open: a failure AFTER the --no-ff merge commits but BEFORE push/delete
+    must NEVER change cmd_merge's exit code. The realistic trigger is
+    LockTimeoutError (a plain Exception, not OSError/ValueError) raised by the
+    locked event read under parallel-teammate flock contention — exactly the
+    scenario this branch runs. A regression would leave the source
+    merged-but-unpushed and force a manual cleanup.
+    """
+
+    def _run_in_process_merge(self, raise_in: str) -> int:
+        import argparse
+        from unittest import mock
+
+        import close_common
+        from _append_impl import LockTimeoutError
+
+        with (
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as repo_td,
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as smm_td,
+        ):
+            _bf.init_repo(repo_td)
+            main = _bf.get_current_branch(repo_td)
+            _bf.make_commit(repo_td, "feature-x", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=repo_td, capture_output=True, check=True
+            )
+            _write_events(Path(smm_td), [open_concern_event()])
+
+            args = argparse.Namespace(
+                cwd=repo_td,
+                source="feature-x",
+                target=main,
+                smm_dir=smm_td,
+                verify_gate=None,
+            )
+
+            def boom(*_a, **_k):
+                raise LockTimeoutError("events.jsonl lock held by a teammate")
+
+            patches = {
+                "merge_event": mock.patch.object(
+                    close_common, "append_merge_commit_event", side_effect=boom
+                ),
+                "advisory": mock.patch.object(
+                    close_common.trailer_gate, "advisory", side_effect=boom
+                ),
+            }
+            with patches[raise_in]:
+                rc = close_common.cmd_merge(args)
+            # Either way the merge must have completed and the source deleted.
+            self.assertFalse(_bf.branch_exists(repo_td, "feature-x"))
+            return rc
+
+    def test_merge_commit_event_lock_timeout_does_not_abort(self):
+        self.assertEqual(self._run_in_process_merge("merge_event"), 0)
+
+    def test_trailer_advisory_lock_timeout_does_not_abort(self):
+        self.assertEqual(self._run_in_process_merge("advisory"), 0)
+
+
 class TestCloseCommonLineCap(unittest.TestCase):
     """The extraction must land close_common.py back under the 500-line cap."""
 

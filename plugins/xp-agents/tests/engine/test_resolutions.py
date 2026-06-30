@@ -500,6 +500,55 @@ class TestCascadeResolution(unittest.TestCase):
         result = resolution.compute_resolutions([flag])
         self.assertNotIn(flag["id"], result["resolved_concern_ids"])
 
+    def test_question_two_hops_from_resolved_root_stays_open(self):
+        """A question never cascade-closes, even via a multi-hop reference chain.
+
+        A question whose `references` transitively reach a resolved root (here:
+        question → concern → resolved root question) must stay OPEN — it clears
+        ONLY via an answer event, metadata.resolves, or AskUserQuestion (the
+        blocking-question gate). Auto-closing it via cascade would fabricate a
+        customer decision, drop it from the open-questions nudge, and inflate
+        retro questions_answered.
+        """
+        root = make_event(EVENT_TYPE_QUESTION, content="root question")
+        answer = make_event(
+            EVENT_TYPE_ANSWER, content="answered", references=[root["id"]]
+        )
+        # A concern one hop from the resolved root (legitimately cascades closed).
+        bridge = make_event(
+            EVENT_TYPE_CONCERN, content="bridge concern", references=[root["id"]]
+        )
+        # A genuinely-open question two hops out, pointing at the bridge concern.
+        open_q = make_event(
+            EVENT_TYPE_QUESTION,
+            content="still-open question",
+            references=[bridge["id"]],
+        )
+        result = resolution.compute_resolutions([root, answer, bridge, open_q])
+        # Root is answered; bridge concern cascades closed.
+        self.assertIn(root["id"], result["answered_question_ids"])
+        self.assertIn(bridge["id"], result["resolved_concern_ids"])
+        # The second-hop question stays OPEN — questions never cascade-close.
+        self.assertNotIn(open_q["id"], result["answered_question_ids"])
+        self.assertNotIn(open_q["id"], result["question_answers"])
+
+    def test_question_one_hop_from_resolved_root_stays_open(self):
+        """Even a single-hop question does not cascade-close — only the
+        main-pass paths (answer / metadata.resolves) clear a question."""
+        root = make_event(EVENT_TYPE_DECISION, content="settled", topic="x")
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="retired",
+            working_on=[],
+            metadata={"resolves": [root["id"]]},
+        )
+        q = make_event(
+            EVENT_TYPE_QUESTION, content="dependent question", references=[root["id"]]
+        )
+        result = resolution.compute_resolutions([root, resolver, q])
+        self.assertIn(root["id"], result["resolved_decision_ids"])
+        self.assertNotIn(q["id"], result["answered_question_ids"])
+
     def test_cascade_respects_event_type_buckets(self):
         """A goal with references to a resolved event lands in goal_resolutions."""
         q = make_event(EVENT_TYPE_QUESTION, content="root")

@@ -12,20 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT
-
-_SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-kickoff" / "SKILL.md"
+from _kickoff_skill import _SKILL_MD, slice_step
 
 _SYNC_LEVER = "run_in_background:false"
-
-
-def _slice_step(text: str, heading: str) -> str:
-    """Return one `## Step ...` section, sliced to the next `## Step` header."""
-    start = text.find(heading)
-    if start < 0:
-        return ""
-    end = text.find("\n## Step", start + len(heading))
-    return text[start:end] if end > 0 else text[start:]
 
 
 class TestKickoffSynchronousSubagents(unittest.TestCase):
@@ -34,8 +23,8 @@ class TestKickoffSynchronousSubagents(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = _SKILL_MD.read_text()
-        cls.step_1 = _slice_step(cls.text, "## Step 1")
-        cls.step_6 = _slice_step(cls.text, "## Step 6")
+        cls.step_1 = slice_step(cls.text, "## Step 1")
+        cls.step_6 = slice_step(cls.text, "## Step 6")
 
     def test_step_1_specifies_synchronous_lever(self):
         self.assertTrue(self.step_1, "Step 1 region is empty")

@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 """Emit a type=commit event for a close-cycle merge HEAD.
 
-Extracted from close_common.py: the parent Bash PreToolUse hook only matches
-top-level ``git commit`` shells, so the inner ``git merge --no-ff`` subprocess
-spawned by ``branching.merge_branch`` leaves no commit event. ``cmd_merge``
-calls ``append_merge_commit_event`` right after the merge to close that hole.
-
-Stdlib-only.
+Extracted from close_common.py. See ``append_merge_commit_event`` for the
+merge-gap rationale and metadata shape. Stdlib-only.
 """
 
 import sys
@@ -63,7 +59,7 @@ def append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> No
         return
     files = commits.get_committed_files(cwd)
     body = commits.get_commit_message_body(cwd) or f"Merge {source}"
-    code_file_count = sum(1 for f in files if code_files.is_code_file(f))
+    code_file_count = code_files.count_code_files(files)
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches close_verify_gate's

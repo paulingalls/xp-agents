@@ -270,7 +270,15 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # (the inner `git merge --no-ff` subprocess is invisible to the parent
     # Bash PreToolUse commit hook). No-op when --smm-dir is absent.
     smm_dir = Path(args.smm_dir) if args.smm_dir else None
-    append_merge_commit_event(args.cwd, smm_dir, args.source)
+    # Fail-open: this runs AFTER the merge commits but BEFORE push/delete, so
+    # any failure (a LockTimeoutError under parallel-teammate flock contention,
+    # an OSError on the dedup read or append) must never abort the close chain
+    # and leave the source merged-but-unpushed. Catch broadly — the event is
+    # accounting-only; its absence never breaks merge correctness.
+    try:
+        append_merge_commit_event(args.cwd, smm_dir, args.source)
+    except Exception as exc:  # accounting must never block the merge chain
+        sys.stderr.write(f"warn: merge commit event skipped ({exc})\n")
 
     # Surface the Resolves-Event trailer ratio as a pre-merge advisory while
     # the un-trailered commits are still in reach. ADVISORY ONLY — it never
@@ -278,14 +286,18 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # --smm-dir is absent.
     if smm_dir is not None:
         # Fail-open: the advisory runs after the merge commits but before
-        # push/delete, so a print/encode error must never abort the chain
-        # (UnicodeEncodeError is a ValueError; OSError covers a broken stdout) —
-        # same posture as append_merge_commit_event's guards above.
+        # push/delete, so NOTHING it does may abort the chain. Catch broadly —
+        # beyond a print/encode error (UnicodeEncodeError is a ValueError) or a
+        # broken stdout (OSError), advisory()'s locked event read can raise
+        # LockTimeoutError (a plain Exception) under parallel-teammate flock
+        # contention. The advisory is print-only by contract; it must never
+        # change cmd_merge's exit code. Same fail-open posture as
+        # append_merge_commit_event's guarded call above.
         try:
             note = trailer_gate.advisory(smm_dir)
             if note:
                 print(note)
-        except (OSError, ValueError) as exc:
+        except Exception as exc:  # advisory must never block the merge chain
             sys.stderr.write(f"warn: trailer advisory skipped ({exc})\n")
 
     if git_remote.has_remote(args.cwd):

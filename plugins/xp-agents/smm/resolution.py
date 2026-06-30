@@ -62,10 +62,14 @@ def compute_resolutions(events: list[dict]) -> dict:
         MULTI-LEVEL: the cascade iterates to a fixed point, so a flag chain
         (B → A → resolved root) closes every level. Closure relays only
         through genuine flag/tracked buckets (concern/goal/debt/decision/
-        assumption/question) — never through `other` (status/sprint) events,
+        assumption) — never through `other` (status/sprint) events,
         so an ephemeral status event enriched with `references` does not relay
         closure to a substantive flag that points at it (preserves the
         single-level floor; see SMM assumption d0eac70ea560).
+        QUESTIONS are excluded from the cascade entirely: a question clears
+        only via an answer event, metadata.resolves, or AskUserQuestion (the
+        blocking-question gate), never because its `references` reach a
+        resolved root — that would fabricate a customer decision.
         TERMINATION: the loop is bounded by the event count and stops at the
         fixed point (no new closures in a pass), so a pure reference cycle
         terminates with both nodes left unresolved.
@@ -180,6 +184,17 @@ def compute_resolutions(events: list[dict]) -> dict:
         for event in events:
             event_id = event.get("id")
             if not event_id or event_id in resolver_map:
+                continue
+            # Questions never cascade-close. A question clears ONLY via an
+            # answer event, metadata.resolves, or AskUserQuestion (all handled
+            # in the main pass above and seeded into resolver_map). Letting a
+            # question close just because its `references` transitively reach a
+            # resolved root would fabricate a customer decision and silently
+            # drop a still-open blocking question from the open-questions nudge
+            # and inflate retro questions_answered — see the blocking-question
+            # gate. An answered question still *seeds* the cascade as a resolver
+            # for downstream flags; it just can never be a cascade *target*.
+            if event.get("type") == event_schema.EVENT_TYPE_QUESTION:
                 continue
             refs = event.get("references") or []
             resolver = next(
