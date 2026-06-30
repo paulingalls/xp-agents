@@ -51,7 +51,7 @@ If `STAGE < 2`, invoke `/xp-stage-migration` (it sets the Stage 2 floor directly
 
 ## Step 1: Retrospective (ALWAYS)
 
-Invoke the `xp-retrospective` agent via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). The agent handles both populated and empty `.retro-input.json` — on a fresh project with no prior session_end, it emits a seed retrospective (Keep around adopting XP, Try as skill suggestions, no Fix). Do NOT gate this step on the existence of `.retro-input.json`; the agent owns that branch.
+Invoke the `xp-retrospective` agent via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). Invoke it synchronously — pass `run_in_background:false` (the harness backgrounds Agent-tool subagents by default; a backgrounded retrospective races the kickoff sequence and can bury its render before Step 2). The agent handles both populated and empty `.retro-input.json` — on a fresh project with no prior session_end, it emits a seed retrospective (Keep around adopting XP, Try as skill suggestions, no Fix). Do NOT gate this step on the existence of `.retro-input.json`; the agent owns that branch.
 
 After it completes, render the latest retrospective:
 ```bash
@@ -127,7 +127,7 @@ Wait for it to complete.
 
 Invoke the `xp-housekeeper` agent via the Agent tool (`subagent_type=xp-agents:xp-housekeeper`). This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom). **Kickoff is not complete until housekeeping finishes.**
 
-**Do NOT run housekeeping in the background.** Wait for the subagent to complete before proceeding to Step 7.
+**Do NOT run housekeeping in the background — pass `run_in_background:false` to the Agent tool.** The harness backgrounds Agent-tool subagents by default; without the explicit flag the Stop housekeeping gate races. Wait for the subagent to complete before proceeding to Step 7.
 
 If the user said "skip" at any earlier step, still run housekeeping.
 
