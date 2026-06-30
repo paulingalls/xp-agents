@@ -220,9 +220,15 @@ class TestSkillMdNarrowedToTeammate(unittest.TestCase):
     def test_no_solo_mode_section(self):
         self.assertNotIn("## Solo Mode", self.content)
 
-    def test_no_mode_question(self):
-        # The solo/parallel decision (AskUserQuestion) is /xp-schedule's now.
-        self.assertNotIn("AskUserQuestion", self.content)
+    def test_no_solo_parallel_mode_question(self):
+        # The solo/parallel MODE decision is /xp-schedule's. story-003 makes
+        # /xp-assign universal: it may ask exactly one TIER-divergence
+        # AskUserQuestion (recommended vs default), but never the solo/parallel
+        # mode question. Pin the absence of /xp-schedule's actual mode-question
+        # text, not the blanket absence of AskUserQuestion (which the tier
+        # branch now uses) — the intro legitimately *describes* the
+        # solo-vs-parallel decide-half as living in /xp-schedule.
+        self.assertNotIn("Solo or CLI teammates", self.content)
 
     def test_no_overlap_or_count_predicate(self):
         # The decide-half predicate (count-status / scheduled-overlap) is gone.

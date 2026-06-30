@@ -12,14 +12,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+
+import markers
 from _bases import _PLUGIN_ROOT
 from conftest import (
     _extract_preload_var,
     _IntegrationTestCase,
     _s,
     _sprint_json,
+    make_event,
     write_smm_fixture,
 )
+from event_schema import EVENT_TYPE_DECISION
 
 
 def _multi_story_sprint_worktree() -> str:
@@ -336,6 +340,179 @@ class TestPreloadTeammateBatch(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         ids = _extract_preload_var(result.stdout, "TEAMMATE_STORY_IDS")
         self.assertEqual((ids or "").strip(), "")
+
+
+class TestPreloadTierPicker(_IntegrationTestCase):
+    """story-003: the preload emits the Layer-3 decision inputs — the session
+    default tier (TEAMMATE_DEFAULT) and the plan-reviewer's per-story
+    recommendation (RECOMMENDED_TIER) — both computed for the SAME story the
+    skill's pre-flight will spawn (lowest-id un-spawned teammate story).
+
+    TARGET-IDENTITY INVARIANT (plan-review assumption 9b63d2e8efcc): the
+    preload pins RECOMMENDED_TIER_STORY so a future divergence between the
+    preload's target and the skill's spawn target is caught.
+    """
+
+    def _write_sprint(self, sprint_json: str) -> None:
+        (self.smm_dir / "sprint.json").write_text(sprint_json)
+
+    def _single_teammate_sprint(self, story_id: str = "story-001") -> str:
+        return _sprint_json(
+            [_s(story_id, "Build feature", "in-progress", execution_mode="teammate")]
+        )
+
+    def _seed_tier_recommendation(self, story_id: str, model: str) -> None:
+        ev = make_event(
+            EVENT_TYPE_DECISION,
+            topic=f"tier-recommendation-{story_id}",
+            content=f"Suggested executor_model: {model} — test rationale",
+            metadata={
+                "recommended_model": model,
+                "story_id": story_id,
+                "advisory": True,
+            },
+        )
+        self._seed_events([ev])
+
+    def test_emits_recommended_tier_and_pins_target(self):
+        """AC#5: a seeded tier-recommendation surfaces as RECOMMENDED_TIER for
+        the story the skill will spawn — target identity pinned."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_tier_recommendation("story-001", "sonnet")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "sonnet"
+        )
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-001"
+        )
+
+    def test_emits_teammate_default_from_marker(self):
+        """AC#5: the session default tier is emitted for the skill to act on."""
+        self._write_sprint(self._single_teammate_sprint())
+        markers.write_teammate_config(self.smm_dir, "opus")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "TEAMMATE_DEFAULT"), "opus"
+        )
+
+    def test_default_inherit_when_no_marker(self):
+        """No TEAMMATE_CONFIG marker → fail-safe to inherit (today's behavior)."""
+        self._write_sprint(self._single_teammate_sprint())
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "TEAMMATE_DEFAULT"), "inherit"
+        )
+
+    def test_no_recommendation_yields_none(self):
+        """plan-reviewer omit-when-ambiguous case → RECOMMENDED_TIER=none."""
+        self._write_sprint(self._single_teammate_sprint())
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "none"
+        )
+
+    def test_in_agent_recommendation_passes_through(self):
+        """`in-agent` is a valid recommendation token the preload emits verbatim
+        (the skill maps it to the no-spawn branch)."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_tier_recommendation("story-001", "in-agent")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "in-agent"
+        )
+
+    def test_target_is_lowest_id_unspawned(self):
+        """Two un-spawned teammate stories → target is the lowest id, and its
+        recommendation (not the sibling's) is emitted."""
+        self._write_sprint(
+            _sprint_json(
+                [
+                    _s("story-001", "A", "in-progress", execution_mode="teammate"),
+                    _s("story-002", "B", "in-progress", execution_mode="teammate"),
+                ]
+            )
+        )
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": "haiku",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-002",
+                    metadata={
+                        "recommended_model": "opus",
+                        "story_id": "story-002",
+                        "advisory": True,
+                    },
+                ),
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-001"
+        )
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "haiku"
+        )
+
+    def test_latest_recommendation_wins(self):
+        """Two events for the same topic → the latest (tail) recommendation wins."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": "haiku",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": "opus",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "opus"
+        )
+
+    def test_no_teammate_batch_yields_empty_target_and_none(self):
+        """Solo-only / no teammate batch → no target, RECOMMENDED_TIER=none."""
+        self._write_sprint(
+            _sprint_json([_s("story-001", "A", "in-progress", execution_mode="solo")])
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (_extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY") or ""), ""
+        )
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "none"
+        )
 
 
 if __name__ == "__main__":
