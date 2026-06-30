@@ -188,8 +188,10 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         assert result is not None
         self.assertNotIn("BEHAVIORAL_GUIDE", result)
 
-    def test_general_agent_gets_full_smm_and_values(self):
-        """General-purpose agent gets full SMM + XP values."""
+    def test_unknown_agent_type_gets_full_smm_and_values(self):
+        """An unspecified/unknown agent type gets full SMM + XP values — the
+        safe default. (The named 'general-purpose' type is the reference tier;
+        see TestGenericReferenceTier.)"""
         result = self.subagent_start.run(
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
@@ -296,13 +298,13 @@ class TestSubagentSequentialNote(_HookTestCase):
         self.assertIn(self._EXEMPTION, result)
 
 
-class TestWorkflowSubagentValuesOnly(_HookTestCase):
-    """`workflow-subagent` (the generic Workflow-tool agent, e.g. /code-review's
-    fan-out) is purpose-blind and prompt-driven: inject XP values ONLY — no SMM
-    (its task context arrives via the workflow prompt) and no sequential note
-    (it does independent reads, which the note already exempts). It is the
-    highest-fanout agent type, so the heaviest default payload was the worst fit.
-    """
+class TestGenericReferenceTier(_HookTestCase):
+    """Generic catch-alls (workflow-subagent / general-purpose / claude) are
+    purpose-blind and prompt-driven: inject XP values + a cheap SMM reference
+    pointer — no full render, no sequential note. A code-writing one renders the
+    curated SMM on demand from the pointer; a review/research one skips it."""
+
+    _GENERIC_TYPES = ("workflow-subagent", "general-purpose", "claude")
 
     def setUp(self):
         super().setUp()
@@ -317,37 +319,40 @@ class TestWorkflowSubagentValuesOnly(_HookTestCase):
             wisdom=["TDD always"],
         )
 
-    def _run(self):
+    def _run(self, agent_type):
         return self.subagent_start.run(
-            {
-                "session_id": "t",
-                "agent_id": "wf-1",
-                "agent_type": "workflow-subagent",
-            },
+            {"session_id": "t", "agent_id": "g-1", "agent_type": agent_type},
             smm_dir=self.smm_dir,
         )
 
-    def test_gets_xp_values(self):
-        result = self._run()
-        assert result is not None
-        self.assertIn("Extreme Programming", result)
-
-    def test_no_smm_pillars_injected(self):
-        result = self._run()
-        assert result is not None
-        for token in (
-            "Ship v1",
-            "Python 3.10+",
-            "Auth module fragile",
-            "TDD always",
-            "<smm-context>",
-        ):
-            self.assertNotIn(token, result)
+    def test_gets_values_and_reference_not_full_smm(self):
+        for agent_type in self._GENERIC_TYPES:
+            with self.subTest(agent_type=agent_type):
+                result = self._run(agent_type)
+                assert result is not None
+                # XP values — every agent should know XP.
+                self.assertIn("Extreme Programming", result)
+                # Reference pointer: SMM_DIR + render command + the gate phrase.
+                self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+                self.assertIn("writes, designs, or changes code", result)
+                self.assertIn("smm_cli.py", result)
+                self.assertIn("render", result)
+                # NOT the full render: neither the wrapper nor the pillar values.
+                for token in (
+                    "<smm-context>",
+                    "Ship v1",
+                    "Python 3.10+",
+                    "Auth module fragile",
+                    "TDD always",
+                ):
+                    self.assertNotIn(token, result)
 
     def test_no_sequential_note(self):
-        result = self._run()
-        assert result is not None
-        self.assertNotIn("single-purpose sequential agent", result)
+        for agent_type in self._GENERIC_TYPES:
+            with self.subTest(agent_type=agent_type):
+                result = self._run(agent_type)
+                assert result is not None
+                self.assertNotIn("single-purpose sequential agent", result)
 
 
 if __name__ == "__main__":
