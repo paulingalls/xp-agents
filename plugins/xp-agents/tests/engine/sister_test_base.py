@@ -19,7 +19,7 @@ from pathlib import Path
 
 
 def _make_tmp_project() -> Path:
-    """Create a temp dir and register it for cleanup at test end."""
+    """Create and return a fresh temp project dir (caller registers cleanup)."""
     return Path(tempfile.mkdtemp(prefix="sister_tests_"))
 
 
