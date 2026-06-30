@@ -135,5 +135,7 @@ If the gate exits non-zero, skip the chain and report sprint-close complete.
 
 ## Reporting Back
 
+**Surface the merge's trailer advisory.** The merge step's `close_common.py merge` prints a `Resolves-Event:` trailer advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so if the merge printed that advisory, relay it verbatim — the named commits are still in reach to add trailers.
+
 Tell the user: branch merged into target, PR (if created) merged, local
 branch deleted. Sprint-close is complete.

@@ -37,6 +37,15 @@ from honesty_signals import build_honesty_signals
 # so a story-close session MUST NOT flip security_close_ran.
 _SECURITY_CLOSE_MODES = frozenset({"sprint", "free", "plan"})
 
+# Canonical target for resolves_link_rate (the share of eligible code commits
+# carrying a Resolves-Event trailer). Single source of truth for the 0.80
+# threshold shared by two consumers: trailer_gate.advisory imports it as its
+# pre-merge THRESHOLD, and the xp-retrospective agent flags resolves_link_rate
+# below this as a Fix (agents/xp-retrospective.md §Resolution-Link Adoption).
+# Keep all three in sync — test_trailer_gate pins the trailer_gate import and
+# the agent-prose value against this constant.
+RESOLVES_LINK_RATE_TARGET = 0.80
+
 # ---------------------------------------------------------------------------
 # Signal event types — full event dicts preserved in digest
 # ---------------------------------------------------------------------------

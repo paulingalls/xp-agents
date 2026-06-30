@@ -28,8 +28,10 @@ import sprint_store
 from event_schema import METADATA_KEY_COMMIT_HASH
 
 # At least this fraction of eligible commits must carry trailers, or the
-# advisory fires. Matches retro_metrics' resolves_link_rate target.
-THRESHOLD = 0.80
+# advisory fires. Single source of truth lives with the metric it gates —
+# retro_metrics.RESOLVES_LINK_RATE_TARGET — so the pre-merge advisory and the
+# retro's Fix threshold can never drift.
+THRESHOLD = retro_metrics.RESOLVES_LINK_RATE_TARGET
 
 
 def _sprint_start_ts(smm_dir: Path) -> str | None:

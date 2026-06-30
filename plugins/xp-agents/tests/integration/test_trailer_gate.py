@@ -250,5 +250,34 @@ class TestCloseCommonLineCap(unittest.TestCase):
         )
 
 
+class TestThresholdSync(unittest.TestCase):
+    """The 0.80 trailer target has one canonical home (retro_metrics) shared by
+    the pre-merge advisory and the retro Fix trigger — they must never drift."""
+
+    def test_trailer_gate_threshold_is_the_canonical_target(self):
+        import retro_metrics
+        import trailer_gate
+
+        self.assertEqual(
+            trailer_gate.THRESHOLD, retro_metrics.RESOLVES_LINK_RATE_TARGET
+        )
+
+    def test_retro_agent_prose_matches_the_canonical_target(self):
+        # The retro agent applies the same threshold as LLM prose (it cannot
+        # import the constant). Pin the value so prose can't silently drift from
+        # retro_metrics.RESOLVES_LINK_RATE_TARGET.
+        import retro_metrics
+
+        agent_md = _PLUGIN_ROOT / "agents" / "xp-retrospective.md"
+        text = agent_md.read_text(encoding="utf-8")
+        target_str = f"{retro_metrics.RESOLVES_LINK_RATE_TARGET:.2f}"
+        self.assertIn(
+            f"Below {target_str}",
+            text,
+            "xp-retrospective.md must flag resolves_link_rate below the "
+            f"canonical target {target_str} as a Fix",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
