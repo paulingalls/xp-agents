@@ -31,6 +31,7 @@ CURATION_INPUT = ".curation-input.json"
 COORDINATION_JSON = ".coordination.json"
 COORDINATION_LOCK = ".coordination.lock"
 SISTER_TEST_LAYOUT_WARN = ".sister-test-layout-warn"
+TEAMMATE_CONFIG = ".teammate-config"
 
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
 TEAMMATE_REPORT = ".teammate-report-{name}.txt"

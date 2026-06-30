@@ -11,6 +11,7 @@ allowed-tools:
   - Bash(python3 */smm/smm_cli.py *)
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/cadence_cli.py *)
+  - Bash(python3 */scripts/teammate_config_cli.py *)
   - Read
 ---
 
@@ -102,6 +103,27 @@ Only when the user chooses **story**, write the cadence marker (the careful `com
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/cadence_cli.py --smm-dir <SMM_DIR> write story
 ```
+
+**Teammate support (two-step opt-in).** Ask the user via AskUserQuestion: **"Teammate support for this session?"**
+
+- **On** — teammates are enabled; proceed to Q2.
+- **Off** — solo session; write token `off` and skip Q2:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_config_cli.py --smm-dir <SMM_DIR> write off
+```
+
+Q2 — Ask via AskUserQuestion: **"Default model for teammates?"**
+
+- **haiku** — mechanical tasks
+- **sonnet** *(Recommended)* — pattern-following tasks
+- **opus** — architecture tasks
+- **inherit orchestrator** — teammates use the same model as the lead
+
+Write the matching token:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_config_cli.py --smm-dir <SMM_DIR> write <token>
+```
+(use `haiku`, `sonnet`, `opus`, or `inherit` as `<token>`)
 
 Then proceed to Step 3.
 
