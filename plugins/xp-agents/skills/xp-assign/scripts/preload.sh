@@ -21,36 +21,23 @@ if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
-# The teammate batch /xp-schedule already promoted: in-progress stories whose
-# execution_mode is teammate. Computed in Python (no selection math in the
-# skill) — the narrowed xp-assign consumes TEAMMATE_STORY_IDS to split + spawn,
-# symmetric with /xp-schedule's FRONTIER_IDS. Always emitted (empty when none).
-echo "TEAMMATE_STORY_IDS=$(python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1]); sys.path.insert(0, sys.argv[2])
-from pathlib import Path
-from sprint_store import load_sprint
-sprint = load_sprint(Path(sys.argv[3]))
-ids = [] if sprint is None else [
-    s["id"] for s in sprint["stories"]
-    if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
-]
-print(" ".join(ids))
-' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" 2>/dev/null || echo "")"
-
-# Layer-3 decision inputs (story-003): the session default tier and the
-# plan-reviewer's per-story recommendation. Both feed the SKILL.md behavior
-# table. TEAMMATE_DEFAULT fail-safes to `inherit` (today's behavior) when the
-# TEAMMATE_CONFIG marker is unset.
+# Layer-3 decision input: the session default tier. Fail-safes to `inherit`
+# (today's behavior) when the TEAMMATE_CONFIG marker is unset.
 echo "TEAMMATE_DEFAULT=$(python3 "${PLUGIN_ROOT}/scripts/teammate_config_cli.py" --smm-dir "${SMM_DIR}" read 2>/dev/null || echo inherit)"
 
-# RECOMMENDED_TIER is computed for the SAME story the skill's pre-flight
-# spawns — the first un-spawned teammate story in TEAMMATE_STORY_IDS order
-# (sprint array order, normally id-ascending) — so preload and skill never
-# disagree on the target (TARGET-IDENTITY INVARIANT). RECOMMENDED_TIER_STORY
-# pins that identity. Fail-safe to `none` when no recommendation event exists
-# (the plan-reviewer omit-when-ambiguous case).
-TIER_OUT=$(python3 -c '
+# One batch computation emits all three target-coupled vars so the
+# TARGET-IDENTITY INVARIANT cannot drift across duplicated filters:
+#   TEAMMATE_STORY_IDS     — the teammate batch /xp-schedule promoted
+#                            (in-progress + execution_mode=teammate), consumed by
+#                            the skill to split + spawn (symmetric with FRONTIER_IDS).
+#   RECOMMENDED_TIER_STORY — the spawn target: the first un-spawned story in batch
+#                            order, the SAME order the skill pre-flight consumes
+#                            TEAMMATE_STORY_IDS, so preload and skill never disagree.
+#   RECOMMENDED_TIER       — that target's plan-reviewer recommendation (latest
+#                            tier-recommendation-<target> event wins; `none` when
+#                            the plan-reviewer omitted it as ambiguous).
+# Atomic emit: any failure yields the fail-safe defaults (empty batch + none).
+TEAMMATE_OUT=$(python3 -c '
 import json
 import sys
 
@@ -64,26 +51,24 @@ from worktree import find_teammate_worktree_for_story
 smm_dir = Path(sys.argv[3])
 cwd = sys.argv[4]
 sprint = load_sprint(smm_dir)
+batch = [] if sprint is None else [
+    s["id"]
+    for s in sprint["stories"]
+    if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
+]
+
+# Spawn target: the first un-spawned story in batch order. The skill pre-flight
+# iterates TEAMMATE_STORY_IDS in this same order, so the two never disagree.
 target = ""
-if sprint is not None:
-    # Iterate stories in the SAME order the TEAMMATE_STORY_IDS block emits
-    # (sprint["stories"] array order) — the skill pre-flight consumes that
-    # list verbatim, so re-sorting here could pick a different target and
-    # break the TARGET-IDENTITY INVARIANT when the array is not id-ordered.
-    batch = [
-        s["id"]
-        for s in sprint["stories"]
-        if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
-    ]
-    for sid in batch:
-        if not find_teammate_worktree_for_story(sid, cwd):
-            target = sid
-            break
+for sid in batch:
+    if not find_teammate_worktree_for_story(sid, cwd):
+        target = sid
+        break
 
 tier = "none"
 if target:
-    events_file = smm_dir / "events.jsonl"
     topic = "tier-recommendation-" + target
+    events_file = smm_dir / "events.jsonl"
     if events_file.exists():
         for line in events_file.read_text().splitlines():
             line = line.strip()
@@ -98,13 +83,16 @@ if target:
                 if model:
                     tier = model  # latest matching event wins
 
-print("RECOMMENDED_TIER_STORY=" + target)
-print("RECOMMENDED_TIER=" + tier)
+print("\n".join([
+    "TEAMMATE_STORY_IDS=" + " ".join(batch),
+    "RECOMMENDED_TIER_STORY=" + target,
+    "RECOMMENDED_TIER=" + tier,
+]))
 ' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "$(pwd)" 2>/dev/null) \
-    || TIER_OUT=""
-if [ -z "$TIER_OUT" ]; then
-    TIER_OUT=$'RECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none'
+    || TEAMMATE_OUT=""
+if [ -z "$TEAMMATE_OUT" ]; then
+    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none'
 fi
-echo "$TIER_OUT"
+echo "$TEAMMATE_OUT"
 
 rm -f "${SMM_DIR}/.assign-pending"
