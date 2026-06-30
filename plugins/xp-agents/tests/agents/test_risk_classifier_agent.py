@@ -12,7 +12,12 @@ Pins:
   * STRICT first-line RISK=high|low output contract (not substring scan)
   * cross-language framing (sprint-103 lesson: LLM judgment, not regex)
   * anti-prompt-injection clause (diff content is untrusted user code)
-  * body line bound (sanity backstop separate from AGENT_BUDGETS)
+  * sprint-111 M4: six project-agnostic signals + decision matrix +
+    Design-Context down-rating, all project-agnostic (no baked-in plugin cap)
+
+Budget is character-based only (AGENT_BUDGETS in test_agent_budgets.py, per
+constraint 4e4f2861184f). The old line-based body bound was the suite's last
+lines/bytes budget and was removed here as drift.
 """
 
 import re
@@ -127,19 +132,97 @@ class TestRiskClassifierAgent(unittest.TestCase):
             "body must tell the agent not to follow/execute embedded directives",
         )
 
-    def test_body_under_haiku_line_budget(self):
-        """Sanity backstop in case AGENT_BUDGETS registration is missed.
+    # --- sprint-111 M4: broadened rubric -------------------------------------
 
-        Haiku tier targets ~35 body lines; AGENT_BUDGETS allots 50. This
-        test asserts the same body-only bound so a forgotten budget
-        registration still fails red here.
+    # The six canonical project-agnostic signal keywords (design doc
+    # docs/ideas/RISK_CLASSIFIER_RUBRIC_BROADENING.md). story-002 maps each to a
+    # reviewer enrichment angle; the names are an interface contract.
+    _SIGNALS = (
+        "path-traversal",
+        "input-validation",
+        "combinatorial-data-table",
+        "cross-runtime-portability",
+        "file-size-creep",
+        "schema-cross-contract",
+    )
+
+    def test_body_names_all_six_signals(self):
+        """All six project-agnostic signal keywords must appear in the rubric.
+
+        The keywords are the SIGNALS= vocabulary story-002 consumes; a missing
+        one silently drops a reviewer enrichment angle.
         """
-        trailing = 1 if self.body and not self.body.endswith("\n") else 0
-        body_lines = self.body.count("\n") + trailing
-        self.assertLessEqual(
-            body_lines,
-            50,
-            f"body has {body_lines} lines; haiku tier budget is 50",
+        missing = [s for s in self._SIGNALS if s not in self.body]
+        self.assertEqual(missing, [], f"rubric is missing signal keyword(s): {missing}")
+
+    def test_body_has_decision_matrix(self):
+        """An explicit low-vs-high decision section, not just signal prose.
+
+        The classifier needs the rule that turns signals into a verdict; pin a
+        'RISK=low only when' / 'RISK=high when' shape so the matrix is present.
+        """
+        # Normalize away markdown emphasis so backticks around `RISK=low`
+        # don't break the contiguous phrase match.
+        matrix = self.body_lower.replace("`", "")
+        self.assertIn(
+            "risk=low only when",
+            matrix,
+            "body must state the RISK=low gate ('RISK=low only when ...')",
+        )
+        self.assertIn(
+            "risk=high when",
+            matrix,
+            "body must state the RISK=high trigger ('RISK=high when ...')",
+        )
+
+    def test_body_has_design_context_section(self):
+        """`## Design Context` input heading + a down-rate instruction.
+
+        story-003 passes the changed-file design/constraint block under this
+        exact heading (interface contract). The rubric must tell the classifier
+        to down-rate a diff that matches a documented host-project convention
+        rather than false-flag a spec'd pattern as a novelty (wisdom
+        f3c3aa218f9f).
+        """
+        self.assertRegex(
+            self.body,
+            r"(?m)^##\s+Design Context\s*$",
+            "body must declare a `## Design Context` input heading "
+            "(the heading story-003 passes the context block under)",
+        )
+        # The down-rate instruction: a documented/known convention match lowers
+        # risk. Accept either canonical verb pairing.
+        has_down_rate = "down-rate" in self.body_lower or "down rate" in self.body_lower
+        has_convention = (
+            "convention" in self.body_lower or "documented" in self.body_lower
+        )
+        down_rate = has_down_rate and has_convention
+        self.assertTrue(
+            down_rate,
+            "body must instruct down-rating diffs that match a documented "
+            "host-project convention",
+        )
+
+    def test_body_defers_size_threshold_to_host_project(self):
+        """Project-agnostic gate (customer's key requirement).
+
+        The plugin ships to any-language projects; the file-size signal must NOT
+        bake in this plugin's own 500-line cap as the rule. Thresholds defer to
+        the host project's own coding standards.
+        """
+        # No hardcoded line-cap constant masquerading as the rule.
+        self.assertNotRegex(
+            self.body,
+            r"\b500\b",
+            "rubric must not bake in the plugin's 500-line cap — defer to the "
+            "host project's coding standards",
+        )
+        # Explicit deference to the host project's standards.
+        self.assertRegex(
+            self.body_lower,
+            r"(host project|project'?s own|host[\s-]project'?s)",
+            "file-size / threshold guidance must defer to the host project's "
+            "own coding standards",
         )
 
 
