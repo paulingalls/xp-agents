@@ -1,4 +1,4 @@
-"""Budget enforcement helpers extracted from conftest.py for line-budget compliance."""
+"""Budget enforcement helpers extracted from conftest.py (file-size cap)."""
 
 import json
 import os
@@ -55,16 +55,16 @@ def assert_md_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every shipped .md must be at or below its budget."""
+    """Every shipped .md must be at or below its character budget."""
     files = _md_files(dir_path, pattern)
     offenders: list[str] = []
     for name, budget in budgets.items():
-        actual = len(files[name].read_text(encoding="utf-8").splitlines())
+        actual = len(files[name].read_text(encoding="utf-8"))
         if actual > budget:
-            offenders.append(f"{name}: {actual} lines (budget {budget})")
+            offenders.append(f"{name}: {actual} chars (budget {budget})")
     testcase.assertFalse(
         offenders,
-        f"{label} files exceed their line budget:\n" + "\n".join(offenders),
+        f"{label} files exceed their character budget:\n" + "\n".join(offenders),
     )
 
 
@@ -189,9 +189,9 @@ def assert_emitter_under_budgets(
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
-            actual = len(stdout_bytes)
+            actual = len(stdout_bytes.decode("utf-8", errors="replace"))
             if actual > budget:
-                offenders.append(f"{name}: {actual} bytes (budget {budget})")
+                offenders.append(f"{name}: {actual} chars (budget {budget})")
     testcase.assertFalse(
         offenders,
         f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
@@ -301,9 +301,9 @@ def assert_preload_under_budgets(
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
-            actual = len(stdout_bytes)
+            actual = len(stdout_bytes.decode("utf-8", errors="replace"))
             if actual > budget:
-                offenders.append(f"{name}: {actual} bytes (budget {budget})")
+                offenders.append(f"{name}: {actual} chars (budget {budget})")
     testcase.assertFalse(
         offenders,
         f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
