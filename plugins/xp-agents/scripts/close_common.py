@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import _common
 import acceptance_env
 import branching
 import close_verify_gate
@@ -35,6 +36,7 @@ import commits
 import git_hooks
 import git_remote
 import identity
+import sprint_store
 import trailer_gate
 import worktree
 from merge_commit_event import append_merge_commit_event
@@ -270,13 +272,36 @@ def cmd_merge(args: argparse.Namespace) -> int:
     # (the inner `git merge --no-ff` subprocess is invisible to the parent
     # Bash PreToolUse commit hook). No-op when --smm-dir is absent.
     smm_dir = Path(args.smm_dir) if args.smm_dir else None
+
+    # ONE locked events read + ONE sprint load shared by both post-merge
+    # consumers (the merge-event append below and trailer_gate.advisory),
+    # replacing the prior double-read/double-load. Taken
+    # BEFORE the append: the advisory's denominator excludes is_merge events and
+    # the dedup scan only needs prior events, so one pre-append snapshot is
+    # correct for both. Fail-open: if the locked read raises (LockTimeoutError
+    # under parallel-teammate flock contention), shared_kwargs stays empty and
+    # each consumer re-reads its own — never more fragile than the old baseline.
+    shared_kwargs: dict = {}
+    if smm_dir is not None:
+        try:
+            shared_events = _common.read_events_locked(smm_dir, "close-common-merge")
+            try:
+                shared_sprint = sprint_store.load_sprint(smm_dir)
+            except (sprint_store.SprintCorruptError, OSError):
+                shared_sprint = None
+            shared_kwargs = {"events": shared_events, "sprint": shared_sprint}
+        except Exception as exc:  # degrade to per-consumer reads, never abort
+            sys.stderr.write(
+                f"warn: shared merge read failed; each consumer re-reads ({exc})\n"
+            )
+
     # Fail-open: this runs AFTER the merge commits but BEFORE push/delete, so
     # any failure (a LockTimeoutError under parallel-teammate flock contention,
     # an OSError on the dedup read or append) must never abort the close chain
     # and leave the source merged-but-unpushed. Catch broadly — the event is
     # accounting-only; its absence never breaks merge correctness.
     try:
-        append_merge_commit_event(args.cwd, smm_dir, args.source)
+        append_merge_commit_event(args.cwd, smm_dir, args.source, **shared_kwargs)
     except Exception as exc:  # accounting must never block the merge chain
         sys.stderr.write(f"warn: merge commit event skipped ({exc})\n")
 
@@ -294,7 +319,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         # change cmd_merge's exit code. Same fail-open posture as
         # append_merge_commit_event's guarded call above.
         try:
-            note = trailer_gate.advisory(smm_dir)
+            note = trailer_gate.advisory(smm_dir, **shared_kwargs)
             if note:
                 print(note)
         except Exception as exc:  # advisory must never block the merge chain
