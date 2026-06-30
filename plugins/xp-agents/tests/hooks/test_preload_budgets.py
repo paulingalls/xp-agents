@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Per-preload byte budgets — exercises full preload.sh logic.
+"""Per-preload character budgets — exercises full preload.sh logic.
 
 Each preload.sh script (and xp-kickoff's check_session_needs.sh, the
 preload-equivalent named differently) is invoked via subprocess against
 an init'd SMM (created per-call by `init.sh`) with a representative
-fixture env. The stdout byte length is asserted against a per-script budget.
+fixture env. The stdout character length is asserted against a per-script
+budget (decoded UTF-8; for ASCII preloads bytes == chars).
 
 Because the runner bootstraps a real SMM (seed_smm.py) inside a git repo,
 preloads execute their FULL logic path — including helpers they invoke
@@ -16,7 +17,7 @@ tests pass vacuously. Wave-2 trim stories (002-005, 007) APPEND entries
 as they trim and measure each preload.
 
 Adding a new preload: add a fixture builder in `_preload_fixtures.py`,
-run `assert_preload_under_budgets` once to measure stdout bytes, compute
+run `assert_preload_under_budgets` once to measure stdout chars, compute
 ``ceil(measured * 1.125 / 100) * 100`` (floor at 100), add an entry below.
 """
 
@@ -33,7 +34,7 @@ from conftest import (
     discover_preload_scripts,
 )
 
-# ceil(measured_bytes * 1.125 / 100) * 100, floor at 100.
+# ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 200,
     "xp-assign": 400,

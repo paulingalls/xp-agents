@@ -82,6 +82,15 @@ def _resolve_story_id(
     import story_metrics
 
     wt_name = identity.extract_worktree_name(cwd)
+    if wt_name is None:
+        # In-place (solo-delegation) teammate: its cwd IS the main checkout,
+        # so there is no worktree path marker — but spawn_teammate exported
+        # XP_TEAMMATE_NAME and wrote a name-keyed .story-assignment. Recover the
+        # name from the env so attribution stays EXPLICIT (Tier 1) instead of
+        # falling through to the single-in-progress heuristic, which would
+        # mis-attribute when a second story is also in-progress. The lead's own
+        # commits carry no XP_TEAMMATE_NAME, so this never fires for the lead.
+        wt_name = identity.teammate_name_from_env()
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)
         try:

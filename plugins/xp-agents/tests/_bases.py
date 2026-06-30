@@ -34,6 +34,7 @@ _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 _SMM_DIR = _PLUGIN_ROOT / "smm"
 _MARKERS_PY = _SCRIPTS_DIR / "markers.py"
 _CADENCE_CLI_PY = _SCRIPTS_DIR / "cadence_cli.py"
+_TEAMMATE_CONFIG_CLI_PY = _SCRIPTS_DIR / "teammate_config_cli.py"
 
 
 class _AssertNotNoneMixin(_MixinBase):

@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _bases import _PLUGIN_ROOT
-from conftest import _extract_preload_var, _IntegrationTestCase
+from conftest import _TEAMMATE_CONFIG_CLI_PY, _extract_preload_var, _IntegrationTestCase
 from conftest import make_sprint_dict as _make_sprint
 from conftest import make_story_dict as _make_story
 
@@ -144,3 +144,52 @@ class TestSchedulePreload(_IntegrationTestCase):
         )
         self.assertEqual(story["status"], "in-progress")
         self.assertEqual(story["execution_mode"], "solo")
+
+    def test_teammate_enabled_when_config_token_off(self):
+        """AC#4: TEAMMATE_CONFIG token 'off' → emit TEAMMATE_ENABLED=false."""
+        self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
+        env = self._test_env
+        subprocess.run(
+            [
+                sys.executable,
+                str(_TEAMMATE_CONFIG_CLI_PY),
+                "--smm-dir",
+                str(self.smm_dir),
+                "write",
+                "off",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "TEAMMATE_ENABLED"), "false")
+
+    def test_teammate_enabled_when_config_token_sonnet(self):
+        """When token is 'sonnet' (enabled), emit TEAMMATE_ENABLED=true."""
+        self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
+        env = self._test_env
+        subprocess.run(
+            [
+                sys.executable,
+                str(_TEAMMATE_CONFIG_CLI_PY),
+                "--smm-dir",
+                str(self.smm_dir),
+                "write",
+                "sonnet",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+        out = self._run()
+        self.assertEqual(_extract_preload_var(out, "TEAMMATE_ENABLED"), "true")
+
+    def test_teammate_enabled_when_marker_absent(self):
+        """When marker absent, TEAMMATE_ENABLED defaults to true."""
+        self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
+        out = self._run()
+        enabled = _extract_preload_var(out, "TEAMMATE_ENABLED")
+        self.assertEqual(enabled, "true")

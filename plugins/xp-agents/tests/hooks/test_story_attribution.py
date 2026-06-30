@@ -48,6 +48,49 @@ class TestResolveStoryId(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_tier1_in_place_teammate_keys_on_env_name(self):
+        """In-place teammate (main-checkout cwd, no worktree marker) attributes
+        via the XP_TEAMMATE_NAME-keyed assignment file — explicitly, NOT via the
+        single-in-progress heuristic. Two stories are in-progress here, so the
+        heuristic would mis-attribute; the env-derived Tier 1 must win."""
+        import os
+        from unittest import mock
+
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [
+                    _s("story-001", "Auth", "in-progress", file_domain=["a.py"]),
+                    _s("story-002", "Api", "in-progress", file_domain=["b.py"]),
+                ],
+            )
+        )
+        assignment = worktree.story_assignment_path(self.smm_dir, "worktree-story-002")
+        assignment.write_text("story-002")
+        with mock.patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-002"}):
+            # cwd is the MAIN checkout (no worktree path marker).
+            result = commit_handling._resolve_story_id(
+                self.smm_dir, "/proj", ["a.py", "b.py"]
+            )
+        self.assertEqual(result, "story-002")
+
+    def test_in_place_env_fallback_inert_for_lead(self):
+        """No XP_TEAMMATE_NAME (the lead's own commits) → no env Tier 1, so a
+        single in-progress story still resolves via the normal heuristic."""
+        import os
+        from unittest import mock
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Auth", "in-progress", file_domain=["a.py"])],
+            )
+        )
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            result = commit_handling._resolve_story_id(self.smm_dir, "/proj", ["a.py"])
+        self.assertEqual(result, "story-001")
+
     def test_tier2_solo_single_in_progress(self):
         """Solo sprint with one in-progress story attributes to it."""
         (self.smm_dir / "sprint.json").write_text(

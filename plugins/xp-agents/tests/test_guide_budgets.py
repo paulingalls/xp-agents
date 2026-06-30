@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Per-guide line budgets for top-level *.md (XP_VALUES, PROCESS_GUIDE, TEAMMATE_GUIDE).
+"""Per-guide character budgets for top-level *.md guides.
 
 Sister to skills/test_skill_budgets.py and agents/test_agent_budgets.py:
 the three top-level guides preload into context every session/subagent
 (XP_VALUES on every SessionStart + SubagentStart) so growth costs tokens
-on every fire. Budget formula: round(trimmed_lines * 1.125 / 10) * 10.
+on every fire. Budget formula: round(chars * 1.125 / 10) * 10.
 
-Adding a new top-level guide: measure wc -l, compute budget, add entry.
+Adding a new top-level guide: measure len(Path("<name>.md").read_text()),
+compute round(chars * 1.125 / 10) * 10, add the entry below.
 """
 
 import sys
@@ -23,9 +24,9 @@ from conftest import (
 )
 
 GUIDE_BUDGETS: dict[str, int] = {
-    "XP_VALUES": 20,
-    "PROCESS_GUIDE": 100,
-    "TEAMMATE_GUIDE": 60,
+    "XP_VALUES": 1150,
+    "PROCESS_GUIDE": 8200,
+    "TEAMMATE_GUIDE": 4240,
 }
 
 _LABEL = "<plugin>/*.md"

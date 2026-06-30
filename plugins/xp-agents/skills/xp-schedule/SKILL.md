@@ -45,6 +45,12 @@ file domains). If `FRONTIER_COUNT` is `0`, there is nothing ready to schedule
 
 ## Step 2: Choose the mode (gate)
 
+**Teammate support gate:** When `TEAMMATE_ENABLED == false` (teammates are
+disabled for this session), auto-solo silently and skip the entire mode
+decision tree below. Proceed directly to Step 3.
+
+Otherwise, when teammate support is enabled:
+
 - `FRONTIER_COUNT == 1` → **solo**, no question.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == false` (overlapping domains) →
   **solo**, no question (parallel teammates would collide).
@@ -104,7 +110,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
 ```
 
 Then emit the next step:
-- **Solo** → "Proceeding solo on `$FIRST` — enter plan mode for it."
+- **Solo** → "Proceeding solo on `$FIRST` — after /xp-review-plan, run /xp-assign
+  to pick the execution shape: continue in-agent (default), or delegate the work
+  to a cheaper in-place teammate (runs in the main checkout at a lower tier)."
 - **Parallel** → "Frontier promoted as teammate batch —
   per-story plan→review→spawn. For each story: EnterPlanMode →
   /xp-review-plan → /xp-assign spawns that teammate async, then

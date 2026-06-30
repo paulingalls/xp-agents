@@ -27,6 +27,7 @@ from event_schema import (
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
     STATUS_ACTION_SPRINT_RETRO_DONE,
+    event_action,
 )
 from retro_history import annotate_try_status, gather_retro_history
 from retro_metrics import (
@@ -41,6 +42,34 @@ from retro_metrics import (
 # ---------------------------------------------------------------------------
 
 RETRO_THRESHOLD = 5
+
+# Wire-contract action string for the tier-picker override audit trail (written
+# by the xp-assign hand-off as a status event; the writer is shell and cannot
+# import this, so this anchors the reader side).
+_TIER_OVERRIDE_ACTION = "tier_override"
+
+
+def _compute_tier_override_signal(events: list[dict]) -> dict:
+    """Recommendation-acceptance signal for the retro agent's heuristic-accuracy
+    analysis. Each tier_override status event is a rejected picker
+    recommendation; a high ``override_count`` means the picker's recommendations
+    are frequently overridden. No matching events -> count 0, empty list.
+    """
+    overrides = []
+    for e in events:
+        if e.get("type") != EVENT_TYPE_STATUS:
+            continue
+        if event_action(e) != _TIER_OVERRIDE_ACTION:
+            continue
+        md = e.get("metadata") or {}
+        overrides.append(
+            {
+                "story_id": md.get("story_id", ""),
+                "picked": md.get("picked", ""),
+                "recommended": md.get("recommended", ""),
+            }
+        )
+    return {"override_count": len(overrides), "overrides": overrides}
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +181,7 @@ def _build_retro_input(
         decisions=decision_topics,
         events=events,
     )
+    digest["tier_override_signal"] = _compute_tier_override_signal(unanalyzed)
 
     _MAX_CUSTOMER_INPUT = 100
     _MAX_COMMIT_CONTENT = 400

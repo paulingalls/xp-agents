@@ -33,32 +33,51 @@ from event_schema import METADATA_KEY_COMMIT_HASH
 # retro's Fix threshold can never drift.
 THRESHOLD = retro_metrics.RESOLVES_LINK_RATE_TARGET
 
+# Sentinel for the optional ``sprint`` pre-read: ``None`` is a VALID passed
+# value (absent/corrupt sprint → None, fail open), so it can't double as "not
+# provided". ``events`` needs no sentinel — a real pre-read is always a list.
+_UNSET = object()
 
-def _sprint_start_ts(smm_dir: Path) -> str | None:
+
+def _started_from(smm_dir: Path, sprint: object) -> str | None:
     """The sprint's start date, or None (fail open → no window filter).
 
-    None when the sprint is absent OR corrupt/unreadable: the advisory must
-    never crash a close merge over a SMM-state problem, so it degrades to the
-    unwindowed denominator (same fail-open posture as close_common's merge
-    helpers).
+    ``sprint is _UNSET`` → load own; else use the passed value (which may be a
+    dict or None). None when the sprint is absent OR corrupt/unreadable: the
+    advisory must never crash a close merge over a SMM-state problem, so it
+    degrades to the unwindowed denominator (same fail-open posture as
+    close_common's merge helpers).
     """
-    try:
-        sprint = sprint_store.load_sprint(smm_dir)
-    except (sprint_store.SprintCorruptError, OSError):
-        return None
-    return sprint.get("started") if sprint else None
+    if sprint is _UNSET:
+        sprint = sprint_store.load_sprint_fail_open(smm_dir)
+    return sprint.get("started") if isinstance(sprint, dict) else None
 
 
-def advisory(smm_dir: Path) -> str | None:
+def advisory(
+    smm_dir: Path,
+    *,
+    events: list[dict] | None = None,
+    sprint: object = _UNSET,
+) -> str | None:
     """Return a pre-merge trailer advisory, or None when none is warranted.
 
     None when there are no eligible commits (nothing to nudge) or when the
     trailer ratio already meets THRESHOLD. Otherwise a multi-line string
     naming the ratio, the threshold, and each un-trailered eligible commit
     (short hash + subject). The caller prints it — this never blocks.
+
+    Optional ``events``/``sprint`` pre-reads let ``cmd_merge`` share ONE locked
+    events read + ONE sprint load with the merge-event append (closes the
+    recorded double-read debt). ``events is None`` → read own under flock;
+    ``sprint is _UNSET`` → load own. Standalone ``advisory(smm_dir)`` reads its
+    own — the independence guarantee; a passed snapshot only ever skips the
+    re-read, never changes the output.
     """
-    events = _common.read_events_locked(smm_dir, "trailer-gate")
-    eligible = retro_metrics.eligible_trailer_commits(events, _sprint_start_ts(smm_dir))
+    if events is None:
+        events = _common.read_events_locked(smm_dir, "trailer-gate")
+    eligible = retro_metrics.eligible_trailer_commits(
+        events, _started_from(smm_dir, sprint)
+    )
     if not eligible:
         return None
 

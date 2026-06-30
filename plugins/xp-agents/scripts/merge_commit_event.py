@@ -21,8 +21,21 @@ import markers
 import sprint_store
 from event_schema import METADATA_KEY_COMMIT_HASH
 
+# Sentinel for the optional ``sprint`` pre-read: ``None`` is a VALID passed
+# value (an absent/corrupt sprint loads to None and fails open), so it can't
+# double as "not provided". A unique object can. ``events`` needs no sentinel —
+# a real pre-read is always a list, so ``None`` unambiguously means "read own".
+_UNSET = object()
 
-def append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> None:
+
+def append_merge_commit_event(
+    cwd: str,
+    smm_dir: Path | None,
+    source: str,
+    *,
+    events: list[dict] | None = None,
+    sprint: object = _UNSET,
+) -> None:
     """Append a type=commit event for the merge HEAD just produced by
     ``branching.merge_branch``.
 
@@ -40,6 +53,14 @@ def append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> No
     threading ``--smm-dir``. All four shipped close skills now pass it.
     Dedupes by ``commit_hash`` so a retried/"Already up to date" re-merge
     cannot double-emit.
+
+    Optional ``events``/``sprint`` pre-reads let ``cmd_merge`` share ONE locked
+    events read + ONE sprint load with ``trailer_gate.advisory`` (closes the
+    recorded double-read debt). ``events is None`` → read own under flock; a
+    passed list (possibly empty) is used as-is. ``sprint is _UNSET`` → load own
+    + fail open; a passed value (including ``None``) is used as-is. The dedup
+    scan needs only PRIOR events, which a pre-append snapshot captures, so
+    sharing is safe.
     """
     if smm_dir is None:
         return
@@ -49,8 +70,10 @@ def append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> No
     # Read events under shared flock for dedup — we only need the events list
     # (commit-hash lookup is a linear scan), not the resolution graph. Using
     # load_events_with_resolutions here would pay an O(N) resolution.compute
-    # pass on every close-cycle merge and throw the result away.
-    events = _common.read_events_locked(smm_dir, "close-common-merge-dedup")
+    # pass on every close-cycle merge and throw the result away. A pre-read from
+    # cmd_merge (a list) is used directly to avoid a second locked read.
+    if events is None:
+        events = _common.read_events_locked(smm_dir, "close-common-merge-dedup")
     if any(
         e.get("type") == _common.COMMIT
         and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
@@ -64,10 +87,8 @@ def append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> No
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches close_verify_gate's
     # established fail-open posture for SMM-state errors here.
-    try:
-        sprint = sprint_store.load_sprint(smm_dir)
-    except (sprint_store.SprintCorruptError, OSError):
-        sprint = None
+    if sprint is _UNSET:
+        sprint = sprint_store.load_sprint_fail_open(smm_dir)
     # is_merge=True excludes this event from resolves_link_rate accounting:
     # the merge HEAD aggregates already-recorded story commits, each of
     # which carries its own Resolves trailer. Counting the merge commit
@@ -84,7 +105,7 @@ def append_merge_commit_event(cwd: str, smm_dir: Path | None, source: str) -> No
         files=files,
         code_file_count=code_file_count,
         story_id=identity.extract_story_id(source),
-        sprint_id=sprint["sprint_id"] if sprint is not None else None,
+        sprint_id=sprint["sprint_id"] if isinstance(sprint, dict) else None,
         is_merge=True,
         is_free_session=branching.is_free_branch(source),
     )

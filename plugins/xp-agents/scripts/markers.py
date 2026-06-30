@@ -62,6 +62,7 @@ NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
 CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
 REVIEW_CADENCE = MarkerDef(marker_names.REVIEW_CADENCE, "text")
 SISTER_TEST_LAYOUT_WARN = MarkerDef(marker_names.SISTER_TEST_LAYOUT_WARN, "text")
+TEAMMATE_CONFIG = MarkerDef(marker_names.TEAMMATE_CONFIG, "json")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
@@ -283,6 +284,56 @@ def write_review_cadence(smm_dir: Path, cadence: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Teammate config convenience functions (session-scoped JSON marker)
+# ---------------------------------------------------------------------------
+
+VALID_TEAMMATE_TOKENS = frozenset({"off", "haiku", "sonnet", "opus", "inherit"})
+
+# Canonical models that may appear as default_model in the marker.
+_VALID_TEAMMATE_MODELS = frozenset({"haiku", "sonnet", "opus"})
+
+_FAIL_SAFE_TEAMMATE_CONFIG: dict = {"enabled": True, "default_model": None}
+
+_TEAMMATE_TOKEN_TO_DICT: dict[str, dict] = {
+    "off": {"enabled": False, "default_model": None},
+    "inherit": {"enabled": True, "default_model": None},
+    "haiku": {"enabled": True, "default_model": "haiku"},
+    "sonnet": {"enabled": True, "default_model": "sonnet"},
+    "opus": {"enabled": True, "default_model": "opus"},
+}
+
+
+def read_teammate_config(smm_dir: Path) -> dict:
+    """Read the session teammate config.
+
+    Fail-safe to {enabled: True, default_model: None} (inherit) when the
+    marker is missing, corrupt, or holds an unrecognized shape. This
+    preserves today's behavior — teammates spawn inheriting the orchestrator.
+    """
+    data = marker_read(smm_dir, TEAMMATE_CONFIG)
+    if not isinstance(data, dict):
+        return dict(_FAIL_SAFE_TEAMMATE_CONFIG)
+    enabled = data.get("enabled")
+    default_model = data.get("default_model")
+    if not isinstance(enabled, bool):
+        return dict(_FAIL_SAFE_TEAMMATE_CONFIG)
+    if default_model is not None and default_model not in _VALID_TEAMMATE_MODELS:
+        return dict(_FAIL_SAFE_TEAMMATE_CONFIG)
+    return {"enabled": enabled, "default_model": default_model}
+
+
+def write_teammate_config(smm_dir: Path, token: str) -> None:
+    """Write the session teammate config from a canonical token.
+
+    Rejects unknown tokens (fail loud). Valid tokens:
+    off | haiku | sonnet | opus | inherit
+    """
+    if token not in VALID_TEAMMATE_TOKENS:
+        raise ValueError(f"Invalid teammate config token: {token!r}")
+    marker_write(smm_dir, TEAMMATE_CONFIG, _TEAMMATE_TOKEN_TO_DICT[token])
+
+
+# ---------------------------------------------------------------------------
 # Session-start sweep
 # ---------------------------------------------------------------------------
 
@@ -298,6 +349,7 @@ _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     SISTER_TEST_LAYOUT_WARN,
+    TEAMMATE_CONFIG,
 )
 
 

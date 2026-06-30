@@ -123,6 +123,38 @@ class TestRequiredVariantsBehavior(unittest.TestCase):
             result = execution_plan_store.load_plan_required(smm)
             self.assertEqual(result["title"], "test plan")
 
+    def test_load_sprint_fail_open_returns_none_when_missing(self):
+        # The advisory/accounting variant degrades absence to None (no raise).
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(sprint_store.load_sprint_fail_open(Path(td)))
+
+    def test_load_sprint_fail_open_returns_none_when_corrupt(self):
+        # A corrupt sprint.json must collapse to None, NOT raise — the merge
+        # advisory/accounting callers run after a merge commits and must never
+        # crash the close chain over a SMM-state problem.
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            (smm / "sprint.json").write_text("{not valid json")
+            self.assertIsNone(sprint_store.load_sprint_fail_open(smm))
+
+    def test_load_sprint_fail_open_returns_dict_when_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            smm = Path(td)
+            sprint_store.save_sprint(
+                smm,
+                {
+                    "sprint_id": "sprint-100",
+                    "goal": "test",
+                    "started": "2026-05-06",
+                    "stories": [],
+                },
+                enforce_budget=False,
+            )
+            result = sprint_store.load_sprint_fail_open(smm)
+            # `or {}` narrows dict|None to dict for pyright; an unexpected None
+            # surfaces as a KeyError on the missing sprint_id, failing the test.
+            self.assertEqual((result or {})["sprint_id"], "sprint-100")
+
 
 if __name__ == "__main__":
     unittest.main()
