@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _bases import _PLUGIN_ROOT
-from conftest import _extract_preload_var, _IntegrationTestCase
+from conftest import _TEAMMATE_CONFIG_CLI_PY, _extract_preload_var, _IntegrationTestCase
 from conftest import make_sprint_dict as _make_sprint
 from conftest import make_story_dict as _make_story
 
@@ -147,13 +147,12 @@ class TestSchedulePreload(_IntegrationTestCase):
 
     def test_teammate_enabled_when_config_token_off(self):
         """AC#4: TEAMMATE_CONFIG token 'off' → emit TEAMMATE_ENABLED=false."""
-        from conftest import _TEAMMATES_CLI_PY
         self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
         env = self._test_env
         subprocess.run(
             [
                 sys.executable,
-                str(_TEAMMATES_CLI_PY),
+                str(_TEAMMATE_CONFIG_CLI_PY),
                 "--smm-dir",
                 str(self.smm_dir),
                 "write",
@@ -169,13 +168,12 @@ class TestSchedulePreload(_IntegrationTestCase):
 
     def test_teammate_enabled_when_config_token_sonnet(self):
         """When token is 'sonnet' (enabled), emit TEAMMATE_ENABLED=true."""
-        from conftest import _TEAMMATES_CLI_PY
         self._write([_make_story(id="story-001", status="scheduled", dependencies=[])])
         env = self._test_env
         subprocess.run(
             [
                 sys.executable,
-                str(_TEAMMATES_CLI_PY),
+                str(_TEAMMATE_CONFIG_CLI_PY),
                 "--smm-dir",
                 str(self.smm_dir),
                 "write",
