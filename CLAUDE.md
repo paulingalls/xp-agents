@@ -61,7 +61,8 @@ All paths use `${CLAUDE_PLUGIN_ROOT}` in `hooks/hooks.json`. Never relative path
 
 ## Platform Constraints
 
-- **`additionalContext` unsupported on**: Stop, SubagentStop, TeammateIdle, TaskCompleted — output silently ignored. Use `decision: "block"` / `reason` or marker files instead. See `docs/PLUGIN_TOOLS.md` for full matrix.
+- **Hook I/O matrix** — verify each hook's accepted output against the authoritative hooks reference (https://code.claude.com/docs/en/hooks.md) and the plugin-dev hook-development skill, not a hand-maintained copy.
+- **`SubagentStop` `additionalContext` is delivered to the SUBAGENT and continues its turn** — it does NOT reach the parent/main agent. A hook that returns context on SubagentStop makes the subagent take another turn (which can bury its final message), so never use it to message the parent. To message the main agent after a subagent finishes, use a `PostToolUse:Skill|Agent` hook (e.g. `review_cycle_done.py`).
 - **Stop hooks run in parallel** — a command hook's `additionalContext` is NOT visible to a prompt hook in the same entry.
 - **Available events**: SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, Notification, SubagentStart, SubagentStop, Stop, TeammateIdle, TaskCompleted, InstructionsLoaded, ConfigChange, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Elicitation, ElicitationResult, SessionEnd.
 

@@ -50,7 +50,7 @@ def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] |
 
 def compute_resolutions(events: list[dict]) -> dict:
     """Single-pass computation of question answers and event resolutions,
-    followed by a one-level cascade pass.
+    followed by a multi-level cascade pass iterated to a fixed point.
 
     Resolution mechanism:
       - Questions: resolved by `answer` events that reference them,
@@ -59,8 +59,20 @@ def compute_resolutions(events: list[dict]) -> dict:
         array (any event with metadata.resolves: ["target-id"] resolves the target).
       - Cascade (WEAK): after the main pass, any event whose top-level
         `references` list contains a resolved id is itself marked resolved.
-        One-level only — events closed by cascade do NOT trigger further
-        cascade. Wrap in a while-changed loop to extend to multi-level.
+        MULTI-LEVEL: the cascade iterates to a fixed point, so a flag chain
+        (B → A → resolved root) closes every level. Closure relays only
+        through genuine flag/tracked buckets (concern/goal/debt/decision/
+        assumption) — never through `other` (status/sprint) events,
+        so an ephemeral status event enriched with `references` does not relay
+        closure to a substantive flag that points at it (preserves the
+        single-level floor; see SMM assumption d0eac70ea560).
+        QUESTIONS are excluded from the cascade entirely: a question clears
+        only via an answer event, metadata.resolves, or AskUserQuestion (the
+        blocking-question gate), never because its `references` reach a
+        resolved root — that would fabricate a customer decision.
+        TERMINATION: the loop is bounded by the event count and stops at the
+        fixed point (no new closures in a pass), so a pure reference cycle
+        terminates with both nodes left unresolved.
 
     Returns dict with:
       - question_answers: dict mapping question event ID → answer event
@@ -160,19 +172,47 @@ def compute_resolutions(events: list[dict]) -> dict:
     for bucket in (*buckets.values(), other_resolutions):
         resolver_map.update(bucket)
 
-    for event in events:
-        event_id = event.get("id")
-        if not event_id or event_id in resolver_map:
-            continue
-        refs = event.get("references") or []
-        resolver = next(
-            (resolver_map[r] for r in refs if r != event_id and r in resolver_map),
-            None,
-        )
-        if resolver is None:
-            continue
-        bucket = buckets.get(event.get("type", ""), other_resolutions)
-        bucket.setdefault(event_id, resolver)
+    # Bounded fixed-point cascade. range(len(events)) is the cycle guard:
+    # resolver_map only grows (by >=1 each pass that sets changed), bounded by
+    # the event count, so a pure reference cycle never resolves and exits via
+    # changed=False. The feed-back below relays closure ONLY through genuine
+    # flag/tracked chains (non-`other` buckets), never through ephemeral status
+    # events enriched with `references` — preserving single-level behavior as
+    # the floor (see SMM assumption d0eac70ea560).
+    for _ in range(len(events)):
+        changed = False
+        for event in events:
+            event_id = event.get("id")
+            if not event_id or event_id in resolver_map:
+                continue
+            # Questions never cascade-close. A question clears ONLY via an
+            # answer event, metadata.resolves, or AskUserQuestion (all handled
+            # in the main pass above and seeded into resolver_map). Letting a
+            # question close just because its `references` transitively reach a
+            # resolved root would fabricate a customer decision and silently
+            # drop a still-open blocking question from the open-questions nudge
+            # and inflate retro questions_answered — see the blocking-question
+            # gate. An answered question still *seeds* the cascade as a resolver
+            # for downstream flags; it just can never be a cascade *target*.
+            if event.get("type") == event_schema.EVENT_TYPE_QUESTION:
+                continue
+            refs = event.get("references") or []
+            resolver = next(
+                (resolver_map[r] for r in refs if r != event_id and r in resolver_map),
+                None,
+            )
+            if resolver is None:
+                continue
+            bucket = buckets.get(event.get("type", ""), other_resolutions)
+            bucket.setdefault(event_id, resolver)
+            if bucket is not other_resolutions:
+                # Feed the newly-resolved flag/tracked event back so deeper
+                # levels see it on the next pass. Skipped for `other` (status,
+                # sprint, ...) so closure never relays through them.
+                resolver_map[event_id] = resolver
+                changed = True
+        if not changed:
+            break
 
     return {
         "question_answers": question_answers,

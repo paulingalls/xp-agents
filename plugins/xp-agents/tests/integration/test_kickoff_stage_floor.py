@@ -10,18 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT
-
-_SKILL_MD = _PLUGIN_ROOT / "skills" / "xp-kickoff" / "SKILL.md"
-
-
-def _slice_step(text: str, heading: str) -> str:
-    """Return one `## Step ...` section, sliced to the next `## Step` header."""
-    start = text.find(heading)
-    if start < 0:
-        return ""
-    end = text.find("\n## Step", start + len(heading))
-    return text[start:end] if end > 0 else text[start:]
+from _kickoff_skill import _SKILL_MD, slice_step
 
 
 class TestKickoffStep0StageMigration(unittest.TestCase):
@@ -30,7 +19,7 @@ class TestKickoffStep0StageMigration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = _SKILL_MD.read_text()
-        cls.step = _slice_step(cls.text, "## Step 0")
+        cls.step = slice_step(cls.text, "## Step 0")
 
     def test_step_0_exists(self):
         self.assertIn("## Step 0", self.text)
@@ -83,7 +72,7 @@ class TestKickoffStep0StageMigration(unittest.TestCase):
     def test_system_context_invocation_not_duplicated_in_step_3(self):
         # The system-context invocation moved up to Step 0; Step 3 must not
         # re-invoke it (the preload flag is stale once Step 0 has run it).
-        step_3 = _slice_step(self.text, "## Step 3")
+        step_3 = slice_step(self.text, "## Step 3")
         self.assertNotIn("/xp-system-context", step_3)
 
 

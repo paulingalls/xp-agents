@@ -28,7 +28,10 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-accept": 330,
     "xp-assign": 200,
     "xp-end-session": 130,
-    "xp-free-close": 140,
+    # Bumped 140->142 for the shared "surface the merge's trailer advisory"
+    # Reporting-Back instruction (concern 614c8871c48e — print-only advisory
+    # could otherwise be silently buried, the story-002 failure mode).
+    "xp-free-close": 142,
     "xp-kickoff": 180,
     "xp-plan": 210,
     "xp-plan-close": 140,
@@ -36,7 +39,9 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-review-plan": 20,
     "xp-scaffold-acceptance": 520,
     "xp-schedule": 120,
-    "xp-sprint-close": 140,
+    # Bumped 140->142 for the shared "surface the merge's trailer advisory"
+    # Reporting-Back instruction (concern 614c8871c48e).
+    "xp-sprint-close": 142,
     "xp-sprint-review": 30,
     "xp-sprint-start": 250,
     "xp-stage-migration": 70,

@@ -476,6 +476,23 @@ class TestDetectMonorepo(unittest.TestCase):
         self.assertIn("packages/core", result["packages"])
         self.assertIn("apps/web", result["packages"])
 
+    def test_detect_nx_finds_depth_1_and_2(self) -> None:
+        """project.json is found 1 level deep (packages/core) AND 2 levels
+        deep (apps/group/web). Pins the bounded-depth contract."""
+        (self.repo / "nx.json").write_text("{}", encoding="utf-8")
+        self._mkpkg("packages", "core")
+        (self.repo / "packages" / "core" / "project.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        self._mkpkg("apps", "group", "web")
+        (self.repo / "apps" / "group" / "web" / "project.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        result = detect_monorepo(self.repo)
+        self.assertEqual(result["kind"], "nx")
+        self.assertIn("packages/core", result["packages"])
+        self.assertIn("apps/group/web", result["packages"])
+
     def test_detect_lerna(self) -> None:
         (self.repo / "lerna.json").write_text(
             json.dumps({"packages": ["packages/*"]}), encoding="utf-8"

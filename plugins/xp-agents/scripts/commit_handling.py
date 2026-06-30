@@ -214,7 +214,7 @@ def make_commit_event(
 
     Single canonical builder for both regular `git commit` emissions
     (``_handle_commit``) and close-cycle merge emissions
-    (``close_common._append_merge_commit_event``). When either side
+    (``merge_commit_event.append_merge_commit_event``). When either side
     adds a metadata field, this builder is the one place to update —
     eliminates the drift risk two parallel builders would carry.
 
@@ -313,7 +313,7 @@ def _handle_commit(
 
     committed_files = commits.get_committed_files(effective_cwd)
     commit_hash = commits.get_head_commit_hash(effective_cwd)
-    code_file_count = sum(1 for f in committed_files if code_files.is_code_file(f))
+    code_file_count = code_files.count_code_files(committed_files)
     has_code = code_file_count > 0
 
     # Dedupe by commit_hash: `_head_matches_command` only proves HEAD's

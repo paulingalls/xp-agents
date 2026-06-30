@@ -66,3 +66,8 @@ def is_code_file(path: str) -> bool:
     if suffix in _NON_CODE_SUFFIXES:
         return False
     return Path(path).name.lower() not in _NON_CODE_NAMES
+
+
+def count_code_files(paths: list[str]) -> int:
+    """Number of *paths* that classify as code via ``is_code_file``."""
+    return sum(1 for p in paths if is_code_file(p))

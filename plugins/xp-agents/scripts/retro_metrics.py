@@ -37,6 +37,15 @@ from honesty_signals import build_honesty_signals
 # so a story-close session MUST NOT flip security_close_ran.
 _SECURITY_CLOSE_MODES = frozenset({"sprint", "free", "plan"})
 
+# Canonical target for resolves_link_rate (the share of eligible code commits
+# carrying a Resolves-Event trailer). Single source of truth for the 0.80
+# threshold shared by two consumers: trailer_gate.advisory imports it as its
+# pre-merge THRESHOLD, and the xp-retrospective agent flags resolves_link_rate
+# below this as a Fix (agents/xp-retrospective.md §Resolution-Link Adoption).
+# Keep all three in sync — test_trailer_gate pins the trailer_gate import and
+# the agent-prose value against this constant.
+RESOLVES_LINK_RATE_TARGET = 0.80
+
 # ---------------------------------------------------------------------------
 # Signal event types — full event dicts preserved in digest
 # ---------------------------------------------------------------------------
@@ -337,17 +346,29 @@ def _event_in_sprint_window(event: dict, sprint_start_ts: str | None) -> bool:
     return event.get("ts", "")[:10] >= sprint_start_ts
 
 
-def _compute_resolves_link_rate(
+def has_resolves_trailer(meta: dict) -> bool:
+    """True when a commit's metadata signals a Resolves-Event trailer.
+
+    Legacy events used has_resolves_trailer; current writers populate
+    metadata.resolves directly. Either signals a numerator hit. The sole
+    speaker of both shapes — reused by trailer_gate's pre-merge advisory so
+    the gate and the retro score the numerator identically.
+    """
+    return bool(meta.get(METADATA_KEY_RESOLVES) or meta.get("has_resolves_trailer"))
+
+
+def eligible_trailer_commits(
     events: list[dict],
     sprint_start_ts: str | None,
-) -> dict:
-    """Count code commits with Resolves-Event trailers vs total code commits."""
+) -> list[dict]:
+    """The candidate-gated denominator: code commits we'd expect to carry a
+    Resolves-Event trailer.
 
-    def _has_trailer(meta: dict) -> bool:
-        # Trailer detection: legacy events used has_resolves_trailer; current
-        # writers populate metadata.resolves directly. Either signals a
-        # numerator hit. Kept local — only this function speaks both shapes.
-        return bool(meta.get(METADATA_KEY_RESOLVES) or meta.get("has_resolves_trailer"))
+    Extracted from _compute_resolves_link_rate so trailer_gate's pre-merge
+    advisory reuses the EXACT same eligibility — a divergent candidate gate
+    silently mis-scores (see the candidate-gate note below). Behavior is
+    identical to the inlined filter it replaced.
+    """
 
     # Candidate gate (the denominator's defining filter): only commits that, AT
     # COMMIT TIME, structurally overlapped an open concern/debt/question count.
@@ -429,12 +450,22 @@ def _compute_resolves_link_rate(
             return False
         # Free-session commits include conditionally: present-with-trailer
         # rewards voluntary fix-and-link; no-trailer is exploration.
-        return not (meta.get("is_free_session") and not _has_trailer(meta))
+        return not (meta.get("is_free_session") and not has_resolves_trailer(meta))
 
-    code_commits = [e for e in events if _included(e)]
+    return [e for e in events if _included(e)]
+
+
+def _compute_resolves_link_rate(
+    events: list[dict],
+    sprint_start_ts: str | None,
+) -> dict:
+    """Count code commits with Resolves-Event trailers vs total code commits."""
+    code_commits = eligible_trailer_commits(events, sprint_start_ts)
 
     total = len(code_commits)
-    with_trailers = [e for e in code_commits if _has_trailer(e.get("metadata") or {})]
+    with_trailers = [
+        e for e in code_commits if has_resolves_trailer(e.get("metadata") or {})
+    ]
     total_hits = len(with_trailers)
 
     per_agent_commits: dict[str, list[dict]] = {}
@@ -446,7 +477,7 @@ def _compute_resolves_link_rate(
     for agent_id, agent_commits in per_agent_commits.items():
         agent_total = len(agent_commits)
         agent_hits = sum(
-            1 for c in agent_commits if _has_trailer(c.get("metadata") or {})
+            1 for c in agent_commits if has_resolves_trailer(c.get("metadata") or {})
         )
         per_agent[agent_id] = {
             "resolves_link_rate": agent_hits / agent_total if agent_total > 0 else 0.0,

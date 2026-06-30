@@ -2,7 +2,7 @@
 """Merge-commit review-cycle reset pin (sprint-104 story-005 Fix A).
 
 A `--no-ff` merge commit lands via `close_common.cmd_merge()` →
-`_append_merge_commit_event()`. The merge appends a commit event but
+`append_merge_commit_event()`. The merge appends a commit event but
 previously did NOT call `markers.reset_review_cycle()` — the parent
 Bash PreToolUse hook only matches top-level `git commit` shells, so
 the per-commit `commit_handling.py:reset_review_cycle()` was bypassed.
@@ -10,7 +10,7 @@ The prior commit's `quality_review_done=True` marker persisted across
 the merge, latching the review gate for the next solo commit on the
 sprint branch.
 
-These tests pin that `_append_merge_commit_event()` now resets the
+These tests pin that `append_merge_commit_event()` now resets the
 review cycle in addition to emitting the event. Resolves event
 1c15356973d7 (deferred 4 sessions across retros).
 """
@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
-from close_common import _append_merge_commit_event
+from merge_commit_event import append_merge_commit_event
 
 
 def _init_repo(repo: Path) -> str:
@@ -73,7 +73,7 @@ def _seed_smm(repo: Path) -> Path:
 
 
 class TestMergeCommitResetsReviewCycle(unittest.TestCase):
-    """Pin that _append_merge_commit_event resets the review cycle.
+    """Pin that append_merge_commit_event resets the review cycle.
 
     Fix A for sprint-104 story-005 (resolves 1c15356973d7).
     """
@@ -109,7 +109,7 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
         self.assertTrue(prior["quality_review_done"])
 
         # Act: append a merge commit event the same way cmd_merge does.
-        _append_merge_commit_event(
+        append_merge_commit_event(
             str(self.repo), self.smm, "paulingalls/story-A-something"
         )
 
@@ -147,7 +147,7 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
             },
         )
 
-        _append_merge_commit_event(
+        append_merge_commit_event(
             str(self.repo), self.smm, "paulingalls/story-A-something"
         )
 
@@ -163,7 +163,7 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
         cmd_merge without threading --smm-dir.
         """
         # No exception, no state change. Just confirm the call returns cleanly.
-        _append_merge_commit_event(str(self.repo), None, "paulingalls/story-A")
+        append_merge_commit_event(str(self.repo), None, "paulingalls/story-A")
         # Nothing to assert state-wise — the function is a no-op.
 
     def test_merge_resets_cycle_keyed_per_agent(self):
@@ -192,9 +192,7 @@ class TestMergeCommitResetsReviewCycle(unittest.TestCase):
             },
         )
 
-        _append_merge_commit_event(
-            str(self.repo), self.smm, "paulingalls/story-A-thing"
-        )
+        append_merge_commit_event(str(self.repo), self.smm, "paulingalls/story-A-thing")
 
         # main reset
         self.assertFalse(
