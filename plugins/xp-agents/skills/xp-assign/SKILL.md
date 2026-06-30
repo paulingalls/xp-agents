@@ -130,8 +130,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
 reads. The matching branches (1, 3, 4, 6) write no override event.
 
 **Solo spawn = in-place.** A `MODE=teammate` spawn runs Steps 2–4 (worktree); a
-`MODE=solo` spawn runs in the main checkout (Step 4 in-place variant) and keeps
-`execution_mode=solo` (solo accept/close path). In-agent outcomes never spawn.
+`MODE=solo` spawn runs in the main checkout (Step 4 in-place variant),
+`execution_mode` stays solo (solo accept/close path). Solo delegation pays only
+at a CHEAPER tier — solo + `inherit` (same tier as the orchestrator) continues
+in-agent, no spawn. In-agent outcomes never spawn.
 
 ## Step 1: Read the story's executor_model (optional)
 

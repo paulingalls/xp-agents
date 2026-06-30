@@ -106,6 +106,8 @@ if target:
                 continue
             if event.get("topic") != topic:
                 continue
+            if event.get("type") != "decision":
+                continue  # the plan-reviewer writes the recommendation as a decision
             if sprint_start and event.get("ts", "")[:10] < sprint_start:
                 continue  # stale recommendation from an earlier sprint
             model = (event.get("metadata") or {}).get("recommended_model")
