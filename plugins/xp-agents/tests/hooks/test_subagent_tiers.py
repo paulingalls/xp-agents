@@ -236,12 +236,14 @@ class TestSubagentStartTieredInjection(_HookTestCase):
 
 
 # ===========================================================================
-# Sequential-discipline note (sprint-098 story-001) — lands in every tier
+# Sequential-discipline note (sprint-098 story-001) — every tier EXCEPT
+# workflow-subagent (see TestWorkflowSubagentValuesOnly)
 # ===========================================================================
 
 
 class TestSubagentSequentialNote(_HookTestCase):
-    """The sequential-discipline note injects into every subagent tier."""
+    """The sequential-discipline note injects into every subagent tier except
+    workflow-subagent (which does independent reads, the case the note exempts)."""
 
     _SIGNATURE = "single-purpose sequential agent"
     _EXEMPTION = "only to independent reads"
@@ -259,7 +261,7 @@ class TestSubagentSequentialNote(_HookTestCase):
         self.assertIn(self._SIGNATURE, result)
 
     def test_xp_agent_gets_sequential_note(self):
-        """An xp-* values-only-tier agent still carries the note (every tier)."""
+        """An xp-* values-only-tier agent still carries the note."""
         import subagent_start
 
         result = subagent_start.run(
