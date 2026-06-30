@@ -223,12 +223,42 @@ class TestSkillMdNarrowedToTeammate(unittest.TestCase):
     def test_no_solo_parallel_mode_question(self):
         # The solo/parallel MODE decision is /xp-schedule's. story-003 makes
         # /xp-assign universal: it may ask exactly one TIER-divergence
-        # AskUserQuestion (recommended vs default), but never the solo/parallel
-        # mode question. Pin the absence of /xp-schedule's actual mode-question
-        # text, not the blanket absence of AskUserQuestion (which the tier
-        # branch now uses) — the intro legitimately *describes* the
-        # solo-vs-parallel decide-half as living in /xp-schedule.
-        self.assertNotIn("Solo or CLI teammates", self.content)
+        # AskUserQuestion (branch 5: recommended vs default tier), but never
+        # the solo/parallel mode question. We must guard xp-assign OWNING a
+        # mode question WITHOUT false-positiving on branch 5's tier question.
+        #
+        # The prior pin, assertNotIn("Solo or CLI teammates"), was tautological:
+        # that exact phrase appears in NEITHER skill (/xp-schedule's is
+        # "Solo (sequential) or CLI teammates (parallel)?"), so the invariant
+        # was unguarded — a reworded mode question would slip in green.
+        #
+        # Guard structurally instead: a mode question is an AskUserQuestion
+        # whose options pit SOLO execution against PARALLEL/teammate execution.
+        # The tier question (branch 5) offers model tiers, not an execution
+        # mode, so it carries no solo↔parallel option pairing. The intro
+        # legitimately *describes* the mode decide-half as /xp-schedule's
+        # ("solo vs parallel") but does so far from any AskUserQuestion, so the
+        # windowed co-occurrence check below never trips on it.
+        lines = self.content.splitlines()
+        for i, line in enumerate(lines):
+            if "AskUserQuestion" not in line:
+                continue
+            if line.strip().startswith("- AskUserQuestion"):
+                continue  # allowed-tools frontmatter token, not a question
+            window = " ".join(lines[i : i + 3]).lower()
+            offers_solo = "solo" in window
+            offers_parallel = "parallel" in window or "teammates" in window
+            self.assertFalse(
+                offers_solo and offers_parallel,
+                "xp-assign appears to OWN a solo-vs-parallel MODE "
+                f"AskUserQuestion near line {i + 1}; that decision belongs to "
+                "/xp-schedule. Only the tier-divergence question is allowed.",
+            )
+        # Belt-and-suspenders: a verbatim copy of /xp-schedule's option labels
+        # must never land here regardless of AskUserQuestion proximity.
+        lowered = self.content.lower()
+        self.assertNotIn("solo (sequential)", lowered)
+        self.assertNotIn("cli teammates (parallel)", lowered)
 
     def test_no_overlap_or_count_predicate(self):
         # The decide-half predicate (count-status / scheduled-overlap) is gone.

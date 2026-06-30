@@ -137,6 +137,22 @@ def load_sprint_required(smm_dir: Path) -> dict:
     return sprint
 
 
+def load_sprint_fail_open(smm_dir: Path) -> dict | None:
+    """Load the sprint, degrading a corrupt/unreadable file to None.
+
+    Use this at the advisory/accounting call sites that run AFTER a merge has
+    already committed (trailer_gate, merge_commit_event, close_common's merge
+    helpers): a SMM-state problem there must never crash the close chain, so a
+    missing OR corrupt sprint collapses to the same None (the unwindowed,
+    fail-open denominator). Sibling of `load_sprint_required` — the same
+    load_sprint core, opposite posture on the must/may-exist axis.
+    """
+    try:
+        return load_sprint(smm_dir)
+    except (SprintCorruptError, OSError):
+        return None
+
+
 def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:
     """Load sprint and find story by ID. Returns (sprint, story) refs."""
     sprint = load_sprint_required(smm_dir)

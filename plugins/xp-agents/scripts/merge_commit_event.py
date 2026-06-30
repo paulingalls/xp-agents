@@ -88,10 +88,7 @@ def append_merge_commit_event(
     # remote-prune chain must continue. Matches close_verify_gate's
     # established fail-open posture for SMM-state errors here.
     if sprint is _UNSET:
-        try:
-            sprint = sprint_store.load_sprint(smm_dir)
-        except (sprint_store.SprintCorruptError, OSError):
-            sprint = None
+        sprint = sprint_store.load_sprint_fail_open(smm_dir)
     # is_merge=True excludes this event from resolves_link_rate accounting:
     # the merge HEAD aggregates already-recorded story commits, each of
     # which carries its own Resolves trailer. Counting the merge commit

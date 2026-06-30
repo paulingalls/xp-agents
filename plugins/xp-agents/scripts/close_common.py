@@ -285,10 +285,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
     if smm_dir is not None:
         try:
             shared_events = _common.read_events_locked(smm_dir, "close-common-merge")
-            try:
-                shared_sprint = sprint_store.load_sprint(smm_dir)
-            except (sprint_store.SprintCorruptError, OSError):
-                shared_sprint = None
+            shared_sprint = sprint_store.load_sprint_fail_open(smm_dir)
             shared_kwargs = {"events": shared_events, "sprint": shared_sprint}
         except Exception as exc:  # degrade to per-consumer reads, never abort
             sys.stderr.write(

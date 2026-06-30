@@ -239,6 +239,19 @@ class TestSpawnTeammateInPlace(_IntegrationTestCase):
         self._spawn_in_place(cap)
         self.assertEqual(self._read_status(), "in-progress")
 
+    def test_in_place_writes_story_assignment_for_attribution(self):
+        """In-place still writes the name-keyed .story-assignment so commit
+        attribution stays EXPLICIT (Tier 1 via XP_TEAMMATE_NAME) rather than
+        relying on the single-in-progress heuristic."""
+        import worktree
+
+        self._seed_sprint("in-progress")
+        cap: dict = {}
+        self._spawn_in_place(cap)
+        assignment = worktree.story_assignment_path(self.smm_dir, "worktree-story-001")
+        self.assertTrue(assignment.exists())
+        self.assertEqual(assignment.read_text().strip(), "story-001")
+
 
 if __name__ == "__main__":
     unittest.main()

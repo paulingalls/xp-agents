@@ -366,13 +366,14 @@ def main(argv: list[str] | None = None) -> None:
     plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
     cmd = build_command(name, args.model, plugin_dir)
 
-    # Commit attribution: the worktree teammate's name-keyed .story-assignment
-    # file is read via the worktree cwd marker (commit_handling.extract_worktree_
-    # name). An in-place child's cwd is the main checkout — no marker — so that
-    # read never fires; attribution falls to commit_handling's single-in-progress
-    # tier (the lone solo story). Skip the dead write in-place.
-    if not args.in_place:
-        write_story_assignment(Path(args.smm_dir), name, args.story_id)
+    # Commit attribution: the teammate's name-keyed .story-assignment file is
+    # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
+    # worktree marker; an in-place child's cwd is the main checkout (no marker),
+    # so commit_handling recovers the name from the exported XP_TEAMMATE_NAME
+    # instead. Write the assignment in BOTH cases so attribution is explicit and
+    # robust even when a second story is concurrently in-progress (rather than
+    # relying on the single-in-progress heuristic).
+    write_story_assignment(Path(args.smm_dir), name, args.story_id)
 
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir

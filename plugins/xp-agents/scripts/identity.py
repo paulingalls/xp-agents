@@ -77,6 +77,18 @@ def extract_worktree_name(cwd: str | None) -> str | None:
     return tail.split("/")[0]
 
 
+def teammate_name_from_env() -> str | None:
+    """The teammate name spawn_teammate.py exported, or None.
+
+    An in-place (solo-delegation) teammate runs in the MAIN checkout, so its
+    cwd carries no worktree path marker for `extract_worktree_name` to key on —
+    but spawn_teammate still exports ``XP_TEAMMATE_NAME``. Commit attribution
+    uses this to recover the name-keyed assignment when the cwd marker is absent.
+    """
+    name = os.environ.get(_XP_TEAMMATE_ENV, "").strip()
+    return name or None
+
+
 def is_teammate_agent_id(agent_id: str) -> bool:
     """True if `agent_id` belongs to a CLI teammate (e.g., 'worktree-story-001')."""
     return agent_id.startswith(_TEAMMATE_PREFIX)

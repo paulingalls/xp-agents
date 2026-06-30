@@ -91,7 +91,12 @@ if target:
     sprint_start = ((sprint or {}).get("started") or "")
     events_file = smm_dir / "events.jsonl"
     if events_file.exists():
-        for line in events_file.read_text().splitlines():
+        # Reverse-scan with early-exit: the latest matching in-window event
+        # wins, so the first hit walking from the tail IS the answer. Avoids
+        # json.loads-ing the entire log every preload (the common case has the
+        # recommendation near the tail). Equivalent to the forward "last write
+        # wins" scan, just without parsing every earlier line.
+        for line in reversed(events_file.read_text().splitlines()):
             line = line.strip()
             if not line:
                 continue
@@ -105,7 +110,8 @@ if target:
                 continue  # stale recommendation from an earlier sprint
             model = (event.get("metadata") or {}).get("recommended_model")
             if model:
-                tier = model  # latest matching in-window event wins
+                tier = model  # most-recent matching in-window event wins
+                break
 
 print("\n".join([
     "TEAMMATE_STORY_IDS=" + " ".join(batch),

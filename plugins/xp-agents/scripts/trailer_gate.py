@@ -49,10 +49,7 @@ def _started_from(smm_dir: Path, sprint: object) -> str | None:
     close_common's merge helpers).
     """
     if sprint is _UNSET:
-        try:
-            sprint = sprint_store.load_sprint(smm_dir)
-        except (sprint_store.SprintCorruptError, OSError):
-            return None
+        sprint = sprint_store.load_sprint_fail_open(smm_dir)
     return sprint.get("started") if isinstance(sprint, dict) else None
 
 
