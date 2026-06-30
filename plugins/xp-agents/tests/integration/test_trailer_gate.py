@@ -236,6 +236,144 @@ class TestCmdMergeFailOpen(unittest.TestCase):
         self.assertEqual(self._run_in_process_merge("advisory"), 0)
 
 
+class TestAdvisoryPreReadIndependence(_AssertNotNoneMixin, unittest.TestCase):
+    """advisory(smm_dir) with NO pre-read params reads its OWN events/sprint
+    (the independence guarantee), and passing a pre-read snapshot yields
+    byte-for-byte the same output as the self-read baseline."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.smm = Path(self._td.name)
+        self.addCleanup(self._td.cleanup)
+
+    def _seed_sub_threshold(self) -> None:
+        _write_events(
+            self.smm,
+            [
+                open_concern_event(),
+                _code_commit(["aaa"], "2026-04-05T10:00:00+00:00", "h1", "did link"),
+                _code_commit(["bbb"], "2026-04-05T11:00:00+00:00", "h2", "also link"),
+                _code_commit([], "2026-04-05T12:00:00+00:00", "deadbee", "no trailer"),
+            ],
+        )
+
+    def test_no_params_reads_own_events(self):
+        # Independence: standalone advisory(smm_dir) must still acquire its own
+        # locked read — exactly one call, no pre-read handed in.
+        from unittest import mock
+
+        import _common
+        import trailer_gate
+
+        self._seed_sub_threshold()
+        real = _common.read_events_locked
+        slugs: list[str] = []
+
+        def spy(smm_dir, slug):
+            slugs.append(slug)
+            return real(smm_dir, slug)
+
+        with mock.patch.object(_common, "read_events_locked", side_effect=spy):
+            msg = self._assert_not_none(trailer_gate.advisory(self.smm))
+        self.assertEqual(len(slugs), 1, f"standalone advisory self-reads once: {slugs}")
+        self.assertIn("2/3", msg)
+
+    def test_passed_events_skips_own_read(self):
+        # When a pre-read is handed in, the advisory must NOT re-read events.
+        from unittest import mock
+
+        import _common
+        import sprint_store
+        import trailer_gate
+
+        self._seed_sub_threshold()
+        events = _common.read_events_locked(self.smm, "seed")
+        sprint = sprint_store.load_sprint(self.smm)
+        with mock.patch.object(
+            _common, "read_events_locked", side_effect=AssertionError("re-read!")
+        ):
+            msg = self._assert_not_none(
+                trailer_gate.advisory(self.smm, events=events, sprint=sprint)
+            )
+        self.assertIn("2/3", msg)
+
+    def test_pre_read_output_matches_self_read_baseline(self):
+        # Byte-for-byte: the shared-read advisory equals the double-read baseline.
+        import _common
+        import sprint_store
+        import trailer_gate
+
+        self._seed_sub_threshold()
+        baseline = self._assert_not_none(trailer_gate.advisory(self.smm))
+        events = _common.read_events_locked(self.smm, "seed")
+        sprint = sprint_store.load_sprint(self.smm)
+        shared = self._assert_not_none(
+            trailer_gate.advisory(self.smm, events=events, sprint=sprint)
+        )
+        self.assertEqual(baseline, shared)
+
+
+class TestCmdMergeSingleRead(unittest.TestCase):
+    """cmd_merge takes ONE locked events read and shares it with both post-merge
+    consumers (merge-event append + trailer advisory), closing debt
+    c75e3e2d1742 — the prior double read/double load."""
+
+    def test_cmd_merge_reads_events_exactly_once(self):
+        import argparse
+        from unittest import mock
+
+        import _common
+        import close_common
+
+        with (
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as repo_td,
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as smm_td,
+        ):
+            _bf.init_repo(repo_td)
+            main = _bf.get_current_branch(repo_td)
+            _bf.make_commit(repo_td, "feature-x", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=repo_td, capture_output=True, check=True
+            )
+            smm = Path(smm_td)
+            _write_events(
+                smm,
+                [
+                    open_concern_event(),
+                    _code_commit(
+                        ["aaa"], "2026-04-05T10:00:00+00:00", "hash111", "did link"
+                    ),
+                    _code_commit(
+                        [], "2026-04-05T11:00:00+00:00", "deadbee", "forgot trailer"
+                    ),
+                ],
+            )
+
+            args = argparse.Namespace(
+                cwd=repo_td,
+                source="feature-x",
+                target=main,
+                smm_dir=smm_td,
+                verify_gate=None,
+                force_verify=False,
+            )
+
+            real = _common.read_events_locked
+            slugs: list[str] = []
+
+            def spy(smm_dir, slug):
+                slugs.append(slug)
+                return real(smm_dir, slug)
+
+            with mock.patch.object(_common, "read_events_locked", side_effect=spy):
+                rc = close_common.cmd_merge(args)
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                len(slugs), 1, f"expected ONE locked events read, got {slugs}"
+            )
+
+
 class TestCloseCommonLineCap(unittest.TestCase):
     """The extraction must land close_common.py back under the 500-line cap."""
 
