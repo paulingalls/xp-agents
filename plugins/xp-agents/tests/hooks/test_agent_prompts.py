@@ -24,6 +24,13 @@ _UPDATE_MODE_WINDOW_CHARS = 500
 _ROUTING_TABLE_WINDOW_CHARS = 1500
 
 
+def _read_system_analyzer_agent() -> str:
+    """Return the xp-system-analyzer agent markdown. Single source of the
+    analyzer path resolution shared by the analyzer test classes."""
+    path = Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
+    return path.read_text()
+
+
 class TestHousekeeperPurposeFilters(unittest.TestCase):
     """M5: housekeeper prompt has per-pillar purpose filters."""
 
@@ -69,8 +76,7 @@ class TestSystemAnalyzerDetectsTestCommand(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        path = Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
-        cls.content = path.read_text()
+        cls.content = _read_system_analyzer_agent()
 
     def test_step_3_7_section_present(self):
         # Heading shape pinned so a future edit can't silently rename
@@ -141,8 +147,7 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        path = Path(__file__).parent.parent.parent / "agents" / "xp-system-analyzer.md"
-        cls.content = path.read_text()
+        cls.content = _read_system_analyzer_agent()
 
     def test_architecture_overview_budget_matches_schema(self):
         expected = system_context_schema.FIELD_MAXLENGTH["architecture_overview"]
@@ -371,6 +376,15 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                     window,
                     f"Update-mode refinement paragraph must cite {cmd!r}",
                 )
+
+
+class TestAnalyzerFixtureHelper(unittest.TestCase):
+    """Pin _read_system_analyzer_agent directly, not only transitively
+    through the two consuming classes."""
+
+    def test_returns_analyzer_content(self):
+        content = _read_system_analyzer_agent()
+        self.assertIn("xp-system-analyzer", content)
 
 
 class TestProcessGuideSystemContext(unittest.TestCase):
