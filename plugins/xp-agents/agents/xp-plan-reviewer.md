@@ -95,6 +95,35 @@ Criteria: independent step group count (1=solo, 2+ non-overlapping=consider suba
 
 Include your recommendation under an "Execution mode" heading.
 
+### 9b. Tier Recommendation
+
+After reporting findings, judge story complexity by STRUCTURAL signals and write ONE decision event recommending an executor tier for the teammate.
+
+**4-tier heuristic (project-agnostic):**
+
+| Tier | Structural signals |
+|---|---|
+| `in-agent` | Very small AND single file AND purely mechanical (rename, format, port). Spawning a teammate is pure overhead. |
+| `haiku` | Small-to-moderate AND no judgment surface (mechanical refactors, well-templated additions, pattern-driven extensions of existing code). |
+| `sonnet` | Moderate-to-large AND pattern-following (mirrors existing code, schema additions following a precedent, multi-file but no novel architecture). |
+| `opus` | Large OR novel architectural surface OR cross-module integration OR subtle state/lifecycle/concurrency surface. |
+
+Use generic size language ("very small", "small-to-moderate", "large") — not language-specific thresholds — so the rubric applies to any-language projects.
+
+**OMIT-WHEN-AMBIGUOUS:** if the plan is genuinely ambiguous on tier, OMIT the event entirely — /xp-assign falls back to the kickoff default. Do NOT guess.
+
+When the tier is clear, write ONE decision event:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
+  --type "decision" --agent "xp-plan-reviewer" \
+  --topic "tier-recommendation-<story-id>" \
+  --content "Suggested executor_model: <tier> — <one-sentence rationale>" \
+  --metadata '{"recommended_model": "<in-agent|haiku|sonnet|opus>", "story_id": "<story-id>", "advisory": true}'
+```
+
+Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus}. ONE event per unambiguous reviewed plan.
+
 ### 10. Acceptance Criteria Cross-Check
 
 If `${SMM_DIR}/execution_plan.json` exists:
