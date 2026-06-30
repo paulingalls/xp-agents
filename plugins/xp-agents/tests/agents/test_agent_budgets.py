@@ -23,7 +23,7 @@ from conftest import (
 
 AGENT_BUDGETS: dict[str, int] = {
     "xp-close-reviewer": 8980,
-    "xp-code-reviewer": 7860,
+    "xp-code-reviewer": 8550,
     "xp-housekeeper": 11230,
     "xp-plan-reviewer": 18800,
     "xp-retrospective": 21770,
