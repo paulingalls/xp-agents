@@ -111,7 +111,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
 
 Then emit the next step:
 - **Solo** → "Proceeding solo on `$FIRST` — after /xp-review-plan, run /xp-assign
-  to decide execution shape (in-agent or teammate spawn)."
+  to pick the execution shape: continue in-agent (default), or delegate the work
+  to a cheaper in-place teammate (runs in the main checkout at a lower tier)."
 - **Parallel** → "Frontier promoted as teammate batch —
   per-story plan→review→spawn. For each story: EnterPlanMode →
   /xp-review-plan → /xp-assign spawns that teammate async, then
