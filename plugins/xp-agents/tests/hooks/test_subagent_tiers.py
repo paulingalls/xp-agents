@@ -356,6 +356,20 @@ class TestGenericReferenceTier(_HookTestCase):
                 assert result is not None
                 self.assertNotIn("single-purpose sequential agent", result)
 
+    def test_no_note_on_missing_smm_dir_path(self):
+        """The smm_dir-None early return also skips the note for generic types
+        (the False branch of the shared wants_note guard). Values still inject."""
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        for agent_type in self._GENERIC_TYPES:
+            with self.subTest(agent_type=agent_type):
+                result = self.subagent_start.run(
+                    {"session_id": "t", "agent_id": "g-1", "agent_type": agent_type},
+                    smm_dir=fake_dir,
+                )
+                assert result is not None
+                self.assertIn("Extreme Programming", result)
+                self.assertNotIn("single-purpose sequential agent", result)
+
 
 if __name__ == "__main__":
     unittest.main()
