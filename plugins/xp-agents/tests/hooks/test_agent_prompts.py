@@ -378,15 +378,6 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                 )
 
 
-class TestAnalyzerFixtureHelper(unittest.TestCase):
-    """Pin _read_system_analyzer_agent directly, not only transitively
-    through the two consuming classes."""
-
-    def test_returns_analyzer_content(self):
-        content = _read_system_analyzer_agent()
-        self.assertIn("xp-system-analyzer", content)
-
-
 class TestProcessGuideSystemContext(unittest.TestCase):
     """PROCESS_GUIDE.md's System Context section must surface the
     reversal-test discriminator so contributors learn the principle-vs-
