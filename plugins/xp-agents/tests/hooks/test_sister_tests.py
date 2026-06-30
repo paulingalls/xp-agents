@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Tests for the sister-test discovery primitive."""
 
-import shutil
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -256,26 +254,6 @@ class TestResolveTestGlob(unittest.TestCase):
         rule = self._make_rule("**/*.py", "{dir}/tests/test_{stem}.py")
         out = _resolve_test_glob(rule, "foo", PurePosixPath("pkg/foo.py"))
         self.assertEqual(out, ["pkg/tests/test_foo.py"])
-
-
-def _make_tmp_project() -> Path:
-    """Create a temp dir and register it for cleanup at test end."""
-    return Path(tempfile.mkdtemp(prefix="sister_tests_"))
-
-
-def _touch(root: Path, rel: str) -> None:
-    """Create an empty file at ``root/rel``, including parent dirs."""
-    p = root / rel
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("")
-
-
-class _DiscoveryTestCase(unittest.TestCase):
-    """Base: gives each test a temp project_root with auto-cleanup."""
-
-    def setUp(self):
-        self.root = _make_tmp_project()
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
 
 
 class TestExtractors(unittest.TestCase):

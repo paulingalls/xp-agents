@@ -2,10 +2,10 @@
 """Generic discover_sister_tests edge-case suite for sister_tests.
 
 Split out of tests/hooks/test_sister_tests.py: that file keeps the compiler /
-pure-function mechanics plus the shared ``_DiscoveryTestCase`` base; this file
-holds the layout-agnostic discovery edge cases (absolute-path guard, custom
-layouts, no-match behavior). The shared base and ``_touch`` helper are imported
-from test_sister_tests so exactly one definition exists.
+pure-function mechanics; this file holds the layout-agnostic discovery edge
+cases (absolute-path guard, custom layouts, no-match behavior). The shared base
+and ``_touch`` helper are imported from the co-located sister_test_base so
+exactly one definition exists.
 """
 
 import shutil
@@ -13,20 +13,21 @@ import sys
 import unittest
 from pathlib import Path
 
-# sister_tests lives in smm/ and test_sister_tests in tests/hooks/ — neither is
-# on sys.path under the `python3 -m unittest` fallback (no conftest auto-load).
-# Insert both so imports resolve regardless of collection order.
+# sister_tests lives in smm/ — not on sys.path under the `python3 -m unittest`
+# fallback (no conftest auto-load). Insert smm/ so it resolves. Also insert this
+# engine dir so the bare `import sister_test_base` (a top-level sibling) resolves
+# under unittest discover regardless of collection order.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "smm"))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from sister_test_base import (  # pyright: ignore[reportMissingImports]
+    _DiscoveryTestCase,
+    _touch,
+)
 from sister_tests import (  # pyright: ignore[reportMissingImports]
     TestLayout,
     TestLayoutRule,
     discover_sister_tests,
-)
-from test_sister_tests import (  # pyright: ignore[reportMissingImports]
-    _DiscoveryTestCase,
-    _touch,
 )
 
 
