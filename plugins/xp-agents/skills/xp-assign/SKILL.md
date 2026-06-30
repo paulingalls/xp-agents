@@ -81,8 +81,11 @@ inputs: `TEAMMATE_DEFAULT` (the session default tier — `off`/`haiku`/`sonnet`/
 `opus`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story pick —
 `in-agent`/`haiku`/`sonnet`/`opus`/`none`, where `none` means it was omitted as
 ambiguous). The preload computed `RECOMMENDED_TIER` for the SAME story this
-skill spawns; `RECOMMENDED_TIER_STORY` echoes that target so the two never
-diverge.
+skill spawns; `RECOMMENDED_TIER_STORY` echoes that target. **Verify
+`RECOMMENDED_TIER_STORY` equals the `TARGET` you resolved in pre-flight before
+applying `RECOMMENDED_TIER`.** If they differ, the un-spawned frontier shifted
+between preload and now — treat `RECOMMENDED_TIER` as `none` (apply the default)
+rather than misapply another story's recommendation to this `TARGET`.
 
 Evaluate the branches **in this order** and act on the first that matches:
 

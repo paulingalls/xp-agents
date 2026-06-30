@@ -500,6 +500,81 @@ class TestPreloadTierPicker(_IntegrationTestCase):
             _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "opus"
         )
 
+    def test_stale_prior_sprint_recommendation_is_scoped_out(self):
+        """A tier-recommendation from a PRIOR sprint that reused the same
+        per-sprint story id must NOT leak into the current sprint's pick.
+        Per-sprint story ids (story-001...) are reused every sprint, so the
+        scan is scoped to events on/after the current sprint's `started`
+        date — mirroring retro_metrics._event_in_sprint_window."""
+        self._write_sprint(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Build feature",
+                        "in-progress",
+                        execution_mode="teammate",
+                    )
+                ],
+                started="2026-06-01",
+            )
+        )
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    ts="2026-05-01T00:00:00+00:00",
+                    metadata={
+                        "recommended_model": "opus",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                )
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "none"
+        )
+
+    def test_in_window_recommendation_survives_scoping(self):
+        """A recommendation written on/after the sprint `started` date is in
+        the current sprint window and surfaces normally."""
+        self._write_sprint(
+            _sprint_json(
+                [
+                    _s(
+                        "story-001",
+                        "Build feature",
+                        "in-progress",
+                        execution_mode="teammate",
+                    )
+                ],
+                started="2026-06-01",
+            )
+        )
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    ts="2026-06-15T00:00:00+00:00",
+                    metadata={
+                        "recommended_model": "sonnet",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                )
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "sonnet"
+        )
+
     def test_no_teammate_batch_yields_empty_target_and_none(self):
         """Solo-only / no teammate batch → no target, RECOMMENDED_TIER=none."""
         self._write_sprint(
