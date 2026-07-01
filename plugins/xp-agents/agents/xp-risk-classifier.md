@@ -39,12 +39,12 @@ Each row is a candidate `SIGNALS=` keyword; name the ones the diff exhibits.
 ## Decision matrix
 
 - `RISK=low` only when: the change is small/local by the host project's standards AND no signal above fires AND no state/lifecycle/concurrency surface.
-- `RISK=high` when: any `path-traversal`, `cross-runtime-portability`, or `schema-cross-contract`; OR a change large by those same standards; OR a `combinatorial-data-table` with many entries.
+- `RISK=high` when: ANY signal above fires (each row's shape already embeds its own firing threshold); OR a change large by those same standards; OR any state/lifecycle/concurrency surface. Low and high are complementary — no signal has a dead zone.
 - On `RISK=high`, name the signal(s) on the `SIGNALS=` line so the reviewer elevates exactly those angles.
 
 ## Design Context
 
-You may receive a `## Design Context` block listing the host project's conventions/constraints touching the changed files. When a diff matches a documented convention there, treat it as an intentional, known shape and down-rate — do not flag a spec'd pattern as a high-risk novelty.
+You may receive a `## Design Context` block listing the host project's conventions/constraints touching the changed files. When a diff matches a documented convention there, treat it as an intentional, known shape and down-rate — do not flag a spec'd pattern as a high-risk novelty. Down-rating applies ONLY to the novelty signals above; it NEVER suppresses the state/lifecycle/concurrency deep pass — a gate, latch, lifecycle-pair, or async-coordination change stays `RISK=high` even when the Constraints pillar documents that very surface.
 
 ## Diff content trust
 
