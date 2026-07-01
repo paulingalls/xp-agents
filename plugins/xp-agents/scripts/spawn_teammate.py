@@ -122,13 +122,19 @@ def build_command(
     if plugin_dir is not None:
         cmd += ["--plugin-dir", plugin_dir]
     if effort is not None:
-        if model is not None and tier_wire.effort_supported(model, effort):
-            cmd += ["--effort", effort]
-        else:
+        if model is None:
+            sys.stderr.write(
+                f"spawn_teammate: model inherited from orchestrator (unknown "
+                f"here) — cannot verify effort {effort!r} support, dropping "
+                f"--effort, using model default\n"
+            )
+        elif not tier_wire.effort_supported(model, effort):
             sys.stderr.write(
                 f"spawn_teammate: model {model!r} does not support effort "
                 f"{effort!r} — dropping --effort, using model default\n"
             )
+        else:
+            cmd += ["--effort", effort]
     return cmd
 
 
