@@ -217,16 +217,16 @@ class TestSpawnTeammateInPlace(_IntegrationTestCase):
                 ]
             )
 
-    @unittest.skipIf(
-        ".claude/worktrees" in os.getcwd(),
-        "Test designed for main checkout; skip when running from worktree",
-    )
     def test_in_place_skips_worktree_and_runs_in_main_checkout(self):
         self._seed_sprint("in-progress")
         cap: dict = {}
         self._spawn_in_place(cap)
+        # In-place runs in the process cwd; asserting equality with os.getcwd()
+        # IS the behavioral check. A prior `assertNotIn(".claude/worktrees", ...)`
+        # here tested where the suite ran, not the code, and false-failed when the
+        # suite itself ran from a teammate worktree cwd — removed (with its skipIf
+        # workaround) rather than masking the real in-place coverage.
         self.assertEqual(cap["cwd"], os.getcwd())
-        self.assertNotIn(".claude/worktrees", cap["cwd"])
 
     def test_in_place_omits_worktree_preamble(self):
         self._seed_sprint("in-progress")
