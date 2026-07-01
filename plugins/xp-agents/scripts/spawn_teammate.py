@@ -36,6 +36,7 @@ import worktree  # isort: split
 
 import identity
 import sprint_store
+import tier_wire
 
 
 def cleanup_existing(name: str, cwd: str) -> None:
@@ -77,7 +78,10 @@ _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 
 def build_command(
-    name: str, model: str | None = None, plugin_dir: str | None = None
+    name: str,
+    model: str | None = None,
+    plugin_dir: str | None = None,
+    effort: str | None = None,
 ) -> list[str]:
     """Construct the claude -p command for a teammate.
 
@@ -90,6 +94,15 @@ def build_command(
     xp-agents skills, agents, and hooks: a worktree `claude -p` session does
     not apply the project-scoped marketplace enablement, so without
     --plugin-dir the plugin (and its full hook lifecycle) never loads.
+
+    When *effort* is given, a --effort flag forwards the reasoning-effort
+    level — but only when the resolved *model* is known to support it
+    (tier_wire.effort_supported). Support is non-uniform across tiers (the
+    cheapest tier rejects effort outright), so an unsupported model+effort
+    pair is dropped with a stderr note rather than erroring the spawn: it
+    fail-safes to the model default. When *model* is None the resolved tier
+    is inherited from the orchestrator and unknown here, so effort is treated
+    as unverifiable and dropped — never forward a param we can't confirm.
     """
     cmd = [
         "claude",
@@ -108,6 +121,14 @@ def build_command(
         cmd += ["--model", model]
     if plugin_dir is not None:
         cmd += ["--plugin-dir", plugin_dir]
+    if effort is not None:
+        if model is not None and tier_wire.effort_supported(model, effort):
+            cmd += ["--effort", effort]
+        else:
+            sys.stderr.write(
+                f"spawn_teammate: model {model!r} does not support effort "
+                f"{effort!r} — dropping --effort, using model default\n"
+            )
     return cmd
 
 
@@ -335,6 +356,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--branch", default=None)
     parser.add_argument("--model", default=None)
     parser.add_argument("--plugin-dir", default=None)
+    parser.add_argument("--effort", default=None)
     parser.add_argument(
         "--in-place",
         action="store_true",
@@ -364,7 +386,7 @@ def main(argv: list[str] | None = None) -> None:
     # flag can't silently re-spawn the plugin-less teammate this release fixes;
     # an explicit --plugin-dir still wins.
     plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
-    cmd = build_command(name, args.model, plugin_dir)
+    cmd = build_command(name, args.model, plugin_dir, args.effort)
 
     # Commit attribution: the teammate's name-keyed .story-assignment file is
     # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
