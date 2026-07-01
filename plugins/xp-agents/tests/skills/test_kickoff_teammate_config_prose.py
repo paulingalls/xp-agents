@@ -15,17 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import tier_wire
-from conftest import _split_frontmatter_body
+from conftest import _slice, _split_frontmatter_body
 
 _SKILL_PATH = Path(__file__).parent.parent.parent / "skills" / "xp-kickoff" / "SKILL.md"
-
-
-def _slice(body: str, start_marker: str, end_markers: tuple[str, ...]) -> str:
-    """Return the body region from start_marker up to the first end_marker."""
-    start = body.index(start_marker)
-    rest = body[start + len(start_marker) :]
-    ends = [rest.index(m) for m in end_markers if m in rest]
-    return rest[: min(ends)] if ends else rest
 
 
 class TestKickoffTeammateConfigProse(unittest.TestCase):

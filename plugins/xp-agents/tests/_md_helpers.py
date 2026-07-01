@@ -18,3 +18,11 @@ def _split_frontmatter_body(text: str) -> tuple[str, str]:
     if not match:
         return "", text
     return match.group(1), match.group(2)
+
+
+def _slice(body: str, start_marker: str, end_markers: tuple[str, ...]) -> str:
+    """Return the body region from start_marker up to the first end_marker."""
+    start = body.index(start_marker)
+    rest = body[start + len(start_marker) :]
+    ends = [rest.index(m) for m in end_markers if m in rest]
+    return rest[: min(ends)] if ends else rest
