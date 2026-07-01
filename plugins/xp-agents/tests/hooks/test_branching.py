@@ -596,6 +596,17 @@ class TestIsGitWorktree(unittest.TestCase):
             # helper must swallow that and report "not a worktree", never crash.
             self.assertFalse(branching.is_git_worktree(missing))
 
+    def test_hung_git_timeout_is_not_worktree(self):
+        # _git runs with a timeout, so a hung `git rev-parse` raises
+        # TimeoutExpired (a SubprocessError, not OSError). The helper must
+        # swallow it and report "not a worktree" rather than crash the merge.
+        with patch.object(
+            branching,
+            "_git",
+            side_effect=subprocess.TimeoutExpired(cmd="git", timeout=10),
+        ):
+            self.assertFalse(branching.is_git_worktree("/any/path"))
+
 
 if __name__ == "__main__":
     unittest.main()

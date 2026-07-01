@@ -255,7 +255,10 @@ def is_git_worktree(cwd: str) -> bool:
     """
     try:
         r = _git(["git", "rev-parse", "--is-inside-work-tree"], cwd)
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
+        # Missing dir (OSError) or a hung/errored git (TimeoutExpired et al.,
+        # since _git runs with a timeout) — an uncheckable target, not a dirty
+        # one. Fail to "not a worktree" so callers skip rather than crash.
         return False
     return r.returncode == 0 and r.stdout.strip() == "true"
 
