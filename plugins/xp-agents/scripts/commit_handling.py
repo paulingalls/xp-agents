@@ -88,15 +88,17 @@ def _resolve_story_id(
         # XP_TEAMMATE_NAME and wrote a name-keyed .story-assignment. Recover the
         # name from the env so attribution stays EXPLICIT (Tier 1) instead of
         # falling through to the single-in-progress heuristic, which would
-        # mis-attribute when a second story is also in-progress. This assumes
-        # the lead's own process carries no XP_TEAMMATE_NAME — normally true
-        # (spawn_teammate exports it only onto the CHILD process's env), but
-        # XP_TEAMMATE_NAME is a documented leaky var: were it to leak into the
-        # lead AND a stale name-keyed .story-assignment still exist, the lead's
-        # commit could be mis-attributed. The assignment-file existence check
-        # below bounds (does not fully close) that window — see debt note on a
-        # positive in-place marker for the robust fix.
-        wt_name = identity.teammate_name_from_env()
+        # mis-attribute when a second story is also in-progress.
+        #
+        # XP_TEAMMATE_NAME is a documented leaky var, so the env alone isn't
+        # trustworthy: were it to leak into the lead AND a stale name-keyed
+        # .story-assignment still exist, the lead's own commit would be
+        # mis-attributed. Gate on the lifetime-scoped in-place marker that
+        # spawn_teammate writes only WHILE the in-place child runs — a leaked
+        # env with no live marker falls through to the heuristics instead.
+        env_name = identity.teammate_name_from_env()
+        if env_name is not None and worktree.in_place_marker_exists(smm_dir, env_name):
+            wt_name = env_name
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)
         try:

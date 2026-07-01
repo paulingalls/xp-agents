@@ -68,12 +68,38 @@ class TestResolveStoryId(_HookTestCase):
         )
         assignment = worktree.story_assignment_path(self.smm_dir, "worktree-story-002")
         assignment.write_text("story-002")
+        # A live in-place teammate has the lifetime-scoped marker written by
+        # spawn_teammate — required before the env-derived name is trusted.
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-002")
         with mock.patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-002"}):
             # cwd is the MAIN checkout (no worktree path marker).
             result = commit_handling._resolve_story_id(
                 self.smm_dir, "/proj", ["a.py", "b.py"]
             )
         self.assertEqual(result, "story-002")
+
+    def test_in_place_env_without_marker_falls_through(self):
+        """Leaked XP_TEAMMATE_NAME in the lead + a STALE assignment file but NO
+        live in-place marker → the env name is NOT trusted. The lead's own
+        commit attributes to the actually-in-progress story via the heuristic,
+        not the stale teammate assignment. Closes debt 06ddcc2c8e4d."""
+        import os
+        from unittest import mock
+
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Auth", "in-progress", file_domain=["a.py"])],
+            )
+        )
+        # Stale assignment from a prior teammate; no in-place marker present.
+        worktree.story_assignment_path(self.smm_dir, "worktree-story-002").write_text(
+            "story-002"
+        )
+        with mock.patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-002"}):
+            result = commit_handling._resolve_story_id(self.smm_dir, "/proj", ["a.py"])
+        self.assertEqual(result, "story-001")
 
     def test_in_place_env_fallback_inert_for_lead(self):
         """No XP_TEAMMATE_NAME (the lead's own commits) → no env Tier 1, so a
