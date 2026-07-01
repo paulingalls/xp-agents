@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for PreToolUse:Skill hook — code-review nudge."""
+"""Tests for PreToolUse:Skill hook — code-review nudge + teammate gate."""
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -11,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import pre_tool_skill
 from conftest import _HookTestCase, _make_skill_input
+
+# A CLI teammate's cwd sits inside a `worktree-story-` worktree; an in-place
+# teammate's cwd is the main checkout, detected instead by XP_TEAMMATE_NAME.
+_TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
 
 
 class TestCodeReviewNudge(_HookTestCase):
@@ -43,6 +49,100 @@ class TestCodeReviewNudge(_HookTestCase):
             _make_skill_input("code-review", agent_type="xp-retrospective")
         )
         self.assertIsNone(result)
+
+
+class TestTeammateLifecycleGate(_HookTestCase):
+    """PreToolUse:Skill blocks teammates from lead-owned lifecycle skills."""
+
+    def test_teammate_blocked_from_accept(self):
+        """A worktree teammate invoking /xp-accept is blocked."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-accept", cwd=_TEAMMATE_CWD)
+        )
+        reason = self._assert_not_none(reason)
+        self.assertIn("lead", reason.lower())
+
+    def test_teammate_blocked_from_story_close(self):
+        """A worktree teammate invoking /xp-story-close is blocked."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-story-close", cwd=_TEAMMATE_CWD)
+        )
+        self._assert_not_none(reason)
+
+    def test_in_place_teammate_blocked_via_env(self):
+        """An in-place teammate (no worktree cwd) is detected via env + blocked.
+
+        This is the legacy2 sprint-014 failure: an in-place solo teammate ran
+        its own /xp-story-close, advancing the story past the lead's /xp-accept.
+        """
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-008"}):
+            reason = pre_tool_skill.teammate_block_reason(
+                _make_skill_input("xp-sprint-close", cwd="/home/user/project")
+            )
+        self._assert_not_none(reason)
+
+    def test_teammate_blocked_namespaced(self):
+        """Our-namespace-qualified lead skill is blocked for teammates."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-agents:xp-plan-close", cwd=_TEAMMATE_CWD)
+        )
+        self._assert_not_none(reason)
+
+    def test_teammate_allowed_quality_review(self):
+        """The review cycle is the one xp skill a teammate may run."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-quality-review", cwd=_TEAMMATE_CWD)
+        )
+        self.assertIsNone(reason)
+
+    def test_teammate_allowed_code_review(self):
+        """Built-in /code-review (not ours) passes through — not a lifecycle skill."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("code-review", cwd=_TEAMMATE_CWD)
+        )
+        self.assertIsNone(reason)
+
+    def test_teammate_third_party_passes(self):
+        """A third-party plugin skill is never our concern."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("otherplugin:xp-accept", cwd=_TEAMMATE_CWD)
+        )
+        self.assertIsNone(reason)
+
+    def test_lead_not_blocked(self):
+        """The lead (not a teammate) runs lead-owned skills freely."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-accept", cwd="/home/user/project")
+        )
+        self.assertIsNone(reason)
+
+    def test_xp_subagent_skips(self):
+        """Our own xp- subagents are exempt (recursion guard)."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input(
+                "xp-accept", cwd=_TEAMMATE_CWD, agent_type="xp-code-reviewer"
+            )
+        )
+        self.assertIsNone(reason)
+
+    def test_our_skills_matches_shipped_dir(self):
+        """Superset guard: _OUR_SKILLS is pinned to the shipped skills/ dir.
+
+        A new skill fails this until it is classified — lead-owned (blocked by
+        default) or added to the teammate allowlist — so the gate can't silently
+        skip it. Mirrors the classifier-SIGNALS superset guard.
+        """
+        skills_dir = Path(__file__).parent.parent.parent / "skills"
+        shipped = {
+            p.name
+            for p in skills_dir.iterdir()
+            if p.is_dir() and p.name.startswith("xp-")
+        }
+        self.assertEqual(pre_tool_skill._OUR_SKILLS, shipped)
+        # The allowlist must be a subset of our skills (no stray names).
+        self.assertTrue(
+            pre_tool_skill._TEAMMATE_ALLOWED_SKILLS <= pre_tool_skill._OUR_SKILLS
+        )
 
 
 if __name__ == "__main__":

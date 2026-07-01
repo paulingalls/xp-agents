@@ -298,6 +298,27 @@ class TestTeammateSessionStart(_HookTestCase):
         self.assertIn("Teammate Guide", result)
         self.assertIn("Ship v1", result)
 
+    def test_teammate_gets_story_cadence(self):
+        """Teammate is told when the session uses per-story review cadence.
+
+        Without this the teammate only learns the cadence if the lead
+        hand-writes it into the spawn prompt (legacy2 gap).
+        """
+        import markers
+
+        markers.write_review_cadence(self.smm_dir, "story")
+        result = self._run_teammate()
+        assert result is not None
+        self.assertIn("story", result.lower())
+        # Names the review-cycle skill so the teammate knows what defers.
+        self.assertIn("/xp-quality-review", result)
+
+    def test_teammate_gets_commit_cadence_by_default(self):
+        """Default (no marker) surfaces commit cadence to the teammate."""
+        result = self._run_teammate()
+        assert result is not None
+        self.assertIn("commit", result.lower())
+
     def test_teammate_gets_system_context(self):
         """Teammate gets system_context.json when present."""
         ctx = {

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""PreToolUse:Skill hook — inject guidance before skills run.
+"""PreToolUse:Skill hook — gate + inject guidance before skills run.
 
-One injection:
-- /code-review: courage nudge — review every change, act on every finding
+- Teammate gate: block CLI teammates from lead-owned lifecycle skills
+  (everything shipped except the review cycle). Teammates implement one story
+  and report; the lead coordinates the project (plan, schedule, accept, close).
+- /code-review: courage nudge — review every change, act on every finding.
 """
 
 import sys
@@ -11,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import identity
 import target_routing
 
 _CODE_REVIEW_COURAGE = (
@@ -21,6 +24,66 @@ _CODE_REVIEW_COURAGE = (
     "valid finding must be addressed (or recorded as debt with a concrete "
     "reason) — never waved off as low-severity, pre-existing, or out of scope."
 )
+
+# Every shipped xp-agents skill directory name. Pinned to skills/ by
+# test_pre_tool_skill's superset guard, so a NEW skill fails the test until it
+# is classified — added to the teammate allowlist below or left lead-owned
+# (blocked for teammates by default). Fail-closed: the gate can't silently skip
+# a skill that didn't exist when this list was written.
+_OUR_SKILLS = frozenset(
+    {
+        "xp-accept",
+        "xp-assign",
+        "xp-end-session",
+        "xp-free-close",
+        "xp-kickoff",
+        "xp-plan",
+        "xp-plan-close",
+        "xp-quality-review",
+        "xp-review-plan",
+        "xp-scaffold-acceptance",
+        "xp-schedule",
+        "xp-sprint-close",
+        "xp-sprint-review",
+        "xp-sprint-start",
+        "xp-stage-migration",
+        "xp-story-close",
+        "xp-system-context",
+        "xp-work-selection",
+    }
+)
+
+# The only xp-agents skill a CLI teammate may invoke: the per-commit review
+# cycle. Everything else in _OUR_SKILLS coordinates the project lifecycle and
+# belongs to the lead. In per-story cadence the review moves to /xp-story-close
+# (lead-owned, blocked here), so a teammate correctly runs no review itself.
+_TEAMMATE_ALLOWED_SKILLS = frozenset({"xp-quality-review"})
+
+_TEAMMATE_BLOCK = (
+    "This is a lead-owned lifecycle skill — CLI teammates don't run it. "
+    "Implement your assigned story (TDD, /xp-quality-review, commit), then "
+    "write your report and stop. The lead runs acceptance and close; a "
+    "teammate advancing the story lifecycle or merging inverts the flow and "
+    "breaks the lead's /xp-accept."
+)
+
+
+def teammate_block_reason(input_data: dict) -> str | None:
+    """Block reason when a CLI teammate invokes a lead-owned lifecycle skill.
+
+    Returns None (allow) for the lead, for the review-cycle skill, for our own
+    xp- subagents (recursion guard), and for non-xp or third-party skills
+    (strip_our_namespace → not in _OUR_SKILLS).
+    """
+    if _common.is_xp_agent(input_data):
+        return None
+    if not identity.is_worktree_teammate(input_data):
+        return None
+    skill = input_data.get("tool_input", {}).get("skill", "")
+    bare = target_routing.strip_our_namespace(skill)
+    if bare in _OUR_SKILLS and bare not in _TEAMMATE_ALLOWED_SKILLS:
+        return _TEAMMATE_BLOCK
+    return None
 
 
 def run(input_data: dict, **_kwargs) -> str | None:
@@ -40,6 +103,10 @@ def run(input_data: dict, **_kwargs) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
+    block = teammate_block_reason(input_data)
+    if block:
+        _common.block_output(block, "Lead-owned skill blocked for CLI teammate.")
+        sys.exit(0)
     result = run(input_data)
     if result:
         _common.hook_output("PreToolUse", result)
