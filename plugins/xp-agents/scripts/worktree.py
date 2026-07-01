@@ -214,19 +214,6 @@ def find_closing_teammate_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] |
     return matches[0] if matches else None
 
 
-def _worktree_branch(root: str) -> str:
-    """Best-effort current branch of the worktree at *root* (empty on failure)."""
-    try:
-        out = subprocess.check_output(
-            ["git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except (subprocess.CalledProcessError, OSError, FileNotFoundError):
-        return ""
-    return out.strip()
-
-
 def resolve_own_teammate_worktree(cwd: str) -> tuple[str, str] | None:
     """Return ``(worktree_root, branch)`` when *cwd* is inside a teammate worktree.
 
@@ -245,7 +232,7 @@ def resolve_own_teammate_worktree(cwd: str) -> tuple[str, str] | None:
     root = next((anc for anc in (p, *p.parents) if anc.name == name), None)
     if root is None:
         return None
-    return str(root), _worktree_branch(str(root))
+    return str(root), identity.get_current_branch(str(root))
 
 
 def resolve_review_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] | None:
