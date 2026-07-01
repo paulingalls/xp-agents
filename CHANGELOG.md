@@ -2,6 +2,13 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.3.1 — Story-close reviewer-fix guard; resolver test coverage
+
+Free-branch follow-ups from adopted retro Tries.
+
+- **Story-close won't discard an uncommitted reviewer fix.** A fix applied during the close review lands in the teammate worktree; if left uncommitted, the merge + worktree cleanup silently dropped it. `close_common.py merge` gains a `--review-clean-cwd` backstop that refuses the merge when the teammate worktree is dirty (after the review, not just before), so the lead commits the fix first. Solo and other close flows are unchanged (backward compatible).
+- **Coverage:** integration test for `resolve_review_worktree`'s orchestrator-context fallback through the *real* closing-scan (previously only the own-worktree path and a mocked fallback were covered).
+
 ## v4.3.0 — Teammate effort dimension; worktree-detection hardening
 
 Sprint-112. The teammate tier picker now carries a second per-story knob — reasoning **effort** — wired end-to-end (recommend → forward → spawn), plus two cross-cutting worktree-detection fixes. Each change TDD-ordered, risk-classified, and reviewed.
