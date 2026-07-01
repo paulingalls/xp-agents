@@ -188,8 +188,10 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         assert result is not None
         self.assertNotIn("BEHAVIORAL_GUIDE", result)
 
-    def test_general_agent_gets_full_smm_and_values(self):
-        """General-purpose agent gets full SMM + XP values."""
+    def test_unknown_agent_type_gets_full_smm_and_values(self):
+        """An unspecified/unknown agent type gets full SMM + XP values — the
+        safe default. (The named 'general-purpose' type is the reference tier;
+        see TestGenericReferenceTier.)"""
         result = self.subagent_start.run(
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
@@ -236,12 +238,16 @@ class TestSubagentStartTieredInjection(_HookTestCase):
 
 
 # ===========================================================================
-# Sequential-discipline note (sprint-098 story-001) — lands in every tier
+# Sequential-discipline note (sprint-098 story-001) — every tier EXCEPT the
+# generic catch-alls (workflow-subagent / general-purpose / claude; see
+# TestGenericReferenceTier)
 # ===========================================================================
 
 
 class TestSubagentSequentialNote(_HookTestCase):
-    """The sequential-discipline note injects into every subagent tier."""
+    """The sequential-discipline note injects into every subagent tier except the
+    generic catch-alls (workflow-subagent / general-purpose / claude), which do
+    independent reads — the case the note already exempts."""
 
     _SIGNATURE = "single-purpose sequential agent"
     _EXEMPTION = "only to independent reads"
@@ -259,7 +265,7 @@ class TestSubagentSequentialNote(_HookTestCase):
         self.assertIn(self._SIGNATURE, result)
 
     def test_xp_agent_gets_sequential_note(self):
-        """An xp-* values-only-tier agent still carries the note (every tier)."""
+        """An xp-* values-only-tier agent still carries the note."""
         import subagent_start
 
         result = subagent_start.run(
@@ -292,6 +298,77 @@ class TestSubagentSequentialNote(_HookTestCase):
         )
         assert result is not None
         self.assertIn(self._EXEMPTION, result)
+
+
+class TestGenericReferenceTier(_HookTestCase):
+    """Generic catch-alls (workflow-subagent / general-purpose / claude) are
+    purpose-blind and prompt-driven: inject XP values + a cheap SMM reference
+    pointer — no full render, no sequential note. A code-writing one renders the
+    curated SMM on demand from the pointer; a review/research one skips it."""
+
+    _GENERIC_TYPES = ("workflow-subagent", "general-purpose", "claude")
+
+    def setUp(self):
+        super().setUp()
+        import subagent_start
+
+        self.subagent_start = subagent_start
+        write_smm_fixture(
+            self.smm_dir,
+            intent=[("Ship v1", "goal")],
+            constraints=[("Python 3.10+ only", "convention")],
+            risks=[("Auth module fragile", "concern", "problem")],
+            wisdom=["TDD always"],
+        )
+
+    def _run(self, agent_type):
+        return self.subagent_start.run(
+            {"session_id": "t", "agent_id": "g-1", "agent_type": agent_type},
+            smm_dir=self.smm_dir,
+        )
+
+    def test_gets_values_and_reference_not_full_smm(self):
+        for agent_type in self._GENERIC_TYPES:
+            with self.subTest(agent_type=agent_type):
+                result = self._run(agent_type)
+                assert result is not None
+                # XP values — every agent should know XP.
+                self.assertIn("Extreme Programming", result)
+                # Reference pointer: SMM_DIR + render command + the gate phrase.
+                self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+                self.assertIn("writes, designs, or changes code", result)
+                self.assertIn("smm_cli.py", result)
+                self.assertIn("render", result)
+                # NOT the full render: neither the wrapper nor the pillar values.
+                for token in (
+                    "<smm-context>",
+                    "Ship v1",
+                    "Python 3.10+",
+                    "Auth module fragile",
+                    "TDD always",
+                ):
+                    self.assertNotIn(token, result)
+
+    def test_no_sequential_note(self):
+        for agent_type in self._GENERIC_TYPES:
+            with self.subTest(agent_type=agent_type):
+                result = self._run(agent_type)
+                assert result is not None
+                self.assertNotIn("single-purpose sequential agent", result)
+
+    def test_no_note_on_missing_smm_dir_path(self):
+        """The smm_dir-None early return also skips the note for generic types
+        (the False branch of the shared wants_note guard). Values still inject."""
+        fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
+        for agent_type in self._GENERIC_TYPES:
+            with self.subTest(agent_type=agent_type):
+                result = self.subagent_start.run(
+                    {"session_id": "t", "agent_id": "g-1", "agent_type": agent_type},
+                    smm_dir=fake_dir,
+                )
+                assert result is not None
+                self.assertIn("Extreme Programming", result)
+                self.assertNotIn("single-purpose sequential agent", result)
 
 
 if __name__ == "__main__":

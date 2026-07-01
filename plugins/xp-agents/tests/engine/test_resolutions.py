@@ -382,7 +382,13 @@ class TestCascadeResolution(unittest.TestCase):
         result = resolution.compute_resolutions([a, b, flag, answer_a])
         self.assertIn(flag["id"], result["resolved_concern_ids"])
 
-    def test_cascade_is_single_level_only(self):
+    def test_cascade_extends_to_multi_level(self):
+        """A two-level flag chain (B → A → resolved root) closes BOTH levels.
+
+        The cascade iterates to a fixed point: A closes referencing the
+        resolved question, is fed back into the resolver set, then B closes
+        referencing the now-resolved A on the next pass.
+        """
         q = make_event(EVENT_TYPE_QUESTION, content="root")
         c_inner = make_event(EVENT_TYPE_CONCERN, content="inner", references=[q["id"]])
         c_outer = make_event(
@@ -392,14 +398,156 @@ class TestCascadeResolution(unittest.TestCase):
         result = resolution.compute_resolutions([q, c_inner, c_outer, answer])
         # Inner cascades closed (references a resolved question).
         self.assertIn(c_inner["id"], result["resolved_concern_ids"])
-        # Outer does NOT cascade closed — cascade is one-level by design.
-        self.assertNotIn(c_outer["id"], result["resolved_concern_ids"])
+        # Outer ALSO cascades closed — the fixed-point loop extends multi-level.
+        self.assertIn(c_outer["id"], result["resolved_concern_ids"])
+
+    def test_cascade_two_level_flag_chain_concern_root(self):
+        """E2E flag-cascade shape: a root concern resolved via metadata.resolves,
+        flag A referencing the root, flag B referencing flag A. Both flags close.
+
+        Mirrors the production shape (retro/reviewer flags wire
+        references=[root_id]); the integration E2E pins the single-level case,
+        this pins the two-level extension at the engine boundary.
+        """
+        root = make_event(EVENT_TYPE_CONCERN, content="root concern: stop hook broken")
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="resolved: stop hook fixed",
+            working_on=["hook.py"],
+            metadata={"resolves": [root["id"]]},
+        )
+        flag_a = make_event(
+            EVENT_TYPE_CONCERN, content="flag A", references=[root["id"]]
+        )
+        flag_b = make_event(
+            EVENT_TYPE_CONCERN, content="flag B", references=[flag_a["id"]]
+        )
+        result = resolution.compute_resolutions([root, resolver, flag_a, flag_b])
+        resolved = result["resolved_concern_ids"]
+        self.assertIn(root["id"], resolved)
+        self.assertIn(flag_a["id"], resolved)
+        self.assertIn(flag_b["id"], resolved)
+
+    def test_cascade_extends_to_three_levels(self):
+        """Three-level chain (C → B → A → resolved root) closes every level."""
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        a = make_event(EVENT_TYPE_CONCERN, content="A", references=[q["id"]])
+        b = make_event(EVENT_TYPE_CONCERN, content="B", references=[a["id"]])
+        c = make_event(EVENT_TYPE_CONCERN, content="C", references=[b["id"]])
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
+        result = resolution.compute_resolutions([q, a, b, c, answer])
+        self.assertIn(a["id"], result["resolved_concern_ids"])
+        self.assertIn(b["id"], result["resolved_concern_ids"])
+        self.assertIn(c["id"], result["resolved_concern_ids"])
+
+    def test_cascade_cycle_terminates_and_leaves_unresolved(self):
+        """A reference cycle (B → A → B) with no path to a resolved root
+        terminates without hanging and leaves both events unresolved."""
+        a = make_event(EVENT_TYPE_CONCERN, content="A")
+        b = make_event(EVENT_TYPE_CONCERN, content="B")
+        a["references"] = [b["id"]]
+        b["references"] = [a["id"]]
+        result = resolution.compute_resolutions([a, b])
+        self.assertNotIn(a["id"], result["resolved_concern_ids"])
+        self.assertNotIn(b["id"], result["resolved_concern_ids"])
+
+    def test_cascade_does_not_relay_through_enrichment_status(self):
+        """KNOWN RISK pin (SMM assumption d0eac70ea560).
+
+        `post_tool_use.py` attaches `references` to status events as semantic
+        enrichment (status → related decision). When that decision is resolved,
+        the status event itself cascade-closes — but it lands in
+        `other_resolutions` and is NOT fed back as a relay. So a substantive
+        concern that merely references such an enrichment-resolved status event
+        does NOT cascade-close. This preserves single-level behavior as the
+        floor: multi-level closure propagates only through genuine flag/tracked
+        chains (concern/goal/debt/decision/assumption/question), never through
+        ephemeral status hops. Deliberate, tested decision — not an accident.
+        """
+        decision = make_event(EVENT_TYPE_DECISION, content="Use JWT", topic="auth")
+        # Enrichment status: references the decision (mirrors post_tool_use refs).
+        status = make_event(
+            EVENT_TYPE_STATUS,
+            content="Edited auth module",
+            working_on=["auth.py"],
+            references=[decision["id"]],
+        )
+        # The decision is explicitly resolved.
+        decision_resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="Decision retired",
+            working_on=[],
+            metadata={"resolves": [decision["id"]]},
+        )
+        # A substantive concern that contextually references the status event.
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Substantive concern referencing a status event",
+            references=[status["id"]],
+        )
+        result = resolution.compute_resolutions(
+            [decision, status, decision_resolver, concern]
+        )
+        # The enrichment status itself still cascade-resolves (single-level,
+        # unchanged behavior) — it lands in the "other" bucket.
+        self.assertIn(status["id"], result["resolved_other_ids"])
+        # But the substantive concern does NOT close — no relay through status.
+        self.assertNotIn(concern["id"], result["resolved_concern_ids"])
 
     def test_cascade_self_reference_is_no_op(self):
         flag = make_event(EVENT_TYPE_CONCERN, content="self-ref")
         flag["references"] = [flag["id"]]
         result = resolution.compute_resolutions([flag])
         self.assertNotIn(flag["id"], result["resolved_concern_ids"])
+
+    def test_question_two_hops_from_resolved_root_stays_open(self):
+        """A question never cascade-closes, even via a multi-hop reference chain.
+
+        A question whose `references` transitively reach a resolved root (here:
+        question → concern → resolved root question) must stay OPEN — it clears
+        ONLY via an answer event, metadata.resolves, or AskUserQuestion (the
+        blocking-question gate). Auto-closing it via cascade would fabricate a
+        customer decision, drop it from the open-questions nudge, and inflate
+        retro questions_answered.
+        """
+        root = make_event(EVENT_TYPE_QUESTION, content="root question")
+        answer = make_event(
+            EVENT_TYPE_ANSWER, content="answered", references=[root["id"]]
+        )
+        # A concern one hop from the resolved root (legitimately cascades closed).
+        bridge = make_event(
+            EVENT_TYPE_CONCERN, content="bridge concern", references=[root["id"]]
+        )
+        # A genuinely-open question two hops out, pointing at the bridge concern.
+        open_q = make_event(
+            EVENT_TYPE_QUESTION,
+            content="still-open question",
+            references=[bridge["id"]],
+        )
+        result = resolution.compute_resolutions([root, answer, bridge, open_q])
+        # Root is answered; bridge concern cascades closed.
+        self.assertIn(root["id"], result["answered_question_ids"])
+        self.assertIn(bridge["id"], result["resolved_concern_ids"])
+        # The second-hop question stays OPEN — questions never cascade-close.
+        self.assertNotIn(open_q["id"], result["answered_question_ids"])
+        self.assertNotIn(open_q["id"], result["question_answers"])
+
+    def test_question_one_hop_from_resolved_root_stays_open(self):
+        """Even a single-hop question does not cascade-close — only the
+        main-pass paths (answer / metadata.resolves) clear a question."""
+        root = make_event(EVENT_TYPE_DECISION, content="settled", topic="x")
+        resolver = make_event(
+            EVENT_TYPE_STATUS,
+            content="retired",
+            working_on=[],
+            metadata={"resolves": [root["id"]]},
+        )
+        q = make_event(
+            EVENT_TYPE_QUESTION, content="dependent question", references=[root["id"]]
+        )
+        result = resolution.compute_resolutions([root, resolver, q])
+        self.assertIn(root["id"], result["resolved_decision_ids"])
+        self.assertNotIn(q["id"], result["answered_question_ids"])
 
     def test_cascade_respects_event_type_buckets(self):
         """A goal with references to a resolved event lands in goal_resolutions."""

@@ -476,6 +476,52 @@ class TestDetectMonorepo(unittest.TestCase):
         self.assertIn("packages/core", result["packages"])
         self.assertIn("apps/web", result["packages"])
 
+    def test_detect_nx_finds_depth_1_and_2(self) -> None:
+        """project.json is found 1 level deep (packages/core) AND 2 levels
+        deep (apps/group/web). Pins the bounded-depth contract."""
+        (self.repo / "nx.json").write_text("{}", encoding="utf-8")
+        self._mkpkg("packages", "core")
+        (self.repo / "packages" / "core" / "project.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        self._mkpkg("apps", "group", "web")
+        (self.repo / "apps" / "group" / "web" / "project.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        result = detect_monorepo(self.repo)
+        self.assertEqual(result["kind"], "nx")
+        self.assertIn("packages/core", result["packages"])
+        self.assertIn("apps/group/web", result["packages"])
+
+    def test_detect_nx_finds_deeply_nested_project(self) -> None:
+        """A project nested 3 levels under a grouping dir
+        (packages/group/sub/proj) is still discovered — grouping conventions
+        push projects past depth 2, so the walk must not be depth-bounded."""
+        (self.repo / "nx.json").write_text("{}", encoding="utf-8")
+        self._mkpkg("packages", "group", "sub", "proj")
+        (self.repo / "packages" / "group" / "sub" / "proj" / "project.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        result = detect_monorepo(self.repo)
+        self.assertEqual(result["kind"], "nx")
+        self.assertIn("packages/group/sub/proj", result["packages"])
+
+    def test_detect_nx_prunes_node_modules(self) -> None:
+        """A project.json under node_modules is NOT reported — pruning heavy
+        vendor dirs is what keeps the unbounded walk cheap and correct."""
+        (self.repo / "nx.json").write_text("{}", encoding="utf-8")
+        self._mkpkg("packages", "core")
+        (self.repo / "packages" / "core" / "project.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        self._mkpkg("packages", "core", "node_modules", "dep")
+        (
+            self.repo / "packages" / "core" / "node_modules" / "dep" / "project.json"
+        ).write_text("{}", encoding="utf-8")
+        result = detect_monorepo(self.repo)
+        self.assertIn("packages/core", result["packages"])
+        self.assertNotIn("packages/core/node_modules/dep", result["packages"])
+
     def test_detect_lerna(self) -> None:
         (self.repo / "lerna.json").write_text(
             json.dumps({"packages": ["packages/*"]}), encoding="utf-8"

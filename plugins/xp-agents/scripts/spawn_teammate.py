@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Spawn a CLI teammate in a git worktree.
+"""Spawn a CLI teammate — in a git worktree, or in the main checkout.
 
-Creates a git worktree and launches an independent claude -p process.
-The teammate inherits $SMM_DIR so its hooks write to the lead's SMM.
-Called by /xp-assign via Bash with run_in_background.
+Launches an independent claude -p process that inherits $SMM_DIR so its hooks
+write to the lead's SMM. Called by /xp-assign via Bash with run_in_background.
+Default: create a git worktree (parallel isolation). With --in-place: run in the
+main checkout on the already-checked-out story branch (solo delegation — a single
+unit of work needs no isolation); skips the worktree, the worktree preamble, and
+the rc=0 promote-to-reviewing.
 
 Usage:
     python3 spawn_teammate.py \
@@ -332,6 +335,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--branch", default=None)
     parser.add_argument("--model", default=None)
     parser.add_argument("--plugin-dir", default=None)
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help=(
+            "Run the teammate in the main checkout (solo delegation) instead of "
+            "a worktree: skip create_worktree + the worktree preamble, run in the "
+            "process cwd, and skip the rc=0 promote-to-reviewing (the story stays "
+            "in-progress/solo for /xp-accept's solo path)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -341,7 +354,10 @@ def main(argv: list[str] | None = None) -> None:
     name = args.name
 
     cwd = os.getcwd()
-    wt_path = create_worktree(name, cwd, branch=args.branch)
+    # In-place (solo delegation): run in the main checkout on the already-
+    # checked-out story branch — no worktree to isolate a single unit of work.
+    # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>.
+    run_cwd = cwd if args.in_place else create_worktree(name, cwd, branch=args.branch)
     # --plugin-dir is a correctness-critical invariant: without it the headless
     # teammate loads none of the xp-agents skills/agents/hooks (ungated). Self-
     # resolve from CLAUDE_PLUGIN_ROOT when omitted so a caller that forgets the
@@ -350,6 +366,13 @@ def main(argv: list[str] | None = None) -> None:
     plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
     cmd = build_command(name, args.model, plugin_dir)
 
+    # Commit attribution: the teammate's name-keyed .story-assignment file is
+    # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
+    # worktree marker; an in-place child's cwd is the main checkout (no marker),
+    # so commit_handling recovers the name from the exported XP_TEAMMATE_NAME
+    # instead. Write the assignment in BOTH cases so attribution is explicit and
+    # robust even when a second story is concurrently in-progress (rather than
+    # relying on the single-in-progress heuristic).
     write_story_assignment(Path(args.smm_dir), name, args.story_id)
 
     env = os.environ.copy()
@@ -358,14 +381,15 @@ def main(argv: list[str] | None = None) -> None:
 
     combined_path: str | None = None
     try:
-        combined = _worktree_preamble(wt_path) + Path(args.prompt_file).read_text()
+        preamble = "" if args.in_place else _worktree_preamble(run_cwd)
+        combined = preamble + Path(args.prompt_file).read_text()
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".prompt.txt", delete=False
         ) as tf:
             tf.write(combined)
             combined_path = tf.name
         with open(combined_path) as combined_stdin:
-            run_with_tee(cmd, cwd=wt_path, env=env, stdin=combined_stdin, name=name)
+            run_with_tee(cmd, cwd=run_cwd, env=env, stdin=combined_stdin, name=name)
         Path(args.prompt_file).unlink(missing_ok=True)
     finally:
         if combined_path is not None:
@@ -380,7 +404,11 @@ def main(argv: list[str] | None = None) -> None:
     # when the story has already been advanced past in-progress (e.g. an
     # orchestrator flipped it to done mid-run) — closing the TOCTOU
     # window the prior get_story → update_story_status pair exposed.
-    if args.story_id is not None:
+    #
+    # In-place (solo delegation) skips the promote: there is no worktree for
+    # /xp-accept's reviewing path to detach onto, so the story stays
+    # in-progress/solo and /xp-accept's solo (in-progress) path handles it.
+    if args.story_id is not None and not args.in_place:
         sprint_store.update_story_status_if(
             Path(args.smm_dir),
             args.story_id,

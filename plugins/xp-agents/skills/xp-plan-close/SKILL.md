@@ -129,6 +129,8 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Reporting Back
 
+**Surface the merge's trailer advisory.** The merge step's `close_common.py merge` prints a `Resolves-Event:` trailer advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so if the merge printed that advisory, relay it verbatim — the named commits are still in reach to add trailers.
+
 Tell the user: plan branch merged into primary, PR (if created) merged,
 local branch deleted, execution_plan.json archived under
 `<SMM_DIR>/plans/`, system context refreshed. Plan-close is complete.

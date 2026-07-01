@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Save sprint: write sprint.json atomically + handle acceptance flow.
+"""Save sprint: full sprint-mutation pipeline (atomic write + side effects).
 
-Called by xp-sprint-start, xp-work-selection, and xp-accept to persist
-sprint.json. After writing, it:
+Engine-layer home for the sprint-mutation pipeline (relocated from the
+xp-sprint-start skill in sprint-108 M1). Driven by sprint_cli's structural
+subcommands (create, add-story); reached indirectly by xp-sprint-start,
+xp-work-selection, and xp-accept. After writing sprint.json it:
 
 - Clears the .needs-sprint marker if sprint now has active stories.
 - If the .accept marker was present and no in-progress stories remain,
@@ -11,7 +13,7 @@ sprint.json. After writing, it:
   prints a sprint-review nudge to stdout for the main agent to see.
 
 Usage:
-    echo '<json>' | python3 save_sprint.py --smm-dir DIR
+    echo '<json>' | python3 sprint_save.py --smm-dir DIR
 """
 
 import argparse
@@ -22,11 +24,11 @@ import re
 import sys
 from pathlib import Path
 
-_PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_SKILL_SCRIPTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
+# This module lives in smm/, so smm/ is always on sys.path before it is imported
+# (own dir when run as a script; inserted by every cross-dir importer). Only the
+# scripts/ insert is load-bearing — for _common, concerns, identity, etc.
+_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
-sys.path.insert(0, str(_SKILL_SCRIPTS))
 
 import _common  # noqa: E402
 import concerns  # noqa: E402
@@ -242,17 +244,21 @@ def _auto_include_sister_tests(
         domain = story.get("file_domain")
         if not isinstance(domain, list):
             continue
+        # Parse each entry once: seed existing_paths from every entry and cache
+        # the parsed paths for the discovery pass below (snapshot taken before
+        # the domain.extend at the end, so it never iterates a mutating list).
         existing_paths: set[str] = set()
+        parsed_entries: list[tuple[str, list[str]]] = []
         for e in domain:
             if isinstance(e, str):
-                existing_paths.update(triage.entry_to_paths(e))
+                paths = triage.entry_to_paths(e)
+                existing_paths.update(paths)
+                parsed_entries.append((e, paths))
         additions: list[str] = []
-        for entry in list(domain):  # snapshot — don't iterate over a mutating list
-            if not isinstance(entry, str):
-                continue
+        for entry, srcs in parsed_entries:
             if " — sister test for " in entry:
                 continue  # prevents sister-of-sister expansion
-            for src in triage.entry_to_paths(entry):
+            for src in srcs:
                 if not src:
                     continue
                 try:
@@ -272,8 +278,9 @@ def _auto_include_sister_tests(
 def save(data: dict, smm_dir: Path) -> None:
     """Atomic write only. No sister-test discovery, no milestone transition,
     no accept-marker handling. Symmetry helper exposing the side-effect-free
-    write path that run() composes; status-flip callers (sprint_cli._cmd_edit_story,
-    /xp-accept, /xp-schedule) reach sprint_store directly via store.edit_story /
+    write path that run() composes; status-flip callers
+    (sprint_cli_mutate._cmd_edit_story, /xp-accept, /xp-schedule) reach
+    sprint_store directly via store.edit_story /
     store.update_story_status — both routes produce the same atomic write
     without firing run()'s side-effect bundle. Kept for symmetry with run()
     and as a test surface for behaviors that need to lock the bypass.
@@ -284,7 +291,7 @@ def save(data: dict, smm_dir: Path) -> None:
 def run(data: dict, smm_dir: Path) -> None:
     """Full sprint-mutation pipeline: sister-test discovery + atomic save
     + milestone transition + accept-marker handling. Use for structural
-    sprint mutations (sprint_cli._cmd_create, _cmd_add_story).
+    sprint mutations (sprint_cli_mutate._cmd_create, _cmd_add_story).
 
     Args:
         data: Sprint data dict (validated by sprint_store).
@@ -298,7 +305,7 @@ def run(data: dict, smm_dir: Path) -> None:
     # through the same once-per-session marker with an honest reason —
     # silently skipping the project-root case (the prior shape: else
     # attached to `if layout`) left customers with no signal when
-    # save_sprint ran from a tmpfs / non-git cwd.
+    # sprint_save ran from a tmpfs / non-git cwd.
     layout = _resolve_layout(smm_dir)
     if layout is None:
         _warn_sister_skip_once(

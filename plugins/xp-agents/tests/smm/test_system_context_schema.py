@@ -24,27 +24,17 @@ from system_context_entry_validators import (
 )
 from system_context_schema import validate_system_context
 
-_SKILL_SCRIPTS = (
-    Path(__file__).parent.parent.parent / "skills" / "xp-sprint-start" / "scripts"
-)
-
 
 def _load_sister_tests() -> ModuleType:
-    """Import sister_tests with an isolated sys.path mutation, then restore.
+    """Import the engine-side sister_tests module for its runtime registries.
 
-    Two tests need the runtime BUILTIN_LAYOUTS / STEM_EXTRACTORS registries
-    to lock the schema enums against. The skill-scripts dir isn't on sys.path
-    by default; insert + try/import/finally-remove keeps the path mutation
-    scoped to one call so concurrent imports of unrelated modules can't
-    accidentally pick up shadowed names from skills/.
+    Two tests lock the schema enums against the runtime BUILTIN_LAYOUTS /
+    STEM_EXTRACTORS. sister_tests lives in smm/, already on sys.path (above),
+    so a plain import resolves it.
     """
-    sys.path.insert(0, str(_SKILL_SCRIPTS))
-    try:
-        import sister_tests  # type: ignore[import-not-found]
+    import sister_tests  # type: ignore[import-not-found]
 
-        return sister_tests
-    finally:
-        sys.path.remove(str(_SKILL_SCRIPTS))
+    return sister_tests
 
 
 class TestTestLayoutValidator(unittest.TestCase):
@@ -177,7 +167,7 @@ class TestStemExtractorRegistryLock(unittest.TestCase):
     """Pin the schema's _VALID_STEM_EXTRACTORS to the runtime
     STEM_EXTRACTORS dict in sister_tests. Drifting these out of sync
     re-opens the silent-failure path (schema accepts a typo'd extractor,
-    discovery raises ValueError, save_sprint swallows it, no sisters)."""
+    discovery raises ValueError, sprint_save swallows it, no sisters)."""
 
     def test_schema_extractors_match_runtime_registry(self) -> None:
         sister_tests = _load_sister_tests()

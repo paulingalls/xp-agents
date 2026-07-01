@@ -78,6 +78,7 @@ from _bases import (  # noqa: E402, F401
     _PLUGIN_ROOT,
     _SCRIPTS_DIR,
     _SMM_DIR,
+    _TEAMMATE_CONFIG_CLI_PY,
     _HookTestCase,
     _IntegrationTestCase,
     _SMMTestCase,

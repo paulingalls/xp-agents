@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-"""Per-emitter byte budgets — exercises full script logic.
+"""Per-emitter character budgets — exercises full script logic.
 
 Each additionalContext-emitting hook script is invoked via subprocess
 against an init'd SMM (created per-call by `init.sh`) with a representative
-fixture stdin. The stdout byte length is asserted against a per-script budget.
+fixture stdin. The stdout character length is asserted against a per-script
+budget (decoded UTF-8; for ASCII emitters bytes == chars).
 
 Because the runner bootstraps a real SMM (seed_smm.py), scripts execute
 their FULL logic path — not the SMM-missing short-circuit at
-`get_validated_smm_dir`. Zero bytes today is a legitimate
+`get_validated_smm_dir`. Zero chars today is a legitimate
 "no-trigger" result, not a short-circuit.
 
 Today's measurements (seeded-but-empty SMM, git-repo cwd, neutral fixture):
-- subagent_start (4096 B): renders SMM + XP_VALUES.md
-- session_start (1793 B): SessionStart preload framing
-- subagent_stop (248 B): plan-reviewer nudge string
-- lint_check (235 B): missing-linter warning
-- review_cycle_done (110 B): close-reviewer-completion follow-up nudge
-- session_end_warning (81 B): session-end reminder (always emits, even on
+- subagent_start (4096 chars): renders SMM + XP_VALUES.md
+- session_start (1793 chars): SessionStart preload framing
+- subagent_stop (248 chars): plan-reviewer nudge string
+- lint_check (235 chars): missing-linter warning
+- review_cycle_done (110 chars): close-reviewer-completion follow-up nudge
+- session_end_warning (81 chars): session-end reminder (always emits, even on
   zero unresolved concerns)
-- prompt_nugget, retrospective (0 B): no signals to nugget
-- pre_tool_write, pre_tool_bash (0 B): no sprint state, gate emitters silent
-- user_prompt_log (0 B): returns None by design
+- prompt_nugget, retrospective (0 chars): no signals to nugget
+- pre_tool_write, pre_tool_bash (0 chars): no sprint state, gate emitters silent
+- user_prompt_log (0 chars): returns None by design
 
 Order coupling: amortization runs all 11 emitters against ONE SMM. An
 emitter that writes events.jsonl or markers (e.g. subagent_stop's
@@ -43,7 +44,7 @@ What this test does NOT catch:
   tests in this directory.
 
 Adding a new emitter: add a fixture builder in `_emitter_fixtures.py`,
-run `assert_emitter_under_budgets` once to measure stdout bytes, compute
+run `assert_emitter_under_budgets` once to measure stdout chars, compute
 ``ceil(measured * 1.125 / 100) * 100`` (floor at 100), add an entry below.
 """
 
@@ -61,7 +62,7 @@ from conftest import (
     discover_emitter_scripts,
 )
 
-# ceil(measured_bytes * 1.125 / 100) * 100, floor at 100.
+# ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
 EMITTER_BUDGETS: dict[str, int] = {
     "bash_post_tool.py": 100,
     "kickoff_gate.py": 100,

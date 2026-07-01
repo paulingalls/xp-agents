@@ -490,10 +490,16 @@ class TestPlanReviewerDone(_HookTestCase):
         ]
 
     def test_emits_plan_reviewed_action(self):
-        """Teammate-mode plan review: assign_pending event + plan_reviewed action."""
+        """Teammate-mode plan review: assign_pending event + plan_reviewed action.
+
+        run() returns None — no continuing additionalContext. The nudge return
+        was removed (debt 5e180220db1a): on SubagentStop it continued the
+        reviewer's turn and buried its findings. The real gate is the marker +
+        gate event below.
+        """
         self._write_sprint(execution_mode="teammate")
         result = subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        self.assertIsNotNone(result)
+        self.assertIsNone(result)
         gate_events = self._gate_events()
         self.assertEqual(len(gate_events), 1)
         self.assertEqual(event_action(gate_events[0]), STATUS_ACTION_PLAN_REVIEWED)

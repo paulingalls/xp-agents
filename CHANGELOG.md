@@ -2,6 +2,31 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.2.0 — Group-4 backlog: structural refactor, debt sweep, teammate tier picker, risk-classifier broadening
+
+Four milestones off the group-4 plan branch (sprints 108-111), each TDD-ordered with per-story review and `Resolves-Event:` trailers.
+
+### Teammate tier picker (M3)
+
+- **Per-story `executor_model` recommendation drives teammate spawns at the right tier.** `xp-plan-reviewer` writes a tier-recommendation decision event for each unambiguous plan; `/xp-assign` reads it (universal — solo too), spawning at the recommended tier or asking once on divergence, with a `tier_override` audit signal feeding retro accuracy.
+- **`TEAMMATE_CONFIG` session marker** (`{enabled, default_model}`) set via a bundled kickoff question; `/xp-schedule` gates teammate mode on it (OFF → auto-solo). Absent/corrupt fail-safes to inherit-orchestrator, never blocks a spawn.
+- **Solo execution shape:** a solo story runs its execution in a cheaper in-place teammate in the main checkout (`spawn_teammate --in-place`) — no worktree to isolate; `execution_mode` stays solo.
+
+### Risk-classifier broadening (M4)
+
+- **`xp-risk-classifier` rubric broadened beyond state/lifecycle/concurrency** with six project-agnostic signals (path-traversal, input-validation, combinatorial-data-table, cross-runtime-portability, file-size-creep, schema-cross-contract) + a decision matrix; thresholds defer to the host project's own standards (no baked-in cap).
+- **Per-signal reviewer enrichment:** `xp-code-reviewer` §1c maps each signal to a concrete angle to hunt when a `RISK=high` focus names it.
+- **Design-context input:** `/xp-quality-review` now feeds the classifier the project's Constraints pillar as a `## Design Context` block, so it down-rates diffs matching a documented convention instead of false-flagging them (fixes the diff-only false-flag).
+
+### Structural + process (M1, M2)
+
+- **Engine-layer sprint save** — `save_sprint.run/save` relocated out of the skill layer; `sprint_cli` imports it with no `sys.path.insert` shim. Over-cap files split at cohesive boundaries.
+- **`Resolves-Event:` trailer pre-merge gate** — close surfaces when eligible commits touching tracked concern/debt files carry trailers below the 80% threshold (advisory, non-blocking). Plus five smaller deferred-debt fixes (plan-reviewer output surfacing, stop-hook close-phase ordering, perf, analyzer fixture, cascade quirk).
+
+### Convention
+
+- **Agent/skill/preload budgets are character-based** (`round(chars×1.125/10)×10`); the last line-based budget test was removed as drift.
+
 ## v4.1.1 — Triage-sweep fixes (M1-M10)
 
 Free-session sweep delivering 10 ordered milestones from the kickoff triage backlog (4 retro Tries + 14 debts + 7 concerns adopted, 2 debts deferred, 1 concern dropped). Each milestone shipped TDD-ordered with `/xp-quality-review` + `Resolves-Event:` trailer; all 5774 plugin tests pass post-sweep.

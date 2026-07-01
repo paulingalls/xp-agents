@@ -2,7 +2,7 @@
 """Load/save for sprint.json.
 
 Python API for sprint operations. Pure data store — no acceptance
-flow side effects (those stay in save_sprint.py). Internal scripts
+flow side effects (those stay in sprint_save.py). Internal scripts
 import these functions directly. Shell scripts and skills use
 sprint_cli.py.
 
@@ -135,6 +135,22 @@ def load_sprint_required(smm_dir: Path) -> dict:
     if sprint is None:
         raise ValueError(f"No sprint found at {smm_dir}")
     return sprint
+
+
+def load_sprint_fail_open(smm_dir: Path) -> dict | None:
+    """Load the sprint, degrading a corrupt/unreadable file to None.
+
+    Use this at the advisory/accounting call sites that run AFTER a merge has
+    already committed (trailer_gate, merge_commit_event, close_common's merge
+    helpers): a SMM-state problem there must never crash the close chain, so a
+    missing OR corrupt sprint collapses to the same None (the unwindowed,
+    fail-open denominator). Sibling of `load_sprint_required` — the same
+    load_sprint core, opposite posture on the must/may-exist axis.
+    """
+    try:
+        return load_sprint(smm_dir)
+    except (SprintCorruptError, OSError):
+        return None
 
 
 def _load_story(smm_dir: Path, story_id: str) -> tuple[dict, dict]:

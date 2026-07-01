@@ -82,6 +82,21 @@ def _resolve_story_id(
     import story_metrics
 
     wt_name = identity.extract_worktree_name(cwd)
+    if wt_name is None:
+        # In-place (solo-delegation) teammate: its cwd IS the main checkout,
+        # so there is no worktree path marker — but spawn_teammate exported
+        # XP_TEAMMATE_NAME and wrote a name-keyed .story-assignment. Recover the
+        # name from the env so attribution stays EXPLICIT (Tier 1) instead of
+        # falling through to the single-in-progress heuristic, which would
+        # mis-attribute when a second story is also in-progress. This assumes
+        # the lead's own process carries no XP_TEAMMATE_NAME — normally true
+        # (spawn_teammate exports it only onto the CHILD process's env), but
+        # XP_TEAMMATE_NAME is a documented leaky var: were it to leak into the
+        # lead AND a stale name-keyed .story-assignment still exist, the lead's
+        # commit could be mis-attributed. The assignment-file existence check
+        # below bounds (does not fully close) that window — see debt note on a
+        # positive in-place marker for the robust fix.
+        wt_name = identity.teammate_name_from_env()
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)
         try:
@@ -214,7 +229,7 @@ def make_commit_event(
 
     Single canonical builder for both regular `git commit` emissions
     (``_handle_commit``) and close-cycle merge emissions
-    (``close_common._append_merge_commit_event``). When either side
+    (``merge_commit_event.append_merge_commit_event``). When either side
     adds a metadata field, this builder is the one place to update —
     eliminates the drift risk two parallel builders would carry.
 
@@ -313,7 +328,7 @@ def _handle_commit(
 
     committed_files = commits.get_committed_files(effective_cwd)
     commit_hash = commits.get_head_commit_hash(effective_cwd)
-    code_file_count = sum(1 for f in committed_files if code_files.is_code_file(f))
+    code_file_count = code_files.count_code_files(committed_files)
     has_code = code_file_count > 0
 
     # Dedupe by commit_hash: `_head_matches_command` only proves HEAD's
