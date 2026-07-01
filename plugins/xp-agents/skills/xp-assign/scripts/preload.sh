@@ -117,8 +117,11 @@ if target:
             # null, emitted when a re-review finds the story ambiguous) thus
             # beats an earlier real recommendation: null model -> "none".
             # recommended_effort (story-004) travels on the SAME winning event,
-            # so a retraction (no effort key) naturally yields empty — effort
-            # never survives from a stale earlier recommendation.
+            # so a retraction (no effort key) naturally yields empty —
+            # RECOMMENDED_EFFORT never survives from a stale earlier
+            # recommendation. (Scoped to this emitted var: the persisted
+            # executor_effort FIELD is a separate concern — Step 0 only writes it,
+            # it does not clear it, so it can latch across a re-assignment.)
             metadata = event.get("metadata") or {}
             tier = metadata.get("recommended_model") or "none"
             effort = metadata.get("recommended_effort") or ""
