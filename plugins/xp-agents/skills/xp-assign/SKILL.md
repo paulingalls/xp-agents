@@ -109,6 +109,19 @@ echo '{"executor_model":"<haiku|sonnet|opus|fable>"}' \
 Leave `executor_model` unset for the `inherit` outcome (branch 6) — an absent
 value is what makes Step 4 omit `--model` and inherit the orchestrator tier.
 
+**Effort forward (per-story).** On a spawning branch, when `RECOMMENDED_EFFORT`
+(the preload's per-story effort, from the same winning recommendation event) is
+non-empty, also set the story's `executor_effort` so Step 4 forwards `--effort`:
+
+```bash
+echo '{"executor_effort":"<RECOMMENDED_EFFORT>"}' \
+  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} edit-story "$TARGET"
+```
+
+Leave it unset when `RECOMMENDED_EFFORT` is empty. No gating here: `spawn_teammate`
+fail-safes — dropping `--effort` when the tier can't support the level — so it
+degrades to the model default rather than erroring.
+
 **In-agent invariant.** `in-agent` is a control-flow signal, not a tier — it is
 **never** written to `executor_model`. It only ever drives the exit / no-spawn
 branches (2 and 3). The spawning branches set `executor_model` ONLY to a valid
@@ -144,7 +157,13 @@ STORY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR
   || { echo "get-story returned empty for $TARGET — refusing to spawn" >&2; exit 1; }
 EXECUTOR_MODEL=$(echo "$STORY_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('executor_model') or '')") \
   || { echo "executor_model parse failed for $TARGET — fix sprint.json before spawning" >&2; exit 1; }
+EXECUTOR_EFFORT=$(echo "$STORY_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('executor_effort') or '')") \
+  || { echo "executor_effort parse failed for $TARGET — fix sprint.json before spawning" >&2; exit 1; }
 ```
+
+`executor_effort` (set on a spawning branch above) forwards to spawn_teammate's
+`--effort` below when non-empty, guarded by that script's fail-safe; absent → no
+`--effort`.
 
 `executor_model` (story-002 schema slot) is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below. When absent (null or missing field), no `--model` flag is passed (the spawned teammate inherits the orchestrator's model). The three-step shape (capture → non-empty check → parse-with-error-trap) surfaces every failure mode: non-zero exit (step 1), empty stdout on exit 0 (step 2), and malformed JSON / unexpected shape (step 3). A silent empty `$EXECUTOR_MODEL` would otherwise drift the spawn to the orchestrator's tier when the story actually specified one.
 
@@ -187,14 +206,17 @@ TDD/review/commit gates, no SMM event recording). `${CLAUDE_PLUGIN_ROOT}`
 resolves to the lead's live plugin dir, so the teammate runs the same
 plugin version as the lead.
 
-If `$EXECUTOR_MODEL` is non-empty, append `--model "$EXECUTOR_MODEL"`.
+If `$EXECUTOR_MODEL` is non-empty, append `--model "$EXECUTOR_MODEL"`; if
+`$EXECUTOR_EFFORT` is non-empty, append `--effort "$EXECUTOR_EFFORT"` (the
+spawn fail-safes when the tier can't support the level).
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET" \
   --smm-dir ${SMM_DIR} --prompt-file "/tmp/prompt-$TARGET.txt" \
   --story-id "$TARGET" --branch <story-branch> \
   --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
-  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} 2>&1 \
+  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} \
+  ${EXECUTOR_EFFORT:+--effort "$EXECUTOR_EFFORT"} 2>&1 \
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
@@ -211,7 +233,8 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET
   --smm-dir ${SMM_DIR} --prompt-file "/tmp/prompt-$TARGET.txt" \
   --story-id "$TARGET" --in-place \
   --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
-  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} 2>&1 \
+  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} \
+  ${EXECUTOR_EFFORT:+--effort "$EXECUTOR_EFFORT"} 2>&1 \
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
