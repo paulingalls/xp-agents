@@ -2,6 +2,26 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.2.1 — Teammate boundary hardening, tier-wire consolidation, fable tier
+
+Free-branch backlog cleanup from the group-4 retros. Each change TDD-ordered, risk-classified, and reviewed with `Resolves-Event:` trailers.
+
+### Teammate boundary
+
+- **CLI teammates are now blocked from lead-owned lifecycle skills** (`xp-accept`, `xp-story-close`, the `*-close` family, etc.). A `PreToolUse:Skill` gate lets a teammate run only the review cycle (`xp-quality-review`); everything else is the lead's. Fail-closed — a new shipped skill is blocked for teammates until explicitly allowlisted (superset-guard test). Fixes an in-place teammate driving its own accept/close and inverting the flow past the lead's `/xp-accept`.
+- **Teammates are told the session review cadence** at SessionStart, instead of relying on the lead hand-writing it into the spawn prompt.
+- **In-place commit attribution no longer trusts a leaky `XP_TEAMMATE_NAME`** unconditionally: `spawn_teammate --in-place` writes a lifetime-scoped marker that `commit_handling` requires before recovering the teammate name from the env, so a lead with a leaked var + stale assignment isn't mis-attributed.
+
+### Tier picker
+
+- **`fable` is a first-class teammate tier** — the most powerful/expensive tier, top of the ladder (in-agent < haiku < sonnet < opus < fable). Recommendable by the plan-reviewer, defaultable, and offered at kickoff (previously a valid `executor_model` the picker could never pick).
+- **Single-source tier-wire constants** (`smm/tier_wire.py`): the model vocabulary, config tokens, and the tier-recommendation/tier-override wire strings are consolidated from scattered, divergent copies; shipped prose is pinned to the constants by binding tests.
+- **Ambiguous re-review retracts a stale tier recommendation** — the plan-reviewer emits a same-topic retraction (null model) so an earlier non-ambiguous pick can't win the reverse-scan.
+
+### Tests
+
+- Consolidated the duplicated `_slice` prose helper into the shared `tests/_md_helpers.py`.
+
 ## v4.2.0 — Group-4 backlog: structural refactor, debt sweep, teammate tier picker, risk-classifier broadening
 
 Four milestones off the group-4 plan branch (sprints 108-111), each TDD-ordered with per-story review and `Resolves-Event:` trailers.
