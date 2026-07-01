@@ -120,6 +120,57 @@ class TestPlanReviewerTierRubric(unittest.TestCase):
                 f"plugin-internal token: {token!r}",
             )
 
+    def test_recommended_effort_metadata_key_documented(self):
+        """The effort dimension (story-003) writes metadata.recommended_effort
+        on the same tier-recommendation event — the contract consumed by
+        /xp-assign (story-004)."""
+        self.assertIn(
+            "recommended_effort",
+            self.tier_section,
+            "Tier recommendation section must document the 'recommended_effort' "
+            "metadata key",
+        )
+
+    def test_all_effort_levels_present(self):
+        """Every effort level must appear in the rubric — bound to tier_wire so
+        a new level can't enter the vocabulary without a rubric update (mirrors
+        test_all_recommended_tiers_present)."""
+        for effort in tier_wire.TEAMMATE_EFFORTS:
+            self.assertIn(
+                effort,
+                self.tier_section,
+                f"Tier recommendation section must document effort level '{effort}'",
+            )
+
+    def test_effort_scoped_as_claude_code_knob(self):
+        """Effort is a Claude-Code reasoning knob — the rubric must scope it
+        explicitly as such (AC3), not leave it as a bare provider-agnostic
+        term."""
+        self.assertIn(
+            "Claude Code",
+            self.tier_section,
+            "Tier recommendation section must scope effort explicitly as a "
+            "Claude Code knob",
+        )
+
+    def test_haiku_tier_gates_out_effort(self):
+        """The binary tier-gate (story-001): a haiku-tier story never gets a
+        recommended effort — the cheapest tier rejects the knob."""
+        self.assertIn(
+            "haiku",
+            self.tier_section,
+            "Tier recommendation section must name haiku in the effort tier-gate",
+        )
+        # Gate prose must instruct NOT emitting effort for the low tier(s).
+        lowered = self.tier_section.lower()
+        self.assertTrue(
+            ("no recommended_effort" in lowered)
+            or ("no recommended effort" in lowered)
+            or ("not emit" in lowered and "effort" in lowered),
+            "Tier recommendation section must instruct that haiku/in-agent "
+            "stories emit no recommended_effort",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
