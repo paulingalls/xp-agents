@@ -83,6 +83,31 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
             os.environ.pop("SMM_DIR", None)
             self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
 
+    def test_worktree_teammate_null_cwd_detected_via_process_cwd(self):
+        """A WORKTREE teammate whose hook payload carries no cwd is still a
+        teammate: its hook process runs IN the worktree, so os.getcwd() carries
+        the worktree marker even when input_data['cwd'] is absent/null. Worktree
+        spawns never write the in-place marker, so the marker-guarded env leg
+        cannot rescue them — the cwd leg must consult the process cwd."""
+        wt_cwd = "/home/user/project/.claude/worktrees/worktree-story-001/src"
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
+            os.environ.pop("SMM_DIR", None)
+            with patch("identity.os.getcwd", return_value=wt_cwd):
+                self.assertTrue(
+                    identity.is_worktree_teammate({"cwd": None}, smm_dir=self.smm_dir)
+                )
+
+    def test_leaked_env_lead_with_main_process_cwd_is_not_teammate(self):
+        """The os.getcwd() fallback must not misfire for a lead: a leaked env
+        with a main-checkout process cwd and no live marker is still NOT a
+        teammate (does not reintroduce leaked-env misidentification)."""
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
+            os.environ.pop("SMM_DIR", None)
+            with patch("identity.os.getcwd", return_value="/home/user/project/src"):
+                self.assertFalse(
+                    identity.is_worktree_teammate({"cwd": None}, smm_dir=self.smm_dir)
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

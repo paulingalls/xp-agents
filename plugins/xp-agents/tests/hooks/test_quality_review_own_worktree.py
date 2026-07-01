@@ -43,6 +43,13 @@ class TestResolveOwnTeammateWorktree(_HookTestCase):
         result = self._assert_not_none(worktree.resolve_own_teammate_worktree(cwd))
         self.assertEqual(Path(result[0]).name, "worktree-story-005")
 
+    def test_non_story_worktree_not_a_teammate(self):
+        """A non-story `worktree-*` cwd is NOT a teammate worktree — the gate
+        keys on the `worktree-story-` prefix, agreeing with
+        identity.is_worktree_teammate (which would also reject it)."""
+        cwd = "/repo/.claude/worktrees/worktree-plan-x/src"
+        self.assertIsNone(worktree.resolve_own_teammate_worktree(cwd))
+
 
 class TestResolveReviewWorktreePrecedence(_HookTestCase):
     def test_own_worktree_wins_over_a_different_closing_story(self):

@@ -224,9 +224,13 @@ def resolve_own_teammate_worktree(cwd: str) -> tuple[str, str] | None:
     sprint.json read, no ``git worktree list`` scan — immune to that race.
 
     Returns ``None`` when *cwd* is the main checkout (orchestrator / solo).
+    Keys on the same ``worktree-story-`` teammate prefix as
+    ``identity.is_worktree_teammate`` (via ``is_teammate_agent_id``) so the two
+    agree on what counts as a teammate worktree — a broader ``worktree-`` gate
+    would bind the review to a non-teammate worktree the detector rejects.
     """
     name = identity.extract_worktree_name(cwd)
-    if not name or not name.startswith(_WORKTREE_PREFIX):
+    if not name or not identity.is_teammate_agent_id(name):
         return None
     p = Path(cwd)
     root = next((anc for anc in (p, *p.parents) if anc.name == name), None)

@@ -78,6 +78,19 @@ def extract_worktree_name(cwd: str | None) -> str | None:
     return tail.split("/")[0]
 
 
+def _process_cwd() -> str:
+    """The process working directory, or "" if it is unavailable.
+
+    ``os.getcwd()`` raises ``FileNotFoundError`` when the cwd has been deleted
+    out from under the process. is_worktree_teammate runs inside every hook, so
+    it must degrade to "" rather than crash the hook on that rare edge.
+    """
+    try:
+        return os.getcwd()
+    except OSError:
+        return ""
+
+
 def teammate_name_from_env() -> str | None:
     """The teammate name spawn_teammate.py exported, or None.
 
@@ -99,21 +112,33 @@ def is_worktree_teammate(input_data: dict, smm_dir: Path | None = None) -> bool:
     """Detect CLI teammates by worktree cwd path, or by XP_TEAMMATE_NAME env
     var guarded on a live in-place marker.
 
-    The cwd leg catches worktree teammates directly. The env leg exists for
-    in-place (solo-delegation) teammates whose cwd is the main checkout — but
-    ``XP_TEAMMATE_NAME`` is a documented leaky var, so a lead that inherited it
-    must NOT be misidentified. Trust the env only when spawn_teammate's
-    lifetime-scoped in-place marker is live for that name; a leaked env with no
-    marker is not a teammate. Centralizes the guard commit_handling and
-    pre_tool_skill roll by hand so every caller (session_start, kickoff/stop
-    gates, pre_tool_write, session_end, bash_post_tool) inherits it.
+    The cwd leg catches worktree teammates directly. It reads the hook
+    payload's ``cwd`` first, then falls back to the process cwd
+    (``os.getcwd()``): a worktree teammate's hook process runs INSIDE the
+    worktree, so its process cwd carries the worktree marker even when the
+    payload omits ``cwd`` or carries an explicit ``"cwd": null``. Without this
+    fallback such a teammate would slip past the cwd leg and — because worktree
+    spawns never write the in-place marker — also past the marker-guarded env
+    leg, misidentifying it as the lead.
+
+    The env leg exists for in-place (solo-delegation) teammates whose cwd is
+    the main checkout — but ``XP_TEAMMATE_NAME`` is a documented leaky var, so a
+    lead that inherited it must NOT be misidentified. A lead's own process cwd
+    is the main checkout (no worktree marker), so the cwd fallback never
+    misfires for it. Trust the env only when spawn_teammate's lifetime-scoped
+    in-place marker is live for that name; a leaked env with no marker is not a
+    teammate. Centralizes the guard commit_handling and pre_tool_skill roll by
+    hand so every caller (session_start, kickoff/stop gates, pre_tool_write,
+    session_end, bash_post_tool) inherits it.
 
     *smm_dir* locates the marker; when None it resolves from the ``SMM_DIR``
     env spawn_teammate sets for the in-place child (the marker lives under that
     same dir). With neither a param nor the env, the marker is unverifiable and
     the env leg fails closed (not a teammate).
     """
-    name = extract_worktree_name(input_data.get("cwd", ""))
+    name = extract_worktree_name(input_data.get("cwd", "")) or extract_worktree_name(
+        _process_cwd()
+    )
     if name and name.startswith(_TEAMMATE_PREFIX):
         return True
     env_name = teammate_name_from_env()
