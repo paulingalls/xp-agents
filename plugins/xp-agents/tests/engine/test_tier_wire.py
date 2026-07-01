@@ -62,6 +62,45 @@ class TestTierWire(unittest.TestCase):
         )
         self.assertEqual(tier_wire.TIER_OVERRIDE_ACTION, "tier_override")
 
+    def test_teammate_efforts_ordered_ascending(self):
+        """Effort levels from low to max; ordering is semantically meaningful."""
+        self.assertEqual(
+            tier_wire.TEAMMATE_EFFORTS, ("low", "medium", "high", "xhigh", "max")
+        )
+
+    def test_haiku_has_no_effort_support(self):
+        """Haiku does not support the effort param."""
+        for effort in tier_wire.TEAMMATE_EFFORTS:
+            self.assertFalse(
+                tier_wire.effort_supported("haiku", effort),
+                f"haiku must not support {effort!r}",
+            )
+
+    def test_sonnet_opus_fable_support_all_efforts(self):
+        """Sonnet, Opus, and Fable support the full range of effort levels."""
+        for model in {"sonnet", "opus", "fable"}:
+            for effort in tier_wire.TEAMMATE_EFFORTS:
+                self.assertTrue(
+                    tier_wire.effort_supported(model, effort),
+                    f"{model} must support {effort!r}",
+                )
+
+    def test_effort_supported_rejects_unknown_model(self):
+        """Unknown models return False for any effort level."""
+        self.assertFalse(tier_wire.effort_supported("unknown", "low"))
+        self.assertFalse(tier_wire.effort_supported("gpt-4", "medium"))
+
+    def test_effort_supported_rejects_unknown_effort(self):
+        """Unknown effort strings return False for any model."""
+        self.assertFalse(tier_wire.effort_supported("sonnet", "invalid"))
+        self.assertFalse(tier_wire.effort_supported("opus", "unknown"))
+
+    def test_effort_support_parity_with_teammate_models(self):
+        """EFFORT_SUPPORT keys are exactly TEAMMATE_MODELS."""
+        self.assertEqual(
+            set(tier_wire.EFFORT_SUPPORT.keys()), set(tier_wire.TEAMMATE_MODELS)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

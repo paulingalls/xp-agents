@@ -217,6 +217,10 @@ class TestSpawnTeammateInPlace(_IntegrationTestCase):
                 ]
             )
 
+    @unittest.skipIf(
+        ".claude/worktrees" in os.getcwd(),
+        "Test designed for main checkout; skip when running from worktree",
+    )
     def test_in_place_skips_worktree_and_runs_in_main_checkout(self):
         self._seed_sprint("in-progress")
         cap: dict = {}
