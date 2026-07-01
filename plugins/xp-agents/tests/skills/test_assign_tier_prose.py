@@ -13,20 +13,16 @@ executor_model invariant (resolves event b1c3c28967f2) and the tier_override
 contract (metadata.action=tier_override, read by the override-audit story).
 """
 
+import sys
 import unittest
 from pathlib import Path
 
-from conftest import _split_frontmatter_body
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import tier_wire
+from conftest import _slice, _split_frontmatter_body
 
 _SKILL_PATH = Path(__file__).parent.parent.parent / "skills" / "xp-assign" / "SKILL.md"
-
-
-def _slice(body: str, start_marker: str, end_markers: tuple[str, ...]) -> str:
-    """Return the body region from start_marker up to the first end_marker."""
-    start = body.index(start_marker)
-    rest = body[start + len(start_marker) :]
-    ends = [rest.index(m) for m in end_markers if m in rest]
-    return rest[: min(ends)] if ends else rest
 
 
 class TestAssignTierProse(unittest.TestCase):
@@ -95,15 +91,15 @@ class TestAssignTierProse(unittest.TestCase):
         )
 
     def test_executor_model_only_valid_tiers_or_null(self):
-        """Spawning paths set executor_model only to a valid tier or leave it
-        null (inherit)."""
-        self.assertRegex(self.decision, r"(?i)haiku")
-        self.assertRegex(self.decision, r"(?i)sonnet")
-        self.assertRegex(self.decision, r"(?i)opus")
+        """Every model tier (incl. fable) appears in the decision prose —
+        bound to tier_wire so a new tier can't be added to the vocabulary
+        without the behavior table learning to spawn/forward it."""
+        for tier in tier_wire.TEAMMATE_MODELS:
+            self.assertRegex(self.decision, rf"(?i){tier}", f"tier {tier!r} missing")
 
     def test_tier_override_event_rule_documented(self):
         """The override audit event carries metadata.action=tier_override."""
-        self.assertIn("tier_override", self.decision)
+        self.assertIn(tier_wire.TIER_OVERRIDE_ACTION, self.decision)
         self.assertRegex(self.decision, r"(?i)action.{0,6}tier_override")
 
     def test_single_spawn_invariant_preserved(self):

@@ -277,6 +277,35 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:
     write_text_atomic(path, story_id)
 
 
+def in_place_marker_path(smm_dir: Path, name: str) -> Path:
+    """Return the path to an in-place teammate's lifetime-scoped active marker."""
+    return smm_dir / marker_names.IN_PLACE_ACTIVE.format(name=name)
+
+
+def write_in_place_marker(smm_dir: Path, name: str) -> None:
+    """Atomically write the in-place active marker with symlink rejection.
+
+    Written by spawn_teammate --in-place for the child's lifetime only;
+    commit_handling requires it before trusting the leaky XP_TEAMMATE_NAME env.
+    """
+    from _append_impl import write_text_atomic
+
+    path = in_place_marker_path(smm_dir, name)
+    if path.is_symlink():
+        raise OSError(f"Refusing to write to symlink: {path}")
+    write_text_atomic(path, name)
+
+
+def remove_in_place_marker(smm_dir: Path, name: str) -> None:
+    """Remove the in-place active marker (idempotent)."""
+    in_place_marker_path(smm_dir, name).unlink(missing_ok=True)
+
+
+def in_place_marker_exists(smm_dir: Path, name: str) -> bool:
+    """True when a live in-place teammate marker exists for `name`."""
+    return in_place_marker_path(smm_dir, name).is_file()
+
+
 def normalize_path(file_path: str, cwd: str) -> str:
     """Resolve a file path against cwd, return project-relative string.
 

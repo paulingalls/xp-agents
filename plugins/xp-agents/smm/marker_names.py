@@ -36,6 +36,10 @@ TEAMMATE_CONFIG = ".teammate-config"
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
 TEAMMATE_REPORT = ".teammate-report-{name}.txt"
 STORY_ASSIGNMENT = ".story-assignment-{name}"
+# Lifetime-scoped: written by spawn_teammate --in-place only for the duration
+# of the in-place child run, gated on by commit_handling before it trusts the
+# leaky XP_TEAMMATE_NAME env for attribution.
+IN_PLACE_ACTIVE = ".in-place-active-{name}"
 
 SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."
 

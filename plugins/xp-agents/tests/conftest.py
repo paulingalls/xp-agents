@@ -105,7 +105,7 @@ from _budget_helpers import (  # noqa: E402, F401
     discover_preload_scripts,
 )
 from _lint_fixtures import _LintTmpDirMixin, _mock_ruff_result  # noqa: E402, F401
-from _md_helpers import _split_frontmatter_body  # noqa: E402, F401
+from _md_helpers import _slice, _split_frontmatter_body  # noqa: E402, F401
 from _test_typing import _MixinBase  # noqa: E402, F401
 from _worktree_fixtures import _NormalizePathIdentityMixin  # noqa: E402, F401
 

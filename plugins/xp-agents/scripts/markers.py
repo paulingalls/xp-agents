@@ -18,6 +18,7 @@ from typing import Literal
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
+import tier_wire
 from _append_impl import write_json_atomic, write_text_atomic
 from append_validation import validate_agent_id
 
@@ -287,20 +288,16 @@ def write_review_cadence(smm_dir: Path, cadence: str) -> None:
 # Teammate config convenience functions (session-scoped JSON marker)
 # ---------------------------------------------------------------------------
 
-VALID_TEAMMATE_TOKENS = frozenset({"off", "haiku", "sonnet", "opus", "inherit"})
+# Tier-picker vocabulary — single source in smm/tier_wire.py (shared with the
+# story executor_model schema and the plan-reviewer recommended_model prose).
+VALID_TEAMMATE_TOKENS = tier_wire.TEAMMATE_CONFIG_TOKENS
 
 # Canonical models that may appear as default_model in the marker.
-_VALID_TEAMMATE_MODELS = frozenset({"haiku", "sonnet", "opus"})
+_VALID_TEAMMATE_MODELS = tier_wire.TEAMMATE_MODELS
 
 _FAIL_SAFE_TEAMMATE_CONFIG: dict = {"enabled": True, "default_model": None}
 
-_TEAMMATE_TOKEN_TO_DICT: dict[str, dict] = {
-    "off": {"enabled": False, "default_model": None},
-    "inherit": {"enabled": True, "default_model": None},
-    "haiku": {"enabled": True, "default_model": "haiku"},
-    "sonnet": {"enabled": True, "default_model": "sonnet"},
-    "opus": {"enabled": True, "default_model": "opus"},
-}
+_TEAMMATE_TOKEN_TO_DICT: dict[str, dict] = tier_wire.TOKEN_TO_CONFIG
 
 
 def read_teammate_config(smm_dir: Path) -> dict:
@@ -326,7 +323,7 @@ def write_teammate_config(smm_dir: Path, token: str) -> None:
     """Write the session teammate config from a canonical token.
 
     Rejects unknown tokens (fail loud). Valid tokens:
-    off | haiku | sonnet | opus | inherit
+    off | haiku | sonnet | opus | fable | inherit
     """
     if token not in VALID_TEAMMATE_TOKENS:
         raise ValueError(f"Invalid teammate config token: {token!r}")

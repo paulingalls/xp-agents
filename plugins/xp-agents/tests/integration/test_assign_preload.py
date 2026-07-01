@@ -500,6 +500,41 @@ class TestPreloadTierPicker(_IntegrationTestCase):
             _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "opus"
         )
 
+    def test_retraction_overrides_earlier_recommendation(self):
+        """debt d5697631a002: a later same-topic retraction (recommended_model
+        null) beats an earlier real recommendation → RECOMMENDED_TIER=none. The
+        reverse-scan must honor the LATEST matching event, not skip a null-model
+        one and fall back to the stale earlier pick."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": "opus",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": None,
+                        "retracted": True,
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "none"
+        )
+
     def test_stale_prior_sprint_recommendation_is_scoped_out(self):
         """A tier-recommendation from a PRIOR sprint that reused the same
         per-sprint story id must NOT leak into the current sprint's pick.

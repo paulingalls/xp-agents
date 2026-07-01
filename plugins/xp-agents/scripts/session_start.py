@@ -175,8 +175,29 @@ def _sweep_stale_concerns(
 # ---------------------------------------------------------------------------
 
 
+def _render_review_cadence(cadence: str) -> str:
+    """Render the active review cadence so the teammate doesn't depend on the
+    lead hand-writing it into the spawn prompt.
+
+    The commit gate enforces the mode mechanically either way; this closes the
+    communication gap so the teammate behaves correctly on its own.
+    """
+    if cadence == "story":
+        return (
+            "## Review Cadence: per-story\n"
+            "Per-commit review is deferred to story-close, which the lead "
+            "runs. Commit with the deferral advisory — do NOT run "
+            "/xp-quality-review per commit."
+        )
+    return (
+        "## Review Cadence: per-commit\n"
+        "Run /xp-quality-review before every commit; the commit gate blocks "
+        "an unreviewed commit."
+    )
+
+
 def _run_teammate(smm_dir: Path | None) -> str | None:
-    """Teammate SessionStart: XP Values + Teammate Guide + SMM. No markers."""
+    """Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers."""
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     parts: list[str] = []
     values = plugin_loader.load_xp_values()
@@ -186,6 +207,7 @@ def _run_teammate(smm_dir: Path | None) -> str | None:
     if guide:
         parts.append(guide)
     if smm_dir is not None:
+        parts.append(_render_review_cadence(markers.read_review_cadence(smm_dir)))
         data = system_context_store.load_system_context(smm_dir)
         if data:
             ctx_rendered = render_system_context(data)

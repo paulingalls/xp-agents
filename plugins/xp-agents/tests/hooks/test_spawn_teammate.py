@@ -421,5 +421,125 @@ class TestNoSysPathInsert(unittest.TestCase):
         )
 
 
+class TestInPlaceMarker(unittest.TestCase):
+    """spawn_teammate --in-place writes a lifetime-scoped in-place marker that
+    commit_handling requires before trusting XP_TEAMMATE_NAME (debt 06ddcc2c8e4d).
+    """
+
+    def _run(self, name_arg, smm_dir, *, in_place):
+        """Run main() with run_with_tee patched to capture marker presence
+        DURING the child run. Returns (marker_present_during_run: bool)."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+        import worktree
+
+        seen = {}
+
+        def capture_tee(cmd, *, cwd=None, env=None, stdin=None, name=None, **kw):
+            # Check against the closed-over name (a str), not the callback's
+            # name kwarg (typed str | None) — the marker is name-keyed.
+            seen["during"] = worktree.in_place_marker_exists(smm_dir, name_arg)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        argv = [
+            "--name",
+            name_arg,
+            "--smm-dir",
+            str(smm_dir),
+            "--prompt-file",
+            prompt_path,
+        ]
+        if in_place:
+            argv.append("--in-place")
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_tee),
+            ):
+                spawn_teammate.main(argv)
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+        return seen.get("during", False)
+
+    def test_in_place_marker_present_during_run_absent_after(self):
+        """Marker is live while the in-place child runs, gone once it exits."""
+        import tempfile
+
+        import worktree
+
+        with tempfile.TemporaryDirectory() as d:
+            smm_dir = Path(d)
+            during = self._run("worktree-story-001", smm_dir, in_place=True)
+            self.assertTrue(during, "marker must be present during the in-place run")
+            self.assertFalse(
+                worktree.in_place_marker_exists(smm_dir, "worktree-story-001"),
+                "marker must be removed after the in-place run (lifetime-scoped)",
+            )
+
+    def test_worktree_mode_writes_no_in_place_marker(self):
+        """A normal worktree spawn never writes the in-place marker."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            smm_dir = Path(d)
+            during = self._run("worktree-story-001", smm_dir, in_place=False)
+            self.assertFalse(
+                during, "worktree spawns must not write the in-place marker"
+            )
+
+    def test_in_place_marker_removed_when_child_run_fails(self):
+        """The lifetime-scoped marker is removed by the finally even when the
+        child run raises (watchdog SIGTERM/SIGKILL → run_with_tee raises
+        CalledProcessError, rc!=0 recovery). Only a SIGKILL of spawn_teammate
+        ITSELF leaks the marker — a normal child failure must not."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+        import worktree
+
+        with tempfile.TemporaryDirectory() as d:
+            smm_dir = Path(d)
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False
+            ) as f:
+                f.write("test prompt")
+                prompt_path = f.name
+
+            def boom(*a, **kw):
+                raise subprocess.CalledProcessError(1, ["claude"])
+
+            argv = [
+                "--name",
+                "worktree-story-001",
+                "--smm-dir",
+                str(smm_dir),
+                "--prompt-file",
+                prompt_path,
+                "--in-place",
+            ]
+            try:
+                with (
+                    patch.object(
+                        spawn_teammate, "create_worktree", return_value="/tmp/wt"
+                    ),
+                    patch.object(spawn_teammate, "run_with_tee", side_effect=boom),
+                    self.assertRaises(subprocess.CalledProcessError),
+                ):
+                    spawn_teammate.main(argv)
+            finally:
+                Path(prompt_path).unlink(missing_ok=True)
+
+            self.assertFalse(
+                worktree.in_place_marker_exists(smm_dir, "worktree-story-001"),
+                "marker must be removed even when the child run fails",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,19 +13,11 @@ Prose must be declarative and project-agnostic: no internal marker names.
 import unittest
 from pathlib import Path
 
-from conftest import _split_frontmatter_body
+from conftest import _slice, _split_frontmatter_body
 
 _SKILL_PATH = (
     Path(__file__).parent.parent.parent / "skills" / "xp-schedule" / "SKILL.md"
 )
-
-
-def _slice(body: str, start_marker: str, end_markers: tuple[str, ...]) -> str:
-    """Return the body region from start_marker up to the first end_marker."""
-    start = body.index(start_marker)
-    rest = body[start + len(start_marker) :]
-    ends = [rest.index(m) for m in end_markers if m in rest]
-    return rest[: min(ends)] if ends else rest
 
 
 class TestScheduleTeammateGateProse(unittest.TestCase):
@@ -34,9 +26,10 @@ class TestScheduleTeammateGateProse(unittest.TestCase):
         full_text = _SKILL_PATH.read_text()
         _, cls.body = _split_frontmatter_body(full_text)
         cls.step2 = _slice(cls.body, "## Step 2:", ("## Step 3:",))
-        cls.step4 = _slice(cls.body, "## Step 4:", ("## ",)) or cls.body[
-            cls.body.find("## Step 4:") :
-        ]
+        cls.step4 = (
+            _slice(cls.body, "## Step 4:", ("## ",))
+            or cls.body[cls.body.find("## Step 4:") :]
+        )
         cls.frontmatter, _ = _split_frontmatter_body(full_text)
 
     def test_skill_file_exists(self):

@@ -8,20 +8,16 @@ Prose must be declarative and project-agnostic: no internal marker filenames
 or constant names in the shipped skill text.
 """
 
+import sys
 import unittest
 from pathlib import Path
 
-from conftest import _split_frontmatter_body
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import tier_wire
+from conftest import _slice, _split_frontmatter_body
 
 _SKILL_PATH = Path(__file__).parent.parent.parent / "skills" / "xp-kickoff" / "SKILL.md"
-
-
-def _slice(body: str, start_marker: str, end_markers: tuple[str, ...]) -> str:
-    """Return the body region from start_marker up to the first end_marker."""
-    start = body.index(start_marker)
-    rest = body[start + len(start_marker) :]
-    ends = [rest.index(m) for m in end_markers if m in rest]
-    return rest[: min(ends)] if ends else rest
 
 
 class TestKickoffTeammateConfigProse(unittest.TestCase):
@@ -57,8 +53,12 @@ class TestKickoffTeammateConfigProse(unittest.TestCase):
         self.assertRegex(self.sprint_fork, r"teammate_config_cli\.py.*write")
 
     def test_sprint_fork_covers_all_tokens(self):
-        """All five canonical tokens appear in the Sprint fork."""
-        for token in ("off", "haiku", "sonnet", "opus", "inherit"):
+        """Every canonical config token appears in the Sprint fork.
+
+        Bound to tier_wire so a new tier (e.g. fable) can't be added to the
+        vocabulary without also being offered here.
+        """
+        for token in tier_wire.TEAMMATE_CONFIG_TOKENS:
             self.assertIn(token, self.sprint_fork, f"token {token!r} missing")
 
     def test_free_fork_has_no_teammate_question(self):

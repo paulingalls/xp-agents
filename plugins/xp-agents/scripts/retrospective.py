@@ -20,6 +20,7 @@ import _common
 import marker_names
 import session_history
 import story_metrics
+import tier_wire
 from event_schema import (
     EVENT_TYPE_SPRINT,
     EVENT_TYPE_STATUS,
@@ -46,7 +47,7 @@ RETRO_THRESHOLD = 5
 # Wire-contract action string for the tier-picker override audit trail (written
 # by the xp-assign hand-off as a status event; the writer is shell and cannot
 # import this, so this anchors the reader side).
-_TIER_OVERRIDE_ACTION = "tier_override"
+_TIER_OVERRIDE_ACTION = tier_wire.TIER_OVERRIDE_ACTION
 
 
 def _compute_tier_override_signal(events: list[dict]) -> dict:

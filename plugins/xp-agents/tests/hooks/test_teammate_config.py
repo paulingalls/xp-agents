@@ -46,6 +46,12 @@ class TestTeammateConfigRoundtrip(_HookTestCase):
         result = markers.read_teammate_config(self.smm_dir)
         self.assertEqual(result, {"enabled": True, "default_model": "opus"})
 
+    def test_fable_token(self):
+        """fable is a first-class picker tier (the most powerful/expensive)."""
+        markers.write_teammate_config(self.smm_dir, "fable")
+        result = markers.read_teammate_config(self.smm_dir)
+        self.assertEqual(result, {"enabled": True, "default_model": "fable"})
+
     def test_off_and_inherit_both_have_null_default_model(self):
         """off and inherit differ only in enabled field."""
         markers.write_teammate_config(self.smm_dir, "off")
@@ -62,10 +68,10 @@ class TestTeammateConfigRoundtrip(_HookTestCase):
             markers.write_teammate_config(self.smm_dir, "weekly")
 
     def test_all_valid_tokens_covered(self):
-        """VALID_TEAMMATE_TOKENS contains exactly the five specified tokens."""
+        """VALID_TEAMMATE_TOKENS is the model tiers plus off/inherit (incl. fable)."""
         self.assertEqual(
             markers.VALID_TEAMMATE_TOKENS,
-            frozenset({"off", "haiku", "sonnet", "opus", "inherit"}),
+            frozenset({"off", "haiku", "sonnet", "opus", "fable", "inherit"}),
         )
 
 

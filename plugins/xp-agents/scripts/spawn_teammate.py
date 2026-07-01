@@ -379,8 +379,17 @@ def main(argv: list[str] | None = None) -> None:
     env["SMM_DIR"] = args.smm_dir
     env[identity._XP_TEAMMATE_ENV] = name
 
+    # In-place teammates share the main checkout, so their cwd carries no
+    # worktree path marker — commit_handling recovers the name from the leaky
+    # XP_TEAMMATE_NAME env instead. Write a lifetime-scoped marker so attribution
+    # only trusts that env WHILE this child runs; a lead that later inherits a
+    # leaked var has no live marker and falls through to the heuristics. Removed
+    # in the finally below. (A SIGKILL of spawn_teammate itself could leak the
+    # marker — a narrow window, strictly better than trusting env unconditionally.)
     combined_path: str | None = None
     try:
+        if args.in_place:
+            worktree.write_in_place_marker(Path(args.smm_dir), name)
         preamble = "" if args.in_place else _worktree_preamble(run_cwd)
         combined = preamble + Path(args.prompt_file).read_text()
         with tempfile.NamedTemporaryFile(
@@ -392,6 +401,8 @@ def main(argv: list[str] | None = None) -> None:
             run_with_tee(cmd, cwd=run_cwd, env=env, stdin=combined_stdin, name=name)
         Path(args.prompt_file).unlink(missing_ok=True)
     finally:
+        if args.in_place:
+            worktree.remove_in_place_marker(Path(args.smm_dir), name)
         if combined_path is not None:
             Path(combined_path).unlink(missing_ok=True)
 
