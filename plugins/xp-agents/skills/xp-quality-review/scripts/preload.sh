@@ -135,3 +135,29 @@ echo ""
 echo "## Open Plan Concerns"
 python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/open_plan_concerns.py" \
     --smm-dir "$SMM_DIR" 2>/dev/null || echo "(lookup unavailable)"
+
+# Design Context: the project's documented conventions (Constraints pillar),
+# passed to the risk classifier so it down-rates diffs that match a spec'd
+# convention instead of false-flagging them (decision 4369e5aabbf4). Gated on
+# changed_files like the debt block — no changes, nothing to contextualize.
+# Constraints carry no per-file link, so the whole pillar is surfaced and the
+# classifier scopes by judgment.
+echo ""
+echo "## Design Context"
+if [ -z "$changed_files" ]; then
+    echo "(none)"
+# Capturing the render in the `elif` condition keeps its exit code out of
+# `set -e` — a schema-invalid SMM degrades to a marker, never crashes review.
+elif design_ctx=$(python3 "${PLUGIN_ROOT}/smm/smm_cli.py" --smm-dir "$SMM_DIR" \
+        section constraints 2>/dev/null); then
+    # tail -n +2 strips smm_cli's own `## Constraints` header, leaving bullets.
+    design_ctx=$(printf '%s\n' "$design_ctx" | tail -n +2)
+    if [ -z "$(printf '%s' "$design_ctx" | tr -d '[:space:]')" ]; then
+        echo "(none)"
+    else
+        echo "Documented project conventions — down-rate diffs that match these."
+        printf '%s\n' "$design_ctx"
+    fi
+else
+    echo "(lookup unavailable)"
+fi
