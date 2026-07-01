@@ -116,8 +116,8 @@ def is_worktree_teammate(input_data: dict, smm_dir: Path | None = None) -> bool:
     name = extract_worktree_name(input_data.get("cwd", ""))
     if name and name.startswith(_TEAMMATE_PREFIX):
         return True
-    env_name = os.environ.get(_XP_TEAMMATE_ENV, "")
-    if not env_name.startswith(_TEAMMATE_PREFIX):
+    env_name = teammate_name_from_env()
+    if env_name is None or not is_teammate_agent_id(env_name):
         return False
     if smm_dir is None:
         env_dir = os.environ.get("SMM_DIR", "")
