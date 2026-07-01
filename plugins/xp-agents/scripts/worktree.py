@@ -214,6 +214,46 @@ def find_closing_teammate_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] |
     return matches[0] if matches else None
 
 
+def resolve_own_teammate_worktree(cwd: str) -> tuple[str, str] | None:
+    """Return ``(worktree_root, branch)`` when *cwd* is inside a teammate worktree.
+
+    Invoker-identity detection: a teammate self-reviewing runs /xp-quality-review
+    from its own ``.claude/worktrees/worktree-story-*`` tree, so its OWN cwd is
+    the correct review target — not whatever story is ``closing`` in shared
+    sprint state (the parallel-teammate closing-scan race). Pure cwd walk: no
+    sprint.json read, no ``git worktree list`` scan — immune to that race.
+
+    Returns ``None`` when *cwd* is the main checkout (orchestrator / solo).
+    Keys on the same ``worktree-story-`` teammate prefix as
+    ``identity.is_worktree_teammate`` (via ``is_teammate_agent_id``) so the two
+    agree on what counts as a teammate worktree — a broader ``worktree-`` gate
+    would bind the review to a non-teammate worktree the detector rejects.
+    """
+    name = identity.extract_worktree_name(cwd)
+    if not name or not identity.is_teammate_agent_id(name):
+        return None
+    p = Path(cwd)
+    root = next((anc for anc in (p, *p.parents) if anc.name == name), None)
+    if root is None:
+        return None
+    return str(root), identity.get_current_branch(str(root))
+
+
+def resolve_review_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] | None:
+    """Resolve the /xp-quality-review target worktree, invoker-identity first.
+
+    Precedence (the testable seam guarding the parallel-teammate race): the
+    invoker's OWN teammate worktree wins over the global closing-story scan.
+    Only when the
+    invoker is NOT inside a teammate worktree (the orchestrator) do we fall back
+    to ``find_closing_teammate_worktree`` — unchanged behavior for that path.
+    """
+    own = resolve_own_teammate_worktree(cwd)
+    if own is not None:
+        return own
+    return find_closing_teammate_worktree(smm_dir, cwd)
+
+
 def branch_held_by_worktree(cwd: str, branch: str) -> bool:
     """True if any live worktree (registered in `git worktree list`) has
     `branch` checked out.

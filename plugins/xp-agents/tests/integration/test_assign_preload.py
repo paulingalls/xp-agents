@@ -361,16 +361,21 @@ class TestPreloadTierPicker(_IntegrationTestCase):
             [_s(story_id, "Build feature", "in-progress", execution_mode="teammate")]
         )
 
-    def _seed_tier_recommendation(self, story_id: str, model: str) -> None:
+    def _seed_tier_recommendation(
+        self, story_id: str, model: str, effort: str | None = None
+    ) -> None:
+        metadata = {
+            "recommended_model": model,
+            "story_id": story_id,
+            "advisory": True,
+        }
+        if effort is not None:
+            metadata["recommended_effort"] = effort
         ev = make_event(
             EVENT_TYPE_DECISION,
             topic=f"tier-recommendation-{story_id}",
             content=f"Suggested executor_model: {model} — test rationale",
-            metadata={
-                "recommended_model": model,
-                "story_id": story_id,
-                "advisory": True,
-            },
+            metadata=metadata,
         )
         self._seed_events([ev])
 
@@ -386,6 +391,66 @@ class TestPreloadTierPicker(_IntegrationTestCase):
         )
         self.assertEqual(
             _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-001"
+        )
+
+    def test_emits_recommended_effort_when_present(self):
+        """story-004 AC1: a recommendation carrying recommended_effort surfaces
+        as RECOMMENDED_EFFORT (same winning event as RECOMMENDED_TIER)."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_tier_recommendation("story-001", "sonnet", effort="xhigh")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_EFFORT"), "xhigh"
+        )
+
+    def test_recommended_effort_empty_when_absent(self):
+        """story-004 AC2: a recommendation with no effort → RECOMMENDED_EFFORT is
+        emitted but empty (the skill then omits --effort)."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_tier_recommendation("story-001", "sonnet")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (_extract_preload_var(result.stdout, "RECOMMENDED_EFFORT") or ""), ""
+        )
+
+    def test_recommended_effort_empty_on_retraction(self):
+        """A later null-model retraction wins the reverse-scan; it carries no
+        effort key, so RECOMMENDED_EFFORT is empty — effort travels with the
+        winning tier event, never a stale earlier one."""
+        self._write_sprint(self._single_teammate_sprint())
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": "opus",
+                        "recommended_effort": "max",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    metadata={
+                        "recommended_model": None,
+                        "retracted": True,
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "none"
+        )
+        self.assertEqual(
+            (_extract_preload_var(result.stdout, "RECOMMENDED_EFFORT") or ""), ""
         )
 
     def test_emits_teammate_default_from_marker(self):

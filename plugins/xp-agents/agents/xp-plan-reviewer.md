@@ -113,6 +113,8 @@ Use generic size language ("very small", "small-to-moderate", "large") — not l
 
 **RETRACT-WHEN-AMBIGUOUS:** if the tier is genuinely ambiguous, do NOT guess — emit a **retraction**: the recommendation command below on the SAME topic but with `recommended_model: null` and `retracted: true`. /xp-assign reads the latest event, sees the null model, and applies the kickoff default (`RECOMMENDED_TIER=none`) — no earlier recommendation wins.
 
+**Effort (Claude Code knob).** Reasoning effort is a Claude Code setting, gated by the tier. For `haiku` or `in-agent`, emit no recommended_effort (the cheapest tier rejects the knob; in-agent spawns no teammate). For `sonnet`/`opus`/`fable`, you MAY also recommend a level — `low`, `medium`, `high`, `xhigh`, or `max` — via `metadata.recommended_effort` on the same event, sized to correctness stakes; omit it when the model default suffices. The level names are the knob's own vocabulary, not a language/provider surface.
+
 When the tier is clear, write ONE decision event:
 
 ```bash
@@ -120,10 +122,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" --agent "xp-plan-reviewer" \
   --topic "tier-recommendation-<story-id>" \
   --content "Suggested executor_model: <tier> — <one-sentence rationale>" \
-  --metadata '{"recommended_model": "<in-agent|haiku|sonnet|opus|fable>", "story_id": "<story-id>", "advisory": true}'
+  --metadata '{"recommended_model": "<in-agent|haiku|sonnet|opus|fable>", "recommended_effort": "<level, or omit for haiku/in-agent>", "story_id": "<story-id>", "advisory": true}'
 ```
 
-Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus, fable}. ONE event per unambiguous reviewed plan.
+Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus, fable}, plus optional `metadata.recommended_effort` (a Claude Code effort level, present only for `sonnet`/`opus`/`fable` tiers). ONE event per unambiguous reviewed plan.
 
 ### 10. Acceptance Criteria Cross-Check
 

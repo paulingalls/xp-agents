@@ -2,6 +2,26 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.3.0 — Teammate effort dimension; worktree-detection hardening
+
+Sprint-112. The teammate tier picker now carries a second per-story knob — reasoning **effort** — wired end-to-end (recommend → forward → spawn), plus two cross-cutting worktree-detection fixes. Each change TDD-ordered, risk-classified, and reviewed.
+
+### Teammate effort dimension
+
+- **`spawn_teammate` accepts `--effort`** and forwards it to the headless `claude -p` alongside `--model`, guarded by a support matrix (`tier_wire.effort_supported`). An unsupported model+effort pair (e.g. `haiku`, or an inherited/unknown model) is **dropped with a stderr note** rather than erroring the spawn — it fail-safes to the model default.
+- **The plan-reviewer recommends an effort per story** via `metadata.recommended_effort` on the same `tier-recommendation-<story>` decision event, gated to effort-supporting tiers (`sonnet`/`opus`/`fable`; never `haiku`/`in-agent`). Effort is scoped explicitly as a Claude Code knob.
+- **`/xp-assign` consumes the recommendation** end-to-end: the preload emits `RECOMMENDED_EFFORT` from the winning event, and the skill sets the story's `executor_effort` and forwards `--effort` to both the worktree and in-place spawns.
+- The per-tier effort support matrix was corrected against the current Claude API (Sonnet 5 added `xhigh`), collapsing the tier-gate to binary: `haiku` supports no effort; `sonnet`/`opus`/`fable` support the full `low..max` range.
+
+### Worktree detection
+
+- **`/xp-quality-review` binds to the invoker's own worktree** (cwd walk) over the global closing-scan, fixing a CWD-misdetect that could hand a teammate another worktree's diff (the scan is now fallback-only in orchestrator context).
+- **`is_worktree_teammate`'s leaky-env leg is marker-guarded centrally**: `XP_TEAMMATE_NAME` is trusted only when a live in-place marker exists, so a lead that inherited the var is no longer misidentified as a teammate at any of its callers. `smm_dir` self-resolves from the `SMM_DIR` env; the guard fails closed.
+
+### Housekeeping
+
+- Shipped idea notes moved to `docs/completed`.
+
 ## v4.2.1 — Teammate boundary hardening, tier-wire consolidation, fable tier
 
 Free-branch backlog cleanup from the group-4 retros. Each change TDD-ordered, risk-classified, and reviewed with `Resolves-Event:` trailers.

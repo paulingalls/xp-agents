@@ -126,6 +126,21 @@ class TestAssignTierProse(unittest.TestCase):
         self.assertIn("--in-place", self.body)
         self.assertRegex(self.body, r"(?i)main checkout")
 
+    # --- story-004: effort forward (recommend → executor_effort → --effort) --
+    def test_effort_forward_documented(self):
+        """The SKILL documents the full effort chain: the preload's
+        RECOMMENDED_EFFORT is written to the story's executor_effort and
+        forwarded to spawn_teammate's --effort flag."""
+        self.assertIn("RECOMMENDED_EFFORT", self.body)
+        self.assertIn("executor_effort", self.body)
+        self.assertIn("--effort", self.body)
+
+    def test_effort_forward_notes_spawn_failsafe(self):
+        """The prose must note the spawn fail-safes when the chosen tier can't
+        support the recommended effort (story-002's guard), so xp-assign does
+        not gate effort itself."""
+        self.assertRegex(self.body, r"(?i)fail.?safe|drop.{0,30}effort")
+
     # --- Project-agnostic vocabulary (CLAUDE.md guardrail) ----------------
     def test_no_language_specific_tokens_in_decision_prose(self):
         """Tier is chosen by complexity, not language — the decision prose must
