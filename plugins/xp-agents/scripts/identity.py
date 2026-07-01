@@ -8,6 +8,7 @@ Detects CLI teammates by worktree directory prefix.
 import os
 import re
 import subprocess
+from pathlib import Path
 
 # Single source of truth for the worktree directory under each project root.
 # Consumed by hooks (pre_tool_bash matcher), worktree path resolution
@@ -94,13 +95,40 @@ def is_teammate_agent_id(agent_id: str) -> bool:
     return agent_id.startswith(_TEAMMATE_PREFIX)
 
 
-def is_worktree_teammate(input_data: dict) -> bool:
-    """Detect CLI teammates by worktree cwd path or XP_TEAMMATE_NAME env var."""
+def is_worktree_teammate(input_data: dict, smm_dir: Path | None = None) -> bool:
+    """Detect CLI teammates by worktree cwd path, or by XP_TEAMMATE_NAME env
+    var guarded on a live in-place marker.
+
+    The cwd leg catches worktree teammates directly. The env leg exists for
+    in-place (solo-delegation) teammates whose cwd is the main checkout — but
+    ``XP_TEAMMATE_NAME`` is a documented leaky var, so a lead that inherited it
+    must NOT be misidentified. Trust the env only when spawn_teammate's
+    lifetime-scoped in-place marker is live for that name; a leaked env with no
+    marker is not a teammate. Centralizes the guard commit_handling and
+    pre_tool_skill roll by hand so every caller (session_start, kickoff/stop
+    gates, pre_tool_write, session_end, bash_post_tool) inherits it.
+
+    *smm_dir* locates the marker; when None it resolves from the ``SMM_DIR``
+    env spawn_teammate sets for the in-place child (the marker lives under that
+    same dir). With neither a param nor the env, the marker is unverifiable and
+    the env leg fails closed (not a teammate).
+    """
     name = extract_worktree_name(input_data.get("cwd", ""))
     if name and name.startswith(_TEAMMATE_PREFIX):
         return True
     env_name = os.environ.get(_XP_TEAMMATE_ENV, "")
-    return env_name.startswith(_TEAMMATE_PREFIX)
+    if not env_name.startswith(_TEAMMATE_PREFIX):
+        return False
+    if smm_dir is None:
+        env_dir = os.environ.get("SMM_DIR", "")
+        if not env_dir:
+            return False
+        smm_dir = Path(env_dir)
+    # Deferred import: worktree imports identity at module load, so a top-level
+    # import here would cycle (mirrors commit_handling's function-level import).
+    import worktree
+
+    return worktree.in_place_marker_exists(smm_dir, env_name)
 
 
 def resolve_agent_id(input_data: dict) -> str:
