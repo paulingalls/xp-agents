@@ -11,6 +11,7 @@ just shell call-order in preload.sh.
 """
 
 import sys
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
+from _branching_fixtures import seed_sprint_with_stories
 from conftest import _HookTestCase
 
 _DUMMY_SMM = Path("/tmp/nonexistent-smm-for-tests")
@@ -81,6 +83,47 @@ class TestResolveReviewWorktreePrecedence(_HookTestCase):
             worktree, "find_closing_teammate_worktree", return_value=None
         ):
             result = worktree.resolve_review_worktree(_DUMMY_SMM, "/repo/main")
+            self.assertIsNone(result)
+
+
+class TestResolveReviewWorktreeFallbackIntegration(_HookTestCase):
+    """Orchestrator-context fallback through the REAL find_closing_teammate_worktree
+    (not mocked) — closes assumption 72652b6cafe0: the own-worktree path was
+    covered but the resolve_review_worktree -> real-scan wiring in orchestrator
+    context was only exercised with the scan mocked. This seeds a real sprint.json
+    closing story + a live teammate worktree and drives the resolver from a main
+    checkout, so a wiring break (wrong args to the scan, precedence inversion)
+    surfaces here where the mocked unit test can't.
+    """
+
+    def _porcelain(self, main_cwd: str, wt_path: str, branch: str) -> str:
+        return (
+            f"worktree {main_cwd}\nHEAD abc\nbranch refs/heads/main\n"
+            f"\nworktree {wt_path}\nHEAD def\nbranch refs/heads/{branch}\n"
+        )
+
+    def test_orchestrator_cwd_resolves_closing_worktree_via_real_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main_cwd = tmp  # no `.claude/worktrees/` fragment -> own resolves None
+            wt = Path(tmp) / ".claude" / "worktrees" / "worktree-story-003"
+            wt.mkdir(parents=True)
+            seed_sprint_with_stories(self.smm_dir, [("story-003", "closing")])
+            porcelain = self._porcelain(main_cwd, str(wt), "paulingalls/story-003")
+            with mock.patch("worktree.subprocess.check_output", return_value=porcelain):
+                result = self._assert_not_none(
+                    worktree.resolve_review_worktree(self.smm_dir, main_cwd)
+                )
+            self.assertEqual(Path(result[0]).name, "worktree-story-003")
+            self.assertEqual(result[1], "paulingalls/story-003")
+
+    def test_orchestrator_cwd_no_closing_story_resolves_none_via_real_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wt = Path(tmp) / ".claude" / "worktrees" / "worktree-story-003"
+            wt.mkdir(parents=True)
+            seed_sprint_with_stories(self.smm_dir, [("story-003", "in-progress")])
+            porcelain = self._porcelain(tmp, str(wt), "paulingalls/story-003")
+            with mock.patch("worktree.subprocess.check_output", return_value=porcelain):
+                result = worktree.resolve_review_worktree(self.smm_dir, tmp)
             self.assertIsNone(result)
 
 

@@ -265,6 +265,13 @@ def cmd_merge(args: argparse.Namespace) -> int:
         sys.stderr.write(block + "\n")
         return 1
 
+    review_block = close_verify_gate.review_clean_block(
+        getattr(args, "review_clean_cwd", "") or ""
+    )
+    if review_block:
+        sys.stderr.write(review_block + "\n")
+        return 1
+
     branching.merge_branch(args.cwd, args.source, target=args.target)
     print(f"merged: {args.source} -> {args.target}")
 
@@ -449,6 +456,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force-verify",
         action="store_true",
         help="bypass the acceptance gate (sprint-close --force-close path)",
+    )
+    p.add_argument(
+        "--review-clean-cwd",
+        default="",
+        help="after-review clean re-check target (story-close teammate worktree); "
+        "refuse the merge if dirty so an uncommitted reviewer fix isn't discarded "
+        "by worktree cleanup. Empty (solo/other closes) skips the check.",
     )
     p.set_defaults(func=cmd_merge)
 

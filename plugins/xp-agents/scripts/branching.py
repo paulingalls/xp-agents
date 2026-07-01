@@ -244,6 +244,25 @@ def is_worktree_clean(cwd: str) -> bool:
     return r.returncode == 0 and r.stdout.strip() == ""
 
 
+def is_git_worktree(cwd: str) -> bool:
+    """True when *cwd* is inside a real, checkable git working tree.
+
+    Distinguishes a genuinely dirty tree from a path that can't be
+    status-checked at all — a missing directory (subprocess raises) or a
+    non-repo path (git exits non-zero). Callers that skip work on an
+    unresolvable target use this to avoid conflating an errored ``git status``
+    with a dirty tree.
+    """
+    try:
+        r = _git(["git", "rev-parse", "--is-inside-work-tree"], cwd)
+    except (OSError, subprocess.SubprocessError):
+        # Missing dir (OSError) or a hung/errored git (TimeoutExpired et al.,
+        # since _git runs with a timeout) — an uncheckable target, not a dirty
+        # one. Fail to "not a worktree" so callers skip rather than crash.
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "true"
+
+
 def branch_exists(cwd: str, name: str) -> bool:
     r = _git(["git", "rev-parse", "--verify", f"refs/heads/{name}"], cwd)
     return r.returncode == 0

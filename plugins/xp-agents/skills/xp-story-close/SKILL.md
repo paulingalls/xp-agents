@@ -202,13 +202,24 @@ then continue to Step 7. Otherwise apply the shared Step 6 prompt.
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
-  --verify-gate touch --smm-dir <SMM_DIR>
+  --verify-gate touch --review-clean-cwd "${TEAMMATE_CWD}" --smm-dir <SMM_DIR>
 ```
 
 `--verify-gate touch` is a deterministic backstop: it re-derives the Step 1c
 verify-touch check and refuses the merge if no commit touched the story's
 declared acceptance-test paths (unless a `[verify-deferred]` commit defers).
 Step 1c stays the first line of defense; this guards a skipped Step 1c.
+
+`--review-clean-cwd "${TEAMMATE_CWD}"` is a second deterministic backstop for
+the teammate path: a reviewer fix applied in Step 4.5b lands in the teammate
+worktree, and Step 7b then removes that worktree — so an uncommitted fix would
+be silently discarded. The merge refuses when `TEAMMATE_CWD` is a real worktree
+that is dirty, so the lead either commits the reviewer's fix
+(`git -C ${TEAMMATE_CWD} add -A && git -C ${TEAMMATE_CWD} commit -m ...` — `add
+-A` also stages NEW files a `commit -am` would miss) or clears unrelated scratch
+(`git -C ${TEAMMATE_CWD} stash -u`) first. Empty for solo closes (the working
+tree persists, nothing to lose), and a missing/invalid `TEAMMATE_CWD` — the
+check is skipped.
 
 Always at orchestrator cwd (see intro). Any failing step aborts the
 chain — source intact for retry. Conflicts are never auto-resolved.
