@@ -82,6 +82,7 @@ if not target:
     target = solo_target
 
 tier = "none"
+effort = ""
 if target:
     topic = "tier-recommendation-" + target
     # Scope to the current sprint window: per-sprint story ids (story-001...)
@@ -115,7 +116,15 @@ if target:
             # event — break unconditionally. A retraction (recommended_model
             # null, emitted when a re-review finds the story ambiguous) thus
             # beats an earlier real recommendation: null model -> "none".
-            tier = (event.get("metadata") or {}).get("recommended_model") or "none"
+            # recommended_effort (story-004) travels on the SAME winning event,
+            # so a retraction (no effort key) naturally yields empty —
+            # RECOMMENDED_EFFORT never survives from a stale earlier
+            # recommendation. (Scoped to this emitted var: the persisted
+            # executor_effort FIELD is a separate concern — Step 0 only writes it,
+            # it does not clear it, so it can latch across a re-assignment.)
+            metadata = event.get("metadata") or {}
+            tier = metadata.get("recommended_model") or "none"
+            effort = metadata.get("recommended_effort") or ""
             break
 
 print("\n".join([
@@ -123,12 +132,13 @@ print("\n".join([
     "SOLO_TARGET=" + solo_target,
     "RECOMMENDED_TIER_STORY=" + target,
     "RECOMMENDED_TIER=" + tier,
+    "RECOMMENDED_EFFORT=" + effort,
     "TEAMMATE_DEFAULT=" + teammate_default,
 ]))
 ' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "$(pwd)" 2>/dev/null) \
     || TEAMMATE_OUT=""
 if [ -z "$TEAMMATE_OUT" ]; then
-    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nSOLO_TARGET=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nTEAMMATE_DEFAULT=inherit'
+    TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nSOLO_TARGET=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nRECOMMENDED_EFFORT=\nTEAMMATE_DEFAULT=inherit'
 fi
 echo "$TEAMMATE_OUT"
 
