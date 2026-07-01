@@ -135,7 +135,7 @@ class TestRiskClassifierAgent(unittest.TestCase):
     # --- sprint-111 M4: broadened rubric -------------------------------------
 
     # The six canonical project-agnostic signal keywords (design doc
-    # docs/ideas/RISK_CLASSIFIER_RUBRIC_BROADENING.md). story-002 maps each to a
+    # docs/completed/RISK_CLASSIFIER_RUBRIC_BROADENING.md). story-002 maps each to a
     # reviewer enrichment angle; the names are an interface contract.
     _SIGNALS = (
         "path-traversal",
