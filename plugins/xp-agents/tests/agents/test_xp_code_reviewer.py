@@ -13,6 +13,7 @@ close — the cross-language vocabulary guard (test 2) is the load-bearing
 sprint-104 lesson (CLAUDE.md two-layer project-agnostic guardrail).
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -23,6 +24,7 @@ from _md_helpers import _split_frontmatter_body
 from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
+_CLASSIFIER_PROMPT = _PLUGIN_ROOT / "agents" / "xp-risk-classifier.md"
 
 # sprint-111 M4 story-002: each classifier signal -> angle anchors, at least
 # one of which must appear alongside the signal in §1c (proves the row maps to
@@ -221,6 +223,35 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             r"\b500\b",
             "§1c must not bake in the plugin's 500-line cap — defer to the host "
             "project's standards",
+        )
+
+    def test_classifier_signals_are_all_covered_by_1c(self):
+        """Every signal in the classifier's §Signals table has a §1c angle.
+
+        The SIGNALS vocabulary is a cross-file contract between two SHIPPED
+        files (xp-risk-classifier.md §Signals ↔ xp-code-reviewer.md §1c). The
+        per-file floor tests only assert the current six exist in each file
+        independently; this superset guard binds the two so a future classifier
+        signal added without a matching §1c enrichment angle fails red instead
+        of silently dropping directed review (close concern 6e43963eb489).
+        """
+        classifier_body = _CLASSIFIER_PROMPT.read_text(encoding="utf-8")
+        signals = _section_slice(classifier_body, "## Signals", "## Decision matrix")
+        # First-column backtick tokens in the §Signals table are the keywords.
+        classifier_signals = set(
+            re.findall(r"^\|\s*`([a-z][a-z-]+)`", signals, re.MULTILINE)
+        )
+        self.assertTrue(
+            classifier_signals,
+            "could not extract signal keywords from the classifier §Signals table",
+        )
+        section_1c_lower = _section_slice(self.body, "## 1c", "## 2.").lower()
+        missing = sorted(s for s in classifier_signals if s not in section_1c_lower)
+        self.assertEqual(
+            missing,
+            [],
+            f"classifier signals with no §1c enrichment angle: {missing} — "
+            "every classifier SIGNAL must map to a reviewer angle",
         )
 
 
