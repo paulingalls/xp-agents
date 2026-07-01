@@ -99,7 +99,7 @@ Include your recommendation under an "Execution mode" heading.
 
 After reporting findings, judge story complexity by STRUCTURAL signals and write ONE decision event recommending an executor tier for the teammate.
 
-**4-tier heuristic (project-agnostic):**
+**5-tier heuristic (project-agnostic), least → most capable:**
 
 | Tier | Structural signals |
 |---|---|
@@ -107,6 +107,7 @@ After reporting findings, judge story complexity by STRUCTURAL signals and write
 | `haiku` | Small-to-moderate AND no judgment surface (mechanical refactors, well-templated additions, pattern-driven extensions of existing code). |
 | `sonnet` | Moderate-to-large AND pattern-following (mirrors existing code, schema additions following a precedent, multi-file but no novel architecture). |
 | `opus` | Large OR novel architectural surface OR cross-module integration OR subtle state/lifecycle/concurrency surface. |
+| `fable` | The most demanding work, beyond opus's reach: deep novel architecture, the hardest reasoning, or the highest-stakes/most-complex stories. The most powerful and most expensive tier — reserve it for when opus is not enough. |
 
 Use generic size language ("very small", "small-to-moderate", "large") — not language-specific thresholds — so the rubric applies to any-language projects.
 
@@ -119,10 +120,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "decision" --agent "xp-plan-reviewer" \
   --topic "tier-recommendation-<story-id>" \
   --content "Suggested executor_model: <tier> — <one-sentence rationale>" \
-  --metadata '{"recommended_model": "<in-agent|haiku|sonnet|opus>", "story_id": "<story-id>", "advisory": true}'
+  --metadata '{"recommended_model": "<in-agent|haiku|sonnet|opus|fable>", "story_id": "<story-id>", "advisory": true}'
 ```
 
-Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus}. ONE event per unambiguous reviewed plan.
+Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus, fable}. ONE event per unambiguous reviewed plan.
 
 ### 10. Acceptance Criteria Cross-Check
 

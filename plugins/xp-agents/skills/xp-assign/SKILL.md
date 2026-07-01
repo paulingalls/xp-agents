@@ -78,9 +78,9 @@ spawns interleave; they're not serialized.
 
 Before spawning, decide the execution shape for `TARGET` from two preload
 inputs: `TEAMMATE_DEFAULT` (the session default tier — `off`/`haiku`/`sonnet`/
-`opus`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story pick —
-`in-agent`/`haiku`/`sonnet`/`opus`/`none`, where `none` means it was omitted as
-ambiguous). The preload computed `RECOMMENDED_TIER` for the SAME story this
+`opus`/`fable`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story
+pick — `in-agent`/`haiku`/`sonnet`/`opus`/`fable`/`none`, where `none` means it
+was omitted as ambiguous). The preload computed `RECOMMENDED_TIER` for the SAME story this
 skill spawns; `RECOMMENDED_TIER_STORY` echoes that target. **Verify
 `RECOMMENDED_TIER_STORY` equals the `TARGET` you resolved in pre-flight before
 applying `RECOMMENDED_TIER`.** If they differ, the un-spawned frontier shifted
@@ -94,7 +94,7 @@ Evaluate the branches **in this order** and act on the first that matches:
 | 1 | `TEAMMATE_DEFAULT` is `off` | **Exit, no spawn.** Output a one-line hint pointing at the kickoff teammate-support setting (re-run /xp-kickoff or flip the setting to enable teammates). |
 | 2 | `--in-agent` flag passed | **Force in-agent. Exit, no spawn.** Output "this story is in-agent appropriate; continue in the existing checkout." Write a tier_override event UNLESS `RECOMMENDED_TIER` was also `in-agent` (then the pick matches — no override). |
 | 3 | `RECOMMENDED_TIER` is `in-agent` | **Exit, no spawn.** Output "continue here — spawning a teammate is pure overhead for this story." No override event: the pick matches the recommendation. |
-| 4 | `RECOMMENDED_TIER` matches `TEAMMATE_DEFAULT` (both a tier in `haiku`/`sonnet`/`opus`) | **Silent spawn** at that tier: set the story's `executor_model` and forward `--model`. No question. |
+| 4 | `RECOMMENDED_TIER` matches `TEAMMATE_DEFAULT` (both a tier in `haiku`/`sonnet`/`opus`/`fable`) | **Silent spawn** at that tier: set the story's `executor_model` and forward `--model`. No question. |
 | 5 | `RECOMMENDED_TIER` is a tier that **diverges** from `TEAMMATE_DEFAULT` | Ask EXACTLY ONE `AskUserQuestion`: apply the recommended tier `Y`, or keep the default `X`? Spawn at the chosen tier. If the customer keeps the default (rejects the recommendation), write a tier_override event. |
 | 6 | `RECOMMENDED_TIER` is `none` | **Silent apply the default.** If `TEAMMATE_DEFAULT` is a tier, spawn at it; if it is `inherit`, spawn with NO `--model` flag (orchestrator tier). No override event. |
 
@@ -102,7 +102,7 @@ For the spawning branches (4–6), set the chosen tier on the story so Step 1
 reads it back and Step 4 forwards it:
 
 ```bash
-echo '{"executor_model":"<haiku|sonnet|opus>"}' \
+echo '{"executor_model":"<haiku|sonnet|opus|fable>"}' \
   | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} edit-story "$TARGET"
 ```
 

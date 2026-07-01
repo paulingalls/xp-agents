@@ -7,6 +7,7 @@ No I/O, no file operations — pure validation logic and shared constants.
 Follows the same pattern as execution_plan_schema.py.
 """
 
+import tier_wire
 from _acceptance_execution import (
     validate_acceptance_execution,
     validate_per_ac_verify,
@@ -49,7 +50,7 @@ VALID_EXECUTION_MODES = frozenset({"solo", "teammate"})
 # Optional story field — absent means inherit the lead's model.
 # Closed plugin-side enum; widen here if a new tier ships
 # (tests/agents/test_agent_model_tiers.py is the per-tier classification).
-VALID_EXECUTOR_MODELS = frozenset({"sonnet", "opus", "haiku", "fable"})
+VALID_EXECUTOR_MODELS = tier_wire.TEAMMATE_MODELS
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,

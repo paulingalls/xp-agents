@@ -8,9 +8,13 @@ Prose must be declarative and project-agnostic: no internal marker filenames
 or constant names in the shipped skill text.
 """
 
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+import tier_wire
 from conftest import _split_frontmatter_body
 
 _SKILL_PATH = Path(__file__).parent.parent.parent / "skills" / "xp-kickoff" / "SKILL.md"
@@ -57,8 +61,12 @@ class TestKickoffTeammateConfigProse(unittest.TestCase):
         self.assertRegex(self.sprint_fork, r"teammate_config_cli\.py.*write")
 
     def test_sprint_fork_covers_all_tokens(self):
-        """All five canonical tokens appear in the Sprint fork."""
-        for token in ("off", "haiku", "sonnet", "opus", "inherit"):
+        """Every canonical config token appears in the Sprint fork.
+
+        Bound to tier_wire so a new tier (e.g. fable) can't be added to the
+        vocabulary without also being offered here.
+        """
+        for token in tier_wire.TEAMMATE_CONFIG_TOKENS:
             self.assertIn(token, self.sprint_fork, f"token {token!r} missing")
 
     def test_free_fork_has_no_teammate_question(self):

@@ -14,7 +14,9 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import tier_wire
 from conftest import _PLUGIN_ROOT, _split_frontmatter_body
 
 _PLAN_REVIEWER_MD = _PLUGIN_ROOT / "agents" / "xp-plan-reviewer.md"
@@ -72,8 +74,11 @@ class TestPlanReviewerTierRubric(unittest.TestCase):
             "xp-plan-reviewer.md must contain a 'Tier Recommendation' section",
         )
 
-    def test_all_four_tiers_present(self):
-        for tier in ("in-agent", "haiku", "sonnet", "opus"):
+    def test_all_recommended_tiers_present(self):
+        """Every recommended_model value (in-agent + each model tier, incl.
+        fable) must appear in the rubric — bound to tier_wire so a new tier
+        can't be added to the vocabulary without a rubric row here."""
+        for tier in tier_wire.RECOMMENDED_MODELS:
             self.assertIn(
                 tier,
                 self.tier_section,
@@ -82,7 +87,7 @@ class TestPlanReviewerTierRubric(unittest.TestCase):
 
     def test_topic_pattern_documented(self):
         self.assertIn(
-            "tier-recommendation-",
+            tier_wire.TIER_RECOMMENDATION_TOPIC_PREFIX,
             self.tier_section,
             "Tier recommendation section must document the event topic pattern "
             "'tier-recommendation-<story-id>'",
