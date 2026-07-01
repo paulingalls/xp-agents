@@ -88,8 +88,14 @@ def _resolve_story_id(
         # XP_TEAMMATE_NAME and wrote a name-keyed .story-assignment. Recover the
         # name from the env so attribution stays EXPLICIT (Tier 1) instead of
         # falling through to the single-in-progress heuristic, which would
-        # mis-attribute when a second story is also in-progress. The lead's own
-        # commits carry no XP_TEAMMATE_NAME, so this never fires for the lead.
+        # mis-attribute when a second story is also in-progress. This assumes
+        # the lead's own process carries no XP_TEAMMATE_NAME — normally true
+        # (spawn_teammate exports it only onto the CHILD process's env), but
+        # XP_TEAMMATE_NAME is a documented leaky var: were it to leak into the
+        # lead AND a stale name-keyed .story-assignment still exist, the lead's
+        # commit could be mis-attributed. The assignment-file existence check
+        # below bounds (does not fully close) that window — see debt note on a
+        # positive in-place marker for the robust fix.
         wt_name = identity.teammate_name_from_env()
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)

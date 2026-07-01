@@ -21,6 +21,7 @@ are pure file/JSON/TOML reads. Skill orchestration lives in SKILL.md.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -410,19 +411,41 @@ def _read_package_workspaces(repo_root: Path) -> list[str]:
     return []
 
 
+_NX_WALK_PRUNE = frozenset(
+    {
+        "node_modules",
+        "dist",
+        "build",
+        "out",
+        "coverage",
+        ".git",
+        ".next",
+        ".nx",
+        ".cache",
+        ".turbo",
+        "tmp",
+    }
+)
+
+
 def _walk_nx_projects(repo_root: Path) -> list[str]:
     """Collect parent dirs of project.json under nx convention dirs only.
 
-    Bounded to depth 1-2 (project root is 1-2 levels under packages/apps/libs
-    by Nx convention), mirroring the multi-pyproject sibling glob pair above.
-    A bounded glob avoids the rglob descent into node_modules/dist/.git.
+    Walks packages/apps/libs and records every dir containing a project.json.
+    Grouping conventions can nest a project several levels deep (e.g.
+    packages/group/sub/proj), so the descent is NOT depth-bounded — instead it
+    prunes heavy build/vendor dirs (node_modules/dist/.git, ...) so the walk
+    stays cheap on large repos without silently dropping deeply-nested projects.
     """
     found: set[str] = set()
     for top in ("packages", "apps", "libs"):
-        for depth in ("*/project.json", "*/*/project.json"):
-            for proj in (repo_root / top).glob(depth):
-                if proj.parent.is_dir():
-                    found.add(proj.parent.relative_to(repo_root).as_posix())
+        top_dir = repo_root / top
+        if not top_dir.is_dir():
+            continue
+        for dirpath, dirnames, filenames in os.walk(top_dir):
+            dirnames[:] = [d for d in dirnames if d not in _NX_WALK_PRUNE]
+            if "project.json" in filenames:
+                found.add(Path(dirpath).relative_to(repo_root).as_posix())
     return sorted(found)
 
 
