@@ -35,3 +35,20 @@ RECOMMENDED_MODELS = frozenset({"in-agent"}) | TEAMMATE_MODELS
 # a status event with metadata.action == TIER_OVERRIDE_ACTION.
 TIER_RECOMMENDATION_TOPIC_PREFIX = "tier-recommendation-"
 TIER_OVERRIDE_ACTION = "tier_override"
+
+# Teammate effort levels: a Claude-Code reasoning_effort knob. Ordered ascending
+# from least to most intensive. Only sonnet, opus, and fable support effort;
+# haiku errors on any effort param.
+TEAMMATE_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+# Per-tier effort support: haiku unsupported, sonnet/opus/fable support all levels.
+# Built from TEAMMATE_EFFORTS so no hand-duplication drift.
+EFFORT_SUPPORT: dict[str, frozenset[str]] = {
+    "haiku": frozenset(),
+    **{m: frozenset(TEAMMATE_EFFORTS) for m in TEAMMATE_MODELS - {"haiku"}},
+}
+
+
+def effort_supported(model: str, effort: str) -> bool:
+    """Return True if the model supports the given effort level."""
+    return effort in EFFORT_SUPPORT.get(model, frozenset())
