@@ -166,11 +166,21 @@ class TestKickoffGate(_HookTestCase):
         self.assertEqual(result["decision"], "block")
 
     def test_worktree_teammate_skips_via_env_var(self):
-        """Teammate detected by XP_TEAMMATE_NAME env var skips kickoff gate."""
+        """An in-place teammate (XP_TEAMMATE_NAME + a live in-place marker)
+        skips the kickoff gate. The central marker guard (story-006) resolves
+        the marker from SMM_DIR; a leaked env with no marker would not skip."""
         import kickoff_gate
+        import worktree
 
         (self.smm_dir / ".needs-kickoff").write_text("startup")
-        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-step-1"}):
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-step-1")
+        with patch.dict(
+            os.environ,
+            {
+                "XP_TEAMMATE_NAME": "worktree-story-step-1",
+                "SMM_DIR": str(self.smm_dir),
+            },
+        ):
             result = kickoff_gate.run(
                 {
                     "session_id": "test",

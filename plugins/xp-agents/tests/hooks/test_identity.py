@@ -109,11 +109,22 @@ class TestIsWorktreeTeammate(unittest.TestCase):
     def test_no_cwd_field_not_detected(self):
         self.assertFalse(identity.is_worktree_teammate({}))
 
-    def test_env_var_fallback_when_cwd_fails(self):
-        """XP_TEAMMATE_NAME env var detected when cwd has no worktree path."""
+    def test_env_var_fallback_requires_live_marker(self):
+        """XP_TEAMMATE_NAME (main-checkout cwd) detects a teammate only with a
+        live in-place marker; a leaked env with no marker is not a teammate
+        (story-006 central guard)."""
+        import worktree
+
         inp = {"cwd": "/home/user/project/src"}
-        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}):
-            self.assertTrue(identity.is_worktree_teammate(inp))
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = Path(tmp)
+            with patch.dict(
+                os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+            ):
+                os.environ.pop("SMM_DIR", None)
+                self.assertFalse(identity.is_worktree_teammate(inp, smm_dir=smm_dir))
+                worktree.write_in_place_marker(smm_dir, "worktree-story-001")
+                self.assertTrue(identity.is_worktree_teammate(inp, smm_dir=smm_dir))
 
     def test_env_var_without_prefix_not_detected(self):
         """XP_TEAMMATE_NAME without worktree-story- prefix not detected."""
