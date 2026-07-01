@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common
 import identity
 import target_routing
+import worktree
 
 _CODE_REVIEW_COURAGE = (
     "Courage means doing the right thing even when it's uncomfortable. "
@@ -68,16 +69,38 @@ _TEAMMATE_BLOCK = (
 )
 
 
-def teammate_block_reason(input_data: dict) -> str | None:
+def _is_live_teammate(input_data: dict, smm_dir: Path | None) -> bool:
+    """True only for a GENUINE live CLI teammate — not a lead with a leaked env.
+
+    A worktree teammate is identified by its cwd path marker (non-leaky). An
+    in-place teammate shares the main checkout, so it is recovered from
+    XP_TEAMMATE_NAME — a documented leaky var — and trusted ONLY when the
+    lifetime-scoped in-place marker spawn_teammate writes is live (the same
+    guard commit_handling uses for attribution). Without that marker, a lead
+    that inherited a leaked var is NOT a teammate and must not be locked out of
+    lead-owned skills.
+    """
+    cwd_name = identity.extract_worktree_name(input_data.get("cwd", ""))
+    if cwd_name and identity.is_teammate_agent_id(cwd_name):
+        return True
+    env_name = identity.teammate_name_from_env()
+    if env_name is None or not identity.is_teammate_agent_id(env_name):
+        return False
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
+    return smm_dir is not None and worktree.in_place_marker_exists(smm_dir, env_name)
+
+
+def teammate_block_reason(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Block reason when a CLI teammate invokes a lead-owned lifecycle skill.
 
-    Returns None (allow) for the lead, for the review-cycle skill, for our own
-    xp- subagents (recursion guard), and for non-xp or third-party skills
-    (strip_our_namespace → not in _OUR_SKILLS).
+    Returns None (allow) for the lead (including a lead with a leaked
+    XP_TEAMMATE_NAME but no live in-place marker), for the review-cycle skill,
+    for our own xp- subagents (recursion guard), and for non-xp or third-party
+    skills (strip_our_namespace → not in _OUR_SKILLS).
     """
     if _common.is_xp_agent(input_data):
         return None
-    if not identity.is_worktree_teammate(input_data):
+    if not _is_live_teammate(input_data, smm_dir):
         return None
     skill = input_data.get("tool_input", {}).get("skill", "")
     bare = target_routing.strip_our_namespace(skill)

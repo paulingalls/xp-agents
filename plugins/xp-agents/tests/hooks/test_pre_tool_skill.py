@@ -70,16 +70,31 @@ class TestTeammateLifecycleGate(_HookTestCase):
         self._assert_not_none(reason)
 
     def test_in_place_teammate_blocked_via_env(self):
-        """An in-place teammate (no worktree cwd) is detected via env + blocked.
+        """A GENUINE in-place teammate (env name + live in-place marker, no
+        worktree cwd) is detected and blocked. This is the legacy2 sprint-014
+        failure: an in-place solo teammate ran its own /xp-story-close.
+        """
+        import worktree
 
-        This is the legacy2 sprint-014 failure: an in-place solo teammate ran
-        its own /xp-story-close, advancing the story past the lead's /xp-accept.
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-008")
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-008"}):
+            reason = pre_tool_skill.teammate_block_reason(
+                _make_skill_input("xp-sprint-close", cwd="/home/user/project"),
+                smm_dir=self.smm_dir,
+            )
+        self._assert_not_none(reason)
+
+    def test_leaked_env_lead_not_blocked(self):
+        """A lead with a LEAKED XP_TEAMMATE_NAME but NO live in-place marker is
+        NOT a teammate — it must not be locked out of lead-owned skills. Mirrors
+        commit_handling's marker guard so the two legs of the leak defense agree.
         """
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-008"}):
             reason = pre_tool_skill.teammate_block_reason(
-                _make_skill_input("xp-sprint-close", cwd="/home/user/project")
+                _make_skill_input("xp-accept", cwd="/home/user/project"),
+                smm_dir=self.smm_dir,
             )
-        self._assert_not_none(reason)
+        self.assertIsNone(reason)
 
     def test_teammate_blocked_namespaced(self):
         """Our-namespace-qualified lead skill is blocked for teammates."""
