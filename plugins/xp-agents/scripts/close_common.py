@@ -245,6 +245,29 @@ def cmd_close_review_gate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _review_clean_block(review_cwd: str) -> str:
+    """Refusal message when the post-review target worktree is dirty, else "".
+
+    Reviewer fixes applied during the close review (xp-story-close Step 4.5b)
+    land in the teammate worktree; if left uncommitted, the merge (whose branch
+    tip lacks them) followed by Step 7b worktree removal would silently drop
+    them. This is a second clean-check AFTER the review — Step 1 preflight only
+    checks BEFORE it. Empty *review_cwd* (solo close, or the arg omitted) skips
+    the check; solo working-tree edits persist in the checkout rather than being
+    deleted, so only the teammate path needs it.
+    """
+    if not review_cwd:
+        return ""
+    if branching.is_worktree_clean(review_cwd):
+        return ""
+    return (
+        f"merge refused: review target {review_cwd} has uncommitted changes "
+        "(likely a reviewer fix from the close review). Commit it "
+        f"(git -C {review_cwd} commit -am ...) then re-run — the worktree "
+        "cleanup would otherwise discard it."
+    )
+
+
 def cmd_merge(args: argparse.Namespace) -> int:
     """Chained merge --no-ff + (push target if remote) + delete source.
 
@@ -263,6 +286,11 @@ def cmd_merge(args: argparse.Namespace) -> int:
     block = close_verify_gate.verify_gate_block(args)
     if block:
         sys.stderr.write(block + "\n")
+        return 1
+
+    review_block = _review_clean_block(getattr(args, "review_clean_cwd", "") or "")
+    if review_block:
+        sys.stderr.write(review_block + "\n")
         return 1
 
     branching.merge_branch(args.cwd, args.source, target=args.target)
@@ -449,6 +477,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force-verify",
         action="store_true",
         help="bypass the acceptance gate (sprint-close --force-close path)",
+    )
+    p.add_argument(
+        "--review-clean-cwd",
+        default="",
+        help="after-review clean re-check target (story-close teammate worktree); "
+        "refuse the merge if dirty so an uncommitted reviewer fix isn't discarded "
+        "by worktree cleanup. Empty (solo/other closes) skips the check.",
     )
     p.set_defaults(func=cmd_merge)
 

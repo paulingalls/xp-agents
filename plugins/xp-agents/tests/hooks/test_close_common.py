@@ -200,6 +200,83 @@ class TestCreatePr(unittest.TestCase):
             self.assertEqual(result.stdout.strip(), "4242")
 
 
+class TestMergeReviewCleanGate(unittest.TestCase):
+    """--review-clean-cwd backstop (debt e8589ac9a99b): reviewer fixes applied
+    during the close review land in the teammate worktree; if left uncommitted,
+    the merge + Step 7b worktree removal would silently drop them. The merge
+    refuses when the named review target is dirty."""
+
+    def test_dirty_review_target_refuses_merge(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            _bf.make_commit(td, "feature-r", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=td, capture_output=True, check=True
+            )
+            # An uncommitted reviewer fix in the review target (untracked, so
+            # git merge itself would happily proceed and lose it).
+            (Path(td) / "reviewer-fix.txt").write_text("uncommitted")
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-r",
+                    "--target",
+                    main,
+                    "--review-clean-cwd",
+                    td,
+                ]
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("uncommitted", result.stderr.lower())
+            # Merge did NOT happen — source branch survives for a retry.
+            self.assertTrue(_bf.branch_exists(td, "feature-r"))
+
+    def test_clean_review_target_allows_merge(self):
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            _bf.make_commit(td, "feature-c", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=td, capture_output=True, check=True
+            )
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-c",
+                    "--target",
+                    main,
+                    "--review-clean-cwd",
+                    td,
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, "feature-c"))
+
+    def test_omitted_review_clean_cwd_skips_check(self):
+        # Solo close passes no --review-clean-cwd; a dirty (unrelated) main
+        # checkout must NOT block the merge — backward compatible.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            _bf.make_commit(td, "feature-s", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=td, capture_output=True, check=True
+            )
+            (Path(td) / "unrelated.txt").write_text("dirty but unrelated")
+            result = _run(
+                ["merge", "--cwd", td, "--source", "feature-s", "--target", main]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, "feature-s"))
+
+
 class TestMerge(unittest.TestCase):
     def test_full_chain_with_remote_merges_pushes_deletes(self):
         with tempfile.TemporaryDirectory() as td:
