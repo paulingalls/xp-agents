@@ -232,8 +232,67 @@ class TestMergeReviewCleanGate(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("uncommitted", result.stderr.lower())
+            # The remedy must stage NEW files: a plain `commit -am` cannot add
+            # the untracked reviewer-fix.txt, so the message names `add -A`.
+            self.assertIn("add -A", result.stderr)
             # Merge did NOT happen — source branch survives for a retry.
             self.assertTrue(_bf.branch_exists(td, "feature-r"))
+
+    def test_invalid_review_cwd_skips_check(self):
+        # A --review-clean-cwd that isn't a git worktree (misdetected/removed
+        # path) has no reviewer fix to protect; a misleading un-clearable
+        # refusal would be worse than skipping — the merge must proceed.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            _bf.make_commit(td, "feature-i", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=td, capture_output=True, check=True
+            )
+            with tempfile.TemporaryDirectory() as non_repo:
+                result = _run(
+                    [
+                        "merge",
+                        "--cwd",
+                        td,
+                        "--source",
+                        "feature-i",
+                        "--target",
+                        main,
+                        "--review-clean-cwd",
+                        non_repo,
+                    ]
+                )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, "feature-i"))
+
+    def test_missing_review_cwd_skips_check(self):
+        # A --review-clean-cwd path that no longer exists must not crash the
+        # merge (subprocess would raise on a missing cwd) — treat as no worktree
+        # to protect and proceed.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            _bf.make_commit(td, "feature-m", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=td, capture_output=True, check=True
+            )
+            missing = str(Path(td) / "gone")
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-m",
+                    "--target",
+                    main,
+                    "--review-clean-cwd",
+                    missing,
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, "feature-m"))
 
     def test_clean_review_target_allows_merge(self):
         with tempfile.TemporaryDirectory() as td:

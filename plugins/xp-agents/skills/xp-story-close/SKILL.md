@@ -213,9 +213,13 @@ Step 1c stays the first line of defense; this guards a skipped Step 1c.
 `--review-clean-cwd "${TEAMMATE_CWD}"` is a second deterministic backstop for
 the teammate path: a reviewer fix applied in Step 4.5b lands in the teammate
 worktree, and Step 7b then removes that worktree — so an uncommitted fix would
-be silently discarded. The merge refuses when `TEAMMATE_CWD` is dirty, so the
-lead commits the reviewer's fix (`git -C ${TEAMMATE_CWD} commit ...`) first. Empty
-for solo closes (the working tree persists, nothing to lose) — the check is skipped.
+be silently discarded. The merge refuses when `TEAMMATE_CWD` is a real worktree
+that is dirty, so the lead either commits the reviewer's fix
+(`git -C ${TEAMMATE_CWD} add -A && git -C ${TEAMMATE_CWD} commit -m ...` — `add
+-A` also stages NEW files a `commit -am` would miss) or clears unrelated scratch
+(`git -C ${TEAMMATE_CWD} stash -u`) first. Empty for solo closes (the working
+tree persists, nothing to lose), and a missing/invalid `TEAMMATE_CWD` — the
+check is skipped.
 
 Always at orchestrator cwd (see intro). Any failing step aborts the
 chain — source intact for retry. Conflicts are never auto-resolved.

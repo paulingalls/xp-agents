@@ -12,6 +12,7 @@ test_branching_lifecycle.py.
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -572,6 +573,28 @@ class TestAutoPromote(_SMMTestCase):
         self.assertEqual(self._stage_in_file(), 2)
         self.assertEqual(branching.get_branching_stage(self.smm_dir), 2)
         self.assertEqual(len(self._promote_events()), 1)
+
+
+class TestIsGitWorktree(unittest.TestCase):
+    """is_git_worktree distinguishes a checkable working tree from a path that
+    can't be status-checked at all (missing dir / not a repo), so callers don't
+    conflate an errored `git status` with a dirty tree."""
+
+    def test_real_repo_is_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            subprocess.run(["git", "init"], cwd=td, capture_output=True, check=True)
+            self.assertTrue(branching.is_git_worktree(td))
+
+    def test_non_repo_dir_is_not_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertFalse(branching.is_git_worktree(td))
+
+    def test_missing_path_is_not_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing = str(Path(td) / "does-not-exist")
+            # A missing cwd makes subprocess raise, not return non-zero — the
+            # helper must swallow that and report "not a worktree", never crash.
+            self.assertFalse(branching.is_git_worktree(missing))
 
 
 if __name__ == "__main__":

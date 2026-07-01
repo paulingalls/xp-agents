@@ -15,11 +15,44 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import branching
 import identity
 import sprint_store
 import verify_acceptance
 import verify_deferred
 import verify_paths
+
+
+def review_clean_block(review_cwd: str) -> str:
+    """Refusal message when the post-review target worktree is dirty, else "".
+
+    Reviewer fixes applied during the close review (xp-story-close Step 4.5b)
+    land in the teammate worktree; if left uncommitted, the merge (whose branch
+    tip lacks them) followed by Step 7b worktree removal would silently drop
+    them. This is a second clean-check AFTER the review — Step 1 preflight only
+    checks BEFORE it. Empty *review_cwd* (solo close, or the arg omitted) skips
+    the check; solo working-tree edits persist in the checkout rather than being
+    deleted, so only the teammate path needs it.
+    """
+    if not review_cwd:
+        return ""
+    # A missing/invalid target (misdetected or already-removed path) holds no
+    # reviewer fix to protect, and `is_worktree_clean` would report it "dirty"
+    # (git status errors) — a misleading, un-clearable refusal that's worse than
+    # skipping. Only a real, checkable worktree gets the clean gate.
+    if not branching.is_git_worktree(review_cwd):
+        return ""
+    if branching.is_worktree_clean(review_cwd):
+        return ""
+    return (
+        f"merge refused: review target {review_cwd} has uncommitted changes "
+        "(likely a reviewer fix from the close review that worktree cleanup "
+        "would otherwise discard). Either commit the fix — "
+        f"git -C {review_cwd} add -A && git -C {review_cwd} commit -m ... "
+        "(add -A also stages NEW files a plain commit -am would miss) — or, if "
+        f"it is unrelated scratch, clear it (git -C {review_cwd} stash -u), "
+        "then re-run."
+    )
 
 
 def verify_gate_block(args: argparse.Namespace) -> str | None:
