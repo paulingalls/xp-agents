@@ -101,12 +101,15 @@ class TestPlanReviewerTierRubric(unittest.TestCase):
             "metadata key",
         )
 
-    def test_omit_when_ambiguous_rule_present(self):
+    def test_retract_when_ambiguous_rule_present(self):
+        """Ambiguity emits a retraction (recommended_model null) so a stale
+        earlier recommendation can't win the reverse-scan (debt d5697631a002)."""
         self.assertIn(
-            "OMIT",
+            "RETRACT",
             self.tier_section,
-            "Tier recommendation section must document the OMIT-WHEN-AMBIGUOUS rule",
+            "Tier recommendation section must document the RETRACT-WHEN-AMBIGUOUS rule",
         )
+        self.assertIn("retracted", self.tier_section)
 
     def test_rubric_is_project_agnostic(self):
         for token in _FORBIDDEN_VOCAB:

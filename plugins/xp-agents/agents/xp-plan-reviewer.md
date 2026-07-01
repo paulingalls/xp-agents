@@ -107,11 +107,11 @@ After reporting findings, judge story complexity by STRUCTURAL signals and write
 | `haiku` | Small-to-moderate AND no judgment surface (mechanical refactors, well-templated additions, pattern-driven extensions of existing code). |
 | `sonnet` | Moderate-to-large AND pattern-following (mirrors existing code, schema additions following a precedent, multi-file but no novel architecture). |
 | `opus` | Large OR novel architectural surface OR cross-module integration OR subtle state/lifecycle/concurrency surface. |
-| `fable` | The most demanding work, beyond opus's reach: deep novel architecture, the hardest reasoning, or the highest-stakes/most-complex stories. The most powerful and most expensive tier — reserve it for when opus is not enough. |
+| `fable` | Beyond opus's reach: the hardest, highest-stakes stories. The most powerful/expensive tier. |
 
 Use generic size language ("very small", "small-to-moderate", "large") — not language-specific thresholds — so the rubric applies to any-language projects.
 
-**OMIT-WHEN-AMBIGUOUS:** if the plan is genuinely ambiguous on tier, OMIT the event entirely — /xp-assign falls back to the kickoff default. Do NOT guess.
+**RETRACT-WHEN-AMBIGUOUS:** if the tier is genuinely ambiguous, do NOT guess — emit a **retraction**: the recommendation command below on the SAME topic but with `recommended_model: null` and `retracted: true`. /xp-assign reads the latest event, sees the null model, and applies the kickoff default (`RECOMMENDED_TIER=none`) — no earlier recommendation wins.
 
 When the tier is clear, write ONE decision event:
 

@@ -31,7 +31,8 @@ fi
 #                            TEAMMATE_STORY_IDS, so preload and skill never disagree.
 #   RECOMMENDED_TIER       — that target's plan-reviewer recommendation (latest
 #                            in-sprint tier-recommendation-<target> event wins;
-#                            `none` when the plan-reviewer omitted it as ambiguous).
+#                            `none` when the plan-reviewer omitted it OR retracted
+#                            it (null model) as ambiguous).
 #   TEAMMATE_DEFAULT       — the session default tier; fail-safes to `inherit`
 #                            (today's behavior) when the TEAMMATE_CONFIG marker is unset.
 # Atomic emit: any failure yields the fail-safe defaults (empty batch + none + inherit).
@@ -110,10 +111,12 @@ if target:
                 continue  # the plan-reviewer writes the recommendation as a decision
             if sprint_start and event.get("ts", "")[:10] < sprint_start:
                 continue  # stale recommendation from an earlier sprint
-            model = (event.get("metadata") or {}).get("recommended_model")
-            if model:
-                tier = model  # most-recent matching in-window event wins
-                break
+            # First topic+type+window match walking from the tail IS the latest
+            # event — break unconditionally. A retraction (recommended_model
+            # null, emitted when a re-review finds the story ambiguous) thus
+            # beats an earlier real recommendation: null model -> "none".
+            tier = (event.get("metadata") or {}).get("recommended_model") or "none"
+            break
 
 print("\n".join([
     "TEAMMATE_STORY_IDS=" + " ".join(batch),

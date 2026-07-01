@@ -80,7 +80,7 @@ Before spawning, decide the execution shape for `TARGET` from two preload
 inputs: `TEAMMATE_DEFAULT` (the session default tier — `off`/`haiku`/`sonnet`/
 `opus`/`fable`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story
 pick — `in-agent`/`haiku`/`sonnet`/`opus`/`fable`/`none`, where `none` means it
-was omitted as ambiguous). The preload computed `RECOMMENDED_TIER` for the SAME story this
+was omitted or retracted as ambiguous). The preload computed `RECOMMENDED_TIER` for the SAME story this
 skill spawns; `RECOMMENDED_TIER_STORY` echoes that target. **Verify
 `RECOMMENDED_TIER_STORY` equals the `TARGET` you resolved in pre-flight before
 applying `RECOMMENDED_TIER`.** If they differ, the un-spawned frontier shifted
