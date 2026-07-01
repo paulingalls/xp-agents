@@ -140,6 +140,25 @@ def _cmd_find_closing_teammate_worktree(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_resolve_review_worktree(args: argparse.Namespace) -> int:
+    """Print ``<abs-path>\\t<branch>`` for /xp-quality-review's target worktree.
+
+    Invoker-identity precedence: the invoker's OWN teammate worktree wins over
+    the closing-story scan (fixes the parallel-teammate CWD-misdetect). Empty
+    stdout = orchestrator with no closing story. Non-zero exit + stderr
+    propagates find_closing's multi-closing ValueError (fail loud).
+    """
+    try:
+        result = worktree.resolve_review_worktree(Path(args.smm_dir), args.cwd)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    if result is not None:
+        abs_path, branch = result
+        print(f"{abs_path}\t{branch}")
+    return 0
+
+
 def _cmd_merge_branch(args: argparse.Namespace) -> int:
     branching.merge_branch(args.cwd, args.branch, _resolve_target(args))
     return 0
@@ -353,6 +372,16 @@ def main() -> int:
     )
     p_fctw.add_argument("--cwd", required=True)
     p_fctw.set_defaults(func=_cmd_find_closing_teammate_worktree)
+
+    p_rrw = sub.add_parser(
+        "resolve-review-worktree",
+        help=(
+            "Print `<abs-path><TAB><branch>` for /xp-quality-review's target "
+            "worktree — invoker's own worktree first, else the closing-story scan"
+        ),
+    )
+    p_rrw.add_argument("--cwd", required=True)
+    p_rrw.set_defaults(func=_cmd_resolve_review_worktree)
 
     p_div = sub.add_parser("check-divergence", help="Check plan branch divergence")
     p_div.add_argument("--cwd", required=True)

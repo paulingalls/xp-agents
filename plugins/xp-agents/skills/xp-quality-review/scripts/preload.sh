@@ -4,21 +4,25 @@ set -euo pipefail
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
 
-# Auto-detect: when explicit TEAMMATE_CWD is unset, route to the worktree of
-# the story actually being closed — the sprint-`closing` story. Quality-review
-# runs at story-close Step 4.5b against that story, so its worktree is the
-# correct review target. Keying on `closing` status (not "whichever worktree
-# has uncommitted changes") prevents mis-targeting a different teammate that
-# finished in the background. This mirrors story-close's own preload; the
-# helper raises (non-zero) on two `closing` stories — a broken /xp-accept
-# iteration — and `set -e` propagates it rather than guessing. Empty (no
-# sprint / no closing story) → falls back to `.`.
+# Auto-detect: when explicit TEAMMATE_CWD is unset, resolve the review-target
+# worktree with INVOKER-IDENTITY precedence — the invoker's OWN teammate
+# worktree wins over the global closing-story scan. A teammate self-reviewing
+# from its worktree must review its own diff, not whatever story is `closing`
+# in shared sprint state; under concurrency the closing-scan alone mis-binds to
+# a different story's worktree (risk 840c951b31e4, concern 99e705d9dc40). The
+# precedence lives in worktree.resolve_review_worktree (own-first, else the
+# closing-scan) so it is a testable Python seam, not shell call-order. Pass the
+# ABSOLUTE cwd so the own-worktree path match works; the helper raises
+# (non-zero) on two `closing` stories — a broken /xp-accept iteration — and
+# `set -e` propagates it rather than guessing. Empty (orchestrator, no closing
+# story) → falls back to `.`.
 _qr_auto_detect_teammate_cwd() {
     [ -n "${TEAMMATE_CWD:-}" ] && return 0   # explicit pass-through wins (798a27b425a7)
-    local closing
-    closing=$(find_closing_teammate_worktree)   # emits "<abs-path>\t<branch>"
-    if [ -n "$closing" ]; then
-        TEAMMATE_CWD="${closing%$'\t'*}"
+    local resolved
+    resolved=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "${SMM_DIR}" resolve-review-worktree --cwd "$(pwd)")  # "<abs>\t<branch>"
+    if [ -n "$resolved" ]; then
+        TEAMMATE_CWD="${resolved%$'\t'*}"
         export TEAMMATE_CWD
     fi
 }
