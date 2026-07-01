@@ -13,6 +13,7 @@ close — the cross-language vocabulary guard (test 2) is the load-bearing
 sprint-104 lesson (CLAUDE.md two-layer project-agnostic guardrail).
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -23,6 +24,21 @@ from _md_helpers import _split_frontmatter_body
 from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
+_CLASSIFIER_PROMPT = _PLUGIN_ROOT / "agents" / "xp-risk-classifier.md"
+
+# sprint-111 M4 story-002: each classifier signal -> angle anchors, at least
+# one of which must appear alongside the signal in §1c (proves the row maps to
+# a substantive angle, not a bare echo). Keys mirror story-001's _SIGNALS in
+# test_risk_classifier_agent.py (interface contract); anchors come from the
+# design doc's reviewer-angle column (RISK_CLASSIFIER_RUBRIC_BROADENING.md).
+_SIGNAL_ANGLES = {
+    "path-traversal": ("path-escape", "lexical", "allowlist"),
+    "input-validation": ("unknown-key", "coercion", "error-message"),
+    "combinatorial-data-table": ("per-entry", "cell"),
+    "cross-runtime-portability": ("version", "fallback", "runtime probe"),
+    "file-size-creep": ("extract", "split"),
+    "schema-cross-contract": ("both sides", "integration test"),
+}
 
 
 def _section_slice(body: str, start_heading: str, end_heading: str) -> str:
@@ -177,6 +193,65 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             any(verb in section_1c_lower for verb in verbs),
             "Section 1c must describe how the agent elevates the listed angles "
             "(elevate / hunt first / priority)",
+        )
+
+    def test_section_1c_maps_each_signal_to_angle(self):
+        """Section 1c maps each classifier signal to a concrete reviewer angle.
+
+        story-002: a forwarded RISK=high focus naming a signal must tell the
+        reviewer WHAT to hunt, not just "look harder". Each signal keyword must
+        appear in §1c with a substantive angle anchor (not a bare echo). Keys
+        mirror story-001's classifier SIGNALS (interface contract).
+        """
+        section_1c = _section_slice(self.body, "## 1c", "## 2.")
+        section_1c_lower = section_1c.lower()
+        for signal, anchors in _SIGNAL_ANGLES.items():
+            with self.subTest(signal=signal):
+                self.assertIn(
+                    signal,
+                    section_1c_lower,
+                    f"§1c must name signal '{signal}' from the classifier rubric",
+                )
+                self.assertTrue(
+                    any(a in section_1c_lower for a in anchors),
+                    f"§1c must give signal '{signal}' a concrete angle "
+                    f"(one of {anchors}), not just echo the keyword",
+                )
+        # Project-agnostic gate: no baked-in plugin size cap as the rule.
+        self.assertNotRegex(
+            section_1c,
+            r"\b500\b",
+            "§1c must not bake in the plugin's 500-line cap — defer to the host "
+            "project's standards",
+        )
+
+    def test_classifier_signals_are_all_covered_by_1c(self):
+        """Every signal in the classifier's §Signals table has a §1c angle.
+
+        The SIGNALS vocabulary is a cross-file contract between two SHIPPED
+        files (xp-risk-classifier.md §Signals ↔ xp-code-reviewer.md §1c). The
+        per-file floor tests only assert the current six exist in each file
+        independently; this superset guard binds the two so a future classifier
+        signal added without a matching §1c enrichment angle fails red instead
+        of silently dropping directed review (close concern 6e43963eb489).
+        """
+        classifier_body = _CLASSIFIER_PROMPT.read_text(encoding="utf-8")
+        signals = _section_slice(classifier_body, "## Signals", "## Decision matrix")
+        # First-column backtick tokens in the §Signals table are the keywords.
+        classifier_signals = set(
+            re.findall(r"^\|\s*`([a-z][a-z-]+)`", signals, re.MULTILINE)
+        )
+        self.assertTrue(
+            classifier_signals,
+            "could not extract signal keywords from the classifier §Signals table",
+        )
+        section_1c_lower = _section_slice(self.body, "## 1c", "## 2.").lower()
+        missing = sorted(s for s in classifier_signals if s not in section_1c_lower)
+        self.assertEqual(
+            missing,
+            [],
+            f"classifier signals with no §1c enrichment angle: {missing} — "
+            "every classifier SIGNAL must map to a reviewer angle",
         )
 
 

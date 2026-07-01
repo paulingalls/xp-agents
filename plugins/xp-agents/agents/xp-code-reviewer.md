@@ -26,7 +26,16 @@ One refute pass over your own findings before reporting. **Spare state/lifecycle
 
 ## 1c. Review Focus Block
 
-If the prompt has a `## Review Focus` section listing specific angles, elevate those angles — hunt them first in addition to the standard pass.
+If the prompt has a `## Review Focus` section listing specific angles, elevate those angles — hunt them first in addition to the standard pass. When an angle names a classifier signal below, hunt its paired focus:
+
+| Signal | Hunt for |
+| --- | --- |
+| `path-traversal` | path-escape guards; lexical-vs-real resolution; allowlist patterns |
+| `input-validation` | unknown-key reject; type coercion; error-message helpfulness |
+| `combinatorial-data-table` | per-entry positive + negative tests; cell-by-cell review |
+| `cross-runtime-portability` | version-pinned assertions; runtime probes; fallback paths |
+| `file-size-creep` | extract recommendation; debt vs split-now |
+| `schema-cross-contract` | integration test pinning both sides of the contract |
 
 ## 2. Drift Management
 

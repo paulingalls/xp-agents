@@ -171,6 +171,41 @@ class TestQualityReviewRiskRouting(unittest.TestCase):
             "preload.sh must emit a deterministic CLOSE_DIFF_UNAVAILABLE=true flag",
         )
 
+    # --- sprint-111 M4 story-003: design-context input to the classifier ----
+
+    def test_preload_emits_design_context_block(self):
+        """preload.sh emits a `## Design Context` block sourced from the
+        Constraints pillar — the classifier reads it to down-rate diffs that
+        match a documented project convention (decision 4369e5aabbf4).
+        """
+        self.assertIn(
+            "## Design Context",
+            self.preload,
+            "preload.sh must emit a ## Design Context block",
+        )
+        # The block must render the project's Constraints pillar, not a
+        # hardcoded string — assert the rendering command is wired.
+        self.assertIn(
+            "section constraints",
+            self.preload,
+            "## Design Context must render the Constraints pillar via "
+            "`smm_cli.py ... section constraints`",
+        )
+
+    def test_step_1_4_passes_design_context_to_classifier(self):
+        """Step 1.4 passes the `## Design Context` block to the classifier.
+
+        story-001's classifier consumes a `## Design Context` heading; this
+        story wires Step 1.4 to forward the preload block under that heading.
+        """
+        section = _section_slice(self.body, "## Step 1.4", "## Step 1.5")
+        self.assertIn(
+            "## Design Context",
+            section,
+            "Step 1.4 must pass the preload's ## Design Context block to the "
+            "classifier (the heading story-001's classifier expects)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
