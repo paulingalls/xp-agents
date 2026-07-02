@@ -288,6 +288,7 @@ class TestMechanicalPromote(_SMMTestCase):
         story_id: str | None = "story-001",
         cas_return: bool = True,
         run_with_tee_side_effect=None,
+        run_with_tee_return: bool = False,
     ) -> list[tuple[str, str, str, str]]:
         """Run spawn_teammate.main with stubbed worktree+subprocess+sprint
         and return the captured update_story_status_if calls as
@@ -297,6 +298,8 @@ class TestMechanicalPromote(_SMMTestCase):
         cas_return controls what the patched CAS returns (True=updated,
         False=expected mismatch — actual already advanced past expected).
         run_with_tee_side_effect raises if you want rc!=0 simulation.
+        run_with_tee_return is run_with_tee's stdout_broken flag (True means
+        the downstream filter died, so the promote must be skipped).
         """
         from unittest.mock import patch
 
@@ -327,6 +330,7 @@ class TestMechanicalPromote(_SMMTestCase):
                     spawn_teammate,
                     "run_with_tee",
                     side_effect=run_with_tee_side_effect,
+                    return_value=run_with_tee_return,
                 ),
                 patch.object(
                     spawn_teammate.sprint_store,
@@ -368,6 +372,18 @@ class TestMechanicalPromote(_SMMTestCase):
             self._run_promote(
                 run_with_tee_side_effect=subprocess.CalledProcessError(2, ["fake"])
             )
+
+    def test_does_not_promote_when_stdout_broke(self):
+        """Filter death (run_with_tee returns stdout_broken=True) leaves the
+        story in-progress: the teammate completed (rc=0) but the filter that
+        owns report/completion/coordination-clear never finished, so a promote
+        to reviewing would hand the lead an unwritten report over stale state."""
+        captured = self._run_promote(run_with_tee_return=True)
+        self.assertEqual(
+            captured,
+            [],
+            f"CAS must be skipped when the filter died mid-stream, got: {captured!r}",
+        )
 
     def test_does_not_promote_when_story_id_absent(self):
         """No --story-id → no CAS attempted (ad-hoc teammates without

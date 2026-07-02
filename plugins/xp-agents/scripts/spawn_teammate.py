@@ -262,7 +262,7 @@ def run_with_tee(
     stdin,
     name: str,
     log_dir: Path = _DEFAULT_LOG_DIR,
-) -> None:
+) -> bool:
     """Run *cmd*, mirroring stdout (and merged stderr) to both this process'
     stdout and ``<log_dir>/<name>.log``. Caller passes the worktree name
     (e.g. ``worktree-story-001``) so the log file lands at
@@ -288,6 +288,11 @@ def run_with_tee(
 
     Raises ``subprocess.CalledProcessError`` on non-zero exit so callers
     keep the prior ``check=True`` failure semantics.
+
+    Returns ``stdout_broken``: True when the downstream stdout consumer (the
+    output filter) closed mid-stream. The teammate still ran to completion and
+    the log is intact, but the filter that owns the report/completion/
+    coordination-clear did not finish — the caller must skip the rc=0 promote.
     """
     log_path = log_dir / f"{name}.log"
     log_file = None
@@ -314,12 +319,21 @@ def run_with_tee(
     )
     watchdog = _ActivityWatchdog(proc, name)
     watchdog.start()
+    stdout_broken = False
     try:
         assert proc.stdout is not None
         for line in proc.stdout:
             watchdog.ping()
-            sys.stdout.write(line)
-            sys.stdout.flush()
+            if not stdout_broken:
+                try:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                except BrokenPipeError:
+                    # Downstream (the output filter) closed. Stop writing to
+                    # stdout but KEEP draining proc.stdout to the log — else
+                    # claude -p blocks on a full stdout pipe and the healthy
+                    # teammate deadlocks. The raw log stays the source of truth.
+                    stdout_broken = True
             if log_file is not None:
                 log_file.write(line)
                 log_file.flush()
@@ -331,6 +345,7 @@ def run_with_tee(
 
     if proc.returncode != 0:
         raise subprocess.CalledProcessError(proc.returncode, cmd)
+    return stdout_broken
 
 
 def _worktree_preamble(wt_path: str) -> str:
@@ -453,7 +468,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             log_dir = _DEFAULT_LOG_DIR
         with open(combined_path) as combined_stdin:
-            run_with_tee(
+            stdout_broken = run_with_tee(
                 cmd,
                 cwd=run_cwd,
                 env=env,
@@ -481,7 +496,20 @@ def main(argv: list[str] | None = None) -> None:
     # In-place (solo delegation) skips the promote: there is no worktree for
     # /xp-accept's reviewing path to detach onto, so the story stays
     # in-progress/solo and /xp-accept's solo (in-progress) path handles it.
-    if args.story_id is not None and not args.in_place:
+    #
+    # A broken downstream stdout (the filter died mid-stream) also skips the
+    # promote: the teammate finished (rc=0) but the filter never wrote the
+    # report / cleared coordination, so promoting to reviewing would hand the
+    # lead an unwritten report over stale state. Leaving the story in-progress
+    # is the honest signal that the automated completion didn't finish;
+    # recover the result from the raw log.
+    if stdout_broken:
+        sys.stderr.write(
+            f"WARN: output filter closed mid-stream for {name}; teammate "
+            f"completed but report/coordination were not recorded. Story left "
+            f"in-progress — inspect the log under {log_dir}.\n"
+        )
+    if args.story_id is not None and not args.in_place and not stdout_broken:
         sprint_store.update_story_status_if(
             Path(args.smm_dir),
             args.story_id,

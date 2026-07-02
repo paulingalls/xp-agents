@@ -258,5 +258,85 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         )
 
 
+class TestRunWithTeeBrokenStdout(unittest.TestCase):
+    """A downstream stdout consumer (the output filter) dying mid-stream must
+    NOT kill the teammate. run_with_tee stops writing to stdout on BrokenPipe,
+    keeps draining proc.stdout to the log so the teammate never blocks on a
+    full pipe, and reports stdout_broken=True so the caller can skip the rc=0
+    promote (the filter that owns report/coordination-clear never finished).
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.log_dir = Path(tempfile.mkdtemp())
+
+    def test_broken_stdout_keeps_logging_drains_and_flags(self):
+        from unittest.mock import MagicMock, patch
+
+        import spawn_teammate
+
+        proc = MagicMock()
+        proc.stdout = iter(["a\n", "b\n", "c\n"])
+        proc.returncode = 0
+
+        class _BrokenStdout:
+            """Succeeds on the first write, then raises BrokenPipeError."""
+
+            def __init__(self):
+                self.writes = 0
+
+            def write(self, s):
+                self.writes += 1
+                if self.writes >= 2:
+                    raise BrokenPipeError("downstream closed")
+
+            def flush(self):
+                pass
+
+        with (
+            patch("spawn_teammate.subprocess.Popen", return_value=proc),
+            patch.object(spawn_teammate.sys, "stdout", _BrokenStdout()),
+        ):
+            broken = spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-brk",
+                log_dir=self.log_dir,
+            )
+
+        self.assertTrue(broken, "run_with_tee must report stdout_broken=True")
+        log = (self.log_dir / "teammate-brk.log").read_text()
+        for ch in ("a", "b", "c"):
+            self.assertIn(
+                ch, log, "every line must still reach the log after stdout breaks"
+            )
+        proc.wait.assert_called()
+
+    def test_intact_stdout_reports_not_broken(self):
+        """The happy path returns stdout_broken=False so the caller promotes."""
+        from unittest.mock import MagicMock, patch
+
+        import spawn_teammate
+
+        proc = MagicMock()
+        proc.stdout = iter(["x\n", "y\n"])
+        proc.returncode = 0
+
+        with patch("spawn_teammate.subprocess.Popen", return_value=proc):
+            broken = spawn_teammate.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-ok",
+                log_dir=self.log_dir,
+            )
+
+        self.assertFalse(broken)
+
+
 if __name__ == "__main__":
     unittest.main()
