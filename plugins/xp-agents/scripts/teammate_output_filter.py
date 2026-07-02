@@ -34,10 +34,14 @@ _DECISION_BLOCK = "block"
 _STREAM_JSON_RESULT_TYPE = "result"
 _ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
 
-# Default no-progress timeout (seconds) before declaring the teammate hung.
-# Sized for long sprint-story stints; per-call override via env so tests
-# can shrink it without re-importing the module.
-_DEFAULT_NO_PROGRESS_TIMEOUT = 600.0
+# No-progress timeout is OPT-IN (default: no deadline). Liveness is owned by
+# spawn_teammate.py's watchdog (_WATCHDOG_TIMEOUT_S); a deadline here that is
+# shorter than the watchdog preempts it and kills teammates during legitimately
+# silent tool calls (nested reviews, acceptance runs) — the stream is silent to
+# the parent stdout even though the teammate is working. When the teammate truly
+# hangs, the watchdog kills claude -p, the stream EOFs, and the no-result path
+# below fires. Set XP_TEAMMATE_FILTER_TIMEOUT to re-enable a backstop deadline
+# (also used by tests to force the timeout path).
 _TIMEOUT_ENV_VAR = "XP_TEAMMATE_FILTER_TIMEOUT"
 # Brief drain after the result event so any final lines (warnings, hook
 # diagnostics) make it into the lines list before EOF. 0.1s suits the
@@ -49,13 +53,21 @@ _POST_RESULT_DRAIN_TIMEOUT = 0.1
 _READ_CHUNK_BYTES = 65536
 
 
-def _read_timeout() -> float:
-    """Read the no-progress timeout from env each call, so tests can override."""
-    return float(os.environ.get(_TIMEOUT_ENV_VAR, str(_DEFAULT_NO_PROGRESS_TIMEOUT)))
+def _read_timeout() -> float | None:
+    """No-progress timeout from env, or None (no deadline) when unset.
+
+    Read each call so tests can override without re-importing the module.
+    """
+    raw = os.environ.get(_TIMEOUT_ENV_VAR)
+    return float(raw) if raw else None
 
 
-def _iter_lines_with_timeout(fd: int, timeout: float) -> Iterator[str]:
+def _iter_lines_with_timeout(fd: int, timeout: float | None) -> Iterator[str]:
     """Yield decoded lines from fd; raise TimeoutError on no progress.
+
+    When *timeout* is None there is no deadline — select blocks until the fd is
+    readable or EOF (liveness is the spawn watchdog's job). A float *timeout*
+    raises TimeoutError after that many seconds of no activity (opt-in backstop).
 
     Drives os.read directly (NOT sys.stdin.readline) because select on a
     buffered TextIOWrapper deadlocks: bytes can sit in Python's read-ahead
@@ -171,7 +183,9 @@ def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
     return f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
 
 
-def _consume_stream(fd: int, timeout: float) -> tuple[list[str], dict | None, bool]:
+def _consume_stream(
+    fd: int, timeout: float | None
+) -> tuple[list[str], dict | None, bool]:
     """Read until a result event arrives, EOF, or no-progress timeout.
 
     Returns (lines_seen, result_event_or_None, timed_out_flag).
