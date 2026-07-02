@@ -472,6 +472,18 @@ class TestNoProgressTimeout(unittest.TestCase):
         with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "0.2"}):
             self.assertEqual(teammate_output_filter._read_timeout(), 0.2)
 
+    def test_read_timeout_malformed_falls_back_not_crash(self):
+        """A malformed override must not raise (the filter is the teammate's
+        sole stdout reader — a crash here re-deadlocks the run); fall back to
+        the backstop default."""
+        import teammate_output_filter
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "600s"}):
+            self.assertEqual(
+                teammate_output_filter._read_timeout(),
+                teammate_output_filter._DEFAULT_READ_TIMEOUT_S,
+            )
+
 
 class TestStreamingTimeout(_PipeStdinMixin, _HookTestCase):
     """Silent-stdin handling: the default backstop deadline is far longer than

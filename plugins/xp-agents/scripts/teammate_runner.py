@@ -12,6 +12,7 @@ Self-contained — imports no SMM/plugin modules, so it needs no sys.path
 bootstrap.
 """
 
+import contextlib
 import subprocess
 import sys
 import threading
@@ -209,8 +210,20 @@ def run_with_tee(
                     # teammate deadlocks. The raw log stays the source of truth.
                     stdout_broken = True
             if log_file is not None:
-                log_file.write(line)
-                log_file.flush()
+                try:
+                    log_file.write(line)
+                    log_file.flush()
+                except OSError as exc:
+                    # The tee is best-effort. A mid-stream log write failure
+                    # (e.g. full disk) must not propagate — that would stop
+                    # draining proc.stdout and deadlock a healthy child on a
+                    # full pipe. Drop the tee and keep draining.
+                    sys.stderr.write(
+                        f"WARN: tee log write failed ({exc}); continuing without tee\n"
+                    )
+                    with contextlib.suppress(OSError):
+                        log_file.close()
+                    log_file = None
     finally:
         watchdog.stop()
         if log_file is not None:

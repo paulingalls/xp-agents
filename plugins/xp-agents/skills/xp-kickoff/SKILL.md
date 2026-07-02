@@ -123,7 +123,7 @@ Four options; `fable` rides the auto **"Other"** escape:
 
 On "Other", accept a valid token (e.g. `fable`), else re-ask.
 
-Write the matching token (one of the five above):
+Write the chosen token:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_config_cli.py --smm-dir <SMM_DIR> write <token>
 ```

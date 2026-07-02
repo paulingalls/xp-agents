@@ -334,6 +334,53 @@ class TestRunWithTeeBrokenStdout(unittest.TestCase):
 
         self.assertFalse(broken)
 
+    def test_log_write_failure_keeps_draining_not_raise(self):
+        """A mid-stream log write OSError (e.g. full disk) must not propagate:
+        the tee is best-effort, and stopping the drain would deadlock a healthy
+        child on a full stdout pipe. run_with_tee drops the tee and drains on."""
+        from unittest.mock import MagicMock, patch
+
+        import teammate_runner
+
+        proc = MagicMock()
+        proc.stdout = iter(["a\n", "b\n", "c\n"])
+        proc.returncode = 0
+
+        class _FailingLog:
+            """Accepts the session header, then raises OSError on every line."""
+
+            def __init__(self):
+                self.header_seen = False
+
+            def write(self, s):
+                if not self.header_seen:
+                    self.header_seen = True
+                    return
+                raise OSError("disk full")
+
+            def flush(self):
+                pass
+
+            def close(self):
+                pass
+
+        with (
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(Path, "open", return_value=_FailingLog()),
+        ):
+            broken = teammate_runner.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-logfail",
+                log_dir=self.log_dir,
+            )
+
+        # Drained to completion without raising; stdout intact → not broken.
+        self.assertFalse(broken)
+        proc.wait.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()

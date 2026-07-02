@@ -80,7 +80,15 @@ def _read_timeout() -> float | None:
     raw = os.environ.get(_TIMEOUT_ENV_VAR)
     if not raw:
         return _DEFAULT_READ_TIMEOUT_S
-    value = float(raw)
+    try:
+        value = float(raw)
+    except ValueError:
+        # A malformed override must not crash the filter (the teammate's sole
+        # stdout reader) — that would re-deadlock the very run this guards.
+        sys.stderr.write(
+            f"WARN: invalid {_TIMEOUT_ENV_VAR}={raw!r}; using default backstop\n"
+        )
+        return _DEFAULT_READ_TIMEOUT_S
     return value if value > 0 else None
 
 
