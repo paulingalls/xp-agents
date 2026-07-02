@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for the liveness watchdog in spawn_teammate.py.
+"""Tests for teammate_runner.py — subprocess tee + liveness watchdog.
 
-Covers _ActivityWatchdog (unit) and its integration with run_with_tee.
-
-Why a separate file: spawn_teammate.py's primary test file
-(test_spawn_teammate.py) had grown past the project's 500-line
-budget. The watchdog tests are a cohesive subset that splits cleanly
-along feature lines.
+Covers _ActivityWatchdog (unit), its integration with run_with_tee, and
+run_with_tee's resilience to a downstream stdout consumer (the output
+filter) closing mid-stream. Lives beside the runner code it exercises.
 """
 
 import subprocess
@@ -66,9 +63,9 @@ class TestActivityWatchdog(unittest.TestCase):
             self.kill_calls += 1
 
     def _make_watchdog(self, proc, timeout_s: float = 1.0):
-        import spawn_teammate
+        import teammate_runner
 
-        return spawn_teammate._ActivityWatchdog(
+        return teammate_runner._ActivityWatchdog(
             proc, name="test", timeout_s=timeout_s, poll_interval_s=0.05
         )
 
@@ -196,7 +193,7 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         ping → reset silence timer → eventual kill when pings stop."""
         from unittest.mock import patch
 
-        import spawn_teammate
+        import teammate_runner
 
         # rc=-15 = SIGTERM signal exit; checked after the loop unblocks.
         # block_after=1.0 outlasts the patched watchdog window
@@ -207,13 +204,13 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         # no-op against the iterator).
         proc = self._fake_popen(["hello\n"], returncode=-15, block_after=1.0)
         with (
-            patch("spawn_teammate.subprocess.Popen", return_value=proc),
-            patch.object(spawn_teammate, "_WATCHDOG_TIMEOUT_S", 0.3),
-            patch.object(spawn_teammate, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
-            patch.object(spawn_teammate, "_WATCHDOG_KILL_GRACE_S", 0.2),
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(teammate_runner, "_WATCHDOG_TIMEOUT_S", 0.3),
+            patch.object(teammate_runner, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
+            patch.object(teammate_runner, "_WATCHDOG_KILL_GRACE_S", 0.2),
             self.assertRaises(subprocess.CalledProcessError),
         ):
-            spawn_teammate.run_with_tee(
+            teammate_runner.run_with_tee(
                 ["fake"],
                 cwd=".",
                 env={},
@@ -235,15 +232,15 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         silence timer on every line read."""
         from unittest.mock import patch
 
-        import spawn_teammate
+        import teammate_runner
 
         proc = self._fake_popen(["a\n", "b\n", "c\n"])
         with (
-            patch("spawn_teammate.subprocess.Popen", return_value=proc),
-            patch.object(spawn_teammate, "_WATCHDOG_TIMEOUT_S", 0.5),
-            patch.object(spawn_teammate, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(teammate_runner, "_WATCHDOG_TIMEOUT_S", 0.5),
+            patch.object(teammate_runner, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
         ):
-            spawn_teammate.run_with_tee(
+            teammate_runner.run_with_tee(
                 ["fake"],
                 cwd=".",
                 env={},
@@ -274,7 +271,7 @@ class TestRunWithTeeBrokenStdout(unittest.TestCase):
     def test_broken_stdout_keeps_logging_drains_and_flags(self):
         from unittest.mock import MagicMock, patch
 
-        import spawn_teammate
+        import teammate_runner
 
         proc = MagicMock()
         proc.stdout = iter(["a\n", "b\n", "c\n"])
@@ -295,10 +292,10 @@ class TestRunWithTeeBrokenStdout(unittest.TestCase):
                 pass
 
         with (
-            patch("spawn_teammate.subprocess.Popen", return_value=proc),
-            patch.object(spawn_teammate.sys, "stdout", _BrokenStdout()),
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(teammate_runner.sys, "stdout", _BrokenStdout()),
         ):
-            broken = spawn_teammate.run_with_tee(
+            broken = teammate_runner.run_with_tee(
                 ["fake"],
                 cwd=".",
                 env={},
@@ -319,14 +316,14 @@ class TestRunWithTeeBrokenStdout(unittest.TestCase):
         """The happy path returns stdout_broken=False so the caller promotes."""
         from unittest.mock import MagicMock, patch
 
-        import spawn_teammate
+        import teammate_runner
 
         proc = MagicMock()
         proc.stdout = iter(["x\n", "y\n"])
         proc.returncode = 0
 
-        with patch("spawn_teammate.subprocess.Popen", return_value=proc):
-            broken = spawn_teammate.run_with_tee(
+        with patch("teammate_runner.subprocess.Popen", return_value=proc):
+            broken = teammate_runner.run_with_tee(
                 ["fake"],
                 cwd=".",
                 env={},
