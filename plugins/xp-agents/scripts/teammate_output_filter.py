@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import identity
+import teammate_runner
 import worktree
 
 get_current_branch = identity.get_current_branch
@@ -34,15 +35,27 @@ _DECISION_BLOCK = "block"
 _STREAM_JSON_RESULT_TYPE = "result"
 _ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
 
-# No-progress timeout is OPT-IN (default: no deadline). Liveness is owned by
-# spawn_teammate.py's watchdog (_WATCHDOG_TIMEOUT_S); a deadline here that is
-# shorter than the watchdog preempts it and kills teammates during legitimately
-# silent tool calls (nested reviews, acceptance runs) — the stream is silent to
-# the parent stdout even though the teammate is working. When the teammate truly
-# hangs, the watchdog kills claude -p, the stream EOFs, and the no-result path
-# below fires. Set XP_TEAMMATE_FILTER_TIMEOUT to re-enable a backstop deadline
-# (also used by tests to force the timeout path).
+# No-progress deadline. Primary liveness is owned by spawn_teammate.py's
+# watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`
+# goes silent the watchdog kills it, the stream EOFs, and the no-result path
+# below fires. A deadline here SHORTER than the watchdog would preempt it and
+# kill teammates during legitimately silent tool calls (nested reviews,
+# acceptance runs) — the stream is silent to the parent stdout even though the
+# teammate is working. So the default deadline is set LONGER than the watchdog
+# window (+ kill grace + margin): it never preempts the watchdog and never
+# fires during healthy-but-silent work, yet still provides a SECOND, independent
+# backstop the watchdog cannot — a spawn-side tee-loop wedge (e.g. blocked in a
+# log flush) where the stream neither advances nor EOFs, which would otherwise
+# hang this filter forever. Set XP_TEAMMATE_FILTER_TIMEOUT to override; "0" (or
+# any value <= 0) disables the deadline entirely (block until EOF). Tests also
+# use the override to force the timeout path quickly.
 _TIMEOUT_ENV_VAR = "XP_TEAMMATE_FILTER_TIMEOUT"
+_BACKSTOP_MARGIN_S = 300
+_DEFAULT_READ_TIMEOUT_S = (
+    teammate_runner._WATCHDOG_TIMEOUT_S
+    + teammate_runner._WATCHDOG_KILL_GRACE_S
+    + _BACKSTOP_MARGIN_S
+)
 # Brief drain after the result event so any final lines (warnings, hook
 # diagnostics) make it into the lines list before EOF. 0.1s suits the
 # common case where claude -p closes stdout immediately after `result`;
@@ -54,12 +67,21 @@ _READ_CHUNK_BYTES = 65536
 
 
 def _read_timeout() -> float | None:
-    """No-progress timeout from env, or None (no deadline) when unset.
+    """No-progress deadline in seconds, or None for no deadline.
+
+    Env unset/empty → the watchdog-exceeding backstop default
+    (_DEFAULT_READ_TIMEOUT_S). An explicit XP_TEAMMATE_FILTER_TIMEOUT
+    overrides; a value <= 0 disables the deadline (None), so a stray "0"
+    means "block until EOF" rather than an instant-timeout that would abort
+    a healthy run.
 
     Read each call so tests can override without re-importing the module.
     """
     raw = os.environ.get(_TIMEOUT_ENV_VAR)
-    return float(raw) if raw else None
+    if not raw:
+        return _DEFAULT_READ_TIMEOUT_S
+    value = float(raw)
+    return value if value > 0 else None
 
 
 def _iter_lines_with_timeout(fd: int, timeout: float | None) -> Iterator[str]:

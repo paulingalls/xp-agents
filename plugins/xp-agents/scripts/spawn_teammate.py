@@ -38,7 +38,7 @@ import tier_wire
 # The subprocess tee + liveness watchdog live in a sibling leaf module; keep
 # the names importable here so callers (and their tests) still see
 # spawn_teammate.run_with_tee / project_log_dir.
-from teammate_runner import _DEFAULT_LOG_DIR, project_log_dir, run_with_tee
+from teammate_runner import project_log_dir, run_with_tee
 
 
 def cleanup_existing(name: str, cwd: str) -> None:
@@ -258,14 +258,15 @@ def main(argv: list[str] | None = None) -> None:
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            # Best-effort: run_with_tee already degrades to no-tee if the log
-            # path can't be opened. Fall back to the shared /tmp so a spawn is
-            # never blocked by a log-dir problem.
+            # Best-effort: run_with_tee already degrades to no-tee when it can't
+            # open the log file, so keep the project-scoped (uncreated) dir and
+            # let the tee open() fail. Do NOT fall back to a flat /tmp — teammate
+            # names repeat across projects, so a shared /tmp/<name>.log
+            # reintroduces the cross-project collision project_log_dir prevents.
             sys.stderr.write(
                 f"WARN: log dir {log_dir} unavailable ({exc}); "
-                f"using {_DEFAULT_LOG_DIR}\n"
+                f"spawning without forensic tee\n"
             )
-            log_dir = _DEFAULT_LOG_DIR
         with open(combined_path) as combined_stdin:
             stdout_broken = run_with_tee(
                 cmd,
@@ -275,7 +276,21 @@ def main(argv: list[str] | None = None) -> None:
                 name=name,
                 log_dir=log_dir,
             )
-        Path(args.prompt_file).unlink(missing_ok=True)
+        # A broken downstream stdout is NOT by itself a failed run: the output
+        # filter writes its report BEFORE it exits and closes its read end, so
+        # the pipe commonly breaks ~0.1s AFTER a fully successful run. The true
+        # "the filter did not finish its job" signal is stdout_broken AND no
+        # report on disk — only then did the filter die before recording the
+        # report / clearing coordination.
+        report_written = worktree.teammate_report_path(
+            Path(args.smm_dir), name
+        ).exists()
+        filter_incomplete = stdout_broken and not report_written
+        # Preserve the prompt for re-spawn ONLY when we leave the story
+        # in-progress (filter_incomplete). On a promote — or a successful filter
+        # that merely closed the pipe late — unlinking is correct.
+        if not filter_incomplete:
+            Path(args.prompt_file).unlink(missing_ok=True)
     finally:
         if args.in_place:
             worktree.remove_in_place_marker(Path(args.smm_dir), name)
@@ -296,19 +311,20 @@ def main(argv: list[str] | None = None) -> None:
     # /xp-accept's reviewing path to detach onto, so the story stays
     # in-progress/solo and /xp-accept's solo (in-progress) path handles it.
     #
-    # A broken downstream stdout (the filter died mid-stream) also skips the
-    # promote: the teammate finished (rc=0) but the filter never wrote the
-    # report / cleared coordination, so promoting to reviewing would hand the
-    # lead an unwritten report over stale state. Leaving the story in-progress
-    # is the honest signal that the automated completion didn't finish;
-    # recover the result from the raw log.
-    if stdout_broken:
+    # A filter that died mid-stream WITHOUT writing its report (filter_incomplete)
+    # also skips the promote: the teammate finished (rc=0) but the filter never
+    # wrote the report / cleared coordination, so promoting to reviewing would
+    # hand the lead an unwritten report over stale state. Leaving the story
+    # in-progress is the honest signal that the automated completion didn't
+    # finish; recover the result from the raw log. A stdout break AFTER the
+    # report was written is a benign late pipe-close and promotes normally.
+    if filter_incomplete:
         sys.stderr.write(
             f"WARN: output filter closed mid-stream for {name}; teammate "
             f"completed but report/coordination were not recorded. Story left "
             f"in-progress — inspect the log under {log_dir}.\n"
         )
-    if args.story_id is not None and not args.in_place and not stdout_broken:
+    if args.story_id is not None and not args.in_place and not filter_incomplete:
         sprint_store.update_story_status_if(
             Path(args.smm_dir),
             args.story_id,
