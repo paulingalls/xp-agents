@@ -245,7 +245,7 @@ class TestNamePassThrough(unittest.TestCase):
                 patch.object(
                     spawn_teammate, "create_worktree", side_effect=capture_create
                 ),
-                patch.object(spawn_teammate, "run_with_tee"),
+                patch.object(spawn_teammate, "run_with_tee", return_value=False),
             ):
                 spawn_teammate.main(
                     [
@@ -288,6 +288,8 @@ class TestMechanicalPromote(_SMMTestCase):
         story_id: str | None = "story-001",
         cas_return: bool = True,
         run_with_tee_side_effect=None,
+        run_with_tee_return: bool = False,
+        report_exists: bool = False,
     ) -> list[tuple[str, str, str, str]]:
         """Run spawn_teammate.main with stubbed worktree+subprocess+sprint
         and return the captured update_story_status_if calls as
@@ -297,13 +299,26 @@ class TestMechanicalPromote(_SMMTestCase):
         cas_return controls what the patched CAS returns (True=updated,
         False=expected mismatch — actual already advanced past expected).
         run_with_tee_side_effect raises if you want rc!=0 simulation.
+        run_with_tee_return is run_with_tee's stdout_broken flag (True means
+        the downstream stdout pipe broke).
+        report_exists pre-writes the teammate report file so a broken stdout is
+        recognised as a benign late pipe-close (the filter wrote its report
+        before exiting) rather than a filter that died before finishing.
+
+        Also records self._prompt_existed_after: whether main() left the prompt
+        file on disk (the in-progress ⇒ prompt-preserved-for-re-spawn invariant).
         """
         from unittest.mock import patch
 
         import spawn_teammate
+        import worktree
 
         prompt_path = self._make_prompt_file()
         captured_calls: list[tuple[str, str, str, str]] = []
+        name = "worktree-story-001" if story_id else "worktree-foo"
+
+        if report_exists:
+            worktree.teammate_report_path(self.smm_dir, name).write_text("done")
 
         def fake_cas(smm_dir, sid, *, expected, new):
             captured_calls.append((str(smm_dir), sid, expected, new))
@@ -311,7 +326,7 @@ class TestMechanicalPromote(_SMMTestCase):
 
         argv = [
             "--name",
-            "worktree-story-001" if story_id else "worktree-foo",
+            name,
             "--smm-dir",
             str(self.smm_dir),
             "--prompt-file",
@@ -327,6 +342,7 @@ class TestMechanicalPromote(_SMMTestCase):
                     spawn_teammate,
                     "run_with_tee",
                     side_effect=run_with_tee_side_effect,
+                    return_value=run_with_tee_return,
                 ),
                 patch.object(
                     spawn_teammate.sprint_store,
@@ -335,6 +351,7 @@ class TestMechanicalPromote(_SMMTestCase):
                 ),
             ):
                 spawn_teammate.main(argv)
+            self._prompt_existed_after = Path(prompt_path).exists()
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
@@ -368,6 +385,47 @@ class TestMechanicalPromote(_SMMTestCase):
             self._run_promote(
                 run_with_tee_side_effect=subprocess.CalledProcessError(2, ["fake"])
             )
+
+    def test_does_not_promote_when_filter_died_before_report(self):
+        """Filter death with NO report (stdout_broken=True, report absent) leaves
+        the story in-progress: the filter that owns report/completion/
+        coordination-clear never finished, so a promote to reviewing would hand
+        the lead an unwritten report over stale state. The prompt is preserved
+        for re-spawn."""
+        captured = self._run_promote(run_with_tee_return=True, report_exists=False)
+        self.assertEqual(
+            captured,
+            [],
+            f"CAS must be skipped when the filter died pre-report, got: {captured!r}",
+        )
+        self.assertTrue(
+            self._prompt_existed_after,
+            "prompt must be preserved for re-spawn when the story stays in-progress",
+        )
+
+    def test_promotes_when_stdout_broke_but_report_written(self):
+        """A stdout break AFTER the report was written is a benign late
+        pipe-close (the filter writes its report, then exits and closes the
+        pipe ~0.1s later). The run succeeded, so it must promote — and unlink
+        the now-consumed prompt."""
+        captured = self._run_promote(run_with_tee_return=True, report_exists=True)
+        self.assertEqual(
+            captured,
+            [(str(self.smm_dir), "story-001", "in-progress", "reviewing")],
+            f"a late pipe-close after a written report must promote, got: {captured!r}",
+        )
+        self.assertFalse(
+            self._prompt_existed_after,
+            "prompt must be unlinked when we promote (run succeeded)",
+        )
+
+    def test_unlinks_prompt_on_clean_promote(self):
+        """A clean run (no stdout break) unlinks the consumed prompt file."""
+        self._run_promote()
+        self.assertFalse(
+            self._prompt_existed_after,
+            "prompt must be unlinked after a clean promote",
+        )
 
     def test_does_not_promote_when_story_id_absent(self):
         """No --story-id → no CAS attempted (ad-hoc teammates without

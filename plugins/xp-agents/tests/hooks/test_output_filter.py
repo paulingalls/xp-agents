@@ -9,6 +9,7 @@ import contextlib
 import json
 import os
 import sys
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -415,14 +416,119 @@ class TestMainE2E(_PipeStdinMixin, _HookTestCase):
         )
 
 
+class TestNoProgressTimeout(unittest.TestCase):
+    """Primary liveness is the spawn watchdog's job, not the filter's. A filter
+    deadline SHORTER than the 900s watchdog preempts it and kills teammates
+    during legitimately silent tool calls (nested reviews, acceptance runs). So
+    the default deadline is set LONGER than the watchdog window — it never
+    preempts the watchdog yet still backstops a spawn-side wedge where the stream
+    neither advances nor EOFs. XP_TEAMMATE_FILTER_TIMEOUT overrides; "0" (or any
+    value <= 0) disables the deadline entirely.
+    """
+
+    def test_read_timeout_defaults_to_watchdog_backstop(self):
+        """Unset env → a backstop deadline strictly longer than the watchdog
+        window so the watchdog always forces EOF first."""
+        import teammate_output_filter
+        import teammate_runner
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_FILTER_TIMEOUT", None)
+            timeout = teammate_output_filter._read_timeout()
+        assert timeout is not None
+        self.assertGreater(
+            timeout,
+            teammate_runner._WATCHDOG_TIMEOUT_S,
+            "filter default must exceed the watchdog window so it never preempts it",
+        )
+
+    def test_read_timeout_empty_string_defaults_to_backstop(self):
+        """An empty override string is treated as unset (default backstop)."""
+        import teammate_output_filter
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": ""}):
+            self.assertEqual(
+                teammate_output_filter._read_timeout(),
+                teammate_output_filter._DEFAULT_READ_TIMEOUT_S,
+            )
+
+    def test_read_timeout_zero_disables_deadline(self):
+        """ "0" is an explicit opt-out (no deadline), NOT an instant-timeout that
+        would abort a healthy run on a non-blocking select poll."""
+        import teammate_output_filter
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "0"}):
+            self.assertIsNone(teammate_output_filter._read_timeout())
+
+    def test_read_timeout_negative_disables_deadline(self):
+        import teammate_output_filter
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "-5"}):
+            self.assertIsNone(teammate_output_filter._read_timeout())
+
+    def test_read_timeout_env_override(self):
+        import teammate_output_filter
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "0.2"}):
+            self.assertEqual(teammate_output_filter._read_timeout(), 0.2)
+
+    def test_read_timeout_malformed_falls_back_not_crash(self):
+        """A malformed override must not raise (the filter is the teammate's
+        sole stdout reader — a crash here re-deadlocks the run); fall back to
+        the backstop default."""
+        import teammate_output_filter
+
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "600s"}):
+            self.assertEqual(
+                teammate_output_filter._read_timeout(),
+                teammate_output_filter._DEFAULT_READ_TIMEOUT_S,
+            )
+
+
 class TestStreamingTimeout(_PipeStdinMixin, _HookTestCase):
-    """Filter exits non-zero rather than blocking forever on a silent stdin."""
+    """Silent-stdin handling: the default backstop deadline is far longer than
+    any test window, so a silent pipe effectively blocks until EOF; an explicit
+    short opt-in env deadline still fires as a backstop."""
 
     def tearDown(self):
         self._close_pipe_stdin()
         super().tearDown()
 
-    def test_exits_within_timeout_on_silent_pipe(self):
+    def test_silent_pipe_blocks_without_timeout_then_exits_on_eof(self):
+        """With only the (long) default deadline, a silent pipe does NOT time
+        the filter out within any realistic window — it blocks. Only EOF (which
+        the watchdog guarantees by killing claude) ends the read, exiting 1 with
+        the no-result diagnostic."""
+        import teammate_output_filter
+
+        write_fd = self._open_pipe_stdin()
+        os.write(write_fd, (_SYSTEM_LINE + "\n").encode("utf-8"))
+
+        outcome: dict = {}
+
+        def run():
+            try:
+                teammate_output_filter.process_stream(self.smm_dir, "teammate-step-1")
+            except SystemExit as exc:
+                outcome["code"] = exc.code
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_FILTER_TIMEOUT", None)
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+            time.sleep(0.3)
+            self.assertTrue(
+                t.is_alive(), "filter must block on a silent pipe, not exit"
+            )
+            os.close(write_fd)  # EOF
+            self._write_fd = None
+            t.join(timeout=3)
+
+        self.assertFalse(t.is_alive(), "filter must exit once the stream EOFs")
+        self.assertEqual(outcome.get("code"), 1)
+
+    def test_opt_in_timeout_still_exits_on_silent_pipe(self):
+        """Backstop: an explicit XP_TEAMMATE_FILTER_TIMEOUT still fires."""
         import teammate_output_filter
 
         write_fd = self._open_pipe_stdin()

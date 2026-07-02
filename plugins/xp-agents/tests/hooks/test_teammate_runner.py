@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for the liveness watchdog in spawn_teammate.py.
+"""Tests for teammate_runner.py — subprocess tee + liveness watchdog.
 
-Covers _ActivityWatchdog (unit) and its integration with run_with_tee.
-
-Why a separate file: spawn_teammate.py's primary test file
-(test_spawn_teammate.py) had grown past the project's 500-line
-budget. The watchdog tests are a cohesive subset that splits cleanly
-along feature lines.
+Covers _ActivityWatchdog (unit), its integration with run_with_tee, and
+run_with_tee's resilience to a downstream stdout consumer (the output
+filter) closing mid-stream. Lives beside the runner code it exercises.
 """
 
 import subprocess
@@ -66,9 +63,9 @@ class TestActivityWatchdog(unittest.TestCase):
             self.kill_calls += 1
 
     def _make_watchdog(self, proc, timeout_s: float = 1.0):
-        import spawn_teammate
+        import teammate_runner
 
-        return spawn_teammate._ActivityWatchdog(
+        return teammate_runner._ActivityWatchdog(
             proc, name="test", timeout_s=timeout_s, poll_interval_s=0.05
         )
 
@@ -196,7 +193,7 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         ping → reset silence timer → eventual kill when pings stop."""
         from unittest.mock import patch
 
-        import spawn_teammate
+        import teammate_runner
 
         # rc=-15 = SIGTERM signal exit; checked after the loop unblocks.
         # block_after=1.0 outlasts the patched watchdog window
@@ -207,13 +204,13 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         # no-op against the iterator).
         proc = self._fake_popen(["hello\n"], returncode=-15, block_after=1.0)
         with (
-            patch("spawn_teammate.subprocess.Popen", return_value=proc),
-            patch.object(spawn_teammate, "_WATCHDOG_TIMEOUT_S", 0.3),
-            patch.object(spawn_teammate, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
-            patch.object(spawn_teammate, "_WATCHDOG_KILL_GRACE_S", 0.2),
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(teammate_runner, "_WATCHDOG_TIMEOUT_S", 0.3),
+            patch.object(teammate_runner, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
+            patch.object(teammate_runner, "_WATCHDOG_KILL_GRACE_S", 0.2),
             self.assertRaises(subprocess.CalledProcessError),
         ):
-            spawn_teammate.run_with_tee(
+            teammate_runner.run_with_tee(
                 ["fake"],
                 cwd=".",
                 env={},
@@ -235,15 +232,15 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
         silence timer on every line read."""
         from unittest.mock import patch
 
-        import spawn_teammate
+        import teammate_runner
 
         proc = self._fake_popen(["a\n", "b\n", "c\n"])
         with (
-            patch("spawn_teammate.subprocess.Popen", return_value=proc),
-            patch.object(spawn_teammate, "_WATCHDOG_TIMEOUT_S", 0.5),
-            patch.object(spawn_teammate, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(teammate_runner, "_WATCHDOG_TIMEOUT_S", 0.5),
+            patch.object(teammate_runner, "_WATCHDOG_POLL_INTERVAL_S", 0.05),
         ):
-            spawn_teammate.run_with_tee(
+            teammate_runner.run_with_tee(
                 ["fake"],
                 cwd=".",
                 env={},
@@ -256,6 +253,133 @@ class TestRunWithTeeWatchdog(unittest.TestCase):
             0,
             "watchdog must not fire when subprocess completes within timeout",
         )
+
+
+class TestRunWithTeeBrokenStdout(unittest.TestCase):
+    """A downstream stdout consumer (the output filter) dying mid-stream must
+    NOT kill the teammate. run_with_tee stops writing to stdout on BrokenPipe,
+    keeps draining proc.stdout to the log so the teammate never blocks on a
+    full pipe, and reports stdout_broken=True so the caller can skip the rc=0
+    promote (the filter that owns report/coordination-clear never finished).
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.log_dir = Path(tempfile.mkdtemp())
+
+    def test_broken_stdout_keeps_logging_drains_and_flags(self):
+        from unittest.mock import MagicMock, patch
+
+        import teammate_runner
+
+        proc = MagicMock()
+        proc.stdout = iter(["a\n", "b\n", "c\n"])
+        proc.returncode = 0
+
+        class _BrokenStdout:
+            """Succeeds on the first write, then raises BrokenPipeError."""
+
+            def __init__(self):
+                self.writes = 0
+
+            def write(self, s):
+                self.writes += 1
+                if self.writes >= 2:
+                    raise BrokenPipeError("downstream closed")
+
+            def flush(self):
+                pass
+
+        with (
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(teammate_runner.sys, "stdout", _BrokenStdout()),
+        ):
+            broken = teammate_runner.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-brk",
+                log_dir=self.log_dir,
+            )
+
+        self.assertTrue(broken, "run_with_tee must report stdout_broken=True")
+        log = (self.log_dir / "teammate-brk.log").read_text()
+        for ch in ("a", "b", "c"):
+            self.assertIn(
+                ch, log, "every line must still reach the log after stdout breaks"
+            )
+        proc.wait.assert_called()
+
+    def test_intact_stdout_reports_not_broken(self):
+        """The happy path returns stdout_broken=False so the caller promotes."""
+        from unittest.mock import MagicMock, patch
+
+        import teammate_runner
+
+        proc = MagicMock()
+        proc.stdout = iter(["x\n", "y\n"])
+        proc.returncode = 0
+
+        with patch("teammate_runner.subprocess.Popen", return_value=proc):
+            broken = teammate_runner.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-ok",
+                log_dir=self.log_dir,
+            )
+
+        self.assertFalse(broken)
+
+    def test_log_write_failure_keeps_draining_not_raise(self):
+        """A mid-stream log write OSError (e.g. full disk) must not propagate:
+        the tee is best-effort, and stopping the drain would deadlock a healthy
+        child on a full stdout pipe. run_with_tee drops the tee and drains on."""
+        from unittest.mock import MagicMock, patch
+
+        import teammate_runner
+
+        proc = MagicMock()
+        proc.stdout = iter(["a\n", "b\n", "c\n"])
+        proc.returncode = 0
+
+        class _FailingLog:
+            """Accepts the session header, then raises OSError on every line."""
+
+            def __init__(self):
+                self.header_seen = False
+
+            def write(self, s):
+                if not self.header_seen:
+                    self.header_seen = True
+                    return
+                raise OSError("disk full")
+
+            def flush(self):
+                pass
+
+            def close(self):
+                pass
+
+        with (
+            patch("teammate_runner.subprocess.Popen", return_value=proc),
+            patch.object(Path, "open", return_value=_FailingLog()),
+        ):
+            broken = teammate_runner.run_with_tee(
+                ["fake"],
+                cwd=".",
+                env={},
+                stdin=None,
+                name="teammate-logfail",
+                log_dir=self.log_dir,
+            )
+
+        # Drained to completion without raising; stdout intact → not broken.
+        self.assertFalse(broken)
+        proc.wait.assert_called()
 
 
 if __name__ == "__main__":

@@ -114,17 +114,19 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_config_cli.py --smm-dir <SMM_DIR>
 
 Q2 — Ask via AskUserQuestion: **"Default model for teammates?"**
 
+Four options; `fable` rides the auto **"Other"** escape:
+
 - **haiku** — mechanical tasks
 - **sonnet** *(Recommended)* — pattern-following tasks
 - **opus** — architecture tasks
-- **fable** — the most powerful (and most expensive) tier; the hardest, most novel work
-- **inherit orchestrator** — teammates use the same model as the lead
+- **inherit orchestrator** — same model as the lead
 
-Write the matching token:
+On "Other", accept a valid token (e.g. `fable`), else re-ask.
+
+Write the chosen token:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_config_cli.py --smm-dir <SMM_DIR> write <token>
 ```
-(use `haiku`, `sonnet`, `opus`, `fable`, or `inherit` as `<token>`)
 
 Then proceed to Step 3.
 

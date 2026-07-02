@@ -122,7 +122,10 @@ class TestWorktreePreamble(unittest.TestCase):
         try:
             with (
                 patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(spawn_teammate, "run_with_tee"),
+                # return_value=False → clean run (stdout not broken); the prompt
+                # is consumed and unlinked. A bare Mock would default-return a
+                # truthy value, misreading as stdout_broken and preserving it.
+                patch.object(spawn_teammate, "run_with_tee", return_value=False),
             ):
                 spawn_teammate.main(
                     [

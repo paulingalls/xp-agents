@@ -24,9 +24,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import threading
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 # `worktree` import is the side-effect bootstrap that adds smm/ to
@@ -37,6 +34,11 @@ import worktree  # isort: split
 import identity
 import sprint_store
 import tier_wire
+
+# The subprocess tee + liveness watchdog live in a sibling leaf module; keep
+# the names importable here so callers (and their tests) still see
+# spawn_teammate.run_with_tee / project_log_dir.
+from teammate_runner import project_log_dir, run_with_tee
 
 
 def cleanup_existing(name: str, cwd: str) -> None:
@@ -143,179 +145,6 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     if story_id is None:
         return
     worktree.write_story_assignment(smm_dir, name, story_id)
-
-
-_DEFAULT_LOG_DIR = Path("/tmp")
-
-# Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,
-# sized to clear the longest legitimate thinking-on-large-context gap
-# observed historically (~10 min on 256K-token inputs). Hard-coded;
-# the next retro recalibrates if 900s false-positives or proves slow.
-_WATCHDOG_TIMEOUT_S = 900
-_WATCHDOG_POLL_INTERVAL_S = 5
-# Grace period between SIGTERM and SIGKILL — SIGTERM may be ignored
-# while the child is blocked in a C-level recv() on the API socket
-# (the suspected hang mode); SIGKILL guarantees recovery fires.
-_WATCHDOG_KILL_GRACE_S = 10
-
-
-class _ActivityWatchdog:
-    """Terminates *proc* when no .ping() arrives for *timeout_s* seconds.
-
-    The run_with_tee main loop calls .ping() on each line read from the
-    subprocess. If pings stop (because the spawned ``claude -p`` has
-    gone silent), the watchdog calls ``proc.terminate()``, waits up to
-    ``_WATCHDOG_KILL_GRACE_S`` for it to exit, then escalates to
-    ``proc.kill()``. The main loop then sees stdout EOF, ``proc.wait()``
-    returns a non-zero rc, and ``run_with_tee`` raises
-    ``CalledProcessError`` as it does on any non-zero exit. The
-    existing rc!=0 recovery path in main() takes over (story stays
-    in-progress, prompt file preserved for re-spawn).
-
-    *timeout_s*, *poll_interval_s*, and *kill_grace_s* default to
-    ``None`` and resolve to the module constants at call time. Tests
-    patch the constants; production callers omit all three args.
-    """
-
-    def __init__(
-        self,
-        proc,
-        name: str,
-        timeout_s: float | None = None,
-        poll_interval_s: float | None = None,
-        kill_grace_s: float | None = None,
-    ):
-        self._proc = proc
-        self._name = name
-        self._timeout = _WATCHDOG_TIMEOUT_S if timeout_s is None else timeout_s
-        self._poll = (
-            _WATCHDOG_POLL_INTERVAL_S if poll_interval_s is None else poll_interval_s
-        )
-        self._kill_grace = (
-            _WATCHDOG_KILL_GRACE_S if kill_grace_s is None else kill_grace_s
-        )
-        self._last_activity = time.monotonic()
-        self._stop = threading.Event()
-        self._thread = threading.Thread(
-            target=self._run, daemon=True, name=f"watchdog-{name}"
-        )
-
-    def start(self) -> None:
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        # Bound test-process thread accumulation; daemon=True still keeps
-        # production exits clean if join misses.
-        self._thread.join(timeout=self._poll + 0.1)
-
-    def ping(self) -> None:
-        # Single attribute write — atomic under the GIL; no lock needed.
-        # Worst case is one extra poll cycle before termination.
-        self._last_activity = time.monotonic()
-
-    def _run(self) -> None:
-        while not self._stop.wait(self._poll):
-            if time.monotonic() - self._last_activity > self._timeout:
-                sys.stderr.write(
-                    f"WATCHDOG: {self._name} silent >{self._timeout}s — terminating\n"
-                )
-                try:
-                    self._proc.terminate()
-                    try:
-                        self._proc.wait(timeout=self._kill_grace)
-                    except subprocess.TimeoutExpired:
-                        sys.stderr.write(
-                            f"WATCHDOG: {self._name} did not exit on SIGTERM "
-                            f"within {self._kill_grace}s — SIGKILL\n"
-                        )
-                        self._proc.kill()
-                except (OSError, subprocess.SubprocessError):
-                    # Expected failure modes: process already exited
-                    # (terminate/kill OSError), or wait raises a
-                    # SubprocessError. Don't catch broader exceptions —
-                    # an AttributeError from a bogus proc must crash
-                    # visibly in tests rather than silently leak.
-                    pass
-                return
-
-
-def run_with_tee(
-    cmd: list[str],
-    cwd: str,
-    env: dict,
-    stdin,
-    name: str,
-    log_dir: Path = _DEFAULT_LOG_DIR,
-) -> None:
-    """Run *cmd*, mirroring stdout (and merged stderr) to both this process'
-    stdout and ``<log_dir>/<name>.log``. Caller passes the worktree name
-    (e.g. ``worktree-story-001``) so the log file lands at
-    ``<log_dir>/worktree-story-001.log``.
-
-    The on-disk log preserves output up to the termination point so a
-    stuck teammate can be inspected forensically. If the log file
-    can't be opened, the spawn proceeds without teeing — investigation
-    aid is best-effort, not load-bearing.
-
-    Re-spawns of the same teammate name *append* with a session header so
-    the forensic record from a prior hang survives a kill + retry.
-
-    A liveness watchdog runs in a daemon thread alongside this loop:
-    each line read pings it; if pings stop for ``_WATCHDOG_TIMEOUT_S``
-    seconds, the watchdog terminates the subprocess (SIGTERM, then
-    SIGKILL after a grace period). The main loop then sees stdout
-    EOF, ``proc.wait()`` returns the signal exit code, and this
-    function raises ``CalledProcessError`` — same recovery shape as
-    any other non-zero exit. Without the watchdog, a child blocked
-    indefinitely inside an HTTPS POST to the model API could keep
-    the orchestrator waiting forever.
-
-    Raises ``subprocess.CalledProcessError`` on non-zero exit so callers
-    keep the prior ``check=True`` failure semantics.
-    """
-    log_path = log_dir / f"{name}.log"
-    log_file = None
-    try:
-        log_file = log_path.open("a")
-        log_file.write(
-            f"\n===== spawn {name} {datetime.now(timezone.utc).isoformat()} =====\n"
-        )
-        log_file.flush()
-    except OSError as exc:
-        sys.stderr.write(
-            f"WARN: tee log {log_path} unavailable ({exc}); spawning without tee\n"
-        )
-
-    proc = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdin=stdin,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        bufsize=1,
-        text=True,
-    )
-    watchdog = _ActivityWatchdog(proc, name)
-    watchdog.start()
-    try:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            watchdog.ping()
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            if log_file is not None:
-                log_file.write(line)
-                log_file.flush()
-    finally:
-        watchdog.stop()
-        if log_file is not None:
-            log_file.close()
-        proc.wait()
-
-    if proc.returncode != 0:
-        raise subprocess.CalledProcessError(proc.returncode, cmd)
 
 
 def _worktree_preamble(wt_path: str) -> str:
@@ -425,9 +254,43 @@ def main(argv: list[str] | None = None) -> None:
         ) as tf:
             tf.write(combined)
             combined_path = tf.name
+        log_dir = project_log_dir(args.smm_dir)
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            # Best-effort: run_with_tee already degrades to no-tee when it can't
+            # open the log file, so keep the project-scoped (uncreated) dir and
+            # let the tee open() fail. Do NOT fall back to a flat /tmp — teammate
+            # names repeat across projects, so a shared /tmp/<name>.log
+            # reintroduces the cross-project collision project_log_dir prevents.
+            sys.stderr.write(
+                f"WARN: log dir {log_dir} unavailable ({exc}); "
+                f"spawning without forensic tee\n"
+            )
         with open(combined_path) as combined_stdin:
-            run_with_tee(cmd, cwd=run_cwd, env=env, stdin=combined_stdin, name=name)
-        Path(args.prompt_file).unlink(missing_ok=True)
+            stdout_broken = run_with_tee(
+                cmd,
+                cwd=run_cwd,
+                env=env,
+                stdin=combined_stdin,
+                name=name,
+                log_dir=log_dir,
+            )
+        # A broken downstream stdout is NOT by itself a failed run: the output
+        # filter writes its report BEFORE it exits and closes its read end, so
+        # the pipe commonly breaks ~0.1s AFTER a fully successful run. The true
+        # "the filter did not finish its job" signal is stdout_broken AND no
+        # report on disk — only then did the filter die before recording the
+        # report / clearing coordination.
+        report_written = worktree.teammate_report_path(
+            Path(args.smm_dir), name
+        ).exists()
+        filter_incomplete = stdout_broken and not report_written
+        # Preserve the prompt for re-spawn ONLY when we leave the story
+        # in-progress (filter_incomplete). On a promote — or a successful filter
+        # that merely closed the pipe late — unlinking is correct.
+        if not filter_incomplete:
+            Path(args.prompt_file).unlink(missing_ok=True)
     finally:
         if args.in_place:
             worktree.remove_in_place_marker(Path(args.smm_dir), name)
@@ -447,7 +310,21 @@ def main(argv: list[str] | None = None) -> None:
     # In-place (solo delegation) skips the promote: there is no worktree for
     # /xp-accept's reviewing path to detach onto, so the story stays
     # in-progress/solo and /xp-accept's solo (in-progress) path handles it.
-    if args.story_id is not None and not args.in_place:
+    #
+    # A filter that died mid-stream WITHOUT writing its report (filter_incomplete)
+    # also skips the promote: the teammate finished (rc=0) but the filter never
+    # wrote the report / cleared coordination, so promoting to reviewing would
+    # hand the lead an unwritten report over stale state. Leaving the story
+    # in-progress is the honest signal that the automated completion didn't
+    # finish; recover the result from the raw log. A stdout break AFTER the
+    # report was written is a benign late pipe-close and promotes normally.
+    if filter_incomplete:
+        sys.stderr.write(
+            f"WARN: output filter closed mid-stream for {name}; teammate "
+            f"completed but report/coordination were not recorded. Story left "
+            f"in-progress — inspect the log under {log_dir}.\n"
+        )
+    if args.story_id is not None and not args.in_place and not filter_incomplete:
         sprint_store.update_story_status_if(
             Path(args.smm_dir),
             args.story_id,

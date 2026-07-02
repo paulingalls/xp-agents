@@ -2,6 +2,25 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.3.2 — Teammate spawn reliability; kickoff question cap; log isolation
+
+Free-branch fixes hardening CLI-teammate spawns, plus a kickoff UX fix. Root-caused from a real cross-project failure (a teammate killed mid-work). Each change TDD-ordered, risk-classified, and reviewed.
+
+### Teammate spawn reliability
+
+- **The output filter no longer kills a healthy teammate.** Its no-progress deadline no longer preempts the 900s spawn watchdog. The old 600s default fired during legitimately *silent* tool calls (a nested review, an acceptance-test run); because the filter is the teammate's sole stdout reader, its exit then deadlocked the otherwise-healthy teammate with no result. Primary liveness is now the watchdog (it kills `claude -p`, the stream EOFs, and the filter's no-result path fires); the filter keeps only a **longer** backstop deadline (watchdog window + grace + margin, overridable via `XP_TEAMMATE_FILTER_TIMEOUT`; `0`/≤0 disables it) that never fires during healthy work but still catches a spawn-side wedge where the stream neither advances nor EOFs.
+- **`run_with_tee` survives the filter dying.** A `BrokenPipeError` on stdout stops writing to stdout but keeps draining the child to the log, so the teammate always runs to completion and the raw log stays the source of truth. It reports `stdout_broken`, and the spawn **skips** the rc=0 in-progress→reviewing promote (leaving the story in-progress with a warning, prompt preserved for re-spawn) only when the filter died **before writing the report** — a benign late pipe-close after a completed run still promotes normally.
+- **Forensic logs are project-scoped.** Teammate logs move from a flat `/tmp/<name>.log` to `/tmp/xp-agents-teammates/<project-id>/<name>.log`, so two xp-agents sessions in different projects spawning same-named teammates (`worktree-story-001`) no longer stomp each other's logs.
+- The subprocess tee + liveness watchdog were extracted into `teammate_runner.py` (behavior-preserving) to keep both files under the size cap.
+
+### Kickoff
+
+- **The "Default model for teammates?" question fits the AskUserQuestion 4-option cap.** It listed 5 options and errored on the first call every session; it now offers 4 buttons (`haiku`/`sonnet`/`opus`/`inherit orchestrator`) with `fable` reachable via the automatic "Other" free-text (validated against the token set), losing no capability.
+
+### Housekeeping
+
+- Idea note proposing removal of the `xp-risk-classifier` from the per-increment review floor (`docs/ideas/RISK_CLASSIFIER_REMOVAL.md`).
+
 ## v4.3.1 — Story-close reviewer-fix guard; resolver test coverage
 
 Free-branch follow-ups from adopted retro Tries.
