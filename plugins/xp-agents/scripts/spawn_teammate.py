@@ -146,6 +146,21 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
 
 
 _DEFAULT_LOG_DIR = Path("/tmp")
+_LOG_ROOT = _DEFAULT_LOG_DIR / "xp-agents-teammates"
+
+
+def project_log_dir(smm_dir: str | Path) -> Path:
+    """Return the project-scoped forensic-log directory for *smm_dir*.
+
+    Teammate names (``worktree-story-001``) repeat across projects, so a flat
+    ``/tmp/<name>.log`` collides when two xp-agents sessions in different
+    projects spawn same-named teammates. SMM lives at
+    ``${CLAUDE_PLUGIN_DATA}/{project-id}/smm/``, so the SMM parent's name is a
+    per-project token — namespace logs under it to keep them isolated while
+    preserving /tmp's ephemerality and discoverability.
+    """
+    return _LOG_ROOT / Path(smm_dir).resolve().parent.name
+
 
 # Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,
 # sized to clear the longest legitimate thinking-on-large-context gap
@@ -425,8 +440,27 @@ def main(argv: list[str] | None = None) -> None:
         ) as tf:
             tf.write(combined)
             combined_path = tf.name
+        log_dir = project_log_dir(args.smm_dir)
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            # Best-effort: run_with_tee already degrades to no-tee if the log
+            # path can't be opened. Fall back to the shared /tmp so a spawn is
+            # never blocked by a log-dir problem.
+            sys.stderr.write(
+                f"WARN: log dir {log_dir} unavailable ({exc}); "
+                f"using {_DEFAULT_LOG_DIR}\n"
+            )
+            log_dir = _DEFAULT_LOG_DIR
         with open(combined_path) as combined_stdin:
-            run_with_tee(cmd, cwd=run_cwd, env=env, stdin=combined_stdin, name=name)
+            run_with_tee(
+                cmd,
+                cwd=run_cwd,
+                env=env,
+                stdin=combined_stdin,
+                name=name,
+                log_dir=log_dir,
+            )
         Path(args.prompt_file).unlink(missing_ok=True)
     finally:
         if args.in_place:
