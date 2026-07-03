@@ -27,7 +27,6 @@ AGENT_BUDGETS: dict[str, int] = {
     "xp-housekeeper": 11230,
     "xp-plan-reviewer": 21940,
     "xp-retrospective": 21770,
-    "xp-risk-classifier": 4950,
     "xp-sprint-reviewer": 4660,
     "xp-system-analyzer": 19640,
 }
