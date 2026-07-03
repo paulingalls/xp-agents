@@ -153,5 +153,126 @@ class TestPrintLogPath(unittest.TestCase):
         self.assertTrue(buf.getvalue().strip().endswith("worktree-story-005.log"))
 
 
+class TestProjectScopedPromptPath(unittest.TestCase):
+    """Teammate prompt files, like logs, are keyed on the teammate name, which
+    repeats across projects. A flat ``/tmp/prompt-<id>.txt`` collides when two
+    xp-agents sessions in different projects assign the same story — so the
+    prompt path must be namespaced by project-id, co-located with the log.
+    """
+
+    def test_prompt_path_scopes_by_project_id(self):
+        """project_prompt_path embeds the smm-parent (project-id) so distinct
+        projects get distinct prompt paths while a shared teammate name would
+        still collide within a single project."""
+        import spawn_teammate
+
+        a = spawn_teammate.project_prompt_path(
+            "/data/8e1f07eb0759/smm", "worktree-story-001"
+        )
+        b = spawn_teammate.project_prompt_path(
+            "/data/deadbeefcafe/smm", "worktree-story-001"
+        )
+
+        self.assertEqual(a.parent.name, "8e1f07eb0759")
+        self.assertEqual(b.parent.name, "deadbeefcafe")
+        self.assertNotEqual(a, b, "different projects must not share a prompt path")
+        self.assertEqual(a.name, "worktree-story-001.prompt.txt")
+
+    def test_prompt_path_co_located_with_log(self):
+        """The prompt file sits in the same per-project dir as the log, so both
+        share the single project-id source of truth."""
+        import spawn_teammate
+
+        smm_dir = "/data/8e1f07eb0759/smm"
+        prompt = spawn_teammate.project_prompt_path(smm_dir, "worktree-story-001")
+        self.assertEqual(prompt.parent, spawn_teammate.project_log_dir(smm_dir))
+
+    def test_prompt_path_handles_trailing_slash(self):
+        """A trailing slash on the smm-dir still resolves to the project-id."""
+        import spawn_teammate
+
+        p = spawn_teammate.project_prompt_path(
+            "/data/8e1f07eb0759/smm/", "worktree-story-001"
+        )
+        self.assertEqual(p.parent.name, "8e1f07eb0759")
+
+
+class TestPrintPromptPath(unittest.TestCase):
+    """`--print-prompt-path` is a pure query: it prints the deterministic
+    project-scoped prompt path for a teammate name and exits 0 WITHOUT
+    spawning. /xp-assign calls it so the orchestrator writes the prompt to a
+    collision-safe location instead of a flat ``/tmp/prompt-<id>.txt``. Unlike
+    the log path (which spawn_teammate mkdir's itself before the tee), the
+    prompt file is written by an external process before spawn, so the query
+    must create the parent dir.
+    """
+
+    def test_print_prompt_path_prints_deterministic_path_and_does_not_spawn(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = str(Path(tmp) / "8e1f07eb0759" / "smm")
+            buf = io.StringIO()
+            with (
+                patch.object(spawn_teammate, "create_worktree") as mock_wt,
+                patch.object(spawn_teammate, "run_with_tee") as mock_tee,
+                redirect_stdout(buf),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--print-prompt-path",
+                        "--name",
+                        "worktree-story-005",
+                        "--smm-dir",
+                        smm_dir,
+                    ]
+                )
+
+            expected = spawn_teammate.project_prompt_path(smm_dir, "worktree-story-005")
+            self.assertEqual(buf.getvalue().strip(), str(expected))
+            # Pure query — no worktree, no spawn.
+            mock_wt.assert_not_called()
+            mock_tee.assert_not_called()
+            # The parent dir is created so the external writer can write there.
+            self.assertTrue(expected.parent.is_dir())
+
+    def test_print_prompt_path_needs_no_prompt_file(self):
+        """The query short-circuits before the prompt-file requirement, so a
+        caller can ask for the path before constructing the prompt."""
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = str(Path(tmp) / "deadbeefcafe" / "smm")
+            buf = io.StringIO()
+            with (
+                patch.object(spawn_teammate, "create_worktree"),
+                patch.object(spawn_teammate, "run_with_tee"),
+                redirect_stdout(buf),
+            ):
+                # No --prompt-file passed; must not raise SystemExit from argparse.
+                spawn_teammate.main(
+                    [
+                        "--print-prompt-path",
+                        "--name",
+                        "worktree-story-005",
+                        "--smm-dir",
+                        smm_dir,
+                    ]
+                )
+            self.assertTrue(
+                buf.getvalue().strip().endswith("worktree-story-005.prompt.txt")
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

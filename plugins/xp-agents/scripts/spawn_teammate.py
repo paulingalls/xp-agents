@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import os
 import subprocess
 import sys
@@ -38,7 +39,7 @@ import tier_wire
 # The subprocess tee + liveness watchdog live in a sibling leaf module; keep
 # the names importable here so callers (and their tests) still see
 # spawn_teammate.run_with_tee / project_log_dir.
-from teammate_runner import project_log_dir, run_with_tee
+from teammate_runner import project_log_dir, project_prompt_path, run_with_tee
 
 
 def cleanup_existing(name: str, cwd: str) -> None:
@@ -197,6 +198,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "run_with_tee's own log so a tailer watches the file the tee writes."
         ),
     )
+    parser.add_argument(
+        "--print-prompt-path",
+        action="store_true",
+        help=(
+            "Print the deterministic project-scoped prompt-file path for --name "
+            "(creating its parent dir) and exit 0 WITHOUT spawning. /xp-assign "
+            "calls this so the orchestrator writes the teammate prompt to a "
+            "per-project location instead of a flat /tmp/prompt-<id>.txt that "
+            "collides across concurrent sessions."
+        ),
+    )
     parser.add_argument("--story-id", default=None)
     parser.add_argument("--branch", default=None)
     parser.add_argument("--model", default=None)
@@ -213,10 +225,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     args = parser.parse_args(argv)
-    # --prompt-file is required for a real spawn but not for the --print-log-path
-    # query, which short-circuits before it is read.
-    if not args.print_log_path and args.prompt_file is None:
-        parser.error("--prompt-file is required unless --print-log-path is set")
+    # --prompt-file is required for a real spawn but not for the --print-*-path
+    # queries, which short-circuit before it is read.
+    if (
+        not args.print_log_path
+        and not args.print_prompt_path
+        and args.prompt_file is None
+    ):
+        parser.error(
+            "--prompt-file is required unless --print-log-path or "
+            "--print-prompt-path is set"
+        )
     return args
 
 
@@ -230,6 +249,18 @@ def main(argv: list[str] | None = None) -> None:
     # the mid-flight `tail -f` target.
     if args.print_log_path:
         print(project_log_dir(args.smm_dir) / f"{name}.log")
+        return
+
+    # Pure query: print the per-project prompt-file path and exit before any
+    # side effect. The orchestrator writes the prompt there BEFORE spawning, so
+    # — unlike the log dir, which spawn_teammate mkdir's itself before the tee —
+    # nothing else guarantees the dir exists; create it here (best-effort) so
+    # the external writer can write regardless of how it writes.
+    if args.print_prompt_path:
+        prompt_path = project_prompt_path(args.smm_dir, name)
+        with contextlib.suppress(OSError):
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        print(prompt_path)
         return
 
     cwd = os.getcwd()

@@ -24,17 +24,35 @@ _DEFAULT_LOG_DIR = Path("/tmp")
 _LOG_ROOT = _DEFAULT_LOG_DIR / "xp-agents-teammates"
 
 
-def project_log_dir(smm_dir: str | Path) -> Path:
-    """Return the project-scoped forensic-log directory for *smm_dir*.
+def _project_dir(smm_dir: str | Path) -> Path:
+    """Return the per-project /tmp namespace directory for *smm_dir*.
 
-    Teammate names (``worktree-story-001``) repeat across projects, so a flat
-    ``/tmp/<name>.log`` collides when two xp-agents sessions in different
-    projects spawn same-named teammates. SMM lives at
-    ``${CLAUDE_PLUGIN_DATA}/{project-id}/smm/``, so the SMM parent's name is a
-    per-project token — namespace logs under it to keep them isolated while
-    preserving /tmp's ephemerality and discoverability.
+    Teammate names (``worktree-story-001``) and story ids repeat across
+    projects, so a flat ``/tmp/<name>.log`` or ``/tmp/prompt-<id>.txt`` collides
+    when two xp-agents sessions in different projects spawn same-named teammates.
+    SMM lives at ``${CLAUDE_PLUGIN_DATA}/{project-id}/smm/``, so the SMM parent's
+    name is a per-project token — namespace teammate files under it to keep them
+    isolated while preserving /tmp's ephemerality and discoverability. Single
+    source of truth for the project-id token shared by logs and prompts.
     """
     return _LOG_ROOT / Path(smm_dir).resolve().parent.name
+
+
+def project_log_dir(smm_dir: str | Path) -> Path:
+    """Return the project-scoped forensic-log directory for *smm_dir*."""
+    return _project_dir(smm_dir)
+
+
+def project_prompt_path(smm_dir: str | Path, name: str) -> Path:
+    """Return the deterministic per-project prompt-file path for *name*.
+
+    The orchestrator writes each teammate's spawn prompt here before invoking
+    spawn_teammate. Prompt files, like logs, are keyed on the teammate name,
+    which repeats across projects — a flat ``/tmp/prompt-<id>.txt`` collides
+    across concurrent sessions exactly as the flat log path did. Co-locate the
+    prompt beside the log under the same per-project dir.
+    """
+    return _project_dir(smm_dir) / f"{name}.prompt.txt"
 
 
 # Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,
