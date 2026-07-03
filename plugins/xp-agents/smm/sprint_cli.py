@@ -389,8 +389,16 @@ def main() -> None:
         help="Persist executor_model + executor_effort as value-or-null",
     )
     setx_p.add_argument("story_id", help="Story ID to set")
-    setx_p.add_argument("--model", default="", help="Decided tier; empty -> null")
-    setx_p.add_argument("--effort", default="", help="Decided effort; empty -> null")
+    setx_p.add_argument(
+        "--model",
+        default=None,
+        help="Decided tier; provided-empty -> null; omitted -> leave unchanged",
+    )
+    setx_p.add_argument(
+        "--effort",
+        default=None,
+        help="Decided effort; provided-empty -> null; omitted -> leave unchanged",
+    )
 
     update_p = sub.add_parser("update-story", help="Update story status")
     update_p.add_argument("story_id", help="Story ID")

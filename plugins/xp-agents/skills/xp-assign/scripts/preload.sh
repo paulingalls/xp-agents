@@ -120,10 +120,11 @@ if target:
             # recommended_effort (story-004) travels on the SAME winning event,
             # so a retraction (no effort key) naturally yields empty —
             # RECOMMENDED_EFFORT never survives from a stale earlier
-            # recommendation. (The persisted executor_model/executor_effort
-            # FIELDS no longer latch either: Step 0 calls `set-executor`
-            # unconditionally, writing both as value-or-null every assignment, so
-            # a retraction to inherit/none clears whatever a prior assignment set.)
+            # recommendation. (The persisted executor_effort FIELD no longer
+            # latches either: Step 0 passes `set-executor --effort` every spawning
+            # branch, value-or-null, so a retraction clears it. executor_model is
+            # left to the Step 0 --model flag, OMITTED on the inherit outcome to
+            # preserve a deliberate /xp-schedule pre-seed.)
             metadata = event.get("metadata") or {}
             tier = metadata.get("recommended_model") or "none"
             effort = metadata.get("recommended_effort") or ""

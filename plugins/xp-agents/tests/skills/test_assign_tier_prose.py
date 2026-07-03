@@ -141,15 +141,20 @@ class TestAssignTierProse(unittest.TestCase):
         not gate effort itself."""
         self.assertRegex(self.body, r"(?i)fail.?safe|drop.{0,30}effort")
 
-    # --- debt c93c9745f5ed: the executor-field latch clears ---------------
-    def test_executor_value_or_null_clears_latch(self):
-        """Step 0 persists executor_model/executor_effort via set-executor as
-        value-or-null on every spawning branch, so a re-assignment that retracts
-        to inherit/none clears a tier a prior assignment latched (not skips the
-        write and leaves the stale value)."""
+    # --- debt c93c9745f5ed + review finding: effort latch clears, model preserved
+    def test_executor_effort_latch_clears_and_model_preseed_preserved(self):
+        """Step 0 persists via set-executor value-or-null: it clears the
+        executor_effort latch by passing `--effort ""` on the no-recommendation
+        path, but OMITS `--model` on the inherit outcome so a deliberate
+        /xp-schedule executor_model pre-seed is preserved, not clobbered."""
         self.assertIn("set-executor", self.decision)
         self.assertRegex(self.decision, r"(?i)value-or-null")
-        self.assertRegex(self.decision, r"(?is)clear.{0,40}latch|latch.{0,40}clear")
+        self.assertIn("executor_effort", self.decision)
+        # effort cleared on the no-recommendation path
+        self.assertIn('--effort ""', self.decision)
+        # model preserved: --model omitted on the inherit outcome
+        self.assertRegex(self.decision, r"(?is)omit.{0,25}--model|--model.{0,25}omit")
+        self.assertRegex(self.decision, r"(?i)pre-seed|preserve")
 
     # --- Project-agnostic vocabulary (CLAUDE.md guardrail) ----------------
     def test_no_language_specific_tokens_in_decision_prose(self):

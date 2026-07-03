@@ -136,19 +136,25 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
 
 
 def _cmd_set_executor(args: argparse.Namespace) -> int:
-    """Persist a story's executor_model + executor_effort as value-or-null.
+    """Persist a story's executor_model / executor_effort — value-or-null, but
+    only for the flags that are PROVIDED.
 
-    /xp-assign Step 0 calls this UNCONDITIONALLY once per assignment with the
-    decided tier/effort (empty when the decision is inherit/none). Writing both
-    fields every time — null when the flag is empty — means a re-assignment that
-    retracts to inherit CLEARS a tier a prior assignment latched, instead of the
-    stale value persisting (debt c93c9745f5ed). Reuses store.edit_story's
-    shallow-merge; the schema accepts null for both fields.
+    A provided flag (even empty) writes the field: a real tier/effort as itself,
+    an empty string as null. An OMITTED flag leaves the field untouched. That
+    asymmetry is deliberate: executor_effort has a single writer (/xp-assign), so
+    Step 0 clears its latch by passing `--effort ""` on the no-recommendation
+    path (debt c93c9745f5ed); executor_model has TWO writers — /xp-assign AND a
+    deliberate /xp-schedule per-story pre-seed — so Step 0 OMITS --model on that
+    same path to preserve the pre-seed rather than clobber it. Reuses
+    store.edit_story's shallow-merge; the schema accepts null for both fields.
     """
-    updates = {
-        "executor_model": args.model or None,
-        "executor_effort": args.effort or None,
-    }
+    updates = {}
+    if args.model is not None:
+        updates["executor_model"] = args.model or None
+    if args.effort is not None:
+        updates["executor_effort"] = args.effort or None
+    if not updates:
+        return 0
     try:
         store.edit_story(args.smm_dir, args.story_id, updates)
     except ValueError as exc:
