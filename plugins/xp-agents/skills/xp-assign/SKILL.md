@@ -183,7 +183,21 @@ git checkout "$BASE"
 
 ## Step 3: Write the prompt file for THIS story
 
-Write a self-contained prompt for `$TARGET` to `/tmp/prompt-$TARGET.txt`. The teammate has no prior context. Include:
+First resolve the per-project prompt path — a flat `/tmp/prompt-$TARGET.txt`
+collides across concurrent sessions in different projects (story ids repeat),
+so query the collision-safe path from the spawn script (it creates the parent
+dir, and fails loud if it can't):
+
+```bash
+PROMPT_FILE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py \
+  --print-prompt-path --name "worktree-$TARGET" --smm-dir ${SMM_DIR})
+```
+
+Write a self-contained prompt for `$TARGET` to `$PROMPT_FILE` in THIS same Bash
+call's turn (with the Write tool, using the printed path). The spawn in Step 4
+re-derives this exact path from `--name` + `--smm-dir`, so you do NOT thread
+`$PROMPT_FILE` into the spawn command — a shell variable would be empty in the
+separate Bash call anyway. The teammate has no prior context. Include:
 
 - **Milestone Context** — design_details and constraints from execution_plan.json
 - **Story Context** — what THIS story uniquely does (don't restate milestone rationale)
@@ -212,7 +226,7 @@ spawn fail-safes when the tier can't support the level).
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET" \
-  --smm-dir ${SMM_DIR} --prompt-file "/tmp/prompt-$TARGET.txt" \
+  --smm-dir ${SMM_DIR} \
   --story-id "$TARGET" --branch <story-branch> \
   --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
   ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} \
@@ -230,7 +244,7 @@ keys on it):
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET" \
-  --smm-dir ${SMM_DIR} --prompt-file "/tmp/prompt-$TARGET.txt" \
+  --smm-dir ${SMM_DIR} \
   --story-id "$TARGET" --in-place \
   --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
   ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} \
