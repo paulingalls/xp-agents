@@ -300,6 +300,45 @@ class TestEditStoryCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
+class TestSetExecutorCommand(_SMMTestCase):
+    """set-executor writes executor_model + executor_effort as value-or-null,
+    so a re-assignment that decides inherit/none CLEARS a tier latched by a
+    prior assignment (debt c93c9745f5ed)."""
+
+    def _seed_latched(self):
+        sprint = _make_sprint()
+        sprint["stories"][0]["executor_model"] = "opus"
+        sprint["stories"][0]["executor_effort"] = "high"
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_empty_flags_clear_latched_fields(self):
+        """No decided tier (inherit/none) -> both fields persist null, clearing
+        the latch from a prior assignment."""
+        self._seed_latched()
+        result = run_cli(
+            _CLI,
+            ["set-executor", "story-001", "--model", "", "--effort", ""],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads((self.smm_dir / "sprint.json").read_text())["stories"][0]
+        self.assertIsNone(story["executor_model"])
+        self.assertIsNone(story["executor_effort"])
+
+    def test_model_set_clears_stale_effort(self):
+        """A model with no effort persists the model and clears a stale effort."""
+        self._seed_latched()
+        result = run_cli(
+            _CLI,
+            ["set-executor", "story-001", "--model", "sonnet"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads((self.smm_dir / "sprint.json").read_text())["stories"][0]
+        self.assertEqual(story["executor_model"], "sonnet")
+        self.assertIsNone(story["executor_effort"])
+
+
 class TestUpdateStoryBranch(_SMMTestCase):
     def test_sets_branch_name(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))

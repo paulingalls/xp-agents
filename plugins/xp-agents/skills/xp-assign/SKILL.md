@@ -98,27 +98,24 @@ Evaluate the branches **in this order** and act on the first that matches:
 | 5 | `RECOMMENDED_TIER` is a tier that **diverges** from `TEAMMATE_DEFAULT` | Ask EXACTLY ONE `AskUserQuestion`: apply the recommended tier `Y`, or keep the default `X`? Spawn at the chosen tier. If the customer keeps the default (rejects the recommendation), write a tier_override event. |
 | 6 | `RECOMMENDED_TIER` is `none` | **Silent apply the default.** If `TEAMMATE_DEFAULT` is a tier, spawn at it; if it is `inherit`, spawn with NO `--model` flag (orchestrator tier). No override event. |
 
-For the spawning branches (4–6), set the chosen tier on the story so Step 1
-reads it back and Step 4 forwards it:
+For the spawning branches (4–6), persist the decision on the story so Step 1
+reads it back and Step 4 forwards it. Write BOTH `executor_model` and
+`executor_effort` as **value-or-null in ONE call, on every spawning branch** —
+the chosen tier (one of `haiku`/`sonnet`/`opus`/`fable`, or empty for the
+`inherit` outcome, branch 6) and `RECOMMENDED_EFFORT` (empty when the winning
+recommendation carried none):
 
 ```bash
-echo '{"executor_model":"<haiku|sonnet|opus|fable>"}' \
-  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} edit-story "$TARGET"
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
+  set-executor "$TARGET" --model "<chosen-tier-or-empty>" --effort "${RECOMMENDED_EFFORT}"
 ```
 
-Leave `executor_model` unset for the `inherit` outcome (branch 6) — an absent
-value is what makes Step 4 omit `--model` and inherit the orchestrator tier.
-
-**Effort forward (per-story).** On a spawning branch, when `RECOMMENDED_EFFORT`
-(the preload's per-story effort, from the same winning recommendation event) is
-non-empty, also set the story's `executor_effort` so Step 4 forwards `--effort`:
-
-```bash
-echo '{"executor_effort":"<RECOMMENDED_EFFORT>"}' \
-  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} edit-story "$TARGET"
-```
-
-Leave it unset when `RECOMMENDED_EFFORT` is empty. No gating here: `spawn_teammate`
+An empty `--model` persists `executor_model: null` — the `inherit` outcome, which
+makes Step 4 omit `--model` and inherit the orchestrator tier; an empty `--effort`
+persists `executor_effort: null`, so Step 4 omits `--effort`. Writing value-or-null
+**unconditionally** is what clears the latch: a re-assignment that retracts to
+`inherit`/`none` overwrites any tier a prior assignment persisted with null,
+instead of the stale value surviving. No gating on effort: `spawn_teammate`
 fail-safes — dropping `--effort` when the tier can't support the level — so it
 degrades to the model default rather than erroring.
 

@@ -135,6 +135,28 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_set_executor(args: argparse.Namespace) -> int:
+    """Persist a story's executor_model + executor_effort as value-or-null.
+
+    /xp-assign Step 0 calls this UNCONDITIONALLY once per assignment with the
+    decided tier/effort (empty when the decision is inherit/none). Writing both
+    fields every time — null when the flag is empty — means a re-assignment that
+    retracts to inherit CLEARS a tier a prior assignment latched, instead of the
+    stale value persisting (debt c93c9745f5ed). Reuses store.edit_story's
+    shallow-merge; the schema accepts null for both fields.
+    """
+    updates = {
+        "executor_model": args.model or None,
+        "executor_effort": args.effort or None,
+    }
+    try:
+        store.edit_story(args.smm_dir, args.story_id, updates)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_build_capstone(args: argparse.Namespace) -> int:
     """Print a deterministic capstone story as JSON on stdout.
 
