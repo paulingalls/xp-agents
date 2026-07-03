@@ -246,15 +246,17 @@ path).
 
 **Surface the live forensic log (both variants).** Right after launching the
 background spawn, tell the lead where to watch the teammate mid-flight. The
-`.log` is line-flushed live during the run (`run_with_tee`), so `tail -f` shows
+`.log` is line-flushed live during the run (`run_with_tee`), so `tail -F` shows
 progress and diagnoses a stall in real time — unlike the task output, which
-stays ~empty until exit. Query the exact path (single source of truth, matches
-the tee's own log) and surface it:
+stays ~empty until exit. Use `tail -F` (not `-f`): the background spawn creates
+the log a few seconds in, and `-F` waits for the file to appear instead of
+erroring on a not-yet-created path. Query the exact path (single source of
+truth, matches the tee's own log) and surface it:
 
 ```bash
 LOG_PATH=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py \
   --print-log-path --name "worktree-$TARGET" --smm-dir ${SMM_DIR})
-echo "Teammate running in background. Watch it live / diagnose a stall: tail -f $LOG_PATH"
+echo "Teammate running in background. Watch it live / diagnose a stall: tail -F $LOG_PATH"
 ```
 
 ## Step 5: Post-spawn

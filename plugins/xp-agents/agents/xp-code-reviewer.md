@@ -26,7 +26,7 @@ One refute pass over your own findings before reporting. **Spare state/lifecycle
 
 ## 1c. Self-Triage Risk and Elevate Angles
 
-Before the standard pass, self-triage the diff's risk from the change itself AND the injected Design Context (the Constraints pillar). When the diff looks higher-risk — state/lifecycle/concurrency changes, security-sensitive input handling, cross-contract schema edits, large mechanical sweeps — elevate those angles and hunt them first, in addition to the standard pass. Default the elevated angle to state/lifecycle/concurrency when nothing more specific stands out.
+Before the standard pass, self-triage the diff's risk from the change itself AND the injected Design Context (the Constraints pillar). When the diff looks higher-risk — state/lifecycle/concurrency changes, security-sensitive input handling, cross-contract schema edits, large mechanical sweeps — elevate those angles and hunt them first, in addition to the standard pass. Hunt the concrete targets the risk implies: **path handling** → path-escape guards, lexical-vs-real resolution, allowlist patterns; **input validation** → unknown-key reject, type coercion, unhelpful error messages; **cross-contract schema edits** → a test pinning both sides of the contract; **cross-runtime portability** → version-pinned assertions and fallback paths. Default the elevated angle to state/lifecycle/concurrency when nothing more specific stands out.
 
 Down-rate, don't flag, a diff that matches a documented Design-Context convention — the constraint is the intent, not a regression.
 
