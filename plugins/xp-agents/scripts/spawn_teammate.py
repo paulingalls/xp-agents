@@ -12,7 +12,7 @@ Usage:
     python3 spawn_teammate.py \
         --name worktree-story-001 \
         --smm-dir /path/to/smm \
-        --prompt-file /tmp/prompt.txt \
+        [--prompt-file /path/to/prompt.txt] \
         [--story-id story-001] \
         [--branch paulingalls/story-001-foo] \
         [--model sonnet] \
@@ -20,7 +20,6 @@ Usage:
 """
 
 import argparse
-import contextlib
 import os
 import subprocess
 import sys
@@ -187,7 +186,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
     parser.add_argument("--name", required=True)
     parser.add_argument("--smm-dir", required=True)
-    parser.add_argument("--prompt-file", required=False, default=None)
+    parser.add_argument(
+        "--prompt-file",
+        required=False,
+        default=None,
+        help=(
+            "Path to the teammate prompt. OPTIONAL: when omitted or empty, "
+            "spawn resolves the deterministic project_prompt_path(--smm-dir, "
+            "--name) itself — the same path --print-prompt-path returns. This "
+            "avoids threading a queried path across separate Bash tool calls "
+            "(shell state does not persist), which handed spawn an empty value."
+        ),
+    )
     parser.add_argument(
         "--print-log-path",
         action="store_true",
@@ -224,19 +234,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "in-progress/solo for /xp-accept's solo path)."
         ),
     )
-    args = parser.parse_args(argv)
-    # --prompt-file is required for a real spawn but not for the --print-*-path
-    # queries, which short-circuit before it is read.
-    if (
-        not args.print_log_path
-        and not args.print_prompt_path
-        and args.prompt_file is None
-    ):
-        parser.error(
-            "--prompt-file is required unless --print-log-path or "
-            "--print-prompt-path is set"
-        )
-    return args
+    return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -258,10 +256,18 @@ def main(argv: list[str] | None = None) -> None:
     # the external writer can write regardless of how it writes.
     if args.print_prompt_path:
         prompt_path = project_prompt_path(args.smm_dir, name)
-        with contextlib.suppress(OSError):
-            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        # The external writer REQUIRES this dir (unlike the log dir, which
+        # run_with_tee degrades around), so a mkdir failure must fail loud here
+        # rather than print a path the writer will then fail to write to.
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
         print(prompt_path)
         return
+
+    # Resolve the prompt path ONCE. When --prompt-file is omitted or empty, use
+    # the deterministic project_prompt_path (derivable from --name + --smm-dir
+    # already in this command) so no queried value has to survive a separate
+    # Bash tool call. Used everywhere the prompt is read/preserved/unlinked.
+    prompt_file = args.prompt_file or str(project_prompt_path(args.smm_dir, name))
 
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
@@ -301,7 +307,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.in_place:
             worktree.write_in_place_marker(Path(args.smm_dir), name)
         preamble = "" if args.in_place else _worktree_preamble(run_cwd)
-        combined = preamble + Path(args.prompt_file).read_text()
+        combined = preamble + Path(prompt_file).read_text()
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".prompt.txt", delete=False
         ) as tf:
@@ -343,7 +349,7 @@ def main(argv: list[str] | None = None) -> None:
         # in-progress (filter_incomplete). On a promote — or a successful filter
         # that merely closed the pipe late — unlinking is correct.
         if not filter_incomplete:
-            Path(args.prompt_file).unlink(missing_ok=True)
+            Path(prompt_file).unlink(missing_ok=True)
     finally:
         if args.in_place:
             worktree.remove_in_place_marker(Path(args.smm_dir), name)
@@ -353,7 +359,7 @@ def main(argv: list[str] | None = None) -> None:
     # rc=0 path: mechanical promote to reviewing under close-then-done.
     # On rc!=0 the run_with_tee call above raised CalledProcessError,
     # this code never runs, the story stays in-progress for debug, and
-    # args.prompt_file is preserved so the orchestrator can re-spawn
+    # the prompt file is preserved so the orchestrator can re-spawn
     # without reconstructing the prompt.
     # The CAS guard inside update_story_status_if rejects the promote
     # when the story has already been advanced past in-progress (e.g. an

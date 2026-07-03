@@ -273,6 +273,77 @@ class TestPrintPromptPath(unittest.TestCase):
                 buf.getvalue().strip().endswith("worktree-story-005.prompt.txt")
             )
 
+    def test_print_prompt_path_raises_on_mkdir_failure(self):
+        """The prompt dir is REQUIRED by the external writer (unlike the log dir,
+        which run_with_tee degrades around). If its parent cannot be created, the
+        query must fail loud with the path-named OSError — NOT swallow it and
+        print a path the writer will then fail to write to."""
+        import io
+        import uuid
+        from contextlib import redirect_stdout
+
+        import spawn_teammate
+
+        # Force mkdir failure: occupy the per-project prompt-dir path with a
+        # regular FILE, so mkdir(parents=True, exist_ok=True) raises.
+        token = f"mkdir-fail-{uuid.uuid4().hex}"
+        smm_dir = f"/data/{token}/smm"
+        blocker = spawn_teammate.project_prompt_path(smm_dir, "x").parent
+        blocker.parent.mkdir(parents=True, exist_ok=True)
+        blocker.write_text("occupied")
+        try:
+            buf = io.StringIO()
+            with self.assertRaises(OSError), redirect_stdout(buf):
+                spawn_teammate.main(
+                    [
+                        "--print-prompt-path",
+                        "--name",
+                        "worktree-story-005",
+                        "--smm-dir",
+                        smm_dir,
+                    ]
+                )
+        finally:
+            blocker.unlink(missing_ok=True)
+
+
+class TestSpawnResolvesPromptPath(unittest.TestCase):
+    """A real spawn with NO --prompt-file must resolve the deterministic
+    project_prompt_path itself. /xp-assign queries --print-prompt-path and
+    Writes the prompt there, then spawns in a SEPARATE Bash tool call where a
+    threaded shell variable would be empty — so spawn_teammate must derive the
+    same path from --name + --smm-dir rather than depend on a passed value.
+    """
+
+    def test_real_spawn_reads_deterministic_prompt_path(self):
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        captured = {}
+
+        def capture_tee(cmd, *, cwd=None, env=None, stdin=None, name=None, **kw):
+            captured["stdin"] = stdin.read() if stdin is not None else ""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = str(Path(tmp) / "8e1f07eb0759" / "smm")
+            name = "worktree-story-007"
+            prompt_path = spawn_teammate.project_prompt_path(smm_dir, name)
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            prompt_path.write_text("DETERMINISTIC PROMPT BODY")
+
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_tee),
+            ):
+                # No --prompt-file: spawn must resolve project_prompt_path itself.
+                spawn_teammate.main(["--name", name, "--smm-dir", smm_dir])
+
+            self.assertIn("DETERMINISTIC PROMPT BODY", captured.get("stdin", ""))
+            # The consumed prompt is unlinked on a clean run.
+            self.assertFalse(prompt_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
