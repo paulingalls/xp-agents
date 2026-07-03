@@ -85,5 +85,73 @@ class TestProjectScopedLogDir(unittest.TestCase):
             Path(prompt_path).unlink(missing_ok=True)
 
 
+class TestPrintLogPath(unittest.TestCase):
+    """`--print-log-path` is a pure query: it prints the deterministic
+    project-scoped forensic-log path for a teammate name and exits 0 WITHOUT
+    spawning. /xp-assign calls it to surface the live `tail -f` target to the
+    lead — the path must match run_with_tee's own (`project_log_dir` + name)
+    so a tailer watches the same file the tee writes.
+    """
+
+    def test_print_log_path_prints_deterministic_path_and_does_not_spawn(self):
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        smm_dir = "/tmp/plugindata/8e1f07eb0759/smm"
+        buf = io.StringIO()
+        with (
+            patch.object(spawn_teammate, "create_worktree") as mock_wt,
+            patch.object(spawn_teammate, "run_with_tee") as mock_tee,
+            redirect_stdout(buf),
+        ):
+            spawn_teammate.main(
+                [
+                    "--print-log-path",
+                    "--name",
+                    "worktree-story-005",
+                    "--smm-dir",
+                    smm_dir,
+                ]
+            )
+
+        expected = str(
+            spawn_teammate.project_log_dir(smm_dir) / "worktree-story-005.log"
+        )
+        self.assertEqual(buf.getvalue().strip(), expected)
+        # Pure query — no worktree, no spawn.
+        mock_wt.assert_not_called()
+        mock_tee.assert_not_called()
+
+    def test_print_log_path_needs_no_prompt_file(self):
+        """The query short-circuits before the prompt-file requirement, so a
+        caller can ask for the path without constructing a prompt."""
+        import io
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        buf = io.StringIO()
+        with (
+            patch.object(spawn_teammate, "create_worktree"),
+            patch.object(spawn_teammate, "run_with_tee"),
+            redirect_stdout(buf),
+        ):
+            # No --prompt-file passed; must not raise SystemExit from argparse.
+            spawn_teammate.main(
+                [
+                    "--print-log-path",
+                    "--name",
+                    "worktree-story-005",
+                    "--smm-dir",
+                    "/tmp/plugindata/deadbeefcafe/smm",
+                ]
+            )
+        self.assertTrue(buf.getvalue().strip().endswith("worktree-story-005.log"))
+
+
 if __name__ == "__main__":
     unittest.main()
