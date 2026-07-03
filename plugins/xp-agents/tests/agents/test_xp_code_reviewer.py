@@ -5,7 +5,7 @@ The three additions:
   Section 1  — state/lifecycle/concurrency angle bullet
   Section 1b — bounded self-verify with category-based spare-clause
   Section 1c — self-triage: the reviewer assesses the diff's own risk from
-               the change plus the injected Design Context, elevates the
+               the change plus the injected Constraints pillar, elevates the
                relevant angles itself, and down-rates diffs that match a
                documented convention. Replaces the classifier-fed
                ## Review Focus handshake table (removed in story-002).
@@ -158,9 +158,9 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         """Section 1c is a self-triage instruction, not the classifier handshake.
 
         The reviewer self-assesses the diff's risk from the change itself AND
-        the injected Design Context, elevates the relevant angles / hunts them
-        first (defaulting to state/lifecycle/concurrency), and down-rates
-        (does not flag) a diff that matches a documented Design-Context
+        the injected Constraints pillar, elevates the relevant angles / hunts
+        them first (defaulting to state/lifecycle/concurrency), and down-rates
+        (does not flag) a diff that matches a documented Constraints-pillar
         convention. The old classifier-fed ## Review Focus heading is gone —
         story-002 deletes the classifier that produced it.
         """
@@ -180,16 +180,18 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             "## Review Focus block — it now self-triages",
         )
 
-        # Self-triage: assess risk from the diff + injected Design Context.
+        # Self-triage: assess risk from the diff + injected Constraints pillar.
         self.assertIn(
             "self-triage",
             section_1c_lower,
             "Section 1c must describe self-triage of risk",
         )
         self.assertIn(
-            "design context",
+            "constraints pillar",
             section_1c_lower,
-            "Section 1c must ground self-triage in the injected Design Context",
+            "Section 1c must ground self-triage in the injected Constraints "
+            "pillar (the reviewer's actual injected context; sprint-113 "
+            "retired the orphaned 'Design Context' vocabulary)",
         )
 
         # Elevation behavior: elevate / hunt first / priority — at least one.
@@ -212,7 +214,7 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             "down-rate",
             section_1c_lower,
             "Section 1c must instruct down-rating diffs matching a "
-            "documented Design-Context convention",
+            "documented Constraints-pillar convention",
         )
 
         # Project-agnostic gate: no baked-in plugin size cap as the rule.
