@@ -82,6 +82,17 @@ class TestIsTeammateAgentId(unittest.TestCase):
 class TestIsWorktreeTeammate(unittest.TestCase):
     """is_worktree_teammate detects CLI teammates by cwd path or env var."""
 
+    def setUp(self):
+        # Neutralize the ambient process-cwd fallback so these assertions hold
+        # regardless of where the suite runs from (concern 464de40cd905). The
+        # conftest module-level pin covers full-suite runs, but this module does
+        # not import conftest, so an isolated `python3 -m unittest hooks.test_identity`
+        # launched from inside a teammate worktree would otherwise see os.getcwd()
+        # leak a worktree marker and flip every no-worktree-cwd case to True.
+        patcher = patch("identity._process_cwd", return_value="")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_worktree_story_cwd_detected(self):
         inp = {"cwd": "/home/user/project/.claude/worktrees/worktree-story-001/src"}
         self.assertTrue(identity.is_worktree_teammate(inp))

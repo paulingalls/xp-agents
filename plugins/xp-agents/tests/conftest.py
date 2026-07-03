@@ -113,6 +113,19 @@ sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
 import _common  # noqa: E402
 
+# Neutralize the ambient process-cwd leak (concern 464de40cd905), mirroring the
+# leaky-env strip above. When lefthook runs pytest inside a teammate worktree,
+# os.getcwd() returns the worktree path; identity._process_cwd() would leak it
+# into is_worktree_teammate and misdetect unrelated tests (which build synthetic
+# hook input with no 'cwd') as teammates — failing ~85 hook tests. Pin it to ''
+# at conftest load so detection relies only on an explicit input_data['cwd']; the
+# two process-cwd fallback tests patch identity._process_cwd to opt back in.
+# Module-level (not a pytest fixture) so it fires under both pytest and the
+# documented `python3 -m unittest` fallback runner.
+import identity  # noqa: E402
+
+identity._process_cwd = lambda: ""
+
 # Module-level re-exports of sibling production modules (smm/ + scripts/)
 # so test files can `from conftest import event_schema, sprint_store, ...`
 # instead of duplicating the sys.path.insert + bare-import dance.

@@ -14,6 +14,26 @@ from _preload_fixtures import PRELOAD_FIXTURES
 
 _HISTORICAL_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
 
+# A preload/emitter echoes absolute paths (e.g. CLAUDE_PLUGIN_ROOT). When the
+# suite runs from a worktree (lefthook pre-commit), those paths carry an extra
+# "/.claude/worktrees/<dir>" segment (~40 chars) that inflates the char count
+# purely by checkout location. Budgets are calibrated against the main checkout,
+# so strip that segment before measuring (concern 464de40cd905). Match any
+# worktree dir name — not just the "worktree-story-*" prefix — so the
+# normalization holds for every checkout layout under .claude/worktrees/.
+_WORKTREE_SEGMENT_RE = re.compile(r"/\.claude/worktrees/[^/]+")
+
+
+def _measured_len(stdout_bytes: bytes) -> int:
+    """Char length of preload/emitter stdout for budget purposes, location-independent.
+
+    Collapses the worktree path segment so a run from inside a teammate worktree
+    measures the same as one from the main checkout — the budget governs the
+    preload's content, not where the checkout happens to live.
+    """
+    text = stdout_bytes.decode("utf-8", errors="replace")
+    return len(_WORKTREE_SEGMENT_RE.sub("", text))
+
 
 def _md_files(dir_path: Path, pattern: str) -> dict[str, Path]:
     """Map {stem-or-parent-name: path} for shipped *.md files matching pattern.
@@ -189,7 +209,7 @@ def assert_emitter_under_budgets(
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
-            actual = len(stdout_bytes.decode("utf-8", errors="replace"))
+            actual = _measured_len(stdout_bytes)
             if actual > budget:
                 offenders.append(f"{name}: {actual} chars (budget {budget})")
     testcase.assertFalse(
@@ -301,7 +321,7 @@ def assert_preload_under_budgets(
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
-            actual = len(stdout_bytes.decode("utf-8", errors="replace"))
+            actual = _measured_len(stdout_bytes)
             if actual > budget:
                 offenders.append(f"{name}: {actual} chars (budget {budget})")
     testcase.assertFalse(
