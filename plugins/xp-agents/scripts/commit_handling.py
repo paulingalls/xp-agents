@@ -97,7 +97,7 @@ def _resolve_story_id(
         # spawn_teammate writes only WHILE the in-place child runs — a leaked
         # env with no live marker falls through to the heuristics instead.
         env_name = identity.teammate_name_from_env()
-        if env_name is not None and worktree.in_place_marker_exists(smm_dir, env_name):
+        if worktree.in_place_teammate_from_env(smm_dir, env_name):
             wt_name = env_name
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)

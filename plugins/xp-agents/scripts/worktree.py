@@ -346,6 +346,17 @@ def in_place_marker_exists(smm_dir: Path, name: str) -> bool:
     return in_place_marker_path(smm_dir, name).is_file()
 
 
+def in_place_teammate_from_env(smm_dir: Path, env_name: str | None) -> bool:
+    """True when env_name names a live in-place teammate (marker present).
+
+    Wraps the env-name-not-None + in_place_marker_exists check the three
+    call sites (identity, pre_tool_skill, commit_handling) rolled by hand.
+    Caller-side id-shape validation (is_teammate_agent_id) and smm_dir
+    resolution stay at the call sites, which differ.
+    """
+    return env_name is not None and in_place_marker_exists(smm_dir, env_name)
+
+
 def normalize_path(file_path: str, cwd: str) -> str:
     """Resolve a file path against cwd, return project-relative string.
 
