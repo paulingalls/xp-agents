@@ -170,17 +170,19 @@ class TestQualityReviewFramings(unittest.TestCase):
         return self.content[start:end]
 
     def test_resolve_framing_present(self):
-        # Step 2 frames the resolve path; the trailer/resolves wiring
-        # is the load-bearing detail.
-        section = self._section("## Step 2:", "## Step 3:")
+        # Step 3 frames the resolve path; the trailer/resolves wiring
+        # is the load-bearing detail. (Renumbered in sprint-113 story-002
+        # when the classifier step was removed and the reviewer spawn
+        # collapsed to Step 2.)
+        section = self._section("## Step 3:", "## Step 4:")
         self.assertIn("Resolved:", section)
         self.assertIn('"resolves":', section)
 
     def test_courage_fix_framing_present(self):
-        # Step 3 carries the new COURAGE-FIX framing alongside the
-        # existing "Fix directly" guidance: fix concerns whose files
-        # overlap the open diff while the file is already open.
-        section = self._section("## Step 3:", "## Step 4:")
+        # Step 4 carries the COURAGE-FIX framing alongside the existing
+        # "Fix directly" guidance: fix concerns whose files overlap the
+        # open diff while the file is already open.
+        section = self._section("## Step 4:", "## Step 5:")
         self.assertIn("COURAGE-FIX", section)
         self.assertIn("fix it now while the file is open", section)
         self.assertIn("file overlap is in scope", section)

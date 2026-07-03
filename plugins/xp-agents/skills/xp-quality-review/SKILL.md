@@ -25,7 +25,7 @@ allowed-tools:
 # Quality Review
 
 > **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 strictly, one
+> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 5 strictly, one
 > step per turn — make the call, observe, then decide the next. Don't batch a
 > step with the one that depends on it (e.g. acting on the xp-code-reviewer's
 > findings before it returns); never spawn that reviewer subagent more than once.
@@ -53,33 +53,22 @@ Format as a numbered list for the prompt — file, line, the finding summary, an
 2. other.py:45 — "summary of the bug" (failure: <failure_scenario>)
 ```
 
-## Step 1.4: Spawn Risk Classifier (MODE=self-find only)
+## Step 2: Build Reviewer Prompt and Spawn (single unconditional spawn)
 
-**SKIP this step when `MODE=consume-findings`** — `/code-review` already ran at close; the extra classifier call is wasted (sprint-103 lesson).
+Build the `xp-code-reviewer` prompt now and spawn the reviewer **unconditionally**. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch — it self-triages the diff's risk from the change itself and its injected Constraints pillar (Section 1c) and elevates the risky angles on its own, so no external risk hint is needed. In `consume-findings` mode pass the numbered findings list from Step 1.
 
-On `MODE=self-find`, spawn `xp-risk-classifier` exactly once. Pass the diff body (the content of preload's `## Recent Changes` / `## Story Diff (cumulative since ...)` section, depending on cadence) wrapped under a `## Diff` heading the classifier expects, plus preload's `## Changed Files` and `## Design Context` blocks verbatim — the latter lets the classifier down-rate a diff that matches a documented project convention instead of false-flagging it. The classifier returns `RISK=high` or `RISK=low` on its **first line** — parse strictly (read only the first line; narrative tails legitimately contain "RISK" as prose). An optional second line `SIGNALS=<comma-list>` may name elevated angles.
-
-```
-Agent(subagent_type: "xp-agents:xp-risk-classifier",
-      prompt: "## Diff\n<preload diff body>\n\n## Changed Files\n<preload ## Changed Files block verbatim>\n\n## Design Context\n<preload ## Design Context block verbatim>")
-```
-
-## Step 1.5: Build Reviewer Prompt and Spawn (single-spawn, optionally enriched)
-
-Build the `xp-code-reviewer` prompt now. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch. **If Step 1.4 returned `RISK=high`**, prepend a verbatim `## Review Focus` block naming the elevated angles. The angles come from the classifier's optional second line `SIGNALS=<comma-list>` (split on comma, drop the `SIGNALS=` prefix); when `SIGNALS=` is absent or empty, use the default `state/lifecycle/concurrency`. The agent's Section 1c recognizes the block and elevates the listed angles. On `RISK=low` (or MODE=consume-findings), spawn without the enrichment.
-
-**Single-spawn invariant.** Exactly ONE `xp-code-reviewer` spawn per cycle. Do NOT fan-out into multiple parallel spawns. Sprint-103's 3-spawn fan-out had irreducible coordination races (filesystem writes, SMM appends, dedupe-key fragility); single-spawn enriched avoids all of them.
+**Single-spawn invariant.** Exactly ONE `xp-code-reviewer` spawn per cycle. Do NOT fan-out into multiple parallel spawns. Sprint-103's 3-spawn fan-out had irreducible coordination races (filesystem writes, SMM appends, dedupe-key fragility); a single spawn avoids all of them.
 
 ```
 Agent(
   subagent_type: "xp-agents:xp-code-reviewer",
-  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\n[if RISK=high]\n## Review Focus\n<comma-list parsed from classifier SIGNALS=, e.g. `state/lifecycle/concurrency`; that exact default applies only when SIGNALS= is absent or empty>\n\nReview all four areas: correctness, drift, debt, reuse/quality/efficiency + XP values."
+  prompt: "## Diff\n<diff>\n\n## Code-Review Findings\n<numbered list, or 'None — self-find correctness'>\n\n## Existing Debt\n<debt>\n\n## SMM Directory\nSMM_DIR=<path>\n\nReview all four areas: correctness, drift, debt, reuse/quality/efficiency + XP values."
 )
 ```
 
 Wait for the subagent to complete. Its findings and any recorded events will be returned as a tool result.
 
-## Step 2: Resolve Plan Review Concerns
+## Step 3: Resolve Plan Review Concerns
 
 The preload lists open concerns from the plan reviewer. For each concern:
 
@@ -95,7 +84,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 If no open plan concerns are listed in the preload, skip this step.
 
-## Step 3: Act on Subagent Findings
+## Step 4: Act on Subagent Findings
 
 Review the xp-code-reviewer's summary. For each finding:
 
@@ -109,7 +98,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "What needs fixing and why" --files '["path/to/file.py"]'
 ```
 
-## Step 4: Report Back
+## Step 5: Report Back
 
 Briefly summarize what was fixed, what was deferred as debt, and what was already clean. Do NOT append a status event — the PostToolUse hook records the lifecycle event.
 

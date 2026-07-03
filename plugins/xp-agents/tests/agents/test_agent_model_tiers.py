@@ -12,6 +12,11 @@ user's session model — while shedding the slower, more capacity-constrained
 1M endpoint. This test pins the boundary so a future "downgrade everything to
 Sonnet" sweep can't silently weaken the judgment-critical agents, and so no
 agent silently re-acquires the `[1m]` variant.
+
+No agent currently pins to Haiku — sprint-113 removed the risk classifier, the
+only single-shot classification agent. The "haiku = classifiers" tiering policy
+still stands for a future classification agent (see the Constraints pillar); it
+just has no in-repo user today, so there is no Haiku tier list to pin here.
 """
 
 import re
@@ -37,9 +42,6 @@ OPUS_AGENTS = (
     "xp-system-analyzer",
 )
 
-# Bounded-classification agents — pinned to Haiku (cheap/fast, single-shot output).
-HAIKU_AGENTS = ("xp-risk-classifier",)
-
 
 def _agent_model(name: str) -> str:
     frontmatter, _ = _split_frontmatter_body((_AGENTS_DIR / f"{name}.md").read_text())
@@ -59,15 +61,10 @@ class TestAgentModelTiers(unittest.TestCase):
             with self.subTest(agent=name):
                 self.assertEqual(_agent_model(name), "opus")
 
-    def test_classifiers_pinned_to_haiku(self):
-        for name in HAIKU_AGENTS:
-            with self.subTest(agent=name):
-                self.assertEqual(_agent_model(name), "haiku")
-
     def test_no_agent_pins_1m_context(self):
         # The whole point of pinning opus is to shed the [1m] 1M-context beta;
         # no agent's model field may carry it.
-        for name in SONNET_AGENTS + OPUS_AGENTS + HAIKU_AGENTS:
+        for name in SONNET_AGENTS + OPUS_AGENTS:
             with self.subTest(agent=name):
                 self.assertNotIn("[1m]", _agent_model(name))
 
