@@ -2,6 +2,12 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.4.1 — Fix teammate prompt-file /tmp collision across sessions
+
+Free-branch fix. The teammate spawn-prompt file was the last piece of teammate state still living at a flat, cross-project-colliding `/tmp` path — the same class of bug the v4.3.2/v4.4.0 log-isolation work fixed for the forensic `.log`. TDD-ordered and reviewed before merge.
+
+- **Teammate prompt files are now namespaced per project.** `/xp-assign` had the orchestrator write each teammate's spawn prompt to a flat `/tmp/prompt-<story-id>.txt`. Story ids repeat across projects, so two concurrent xp-agents sessions in different projects that assign the same story id clobbered each other's prompt. The prompt now lives beside the log under the per-project dir (`/tmp/xp-agents-teammates/<project-id>/<name>.prompt.txt`), exposed via a new `spawn_teammate.py --print-prompt-path` query flag mirroring `--print-log-path`; `/xp-assign` queries the collision-safe path instead of hardcoding it. A shared `_project_dir` helper gives logs and prompts one source of truth for the project-id token.
+
 ## v4.4.0 — Remove the risk classifier; reviewer self-triages; live teammate log
 
 Sprint-113. The per-increment review floor no longer runs a separate risk classifier — the reviewer judges risk itself — and a stuck teammate is now diagnosable mid-flight. Every change TDD-ordered and reviewed before merge.
