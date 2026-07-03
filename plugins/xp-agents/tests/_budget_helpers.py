@@ -15,11 +15,13 @@ from _preload_fixtures import PRELOAD_FIXTURES
 _HISTORICAL_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
 
 # A preload/emitter echoes absolute paths (e.g. CLAUDE_PLUGIN_ROOT). When the
-# suite runs from a teammate worktree (lefthook pre-commit), those paths carry an
-# extra "/.claude/worktrees/worktree-<id>" segment (~40 chars) that inflates the
-# char count purely by checkout location. Budgets are calibrated against the main
-# checkout, so strip that segment before measuring (concern 464de40cd905).
-_WORKTREE_SEGMENT_RE = re.compile(r"/\.claude/worktrees/worktree-[^/]+")
+# suite runs from a worktree (lefthook pre-commit), those paths carry an extra
+# "/.claude/worktrees/<dir>" segment (~40 chars) that inflates the char count
+# purely by checkout location. Budgets are calibrated against the main checkout,
+# so strip that segment before measuring (concern 464de40cd905). Match any
+# worktree dir name — not just the "worktree-story-*" prefix — so the
+# normalization holds for every checkout layout under .claude/worktrees/.
+_WORKTREE_SEGMENT_RE = re.compile(r"/\.claude/worktrees/[^/]+")
 
 
 def _measured_len(stdout_bytes: bytes) -> int:

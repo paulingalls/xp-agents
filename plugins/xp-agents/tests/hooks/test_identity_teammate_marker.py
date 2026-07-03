@@ -109,12 +109,13 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
                 )
 
     def test_ambient_worktree_cwd_does_not_leak_into_detection(self):
-        """Regression (concern 464de40cd905): lefthook runs pytest from inside a
-        teammate worktree, so os.getcwd() returns the worktree path. The test
-        harness must neutralize that ambient leak (conftest pins _process_cwd) so
-        an unrelated test with synthetic input does not misdetect as a teammate.
-        Without an explicit input_data['cwd'], detection must stay False even when
-        the real os.getcwd() reports a worktree path."""
+        """Guards the conftest harness pin (concern 464de40cd905). lefthook runs
+        pytest from inside a teammate worktree, where os.getcwd() reports the
+        worktree path; conftest pins identity._process_cwd to '' so that ambient
+        value never reaches is_worktree_teammate. This asserts the pin dominates:
+        even with os.getcwd patched to a worktree path, a synthetic input with no
+        'cwd' stays False. If the pin were removed, _process_cwd would read the
+        patched os.getcwd and this would flip to True — so the test fails loud."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("XP_TEAMMATE_NAME", None)
             os.environ.pop("SMM_DIR", None)
