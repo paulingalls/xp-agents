@@ -2,6 +2,28 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.4.2 — Fix the /xp-assign executor-effort latch
+
+Free-branch fix. `/xp-assign` persists two decision fields on each story —
+`executor_model` and `executor_effort` — that Step 1 reads back and Step 4
+forwards to the spawned teammate as `--model` / `--effort`. TDD-ordered and
+reviewed before merge.
+
+- **A retracted recommendation no longer leaves a stale `executor_effort`.**
+  Step 0 wrote `executor_effort` only when the plan-reviewer recommended one and
+  skipped it otherwise, so a re-assignment after a retraction (or a customer who
+  keeps the default over a divergent recommendation) left the *prior* effort
+  latched on the story. A new `sprint_cli.py set-executor` subcommand writes a
+  field as value-or-null **only when its flag is passed** (provided-empty → null,
+  omitted → untouched), and Step 0 now passes `--effort` on every spawning branch
+  — the recommended effort when spawning at the recommended tier, else `--effort
+  ""` — clearing the latch. (Closes a debt carried across six sessions.)
+- **`executor_model` is preserved on the inherit path.** Because a story's
+  `executor_model` can also be set by a deliberate `/xp-schedule` per-story
+  pre-seed, Step 0 *omits* `--model` on the inherit outcome rather than clobbering
+  the pre-seed to null — so a story you scheduled at, say, `haiku` still spawns at
+  `haiku`.
+
 ## v4.4.1 — Fix teammate prompt-file /tmp collision across sessions
 
 Free-branch fix. The teammate spawn-prompt file was the last piece of teammate state still living at a flat, cross-project-colliding `/tmp` path — the same class of bug the v4.3.2/v4.4.0 log-isolation work fixed for the forensic `.log`. TDD-ordered and reviewed before merge.

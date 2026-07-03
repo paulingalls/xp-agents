@@ -31,6 +31,7 @@ from sprint_cli_mutate import (
     _cmd_build_capstone,
     _cmd_create,
     _cmd_edit_story,
+    _cmd_set_executor,
     _cmd_update_story,
     _cmd_update_story_branch,
     _cmd_update_story_if,
@@ -383,6 +384,22 @@ def main() -> None:
     edit_p = sub.add_parser("edit-story", help="Edit story fields from stdin JSON")
     edit_p.add_argument("story_id", help="Story ID to edit")
 
+    setx_p = sub.add_parser(
+        "set-executor",
+        help="Persist executor_model + executor_effort as value-or-null",
+    )
+    setx_p.add_argument("story_id", help="Story ID to set")
+    setx_p.add_argument(
+        "--model",
+        default=None,
+        help="Decided tier; provided-empty -> null; omitted -> leave unchanged",
+    )
+    setx_p.add_argument(
+        "--effort",
+        default=None,
+        help="Decided effort; provided-empty -> null; omitted -> leave unchanged",
+    )
+
     update_p = sub.add_parser("update-story", help="Update story status")
     update_p.add_argument("story_id", help="Story ID")
     update_p.add_argument(
@@ -473,6 +490,7 @@ def main() -> None:
         "add-story": _cmd_add_story,
         "build-capstone": _cmd_build_capstone,
         "edit-story": _cmd_edit_story,
+        "set-executor": _cmd_set_executor,
         "update-story": _cmd_update_story,
         "update-story-if": _cmd_update_story_if,
         "update-story-branch": _cmd_update_story_branch,

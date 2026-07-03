@@ -98,35 +98,34 @@ Evaluate the branches **in this order** and act on the first that matches:
 | 5 | `RECOMMENDED_TIER` is a tier that **diverges** from `TEAMMATE_DEFAULT` | Ask EXACTLY ONE `AskUserQuestion`: apply the recommended tier `Y`, or keep the default `X`? Spawn at the chosen tier. If the customer keeps the default (rejects the recommendation), write a tier_override event. |
 | 6 | `RECOMMENDED_TIER` is `none` | **Silent apply the default.** If `TEAMMATE_DEFAULT` is a tier, spawn at it; if it is `inherit`, spawn with NO `--model` flag (orchestrator tier). No override event. |
 
-For the spawning branches (4–6), set the chosen tier on the story so Step 1
-reads it back and Step 4 forwards it:
+For the spawning branches (4–6), persist the decision with `set-executor`, which
+writes a field only when its flag is passed (provided-empty → `null`; omitted →
+untouched). The two fields differ in ownership:
+
+- **`executor_model`** is also settable by a `/xp-schedule` per-story pre-seed, so
+  pass `--model "<tier>"` only when the outcome is a concrete tier, and **omit
+  `--model` on any `inherit` outcome** so the pre-seed is preserved, not clobbered.
+- **`executor_effort`** (sole writer: this decision) is passed on **every**
+  spawning branch, value-or-null — `${RECOMMENDED_EFFORT}` at the recommended
+  tier, else `--effort ""` — which clears any latched `executor_effort`.
 
 ```bash
-echo '{"executor_model":"<haiku|sonnet|opus|fable>"}' \
-  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} edit-story "$TARGET"
+# Concrete tier (branch 4/5, or branch 6 tier default):
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
+  set-executor "$TARGET" --model "<chosen-tier>" --effort "<RECOMMENDED_EFFORT-or-empty>"
+# Inherit outcome — clear effort, omit --model to preserve any pre-seed:
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
+  set-executor "$TARGET" --effort ""
 ```
 
-Leave `executor_model` unset for the `inherit` outcome (branch 6) — an absent
-value is what makes Step 4 omit `--model` and inherit the orchestrator tier.
-
-**Effort forward (per-story).** On a spawning branch, when `RECOMMENDED_EFFORT`
-(the preload's per-story effort, from the same winning recommendation event) is
-non-empty, also set the story's `executor_effort` so Step 4 forwards `--effort`:
-
-```bash
-echo '{"executor_effort":"<RECOMMENDED_EFFORT>"}' \
-  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} edit-story "$TARGET"
-```
-
-Leave it unset when `RECOMMENDED_EFFORT` is empty. No gating here: `spawn_teammate`
-fail-safes — dropping `--effort` when the tier can't support the level — so it
-degrades to the model default rather than erroring.
+`spawn_teammate` fail-safes on effort (drops `--effort` when the tier can't
+support it), degrading to the model default rather than erroring.
 
 **In-agent invariant.** `in-agent` is a control-flow signal, not a tier — it is
 **never** written to `executor_model`. It only ever drives the exit / no-spawn
 branches (2 and 3). The spawning branches set `executor_model` ONLY to a valid
-tier in `haiku`/`sonnet`/`opus`, or leave it null (the `inherit` outcome). A
-spawn never carries `in-agent` as a model.
+tier in `haiku`/`sonnet`/`opus`, or leave it untouched on the `inherit` outcome.
+A spawn never carries `in-agent` as a model.
 
 **Override audit event.** When the chosen tier differs from the recommendation
 (branch 2's forced in-agent, or branch 5 when the customer keeps the default),

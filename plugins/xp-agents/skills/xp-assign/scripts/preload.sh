@@ -36,6 +36,7 @@ fi
 #   TEAMMATE_DEFAULT       — the session default tier; fail-safes to `inherit`
 #                            (today's behavior) when the TEAMMATE_CONFIG marker is unset.
 # Atomic emit: any failure yields the fail-safe defaults (empty batch + none + inherit).
+# shellcheck disable=SC2016  # single-quoted python literal; shell must NOT expand it
 TEAMMATE_OUT=$(python3 -c '
 import json
 import sys
@@ -119,9 +120,11 @@ if target:
             # recommended_effort (story-004) travels on the SAME winning event,
             # so a retraction (no effort key) naturally yields empty —
             # RECOMMENDED_EFFORT never survives from a stale earlier
-            # recommendation. (Scoped to this emitted var: the persisted
-            # executor_effort FIELD is a separate concern — Step 0 only writes it,
-            # it does not clear it, so it can latch across a re-assignment.)
+            # recommendation. (The persisted executor_effort FIELD no longer
+            # latches either: Step 0 passes `set-executor --effort` every spawning
+            # branch, value-or-null, so a retraction clears it. executor_model is
+            # left to the Step 0 --model flag, OMITTED on the inherit outcome to
+            # preserve a deliberate /xp-schedule pre-seed.)
             metadata = event.get("metadata") or {}
             tier = metadata.get("recommended_model") or "none"
             effort = metadata.get("recommended_effort") or ""

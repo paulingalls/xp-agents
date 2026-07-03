@@ -135,6 +135,42 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_set_executor(args: argparse.Namespace) -> int:
+    """Persist a story's executor_model / executor_effort — value-or-null, but
+    only for the flags that are PROVIDED.
+
+    A provided flag (even empty) writes the field: a real tier/effort as itself,
+    an empty string as null. An OMITTED flag leaves the field untouched. That
+    asymmetry is deliberate: executor_effort has a single writer (/xp-assign), so
+    Step 0 clears its latch by passing `--effort ""` on the no-recommendation
+    path (debt c93c9745f5ed); executor_model has TWO writers — /xp-assign AND a
+    deliberate /xp-schedule per-story pre-seed — so Step 0 OMITS --model on that
+    same path to preserve the pre-seed rather than clobber it.
+
+    Accepted tradeoff (chosen over clearing): because the field can't distinguish
+    a /xp-schedule pre-seed from a tier a prior /xp-assign wrote, preserving it on
+    the inherit path also lets a prior concrete-tier assignment persist across a
+    rare tier->inherit RE-assignment. The pre-seed (a documented feature) wins
+    over that edge; a full fix would need separate provenance state.
+
+    Reuses store.edit_story's shallow-merge; the schema accepts null for both
+    fields and validates a non-null model/effort against its known vocabulary.
+    """
+    updates = {}
+    if args.model is not None:
+        updates["executor_model"] = args.model or None
+    if args.effort is not None:
+        updates["executor_effort"] = args.effort or None
+    if not updates:
+        return 0
+    try:
+        store.edit_story(args.smm_dir, args.story_id, updates)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _cmd_build_capstone(args: argparse.Namespace) -> int:
     """Print a deterministic capstone story as JSON on stdout.
 

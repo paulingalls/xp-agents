@@ -51,6 +51,10 @@ VALID_EXECUTION_MODES = frozenset({"solo", "teammate"})
 # Closed plugin-side enum; widen here if a new tier ships
 # (tests/agents/test_agent_model_tiers.py is the per-tier classification).
 VALID_EXECUTOR_MODELS = tier_wire.TEAMMATE_MODELS
+# Reasoning-effort levels a teammate spawn can forward (--effort); null/absent
+# means no effort forwarded. Validated at write time so a garbage effort can't
+# be persisted and silently handed to spawn_teammate.
+VALID_EXECUTOR_EFFORTS = frozenset(tier_wire.TEAMMATE_EFFORTS)
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
     "context": 600,
@@ -190,6 +194,17 @@ def _validate_story(
             errors.append(
                 f"stories[{idx}].executor_model must be one of {valid}, "
                 f"got {em_executor!r}"
+            )
+
+    ee_executor = story.get("executor_effort")
+    if ee_executor is not None:
+        if not isinstance(ee_executor, str):
+            errors.append(f"stories[{idx}].executor_effort must be a string or null")
+        elif ee_executor not in VALID_EXECUTOR_EFFORTS:
+            valid = sorted(VALID_EXECUTOR_EFFORTS)
+            errors.append(
+                f"stories[{idx}].executor_effort must be one of {valid}, "
+                f"got {ee_executor!r}"
             )
 
     return errors
