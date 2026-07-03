@@ -104,6 +104,14 @@ class TestSetExecutorCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self._story()["executor_effort"], "high")
 
+    def test_no_flags_is_noop(self):
+        """Neither flag provided → no write, rc 0, story fields untouched."""
+        self._seed(executor_model="opus", executor_effort="high")
+        result = run_cli(_CLI, ["set-executor", "story-001"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._story()["executor_model"], "opus")
+        self.assertEqual(self._story()["executor_effort"], "high")
+
 
 if __name__ == "__main__":
     unittest.main()
