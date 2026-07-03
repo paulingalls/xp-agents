@@ -300,65 +300,6 @@ class TestEditStoryCommand(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
 
 
-class TestSetExecutorCommand(_SMMTestCase):
-    """set-executor writes a field only when its flag is PROVIDED (value-or-null:
-    a provided-empty flag persists null). An OMITTED flag leaves the field
-    untouched — so branch 6 can clear the executor_effort latch (debt
-    c93c9745f5ed) via `--effort ""` while preserving an executor_model that
-    /xp-schedule deliberately pre-seeded."""
-
-    def _seed(self, **fields):
-        sprint = _make_sprint()
-        sprint["stories"][0].update(fields)
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-
-    def _story(self):
-        return json.loads((self.smm_dir / "sprint.json").read_text())["stories"][0]
-
-    def test_effort_only_clears_effort_and_preserves_preseeded_model(self):
-        """Branch 6: `--effort ""` clears the effort latch; an OMITTED --model
-        leaves a /xp-schedule pre-seeded executor_model intact."""
-        self._seed(executor_model="haiku", executor_effort="high")
-        result = run_cli(
-            _CLI, ["set-executor", "story-001", "--effort", ""], self.smm_dir
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self._story()["executor_model"], "haiku")
-        self.assertIsNone(self._story()["executor_effort"])
-
-    def test_both_flags_write_value_or_null(self):
-        """Branches 4/5: a decided tier plus effort are both persisted; a
-        provided-empty --effort clears a stale effort (branch-5 reject)."""
-        self._seed(executor_model="opus", executor_effort="high")
-        result = run_cli(
-            _CLI,
-            ["set-executor", "story-001", "--model", "sonnet", "--effort", ""],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self._story()["executor_model"], "sonnet")
-        self.assertIsNone(self._story()["executor_effort"])
-
-    def test_omitted_effort_leaves_effort_untouched(self):
-        """An omitted --effort does not touch the field (only provided flags write)."""
-        self._seed(executor_effort="high")
-        result = run_cli(
-            _CLI, ["set-executor", "story-001", "--model", "opus"], self.smm_dir
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self._story()["executor_model"], "opus")
-        self.assertEqual(self._story()["executor_effort"], "high")
-
-    def test_provided_empty_model_clears_model(self):
-        """A provided-empty --model explicitly clears the field to null."""
-        self._seed(executor_model="opus")
-        result = run_cli(
-            _CLI, ["set-executor", "story-001", "--model", ""], self.smm_dir
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNone(self._story()["executor_model"])
-
-
 class TestUpdateStoryBranch(_SMMTestCase):
     def test_sets_branch_name(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))

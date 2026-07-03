@@ -393,6 +393,40 @@ class TestStoryExecutorModelField(unittest.TestCase):
         )
 
 
+class TestStoryExecutorEffortField(unittest.TestCase):
+    """Optional executor_effort story field: a reasoning-effort level or absent.
+
+    Set by /xp-assign from the plan-reviewer's recommended_effort; forwarded to
+    spawn_teammate's --effort flag. Validated at write time (like executor_model)
+    so a garbage effort can't be persisted and silently forwarded.
+    """
+
+    def test_executor_effort_absent_valid(self):
+        errors = sprint_schema.validate_sprint(_make_sprint())
+        self.assertEqual(errors, [])
+
+    def test_executor_effort_null_valid(self):
+        sprint = _make_sprint(stories=[_make_story(executor_effort=None)])
+        self.assertEqual(sprint_schema.validate_sprint(sprint), [])
+
+    def test_executor_effort_known_level_valid(self):
+        for level in ("low", "medium", "high", "xhigh", "max"):
+            sprint = _make_sprint(stories=[_make_story(executor_effort=level)])
+            self.assertEqual(sprint_schema.validate_sprint(sprint), [], level)
+
+    def test_executor_effort_unknown_value_rejected(self):
+        sprint = _make_sprint(stories=[_make_story(executor_effort="turbo")])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(
+            any("executor_effort" in e and "turbo" in e for e in errors), errors
+        )
+
+    def test_executor_effort_non_string_rejected(self):
+        sprint = _make_sprint(stories=[_make_story(executor_effort=3)])
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("executor_effort" in e for e in errors), errors)
+
+
 class TestExecutorModelStoreRoundTrip(_SMMTestCase):
     """E2E coverage for story-002 AC #3: a story's executor_model survives
     save_sprint → load_sprint round-trip via the existing shallow-merge path."""

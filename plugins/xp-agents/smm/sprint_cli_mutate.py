@@ -145,8 +145,16 @@ def _cmd_set_executor(args: argparse.Namespace) -> int:
     Step 0 clears its latch by passing `--effort ""` on the no-recommendation
     path (debt c93c9745f5ed); executor_model has TWO writers — /xp-assign AND a
     deliberate /xp-schedule per-story pre-seed — so Step 0 OMITS --model on that
-    same path to preserve the pre-seed rather than clobber it. Reuses
-    store.edit_story's shallow-merge; the schema accepts null for both fields.
+    same path to preserve the pre-seed rather than clobber it.
+
+    Accepted tradeoff (chosen over clearing): because the field can't distinguish
+    a /xp-schedule pre-seed from a tier a prior /xp-assign wrote, preserving it on
+    the inherit path also lets a prior concrete-tier assignment persist across a
+    rare tier->inherit RE-assignment. The pre-seed (a documented feature) wins
+    over that edge; a full fix would need separate provenance state.
+
+    Reuses store.edit_story's shallow-merge; the schema accepts null for both
+    fields and validates a non-null model/effort against its known vocabulary.
     """
     updates = {}
     if args.model is not None:
