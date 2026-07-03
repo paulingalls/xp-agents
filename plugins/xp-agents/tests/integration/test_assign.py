@@ -25,6 +25,47 @@ from conftest import (
 _PRELOAD_SCRIPT = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
 
 
+class TestAssignForensicLogSurfacing(unittest.TestCase):
+    """The /xp-assign SKILL must point mid-flight teammate diagnosis at the
+    LIVE forensic `.log` (line-flushed by run_with_tee), not at the task
+    `.output` capture — which is the filter's stdout and stays ~0 bytes until
+    the teammate exits (the filter swallows stdin and prints one summary line
+    at the end; it does NOT tee). story-005 surfaces the live-log `tail -f`
+    target via `spawn_teammate.py --print-log-path` and corrects the docs.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = (_PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+
+    def test_surfaces_live_log_tail_target(self):
+        """The SKILL names the live-log tail target via --print-log-path + tail."""
+        self.assertIn(
+            "--print-log-path",
+            self.skill,
+            "SKILL must query the live forensic-log path via "
+            "spawn_teammate.py --print-log-path",
+        )
+        self.assertRegex(
+            self.skill.lower(),
+            r"tail\b",
+            "SKILL must instruct tailing the live forensic .log for mid-flight "
+            "progress / stall diagnosis",
+        )
+
+    def test_no_false_filter_tee_claim(self):
+        """The SKILL must not claim the output filter tees stdin->stdout — it
+        doesn't; the task .output holds only the final summary."""
+        self.assertNotIn(
+            "tee'd it",
+            self.skill,
+            "SKILL must not claim teammate_output_filter.py 'tee'd' the task "
+            "output — the filter swallows stdin and emits one summary at exit",
+        )
+
+
 class TestWorktreeCreateSubprocess(_IntegrationTestCase):
     """WorktreeCreate hook via subprocess with real git repo."""
 
