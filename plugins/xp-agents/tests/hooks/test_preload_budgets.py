@@ -64,6 +64,20 @@ class TestPreloadBudgets(unittest.TestCase):
     def test_no_preload_exceeds_its_budget(self):
         assert_preload_under_budgets(self, PRELOAD_BUDGETS, _LABEL)
 
+    def test_worktree_path_segment_does_not_inflate_budget(self):
+        """Location-independence (concern 464de40cd905): when lefthook runs the
+        suite from a teammate worktree, echoed absolute paths (CLAUDE_PLUGIN_ROOT)
+        carry an extra '/.claude/worktrees/worktree-<id>' segment. Budget
+        measurement must strip it so a worktree run measures the same as the main
+        checkout — otherwise every teammate's pre-commit budget check fails."""
+        from _budget_helpers import _measured_len
+
+        main = b"PLUGIN_ROOT=/repo/plugins/xp-agents\n"
+        worktree = (
+            b"PLUGIN_ROOT=/repo/.claude/worktrees/worktree-story-1/plugins/xp-agents\n"
+        )
+        self.assertEqual(_measured_len(main), _measured_len(worktree))
+
     def test_every_preload_in_skills_dir_has_budget_entry(self):
         """Surface-scan: walk skills/*/scripts/ for preload-emitter scripts; fail
         loud on any without a budget entry. Mirror of story-008's emitter-side
