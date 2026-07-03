@@ -1,29 +1,21 @@
 #!/usr/bin/env python3
-"""Cross-language regression-replay capstone for sprint-104 milestone-1.
+"""Cross-language regression-replay capstone for the per-increment review floor.
 
-The per-increment review floor must work on diffs in ANY language — not
-just Python. Sprint-103's regex classifier leaked Python-only coverage
-three times before being abandoned; the LLM-judged classifier
-(story-002) + Step 1.4/1.5 routing (story-003) is structurally
-cross-language, and THIS test makes that guarantee permanent.
+The review floor must work on diffs in ANY language — not just Python.
+Sprint-103's regex classifier leaked Python-only coverage three times before
+being abandoned. Sprint-113 removed the classifier entirely: the reviewer
+(xp-code-reviewer §1c) self-triages risk from the diff + its injected
+Constraints pillar, and it is language-agnostic LLM judgment. What must stay
+structurally cross-language is preload.sh's INPUT to the reviewer — and THIS
+test makes that guarantee permanent.
 
-The test exercises preload.sh against synthesized fixture diffs in
-Python (the two known v3.11 regression shapes), TypeScript, Rust, and
-a mix of other languages. It does NOT invoke the live xp-risk-classifier
-subagent — that path is nondeterministic and expensive. Instead:
-
-  * preload.sh's `## Changed Files` block + diff dump are asserted to
-    surface every fixture path regardless of language extension — the
-    classifier's INPUT is cross-language.
-  * SKILL.md's Step 1.4 / Step 1.5 prose is asserted to consume preload's
-    `## Changed Files` block by name and conditionally emit `## Review
-    Focus` — closes the plumbing chain story-003 left implicit.
-  * SKILL.md's RISK=low branch is asserted to skip the Review Focus
-    enrichment — the unpinned false-escalation guard the reviewer flagged.
-
-Together with story-003's SKILL.md prose pins, this gives both intent
-(prose contract) and behavior (integration replay) coverage of the
-cross-language pipeline.
+The test exercises preload.sh against synthesized fixture diffs in Python (the
+two known v3.11 regression shapes), TypeScript, Rust, and a mix of other
+languages. It does NOT invoke the live reviewer subagent — that path is
+nondeterministic and expensive. Instead it asserts preload.sh's `## Changed
+Files` block + diff dump surface every fixture path regardless of language
+extension, so the reviewer's INPUT is cross-language and no per-extension
+gating can silently leak Python-only coverage back in.
 
 Fixtures use generic CS vocabulary (state-field, latch, marker, lock,
 async coordination) only — no xp-agents internal surface names.
@@ -37,11 +29,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _bases import _IntegrationTestCase
-from _md_helpers import _split_frontmatter_body
 from conftest import _PLUGIN_ROOT
 
 _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
-_SKILL_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "SKILL.md"
 
 
 # --- Fixture corpus -----------------------------------------------------
@@ -97,7 +87,7 @@ COSMETIC_RS = "// typo fix in module header\n"
 
 
 class TestReviewRegressionReplay(_IntegrationTestCase):
-    """Capstone: cross-language pipeline plumbing for M1."""
+    """Capstone: cross-language reviewer-input plumbing."""
 
     # ------------------------------------------------------------------
     # Helpers
@@ -133,9 +123,9 @@ class TestReviewRegressionReplay(_IntegrationTestCase):
         """Shape-replica of d69748e92ad1 (stop-gate latch-off) surfaces in preload.
 
         Per-increment preload emits `## Changed Files` (full path list) and a
-        stat-only `dump_diff` summary. The classifier sees this — sufficient
-        to identify the file as a Python state-machine candidate and request
-        further content via Read tool (its only allowed tool).
+        stat-only `dump_diff` summary. The reviewer sees this — sufficient to
+        identify the file as a Python state-machine candidate and read further
+        content itself.
         """
         self._stage_fixture("module.py", PY_REGRESSION_LATCH_NO_CLEAR)
         out = self._run_qr_preload()
@@ -155,10 +145,10 @@ class TestReviewRegressionReplay(_IntegrationTestCase):
     def test_typescript_state_machine_surfaces_cross_language(self):
         """Seeded TypeScript regression — load-bearing cross-language guard.
 
-        Sprint-103's regex classifier would have returned RISK=low here
-        (no .py suffix). The new LLM-judged pipeline must see this diff:
-        the path surfaces in both the diff stat AND the `## Changed Files`
-        block — no language-extension gating.
+        Sprint-103's regex classifier would have skipped this (no .py suffix).
+        The current pipeline must surface the diff to the reviewer: the path
+        appears in both the diff stat AND the `## Changed Files` block — no
+        language-extension gating.
         """
         self._stage_fixture("module.ts", TS_LATCH_NO_CLEAR)
         out = self._run_qr_preload()
@@ -190,11 +180,11 @@ class TestReviewRegressionReplay(_IntegrationTestCase):
 
     def test_preload_does_not_filter_on_file_suffix(self):
         """Anti-leak guard: every language extension surfaces — including those
-        not named in M1's design (Go, Java).
+        not named in the original design (Go, Java).
 
-        The classifier (story-002 LLM judgment) judges; the preload does
-        not pre-filter. A future change that adds per-extension gating
-        here would fail this test loudly.
+        The reviewer (LLM judgment) judges risk; the preload does not
+        pre-filter. A future change that adds per-extension gating here would
+        fail this test loudly.
         """
         self._stage_fixture("a.py", "x = 1\n")
         self._stage_fixture("b.ts", "const x = 1;\n")
@@ -208,46 +198,6 @@ class TestReviewRegressionReplay(_IntegrationTestCase):
                 out,
                 f"preload must surface {path!r} — language extension gating is a leak",
             )
-
-    # ------------------------------------------------------------------
-    # Tests — SKILL.md cross-skill plumbing pins
-    # Close the pipeline chain story-003 left implicit: assert Step 1.4
-    # consumes preload's `## Changed Files` block by name and Step 1.5
-    # skips enrichment on RISK=low (the unpinned false-escalation guard).
-    # ------------------------------------------------------------------
-
-    def test_skill_md_step_1_4_consumes_preload_changed_files_block(self):
-        """Cross-skill structural pin: Step 1.4 names preload's block by name.
-
-        If preload's block name drifted (e.g., `## Files Changed`), this
-        test would fail loudly. Without it, the integration replay tests
-        above pass independently and a name drift goes unnoticed.
-        """
-        text = _SKILL_PATH.read_text(encoding="utf-8")
-        _, body = _split_frontmatter_body(text)
-        # Step 1.4 must name the preload block verbatim.
-        self.assertIn(
-            "## Changed Files",
-            body,
-            "SKILL.md Step 1.4 must name preload's `## Changed Files` block verbatim",
-        )
-
-    def test_skill_md_step_1_5_skip_enrichment_on_risk_low(self):
-        """Step 1.5 explicitly skips the Review Focus enrichment on RISK=low.
-
-        The false-escalation guard: without this prose, the classifier
-        could regress to always-enrich and we'd never notice. Pin it.
-        """
-        text = _SKILL_PATH.read_text(encoding="utf-8")
-        _, body = _split_frontmatter_body(text)
-        body_lower = body.lower()
-        # Explicit RISK=low handling: skip the enrichment or spawn without it.
-        self.assertRegex(
-            body_lower,
-            r"risk=low[^.]{0,150}(without\s+the?\s*enrichment|skip|no\s+enrichment)",
-            "SKILL.md Step 1.5 must explicitly describe the RISK=low skip path "
-            "(unenriched spawn) — guards against false-escalation regressions",
-        )
 
 
 if __name__ == "__main__":

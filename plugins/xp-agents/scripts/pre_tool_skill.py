@@ -87,7 +87,10 @@ def _is_live_teammate(input_data: dict, smm_dir: Path | None) -> bool:
     if env_name is None or not identity.is_teammate_agent_id(env_name):
         return False
     smm_dir = _common.get_validated_smm_dir(smm_dir)
-    return smm_dir is not None and worktree.in_place_marker_exists(smm_dir, env_name)
+    return (
+        smm_dir is not None
+        and worktree.in_place_teammate_from_env(smm_dir, env_name)
+    )
 
 
 def teammate_block_reason(input_data: dict, smm_dir: Path | None = None) -> str | None:

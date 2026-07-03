@@ -92,7 +92,7 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
         wt_cwd = "/home/user/project/.claude/worktrees/worktree-story-001/src"
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            with patch("identity.os.getcwd", return_value=wt_cwd):
+            with patch("identity._process_cwd", return_value=wt_cwd):
                 self.assertTrue(
                     identity.is_worktree_teammate({"cwd": None}, smm_dir=self.smm_dir)
                 )
@@ -103,10 +103,27 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
         teammate (does not reintroduce leaked-env misidentification)."""
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            with patch("identity.os.getcwd", return_value="/home/user/project/src"):
+            with patch("identity._process_cwd", return_value="/home/user/project/src"):
                 self.assertFalse(
                     identity.is_worktree_teammate({"cwd": None}, smm_dir=self.smm_dir)
                 )
+
+    def test_ambient_worktree_cwd_does_not_leak_into_detection(self):
+        """Guards the conftest harness pin (concern 464de40cd905). lefthook runs
+        pytest from inside a teammate worktree, where os.getcwd() reports the
+        worktree path; conftest pins identity._process_cwd to '' so that ambient
+        value never reaches is_worktree_teammate. This asserts the pin dominates:
+        even with os.getcwd patched to a worktree path, a synthetic input with no
+        'cwd' stays False. If the pin were removed, _process_cwd would read the
+        patched os.getcwd and this would flip to True — so the test fails loud."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            os.environ.pop("SMM_DIR", None)
+            with patch(
+                "identity.os.getcwd",
+                return_value="/home/user/project/.claude/worktrees/worktree-story-9/src",
+            ):
+                self.assertFalse(identity.is_worktree_teammate({}))
 
 
 if __name__ == "__main__":

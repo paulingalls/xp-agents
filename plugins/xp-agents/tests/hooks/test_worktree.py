@@ -735,6 +735,39 @@ class TestFindClosingTeammateWorktree(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestInPlaceTeammateFromEnv(unittest.TestCase):
+    """in_place_teammate_from_env returns True when env_name names a live
+    in-place teammate (marker present), False otherwise.
+
+    Wraps the env-name-not-None + in_place_marker_exists check that
+    identity, pre_tool_skill, and commit_handling previously rolled by hand.
+    Caller-side id-shape validation (is_teammate_agent_id) and smm_dir
+    resolution stay at call sites; the helper centralizes the core guard.
+    """
+
+    def test_returns_true_when_marker_present_and_env_not_none(self):
+        """When env_name is non-None and marker exists, returns True."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            smm_dir = Path(tmpdir)
+            worktree.write_in_place_marker(smm_dir, "worktree-story-001")
+            result = worktree.in_place_teammate_from_env(smm_dir, "worktree-story-001")
+            self.assertTrue(result)
+
+    def test_returns_false_when_env_name_is_none(self):
+        """When env_name is None, returns False (no marker lookup)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            smm_dir = Path(tmpdir)
+            result = worktree.in_place_teammate_from_env(smm_dir, None)
+            self.assertFalse(result)
+
+    def test_returns_false_when_marker_absent(self):
+        """When env_name is non-None but marker doesn't exist, returns False."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            smm_dir = Path(tmpdir)
+            result = worktree.in_place_teammate_from_env(smm_dir, "worktree-story-999")
+            self.assertFalse(result)
+
+
 class TestBranchHeldByWorktree(unittest.TestCase):
     """branch_held_by_worktree powers close_common.py's skip-delete path
     when the source branch is checked out by a teammate worktree.

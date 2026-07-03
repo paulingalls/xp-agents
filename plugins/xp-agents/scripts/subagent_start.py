@@ -6,7 +6,7 @@ Tiered injection via the _TIERS registry (injector, wants_sequential_note):
 - xp-code-reviewer / Plan / unknown types: full SMM + XP values
 - xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values
 - xp-housekeeper: curation path + work-selection block + XP values
-- xp-* forked agents (close/plan/sprint reviewer, risk classifier): XP values only
+- xp-* forked agents (close/plan/sprint reviewer): XP values only
 - Generic catch-alls (workflow-subagent / general-purpose / claude): XP values +
   a cheap SMM reference pointer, no full render. Purpose-blind, prompt-driven,
   highest-fanout types; most do read-only review/research, and a code-writing one

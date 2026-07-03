@@ -186,7 +186,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
     parser.add_argument("--name", required=True)
     parser.add_argument("--smm-dir", required=True)
-    parser.add_argument("--prompt-file", required=True)
+    parser.add_argument("--prompt-file", required=False, default=None)
+    parser.add_argument(
+        "--print-log-path",
+        action="store_true",
+        help=(
+            "Print the deterministic project-scoped forensic-log path for "
+            "--name and exit 0 WITHOUT spawning. /xp-assign calls this to "
+            "surface the live `tail -f` target to the lead — the path matches "
+            "run_with_tee's own log so a tailer watches the file the tee writes."
+        ),
+    )
     parser.add_argument("--story-id", default=None)
     parser.add_argument("--branch", default=None)
     parser.add_argument("--model", default=None)
@@ -202,13 +212,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "in-progress/solo for /xp-accept's solo path)."
         ),
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    # --prompt-file is required for a real spawn but not for the --print-log-path
+    # query, which short-circuits before it is read.
+    if not args.print_log_path and args.prompt_file is None:
+        parser.error("--prompt-file is required unless --print-log-path is set")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
     """Parse args and spawn the teammate."""
     args = parse_args(argv)
     name = args.name
+
+    # Pure query: print the live forensic-log path the tee will write to, and
+    # exit before any worktree/spawn side effect. /xp-assign surfaces this as
+    # the mid-flight `tail -f` target.
+    if args.print_log_path:
+        print(project_log_dir(args.smm_dir) / f"{name}.log")
+        return
 
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-

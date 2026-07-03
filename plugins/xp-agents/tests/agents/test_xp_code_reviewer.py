@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""xp-code-reviewer.md prose pins for sprint-104 story-001.
+"""xp-code-reviewer.md prose pins for sprint-113 story-001.
 
 The three additions:
   Section 1  — state/lifecycle/concurrency angle bullet
   Section 1b — bounded self-verify with category-based spare-clause
-  Section 1c — recognition of an inbound ## Review Focus block (written by
-               story-003's xp-quality-review Step 1.5 on RISK=high)
+  Section 1c — self-triage: the reviewer assesses the diff's own risk from
+               the change plus the injected Constraints pillar, elevates the
+               relevant angles itself, and down-rates diffs that match a
+               documented convention. Replaces the classifier-fed
+               ## Review Focus handshake table (removed in story-002).
 
 Tests are prose pins: the agent is an LLM, so the deterministic guard is the
 prompt prose itself. Sprint-103 attempted similar work and was abandoned at
-close — the cross-language vocabulary guard (test 2) is the load-bearing
-sprint-104 lesson (CLAUDE.md two-layer project-agnostic guardrail).
+close — the cross-language vocabulary guard (test 2 and the §1c anti-leak
+guard) is the load-bearing sprint-104/sprint-113 lesson (CLAUDE.md two-layer
+project-agnostic guardrail).
 """
 
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -24,21 +27,6 @@ from _md_helpers import _split_frontmatter_body
 from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
-_CLASSIFIER_PROMPT = _PLUGIN_ROOT / "agents" / "xp-risk-classifier.md"
-
-# sprint-111 M4 story-002: each classifier signal -> angle anchors, at least
-# one of which must appear alongside the signal in §1c (proves the row maps to
-# a substantive angle, not a bare echo). Keys mirror story-001's _SIGNALS in
-# test_risk_classifier_agent.py (interface contract); anchors come from the
-# design doc's reviewer-angle column (RISK_CLASSIFIER_RUBRIC_BROADENING.md).
-_SIGNAL_ANGLES = {
-    "path-traversal": ("path-escape", "lexical", "allowlist"),
-    "input-validation": ("unknown-key", "coercion", "error-message"),
-    "combinatorial-data-table": ("per-entry", "cell"),
-    "cross-runtime-portability": ("version", "fallback", "runtime probe"),
-    "file-size-creep": ("extract", "split"),
-    "schema-cross-contract": ("both sides", "integration test"),
-}
 
 
 def _section_slice(body: str, start_heading: str, end_heading: str) -> str:
@@ -166,12 +154,15 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             "default-refuted framing",
         )
 
-    def test_section_1c_recognizes_review_focus_block(self):
-        """Section 1c declares recognition of the inbound ## Review Focus block.
+    def test_section_1c_self_triages_not_classifier_handshake(self):
+        """Section 1c is a self-triage instruction, not the classifier handshake.
 
-        Story-003 wires xp-quality-review Step 1.5 to emit a `## Review
-        Focus` block on RISK=high. The agent must recognize the block
-        (verbatim heading) and elevate the listed angles.
+        The reviewer self-assesses the diff's risk from the change itself AND
+        the injected Constraints pillar, elevates the relevant angles / hunts
+        them first (defaulting to state/lifecycle/concurrency), and down-rates
+        (does not flag) a diff that matches a documented Constraints-pillar
+        convention. The old classifier-fed ## Review Focus heading is gone —
+        story-002 deletes the classifier that produced it.
         """
         self.assertIn(
             "## 1c",
@@ -179,44 +170,53 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             "xp-code-reviewer.md must have a Section 1c heading",
         )
         section_1c = _section_slice(self.body, "## 1c", "## 2.")
-        # The block name must appear verbatim with its markdown heading hash
-        # so the agent recognizes the prompt signal, not just the english word.
-        self.assertIn(
+        section_1c_lower = section_1c.lower()
+
+        # The classifier handshake heading must be gone.
+        self.assertNotIn(
             "## Review Focus",
             section_1c,
-            "Section 1c must name the ## Review Focus block verbatim",
+            "Section 1c must no longer reference the classifier-fed "
+            "## Review Focus block — it now self-triages",
         )
-        # Recognition behavior: elevate / hunt first / priority — at least one.
-        section_1c_lower = section_1c.lower()
+
+        # Self-triage: assess risk from the diff + injected Constraints pillar.
+        self.assertIn(
+            "self-triage",
+            section_1c_lower,
+            "Section 1c must describe self-triage of risk",
+        )
+        self.assertIn(
+            "constraints pillar",
+            section_1c_lower,
+            "Section 1c must ground self-triage in the injected Constraints "
+            "pillar (the reviewer's actual injected context; sprint-113 "
+            "retired the orphaned 'Design Context' vocabulary)",
+        )
+
+        # Elevation behavior: elevate / hunt first / priority — at least one.
         verbs = ("elevate", "hunt first", "priority")
         self.assertTrue(
             any(verb in section_1c_lower for verb in verbs),
-            "Section 1c must describe how the agent elevates the listed angles "
+            "Section 1c must describe how the agent elevates angles "
             "(elevate / hunt first / priority)",
         )
 
-    def test_section_1c_maps_each_signal_to_angle(self):
-        """Section 1c maps each classifier signal to a concrete reviewer angle.
+        # Default elevated angle when nothing more specific stands out.
+        self.assertRegex(
+            section_1c_lower,
+            r"state/?\s?lifecycle/?\s?concurrency",
+            "Section 1c must default the elevated angle to state/lifecycle/concurrency",
+        )
 
-        story-002: a forwarded RISK=high focus naming a signal must tell the
-        reviewer WHAT to hunt, not just "look harder". Each signal keyword must
-        appear in §1c with a substantive angle anchor (not a bare echo). Keys
-        mirror story-001's classifier SIGNALS (interface contract).
-        """
-        section_1c = _section_slice(self.body, "## 1c", "## 2.")
-        section_1c_lower = section_1c.lower()
-        for signal, anchors in _SIGNAL_ANGLES.items():
-            with self.subTest(signal=signal):
-                self.assertIn(
-                    signal,
-                    section_1c_lower,
-                    f"§1c must name signal '{signal}' from the classifier rubric",
-                )
-                self.assertTrue(
-                    any(a in section_1c_lower for a in anchors),
-                    f"§1c must give signal '{signal}' a concrete angle "
-                    f"(one of {anchors}), not just echo the keyword",
-                )
+        # Down-rate (not flag) diffs matching a documented convention.
+        self.assertIn(
+            "down-rate",
+            section_1c_lower,
+            "Section 1c must instruct down-rating diffs matching a "
+            "documented Constraints-pillar convention",
+        )
+
         # Project-agnostic gate: no baked-in plugin size cap as the rule.
         self.assertNotRegex(
             section_1c,
@@ -225,33 +225,38 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             "project's standards",
         )
 
-    def test_classifier_signals_are_all_covered_by_1c(self):
-        """Every signal in the classifier's §Signals table has a §1c angle.
+    def test_section_1c_is_cross_language(self):
+        """Anti-leak guard: §1c uses generic CS vocabulary only.
 
-        The SIGNALS vocabulary is a cross-file contract between two SHIPPED
-        files (xp-risk-classifier.md §Signals ↔ xp-code-reviewer.md §1c). The
-        per-file floor tests only assert the current six exist in each file
-        independently; this superset guard binds the two so a future classifier
-        signal added without a matching §1c enrichment angle fails red instead
-        of silently dropping directed review (close concern 6e43963eb489).
+        Mirrors test_state_lifecycle_angle_is_cross_language — the
+        self-triage prose must not leak xp-agents-internal surface names or
+        single out a language, since the reviewer runs on any-language diffs
+        (CLAUDE.md project-agnostic guardrail vocabulary layer).
         """
-        classifier_body = _CLASSIFIER_PROMPT.read_text(encoding="utf-8")
-        signals = _section_slice(classifier_body, "## Signals", "## Decision matrix")
-        # First-column backtick tokens in the §Signals table are the keywords.
-        classifier_signals = set(
-            re.findall(r"^\|\s*`([a-z][a-z-]+)`", signals, re.MULTILINE)
+        section_1c = _section_slice(self.body, "## 1c", "## 2.")
+        section_1c_lower = section_1c.lower()
+        for leak in (
+            "accept_in_flight",
+            "quality_review_done",
+            "simplify_done",
+            ".assign-pending",
+            "review_cycle_done",
+            "close_cycle_stop_gate",
+        ):
+            self.assertNotIn(
+                leak,
+                section_1c_lower,
+                f"Section 1c must not leak xp-agents internal name {leak!r}",
+            )
+        self.assertNotIn(
+            "python",
+            section_1c_lower,
+            "Section 1c must not single out Python — agent reviews any language",
         )
-        self.assertTrue(
-            classifier_signals,
-            "could not extract signal keywords from the classifier §Signals table",
-        )
-        section_1c_lower = _section_slice(self.body, "## 1c", "## 2.").lower()
-        missing = sorted(s for s in classifier_signals if s not in section_1c_lower)
-        self.assertEqual(
-            missing,
-            [],
-            f"classifier signals with no §1c enrichment angle: {missing} — "
-            "every classifier SIGNAL must map to a reviewer angle",
+        self.assertNotRegex(
+            section_1c,
+            r"\.py\b",
+            "Section 1c must not gate on a Python file suffix",
         )
 
 

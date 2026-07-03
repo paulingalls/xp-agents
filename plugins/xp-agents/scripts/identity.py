@@ -153,7 +153,7 @@ def is_worktree_teammate(input_data: dict, smm_dir: Path | None = None) -> bool:
     # import here would cycle (mirrors commit_handling's function-level import).
     import worktree
 
-    return worktree.in_place_marker_exists(smm_dir, env_name)
+    return worktree.in_place_teammate_from_env(smm_dir, env_name)
 
 
 def resolve_agent_id(input_data: dict) -> str:

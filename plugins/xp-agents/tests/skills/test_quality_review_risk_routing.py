@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""xp-quality-review SKILL.md + preload.sh routing pins for sprint-104 story-003.
+"""xp-quality-review SKILL.md + preload.sh spawn-structure pins (sprint-113 story-002).
 
-The risk-gated single-spawn pipeline:
-  Step 1   — gather reviewer inputs (concerns, debts, findings) — NO spawn here
-  Step 1.4 — spawn xp-risk-classifier ONCE on MODE=self-find; SKIP on consume-findings
-  Step 1.5 — build the SINGLE xp-code-reviewer prompt; on RISK=high prepend a
-             `## Review Focus` block; spawn EXACTLY ONE reviewer. Anti-fan-out.
+story-002 removed the xp-risk-classifier from the self-find path. The reviewer
+(xp-code-reviewer §1c) now self-triages risk from the diff + its injected
+Constraints pillar, so the two-spawn (classifier -> reviewer) sequence collapses
+to ONE unconditional xp-code-reviewer spawn:
 
-The 7th test is the load-bearing structural guard: the single Agent() call to
-xp-code-reviewer must live inside Step 1.5 — NOT before Step 1.4 — else the
-Review Focus enrichment lands after the reviewer has already returned (the
-plan-reviewer-caught ordering bug from concern d4909886f51c).
+  Step 1 — gather reviewer inputs (concerns, debts, findings) — NO spawn here
+  Step 2 — build the SINGLE xp-code-reviewer prompt and spawn EXACTLY ONE
+           reviewer, unconditionally. No classifier, no RISK gate, no
+           ## Review Focus enrichment. Anti-fan-out invariant preserved.
 
-Sprint-103 lesson: 3-spawn fan-out had irreducible coordination races; the
-single-spawn invariant is the redesign that fixes it.
+These tests pin the removal: no Step 1.4, no classifier reference, no
+Review-Focus/RISK/SIGNALS plumbing anywhere in the skill, and no redundant
+preload ## Design Context block (the reviewer gets Constraints via SubagentStart
+injection — decision recorded sprint-113). The single-spawn invariant from
+sprint-103 (3-spawn fan-out had irreducible coordination races) still holds.
 """
 
 import sys
@@ -29,20 +31,8 @@ _SKILL_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "SKILL.md"
 _PRELOAD_PATH = _PLUGIN_ROOT / "skills" / "xp-quality-review" / "scripts" / "preload.sh"
 
 
-def _section_slice(body: str, start: str, end: str) -> str:
-    """Slice between two headings (start inclusive, end exclusive); raise loud."""
-    s = body.find(start)
-    e = body.find(end, s + 1 if s != -1 else 0)
-    if s == -1 or e == -1:
-        raise AssertionError(
-            f"Could not locate section bounds: start={start!r} found={s != -1}, "
-            f"end={end!r} found={e != -1}"
-        )
-    return body[s:e]
-
-
-class TestQualityReviewRiskRouting(unittest.TestCase):
-    """Pin the Step 1.4 / Step 1.5 risk-gated single-spawn pipeline."""
+class TestQualityReviewSpawnStructure(unittest.TestCase):
+    """Pin the collapsed single-unconditional-spawn structure (no classifier)."""
 
     @classmethod
     def setUpClass(cls):
@@ -51,106 +41,88 @@ class TestQualityReviewRiskRouting(unittest.TestCase):
         cls.lower = cls.body.lower()
         cls.preload = _PRELOAD_PATH.read_text(encoding="utf-8")
 
-    def test_step_1_4_classifier_spawn_mode_gated_on_self_find(self):
-        """Step 1.4 spawns xp-risk-classifier exactly once on MODE=self-find."""
-        self.assertIn("## Step 1.4", self.body, "SKILL.md must have a Step 1.4")
-        section = _section_slice(self.body, "## Step 1.4", "## Step 1.5")
-        section_lower = section.lower()
-        self.assertIn(
+    # --- Classifier removal ------------------------------------------------
+
+    def test_no_risk_classifier_step_or_reference(self):
+        """The classifier is gone: no Step 1.4, no xp-risk-classifier anywhere."""
+        self.assertNotIn(
+            "## Step 1.4",
+            self.body,
+            "Step 1.4 (classifier spawn) must be removed",
+        )
+        self.assertNotIn(
             "xp-risk-classifier",
-            section,
-            "Step 1.4 must name the xp-risk-classifier subagent",
-        )
-        self.assertIn(
-            "self-find",
-            section_lower,
-            "Step 1.4 must gate the spawn on MODE=self-find",
-        )
-        self.assertRegex(
-            section_lower,
-            r"first[\s-]line",
-            "Step 1.4 must describe the strict first-line RISK= parse",
+            self.body,
+            "SKILL.md must not reference the deleted xp-risk-classifier agent",
         )
 
-    def test_step_1_4_skips_on_consume_findings(self):
-        """Step 1.4 explicitly SKIPs on MODE=consume-findings.
-
-        Sprint-103 lesson: close /code-review already ran; the extra
-        classifier call is wasted on the close path.
-        """
-        section = _section_slice(self.body, "## Step 1.4", "## Step 1.5")
-        section_lower = section.lower()
-        self.assertRegex(
-            section_lower,
-            r"consume-findings[^.]{0,80}skip|skip[^.]{0,80}consume-findings",
-            "Step 1.4 must explicitly SKIP on MODE=consume-findings",
-        )
-
-    def test_step_1_5_emits_review_focus_block_on_risk_high(self):
-        """Step 1.5 emits the verbatim ## Review Focus block on RISK=high."""
-        self.assertIn("## Step 1.5", self.body, "SKILL.md must have a Step 1.5")
-        section = _section_slice(self.body, "## Step 1.5", "## Step 2:")
-        self.assertIn(
-            "RISK=high",
-            section,
-            "Step 1.5 must name RISK=high as the enrichment trigger",
-        )
-        # Verbatim — interface contract with story-001's xp-code-reviewer
-        # Section 1c (which recognizes the same literal string).
-        self.assertIn(
+    def test_no_review_focus_or_risk_enrichment_plumbing(self):
+        """No RISK gate, no ## Review Focus block, no SIGNALS parsing survive."""
+        self.assertNotIn(
             "## Review Focus",
-            section,
-            "Step 1.5 must name the ## Review Focus block verbatim",
+            self.body,
+            "The classifier-fed ## Review Focus enrichment must be gone — "
+            "the reviewer self-triages",
+        )
+        self.assertNotIn(
+            "RISK=high",
+            self.body,
+            "No RISK=high branch — the reviewer spawn is unconditional",
+        )
+        self.assertNotIn(
+            "SIGNALS",
+            self.body,
+            "No SIGNALS= parsing — that was classifier plumbing",
         )
 
-    def test_step_1_5_single_spawn_invariant_anti_fan_out(self):
-        """Step 1.5 declares the single-spawn invariant with anti-fan-out prose.
+    # --- Single unconditional reviewer spawn -------------------------------
 
-        Sprint-103's 3-spawn parallel fan-out had irreducible coordination
-        races (filesystem, SMM appends, dedupe-key fragility); single-spawn
-        enriched avoids all of them.
-        """
-        section = _section_slice(self.body, "## Step 1.5", "## Step 2:")
-        section_lower = section.lower()
+    def test_exactly_one_agent_spawn(self):
+        """Exactly one Agent() spawn remains — the reviewer. The classifier
+        Agent() call is gone, so a second spawn would be a regression."""
+        self.assertEqual(
+            self.body.count("Agent("),
+            1,
+            "SKILL.md must contain exactly ONE Agent() spawn (the reviewer); "
+            "the classifier spawn was removed",
+        )
+
+    def test_reviewer_spawn_present_and_single(self):
+        """The one remaining spawn targets xp-code-reviewer, and the skill
+        declares the single-spawn invariant with anti-fan-out prose."""
+        self.assertIn(
+            "xp-code-reviewer",
+            self.body,
+            "SKILL.md must spawn the xp-code-reviewer",
+        )
         # Positive: exactly-one language.
         self.assertRegex(
-            section_lower,
+            self.lower,
             r"single[\s-]spawn|exactly one|one\s+xp-code-reviewer",
-            "Step 1.5 must declare the single-spawn invariant",
+            "SKILL.md must declare the single-spawn invariant",
         )
         # Negative: explicit anti-fan-out guard.
         self.assertRegex(
-            section_lower,
+            self.lower,
             r"\bnot\b[^.]{0,100}(fan[\s-]?out|multi[\s-]?spawn|multiple\s+spawn)",
-            "Step 1.5 must explicitly guard against fan-out / multi-spawn",
+            "SKILL.md must explicitly guard against fan-out / multi-spawn",
         )
 
-    def test_xp_code_reviewer_spawn_lives_in_step_1_5_only(self):
-        """STRUCTURAL guard for plan-reviewer concern d4909886f51c.
+    def test_reviewer_spawn_is_unconditional(self):
+        """No conditional gating of the reviewer spawn on a classifier result.
 
-        The single Agent() call to xp-code-reviewer MUST live inside the
-        Step 1.5 slice. If it lives in Step 1 (the pre-1.4 region), the
-        Review Focus enrichment is chronologically impossible — Step 1
-        returns before Step 1.4 even runs.
+        The reviewer runs unconditionally in self-find mode; the only remaining
+        mode branch (self-find vs consume-findings) selects the correctness
+        handling, not whether the reviewer runs.
         """
-        step_1_to_1_4 = _section_slice(self.body, "## Step 1:", "## Step 1.4")
-        step_1_5 = _section_slice(self.body, "## Step 1.5", "## Step 2:")
-        # The spawn must be inside Step 1.5 (the prompt-build + spawn site).
-        self.assertIn(
-            "xp-code-reviewer",
-            step_1_5,
-            "Step 1.5 must contain the xp-code-reviewer spawn (post-enrichment)",
-        )
-        # The spawn must NOT have already happened in Step 1.
-        self.assertNotIn(
-            "Agent(",
-            step_1_to_1_4,
-            "Step 1 (pre-1.4) must NOT spawn the reviewer — "
-            "Step 1.5 owns the spawn so the Review Focus block can be appended first",
-        )
+        # No leftover "if Step 1.4" / "if the classifier" style gating.
+        self.assertNotIn("Step 1.4", self.body)
+        self.assertNotIn("classifier", self.lower)
+
+    # --- preload.sh --------------------------------------------------------
 
     def test_preload_emits_changed_files_block(self):
-        """preload.sh emits a `## Changed Files` block — input to the classifier."""
+        """preload.sh still emits a `## Changed Files` block (reviewer input)."""
         self.assertIn(
             "## Changed Files",
             self.preload,
@@ -158,52 +130,33 @@ class TestQualityReviewRiskRouting(unittest.TestCase):
         )
 
     def test_preload_emits_close_diff_unavailable_flag(self):
-        """preload.sh emits a deterministic CLOSE_DIFF_UNAVAILABLE=true flag.
-
-        The existing `## Close diff unavailable` prose block is for humans;
-        the flag is the machine-detectable signal that disambiguates an
-        unresolvable close range from a clean tree (a parser otherwise
-        cannot tell which silent case applied).
-        """
+        """preload.sh still emits the deterministic CLOSE_DIFF_UNAVAILABLE=true flag."""
         self.assertRegex(
             self.preload,
             r"CLOSE_DIFF_UNAVAILABLE\s*=\s*true",
             "preload.sh must emit a deterministic CLOSE_DIFF_UNAVAILABLE=true flag",
         )
 
-    # --- sprint-111 M4 story-003: design-context input to the classifier ----
+    def test_preload_drops_redundant_design_context_block(self):
+        """preload.sh no longer emits a `## Design Context` block.
 
-    def test_preload_emits_design_context_block(self):
-        """preload.sh emits a `## Design Context` block sourced from the
-        Constraints pillar — the classifier reads it to down-rate diffs that
-        match a documented project convention (decision 4369e5aabbf4).
+        It was a second render of the Constraints pillar built solely for the
+        classifier's prompt (the classifier had no SMM injection). The reviewer
+        receives the Constraints pillar via SubagentStart `_inject_full` and
+        §1c reads it directly, so the preload block is redundant and removed
+        (decision recorded sprint-113 story-002).
         """
-        self.assertIn(
+        self.assertNotIn(
             "## Design Context",
             self.preload,
-            "preload.sh must emit a ## Design Context block",
+            "preload.sh must not emit the redundant ## Design Context block",
         )
-        # The block must render the project's Constraints pillar, not a
-        # hardcoded string — assert the rendering command is wired.
-        self.assertIn(
-            "section constraints",
-            self.preload,
-            "## Design Context must render the Constraints pillar via "
-            "`smm_cli.py ... section constraints`",
-        )
-
-    def test_step_1_4_passes_design_context_to_classifier(self):
-        """Step 1.4 passes the `## Design Context` block to the classifier.
-
-        story-001's classifier consumes a `## Design Context` heading; this
-        story wires Step 1.4 to forward the preload block under that heading.
-        """
-        section = _section_slice(self.body, "## Step 1.4", "## Step 1.5")
-        self.assertIn(
+        # And the skill must not pass such a block to any spawn.
+        self.assertNotIn(
             "## Design Context",
-            section,
-            "Step 1.4 must pass the preload's ## Design Context block to the "
-            "classifier (the heading story-001's classifier expects)",
+            self.body,
+            "SKILL.md must not pass a ## Design Context block to the reviewer — "
+            "it gets Constraints via injection",
         )
 
 

@@ -172,24 +172,19 @@ class TestQualityReviewPreloadTeammateAutoDetect(_IntegrationTestCase):
         )
         smm_file.write_text(json.dumps(data))
 
-    def test_design_context_empty_marker_on_clean_tree(self):
-        """No changed files → the ## Design Context block degrades to an
-        explicit (none) marker rather than a silent omission (AC3)."""
-        result = self._run_preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("## Design Context", result.stdout)
-        tail = result.stdout.split("## Design Context", 1)[1]
-        self.assertIn("(none)", tail)
-
-    def test_design_context_renders_constraints_when_files_changed(self):
-        """With changed files, the block renders the project's Constraints
-        pillar so the classifier can down-rate spec'd conventions (AC1)."""
+    def test_no_design_context_block_emitted(self):
+        """sprint-113 story-002 removed the preload ## Design Context block: it
+        was a second render of the Constraints pillar built only for the deleted
+        risk classifier. The reviewer receives the Constraints pillar via
+        SubagentStart injection (_inject_full) and §1c reads it directly, so
+        preload emits no redundant copy — even with a changed file and a seeded
+        constraint present."""
         self._add_constraint("UNIQUE_TEST_CONVENTION_XYZ")
         (self.tmpdir / "changed.py").write_text("x = 1\n")  # untracked → changed
         result = self._run_preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("## Design Context", result.stdout)
-        self.assertIn("UNIQUE_TEST_CONVENTION_XYZ", result.stdout)
+        self.assertNotIn("## Design Context", result.stdout)
+        self.assertNotIn("UNIQUE_TEST_CONVENTION_XYZ", result.stdout)
 
 
 if __name__ == "__main__":

@@ -244,12 +244,27 @@ main checkout until the task-notification fires (it commits to the solo branch i
 place). On it, run `/xp-accept` for `$TARGET` (still `in-progress`/solo → solo
 path).
 
+**Surface the live forensic log (both variants).** Right after launching the
+background spawn, tell the lead where to watch the teammate mid-flight. The
+`.log` is line-flushed live during the run (`run_with_tee`), so `tail -F` shows
+progress and diagnoses a stall in real time — unlike the task output, which
+stays ~empty until exit. Use `tail -F` (not `-f`): the background spawn creates
+the log a few seconds in, and `-F` waits for the file to appear instead of
+erroring on a not-yet-created path. Query the exact path (single source of
+truth, matches the tee's own log) and surface it:
+
+```bash
+LOG_PATH=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py \
+  --print-log-path --name "worktree-$TARGET" --smm-dir ${SMM_DIR})
+echo "Teammate running in background. Watch it live / diagnose a stall: tail -F $LOG_PATH"
+```
+
 ## Step 5: Post-spawn
 
 The Bash above runs with `run_in_background=true`. You'll receive a `task-notification` when the teammate exits.
 
 **Surface the teammate's exit to the user when the notification fires** — don't silently move on:
-- **Read the teammate's stdout output file** named in the notification (the `teammate_output_filter.py` tee'd it). The last line is the token-cost summary; earlier lines name the story branch and the structured **report file path** the teammate wrote.
+- **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin — it swallows the stream and emits exactly one summary line at exit, so this file stays ~empty during the run and then holds just that summary: `Report: <path> | Branch: <branch> | Cost: $<n>`. It names the structured **report file path**. For anything mid-flight (progress, a stall), tail the live forensic `.log` at `$LOG_PATH` from Step 4 instead — that is the file the tee writes live.
 - **Then open the report file** for the structured what-shipped narrative — this is what /xp-accept and the eventual retro need; don't skip it.
 - **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
 - **If exit was 0** — run `/xp-accept` for `$TARGET` (verify + close) AS its notification fires; don't accumulate unaccepted teammates. Spawns and accepts interleave: while one teammate runs, the lead plans + spawns the next story; when a notification arrives, the lead pauses planning to accept the one that just finished. Letting many in-flight teammates pile up unaccepted drifts the sprint frontier.

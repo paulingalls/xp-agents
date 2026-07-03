@@ -2,6 +2,24 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.4.0 — Remove the risk classifier; reviewer self-triages; live teammate log
+
+Sprint-113. The per-increment review floor no longer runs a separate risk classifier — the reviewer judges risk itself — and a stuck teammate is now diagnosable mid-flight. Every change TDD-ordered and reviewed before merge.
+
+### Review floor
+
+- **The `xp-risk-classifier` agent is removed.** It never gated whether the (expensive) reviewer ran — it only handed an optional "look harder at X" hint at ~55–90s of pure serial latency, and the cheaper model was triaging risk for the stronger one on the same inputs. The reviewer (`xp-code-reviewer` §1c) now **self-triages** risk from the diff plus its injected Constraints pillar and elevates the risky angles itself (state/lifecycle/concurrency, security-sensitive input, cross-contract schema, large mechanical sweeps), and down-rates diffs that match a documented convention. No coverage is lost.
+- **`/xp-quality-review` collapses to a single unconditional reviewer spawn.** The classifier spawn (old Step 1.4) and the `## Review Focus` / `RISK=high` / `SIGNALS=` enrichment plumbing are gone; the single-spawn invariant is preserved. A redundant preload `## Design Context` block (a second render of the Constraints pillar built only for the classifier) was dropped — the reviewer receives Constraints via SubagentStart injection.
+
+### Teammates
+
+- **A stuck teammate is diagnosable mid-flight.** The forensic `.log` was already line-flushed and live on disk during a run, but its path was surfaced only on failure and `/xp-assign` pointed diagnosis at the task output (empty until exit) while wrongly implying the output filter tees. `spawn_teammate.py --print-log-path` now prints the deterministic project-scoped `.log` path, `/xp-assign` surfaces it as a `tail -f` target right after spawn, and the diagnostic docs are corrected (the task output holds only the final one-line summary).
+
+### Internal
+
+- Teammate in-place detection (env-name + marker) was DRY'd into a single `worktree.in_place_teammate_from_env` helper across its three call sites.
+- Fixed a worktree-cwd test-isolation leak: an ambient `os.getcwd()` under a teammate worktree misdetected ~85 hook tests as teammate runs, failing the pre-commit gate; the test harness now neutralizes the ambient cwd.
+
 ## v4.3.2 — Teammate spawn reliability; kickoff question cap; log isolation
 
 Free-branch fixes hardening CLI-teammate spawns, plus a kickoff UX fix. Root-caused from a real cross-project failure (a teammate killed mid-work). Each change TDD-ordered, risk-classified, and reviewed.
