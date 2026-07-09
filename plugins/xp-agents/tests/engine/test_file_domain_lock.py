@@ -375,9 +375,10 @@ class TestDependencyAwareCollisionRule(unittest.TestCase):
         )
         self.assertEqual(file_domain_lock.collision_report(data), {})
 
-    def test_only_the_concurrent_pair_is_reported(self):
-        """story-003 depends on story-001, so that pair is legal; story-002 is
-        independent of both, so it collides with each."""
+    def test_independent_story_pulls_a_dependent_pair_into_the_report(self):
+        """story-003 depends on story-001, so that pair alone is legal; but
+        story-002 is independent of both and concurrently claims the path, so
+        every claimant of the contested path — all three — is reported."""
         data = make_sprint_dict(
             stories=[
                 make_story_dict(id="story-001", file_domain=["shared.py — a"]),
