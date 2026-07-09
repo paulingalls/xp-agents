@@ -5,6 +5,7 @@ Split from test_parse.py — covers TestMetadataResolves, TestReadEventsFrom.
 """
 
 import json
+import random
 import sys
 import unittest
 from pathlib import Path
@@ -557,6 +558,175 @@ class TestCascadeResolution(unittest.TestCase):
         result = resolution.compute_resolutions([q, g, answer])
         self.assertIn(g["id"], result["resolved_goal_ids"])
         self.assertNotIn(g["id"], result["resolved_concern_ids"])
+
+
+class TestCascadeFixedPointCharacterization(unittest.TestCase):
+    """Characterization tests for the cascade fixed-point loop.
+
+    These pin observable behavior of `compute_resolutions` so the loop's
+    internals can be reshaped (e.g. iterating a pre-filtered candidate list
+    instead of re-scanning every event each pass) without drift. They pass
+    both before and after any behavior-preserving change — a test here that
+    only goes green *after* a change is evidence of a behavior change.
+    """
+
+    @staticmethod
+    def _resolved_id_sets(result: dict) -> dict[str, set[str]]:
+        """Every `*_ids` set — the membership-level view of a resolution."""
+        return {k: v for k, v in result.items() if k.endswith("_ids")}
+
+    def test_shuffled_event_order_yields_same_resolved_ids(self):
+        """Cascade membership is invariant under permutation of the cascade tail.
+
+        Only the *cascade* is order-invariant. The main pass builds `by_id`
+        incrementally, so a resolver (or an `answer`) that precedes its target
+        does not resolve it. The strong-resolution prefix (root question, its
+        answer) is therefore held fixed and only the reference-driven tail is
+        permuted. Membership, not resolver identity: for non-question buckets
+        the main pass assigns rather than setdefaults, so with two events naming
+        the same target the later one in list order wins.
+        """
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
+        c1 = make_event(EVENT_TYPE_CONCERN, content="level 1", references=[q["id"]])
+        c2 = make_event(EVENT_TYPE_CONCERN, content="level 2", references=[c1["id"]])
+        c3 = make_event(EVENT_TYPE_CONCERN, content="level 3", references=[c2["id"]])
+        # Enrichment status: cascade-closes into `other`, never relays.
+        enrich = make_event(
+            EVENT_TYPE_STATUS,
+            content="enrichment status",
+            working_on=["app.py"],
+            references=[q["id"]],
+        )
+        # A question downstream of a closed concern — must stay open.
+        open_q = make_event(
+            EVENT_TYPE_QUESTION, content="still open", references=[c1["id"]]
+        )
+        cyc_a = make_event(EVENT_TYPE_CONCERN, content="cycle A")
+        cyc_b = make_event(EVENT_TYPE_CONCERN, content="cycle B")
+        cyc_a["references"] = [cyc_b["id"]]
+        cyc_b["references"] = [cyc_a["id"]]
+
+        prefix = [q, answer]
+        tail = [c1, c2, c3, enrich, open_q, cyc_a, cyc_b]
+
+        baseline = self._resolved_id_sets(resolution.compute_resolutions(prefix + tail))
+        # Spot-check the baseline is the shape we think it is.
+        self.assertEqual(baseline["answered_question_ids"], {q["id"]})
+        self.assertEqual(
+            baseline["resolved_concern_ids"], {c1["id"], c2["id"], c3["id"]}
+        )
+        self.assertIn(enrich["id"], baseline["resolved_other_ids"])
+        self.assertNotIn(open_q["id"], baseline["answered_question_ids"])
+
+        rng = random.Random(0)
+        for i in range(8):
+            permuted = prefix + rng.sample(tail, len(tail))
+            with self.subTest(permutation=i):
+                self.assertEqual(
+                    self._resolved_id_sets(resolution.compute_resolutions(permuted)),
+                    baseline,
+                )
+
+    def test_deep_chain_of_many_levels_fully_resolves(self):
+        """A 50-level chain listed outermost-first — the worst case for the
+        pass loop (one level closes per pass). Every level closes, and the
+        resolver relayed outward is the innermost root's resolver."""
+        depth = 50
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
+        chain: list[dict] = []
+        prev_id = q["id"]
+        for level in range(depth):
+            link = make_event(
+                EVENT_TYPE_CONCERN, content=f"level {level}", references=[prev_id]
+            )
+            chain.append(link)
+            prev_id = link["id"]
+
+        # Outermost first: the innermost link is visited last on every pass.
+        events = [q, answer, *reversed(chain)]
+        result = resolution.compute_resolutions(events)
+
+        for level, link in enumerate(chain):
+            with self.subTest(level=level):
+                self.assertIn(link["id"], result["resolved_concern_ids"])
+                # The root's resolver propagates unchanged along the chain.
+                self.assertEqual(result["concern_resolutions"][link["id"]], answer)
+
+    def test_large_log_with_sparse_references_resolves(self):
+        """Several hundred events, a handful carrying `references`. The filler
+        events carry no refs and must not affect the outcome."""
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
+        filler = [
+            make_event(EVENT_TYPE_STATUS, content=f"filler {i}", working_on=["app.py"])
+            for i in range(300)
+        ]
+        c1 = make_event(EVENT_TYPE_CONCERN, content="near", references=[q["id"]])
+        c2 = make_event(EVENT_TYPE_CONCERN, content="far", references=[c1["id"]])
+        d1 = make_event(
+            EVENT_TYPE_DEBT, content="debt", files=["x.py"], references=[c2["id"]]
+        )
+
+        result = resolution.compute_resolutions([q, answer, *filler, c1, c2, d1])
+
+        self.assertEqual(result["answered_question_ids"], {q["id"]})
+        self.assertEqual(result["resolved_concern_ids"], {c1["id"], c2["id"]})
+        self.assertEqual(result["resolved_debt_ids"], {d1["id"]})
+        # No filler event acquired a resolution.
+        for event in filler:
+            self.assertNotIn(event["id"], result["resolved_other_ids"])
+
+    def test_other_bucket_closure_does_not_relay_across_passes(self):
+        """The `other` non-relay floor holds when the `other` event closes on a
+        LATER pass than the chain root.
+
+        List order is chosen so `enrich` cannot close until pass 2 (its
+        referenced concern only closes at the tail of pass 1). Once closed it
+        sits in `other_resolutions` but never in `resolver_map`, so the concern
+        pointing at it stays open. Complements the single-pass pin in
+        test_cascade_does_not_relay_through_enrichment_status.
+        """
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
+        inner = make_event(EVENT_TYPE_CONCERN, content="inner", references=[q["id"]])
+        enrich = make_event(
+            EVENT_TYPE_STATUS,
+            content="enrichment status",
+            working_on=["app.py"],
+            references=[inner["id"]],
+        )
+        downstream = make_event(
+            EVENT_TYPE_CONCERN, content="downstream", references=[enrich["id"]]
+        )
+
+        # enrich/downstream precede the events they depend on: pass 1 closes
+        # only `inner` (visited last); pass 2 closes `enrich` into `other`.
+        result = resolution.compute_resolutions([enrich, downstream, q, answer, inner])
+
+        self.assertIn(inner["id"], result["resolved_concern_ids"])
+        self.assertIn(enrich["id"], result["resolved_other_ids"])
+        # No relay through the `other` bucket, even across passes.
+        self.assertNotIn(downstream["id"], result["resolved_concern_ids"])
+
+    def test_cycle_with_unresolved_and_resolved_branches_terminates(self):
+        """A pure A→B→A cycle alongside a resolvable branch: the branch closes,
+        the cycle stays open, and the call terminates."""
+        cyc_a = make_event(EVENT_TYPE_CONCERN, content="cycle A")
+        cyc_b = make_event(EVENT_TYPE_CONCERN, content="cycle B")
+        cyc_a["references"] = [cyc_b["id"]]
+        cyc_b["references"] = [cyc_a["id"]]
+
+        q = make_event(EVENT_TYPE_QUESTION, content="root")
+        answer = make_event(EVENT_TYPE_ANSWER, content="answered", references=[q["id"]])
+        branch = make_event(EVENT_TYPE_CONCERN, content="branch", references=[q["id"]])
+
+        result = resolution.compute_resolutions([q, answer, cyc_a, cyc_b, branch])
+
+        self.assertEqual(result["resolved_concern_ids"], {branch["id"]})
+        self.assertNotIn(cyc_a["id"], result["resolved_concern_ids"])
+        self.assertNotIn(cyc_b["id"], result["resolved_concern_ids"])
 
 
 class TestReadEventsFrom(_SMMTestCase):
