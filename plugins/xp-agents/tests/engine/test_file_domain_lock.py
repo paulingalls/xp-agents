@@ -298,6 +298,136 @@ class TestFormatCollisionReport(unittest.TestCase):
         self.assertIn("tool error", message)
 
 
+class TestDependencyAwareCollisionRule(unittest.TestCase):
+    """A path may be shared by stories that can never run concurrently.
+
+    Exclusivity exists to keep parallel teammates off each other's files, not
+    to stop a story from building on an earlier one. Two stories can never run
+    concurrently when one transitively depends on the other, or when either has
+    reached a terminal status (done/deferred) and released its files.
+    """
+
+    def test_dependent_story_may_share_a_path_with_its_dependency(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["shared.py — a"]),
+                make_story_dict(
+                    id="story-002",
+                    dependencies=["story-001"],
+                    file_domain=["shared.py — extend it"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_transitive_dependency_may_share_a_path(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["shared.py — a"]),
+                make_story_dict(id="story-002", dependencies=["story-001"]),
+                make_story_dict(
+                    id="story-003",
+                    dependencies=["story-002"],
+                    file_domain=["shared.py — extend it again"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_independent_stories_sharing_a_path_still_collide(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["shared.py — a"]),
+                make_story_dict(id="story-002", file_domain=["shared.py — b"]),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            sorted(c["story_id"] for c in report["shared.py"]),
+            ["story-001", "story-002"],
+        )
+
+    def test_done_story_releases_its_paths(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    status="done",
+                    file_domain=["shared.py — merged already"],
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["shared.py — build on it"]
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_deferred_story_releases_its_paths(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    status="deferred",
+                    file_domain=["shared.py — punted"],
+                ),
+                make_story_dict(id="story-002", file_domain=["shared.py — take it"]),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_independent_story_pulls_a_dependent_pair_into_the_report(self):
+        """story-003 depends on story-001, so that pair alone is legal; but
+        story-002 is independent of both and concurrently claims the path, so
+        every claimant of the contested path — all three — is reported."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["shared.py — a"]),
+                make_story_dict(id="story-002", file_domain=["shared.py — b"]),
+                make_story_dict(
+                    id="story-003",
+                    dependencies=["story-001"],
+                    file_domain=["shared.py — c"],
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            sorted(c["story_id"] for c in report["shared.py"]),
+            ["story-001", "story-002", "story-003"],
+        )
+
+    def test_dependency_cycle_does_not_hang_and_reports_nothing(self):
+        """A malformed dependency cycle must terminate. Each is an ancestor of
+        the other, so neither can be a concurrent claimant."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    dependencies=["story-002"],
+                    file_domain=["shared.py — a"],
+                ),
+                make_story_dict(
+                    id="story-002",
+                    dependencies=["story-001"],
+                    file_domain=["shared.py — b"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_non_dict_story_is_skipped_without_raising(self):
+        """_cmd_add_story appends whatever JSON it was handed; a malformed
+        payload must fall through to the schema validator, not AttributeError."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["shared.py — a"]),
+                ["not", "a", "story"],
+                "neither is this",
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+
 class TestFileDomainLockE2E(_SMMTestCase):
     def test_e2e_sprint_json_on_disk_shared_authored_path(self):
         data = make_sprint_dict(

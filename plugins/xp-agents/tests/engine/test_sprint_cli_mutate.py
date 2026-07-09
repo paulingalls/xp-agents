@@ -47,7 +47,12 @@ class TestCreateCommand(_SMMTestCase):
 class TestAddStoryCommand(_SMMTestCase):
     def test_add_story(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
-        new_story = _make_story(id="story-002", title="Login")
+        # Disjoint domain: _make_story defaults to src/auth.py, which the
+        # on-disk story-001 already claims. Two independent stories claiming
+        # one path is a real file_domain collision and the write refuses it.
+        new_story = _make_story(
+            id="story-002", title="Login", file_domain=["src/login.py — new module"]
+        )
         result = run_cli(
             _CLI,
             ["add-story"],
@@ -88,7 +93,11 @@ class TestAddStoryDupId(_SMMTestCase):
             _CLI,
             ["add-story"],
             self.smm_dir,
-            json.dumps(_make_story(id="story-099", title="Fresh")),
+            json.dumps(
+                _make_story(
+                    id="story-099", title="Fresh", file_domain=["src/fresh.py — new"]
+                )
+            ),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         loaded = json.loads((self.smm_dir / "sprint.json").read_text())
@@ -407,7 +416,10 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
     def test_add_story_fires_run_pipeline(self):
         sprint = self._sample_sprint()
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        new_story = _make_story(id="story-099", status="ready")
+        # Disjoint from the on-disk story's default src/auth.py claim.
+        new_story = _make_story(
+            id="story-099", status="ready", file_domain=["src/other.py — new module"]
+        )
         result = run_cli(_CLI, ["add-story"], self.smm_dir, json.dumps(new_story))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(

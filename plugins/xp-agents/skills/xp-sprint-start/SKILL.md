@@ -75,7 +75,7 @@ An empty array emits no concerns.
 
 For the selected milestone's **Change Zones** and **Impact Zones**: `Read` each change-zone file (structure + interfaces), `Read` impact-zone files (dependencies), and `Glob`/`Grep` for related files not listed (tests, imports).
 
-Identify natural story boundaries (cohesive file groups changeable independently), shared interfaces, and file domains (each story exclusively owns its files — no overlap).
+Identify natural story boundaries (cohesive file groups changeable independently), shared interfaces, and file domains (no two stories that could run *concurrently* may claim the same file).
 
 ### Step 3: Story Decomposition
 
@@ -87,7 +87,7 @@ For each story:
 - **Milestone**: `execution_plan.md §Milestone N`.
 - **Design Sources**: Direct refs to original design docs (from the milestone's Sources field) with section pointers.
 - **Context**: 2+ sentences of what THIS story uniquely does. **Do NOT copy text from milestone design_details or constraints — reference the milestone by number only.** Open: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
-- **File Domain**: Files this story exclusively owns. No overlap between stories. Always include corresponding test files alongside source files. For investigation/research stories with no expected code changes, use `[]` to mark the story code-free and prevent false pipeline-gap noise.
+- **File Domain**: Files this story owns while it runs. Two stories may declare the same file only when they can never run at the same time — one transitively depends on the other. Stories with no dependency between them must have disjoint domains, or parallel teammates would step on each other; the sprint write refuses such a collision. A story building on an earlier story's file is normal: declare the dependency and share the path. Always include corresponding test files alongside source files. For investigation/research stories with no expected code changes, use `[]` to mark the story code-free and prevent false pipeline-gap noise.
 - **Interface Contracts**: Shared boundaries. Format: `file:symbol — shared with story-NNN, constraint`. Advisory.
 - **Acceptance Criteria**: 3-5 testable conditions in **Given/When/Then prose** (per `docs/completed/ACCEPTANCE_TESTING_DOCTRINE.md`). Use `And`/`But` to extend. At least one is end-to-end, marked with the canonical `"E2E:"` prefix. Examples:
   - `"Given a registered user with a valid session, When they click 'Export', Then a CSV download starts within 2 seconds"`
