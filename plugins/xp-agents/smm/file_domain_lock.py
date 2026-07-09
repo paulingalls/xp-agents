@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """Detect file_domain collisions between stories in a sprint.
 
-`file_domain` is documented as an exclusive-ownership invariant -- each
-story owns its declared files, no overlap -- but nothing enforces it, and
-the sister-test auto-include in sprint_save.py can silently inject a file
-already owned by another story. This module is the pure detector: given a
-loaded sprint dict, report every path claimed by 2+ stories, tagging each
-claim as `authored` (planner wrote it) or `auto_included` (the sister-test
-globber added it). The origin matters because the remedy differs -- an
-authored collision is a planner error, an auto_included one is a tool
-error. No caller is wired here; a later story wires sprint_save.run to
-call this at write time.
+`file_domain` exists to keep concurrently-running stories off each other's
+files: parallel teammates work in separate worktrees, the verify-touch gate
+attributes a story's proof by matching committed paths against its domain,
+and a teammate reads its domain as the definition of its job. Nothing
+enforced it, and the sister-test auto-include in sprint_save.py can silently
+inject a file another story already claims.
+
+A collision is therefore two claims on one path by stories that could run
+CONCURRENTLY -- not merely two claims. Two stories can never run at the same
+time when one transitively depends on the other, or when either has reached a
+terminal status and released its files. A story building on an earlier story's
+file is the normal shape of sequential work, and it is legal.
+
+Given a loaded sprint dict this reports every colliding path, tagging each
+claim as `authored` (the planner wrote it) or `auto_included` (the sister-test
+globber added it). Origin matters because the remedy differs -- an authored
+collision is a planner error, an auto_included one is a tool error.
 """
 
+import sprint_schema
 import triage
 
 SISTER_TEST_MARKER = " — sister test for "
@@ -43,22 +51,90 @@ def _story_claims(story: dict) -> dict[str, str]:
     return claims
 
 
-def collision_report(data: dict) -> dict[str, list[dict]]:
-    """{path: [{"story_id": str, "origin": str}, ...]} for every path
-    with 2+ story claims. A duplicate story_id claiming the same path
-    counts as two claims (malformed sprint, still surfaced). Empty dict
-    == no collisions."""
-    owners: dict[str, list[dict]] = {}
-    for story in data.get("stories", []):
-        story_id = story.get("id")
-        if not isinstance(story_id, str):
-            continue
-        for path, origin in _story_claims(story).items():
-            owners.setdefault(path, []).append({"story_id": story_id, "origin": origin})
+def _ancestors(stories: list[dict]) -> dict[str, set[str]]:
+    """{story_id: every story it transitively depends on}.
 
-    report = {path: claims for path, claims in owners.items() if len(claims) >= 2}
-    for claims in report.values():
-        claims.sort(key=lambda c: (c["story_id"], c["origin"]))
+    Iterated to a fixed point rather than recursed, so a malformed dependency
+    cycle terminates instead of blowing the stack. In a cycle each member ends
+    up an ancestor of the other, which reads as "never concurrent" -- the
+    conservative answer, and the same one a topological sort could not give.
+    """
+    direct: dict[str, set[str]] = {}
+    for story in stories:
+        deps = story.get("dependencies") or []
+        direct.setdefault(story["id"], set()).update(
+            d for d in deps if isinstance(d, str)
+        )
+
+    closure = {sid: set(deps) for sid, deps in direct.items()}
+    changed = True
+    while changed:
+        changed = False
+        for sid, deps in closure.items():
+            grown = deps | {a for d in deps for a in closure.get(d, ())}
+            if grown != deps:
+                closure[sid] = grown
+                changed = True
+    return closure
+
+
+def _concurrent(a: dict, b: dict, ancestors: dict[str, set[str]]) -> bool:
+    """True when claims `a` and `b` could be worked at the same time.
+
+    Terminal stories (done/deferred) have merged or been dropped, so they hold
+    nothing. A dependency edge in either direction serializes the pair.
+    """
+    if a["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
+        return False
+    if b["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
+        return False
+    a_id, b_id = a["story_id"], b["story_id"]
+    return not (b_id in ancestors.get(a_id, ()) or a_id in ancestors.get(b_id, ()))
+
+
+def collision_report(data: dict) -> dict[str, list[dict]]:
+    """{path: [{"story_id": str, "origin": str}, ...]} for every path claimed
+    by 2+ stories that could run concurrently. Empty dict == no collisions.
+
+    Two claims on one path are fine when the claimants are serialized by a
+    dependency edge, or when either claimant is done/deferred. Duplicate
+    story_ids claiming one path stay a collision -- neither depends on the
+    other, so the malformed sprint is surfaced rather than excused.
+    """
+    stories = [
+        s
+        for s in data.get("stories", [])
+        if isinstance(s, dict) and isinstance(s.get("id"), str)
+    ]
+    ancestors = _ancestors(stories)
+
+    owners: dict[str, list[dict]] = {}
+    for story in stories:
+        for path, origin in _story_claims(story).items():
+            owners.setdefault(path, []).append(
+                {
+                    "story_id": story["id"],
+                    "origin": origin,
+                    "status": story.get("status", ""),
+                }
+            )
+
+    report: dict[str, list[dict]] = {}
+    for path, claims in owners.items():
+        colliding = [
+            claim
+            for i, claim in enumerate(claims)
+            if any(
+                _concurrent(claim, other, ancestors)
+                for j, other in enumerate(claims)
+                if i != j
+            )
+        ]
+        if len(colliding) >= 2:
+            colliding.sort(key=lambda c: (c["story_id"], c["origin"]))
+            report[path] = [
+                {"story_id": c["story_id"], "origin": c["origin"]} for c in colliding
+            ]
     return dict(sorted(report.items()))
 
 
