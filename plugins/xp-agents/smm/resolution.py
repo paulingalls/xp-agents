@@ -172,6 +172,34 @@ def compute_resolutions(events: list[dict]) -> dict:
     for bucket in (*buckets.values(), other_resolutions):
         resolver_map.update(bucket)
 
+    # Only these events can ever cascade-close, so the pass loop iterates them
+    # instead of re-scanning the whole log each time. Every event excluded here
+    # is a provable no-op in the loop body below: no id / already resolved
+    # (skipped outright), a question (never a cascade target), or no
+    # `references` (the resolver lookup yields None). Built AFTER resolver_map
+    # is seeded and BEFORE the first pass; relative list order is preserved
+    # because the cascade's resolver identity is order-sensitive.
+    candidates: list[dict] = [
+        e
+        for e in events
+        if e.get("id")
+        and e.get("type") != event_schema.EVENT_TYPE_QUESTION
+        and (e.get("references") or [])
+        and e["id"] not in resolver_map
+    ]
+    # Tracks "entered any bucket", which is NOT the same as "in resolver_map":
+    # an `other` closure is added to a bucket but deliberately never relays, so
+    # it never reaches resolver_map. Pruning on resolver_map membership alone
+    # would keep every `other` closure in `candidates` forever — precisely the
+    # events this filtering exists to drop.
+    # The set and the prune below are keyed by event id, so they rely on
+    # top-level ids being unique (generate_id -> 48-bit secrets.token_hex, and
+    # by_id/resolver_map are already id-keyed). The whole-log re-scan this
+    # replaces re-evaluated each event object every pass; if two DISTINCT
+    # top-level events ever shared an id, closing one here would prune the
+    # other before it could close. Unreachable in practice, but load-bearing.
+    closed: set[str] = set()
+
     # Bounded fixed-point cascade. range(len(events)) is the cycle guard:
     # resolver_map only grows (by >=1 each pass that sets changed), bounded by
     # the event count, so a pure reference cycle never resolves and exits via
@@ -181,9 +209,9 @@ def compute_resolutions(events: list[dict]) -> dict:
     # the floor (see SMM assumption d0eac70ea560).
     for _ in range(len(events)):
         changed = False
-        for event in events:
-            event_id = event.get("id")
-            if not event_id or event_id in resolver_map:
+        for event in candidates:
+            event_id = event["id"]
+            if event_id in resolver_map:
                 continue
             # Questions never cascade-close. A question clears ONLY via an
             # answer event, metadata.resolves, or AskUserQuestion (all handled
@@ -205,6 +233,7 @@ def compute_resolutions(events: list[dict]) -> dict:
                 continue
             bucket = buckets.get(event.get("type", ""), other_resolutions)
             bucket.setdefault(event_id, resolver)
+            closed.add(event_id)
             if bucket is not other_resolutions:
                 # Feed the newly-resolved flag/tracked event back so deeper
                 # levels see it on the next pass. Skipped for `other` (status,
@@ -213,6 +242,7 @@ def compute_resolutions(events: list[dict]) -> dict:
                 changed = True
         if not changed:
             break
+        candidates = [e for e in candidates if e["id"] not in closed]
 
     return {
         "question_answers": question_answers,
