@@ -195,6 +195,42 @@ class TestCollisionReport(unittest.TestCase):
             ],
         )
 
+    def test_authored_wins_when_auto_included_declared_first(self):
+        # Reverse-order sibling of the test above: the sister-test entry
+        # precedes the authored one, so authored must UPGRADE the origin
+        # (exercises the overwrite branch, not the early-continue branch).
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=[
+                        "shared.py — sister test for a.py",
+                        "shared.py — authored explicitly",
+                    ],
+                ),
+                make_story_dict(id="story-002", file_domain=["shared.py — b"]),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            report["shared.py"],
+            [
+                {"story_id": "story-001", "origin": "authored"},
+                {"story_id": "story-002", "origin": "authored"},
+            ],
+        )
+
+    def test_story_with_non_str_id_is_skipped(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id=123, file_domain=["shared.py — a"]),
+                make_story_dict(id="story-002", file_domain=["shared.py — b"]),
+            ]
+        )
+        # The 123-id story is dropped entirely, leaving one owner -> no
+        # collision. Guards against a non-str id ever landing in a report.
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
     def test_duplicate_story_id_same_path_is_reported(self):
         data = make_sprint_dict(
             stories=[
