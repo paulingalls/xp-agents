@@ -33,6 +33,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 import _common  # noqa: E402
 import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
+import file_domain_lock  # noqa: E402
 import identity  # noqa: E402
 import marker_names  # noqa: E402
 import markers  # noqa: E402
@@ -235,28 +236,39 @@ def _auto_include_sister_tests(
 ) -> None:
     """For each story in data['stories'], discover sister tests for the
     source paths in its file_domain and append new entries formatted as
-    '<rel> — sister test for <src>'. Dedups against existing file_domain
-    entries (every path the entry declares — em-dash, ASCII-dash, and
-    comma-joined forms all parse identically via triage.entry_to_paths).
-    Skips entries already marked as sisters (prevents sister-of-sister
-    expansion). Mutates data in place. No SMM writes."""
-    for story in data.get("stories", []):
+    '<rel> — sister test for <src>'. Skips entries already marked as sisters
+    (prevents sister-of-sister expansion). Mutates data in place. No SMM writes.
+
+    `claimed` spans EVERY story, not just the one being walked. A per-story
+    dedup set let a stem match (foo.py / foo_tools.py, each with its own
+    sister) inject a test file another story had already declared — the tool
+    manufacturing exactly the ownership collision file_domain forbids. Seeding
+    from every declared path, authored or previously auto-included, makes the
+    declared domain authoritative no matter which writer produced it: sister
+    entries persist to sprint.json, so add-story re-feeds them here.
+
+    Stories are walked in list order, so the first story to reach a contested
+    sister keeps it.
+    """
+    stories = [s for s in data.get("stories", []) if isinstance(s, dict)]
+    parsed: list[tuple[list[str], list[tuple[str, list[str]]]]] = []
+    claimed: set[str] = set()
+    for story in stories:
         domain = story.get("file_domain")
         if not isinstance(domain, list):
             continue
-        # Parse each entry once: seed existing_paths from every entry and cache
-        # the parsed paths for the discovery pass below (snapshot taken before
-        # the domain.extend at the end, so it never iterates a mutating list).
-        existing_paths: set[str] = set()
-        parsed_entries: list[tuple[str, list[str]]] = []
+        entries: list[tuple[str, list[str]]] = []
         for e in domain:
             if isinstance(e, str):
                 paths = triage.entry_to_paths(e)
-                existing_paths.update(paths)
-                parsed_entries.append((e, paths))
+                claimed.update(paths)
+                entries.append((e, paths))
+        parsed.append((domain, entries))
+
+    for domain, entries in parsed:
         additions: list[str] = []
-        for entry, srcs in parsed_entries:
-            if " — sister test for " in entry:
+        for entry, srcs in entries:
+            if file_domain_lock.SISTER_TEST_MARKER in entry:
                 continue  # prevents sister-of-sister expansion
             for src in srcs:
                 if not src:
@@ -268,10 +280,12 @@ def _auto_include_sister_tests(
                 except ValueError:
                     continue  # bad source path; skip silently (validator owns shape)
                 for sister in sisters:
-                    if sister in existing_paths:
+                    if sister in claimed:
                         continue
-                    additions.append(f"{sister} — sister test for {src}")
-                    existing_paths.add(sister)
+                    additions.append(
+                        f"{sister}{file_domain_lock.SISTER_TEST_MARKER}{src}"
+                    )
+                    claimed.add(sister)
         domain.extend(additions)
 
 
@@ -322,6 +336,20 @@ def run(data: dict, smm_dir: Path) -> None:
             )
         else:
             _auto_include_sister_tests(data, layout, project_root)
+
+    # Enforce file_domain ownership on every structural write. Raising here —
+    # after auto-include, before save() — leaves sprint.json untouched, and
+    # skips the milestone transition and accept-marker handling below, which
+    # would otherwise fire for a sprint that was never written. Both CLI
+    # surfaces (create, add-story) already map ValueError to rc 1.
+    #
+    # A collision means two stories that could run CONCURRENTLY claim one path;
+    # a story extending the file of a story it depends on is legal. Malformed
+    # (non-dict) stories are skipped by collision_report and fall through to
+    # save()'s schema validator, which owns shape.
+    collisions = file_domain_lock.collision_report(data)
+    if collisions:
+        raise ValueError(file_domain_lock.format_collision_report(collisions))
 
     save(data, smm_dir)
 
