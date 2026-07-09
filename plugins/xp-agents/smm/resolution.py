@@ -192,6 +192,12 @@ def compute_resolutions(events: list[dict]) -> dict:
     # it never reaches resolver_map. Pruning on resolver_map membership alone
     # would keep every `other` closure in `candidates` forever — precisely the
     # events this filtering exists to drop.
+    # The set and the prune below are keyed by event id, so they rely on
+    # top-level ids being unique (generate_id -> 48-bit secrets.token_hex, and
+    # by_id/resolver_map are already id-keyed). The whole-log re-scan this
+    # replaces re-evaluated each event object every pass; if two DISTINCT
+    # top-level events ever shared an id, closing one here would prune the
+    # other before it could close. Unreachable in practice, but load-bearing.
     closed: set[str] = set()
 
     # Bounded fixed-point cascade. range(len(events)) is the cycle guard:
