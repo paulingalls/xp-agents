@@ -48,26 +48,55 @@ def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] |
     return None
 
 
+def index_event(event: dict, by_id: dict[str, dict]) -> None:
+    """Add one event's resolvable ids to `by_id`: its own id, plus any nested
+    retrospective try-item ids (disposition events close those via
+    metadata.resolves). Top-level ids win a collision — `setdefault` preserves
+    them.
+
+    Per-event rather than a pre-pass because `compute_resolutions` builds
+    `by_id` incrementally: its question-answer linking looks up refs in the
+    partially-built index, so an answer preceding its question must not resolve
+    it. A full pre-pass would silently change that.
+
+    Single source of truth for what a `Resolves-Event:` target may name, so the
+    resolver and the unlinkable-trailer advisory cannot desync when a future
+    nested-id kind is added.
+    """
+    event_id = event.get("id", "")
+    if event_id:
+        by_id[event_id] = event
+    if event.get("type") != event_schema.EVENT_TYPE_RETROSPECTIVE:
+        return
+    for item in event.get("try", []):
+        if not isinstance(item, dict):
+            continue
+        try_id = item.get("id")
+        if not try_id:
+            continue
+        by_id.setdefault(
+            try_id,
+            {
+                "id": try_id,
+                "type": "retro_try",
+                "content": item.get("content", ""),
+                "ts": event.get("ts", ""),
+                "parent_retro_id": event_id,
+            },
+        )
+
+
 def resolvable_event_ids(events: list[dict]) -> set[str]:
     """Every id a `Resolves-Event:` / metadata.resolves target can link to.
 
-    Mirrors the `by_id` index compute_resolutions builds: top-level event ids
-    PLUS nested retrospective try-item ids (disposition events close those via
-    metadata.resolves — see the by_id retro indexing in compute_resolutions).
-    The unlinkable-trailer advisory must consult the SAME set the resolver
-    does, or it flags a valid retro-try target as dangling and fires a spurious
-    'the link will not resolve' concern.
+    The advisory must consult the SAME set the resolver does, or it flags a
+    valid retro-try target as dangling and fires a spurious 'the link will not
+    resolve' concern. Built through `index_event`, so it cannot drift.
     """
-    ids: set[str] = set()
+    by_id: dict[str, dict] = {}
     for event in events:
-        eid = event.get("id")
-        if eid:
-            ids.add(eid)
-        if event.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE:
-            for item in event.get("try", []):
-                if isinstance(item, dict) and item.get("id"):
-                    ids.add(item["id"])
-    return ids
+        index_event(event, by_id)
+    return set(by_id)
 
 
 def compute_resolutions(events: list[dict]) -> dict:
@@ -123,30 +152,13 @@ def compute_resolutions(events: list[dict]) -> dict:
 
     for event in events:
         event_id = event.get("id", "")
-        if event_id:
-            by_id[event_id] = event
-
-        # Index nested retrospective.try[] ids so disposition events
-        # (adopt/defer/drop) can resolve them via metadata.resolves.
-        # Top-level event IDs (set unconditionally above) take precedence
-        # on collision — setdefault preserves them.
-        if event.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE:
-            for item in event.get("try", []):
-                if not isinstance(item, dict):
-                    continue
-                try_id = item.get("id")
-                if not try_id:
-                    continue
-                by_id.setdefault(
-                    try_id,
-                    {
-                        "id": try_id,
-                        "type": "retro_try",
-                        "content": item.get("content", ""),
-                        "ts": event.get("ts", ""),
-                        "parent_retro_id": event_id,
-                    },
-                )
+        # Indexes this event's own id plus any nested retrospective try[] ids,
+        # so disposition events (adopt/defer/drop) can resolve them via
+        # metadata.resolves. Shared with `resolvable_event_ids` — the advisory
+        # in commit_handling must judge linkability against this exact index.
+        # Stays inside the loop: the question-answer linking below reads the
+        # partially-built `by_id`, so the incremental order is load-bearing.
+        index_event(event, by_id)
 
         # Question-answer linking: answer events reference questions
         if event.get("type") == event_schema.EVENT_TYPE_ANSWER:
