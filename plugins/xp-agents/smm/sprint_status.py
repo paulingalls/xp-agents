@@ -200,28 +200,6 @@ def in_progress_is_teammate_data(data: dict) -> bool:
     )
 
 
-def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
-    """True when 2+ scheduled stories share at least one file in their
-    file_domain.
-
-    Powers /xp-assign's auto-pick-solo decision: if any scheduled stories'
-    file_domains overlap, parallel teammates would step on each other —
-    auto-pick solo without asking the user. Returns False when fewer than
-    two scheduled stories exist (no pair to overlap).
-
-    Reuses the canonical em-dash splitter from `triage` so parsing matches
-    every other consumer of file_domain entries (paths with embedded
-    whitespace work correctly; descriptions don't mask shared files).
-    """
-    from sprint_store import load_sprint
-
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return False
-    scheduled = [s["id"] for s in sprint["stories"] if s.get("status") == "scheduled"]
-    return file_domains_overlap_data(sprint, scheduled)
-
-
 def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     """Why the named stories can or cannot run in parallel, with the facts.
 
