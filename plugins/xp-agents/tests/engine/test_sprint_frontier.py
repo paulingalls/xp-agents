@@ -28,6 +28,41 @@ from conftest import (
 )
 
 
+class TestSprintFrontierModuleAndShim(unittest.TestCase):
+    """Pins the extraction: bodies live in sprint_frontier.py, sprint_store
+    re-exports the same callables (not copies) so both old and new import
+    paths keep working.
+    """
+
+    _FRONTIER_NAMES = (
+        "ready_frontier",
+        "ready_frontier_data",
+        "ready_frontier_report",
+        "transitive_active_dependents",
+        "next_in_progress_story_id",
+        "next_scheduled_story_id",
+    )
+
+    def test_new_module_exposes_all_frontier_functions(self):
+        import sprint_frontier
+
+        for name in self._FRONTIER_NAMES:
+            self.assertTrue(
+                hasattr(sprint_frontier, name), f"sprint_frontier missing {name}"
+            )
+
+    def test_sprint_store_reexports_are_identical_objects(self):
+        import sprint_frontier
+        import sprint_store
+
+        for name in self._FRONTIER_NAMES:
+            self.assertIs(
+                getattr(sprint_store, name),
+                getattr(sprint_frontier, name),
+                f"{name} was copied, not moved",
+            )
+
+
 class TestReadyFrontier(_SMMTestCase):
     """ready_frontier{,_data}: dep-satisfied SCHEDULED stories, sorted.
 
