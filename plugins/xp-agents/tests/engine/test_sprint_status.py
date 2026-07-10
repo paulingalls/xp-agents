@@ -50,7 +50,6 @@ class TestSprintStatusModuleAndShim(unittest.TestCase):
         "select_closing_stories",
         "has_ready_stories",
         "has_scheduled_stories",
-        "scheduled_file_domains_overlap",
         "schedule_gate_active",
         "schedule_gate_active_data",
         "is_complete",
@@ -410,73 +409,25 @@ class TestStatusChecks(_SMMTestCase):
             )
         )
 
-    def test_scheduled_file_domains_overlap_true_when_shared_file(self):
+    def test_scheduled_file_domains_overlap_is_removed(self):
+        # Deleted: solo vs parallel verdict moved to /xp-schedule's
+        # parallelizable flag. Guards against reintroduction.
+        import sprint_status
         import sprint_store
 
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001",
-                    status="scheduled",
-                    file_domain=["src/a.py — owner", "src/b.py — shared"],
-                ),
-                _make_story(
-                    id="story-002",
-                    status="scheduled",
-                    file_domain=["src/b.py — caller", "src/c.py — owner"],
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertTrue(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
+        self.assertFalse(hasattr(sprint_status, "scheduled_file_domains_overlap"))
+        self.assertNotIn("scheduled_file_domains_overlap", sprint_store.__all__)
 
-    def test_scheduled_file_domains_overlap_false_when_disjoint(self):
+    def test_file_domains_overlap_data_is_removed(self):
+        # Deleted: file_domains_overlap_data had zero production callers once
+        # scheduled_file_domains_overlap (its only caller) was deleted.
+        # file_domains_overlap_detail is the sole surviving public entry
+        # point. Guards against reintroduction.
+        import sprint_status
         import sprint_store
 
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001", status="scheduled", file_domain=["src/a.py"]
-                ),
-                _make_story(
-                    id="story-002", status="scheduled", file_domain=["src/b.py"]
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
-
-    def test_scheduled_file_domains_overlap_false_when_single_scheduled(self):
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="story-001", status="scheduled", file_domain=["a.py"]),
-                _make_story(id="story-002", status="ready", file_domain=["a.py"]),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertFalse(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
-
-    def test_scheduled_file_domains_overlap_true_when_glob_entry(self):
-        # Conservative-overlap=True on glob: rc=1 from a crash was indistinguishable
-        # from "no overlap" and silently masked the failure at xp-assign.
-        import sprint_store
-
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-006",
-                    status="scheduled",
-                    file_domain=["packages/db/drizzle/meta/*"],
-                ),
-                _make_story(
-                    id="story-007", status="scheduled", file_domain=["src/api.py"]
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        self.assertTrue(sprint_store.scheduled_file_domains_overlap(self.smm_dir))
+        self.assertFalse(hasattr(sprint_status, "file_domains_overlap_data"))
+        self.assertNotIn("file_domains_overlap_data", sprint_store.__all__)
 
     def test_sprint_exists(self):
         import sprint_store

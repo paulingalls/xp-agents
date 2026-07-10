@@ -274,7 +274,6 @@ from sprint_metrics import (  # noqa: E402  intentional mid-file re-export
 # `from sprint_store import has_active_stories` import path working for
 # every caller (production scripts and 16+ test files).
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
-    file_domains_overlap_data,
     has_active_stories,
     has_active_stories_data,
     has_closing_stories,
@@ -296,7 +295,6 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     is_complete,
     schedule_gate_active,
     schedule_gate_active_data,
-    scheduled_file_domains_overlap,
     select_closing_stories,
     select_in_motion_stories,
 )
@@ -311,7 +309,6 @@ __all__ = [
     "compute_velocity",
     "count_by_status",
     "edit_story",
-    "file_domains_overlap_data",
     "get_story",
     "get_story_branch_name",
     "has_active_stories",
@@ -345,7 +342,6 @@ __all__ = [
     "save_sprint",
     "schedule_gate_active",
     "schedule_gate_active_data",
-    "scheduled_file_domains_overlap",
     "select_closing_stories",
     "select_in_motion_stories",
     "set_branch",

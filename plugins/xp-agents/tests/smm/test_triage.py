@@ -255,9 +255,9 @@ class TestExtractFileDomainPaths(unittest.TestCase):
     def test_literal_paths_work_without_cwd(self):
         """Literal file_domain paths (no glob) work without cwd or candidates.
 
-        sprint_status.scheduled_file_domains_overlap rides this path —
-        sprint stories declare literal paths in file_domain, the function
-        does set-overlap on declared strings, no disk lookup needed.
+        file_domain overlap checks ride this path — sprint stories
+        declare literal paths in file_domain and the overlap logic does
+        set-overlap on declared strings, no disk lookup needed.
         """
         result = triage.extract_file_domain_paths(
             ["tests/hooks/test_a.py", "scripts/foo.py"]

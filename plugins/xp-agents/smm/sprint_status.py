@@ -200,28 +200,6 @@ def in_progress_is_teammate_data(data: dict) -> bool:
     )
 
 
-def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
-    """True when 2+ scheduled stories share at least one file in their
-    file_domain.
-
-    Powers /xp-assign's auto-pick-solo decision: if any scheduled stories'
-    file_domains overlap, parallel teammates would step on each other —
-    auto-pick solo without asking the user. Returns False when fewer than
-    two scheduled stories exist (no pair to overlap).
-
-    Reuses the canonical em-dash splitter from `triage` so parsing matches
-    every other consumer of file_domain entries (paths with embedded
-    whitespace work correctly; descriptions don't mask shared files).
-    """
-    from sprint_store import load_sprint
-
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return False
-    scheduled = [s["id"] for s in sprint["stories"] if s.get("status") == "scheduled"]
-    return file_domains_overlap_data(sprint, scheduled)
-
-
 def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     """Why the named stories can or cannot run in parallel, with the facts.
 
@@ -266,26 +244,6 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
             break
 
     return {"collisions": collisions, "glob_forced": glob_forced}
-
-
-def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
-    """True when 2+ of the named stories share a file in their file_domain.
-
-    Pure helper over a loaded sprint dict. Powers both the /xp-assign
-    auto-pick-solo check (over all scheduled stories) and the /xp-schedule
-    ready-frontier parallelizable verdict (over just the frontier subset).
-    Returns False for fewer than two named stories (no pair to overlap).
-
-    Re-derived from `file_domains_overlap_detail` so the two answers can never
-    disagree. Conservative: True when a story declares a glob, so callers pick
-    solo rather than degrade to "no overlap → safe to parallelize".
-
-    Being a view of the detail helper makes this dependency- and
-    terminal-aware: stories serialized by a dependency edge may share files
-    without overlapping, since they can never be worked at the same time.
-    """
-    detail = file_domains_overlap_detail(data, story_ids)
-    return detail["glob_forced"] or bool(detail["collisions"])
 
 
 def is_complete(smm_dir: Path) -> bool:
