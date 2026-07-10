@@ -240,11 +240,13 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
     story.update(updates)
     # Gate collision-relevant edits through run()'s shared this-write-only
     # attribution (introduced_collisions sister-expands + reports both sides).
-    # file_domain and dependencies are the only edited fields collision_report
-    # reads — a domain change can reintroduce a collision M1 forbids, and a
-    # dependency change can make two shared-path stories concurrent. Other edits
-    # (execution_mode, executor_model, context, …) can't affect collisions, so
-    # they skip the sister-expansion cost.
+    # A file_domain change can reintroduce a collision M1 forbids, and a
+    # dependency change can make two shared-path stories concurrent — both are
+    # gated here. (collision_report also reads `status` via concurrency, but
+    # status flips route through update_story_status, not edit_story, and that
+    # path is itself ungated by design — so status is out of scope here.) Other
+    # edits (execution_mode, executor_model, context, …) can't affect collisions
+    # and skip the sister-expansion cost.
     if updates.keys() & {"file_domain", "dependencies"}:
         import sprint_save  # function-local: sprint_save imports sprint_store (cycle)
 

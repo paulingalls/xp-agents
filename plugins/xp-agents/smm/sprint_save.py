@@ -415,8 +415,9 @@ def run(data: dict, smm_dir: Path) -> None:
     # disk between two other stories; re-checking the whole sprint on every
     # add-story would then refuse an unrelated, disjoint, schema-valid new
     # story — breaking the "a clean new story can always be added" guarantee.
-    # A collision blocks only when at least one of its claimants is new or has
-    # a changed file_domain relative to the on-disk sprint.
+    # introduced_collisions attributes a path only when its colliding-story set
+    # GREW versus the on-disk baseline (both sides sister-expanded) — a
+    # pre-existing collision unchanged by this write is never re-blocked.
     introduced = introduced_collisions(data, smm_dir)
     if introduced:
         raise ValueError(file_domain_lock.format_collision_report(introduced))
