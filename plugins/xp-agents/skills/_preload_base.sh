@@ -467,11 +467,23 @@ emit_var() {
     printf '%s=%s\n' "$1" "$(flat "${2-}")"
 }
 
-# sanitize_tsv_block (stdin) -> flatten each TAB field, preserve tab field-sep and
-# newline row-sep. For xp-accept's TEAMMATE_WORKTREES rows (id<TAB>path<TAB>sha<TAB>ref).
+# strip_framing VALUE -> replace each newline/CR/tab with a single space so the
+# value cannot break TSV row/field framing, WITHOUT collapsing legitimate
+# multi-space runs. Unlike flat(), spaces are preserved verbatim: a TSV field is
+# not a KEY=value scalar, so only the framing chars (\n \r \t) are injection
+# vectors — a worktree path legitimately contains spaces (even consecutive ones),
+# and collapsing them would corrupt xp-accept's `--cwd <path>` target.
+strip_framing() {
+    printf '%s' "${1-}" | tr '\n\r\t' '   '
+}
+
+# sanitize_tsv_block (stdin) -> strip framing chars from each TAB field, preserve
+# tab field-sep, newline row-sep, and spaces within a field. For xp-accept's
+# TEAMMATE_WORKTREES rows (id<TAB>path<TAB>sha<TAB>ref).
 # NOTE: operates on the already-serialized block, so it cannot un-break a field that
 # already held a raw newline (branching.py emits well-formed rows from real git state,
-# out of this domain). AC3's threat is whitespace/tab/CR inside a field — fully handled.
+# out of this domain). AC3's threat is tab/CR/newline inside a field — fully handled;
+# benign spaces are preserved so space-bearing paths survive intact.
 # `IFS=$'\t' read -ra` treats tab as IFS-whitespace: an empty interior field collapses.
 # Harmless here — every snapshot row is id/path/sha/ref, never an empty middle field.
 sanitize_tsv_block() {
@@ -482,9 +494,9 @@ sanitize_tsv_block() {
         out=""
         for i in "${!fields[@]}"; do
             if [ "$i" -eq 0 ]; then
-                out="$(flat "${fields[$i]}")"
+                out="$(strip_framing "${fields[$i]}")"
             else
-                out="${out}"$'\t'"$(flat "${fields[$i]}")"
+                out="${out}"$'\t'"$(strip_framing "${fields[$i]}")"
             fi
         done
         printf '%s\n' "$out"

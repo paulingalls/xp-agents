@@ -83,9 +83,13 @@ class TestEmitHelpers(_IntegrationTestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, "TESTVAR=\n")
 
-    def test_sanitize_tsv_block_flattens_fields_preserves_framing(self):
-        """AC3: each TAB field is whitespace-flattened while the tab
-        field-separator and newline row-separator survive."""
+    def test_sanitize_tsv_block_strips_framing_preserves_spaces(self):
+        """AC3: each TAB field has its framing chars (\\n/\\r/\\t) stripped while
+        the tab field-separator and newline row-separator survive. Legitimate
+        multi-space runs inside a field are PRESERVED — a worktree path may
+        contain consecutive spaces, and collapsing them would make xp-accept's
+        `--cwd <path>` target a non-existent directory. A space is not a TSV
+        framing char, so it carries no injection risk here."""
         block = "story-001\t/tmp/wt with  spaces\tabc\trefs/x\nMAIN_STATE\tdirty"
         r = self._run_helper("sanitize_tsv_block", stdin=block)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -93,8 +97,8 @@ class TestEmitHelpers(_IntegrationTestCase):
         self.assertEqual(len(rows), 2, "row framing (newline separator) survives")
         self.assertEqual(
             rows[0].split("\t"),
-            ["story-001", "/tmp/wt with spaces", "abc", "refs/x"],
-            "4 tab fields survive; the double space inside a field collapsed",
+            ["story-001", "/tmp/wt with  spaces", "abc", "refs/x"],
+            "4 tab fields survive; the double space inside a path is preserved",
         )
         self.assertEqual(rows[1].split("\t"), ["MAIN_STATE", "dirty"])
         for row in rows:

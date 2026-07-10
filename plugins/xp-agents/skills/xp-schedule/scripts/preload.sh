@@ -17,35 +17,42 @@ fi
 # fail-safe to an empty frontier if the CLI errors.
 REPORT=$(python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "${SMM_DIR}" \
     ready-frontier 2>/dev/null || echo '{"frontier":[],"parallelizable":false,"overlap":{"collisions":{},"glob_forced":false}}')
-# Forge-proof scalars (counts + bools) emit directly. Author-influenced
-# free text (story ids, collision paths) is captured raw then routed through
-# emit_var — the shared sanitizer replaces the inline python flat() so adding a
-# preload never re-derives the collapse-whitespace rule. `$(...)` preserves the
-# python-emitted newlines; flat() collapses them (join-then-flat == the old
-# per-id flat-then-join, so test_schedule_preload.py stays green).
+# One JSON parse emits all five fields NUL-delimited: three forge-proof scalars
+# (counts + bools) plus two author-influenced free-text records (story ids,
+# collision paths). NUL framing lets a value hold an embedded newline without
+# splitting the capture; the free-text records are then routed through emit_var —
+# the shared sanitizer stays the single home of the collapse-whitespace rule, so
+# adding a preload never re-derives it (join-then-flat == the old per-id
+# flat-then-join, so test_schedule_preload.py stays green). read -d '' EOF ends
+# the loop cleanly under set -e (a loop condition failing is not an error).
 # shellcheck disable=SC2016
-python3 -c '
+fields=()
+while IFS= read -r -d '' field; do
+    fields+=("$field")
+done < <(python3 -c '
 import json, sys
 r = json.loads(sys.argv[1])
 overlap = r.get("overlap") or {}
-print("FRONTIER_COUNT=" + str(len(r.get("frontier", []))))
-print("PARALLELIZABLE=" + ("true" if r.get("parallelizable") else "false"))
-print("GLOB_FORCED=" + ("true" if overlap.get("glob_forced") else "false"))
-' "$REPORT"
-# shellcheck disable=SC2016
-FRONTIER_IDS_RAW=$(python3 -c '
-import json, sys
-print(" ".join(str(f) for f in json.loads(sys.argv[1]).get("frontier", [])))
+frontier = r.get("frontier", [])
+collisions = overlap.get("collisions") or {}
+detail = "; ".join(
+    f"{p} claimed by " + ", ".join(o["story_id"] for o in owners)
+    for p, owners in collisions.items()
+)
+for value in (
+    str(len(frontier)),
+    "true" if r.get("parallelizable") else "false",
+    "true" if overlap.get("glob_forced") else "false",
+    " ".join(str(f) for f in frontier),
+    detail,
+):
+    sys.stdout.write(value + "\0")
 ' "$REPORT")
-# shellcheck disable=SC2016
-OVERLAP_DETAIL_RAW=$(python3 -c '
-import json, sys
-c = ((json.loads(sys.argv[1]).get("overlap") or {}).get("collisions")) or {}
-print("; ".join(f"{p} claimed by " + ", ".join(o["story_id"] for o in owners)
-               for p, owners in c.items()))
-' "$REPORT")
-emit_var FRONTIER_IDS "$FRONTIER_IDS_RAW"
-emit_var OVERLAP_DETAIL "$OVERLAP_DETAIL_RAW"
+echo "FRONTIER_COUNT=${fields[0]:-0}"
+echo "PARALLELIZABLE=${fields[1]:-false}"
+echo "GLOB_FORCED=${fields[2]:-false}"
+emit_var FRONTIER_IDS "${fields[3]:-}"
+emit_var OVERLAP_DETAIL "${fields[4]:-}"
 
 # Emit teammate-support flag. Read the session TEAMMATE_CONFIG marker;
 # map token "off" -> false, any other token -> true. Fail-safe to true
