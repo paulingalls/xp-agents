@@ -582,6 +582,236 @@ class TestCountByStatus(unittest.TestCase):
         self.assertEqual(counts.get("closing"), 1)
 
 
+class TestFileDomainsOverlapDetail(unittest.TestCase):
+    """file_domains_overlap_detail: the detail-returning sibling of the
+    overlap bool, backed by file_domain_lock.collision_report so there is
+    exactly one file_domain parser.
+
+    `collisions` is collision_report's output forwarded unchanged (path ->
+    owning claims with origin). `glob_forced` is a SEPARATE signal, not
+    folded into collisions: collision_report compares glob tokens as literal
+    strings and would report a glob-declared frontier as disjoint, so the
+    detail helper re-detects globs with the same oracle the legacy bool used
+    (extract_file_domain_paths raising ValueError) and reports the
+    conservative "can't prove disjoint" verdict on its own field. Callers
+    need to distinguish "these two stories both claim x.py" from "a glob
+    domain means disjointness can't be proven".
+    """
+
+    def _detail(self, stories, story_ids):
+        import sprint_status
+
+        return sprint_status.file_domains_overlap_detail(
+            {"stories": stories}, story_ids
+        )
+
+    def test_detail_reports_collision_path_and_story_ids(self):
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    file_domain=["src/a.py — owner", "src/b.py — shared"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py — caller", "src/c.py — owner"],
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertFalse(detail["glob_forced"])
+        self.assertEqual(list(detail["collisions"]), ["src/b.py"])
+        self.assertEqual(
+            [c["story_id"] for c in detail["collisions"]["src/b.py"]],
+            ["story-001", "story-002"],
+        )
+
+    def test_detail_disjoint_no_collisions(self):
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/a.py"]
+                ),
+                _make_story(
+                    id="story-002", status="scheduled", file_domain=["src/b.py"]
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_empty_for_single_story(self):
+        # Fewer than two named stories: no pair, so no claim about paths —
+        # and the glob detector never runs (legacy "single glob story ->
+        # False" behavior preserved).
+        detail = self._detail(
+            [
+                _make_story(id="story-001", status="scheduled", file_domain=["src/*"]),
+                _make_story(id="story-002", status="ready", file_domain=["src/a.py"]),
+            ],
+            ["story-001"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_glob_forced_true(self):
+        # collision_report compares "src/*" as a literal token and would say
+        # disjoint. glob_forced carries the conservatism instead.
+        detail = self._detail(
+            [
+                _make_story(id="story-001", status="scheduled", file_domain=["src/*"]),
+                _make_story(
+                    id="story-002", status="scheduled", file_domain=["docs/api.md"]
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertTrue(detail["glob_forced"])
+        self.assertEqual(detail["collisions"], {})
+
+    def test_detail_glob_in_non_subset_story_ignored(self):
+        # The question is only about the named stories. A glob elsewhere in
+        # the sprint must not force conservatism on this frontier.
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/a.py"]
+                ),
+                _make_story(
+                    id="story-002", status="scheduled", file_domain=["src/b.py"]
+                ),
+                _make_story(id="story-003", status="ready", file_domain=["src/*"]),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_origin_auto_included_preserved(self):
+        # The sister-test globber's claims are tagged auto_included, and the
+        # tag survives forwarding — the remedy differs from an authored clash.
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    file_domain=["tests/test_a.py — sister test for src/a.py"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["tests/test_a.py — authored"],
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        claims = detail["collisions"]["tests/test_a.py"]
+        self.assertEqual(
+            {c["story_id"]: c["origin"] for c in claims},
+            {"story-001": "auto_included", "story-002": "authored"},
+        )
+
+    def test_detail_dependency_serialized_not_collision(self):
+        # Sequential work sharing a file is legal — the dependency edge means
+        # the two stories can never run concurrently.
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/b.py"]
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py"],
+                    dependencies=["story-001"],
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_terminal_story_not_collision(self):
+        # A done story has merged and released its files.
+        detail = self._detail(
+            [
+                _make_story(id="story-001", status="done", file_domain=["src/b.py"]),
+                _make_story(
+                    id="story-002", status="scheduled", file_domain=["src/b.py"]
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_non_str_entries_ignored(self):
+        # entry_to_paths raises TypeError (not ValueError) on a non-str entry,
+        # a latent crash in the legacy bool. Filter before the detector runs.
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    file_domain=["src/b.py", 42, None],
+                ),
+                _make_story(
+                    id="story-002", status="scheduled", file_domain=["src/b.py"]
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertFalse(detail["glob_forced"])
+        self.assertEqual(list(detail["collisions"]), ["src/b.py"])
+
+    def test_detail_empty_file_domain_makes_no_claims(self):
+        # Code-free investigation stories declare nothing: no raise, no claim.
+        detail = self._detail(
+            [
+                _make_story(id="story-001", status="scheduled", file_domain=[]),
+                _make_story(id="story-002", status="scheduled", file_domain=[]),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_unknown_story_id_is_not_a_pair(self):
+        detail = self._detail(
+            [_make_story(id="story-001", status="scheduled", file_domain=["src/a.py"])],
+            ["story-001", "story-404"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_called_as_sprint_frontier_will_call_it(self):
+        # AC#5: sprint_frontier imports these helpers DIRECTLY from
+        # sprint_status, never through sprint_store's re-export shim (there is
+        # no re-export of the detail helper, by design). Exercise that path.
+        from sprint_status import file_domains_overlap_detail
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-001",
+                    status="in-progress",
+                    file_domain=["smm/sprint_status.py — owner"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="in-progress",
+                    file_domain=["smm/sprint_status.py — consumer"],
+                ),
+            ]
+        )
+        detail = file_domains_overlap_detail(sprint, ["story-001", "story-002"])
+        self.assertEqual(
+            detail["collisions"],
+            {
+                "smm/sprint_status.py": [
+                    {"story_id": "story-001", "origin": "authored"},
+                    {"story_id": "story-002", "origin": "authored"},
+                ]
+            },
+        )
+
+
 class TestScheduleGateActive(_SMMTestCase):
     """schedule_gate_active{,_data}: the trigger the /xp-schedule gates fire
     on — scheduled stories exist AND no story is in motion (in-progress,

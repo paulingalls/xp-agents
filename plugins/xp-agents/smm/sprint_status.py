@@ -12,6 +12,7 @@ import cleanly without a cycle when sprint_store re-exports back.
 from itertools import combinations
 from pathlib import Path
 
+import file_domain_lock
 from sprint_schema import (
     ACTIVE_STORY_STATUSES,
     IN_MOTION_STORY_STATUSES,
@@ -220,6 +221,52 @@ def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
         return False
     scheduled = [s["id"] for s in sprint["stories"] if s.get("status") == "scheduled"]
     return file_domains_overlap_data(sprint, scheduled)
+
+
+def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
+    """Why the named stories can or cannot run in parallel, with the facts.
+
+        {"collisions": {path: [{"story_id", "origin"}, ...]}, "glob_forced": bool}
+
+    `collisions` is `file_domain_lock.collision_report`'s output forwarded
+    unchanged — already sorted by path, already dependency- and terminal-aware,
+    already tagging each claim `authored` vs `auto_included`. Reshaping it here
+    would create a second place to drift from the one file_domain parser.
+
+    `glob_forced` is a SEPARATE signal, never folded into `collisions`.
+    `collision_report` compares glob tokens as literal strings, so a
+    glob-declared domain reads as disjoint there. `extract_file_domain_paths`
+    is reused as the glob DETECTOR (it raises ValueError on a glob with no
+    candidates/cwd) — the exact oracle the overlap bool has always relied on,
+    so conservatism fires on exactly the old inputs. Callers need the two apart
+    to say "both stories claim x.py" versus "a glob domain means disjointness
+    can't be proven".
+
+    Fewer than two named stories: no pair, so no claim about paths, and the
+    detector never runs.
+    """
+    wanted = set(story_ids)
+    subset = [s for s in data["stories"] if s.get("id") in wanted]
+    if len(subset) < 2:
+        return {"collisions": {}, "glob_forced": False}
+
+    # Scoping to `subset` is safe: a frontier member can never depend on
+    # another frontier member (deps must be `done` to be satisfied), so the
+    # dependency-awareness collision_report applies is a no-op within one.
+    collisions = file_domain_lock.collision_report({"stories": subset})
+
+    glob_forced = False
+    for story in subset:
+        # Filter non-str BEFORE the detector: entry_to_paths indexes the entry
+        # and raises TypeError, not ValueError, on anything else.
+        entries = [e for e in (story.get("file_domain") or []) if isinstance(e, str)]
+        try:
+            extract_file_domain_paths(entries)
+        except ValueError:
+            glob_forced = True
+            break
+
+    return {"collisions": collisions, "glob_forced": glob_forced}
 
 
 def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
