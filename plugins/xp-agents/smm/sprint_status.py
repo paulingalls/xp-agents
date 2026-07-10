@@ -9,9 +9,9 @@ sprint_store re-exports every name defined here so existing call sites
 import cleanly without a cycle when sprint_store re-exports back.
 """
 
-from itertools import combinations
 from pathlib import Path
 
+import file_domain_lock
 from sprint_schema import (
     ACTIVE_STORY_STATUSES,
     IN_MOTION_STORY_STATUSES,
@@ -222,6 +222,52 @@ def scheduled_file_domains_overlap(smm_dir: Path) -> bool:
     return file_domains_overlap_data(sprint, scheduled)
 
 
+def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
+    """Why the named stories can or cannot run in parallel, with the facts.
+
+        {"collisions": {path: [{"story_id", "origin"}, ...]}, "glob_forced": bool}
+
+    `collisions` is `file_domain_lock.collision_report`'s output forwarded
+    unchanged — already sorted by path, already dependency- and terminal-aware,
+    already tagging each claim `authored` vs `auto_included`. Reshaping it here
+    would create a second place to drift from the one file_domain parser.
+
+    `glob_forced` is a SEPARATE signal, never folded into `collisions`.
+    `collision_report` compares glob tokens as literal strings, so a
+    glob-declared domain reads as disjoint there. `extract_file_domain_paths`
+    is reused as the glob DETECTOR (it raises ValueError on a glob with no
+    candidates/cwd) — the exact oracle the overlap bool has always relied on,
+    so conservatism fires on exactly the old inputs. Callers need the two apart
+    to say "both stories claim x.py" versus "a glob domain means disjointness
+    can't be proven".
+
+    Fewer than two named stories: no pair, so no claim about paths, and the
+    detector never runs.
+    """
+    wanted = set(story_ids)
+    subset = [s for s in data["stories"] if s.get("id") in wanted]
+    if len(subset) < 2:
+        return {"collisions": {}, "glob_forced": False}
+
+    # Scoping to `subset` is safe: a frontier member can never depend on
+    # another frontier member (deps must be `done` to be satisfied), so the
+    # dependency-awareness collision_report applies is a no-op within one.
+    collisions = file_domain_lock.collision_report({"stories": subset})
+
+    glob_forced = False
+    for story in subset:
+        # Filter non-str BEFORE the detector: entry_to_paths indexes the entry
+        # and raises TypeError, not ValueError, on anything else.
+        entries = [e for e in (story.get("file_domain") or []) if isinstance(e, str)]
+        try:
+            extract_file_domain_paths(entries)
+        except ValueError:
+            glob_forced = True
+            break
+
+    return {"collisions": collisions, "glob_forced": glob_forced}
+
+
 def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
     """True when 2+ of the named stories share a file in their file_domain.
 
@@ -230,22 +276,16 @@ def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
     ready-frontier parallelizable verdict (over just the frontier subset).
     Returns False for fewer than two named stories (no pair to overlap).
 
-    Reuses the canonical em-dash splitter from `triage` so parsing matches
-    every other consumer of file_domain entries. Conservative: returns True
-    when a story declares a glob (extract raises ValueError) so callers pick
+    Re-derived from `file_domains_overlap_detail` so the two answers can never
+    disagree. Conservative: True when a story declares a glob, so callers pick
     solo rather than degrade to "no overlap → safe to parallelize".
+
+    Being a view of the detail helper makes this dependency- and
+    terminal-aware: stories serialized by a dependency edge may share files
+    without overlapping, since they can never be worked at the same time.
     """
-    wanted = set(story_ids)
-    stories = [s for s in data["stories"] if s.get("id") in wanted]
-    if len(stories) < 2:
-        return False
-    try:
-        path_sets = [
-            extract_file_domain_paths(s.get("file_domain") or []) for s in stories
-        ]
-    except ValueError:
-        return True
-    return any(a & b for a, b in combinations(path_sets, 2))
+    detail = file_domains_overlap_detail(data, story_ids)
+    return detail["glob_forced"] or bool(detail["collisions"])
 
 
 def is_complete(smm_dir: Path) -> bool:
