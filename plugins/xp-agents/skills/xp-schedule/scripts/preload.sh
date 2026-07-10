@@ -12,8 +12,9 @@ if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
-# ready-frontier prints {"frontier": [...], "parallelizable": bool}. Parse it
-# into preload vars; fail-safe to an empty frontier if the CLI errors.
+# ready-frontier prints {"frontier": [...], "parallelizable": bool, "overlap":
+# {"collisions": {...}, "glob_forced": bool}}. Parse it into preload vars;
+# fail-safe to an empty frontier if the CLI errors.
 REPORT=$(python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "${SMM_DIR}" \
     ready-frontier 2>/dev/null || echo '{"frontier":[],"parallelizable":false,"overlap":{"collisions":{},"glob_forced":false}}')
 # shellcheck disable=SC2016
