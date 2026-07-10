@@ -26,7 +26,10 @@ python3 "${PLUGIN_ROOT}/scripts/close_common.py" close-review-gate \
     || echo "RUN_FULL_CODE_REVIEW=false"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
-echo "TEST_COMMAND=$(find_test_command)"
+# TEST_COMMAND is customer-set free text (system_context.stack.test_command,
+# not a git-constrained ref) — route it through emit_var so a newline in it
+# cannot forge a KEY=value line in this contract.
+emit_var TEST_COMMAND "$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
 CLOSE_CYCLE_ID=$(generate_id)
 echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
