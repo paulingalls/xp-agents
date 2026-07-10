@@ -478,7 +478,15 @@ def main() -> None:
 
     raw = sys.stdin.read()
     data = json.loads(raw)
-    run(data, args.smm_dir)
+    # run() raises ValueError on a file_domain collision (and other validation
+    # failures). Surface it as a clean, formatted message + exit 1 — parity with
+    # sprint_cli_mutate, which wraps run() the same way — rather than letting the
+    # collision report escape as an uncaught traceback with internal stack frames.
+    try:
+        run(data, args.smm_dir)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

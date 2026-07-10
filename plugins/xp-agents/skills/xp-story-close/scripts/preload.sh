@@ -40,7 +40,12 @@ echo "SMM_DIR=${SMM_DIR}"
 # Route author-influenced values through emit_var. Keep the shell vars
 # themselves unflattened — downstream extract-story-id still consumes the raw
 # $CURRENT_BRANCH, and $TEAMMATE_CWD feeds --cwd below.
-emit_var TEAMMATE_CWD "$TEAMMATE_CWD"
+# TEAMMATE_CWD is a filesystem path the close skill feeds to `git -C <path>`
+# for the teammate stash+merge; route it through emit_path_var so a worktree
+# under a dir with consecutive spaces survives verbatim (emit_var/flat would
+# collapse the run and target a non-existent directory), while newline/tab
+# forgery vectors are still neutralized.
+emit_path_var TEAMMATE_CWD "$TEAMMATE_CWD"
 emit_var CURRENT_BRANCH "$CURRENT_BRANCH"
 emit_var TARGET_BRANCH "${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"

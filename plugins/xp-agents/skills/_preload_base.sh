@@ -477,6 +477,18 @@ strip_framing() {
     printf '%s' "${1-}" | tr '\n\r\t' '   '
 }
 
+# emit_path_var KEY VALUE -> like emit_var, but PRESERVES consecutive spaces.
+# For a path-valued variable (a worktree cwd) whose emitted line a close/review
+# skill hands to `git -C <path>` / `--cwd <path>`: a filesystem path may
+# legitimately contain a run of spaces (e.g. `/Users/John  Doe/proj`), and
+# emit_var's flat() would collapse it, targeting a non-existent directory.
+# strip_framing still neutralizes the newline/CR/tab forgery vectors (each -> a
+# single space), so the one-line-per-variable invariant holds. Use emit_var for
+# every non-path scalar.
+emit_path_var() {
+    printf '%s=%s\n' "$1" "$(strip_framing "${2-}")"
+}
+
 # sanitize_tsv_block (stdin) -> strip framing chars from each TAB field, preserve
 # tab field-sep, newline row-sep, and spaces within a field. For xp-accept's
 # TEAMMATE_WORKTREES rows (id<TAB>path<TAB>sha<TAB>ref).
