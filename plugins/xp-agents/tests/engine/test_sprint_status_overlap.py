@@ -240,7 +240,11 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
             ],
             ["story-001", "story-002"],
         )
-        self.assertEqual(detail["collisions"], {})
+        # Assert the full dict, not just collisions: the deleted bool sibling
+        # was `glob_forced or collisions`, so its `is False` pinned BOTH facts.
+        # Checking only collisions would let a spurious glob_forced=True slip
+        # through on this literal-path input.
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
 
     def test_detail_called_as_sprint_frontier_will_call_it(self):
         # AC#5: sprint_frontier imports these helpers DIRECTLY from
