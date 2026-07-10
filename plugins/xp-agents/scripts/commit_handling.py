@@ -230,8 +230,12 @@ def _confirm_commit_repo(
     a shell variable `strip_quoted` deletes, so the parse yields the wrong
     repo). `(None, "")` means no candidate holds this commit.
     """
-    candidates = commits.commit_repo_candidates(command, cwd, scan_target=scan_target)
-    for candidate in candidates:
+    first: str | None = None
+    for candidate in commits.commit_repo_candidates(
+        command, cwd, scan_target=scan_target
+    ):
+        if first is None:
+            first = candidate
         head_body = commits.get_commit_message_body(candidate) or ""
         if _head_matches_command(command, head_body):
             return candidate, head_body
@@ -239,8 +243,8 @@ def _confirm_commit_repo(
     # git's own `[branch hash] subject` line proves a commit landed even when
     # the message is unrecoverable from the command (e.g. `-F <tmpfile>` the
     # shell already deleted). Trust the first candidate in that case only.
-    if commits.parse_commit_message(response_text) and candidates:
-        return candidates[0], commits.get_commit_message_body(candidates[0]) or ""
+    if first is not None and commits.parse_commit_message(response_text):
+        return first, commits.get_commit_message_body(first) or ""
     return None, ""
 
 

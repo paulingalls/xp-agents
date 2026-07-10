@@ -12,11 +12,13 @@ import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import commit_handling
+from _bases import _AssertNotNoneMixin
 
 
 class TestMakeCommitEvent(unittest.TestCase):
@@ -197,6 +199,43 @@ class TestMakeCommitEvent(unittest.TestCase):
         )
         self.assertIn("sprint_id", ev["metadata"])
         self.assertEqual(ev["metadata"]["sprint_id"], "")
+
+
+class TestExtractCommitMessageFileRobustness(_AssertNotNoneMixin, unittest.TestCase):
+    """The `-F <path>` branch reads a message file to confirm the commit.
+
+    A commit message with non-UTF-8 bytes (e.g. a latin-1 author name) must
+    NOT crash the PostToolUse:Bash hook — a decode error is a ValueError, not
+    an OSError, so it escaped the read-failure suppress and propagated out of
+    `run()`, violating "a hook must not break the user's commit"."""
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+
+    def test_non_utf8_message_file_does_not_raise(self):
+        import commits
+
+        msg_file = self.dir / "MSG"
+        msg_file.write_bytes(b"fix: caf\xe9 handling\n")  # 0xe9 invalid UTF-8
+        # Must return a (best-effort) string, never raise UnicodeDecodeError:
+        # that is a ValueError, not an OSError, so it would escape the
+        # suppress and crash a hook that fires on every Bash call.
+        result = self._assert_not_none(
+            commits.extract_commit_message(f"git commit -F {msg_file}")
+        )
+        self.assertIn("fix: caf", result)
+
+    def test_missing_message_file_returns_none(self):
+        import commits
+
+        result = commits.extract_commit_message(
+            f"git commit -F {self.dir / 'does-not-exist'}"
+        )
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

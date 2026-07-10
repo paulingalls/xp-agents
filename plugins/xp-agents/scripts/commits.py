@@ -9,6 +9,7 @@ import contextlib
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -497,10 +498,13 @@ def extract_commit_message(command: str) -> str | None:
     file_flag = _FILE_FLAG_RE.search(command)
     if file_flag:
         # The message file may already be gone by PostToolUse time; a missing
-        # file is not a failure, just an unrecoverable message.
+        # file is not a failure, just an unrecoverable message. `errors=
+        # "replace"` keeps a non-UTF-8 commit message (e.g. latin-1 bytes)
+        # from raising UnicodeDecodeError — a decode error is NOT an OSError,
+        # so it would otherwise escape the suppress and crash the hook.
         path = next(g for g in file_flag.groups() if g)
         with contextlib.suppress(OSError):
-            return Path(path).read_text()
+            return Path(path).read_text(errors="replace")
     return None
 
 
@@ -531,43 +535,52 @@ def dash_c_unreachable(command: str) -> bool:
 
 def commit_repo_candidates(
     command: str, fallback: str, *, scan_target=None
-) -> list[str]:
-    """Ordered repos a `git commit` in `command` might have run in.
+) -> Iterator[str]:
+    """Yield, in order, repos a `git commit` in `command` might have run in.
 
     `parse_effective_cwd` first (the explicit `cd`/`git -C` target), then the
     hook's own cwd, then every live teammate worktree. Callers confirm which
     candidate actually holds the commit by comparing HEAD's subject against the
     message the command supplied — matching, not parsing.
 
+    Lazy on purpose: enumerating teammate worktrees shells out to
+    `git worktree list --porcelain`, and this runs on every commit-shaped Bash
+    (a hot PostToolUse path). Yielding lets the caller stop at the first
+    matching candidate — so the common solo `git commit` in the main checkout
+    never pays for the worktree scan, which only the quoted-`-C` case needs.
+
     The worktree candidates exist because `git -C "$WT" commit` hides its path
     behind an unexpanded shell variable: `strip_quoted` removes the quoted
     token before `parse_effective_cwd` ever sees it, so the parse silently
     yields the MAIN checkout and HEAD is read from the wrong repo.
     """
-    candidates: list[str] = []
+    seen: set[str] = set()
 
-    def _add(path: str | None, *, require_dir: bool = True) -> None:
-        if not path or path in candidates:
+    def _emit(path: str | None, *, require_dir: bool = True) -> Iterator[str]:
+        if not path or path in seen:
             return
         if require_dir and not Path(path).is_dir():
             return
-        candidates.append(path)
+        seen.add(path)
+        yield path
 
     # The parsed target and the hook's own cwd go in unconditionally: callers
     # (and tests) pass synthetic cwds, and `get_commit_message_body` already
     # degrades to None on a path that isn't a repo.
-    _add(
+    yield from _emit(
         parse_effective_cwd(command, fallback, scan_target=scan_target),
         require_dir=False,
     )
-    _add(fallback, require_dir=False)
+    yield from _emit(fallback, require_dir=False)
 
+    # Only reached when the caller keeps iterating past the cheap candidates
+    # (no earlier match) — the `git worktree list` subprocess is deferred to
+    # here so the common matched-on-first-candidate path never triggers it.
     with contextlib.suppress(Exception):
         import worktree
 
         for _story_id, wt_path in worktree.list_live_teammate_worktree_paths(fallback):
-            _add(wt_path)
-    return candidates
+            yield from _emit(wt_path)
 
 
 _ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore|sprint-direct)\]", re.IGNORECASE)
