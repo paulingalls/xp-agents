@@ -780,6 +780,30 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
         )
         self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
 
+    def test_bool_is_dependency_aware(self):
+        # The bool is re-derived from the detail helper, so it inherits
+        # collision_report's concurrency semantics: two stories serialized by
+        # a dependency edge may share files. Customer-ratified consequence of
+        # having one file_domain parser instead of two.
+        import sprint_status
+
+        sprint = _make_sprint(
+            stories=[
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/b.py"]
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py"],
+                    dependencies=["story-001"],
+                ),
+            ]
+        )
+        self.assertFalse(
+            sprint_status.file_domains_overlap_data(sprint, ["story-001", "story-002"])
+        )
+
     def test_detail_called_as_sprint_frontier_will_call_it(self):
         # AC#5: sprint_frontier imports these helpers DIRECTLY from
         # sprint_status, never through sprint_store's re-export shim (there is

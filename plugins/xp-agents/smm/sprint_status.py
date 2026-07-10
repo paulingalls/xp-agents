@@ -9,7 +9,6 @@ sprint_store re-exports every name defined here so existing call sites
 import cleanly without a cycle when sprint_store re-exports back.
 """
 
-from itertools import combinations
 from pathlib import Path
 
 import file_domain_lock
@@ -277,22 +276,16 @@ def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
     ready-frontier parallelizable verdict (over just the frontier subset).
     Returns False for fewer than two named stories (no pair to overlap).
 
-    Reuses the canonical em-dash splitter from `triage` so parsing matches
-    every other consumer of file_domain entries. Conservative: returns True
-    when a story declares a glob (extract raises ValueError) so callers pick
+    Re-derived from `file_domains_overlap_detail` so the two answers can never
+    disagree. Conservative: True when a story declares a glob, so callers pick
     solo rather than degrade to "no overlap → safe to parallelize".
+
+    Being a view of the detail helper makes this dependency- and
+    terminal-aware: stories serialized by a dependency edge may share files
+    without overlapping, since they can never be worked at the same time.
     """
-    wanted = set(story_ids)
-    stories = [s for s in data["stories"] if s.get("id") in wanted]
-    if len(stories) < 2:
-        return False
-    try:
-        path_sets = [
-            extract_file_domain_paths(s.get("file_domain") or []) for s in stories
-        ]
-    except ValueError:
-        return True
-    return any(a & b for a, b in combinations(path_sets, 2))
+    detail = file_domains_overlap_detail(data, story_ids)
+    return detail["glob_forced"] or bool(detail["collisions"])
 
 
 def is_complete(smm_dir: Path) -> bool:
