@@ -307,8 +307,9 @@ def main() -> None:
     rf_p = sub.add_parser(
         "ready-frontier",
         help=(
-            "Print JSON {frontier, parallelizable}: dep-satisfied scheduled "
-            "stories + whether they are a disjoint-domain fan-out (>=2). "
+            "Print JSON {frontier, parallelizable, overlap}: dep-satisfied "
+            "scheduled stories + whether they are a disjoint-domain fan-out "
+            "(>=2) + the collision/glob overlap detail. "
             "Consumed by the /xp-schedule preload. Exit 0 always."
         ),
     )
