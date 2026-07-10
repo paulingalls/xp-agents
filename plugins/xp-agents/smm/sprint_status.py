@@ -246,26 +246,6 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     return {"collisions": collisions, "glob_forced": glob_forced}
 
 
-def file_domains_overlap_data(data: dict, story_ids: list[str]) -> bool:
-    """True when 2+ of the named stories share a file in their file_domain.
-
-    Pure helper over a loaded sprint dict. Powers both the /xp-assign
-    auto-pick-solo check (over all scheduled stories) and the /xp-schedule
-    ready-frontier parallelizable verdict (over just the frontier subset).
-    Returns False for fewer than two named stories (no pair to overlap).
-
-    Re-derived from `file_domains_overlap_detail` so the two answers can never
-    disagree. Conservative: True when a story declares a glob, so callers pick
-    solo rather than degrade to "no overlap → safe to parallelize".
-
-    Being a view of the detail helper makes this dependency- and
-    terminal-aware: stories serialized by a dependency edge may share files
-    without overlapping, since they can never be worked at the same time.
-    """
-    detail = file_domains_overlap_detail(data, story_ids)
-    return detail["glob_forced"] or bool(detail["collisions"])
-
-
 def is_complete(smm_dir: Path) -> bool:
     """True when no ready or in-progress stories remain."""
     from sprint_store import load_sprint

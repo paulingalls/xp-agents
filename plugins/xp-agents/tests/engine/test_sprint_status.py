@@ -418,6 +418,17 @@ class TestStatusChecks(_SMMTestCase):
         self.assertFalse(hasattr(sprint_status, "scheduled_file_domains_overlap"))
         self.assertNotIn("scheduled_file_domains_overlap", sprint_store.__all__)
 
+    def test_file_domains_overlap_data_is_removed(self):
+        # Deleted: file_domains_overlap_data had zero production callers once
+        # scheduled_file_domains_overlap (its only caller) was deleted.
+        # file_domains_overlap_detail is the sole surviving public entry
+        # point. Guards against reintroduction.
+        import sprint_status
+        import sprint_store
+
+        self.assertFalse(hasattr(sprint_status, "file_domains_overlap_data"))
+        self.assertNotIn("file_domains_overlap_data", sprint_store.__all__)
+
     def test_sprint_exists(self):
         import sprint_store
 
