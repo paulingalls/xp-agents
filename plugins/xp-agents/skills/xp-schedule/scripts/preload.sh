@@ -12,17 +12,37 @@ if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
 
-# ready-frontier prints {"frontier": [...], "parallelizable": bool}. Parse it
-# into preload vars; fail-safe to an empty frontier if the CLI errors.
+# ready-frontier prints {"frontier": [...], "parallelizable": bool, "overlap":
+# {"collisions": {...}, "glob_forced": bool}}. Parse it into preload vars;
+# fail-safe to an empty frontier if the CLI errors.
 REPORT=$(python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "${SMM_DIR}" \
-    ready-frontier 2>/dev/null || echo '{"frontier":[],"parallelizable":false}')
+    ready-frontier 2>/dev/null || echo '{"frontier":[],"parallelizable":false,"overlap":{"collisions":{},"glob_forced":false}}')
+# shellcheck disable=SC2016
 python3 -c '
-import json, sys
+import json, re, sys
 r = json.loads(sys.argv[1])
+
+def flat(text):
+    """Collapse whitespace so a value can never span lines.
+
+    Preload stdout is a KEY=value contract and is injected verbatim into the
+    skill prompt. A newline inside author-supplied text (a file_domain path, a
+    story id) would end the line early and let the remainder masquerade as its
+    own variable, shadowing a real one.
+    """
+    return re.sub(r"\s+", " ", str(text)).strip()
+
 frontier = r.get("frontier", [])
-print("FRONTIER_IDS=" + " ".join(frontier))
+print("FRONTIER_IDS=" + " ".join(flat(f) for f in frontier))
 print("FRONTIER_COUNT=" + str(len(frontier)))
 print("PARALLELIZABLE=" + ("true" if r.get("parallelizable") else "false"))
+overlap = r.get("overlap") or {}
+collisions = overlap.get("collisions") or {}
+print("GLOB_FORCED=" + ("true" if overlap.get("glob_forced") else "false"))
+print("OVERLAP_DETAIL=" + flat("; ".join(
+    f"{path} claimed by " + ", ".join(c["story_id"] for c in owners)
+    for path, owners in collisions.items()
+)))
 ' "$REPORT"
 
 # Emit teammate-support flag. Read the session TEAMMATE_CONFIG marker;
