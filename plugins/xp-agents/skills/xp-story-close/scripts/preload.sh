@@ -42,7 +42,7 @@ echo "SMM_DIR=${SMM_DIR}"
 # $CURRENT_BRANCH, and $TEAMMATE_CWD feeds --cwd below.
 emit_var TEAMMATE_CWD "$TEAMMATE_CWD"
 emit_var CURRENT_BRANCH "$CURRENT_BRANCH"
-echo "TARGET_BRANCH=${TARGET_BRANCH}"
+emit_var TARGET_BRANCH "${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
 HOOK_STATUS=$(pre_commit_hook_present)

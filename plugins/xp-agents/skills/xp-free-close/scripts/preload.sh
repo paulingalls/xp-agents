@@ -15,8 +15,11 @@ TARGET_BRANCH=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
     --smm-dir "${SMM_DIR}" get-target --cwd . 2>/dev/null || echo "")
 
 echo "SMM_DIR=${SMM_DIR}"
-echo "CURRENT_BRANCH=${CURRENT_BRANCH}"
-echo "TARGET_BRANCH=${TARGET_BRANCH}"
+# Route branch refs through emit_var for a uniform emit path across the close
+# family (git refs can't forge a line, but keeping every emit consistent avoids
+# reading as a gap). Shell vars stay raw for downstream use.
+emit_var CURRENT_BRANCH "${CURRENT_BRANCH}"
+emit_var TARGET_BRANCH "${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
 # Threshold-gated full code review (shared Step 4b): emit CLOSE_CODE_FILE_COUNT
