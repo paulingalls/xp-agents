@@ -2,6 +2,51 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.5.0 — Enforce the file-domain invariant at write time; explain non-parallelizable frontiers
+
+Plan `File-domain lock + stop-gate in-flight awareness`, milestones 1–2
+(sprint-114, sprint-115). `file_domain` was documented as an exclusive-ownership
+invariant but nothing enforced it — and `sprint_save`'s sister-test auto-include
+actively violated it on the author's behalf. This ships the enforcement and makes
+a frontier that cannot parallelize say why. Every change TDD-ordered and reviewed
+before merge; also carries live the commit-recording fix that the cached 4.4.x
+plugin predated.
+
+### File-domain lock at sprint-write time (M1)
+
+- **Sister-test auto-include can no longer claim a path another story authored.**
+  `sprint_save` now seeds `existing_paths` from the union of all authored domains
+  before the per-story loop, and a new `file_domain_lock` collision report keys
+  each path to its `(story_id, origin)` owners — distinguishing an authored
+  collision (a planner error) from an auto-included one (a tool error), which need
+  different remedies. Any surviving collision fails the sprint write loudly,
+  naming every colliding path, its owners, and origin — not just the first.
+  Applies to `create` and `add-story` alike; comparison is literal-token via the
+  shared `triage.entry_to_paths` parser, no glob expansion at write time.
+- **`edit_story` file_domain edits are gated against introduced collisions.** An
+  edit that would make a path collide with another story's domain is blocked,
+  comparing `collision_report(baseline)` vs `collision_report(current)` with both
+  sides sister-expanded so a path is blocked iff its colliding-story set grew.
+
+### Report intentional overlap instead of silently degrading (M2)
+
+- **A non-parallelizable frontier explains itself.** `/xp-schedule`'s preload now
+  names both stories and the shared path that forced solo (`OVERLAP_DETAIL=…`), or
+  reports `GLOB_FORCED=true` when a glob domain makes disjointness unprovable.
+  `ready_frontier_report` carries the overlap detail alongside the parallelizable
+  bool, backed by M1's collision report; the dead `scheduled-overlap` CLI
+  subcommand and its now-callerless bool were removed.
+
+### Hardening
+
+- **A newline in a `file_domain` path can no longer forge a preload variable.**
+  Every preload variable now flows through one sanitized emit path
+  (`emit_var`/`sanitize_tsv_block`), closing a prompt-injection where a crafted
+  path forged a preload line and shadowed a gate.
+- Internal refactors kept every touched file under the 500-line cap
+  (`sprint_store`→`sprint_frontier`+`sprint_metrics`; `commits.py`/
+  `commit_handling.py`→`commit_command.py`+`commit_event.py`).
+
 ## v4.4.2 — Fix the /xp-assign executor-effort latch
 
 Free-branch fix. `/xp-assign` persists two decision fields on each story —
