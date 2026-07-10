@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import contextlib
+import copy
 import json
 import os
 import re
@@ -300,57 +301,54 @@ def _auto_include_sister_tests(
         domain.extend(additions)
 
 
-def _story_domains(data: dict) -> dict[str, object]:
-    """{story_id: file_domain} for well-formed stories in a sprint dict.
-
-    Used to compare the write-in-hand against the on-disk sprint so the
-    collision gate can tell a story this write touched from one it left alone.
-    """
-    domains: dict[str, object] = {}
-    for story in data.get("stories", []):
-        if isinstance(story, dict) and isinstance(story.get("id"), str):
-            domains[story["id"]] = story.get("file_domain")
-    return domains
-
-
-def introduced_collisions(
-    data: dict, smm_dir: Path, collisions: dict[str, list[dict]]
-) -> dict[str, list[dict]]:
-    """Subset of `collisions` that this write is responsible for.
+def introduced_collisions(data: dict, smm_dir: Path) -> dict[str, list[dict]]:
+    """Collisions in `data` that THIS write is responsible for.
 
     Public (not `_`-prefixed) because it is an intentional cross-module reuse
-    point: `sprint_store.edit_story` calls it to gate file_domain edits with
-    run()'s exact this-write-only semantics without re-implementing them. A
-    rename here would break that gate — the public name signals the dependency.
+    point: `sprint_store.edit_story` calls it to gate edits with run()'s exact
+    this-write-only semantics without re-implementing them. A rename would break
+    that gate — the public name signals the dependency.
 
+    A collision is 'introduced' iff its set of colliding stories at a path GREW
+    versus the on-disk baseline. Both the baseline and the write-in-hand are
+    sister-expanded the same way run() expands (read-only, on deep copies) and
+    run through `collision_report`; a path is attributed to this write when its
+    current colliding-story set is NOT a subset of the baseline's. This attributes
+    every fault source uniformly — a new/changed file_domain, a dependency edit
+    that makes two shared-path stories concurrent (concurrency is not a domain
+    diff), and a sister-test collision — while a collision present-in-both (a
+    pre-existing one, unchanged by this write) is never blocked. Expanding BOTH
+    sides identically is load-bearing: it keeps a story last persisted via
+    edit-story (unexpanded on disk) from reading as 'touched' and falsely
+    blocking an unrelated edit.
 
-    A collision is 'introduced' when at least one of its colliding stories is
-    new or has a file_domain that differs from the on-disk sprint. A collision
-    wholly among pre-existing, unchanged stories was persisted by an earlier
-    edit-story (which bypasses run()) and is not this write's fault — blocking
-    on it would refuse an unrelated, disjoint new story. When no sprint is on
-    disk (first create), every story is new, so the full report is returned.
-
-    Idempotent auto-include means an untouched story's re-expanded domain equals
-    its persisted one, so equality is an exact, order-stable comparison.
+    Side-effect-free: never writes sprint.json, never fires the sister soft-warn
+    (that stays run()'s job) — `edit_story` relies on this to keep its save()
+    (not run()) semantics.
     """
+    layout = _resolve_layout(smm_dir)
+    project_root = _resolve_project_root() if layout is not None else None
+
+    def _expanded_report(sprint: dict) -> dict[str, list[dict]]:
+        view = copy.deepcopy(sprint)  # _auto_include_sister_tests mutates in place
+        if layout is not None and project_root is not None:
+            _auto_include_sister_tests(view, layout, project_root)
+        return file_domain_lock.collision_report(view)
+
+    current_report = _expanded_report(data)
     baseline = sprint_store.load_sprint(smm_dir)
     if baseline is None:
-        return collisions
-    baseline_domains = _story_domains(baseline)
-    current_domains = _story_domains(data)
-    _MISSING = object()
+        # First create: nothing on disk, so every current collision is our fault.
+        return current_report
+    baseline_report = _expanded_report(baseline)
 
-    def _touched(story_id: str) -> bool:
-        return current_domains.get(story_id, _MISSING) != baseline_domains.get(
-            story_id, _MISSING
-        )
-
-    return {
-        path: claims
-        for path, claims in collisions.items()
-        if any(_touched(claim["story_id"]) for claim in claims)
-    }
+    introduced: dict[str, list[dict]] = {}
+    for path, claims in current_report.items():
+        cur_ids = {c["story_id"] for c in claims}
+        base_ids = {c["story_id"] for c in baseline_report.get(path, [])}
+        if not cur_ids <= base_ids:  # colliding-story set grew -> introduced here
+            introduced[path] = claims
+    return introduced
 
 
 def save(data: dict, smm_dir: Path) -> None:
@@ -417,13 +415,12 @@ def run(data: dict, smm_dir: Path) -> None:
     # disk between two other stories; re-checking the whole sprint on every
     # add-story would then refuse an unrelated, disjoint, schema-valid new
     # story — breaking the "a clean new story can always be added" guarantee.
-    # A collision blocks only when at least one of its claimants is new or has
-    # a changed file_domain relative to the on-disk sprint.
-    collisions = file_domain_lock.collision_report(data)
-    if collisions:
-        introduced = introduced_collisions(data, smm_dir, collisions)
-        if introduced:
-            raise ValueError(file_domain_lock.format_collision_report(introduced))
+    # introduced_collisions attributes a path only when its colliding-story set
+    # GREW versus the on-disk baseline (both sides sister-expanded) — a
+    # pre-existing collision unchanged by this write is never re-blocked.
+    introduced = introduced_collisions(data, smm_dir)
+    if introduced:
+        raise ValueError(file_domain_lock.format_collision_report(introduced))
 
     save(data, smm_dir)
 
