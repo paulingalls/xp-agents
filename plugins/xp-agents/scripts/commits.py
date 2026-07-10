@@ -5,6 +5,7 @@ Provides commit detection, parsing, and file enumeration used by both
 PreToolUse:Bash (gate) and PostToolUse:Bash (bookkeeping).
 """
 
+import contextlib
 import re
 import subprocess
 import sys
@@ -460,15 +461,113 @@ _SIMPLE_MSG_RE = re.compile(
 )
 
 
+# `-F -` / `--file -` reads the message from stdin, which in practice is a
+# heredoc appended to the command. Capture the heredoc body so the commit can
+# still be confirmed when `-q` suppresses git's `[branch hash]` stdout line.
+_STDIN_FLAG_RE = re.compile(r"(?:^|\s)(?:-F|--file)(?:=|\s+)-(?=\s|$)")
+_STDIN_HEREDOC_RE = re.compile(r"<<-?\s*'?(\w+)'?\n(.*?)\n\1", re.DOTALL)
+_FILE_FLAG_RE = re.compile(
+    r"""(?:^|\s)(?:-F|--file)(?:=|\s+)(?!-\s|-$)(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
+)
+
+
 def extract_commit_message(command: str) -> str | None:
-    """Extract the -m argument value from a git commit command."""
+    """Extract the commit message a git command supplies.
+
+    Handles `-m` (simple and `"$(cat <<EOF …)"` heredoc forms), `-F -` /
+    `--file -` with a heredoc body on stdin, and `-F <path>` when the file is
+    still readable. Returns None when no message can be recovered.
+
+    `-F` support is load-bearing for the commit-confirmation fallback: with
+    `-q`, git prints no `[branch hash]` line, so comparing this message against
+    HEAD's body is the only signal that the commit actually landed. Parsing
+    only `-m` silently dropped every `-F`-bodied commit from the event log.
+    """
     heredoc = _HEREDOC_MSG_RE.search(command)
     if heredoc:
         return heredoc.group(1)
     m = _SIMPLE_MSG_RE.search(command)
     if m:
         return m.group(1) if m.group(1) is not None else m.group(2)
+    if _STDIN_FLAG_RE.search(command):
+        stdin_body = _STDIN_HEREDOC_RE.search(command)
+        if stdin_body:
+            return stdin_body.group(2)
+        return None
+    file_flag = _FILE_FLAG_RE.search(command)
+    if file_flag:
+        # The message file may already be gone by PostToolUse time; a missing
+        # file is not a failure, just an unrecoverable message.
+        path = next(g for g in file_flag.groups() if g)
+        with contextlib.suppress(OSError):
+            return Path(path).read_text()
     return None
+
+
+# Matches `-C <path>` on the RAW command, before strip_quoted removes quoted
+# tokens. `git -C "$WT" commit` otherwise loses its path entirely and the repo
+# silently resolves to the hook's own cwd.
+_RAW_DASH_C_RE = re.compile(
+    r"""git\s+(?:-\S+\s+)*?-C\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
+)
+
+
+def dash_c_unreachable(command: str) -> bool:
+    """True when the command names a `git -C <path>` repo we cannot inspect.
+
+    Either the path is an unexpanded shell variable (the hook sees the literal
+    text, not its value) or it does not exist on disk. Distinguishes "the
+    commit landed somewhere we could not look" from "the commit was rejected",
+    which is the ordinary reason HEAD fails to match and must stay silent.
+    """
+    m = _RAW_DASH_C_RE.search(command)
+    if not m:
+        return False
+    path = next((g for g in m.groups() if g), "")
+    if "$" in path or "`" in path:
+        return True
+    return not Path(path).is_dir()
+
+
+def commit_repo_candidates(
+    command: str, fallback: str, *, scan_target=None
+) -> list[str]:
+    """Ordered repos a `git commit` in `command` might have run in.
+
+    `parse_effective_cwd` first (the explicit `cd`/`git -C` target), then the
+    hook's own cwd, then every live teammate worktree. Callers confirm which
+    candidate actually holds the commit by comparing HEAD's subject against the
+    message the command supplied — matching, not parsing.
+
+    The worktree candidates exist because `git -C "$WT" commit` hides its path
+    behind an unexpanded shell variable: `strip_quoted` removes the quoted
+    token before `parse_effective_cwd` ever sees it, so the parse silently
+    yields the MAIN checkout and HEAD is read from the wrong repo.
+    """
+    candidates: list[str] = []
+
+    def _add(path: str | None, *, require_dir: bool = True) -> None:
+        if not path or path in candidates:
+            return
+        if require_dir and not Path(path).is_dir():
+            return
+        candidates.append(path)
+
+    # The parsed target and the hook's own cwd go in unconditionally: callers
+    # (and tests) pass synthetic cwds, and `get_commit_message_body` already
+    # degrades to None on a path that isn't a repo.
+    _add(
+        parse_effective_cwd(command, fallback, scan_target=scan_target),
+        require_dir=False,
+    )
+    _add(fallback, require_dir=False)
+
+    with contextlib.suppress(Exception):
+        import worktree
+
+        for _story_id, wt_path in worktree.list_live_teammate_worktree_paths(fallback):
+            _add(wt_path)
+    return candidates
 
 
 _ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore|sprint-direct)\]", re.IGNORECASE)
