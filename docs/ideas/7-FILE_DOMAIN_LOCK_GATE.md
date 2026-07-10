@@ -88,6 +88,17 @@ to story-003.
 
 ## Gap 2 — the overlap detector exists but never gates
 
+> **Resolved (sprint-114 M1 + sprint-115 M2).** This gap is now closed. The
+> detector gates at every structural write: `file_domain_lock.collision_report`
+> (dependency-aware — collision = concurrent claim only) runs inside
+> `sprint_save.run()` (create/add-story) and, since story-006, inside
+> `sprint_store.edit_story()`. The specific helpers cited below no longer exist:
+> story-005 deleted `scheduled_file_domains_overlap` and `file_domains_overlap_data`
+> once they were callerless; the surviving detail-returning entry point is
+> `sprint_status.file_domains_overlap_detail`, backed by `collision_report`. The
+> analysis below is retained for historical context — do not treat the deleted
+> helper names as live reuse targets.
+
 `smm/sprint_status.py:203` already implements exactly the needed check:
 
 ```python
