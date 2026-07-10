@@ -394,7 +394,12 @@ class TestReadyFrontierCommand(_SMMTestCase):
         result = run_cli(_CLI, ["ready-frontier"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            json.loads(result.stdout), {"frontier": [], "parallelizable": False}
+            json.loads(result.stdout),
+            {
+                "frontier": [],
+                "parallelizable": False,
+                "overlap": {"collisions": {}, "glob_forced": False},
+            },
         )
 
     def test_treat_as_done_unblocks_frontier(self):
