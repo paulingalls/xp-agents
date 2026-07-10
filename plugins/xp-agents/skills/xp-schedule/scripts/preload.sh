@@ -15,7 +15,8 @@ fi
 # ready-frontier prints {"frontier": [...], "parallelizable": bool}. Parse it
 # into preload vars; fail-safe to an empty frontier if the CLI errors.
 REPORT=$(python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "${SMM_DIR}" \
-    ready-frontier 2>/dev/null || echo '{"frontier":[],"parallelizable":false}')
+    ready-frontier 2>/dev/null || echo '{"frontier":[],"parallelizable":false,"overlap":{"collisions":{},"glob_forced":false}}')
+# shellcheck disable=SC2016
 python3 -c '
 import json, sys
 r = json.loads(sys.argv[1])
@@ -23,6 +24,13 @@ frontier = r.get("frontier", [])
 print("FRONTIER_IDS=" + " ".join(frontier))
 print("FRONTIER_COUNT=" + str(len(frontier)))
 print("PARALLELIZABLE=" + ("true" if r.get("parallelizable") else "false"))
+overlap = r.get("overlap") or {}
+collisions = overlap.get("collisions") or {}
+print("GLOB_FORCED=" + ("true" if overlap.get("glob_forced") else "false"))
+print("OVERLAP_DETAIL=" + "; ".join(
+    f"{path} claimed by " + ", ".join(c["story_id"] for c in owners)
+    for path, owners in collisions.items()
+))
 ' "$REPORT"
 
 # Emit teammate-support flag. Read the session TEAMMATE_CONFIG marker;
