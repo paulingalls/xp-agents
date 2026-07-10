@@ -490,8 +490,14 @@ def extract_commit_message(command: str) -> str | None:
     m = _SIMPLE_MSG_RE.search(command)
     if m:
         return m.group(1) if m.group(1) is not None else m.group(2)
-    if _STDIN_FLAG_RE.search(command):
-        stdin_body = _STDIN_HEREDOC_RE.search(command)
+    stdin_flag = _STDIN_FLAG_RE.search(command)
+    if stdin_flag:
+        # Bind to the heredoc introduced AFTER `-F -`, not merely the first in
+        # the command. A compound line can open an earlier, unrelated heredoc
+        # (e.g. `cat <<CFG ... CFG` writing a config file) whose body is not the
+        # commit message; `.search` from the flag's end skips past it to the one
+        # actually feeding this commit's stdin.
+        stdin_body = _STDIN_HEREDOC_RE.search(command, stdin_flag.end())
         if stdin_body:
             return stdin_body.group(2)
         return None
@@ -517,20 +523,22 @@ _RAW_DASH_C_RE = re.compile(
 
 
 def dash_c_unreachable(command: str) -> bool:
-    """True when the command names a `git -C <path>` repo we cannot inspect.
+    """True only when a `git -C <path>` names a repo we cannot even locate —
+    the path is hidden behind an unexpanded shell variable or command
+    substitution, so the hook sees the literal text, never its value.
 
-    Either the path is an unexpanded shell variable (the hook sees the literal
-    text, not its value) or it does not exist on disk. Distinguishes "the
-    commit landed somewhere we could not look" from "the commit was rejected",
-    which is the ordinary reason HEAD fails to match and must stay silent.
+    A literal path that simply does not exist is NOT unreachable: git aborts
+    with "cannot change to '<path>'" and creates no commit anywhere, so the
+    unmatched HEAD is an ordinary failure that must stay silent — not a commit
+    we merely could not inspect. Only the hidden-variable case leaves genuine
+    ambiguity between "landed somewhere we can't look" and "was rejected", and
+    only that case justifies the worktree scan / unconfirmed-commit trace.
     """
     m = _RAW_DASH_C_RE.search(command)
     if not m:
         return False
     path = next((g for g in m.groups() if g), "")
-    if "$" in path or "`" in path:
-        return True
-    return not Path(path).is_dir()
+    return "$" in path or "`" in path
 
 
 def commit_repo_candidates(
@@ -552,7 +560,12 @@ def commit_repo_candidates(
     The worktree candidates exist because `git -C "$WT" commit` hides its path
     behind an unexpanded shell variable: `strip_quoted` removes the quoted
     token before `parse_effective_cwd` ever sees it, so the parse silently
-    yields the MAIN checkout and HEAD is read from the wrong repo.
+    yields the MAIN checkout and HEAD is read from the wrong repo. They are
+    gated on exactly that case (`dash_c_unreachable`) — never a general
+    fallback for any unmatched command. A rejected `git commit` in the main
+    checkout has no unreachable `-C` target, so it never reaches the scan and
+    can never be mis-attributed to a live worktree whose HEAD subject happens
+    to equal the attempted message.
     """
     seen: set[str] = set()
 
@@ -572,6 +585,15 @@ def commit_repo_candidates(
         require_dir=False,
     )
     yield from _emit(fallback, require_dir=False)
+
+    # The worktree scan recovers ONLY the `git -C "$VAR"` case where the shell
+    # variable hid the real repo. Restricting it there is load-bearing: without
+    # this gate, any command that failed to match on the cheap candidates
+    # (e.g. a pre-commit rejection in the main checkout) would fall through and
+    # match a live worktree by coincidental HEAD subject, fabricating a commit
+    # event against the worktree's unrelated hash.
+    if not dash_c_unreachable(command):
+        return
 
     # Only reached when the caller keeps iterating past the cheap candidates
     # (no earlier match) — the `git worktree list` subprocess is deferred to

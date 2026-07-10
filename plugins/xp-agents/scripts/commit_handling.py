@@ -28,6 +28,7 @@ import concerns
 import identity
 import lint_resolution
 import markers
+import resolution
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
@@ -231,20 +232,24 @@ def _confirm_commit_repo(
     repo). `(None, "")` means no candidate holds this commit.
     """
     first: str | None = None
+    first_body: str = ""
     for candidate in commits.commit_repo_candidates(
         command, cwd, scan_target=scan_target
     ):
+        head_body = commits.get_commit_message_body(candidate) or ""
         if first is None:
             first = candidate
-        head_body = commits.get_commit_message_body(candidate) or ""
+            first_body = head_body
         if _head_matches_command(command, head_body):
             return candidate, head_body
 
     # git's own `[branch hash] subject` line proves a commit landed even when
     # the message is unrecoverable from the command (e.g. `-F <tmpfile>` the
-    # shell already deleted). Trust the first candidate in that case only.
+    # shell already deleted). Trust the first candidate in that case only —
+    # reusing the body already fetched for it in the loop above (no second
+    # `git log` subprocess on this PostToolUse hot path).
     if first is not None and commits.parse_commit_message(response_text):
-        return first, commits.get_commit_message_body(first) or ""
+        return first, first_body
     return None, ""
 
 
@@ -407,8 +412,10 @@ def _handle_commit(
     )
     if effective_cwd is None:
         # A rejected pre-commit also leaves HEAD unmatched, and that must stay
-        # silent. Only speak up when the command named a repo we could not
-        # inspect at all — an unexpanded `$VAR` or a path that isn't there.
+        # silent. Only speak up when the command named a repo we genuinely
+        # could not inspect — a `-C` path hidden behind an unexpanded shell
+        # variable. A literal `-C` path that doesn't exist is a git failure
+        # (no commit anywhere), so dash_c_unreachable returns False for it.
         if commits.dash_c_unreachable(command):
             _record_unconfirmed_commit(smm_dir, command, agent_id)
         return None
@@ -445,13 +452,16 @@ def _handle_commit(
     # `resolve_prefix` is a lookup over the events it is handed, so an archived
     # or mistyped target no-ops in silence. Record the commit either way — a
     # dangling id is harmless — but surface the ids that will not link.
+    #
+    # `known` must be the SAME index the resolver consults: top-level event ids
+    # PLUS nested retrospective try-item ids (a trailer can close a retro Try).
+    # Membership is an exact-id test: `extract_resolves_trailer` already
+    # validated every id to exactly 12 hex (EVENT_ID_RE), and event ids are
+    # exactly 12 hex too, so no id is ever a strict prefix of another — the
+    # prefix-scan branch resolve_prefix keeps for short ids is unreachable here.
     if resolves:
-        known = {e.get("id") for e in events}
-        unknown = [
-            rid
-            for rid in resolves
-            if rid not in known and not any(str(k).startswith(rid) for k in known if k)
-        ]
+        known = resolution.resolvable_event_ids(events)
+        unknown = [rid for rid in resolves if rid not in known]
         if unknown:
             _record_unlinkable_trailer(smm_dir, agent_id, unknown)
 

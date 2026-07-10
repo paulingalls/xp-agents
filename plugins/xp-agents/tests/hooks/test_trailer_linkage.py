@@ -146,18 +146,62 @@ class TestQuotedDashCResolvesTheRightRepo(_RealGitRepoTestCase):
             "recorded the main checkout's HEAD instead of the worktree's",
         )
 
+    def test_rejected_main_commit_not_attributed_to_worktree(self):
+        """Finding 1: a plain `git commit` in the MAIN checkout that never
+        landed (pre-commit rejection — HEAD unchanged, no stdout signal, no
+        `-C`) must NEVER be re-attributed to a live worktree whose HEAD subject
+        coincidentally equals the attempted message. The worktree scan is gated
+        on an unreachable `-C` target; a plain commit has none, so the scan is
+        never reached and no event is fabricated against the worktree's hash."""
+        # Give the worktree a HEAD subject that collides with the message main
+        # will fail to commit.
+        self._stage("collide.py", cwd=self.wt)
+        subprocess.run(
+            ["git", "-C", str(self.wt), "commit", "-q", "-m", "fix parser"],
+            check=True,
+        )
+        wt_head = self._head(cwd=self.wt)
+        # Main only *attempts* the same message; the commit never lands (HEAD
+        # unchanged, empty stdout as a pre-commit rejection would leave it).
+        self._run_hook('git commit -m "fix parser"', cwd=self.repo)
+        events = self._commit_events()
+        self.assertEqual(
+            events,
+            [],
+            "a rejected main commit fabricated an event; "
+            f"worktree hash {wt_head} must not be recorded",
+        )
+
 
 class TestUnconfirmableCommitFailsLoud(_RealGitRepoTestCase):
-    """Leg A: today an unconfirmable commit returns None and vanishes with no
-    trace — the behavior that made this debt take six sessions to diagnose."""
+    """Leg A: a commit we genuinely could not inspect (path hidden behind an
+    unexpanded shell variable) returns None and, rather than vanishing with no
+    trace, records a concern — the behavior that made this debt take six
+    sessions to diagnose."""
 
     def test_unconfirmable_commit_records_a_concern_not_silence(self):
-        command = 'git -C /nonexistent/repo commit -q -m "feat: nowhere"'
+        # `$WT` is hidden from the hook (strip_quoted deletes the quoted token),
+        # so we truly cannot tell where — if anywhere — the commit landed.
+        command = 'git -C "$WT" commit -q -m "feat: nowhere"'
         self._run_hook(command)
         self.assertEqual(self._commit_events(), [], "no commit event should record")
         concerns = self._concerns()
         self.assertTrue(concerns, "an unconfirmable commit must record a concern")
         self.assertIn("commit", concerns[-1]["content"].lower())
+
+    def test_literal_absent_dash_C_path_stays_silent(self):
+        """Finding 5: `git -C /nonexistent commit` fails outright — git aborts
+        with 'cannot change to <path>' and creates nothing. That is a rejected
+        commit, not one we could not inspect, so it must record NEITHER a commit
+        event NOR an unconfirmed-commit concern."""
+        command = 'git -C /nonexistent/repo commit -q -m "feat: nowhere"'
+        self._run_hook(command)
+        self.assertEqual(self._commit_events(), [], "no commit event should record")
+        self.assertEqual(
+            self._concerns(),
+            [],
+            "a literal-absent -C path is a failed commit, not an unconfirmable one",
+        )
 
 
 class TestTrailerLinkage(_RealGitRepoTestCase):
@@ -197,6 +241,27 @@ class TestTrailerLinkage(_RealGitRepoTestCase):
         concerns = self._concerns()
         self.assertTrue(concerns, "an unlinkable trailer must surface a concern")
         self.assertIn("deadbeef1234", concerns[-1]["content"])
+
+    def test_trailer_targeting_retro_try_id_is_not_flagged_unlinkable(self):
+        """Finding 4: retrospective try-item ids are valid resolution targets —
+        compute_resolutions indexes them into by_id so a disposition can close
+        them via metadata.resolves. A commit trailer naming a try id must NOT
+        record a spurious 'the link will not resolve' concern just because the
+        id is nested rather than top-level."""
+        from _event_fixtures import make_retrospective_with_try
+
+        try_id = "a1b2c3d4e5f6"
+        retro = make_retrospective_with_try(try_id, "Adopt commit-after-green")
+        _common.append_safe(self.smm_dir, retro)
+
+        self._commit_with_trailer("chore: adopt the try", try_id)
+        self.assertEqual(len(self._commit_events()), 1, "commit still records")
+        unlinkable = [c for c in self._concerns() if "will not resolve" in c["content"]]
+        self.assertEqual(
+            unlinkable,
+            [],
+            f"a valid retro-try target was flagged unlinkable: {unlinkable}",
+        )
 
     def test_e2e_debt_then_trailer_resolves_it(self):
         """The whole loop the debt was filed about."""

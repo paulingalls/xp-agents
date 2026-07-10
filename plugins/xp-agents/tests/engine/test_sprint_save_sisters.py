@@ -182,8 +182,15 @@ class TestAutoIncludeRespectsOtherStoriesClaims(_SMMTestCase):
         )
         self.assertNotIn("tests/test_foo.py", " ".join(b_domain))
 
-    def test_first_story_in_list_order_wins_a_contested_sister(self):
-        """When no story authored the sister, exactly one story may claim it."""
+    def test_contested_sister_no_story_authored_goes_to_both(self):
+        """When NO story authored the sister but a stem match resolves it for
+        two stories, it must land in BOTH — not be silently awarded to the
+        first in list order. Picking a single winner can deny the sister to the
+        story whose source actually covers it (finding 2: story-B commits its
+        own test and trips out-of-domain drift). Injecting into both lets the
+        collision gate surface it as the tool error it is, which is the remedy
+        the gate's message prints.
+        """
         self._write("src/foo.py")
         self._write("src/foo_tools.py")
         self._write("tests/test_foo_tools.py")
@@ -197,10 +204,28 @@ class TestAutoIncludeRespectsOtherStoriesClaims(_SMMTestCase):
         a_domain, b_domain = self._domains(data)
         claimed_by_a = any("tests/test_foo_tools.py" in e for e in a_domain)
         claimed_by_b = any("tests/test_foo_tools.py" in e for e in b_domain)
-        self.assertNotEqual(
-            claimed_by_a, claimed_by_b, "exactly one story must claim the sister"
+        self.assertTrue(
+            claimed_by_a and claimed_by_b,
+            "an unauthored contested sister must reach both claiming stories "
+            f"so the collision gate can catch it; got A={a_domain} B={b_domain}",
         )
-        self.assertTrue(claimed_by_a, "first story in list order should win")
+
+    def test_idempotent_across_reruns_on_expanded_data(self):
+        """Sister entries persist to sprint.json and re-feed run() on the next
+        add-story. A second pass over already-expanded data must be a no-op —
+        seeding `claimed` from authored paths only must not re-append a sister
+        already present in the story's own domain."""
+        self._write("src/foo.py")
+        self._write("tests/test_foo.py")
+        data = {"stories": [{"id": "story-A", "file_domain": ["src/foo.py — impl"]}]}
+        self.mod._auto_include_sister_tests(data, self._layout(), self._tmp)
+        after_first = list(data["stories"][0]["file_domain"])
+        self.mod._auto_include_sister_tests(data, self._layout(), self._tmp)
+        self.assertEqual(
+            data["stories"][0]["file_domain"],
+            after_first,
+            "second pass on expanded data must not duplicate the sister entry",
+        )
 
     def test_single_story_discovery_still_appends_its_sister(self):
         """Guard against 'fixing' the leak by disabling auto-include."""
@@ -260,6 +285,61 @@ class TestCreateRefusesCollidingSprintE2E(_SMMTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.smm_dir / "sprint.json").exists())
+
+
+class TestAddStoryNotBlockedByPreexistingCollision(_SMMTestCase):
+    """Finding 3: a collision already on disk between two OTHER stories
+    (persisted via an edit-story flip that bypasses run()) must not refuse a
+    later add-story of a disjoint, unique-id story — the 'a clean new story
+    can always be added' guarantee. run() blocks only collisions it introduces.
+    """
+
+    def _colliding_sprint(self):
+        from conftest import _s
+
+        a = _s("story-001", "a", "ready")
+        a["file_domain"] = ["src/shared.py — mine"]
+        b = _s("story-002", "b", "ready")
+        b["file_domain"] = ["src/shared.py — also mine"]
+        return {
+            "sprint_id": "sprint-001",
+            "goal": "t",
+            "started": "2026-04-01",
+            "milestone": "",
+            "stories": [a, b],
+        }
+
+    def test_disjoint_add_story_succeeds_despite_prior_collision(self):
+        import sprint_store
+        from conftest import _s
+
+        # Persist the colliding sprint directly — the edit-story bypass that
+        # side-steps run()'s gate (store.save_sprint has no collision check).
+        data = self._colliding_sprint()
+        sprint_store.save_sprint(self.smm_dir, data)
+
+        c = _s("story-003", "c", "ready")
+        c["file_domain"] = ["src/other.py — separate"]
+        data["stories"].append(c)
+        # Must NOT raise: the 001/002 collision is not this write's fault.
+        sprint_save.run(data, self.smm_dir)
+
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertIn("story-003", [s["id"] for s in loaded["stories"]])
+
+    def test_add_story_that_itself_collides_is_still_refused(self):
+        import sprint_store
+        from conftest import _s
+
+        data = self._colliding_sprint()
+        sprint_store.save_sprint(self.smm_dir, data)
+
+        c = _s("story-003", "c", "ready")
+        c["file_domain"] = ["src/shared.py — new claimant"]
+        data["stories"].append(c)
+        with self.assertRaises(ValueError) as ctx:
+            sprint_save.run(data, self.smm_dir)
+        self.assertIn("story-003", str(ctx.exception))
 
 
 class TestResolveLayout(_SMMTestCase):

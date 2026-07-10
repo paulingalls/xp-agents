@@ -238,5 +238,29 @@ class TestExtractCommitMessageFileRobustness(_AssertNotNoneMixin, unittest.TestC
         self.assertIsNone(result)
 
 
+class TestExtractCommitMessageStdinHeredoc(unittest.TestCase):
+    """`-F -` reads the message from stdin — in practice a heredoc appended to
+    the command. Finding 6: when the command line ALSO opens an earlier,
+    unrelated heredoc (e.g. writing a config file), the message must bind to
+    the heredoc introduced after `-F -`, not merely the first one in the
+    string — otherwise the subject comparison fails and the real commit
+    (with any Resolves trailer it carried) is dropped from the event log."""
+
+    def test_binds_to_dash_F_heredoc_not_an_earlier_one(self):
+        import commits
+
+        command = (
+            "cat <<CFG\nkey=val\nCFG\n"
+            "git commit -q -F - <<'MSG'\nfeat: real subject\nMSG"
+        )
+        self.assertEqual(commits.extract_commit_message(command), "feat: real subject")
+
+    def test_single_stdin_heredoc_still_parses(self):
+        import commits
+
+        command = "git commit -q -F - <<'MSG'\nfeat: only one\nMSG"
+        self.assertEqual(commits.extract_commit_message(command), "feat: only one")
+
+
 if __name__ == "__main__":
     unittest.main()

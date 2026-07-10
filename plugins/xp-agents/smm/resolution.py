@@ -48,6 +48,28 @@ def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] |
     return None
 
 
+def resolvable_event_ids(events: list[dict]) -> set[str]:
+    """Every id a `Resolves-Event:` / metadata.resolves target can link to.
+
+    Mirrors the `by_id` index compute_resolutions builds: top-level event ids
+    PLUS nested retrospective try-item ids (disposition events close those via
+    metadata.resolves — see the by_id retro indexing in compute_resolutions).
+    The unlinkable-trailer advisory must consult the SAME set the resolver
+    does, or it flags a valid retro-try target as dangling and fires a spurious
+    'the link will not resolve' concern.
+    """
+    ids: set[str] = set()
+    for event in events:
+        eid = event.get("id")
+        if eid:
+            ids.add(eid)
+        if event.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE:
+            for item in event.get("try", []):
+                if isinstance(item, dict) and item.get("id"):
+                    ids.add(item["id"])
+    return ids
+
+
 def compute_resolutions(events: list[dict]) -> dict:
     """Single-pass computation of question answers and event resolutions,
     followed by a multi-level cascade pass iterated to a fixed point.
