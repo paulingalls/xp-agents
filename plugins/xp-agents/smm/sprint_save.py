@@ -301,7 +301,9 @@ def _auto_include_sister_tests(
         domain.extend(additions)
 
 
-def introduced_collisions(data: dict, smm_dir: Path) -> dict[str, list[dict]]:
+def introduced_collisions(
+    data: dict, smm_dir: Path, *, current_expanded: bool = False
+) -> dict[str, list[dict]]:
     """Collisions in `data` that THIS write is responsible for.
 
     Public (not `_`-prefixed) because it is an intentional cross-module reuse
@@ -325,6 +327,14 @@ def introduced_collisions(data: dict, smm_dir: Path) -> dict[str, list[dict]]:
     Side-effect-free: never writes sprint.json, never fires the sister soft-warn
     (that stays run()'s job) — `edit_story` relies on this to keep its save()
     (not run()) semantics.
+
+    `current_expanded=True` tells this function that `data` is ALREADY
+    sister-expanded, so it skips re-expanding the current side. run() passes it:
+    run() expands `data` in place (and persists that copy) before calling here,
+    so a second expansion would re-glob the filesystem over every story's domain
+    for an identical, idempotent result. edit_story passes RAW data and keeps the
+    default (False), relying on this function to own the current-side expansion.
+    The baseline is always expanded — that read is this function's own work.
     """
     layout = _resolve_layout(smm_dir)
     project_root = _resolve_project_root() if layout is not None else None
@@ -335,7 +345,11 @@ def introduced_collisions(data: dict, smm_dir: Path) -> dict[str, list[dict]]:
             _auto_include_sister_tests(view, layout, project_root)
         return file_domain_lock.collision_report(view)
 
-    current_report = _expanded_report(data)
+    current_report = (
+        file_domain_lock.collision_report(data)
+        if current_expanded
+        else _expanded_report(data)
+    )
     baseline = sprint_store.load_sprint(smm_dir)
     if baseline is None:
         # First create: nothing on disk, so every current collision is our fault.
@@ -418,7 +432,10 @@ def run(data: dict, smm_dir: Path) -> None:
     # introduced_collisions attributes a path only when its colliding-story set
     # GREW versus the on-disk baseline (both sides sister-expanded) — a
     # pre-existing collision unchanged by this write is never re-blocked.
-    introduced = introduced_collisions(data, smm_dir)
+    # data was sister-expanded in place above (when a layout+root resolved), so
+    # tell introduced_collisions not to re-expand the current side — avoids a
+    # redundant second filesystem glob over every story's domain.
+    introduced = introduced_collisions(data, smm_dir, current_expanded=True)
     if introduced:
         raise ValueError(file_domain_lock.format_collision_report(introduced))
 

@@ -38,9 +38,20 @@ def _entry_origin(entry: str) -> str:
 
 
 def _story_claims(story: dict) -> dict[str, str]:
-    """One story's {path: origin}, authored winning over auto_included."""
+    """One story's {path: origin}, authored winning over auto_included.
+
+    A non-list file_domain (a scalar/dict — malformed shape) yields no claims.
+    collision_report defers shape validation to the schema validator (see its
+    docstring), so this must not iterate a non-list: a numeric/bool file_domain
+    would otherwise raise TypeError here, escaping edit_story's ValueError catch
+    as an uncaught traceback. Mirrors _auto_include_sister_tests's same guard so
+    both collision paths (run() and edit_story) fall through to a clean ValueError.
+    """
     claims: dict[str, str] = {}
-    for entry in story.get("file_domain") or []:
+    domain = story.get("file_domain")
+    if not isinstance(domain, list):
+        return claims
+    for entry in domain:
         if not isinstance(entry, str):
             continue
         origin = _entry_origin(entry)

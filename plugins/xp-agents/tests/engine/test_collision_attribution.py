@@ -191,6 +191,56 @@ class TestSisterExpandedAttribution(_GitProjectSisterCase):
         self.assertTrue((self.smm_dir / "sprint.json").exists())
 
 
+class TestMalformedFileDomainShape(_SMMTestCase):
+    """A non-list file_domain (scalar/bool) must not crash the collision gate
+    with a TypeError. collision_report defers shape validation to the schema
+    validator, so both callers fall through to a clean ValueError instead of an
+    uncaught traceback from iterating a non-list domain."""
+
+    def test_run_scalar_file_domain_raises_valueerror_not_typeerror(self):
+        story = _story("story-001", "src/a.py")
+        story["file_domain"] = 42  # scalar, not a list
+        with self.assertRaises(ValueError):
+            sprint_save.run(_sprint([story]), self.smm_dir)
+
+    def test_edit_story_scalar_file_domain_raises_valueerror_not_typeerror(self):
+        sprint_store.save_sprint(
+            self.smm_dir, _sprint([_story("story-001", "src/a.py")])
+        )
+        with self.assertRaises(ValueError):
+            sprint_store.edit_story(self.smm_dir, "story-001", {"file_domain": 99})
+
+
+class TestNoDoubleSisterExpansion(_GitProjectSisterCase):
+    """run() sister-expands `data` in place before calling introduced_collisions;
+    current_expanded=True stops the gate re-expanding that same current side.
+    Only two expansions run per add-story: run()'s in-place current expansion and
+    introduced_collisions' baseline read — never a redundant third over the
+    already-expanded current side."""
+
+    def test_run_expands_current_once_not_twice(self):
+        import unittest.mock as mock
+
+        sprint_store.save_sprint(
+            self.smm_dir, _sprint([_story("story-001", "src/foo.py")])
+        )
+        data = _sprint(
+            [_story("story-001", "src/foo.py"), _story("story-002", "src/other.py")]
+        )
+        calls: list[int] = []
+        orig = sprint_save._auto_include_sister_tests
+
+        def counting(d, layout, root):
+            calls.append(1)
+            return orig(d, layout, root)
+
+        with mock.patch.object(sprint_save, "_auto_include_sister_tests", counting):
+            sprint_save.run(data, self.smm_dir)
+        # run() in-place expansion (1) + introduced_collisions baseline (1) = 2.
+        # Pre-fix the gate re-expanded the current side too -> 3.
+        self.assertEqual(len(calls), 2)
+
+
 if __name__ == "__main__":
     import unittest
 
