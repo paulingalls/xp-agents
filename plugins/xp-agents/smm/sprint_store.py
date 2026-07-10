@@ -10,14 +10,12 @@ Follows the same pattern as execution_plan_store.py.
 """
 
 import json
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 from _append_impl import flock_with_timeout, write_text_atomic
 from sprint_schema import (
-    IN_MOTION_STORY_STATUSES,
     SPRINT_FILENAME,
     VALID_STORY_STATUSES,
     validate_sprint,
@@ -243,12 +241,38 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 
 
 # -------------------------------------------------------------------
+# Ready frontier + dependency queries — re-exported from sprint_frontier
+# -------------------------------------------------------------------
+# Bodies live in sprint_frontier.py; this block keeps the historical
+# `from sprint_store import ready_frontier` import path working.
+from sprint_frontier import (  # noqa: E402  intentional mid-file re-export
+    next_in_progress_story_id,
+    next_scheduled_story_id,
+    ready_frontier,
+    ready_frontier_data,
+    ready_frontier_report,
+    transitive_active_dependents,
+)
+
+# -------------------------------------------------------------------
+# Computed fields — re-exported from sprint_metrics
+# -------------------------------------------------------------------
+# Bodies live in sprint_metrics.py; this block keeps the historical
+# `from sprint_store import compute_velocity` import path working.
+from sprint_metrics import (  # noqa: E402  intentional mid-file re-export
+    compute_blockers,
+    compute_velocity,
+    count_by_status,
+    list_stories,
+    next_sprint_id,
+)
+
+# -------------------------------------------------------------------
 # Status checks — re-exported from sprint_status
 # -------------------------------------------------------------------
 # Bodies live in sprint_status.py; this block keeps the historical
 # `from sprint_store import has_active_stories` import path working for
 # every caller (production scripts and 16+ test files).
-
 from sprint_status import (  # noqa: E402  intentional mid-file re-export
     file_domains_overlap_data,
     has_active_stories,
@@ -354,180 +378,6 @@ def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     return story.get("branch_name", "") or ""
 
 
-def _story_id_sort_key(story_id: str) -> tuple[int, str]:
-    """Numeric sort by trailing -NNN — lexical would order story-10 before
-    story-2. Project convention zero-pads (story-001) but the numeric key
-    removes the latent footgun. Malformed ids (typos like `story-2a` that
-    escaped schema validation) fall back to a large sentinel so they sort
-    last instead of crashing the close pipeline with an uncaught ValueError.
-    """
-    tail = story_id.rsplit("-", 1)[-1]
-    try:
-        return (int(tail), story_id)
-    except ValueError:
-        return (sys.maxsize, story_id)
-
-
-def _deps_satisfied(story: dict, by_id: dict, overrides: set[str]) -> bool:
-    """True when every dep is `done` (or asserted via `overrides`).
-
-    `overrides` (treat_as_done) lets a caller assert "this id is about to
-    be done" without it being marked done on disk yet — e.g. a promotion
-    query that runs while the just-closed story is still `closing`.
-    Cascade-defer falls out naturally: a deferred dep's status is
-    "deferred", not "done", so dependents fail the check and are skipped.
-    """
-    return all(
-        (dep in overrides) or by_id.get(dep, {}).get("status") == "done"
-        for dep in story.get("dependencies", [])
-    )
-
-
-def _eligible_sorted_ids(data: dict, status: str, overrides: set[str]) -> list[str]:
-    """Stories with `status` whose deps are all satisfied, sorted by id."""
-    by_id = {s["id"]: s for s in data["stories"]}
-    eligible = [
-        s["id"]
-        for s in data["stories"]
-        if s["status"] == status and _deps_satisfied(s, by_id, overrides)
-    ]
-    return sorted(eligible, key=_story_id_sort_key)
-
-
-def _next_story_id_with_status(
-    smm_dir: Path,
-    status: str,
-    *,
-    treat_as_done: set[str] | None = None,
-) -> str | None:
-    """Lowest-id story with `status` whose deps are ALL done. None if none.
-
-    Backs the `next-in-progress` sprint_cli query — surfaces the next
-    dep-satisfied story for promotion/branching, which /xp-schedule owns
-    (off the merged sprint tip), only when the candidate's deps are
-    actually satisfied.
-
-    See `_deps_satisfied` for the `treat_as_done` override semantics.
-    """
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return None
-    eligible = _eligible_sorted_ids(sprint, status, treat_as_done or set())
-    return eligible[0] if eligible else None
-
-
-def ready_frontier_data(
-    data: dict, *, treat_as_done: set[str] | None = None
-) -> list[str]:
-    """The ready frontier from a loaded sprint dict (pure).
-
-    The frontier /xp-schedule promotes: dep-satisfied `scheduled` stories,
-    sorted by id. Lifecycle is ready→scheduled (work-selection)→in-progress
-    (/xp-schedule), so the frontier is over `scheduled`, not `ready`. Sibling
-    to `ready_frontier` for callers that already hold the sprint dict.
-    """
-    return _eligible_sorted_ids(data, "scheduled", treat_as_done or set())
-
-
-def ready_frontier(
-    smm_dir: Path, *, treat_as_done: set[str] | None = None
-) -> list[str]:
-    """The ready frontier: dep-satisfied `scheduled` stories, sorted by id.
-
-    Consumed by skills/xp-schedule/preload.sh to decide solo vs parallel.
-    Empty list when no sprint or no eligible scheduled story. See
-    `_deps_satisfied` for the `treat_as_done` override.
-    """
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return []
-    return ready_frontier_data(sprint, treat_as_done=treat_as_done)
-
-
-def ready_frontier_report(
-    smm_dir: Path, *, treat_as_done: set[str] | None = None
-) -> dict:
-    """The ready frontier plus its parallelizable verdict, in one load.
-
-    Returns ``{"frontier": [ids...], "parallelizable": bool}`` for the
-    /xp-schedule preload. Parallelizable means a genuine fan-out: two or more
-    frontier stories with disjoint file domains (a single-story frontier or
-    overlapping domains is solo). Empty/false when no sprint.
-    """
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return {"frontier": [], "parallelizable": False}
-    frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
-    parallelizable = len(frontier) >= 2 and not file_domains_overlap_data(
-        sprint, frontier
-    )
-    return {"frontier": frontier, "parallelizable": parallelizable}
-
-
-def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
-    """In-motion stories that depend (transitively) on `story_id`, sorted.
-
-    Powers cascade-deferral in /xp-accept: when a story can't ship, every
-    in-motion descendant is also blocked and should be deferred together.
-    In-motion = in-progress OR reviewing OR closing (see sprint_schema's
-    IN_MOTION_STORY_STATUSES) — a reviewing/closing dependent is mid-
-    acceptance or mid-close and its verification work is invalidated when
-    its base defers. Done/deferred/ready/scheduled dependents are excluded;
-    cycles terminate because we only add unseen ids.
-    """
-    sprint = load_sprint(smm_dir)
-    if sprint is None:
-        return []
-
-    blocked = {story_id}
-    changed = True
-    while changed:
-        changed = False
-        for s in sprint["stories"]:
-            if s.get("status") not in IN_MOTION_STORY_STATUSES:
-                continue
-            sid = s.get("id")
-            if not sid or sid in blocked:
-                continue
-            if any(d in blocked for d in s.get("dependencies", [])):
-                blocked.add(sid)
-                changed = True
-    return sorted(blocked - {story_id})
-
-
-def next_in_progress_story_id(
-    smm_dir: Path, *, treat_as_done: set[str] | None = None
-) -> str | None:
-    """Lowest-id in-progress story whose deps are ALL done. None if none.
-
-    Backs the `next-in-progress` query — surfaces the next dep-satisfied
-    in-progress story for /xp-schedule promotion/branching off the merged
-    sprint tip, but only when its deps are actually satisfied. Cascade-defer
-    naturally excludes blocked stories — a deferred story's status is
-    "deferred", not "done", so any in-progress story depending on it fails
-    the "all deps done" check and is skipped.
-
-    See `_next_story_id_with_status` for the `treat_as_done` override
-    semantics — exposed here for symmetry with `next_scheduled_story_id`.
-    """
-    return _next_story_id_with_status(
-        smm_dir, "in-progress", treat_as_done=treat_as_done
-    )
-
-
-def next_scheduled_story_id(
-    smm_dir: Path, *, treat_as_done: set[str] | None = None
-) -> str | None:
-    """Lowest-id scheduled story whose deps are ALL done. None if none.
-
-    Backs the `next-scheduled` query — surfaces the next dep-satisfied
-    scheduled story so /xp-schedule can promote it to in-progress and
-    branch it off the merged sprint tip. Same cascade-defer semantics
-    as next_in_progress_story_id.
-    """
-    return _next_story_id_with_status(smm_dir, "scheduled", treat_as_done=treat_as_done)
-
-
 # -------------------------------------------------------------------
 # Capstone story builder (pure — no I/O)
 # -------------------------------------------------------------------
@@ -590,93 +440,3 @@ def build_capstone_story(
             "notes": "Placeholder — fill with the real cross-cutting test command.",
         },
     }
-
-
-# -------------------------------------------------------------------
-# Computed fields (pure functions on sprint dict)
-# -------------------------------------------------------------------
-
-
-def count_by_status(sprint: dict) -> dict[str, int]:
-    """Count stories by status.
-
-    Keys derived from VALID_STORY_STATUSES so adding a new status value to
-    the schema automatically extends this dict — no separate edit needed.
-    """
-    counts = {s: 0 for s in VALID_STORY_STATUSES}
-    for s in sprint["stories"]:
-        status = s["status"]
-        if status in counts:
-            counts[status] += 1
-    return counts
-
-
-def compute_velocity(sprint: dict) -> dict[str, int]:
-    """Compute velocity metrics from sprint data."""
-    counts = count_by_status(sprint)
-    total = sum(counts.values())
-    return {
-        "stories_planned": total,
-        "stories_delivered": counts["done"],
-        "stories_carried": counts["deferred"],
-    }
-
-
-def compute_blockers(sprint: dict) -> list[str]:
-    """Compute blockers from dependencies + statuses."""
-    statuses = {s["id"]: s["status"] for s in sprint["stories"]}
-    blockers: list[str] = []
-    for s in sprint["stories"]:
-        for dep_id in s.get("dependencies", []):
-            dep_status = statuses.get(dep_id, "")
-            if dep_status and dep_status != "done":
-                blockers.append(f"{s['id']} blocked by {dep_id} ({dep_status})")
-    return blockers
-
-
-def list_stories(sprint: dict, *, status: str | None = None) -> list[dict]:
-    """Return stories, optionally filtered by status."""
-    stories = sprint["stories"]
-    if status is not None:
-        stories = [s for s in stories if s["status"] == status]
-    return stories
-
-
-def next_sprint_id(smm_dir: Path) -> str:
-    """Determine the next sprint ID.
-
-    Fast path: increments the number in the current sprint_id.
-    Fallback: counts sprint start events in events.jsonl.
-    Default: 'sprint-001' if no history exists.
-    """
-    sprint = load_sprint(smm_dir)
-    if sprint is not None and sprint["sprint_id"]:
-        sid = sprint["sprint_id"]
-        parts = sid.rsplit("-", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            num = int(parts[1]) + 1
-            return f"{parts[0]}-{num:03d}"
-
-    # Fallback: count sprint start events in the event log
-    count = _count_sprint_starts(smm_dir)
-    return f"sprint-{count + 1:03d}"
-
-
-def _count_sprint_starts(smm_dir: Path) -> int:
-    """Count sprint start events in events.jsonl."""
-    from append_validation import parse_jsonl
-
-    path = smm_dir / "events.jsonl"
-    if path.is_symlink():
-        return 0
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return 0
-    events, _ = parse_jsonl(raw)
-    return sum(
-        1
-        for e in events
-        if e.get("type") == "sprint"
-        and (e.get("metadata") or {}).get("action") == "start"
-    )
