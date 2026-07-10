@@ -84,10 +84,6 @@ def _cmd_ready_frontier(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_scheduled_overlap(args: argparse.Namespace) -> int:
-    return 0 if store.scheduled_file_domains_overlap(args.smm_dir) else 1
-
-
 def _cmd_find_transitive_dependents(args: argparse.Namespace) -> int:
     deps = store.transitive_active_dependents(args.smm_dir, args.story_id)
     if deps:
@@ -307,8 +303,9 @@ def main() -> None:
     rf_p = sub.add_parser(
         "ready-frontier",
         help=(
-            "Print JSON {frontier, parallelizable}: dep-satisfied scheduled "
-            "stories + whether they are a disjoint-domain fan-out (>=2). "
+            "Print JSON {frontier, parallelizable, overlap}: dep-satisfied "
+            "scheduled stories + whether they are a disjoint-domain fan-out "
+            "(>=2) + the collision/glob overlap detail. "
             "Consumed by the /xp-schedule preload. Exit 0 always."
         ),
     )
@@ -318,14 +315,6 @@ def main() -> None:
         default=[],
         metavar="STORY_ID",
         help="Same as next-scheduled: treat these ids as done for dep checks.",
-    )
-    sub.add_parser(
-        "scheduled-overlap",
-        help=(
-            "Exit 0 if 2+ scheduled stories share file_domain paths "
-            "(parallel teammates would conflict — auto-pick solo); "
-            "exit 1 when disjoint or <2 scheduled stories"
-        ),
     )
     sub.add_parser("count", help="Count stories by status")
     sub.add_parser("next-id", help="Next sprint ID")
@@ -478,7 +467,6 @@ def main() -> None:
         "next-in-progress": _cmd_next_in_progress,
         "next-scheduled": _cmd_next_scheduled,
         "ready-frontier": _cmd_ready_frontier,
-        "scheduled-overlap": _cmd_scheduled_overlap,
         "count": _cmd_count,
         "count-status": _cmd_count_status,
         "next-id": _cmd_next_id,

@@ -44,6 +44,15 @@ class TestScheduleSkillProse(unittest.TestCase):
         self.assertIn("FRONTIER_COUNT", self.body)
         self.assertIn("PARALLELIZABLE", self.body)
 
+    def test_consumes_overlap_vars(self):
+        self.assertIn("OVERLAP_DETAIL", self.body)
+        self.assertIn("GLOB_FORCED", self.body)
+
+    def test_reports_downgrade_reason_instead_of_silent_solo(self):
+        # Story-004: the auto-solo branch must direct the agent to report why
+        # it downgraded rather than pick solo silently.
+        self.assertIn("report why instead of downgrading silently", self.body)
+
     def test_asks_solo_or_parallel(self):
         self.assertIn("AskUserQuestion", self.body)
 

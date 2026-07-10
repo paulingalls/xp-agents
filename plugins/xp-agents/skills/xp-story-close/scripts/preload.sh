@@ -37,14 +37,25 @@ TARGET_BRANCH=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
     --smm-dir "${SMM_DIR}" get-base --cwd . 2>/dev/null || echo "")
 
 echo "SMM_DIR=${SMM_DIR}"
-echo "TEAMMATE_CWD=${TEAMMATE_CWD}"
-echo "CURRENT_BRANCH=${CURRENT_BRANCH}"
-echo "TARGET_BRANCH=${TARGET_BRANCH}"
+# Route author-influenced values through emit_var. Keep the shell vars
+# themselves unflattened — downstream extract-story-id still consumes the raw
+# $CURRENT_BRANCH, and $TEAMMATE_CWD feeds --cwd below.
+# TEAMMATE_CWD is a filesystem path the close skill feeds to `git -C <path>`
+# for the teammate stash+merge; route it through emit_path_var so a worktree
+# under a dir with consecutive spaces survives verbatim (emit_var/flat would
+# collapse the run and target a non-existent directory), while newline/tab
+# forgery vectors are still neutralized.
+emit_path_var TEAMMATE_CWD "$TEAMMATE_CWD"
+emit_var CURRENT_BRANCH "$CURRENT_BRANCH"
+emit_var TARGET_BRANCH "${TARGET_BRANCH}"
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
-echo "TEST_COMMAND=$(find_test_command)"
+# TEST_COMMAND is customer-set free text (system_context.stack.test_command,
+# not a git-constrained ref) — route it through emit_var so a newline in it
+# cannot forge a line that shadows the VERIFY_DEFERRED gate emitted below.
+emit_var TEST_COMMAND "$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
 
@@ -52,24 +63,26 @@ echo "CLOSE_CYCLE_ID=$(generate_id)"
 # base..HEAD touched, plus whether a [verify-deferred] commit defers
 # the gate. The close skill refuses on untouched && not-deferred.
 # `|| true` keeps the CLI's exit 1 (untouched paths found) from tripping
-# `set -e` — we want its stdout regardless of exit code. VERIFY_UNTOUCHED
-# is space-joined (acceptance-test paths carry no spaces).
+# `set -e` — we want its stdout regardless of exit code. UNTOUCHED is a
+# newline-joined path list; emit_var flattens it to one space-joined line.
 STORY_ID=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
     --smm-dir "${SMM_DIR}" extract-story-id --branch "${CURRENT_BRANCH}")
-VERIFY_UNTOUCHED=""
+UNTOUCHED=""
 VERIFY_DEFERRED="false"
 if [ -n "$STORY_ID" ]; then
     UNTOUCHED=$(python3 "${PLUGIN_ROOT}/scripts/verify_paths.py" \
         --smm-dir "${SMM_DIR}" --cwd "${TEAMMATE_CWD:-.}" \
         --story "$STORY_ID" --base "${TARGET_BRANCH}" 2>/dev/null) || true
-    VERIFY_UNTOUCHED=$(printf '%s' "$UNTOUCHED" | tr '\n' ' ' | sed 's/ *$//')
     # Single source for the [verify-deferred] marker: verify_deferred reuses
     # parse_verify_deferred (no duplicate bash regex of the marker).
     VERIFY_DEFERRED=$(python3 "${PLUGIN_ROOT}/scripts/verify_deferred.py" \
         has-verify-deferred --cwd "${TEAMMATE_CWD:-.}" --base "${TARGET_BRANCH}" \
         2>/dev/null) || VERIFY_DEFERRED="false"
 fi
-echo "VERIFY_UNTOUCHED=${VERIFY_UNTOUCHED}"
+# emit_var flattens the newline-joined untouched-path list to one space-joined
+# line, hardening beyond the old newline-only `tr` (a tab/CR in an acceptance
+# path could otherwise survive raw into this KEY=value contract).
+emit_var VERIFY_UNTOUCHED "$UNTOUCHED"
 echo "VERIFY_DEFERRED=${VERIFY_DEFERRED}"
 
 # Cadence routes Step 4.5: 'story' runs the full review cycle here (the

@@ -29,7 +29,12 @@ _qr_auto_detect_teammate_cwd() {
 _qr_auto_detect_teammate_cwd
 
 echo "SMM_DIR=${SMM_DIR}"
-echo "TEAMMATE_CWD=${TEAMMATE_CWD:-}"
+# Route the worktree path through emit_path_var (author/filesystem-influenced
+# value class) so a newline can't forge a KEY=value line while a run of spaces
+# in the path survives — the emitted line feeds a downstream `git -C <path>` /
+# --cwd, and emit_var/flat would collapse consecutive spaces into one, targeting
+# a non-existent directory. The shell var stays raw for the --cwd uses below.
+emit_path_var TEAMMATE_CWD "${TEAMMATE_CWD:-}"
 # MODE discriminator: a fresh /code-review this cycle (simplify_done set for the
 # review target's agent_id) => consume-findings; else => self-find. Resolved
 # from TEAMMATE_CWD (the closing-story worktree, else the main checkout) so the

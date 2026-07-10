@@ -152,36 +152,14 @@ class TestNextScheduledCommand(_SMMTestCase):
         self.assertEqual(result.stdout.strip(), "story-003")
 
 
-class TestScheduledOverlapCommand(_SMMTestCase):
-    def test_overlap_exit0_when_shared_file(self):
-        sprint = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001",
-                    status="scheduled",
-                    file_domain=["src/a.py — owner", "src/b.py — shared"],
-                ),
-                _make_story(
-                    id="story-002",
-                    status="scheduled",
-                    file_domain=["src/b.py — caller", "src/c.py — owner"],
-                ),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+class TestScheduledOverlapCommandAbsent(_SMMTestCase):
+    def test_scheduled_overlap_subcommand_is_gone(self):
+        # Deleted: solo vs parallel verdict moved to /xp-schedule's
+        # parallelizable flag. Guards against reintroduction.
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
         result = run_cli(_CLI, ["scheduled-overlap"], self.smm_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_overlap_exit1_when_disjoint(self):
-        sprint = _make_sprint(
-            stories=[
-                _make_story(id="s1", status="scheduled", file_domain=["a.py"]),
-                _make_story(id="s2", status="scheduled", file_domain=["b.py"]),
-            ]
-        )
-        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
-        result = run_cli(_CLI, ["scheduled-overlap"], self.smm_dir)
-        self.assertEqual(result.returncode, 1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid choice", result.stderr)
 
 
 class TestUpdateStoryAcceptsScheduled(_SMMTestCase):
@@ -394,7 +372,12 @@ class TestReadyFrontierCommand(_SMMTestCase):
         result = run_cli(_CLI, ["ready-frontier"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            json.loads(result.stdout), {"frontier": [], "parallelizable": False}
+            json.loads(result.stdout),
+            {
+                "frontier": [],
+                "parallelizable": False,
+                "overlap": {"collisions": {}, "glob_forced": False},
+            },
         )
 
     def test_treat_as_done_unblocks_frontier(self):
