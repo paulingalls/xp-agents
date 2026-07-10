@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from sprint_schema import IN_MOTION_STORY_STATUSES
-from sprint_status import file_domains_overlap_data
+from sprint_status import file_domains_overlap_detail
 
 
 def _story_id_sort_key(story_id: str) -> tuple[int, str]:
@@ -113,23 +113,35 @@ def ready_frontier(
 def ready_frontier_report(
     smm_dir: Path, *, treat_as_done: set[str] | None = None
 ) -> dict:
-    """The ready frontier plus its parallelizable verdict, in one load.
+    """The ready frontier plus its parallelizable verdict and overlap detail.
 
-    Returns ``{"frontier": [ids...], "parallelizable": bool}`` for the
-    /xp-schedule preload. Parallelizable means a genuine fan-out: two or more
-    frontier stories with disjoint file domains (a single-story frontier or
-    overlapping domains is solo). Empty/false when no sprint.
+    Returns ``{"frontier": [ids...], "parallelizable": bool, "overlap": {...}}``
+    for the /xp-schedule preload. Parallelizable means a genuine fan-out: two
+    or more frontier stories with disjoint file domains (a single-story
+    frontier or overlapping domains is solo). ``overlap`` is
+    ``file_domains_overlap_detail``'s dict forwarded verbatim —
+    ``{"collisions": {path: [{"story_id", "origin"}, ...]}, "glob_forced": bool}``.
+    `collisions` and `glob_forced` are DISTINCT signals: a concrete path
+    collision names the clashing stories, while glob_forced means a glob
+    domain makes disjointness unprovable — a different message to the
+    customer. Both are empty/false on a 0- or 1-story frontier, and all
+    three top-level keys are always present, even when no sprint exists.
     """
     from sprint_store import load_sprint
 
     sprint = load_sprint(smm_dir)
     if sprint is None:
-        return {"frontier": [], "parallelizable": False}
+        return {
+            "frontier": [],
+            "parallelizable": False,
+            "overlap": {"collisions": {}, "glob_forced": False},
+        }
     frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
-    parallelizable = len(frontier) >= 2 and not file_domains_overlap_data(
-        sprint, frontier
+    overlap = file_domains_overlap_detail(sprint, frontier)
+    parallelizable = len(frontier) >= 2 and not (
+        overlap["glob_forced"] or overlap["collisions"]
     )
-    return {"frontier": frontier, "parallelizable": parallelizable}
+    return {"frontier": frontier, "parallelizable": parallelizable, "overlap": overlap}
 
 
 def transitive_active_dependents(smm_dir: Path, story_id: str) -> list[str]:
