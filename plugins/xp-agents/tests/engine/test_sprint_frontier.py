@@ -28,6 +28,41 @@ from conftest import (
 )
 
 
+class TestSprintFrontierModuleAndShim(unittest.TestCase):
+    """Pins the extraction: bodies live in sprint_frontier.py, sprint_store
+    re-exports the same callables (not copies) so both old and new import
+    paths keep working.
+    """
+
+    _FRONTIER_NAMES = (
+        "ready_frontier",
+        "ready_frontier_data",
+        "ready_frontier_report",
+        "transitive_active_dependents",
+        "next_in_progress_story_id",
+        "next_scheduled_story_id",
+    )
+
+    def test_new_module_exposes_all_frontier_functions(self):
+        import sprint_frontier
+
+        for name in self._FRONTIER_NAMES:
+            self.assertTrue(
+                hasattr(sprint_frontier, name), f"sprint_frontier missing {name}"
+            )
+
+    def test_sprint_store_reexports_are_identical_objects(self):
+        import sprint_frontier
+        import sprint_store
+
+        for name in self._FRONTIER_NAMES:
+            self.assertIs(
+                getattr(sprint_store, name),
+                getattr(sprint_frontier, name),
+                f"{name} was copied, not moved",
+            )
+
+
 class TestReadyFrontier(_SMMTestCase):
     """ready_frontier{,_data}: dep-satisfied SCHEDULED stories, sorted.
 
@@ -104,6 +139,133 @@ class TestReadyFrontier(_SMMTestCase):
         import sprint_store
 
         self.assertEqual(sprint_store.ready_frontier(self.smm_dir), [])
+
+
+class TestReadyFrontierReport(_SMMTestCase):
+    """ready_frontier_report: frontier + parallelizable verdict + overlap
+    detail, in one load. The overlap dict is story-002's
+    file_domains_overlap_detail forwarded verbatim — collisions and
+    glob_forced are distinct signals, never folded together.
+    """
+
+    def _report(self, stories):
+        import sprint_store
+
+        sprint = _make_sprint(stories=stories)
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        return sprint_store.ready_frontier_report(self.smm_dir)
+
+    def test_report_names_shared_path_and_owners(self):
+        report = self._report(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["shared.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["shared.py — y"],
+                ),
+            ]
+        )
+        self.assertFalse(report["parallelizable"])
+        self.assertEqual(list(report["overlap"]["collisions"]), ["shared.py"])
+        self.assertEqual(
+            [c["story_id"] for c in report["overlap"]["collisions"]["shared.py"]],
+            ["story-001", "story-002"],
+        )
+
+    def test_report_disjoint_frontier_is_parallelizable(self):
+        report = self._report(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+        self.assertTrue(report["parallelizable"])
+        self.assertEqual(report["overlap"], {"collisions": {}, "glob_forced": False})
+
+    def test_report_glob_frontier_not_parallelizable(self):
+        report = self._report(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["src/*"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["docs/api.md"],
+                ),
+            ]
+        )
+        self.assertFalse(report["parallelizable"])
+        self.assertTrue(report["overlap"]["glob_forced"])
+        self.assertEqual(report["overlap"]["collisions"], {})
+
+    def test_report_single_story_frontier_has_empty_overlap(self):
+        report = self._report(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py"],
+                ),
+            ]
+        )
+        self.assertFalse(report["parallelizable"])
+        self.assertEqual(report["overlap"], {"collisions": {}, "glob_forced": False})
+
+    def test_report_no_sprint_has_consistent_shape(self):
+        import sprint_store
+
+        report = sprint_store.ready_frontier_report(self.smm_dir)
+        self.assertEqual(
+            report,
+            {
+                "frontier": [],
+                "parallelizable": False,
+                "overlap": {"collisions": {}, "glob_forced": False},
+            },
+        )
+
+    def test_report_preserves_frontier_and_parallelizable_keys(self):
+        report = self._report(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+        self.assertEqual(report["frontier"], ["story-001", "story-002"])
+        self.assertTrue(report["parallelizable"])
 
 
 if __name__ == "__main__":

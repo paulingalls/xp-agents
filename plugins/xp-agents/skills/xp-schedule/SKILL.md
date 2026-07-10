@@ -42,6 +42,7 @@ The preload emits `FRONTIER_IDS` (space-separated), `FRONTIER_COUNT`, and
 `PARALLELIZABLE` (`true` only when the frontier has >=2 stories with disjoint
 file domains). If `FRONTIER_COUNT` is `0`, there is nothing ready to schedule
 (no dep-satisfied scheduled story) — report that and stop.
+`OVERLAP_DETAIL`/`GLOB_FORCED` explain a false PARALLELIZABLE.
 
 ## Step 2: Choose the mode (gate)
 
@@ -53,7 +54,10 @@ Otherwise, when teammate support is enabled:
 
 - `FRONTIER_COUNT == 1` → **solo**, no question.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == false` (overlapping domains) →
-  **solo**, no question (parallel teammates would collide).
+  **solo**, no question (teammates would collide) — but
+  report why instead of downgrading silently: name `OVERLAP_DETAIL`'s
+  colliding stories/path when set; if `GLOB_FORCED`, note a glob domain
+  blocks proving disjointness.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == true` → ask via `AskUserQuestion`:
   *"Solo (sequential) or CLI teammates (parallel)?"* Present the rationale
   (the disjoint frontier ids). Do not bundle this question with the Step 3

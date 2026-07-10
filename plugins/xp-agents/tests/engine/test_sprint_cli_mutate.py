@@ -308,6 +308,23 @@ class TestEditStoryCommand(_SMMTestCase):
         )
         self.assertNotEqual(result.returncode, 0)
 
+    def test_scalar_file_domain_is_clean_error_not_traceback(self):
+        # A non-list (scalar/bool) file_domain must fail cleanly through the
+        # collision gate: collision_report defers shape to the schema validator,
+        # so edit-story returns rc 1 with a caught error message — never an
+        # uncaught TypeError traceback from iterating a non-list domain.
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        for bad in (42, True):
+            result = run_cli(
+                _CLI,
+                ["edit-story", "story-001"],
+                self.smm_dir,
+                json.dumps({"file_domain": bad}),
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertIn("Error:", result.stderr)
+
 
 class TestUpdateStoryBranch(_SMMTestCase):
     def test_sets_branch_name(self):
