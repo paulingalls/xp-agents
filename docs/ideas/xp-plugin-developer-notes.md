@@ -53,6 +53,29 @@ Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agent
 
 **Fix shape**: The gate should suppress while a spawn is live (check for a running spawn / `session_init` event for the story) instead of firing on story status alone.
 
+**Live repros (this is now the dominant recurring gate defect)**: `4f046333e738` — story-020, gate demanded `/xp-accept` while the AC5 e2e sweep (m1e3/m1e4) still ran in background (2nd repro). `e52c0f3daa05` — story-021, gate demanded `/xp-accept` while the in-place teammate (pid 13581) was still executing M8, no report written, mockup diff not run (3rd repro). Each was declined and waited on; each would have certified ACs against evidence that did not yet exist. Three live reproductions across three stories is strong signal the predicate fix should be prioritized.
+
+## 5. `extract_refs_suffix` folds retro Try `[refs:]` into `metadata.resolves`, falsely closing tracked guards
+
+**Risk id**: `f388e70e8053` (recurring — 2nd session observed in plugin 4.4.2)
+
+**Symptom**: `smm/event_builder.py`'s `extract_refs_suffix` (≈ line 82) unconditionally folds a trailing `[refs: <id>, ...]` suffix into the event's `metadata.resolves`. When `/xp-work-selection` adopts a retro Try whose text carries a `[refs: ...]` suffix, the adoption's decision event is written with those ids in `metadata.resolves` — so *promising* to do the work is recorded as having *resolved* the referenced guards/debts. The guard that was supposed to verify the work is closed by the act of scheduling it.
+
+**Why it's dangerous**: This is the root cause behind debt `8d0643180fe8` ("closed 3× without a gate"). A retro Try that references an open debt closes that debt on adoption, before any evidence lands. In practice we now work around it by *deferring* (not adopting) Tries whose refs must stay open, which defeats the point of adoption tracking. A grep this session confirmed the fold is still unconditional in 4.4.2; a prior patch attempt did not persist across the plugin version.
+
+**Fix shape**: `extract_refs_suffix` should distinguish a *resolves* link from a *references* link. A retro Try's `[refs:]` is provenance (`references`), not a resolution claim (`resolves`) — folding it into `metadata.resolves` is only correct for a closing decision/status event. Either (a) route Try-adoption refs to `metadata.references`, or (b) make the fold opt-in via an explicit event-kind check so only genuinely closing events populate `resolves`.
+
+## 6. Pre-write schedule gate fires on writes outside repo code paths
+
+**Debt ids**: `caa97c082ef4` (memory-file misfire), `e2f0e20f90fd` (free-branch misfire)
+
+**Symptom**: The pre-write schedule gate keys on `scheduled > 0 and in-progress == 0` and blocks *any* Write, regardless of target path or branch context. Two distinct misfires observed:
+
+1. **Memory-file write** (`caa97c082ef4`): during `/xp-end-session` it blocked a Write to a MEMORY file *outside the repo* (`~/.claude/projects/.../memory/*.md`). Satisfying the gate would run `/xp-schedule`, promoting a story against an explicit customer pause — to unblock an edit that never touches repo code.
+2. **Free-branch work during an active sprint** (`e2f0e20f90fd`): the gate fires on free-branch commits even though `/xp-free-close` is the correct integration path for that workflow; running `/xp-schedule` to satisfy it would promote the next story and check out its branch, abandoning the free branch.
+
+**Fix shape**: Scope the gate to in-repo code-path Writes on a story/sprint branch. Two independent narrowings, both cheap: (a) exempt targets outside the repo working tree (an absolute path not under the project root — covers the `~/.claude` memory-file case); (b) exempt free branches (key on whether HEAD is a `paulingalls/free-*` branch, not just `scheduled>0 and in-progress==0`). The gate's intent is "don't write story code before the story is promoted", which neither of these cases is.
+
 ## Reporting
 
 When any of these bite during real work, add an event to the SMM (`type=concern` or `discovery`) referencing the id above. The plugin maintainer reads these out-of-band; surfacing live reproductions is the highest-value signal.
