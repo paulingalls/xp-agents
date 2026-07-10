@@ -1,6 +1,6 @@
 # XP Plugin Developer Notes
 
-Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agents` Claude Code plugin (`/Users/paulingalls/.claude/plugins/cache/xp-agents/xp-agents/4.4.2/`). Recorded so plugin-developer attention lands on the right surface when they next get to it. None of these block normal solo XP flow — they're failure modes you should know exist.
+Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agents` Claude Code plugin (source under `plugins/xp-agents/`; at runtime it loads from the versioned marketplace cache resolved via `${CLAUDE_PLUGIN_ROOT}`). Recorded so plugin-developer attention lands on the right surface when they next get to it. None of these block normal solo XP flow — they're failure modes you should know exist.
 
 ## 1. Close-cycle gate bypass via `stop_hook_active` termination
 

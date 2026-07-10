@@ -146,6 +146,16 @@ collision is already in it.
 
 ### Fix 1 (required): validate disjointness on every `sprint.json` write
 
+> **Superseded by what shipped (sprint-114 M1 — see the Gap 2 Resolved note
+> above).** This section's original "a path may be owned by exactly one story"
+> framing was RELAXED at implementation time to a **dependency-aware** model:
+> a collision is a *concurrent* claim only (both stories non-terminal with no
+> transitive dependency); sequential or dependent stories may legitimately share
+> a path. The shipped gate lives in `file_domain_lock.collision_report` and
+> `sprint_save.introduced_collisions`. Read the prose below as the historical
+> proposal, not the current invariant — do not re-derive strict single-owner
+> uniqueness from it.
+
 In `sprint_save.run()`, after `_auto_include_sister_tests` mutates the data,
 assert global path→story uniqueness. Fail loud, naming every collision:
 
