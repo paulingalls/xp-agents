@@ -29,7 +29,10 @@ _qr_auto_detect_teammate_cwd() {
 _qr_auto_detect_teammate_cwd
 
 echo "SMM_DIR=${SMM_DIR}"
-echo "TEAMMATE_CWD=${TEAMMATE_CWD:-}"
+# Route the worktree path through emit_var (author/filesystem-influenced value
+# class) so a newline can't forge a KEY=value line; the shell var stays raw for
+# the downstream --cwd uses below.
+emit_var TEAMMATE_CWD "${TEAMMATE_CWD:-}"
 # MODE discriminator: a fresh /code-review this cycle (simplify_done set for the
 # review target's agent_id) => consume-findings; else => self-find. Resolved
 # from TEAMMATE_CWD (the closing-story worktree, else the main checkout) so the

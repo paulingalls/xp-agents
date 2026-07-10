@@ -246,7 +246,7 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 
         collisions = file_domain_lock.collision_report(sprint)
         if collisions:
-            introduced = sprint_save._introduced_collisions(sprint, smm_dir, collisions)
+            introduced = sprint_save.introduced_collisions(sprint, smm_dir, collisions)
             if introduced:
                 raise ValueError(file_domain_lock.format_collision_report(introduced))
     save_sprint(smm_dir, sprint)

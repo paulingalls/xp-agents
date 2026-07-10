@@ -313,10 +313,16 @@ def _story_domains(data: dict) -> dict[str, object]:
     return domains
 
 
-def _introduced_collisions(
+def introduced_collisions(
     data: dict, smm_dir: Path, collisions: dict[str, list[dict]]
 ) -> dict[str, list[dict]]:
     """Subset of `collisions` that this write is responsible for.
+
+    Public (not `_`-prefixed) because it is an intentional cross-module reuse
+    point: `sprint_store.edit_story` calls it to gate file_domain edits with
+    run()'s exact this-write-only semantics without re-implementing them. A
+    rename here would break that gate — the public name signals the dependency.
+
 
     A collision is 'introduced' when at least one of its colliding stories is
     new or has a file_domain that differs from the on-disk sprint. A collision
@@ -415,7 +421,7 @@ def run(data: dict, smm_dir: Path) -> None:
     # a changed file_domain relative to the on-disk sprint.
     collisions = file_domain_lock.collision_report(data)
     if collisions:
-        introduced = _introduced_collisions(data, smm_dir, collisions)
+        introduced = introduced_collisions(data, smm_dir, collisions)
         if introduced:
             raise ValueError(file_domain_lock.format_collision_report(introduced))
 
