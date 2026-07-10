@@ -33,6 +33,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 import _common  # noqa: E402
 import concerns  # noqa: E402
 import execution_plan_store  # noqa: E402
+import file_domain_lock  # noqa: E402
 import identity  # noqa: E402
 import marker_names  # noqa: E402
 import markers  # noqa: E402
@@ -235,28 +236,45 @@ def _auto_include_sister_tests(
 ) -> None:
     """For each story in data['stories'], discover sister tests for the
     source paths in its file_domain and append new entries formatted as
-    '<rel> — sister test for <src>'. Dedups against existing file_domain
-    entries (every path the entry declares — em-dash, ASCII-dash, and
-    comma-joined forms all parse identically via triage.entry_to_paths).
-    Skips entries already marked as sisters (prevents sister-of-sister
-    expansion). Mutates data in place. No SMM writes."""
-    for story in data.get("stories", []):
+    '<rel> — sister test for <src>'. Skips entries already marked as sisters
+    (prevents sister-of-sister expansion). Mutates data in place. No SMM writes.
+
+    `authored` spans EVERY story and holds only the paths a planner explicitly
+    wrote (entries WITHOUT the sister marker). A test file any story authored
+    is that story's, full stop — never inject it into another. Seeding from
+    authored paths (not previously auto-included ones) is deliberate: a
+    genuinely-contested sister — one NO story authored, that a stem match
+    (foo.py / foo_tools.py) resolves for two stories — is injected into BOTH,
+    where the collision gate surfaces it as the tool error it is. That is the
+    remedy its message prints; picking a single "winner" by list order could
+    silently deny the sister to the story whose source actually covers it.
+
+    Per-story idempotency: sister entries persist to sprint.json and are
+    re-fed here on the next run(), so a path already present in a story's own
+    domain (authored or a prior sister) is never re-appended.
+    """
+    stories = [s for s in data.get("stories", []) if isinstance(s, dict)]
+    parsed: list[tuple[list[str], list[tuple[str, list[str]]], set[str]]] = []
+    authored: set[str] = set()
+    for story in stories:
         domain = story.get("file_domain")
         if not isinstance(domain, list):
             continue
-        # Parse each entry once: seed existing_paths from every entry and cache
-        # the parsed paths for the discovery pass below (snapshot taken before
-        # the domain.extend at the end, so it never iterates a mutating list).
-        existing_paths: set[str] = set()
-        parsed_entries: list[tuple[str, list[str]]] = []
+        entries: list[tuple[str, list[str]]] = []
+        own: set[str] = set()
         for e in domain:
             if isinstance(e, str):
                 paths = triage.entry_to_paths(e)
-                existing_paths.update(paths)
-                parsed_entries.append((e, paths))
+                own.update(paths)
+                if file_domain_lock.SISTER_TEST_MARKER not in e:
+                    authored.update(paths)
+                entries.append((e, paths))
+        parsed.append((domain, entries, own))
+
+    for domain, entries, own in parsed:
         additions: list[str] = []
-        for entry, srcs in parsed_entries:
-            if " — sister test for " in entry:
+        for entry, srcs in entries:
+            if file_domain_lock.SISTER_TEST_MARKER in entry:
                 continue  # prevents sister-of-sister expansion
             for src in srcs:
                 if not src:
@@ -268,11 +286,65 @@ def _auto_include_sister_tests(
                 except ValueError:
                     continue  # bad source path; skip silently (validator owns shape)
                 for sister in sisters:
-                    if sister in existing_paths:
+                    # Skip if any story authored it (never steal an authored
+                    # test) or it is already in THIS story's domain (idempotency
+                    # across re-feeds). A contested sister no one authored is
+                    # NOT skipped here — it lands in every claiming story and
+                    # the collision gate catches it.
+                    if sister in authored or sister in own:
                         continue
-                    additions.append(f"{sister} — sister test for {src}")
-                    existing_paths.add(sister)
+                    additions.append(
+                        f"{sister}{file_domain_lock.SISTER_TEST_MARKER}{src}"
+                    )
+                    own.add(sister)
         domain.extend(additions)
+
+
+def _story_domains(data: dict) -> dict[str, object]:
+    """{story_id: file_domain} for well-formed stories in a sprint dict.
+
+    Used to compare the write-in-hand against the on-disk sprint so the
+    collision gate can tell a story this write touched from one it left alone.
+    """
+    domains: dict[str, object] = {}
+    for story in data.get("stories", []):
+        if isinstance(story, dict) and isinstance(story.get("id"), str):
+            domains[story["id"]] = story.get("file_domain")
+    return domains
+
+
+def _introduced_collisions(
+    data: dict, smm_dir: Path, collisions: dict[str, list[dict]]
+) -> dict[str, list[dict]]:
+    """Subset of `collisions` that this write is responsible for.
+
+    A collision is 'introduced' when at least one of its colliding stories is
+    new or has a file_domain that differs from the on-disk sprint. A collision
+    wholly among pre-existing, unchanged stories was persisted by an earlier
+    edit-story (which bypasses run()) and is not this write's fault — blocking
+    on it would refuse an unrelated, disjoint new story. When no sprint is on
+    disk (first create), every story is new, so the full report is returned.
+
+    Idempotent auto-include means an untouched story's re-expanded domain equals
+    its persisted one, so equality is an exact, order-stable comparison.
+    """
+    baseline = sprint_store.load_sprint(smm_dir)
+    if baseline is None:
+        return collisions
+    baseline_domains = _story_domains(baseline)
+    current_domains = _story_domains(data)
+    _MISSING = object()
+
+    def _touched(story_id: str) -> bool:
+        return current_domains.get(story_id, _MISSING) != baseline_domains.get(
+            story_id, _MISSING
+        )
+
+    return {
+        path: claims
+        for path, claims in collisions.items()
+        if any(_touched(claim["story_id"]) for claim in claims)
+    }
 
 
 def save(data: dict, smm_dir: Path) -> None:
@@ -322,6 +394,30 @@ def run(data: dict, smm_dir: Path) -> None:
             )
         else:
             _auto_include_sister_tests(data, layout, project_root)
+
+    # Enforce file_domain ownership on every structural write. Raising here —
+    # after auto-include, before save() — leaves sprint.json untouched, and
+    # skips the milestone transition and accept-marker handling below, which
+    # would otherwise fire for a sprint that was never written. Both CLI
+    # surfaces (create, add-story) already map ValueError to rc 1.
+    #
+    # A collision means two stories that could run CONCURRENTLY claim one path;
+    # a story extending the file of a story it depends on is legal. Malformed
+    # (non-dict) stories are skipped by collision_report and fall through to
+    # save()'s schema validator, which owns shape.
+    #
+    # Only block on collisions THIS write is responsible for. edit-story flips
+    # bypass run() (impact-zone constraint), so a collision can already sit on
+    # disk between two other stories; re-checking the whole sprint on every
+    # add-story would then refuse an unrelated, disjoint, schema-valid new
+    # story — breaking the "a clean new story can always be added" guarantee.
+    # A collision blocks only when at least one of its claimants is new or has
+    # a changed file_domain relative to the on-disk sprint.
+    collisions = file_domain_lock.collision_report(data)
+    if collisions:
+        introduced = _introduced_collisions(data, smm_dir, collisions)
+        if introduced:
+            raise ValueError(file_domain_lock.format_collision_report(introduced))
 
     save(data, smm_dir)
 

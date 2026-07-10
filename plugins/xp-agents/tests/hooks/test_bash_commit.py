@@ -193,7 +193,11 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
             )
             head_spy.assert_called_with(str(wt))
             files_spy.assert_called_with(str(wt))
-            body_spy.assert_called_with(str(wt))
+            # body is fetched from the effective repo as the first candidate;
+            # the stdout-signal fallback reuses that body rather than re-shelling
+            # `git log` (no redundant second call), so assert it was read from
+            # the worktree — not that it was the LAST call.
+            body_spy.assert_any_call(str(wt))
         finally:
             shutil.rmtree(wt)
 
@@ -207,7 +211,7 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
             )
             head_spy.assert_called_with(str(wt))
             files_spy.assert_called_with(str(wt))
-            body_spy.assert_called_with(str(wt))
+            body_spy.assert_any_call(str(wt))
         finally:
             shutil.rmtree(wt)
 
@@ -325,7 +329,7 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
             )
             head_spy.assert_called_with(str(sub))
             files_spy.assert_called_with(str(sub))
-            body_spy.assert_called_with(str(sub))
+            body_spy.assert_any_call(str(sub))
         finally:
             shutil.rmtree(repo)
 

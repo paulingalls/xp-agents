@@ -5,9 +5,11 @@ Provides commit detection, parsing, and file enumeration used by both
 PreToolUse:Bash (gate) and PostToolUse:Bash (bookkeeping).
 """
 
+import contextlib
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -460,15 +462,147 @@ _SIMPLE_MSG_RE = re.compile(
 )
 
 
+# `-F -` / `--file -` reads the message from stdin, which in practice is a
+# heredoc appended to the command. Capture the heredoc body so the commit can
+# still be confirmed when `-q` suppresses git's `[branch hash]` stdout line.
+_STDIN_FLAG_RE = re.compile(r"(?:^|\s)(?:-F|--file)(?:=|\s+)-(?=\s|$)")
+_STDIN_HEREDOC_RE = re.compile(r"<<-?\s*'?(\w+)'?\n(.*?)\n\1", re.DOTALL)
+_FILE_FLAG_RE = re.compile(
+    r"""(?:^|\s)(?:-F|--file)(?:=|\s+)(?!-\s|-$)(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
+)
+
+
 def extract_commit_message(command: str) -> str | None:
-    """Extract the -m argument value from a git commit command."""
+    """Extract the commit message a git command supplies.
+
+    Handles `-m` (simple and `"$(cat <<EOF …)"` heredoc forms), `-F -` /
+    `--file -` with a heredoc body on stdin, and `-F <path>` when the file is
+    still readable. Returns None when no message can be recovered.
+
+    `-F` support is load-bearing for the commit-confirmation fallback: with
+    `-q`, git prints no `[branch hash]` line, so comparing this message against
+    HEAD's body is the only signal that the commit actually landed. Parsing
+    only `-m` silently dropped every `-F`-bodied commit from the event log.
+    """
     heredoc = _HEREDOC_MSG_RE.search(command)
     if heredoc:
         return heredoc.group(1)
     m = _SIMPLE_MSG_RE.search(command)
     if m:
         return m.group(1) if m.group(1) is not None else m.group(2)
+    stdin_flag = _STDIN_FLAG_RE.search(command)
+    if stdin_flag:
+        # Bind to the heredoc introduced AFTER `-F -`, not merely the first in
+        # the command. A compound line can open an earlier, unrelated heredoc
+        # (e.g. `cat <<CFG ... CFG` writing a config file) whose body is not the
+        # commit message; `.search` from the flag's end skips past it to the one
+        # actually feeding this commit's stdin.
+        stdin_body = _STDIN_HEREDOC_RE.search(command, stdin_flag.end())
+        if stdin_body:
+            return stdin_body.group(2)
+        return None
+    file_flag = _FILE_FLAG_RE.search(command)
+    if file_flag:
+        # The message file may already be gone by PostToolUse time; a missing
+        # file is not a failure, just an unrecoverable message. `errors=
+        # "replace"` keeps a non-UTF-8 commit message (e.g. latin-1 bytes)
+        # from raising UnicodeDecodeError — a decode error is NOT an OSError,
+        # so it would otherwise escape the suppress and crash the hook.
+        path = next(g for g in file_flag.groups() if g)
+        with contextlib.suppress(OSError):
+            return Path(path).read_text(errors="replace")
     return None
+
+
+# Matches `-C <path>` on the RAW command, before strip_quoted removes quoted
+# tokens. `git -C "$WT" commit` otherwise loses its path entirely and the repo
+# silently resolves to the hook's own cwd.
+_RAW_DASH_C_RE = re.compile(
+    r"""git\s+(?:-\S+\s+)*?-C\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
+)
+
+
+def dash_c_unreachable(command: str) -> bool:
+    """True only when a `git -C <path>` names a repo we cannot even locate —
+    the path is hidden behind an unexpanded shell variable or command
+    substitution, so the hook sees the literal text, never its value.
+
+    A literal path that simply does not exist is NOT unreachable: git aborts
+    with "cannot change to '<path>'" and creates no commit anywhere, so the
+    unmatched HEAD is an ordinary failure that must stay silent — not a commit
+    we merely could not inspect. Only the hidden-variable case leaves genuine
+    ambiguity between "landed somewhere we can't look" and "was rejected", and
+    only that case justifies the worktree scan / unconfirmed-commit trace.
+    """
+    m = _RAW_DASH_C_RE.search(command)
+    if not m:
+        return False
+    path = next((g for g in m.groups() if g), "")
+    return "$" in path or "`" in path
+
+
+def commit_repo_candidates(
+    command: str, fallback: str, *, scan_target=None
+) -> Iterator[str]:
+    """Yield, in order, repos a `git commit` in `command` might have run in.
+
+    `parse_effective_cwd` first (the explicit `cd`/`git -C` target), then the
+    hook's own cwd, then every live teammate worktree. Callers confirm which
+    candidate actually holds the commit by comparing HEAD's subject against the
+    message the command supplied — matching, not parsing.
+
+    Lazy on purpose: enumerating teammate worktrees shells out to
+    `git worktree list --porcelain`, and this runs on every commit-shaped Bash
+    (a hot PostToolUse path). Yielding lets the caller stop at the first
+    matching candidate — so the common solo `git commit` in the main checkout
+    never pays for the worktree scan, which only the quoted-`-C` case needs.
+
+    The worktree candidates exist because `git -C "$WT" commit` hides its path
+    behind an unexpanded shell variable: `strip_quoted` removes the quoted
+    token before `parse_effective_cwd` ever sees it, so the parse silently
+    yields the MAIN checkout and HEAD is read from the wrong repo. They are
+    gated on exactly that case (`dash_c_unreachable`) — never a general
+    fallback for any unmatched command. A rejected `git commit` in the main
+    checkout has no unreachable `-C` target, so it never reaches the scan and
+    can never be mis-attributed to a live worktree whose HEAD subject happens
+    to equal the attempted message.
+    """
+    seen: set[str] = set()
+
+    def _emit(path: str | None, *, require_dir: bool = True) -> Iterator[str]:
+        if not path or path in seen:
+            return
+        if require_dir and not Path(path).is_dir():
+            return
+        seen.add(path)
+        yield path
+
+    # The parsed target and the hook's own cwd go in unconditionally: callers
+    # (and tests) pass synthetic cwds, and `get_commit_message_body` already
+    # degrades to None on a path that isn't a repo.
+    yield from _emit(
+        parse_effective_cwd(command, fallback, scan_target=scan_target),
+        require_dir=False,
+    )
+    yield from _emit(fallback, require_dir=False)
+
+    # The worktree scan recovers ONLY the `git -C "$VAR"` case where the shell
+    # variable hid the real repo. Restricting it there is load-bearing: without
+    # this gate, any command that failed to match on the cheap candidates
+    # (e.g. a pre-commit rejection in the main checkout) would fall through and
+    # match a live worktree by coincidental HEAD subject, fabricating a commit
+    # event against the worktree's unrelated hash.
+    if not dash_c_unreachable(command):
+        return
+
+    # Only reached when the caller keeps iterating past the cheap candidates
+    # (no earlier match) — the `git worktree list` subprocess is deferred to
+    # here so the common matched-on-first-candidate path never triggers it.
+    with contextlib.suppress(Exception):
+        import worktree
+
+        for _story_id, wt_path in worktree.list_live_teammate_worktree_paths(fallback):
+            yield from _emit(wt_path)
 
 
 _ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore|sprint-direct)\]", re.IGNORECASE)

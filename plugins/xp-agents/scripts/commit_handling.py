@@ -13,6 +13,7 @@ sibling `verify_deferred` module (extracted to keep this file under the
 500-line cap); `_handle_commit` reuses it for the post-commit debt event.
 """
 
+import contextlib
 import re
 import sys
 from pathlib import Path
@@ -23,9 +24,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import code_files
 import commits
+import concerns
 import identity
 import lint_resolution
 import markers
+import resolution
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
@@ -212,6 +215,90 @@ def _head_matches_command(command: str, head_body: str | None) -> bool:
     return bool(expected_first) and expected_first == actual_first
 
 
+def _confirm_commit_repo(
+    command: str,
+    cwd: str,
+    response_text: str,
+    *,
+    scan_target: str | None = None,
+) -> tuple[str | None, str]:
+    """Return `(repo, head_body)` for the repo the commit actually landed in.
+
+    Confirmation is by matching, not parsing: each candidate repo's HEAD
+    subject is compared against the message the command supplied. That single
+    mechanism covers all three ways the old gate failed — `-q` (no stdout
+    signal), `-F -` (message on stdin), and `git -C "$VAR"` (path hidden behind
+    a shell variable `strip_quoted` deletes, so the parse yields the wrong
+    repo). `(None, "")` means no candidate holds this commit.
+    """
+    first: str | None = None
+    first_body: str = ""
+    for candidate in commits.commit_repo_candidates(
+        command, cwd, scan_target=scan_target
+    ):
+        head_body = commits.get_commit_message_body(candidate) or ""
+        if first is None:
+            first = candidate
+            first_body = head_body
+        if _head_matches_command(command, head_body):
+            return candidate, head_body
+
+    # git's own `[branch hash] subject` line proves a commit landed even when
+    # the message is unrecoverable from the command (e.g. `-F <tmpfile>` the
+    # shell already deleted). Trust the first candidate in that case only —
+    # reusing the body already fetched for it in the loop above (no second
+    # `git log` subprocess on this PostToolUse hot path).
+    if first is not None and commits.parse_commit_message(response_text):
+        return first, first_body
+    return None, ""
+
+
+def _record_unconfirmed_commit(smm_dir: Path, command: str, agent_id: str) -> None:
+    """A commit we could not inspect leaves a trace, not silence.
+
+    Fires only when the command named a repo the hook could not reach, so a
+    rejected pre-commit (HEAD legitimately unchanged) stays quiet. Without
+    this, such a commit never enters the event log and any resolution trailer
+    on it silently resolves nothing — an absence with no signal at all.
+    Never raise: a hook must not break the user's commit.
+    """
+    first_line = command.strip().split("\n", 1)[0][:120]
+    with contextlib.suppress(OSError, ValueError):
+        _common.append_safe(
+            smm_dir,
+            concerns.make_concern(
+                "Detected a git commit but could not confirm which repository it "
+                f"landed in; no commit event recorded. Command: {first_line}",
+                "low",
+                agent_id,
+            ),
+        )
+
+
+def _record_unlinkable_trailer(
+    smm_dir: Path, agent_id: str, unknown_ids: list[str]
+) -> None:
+    """A `Resolves-Event:` id absent from the live log links to nothing.
+
+    Three causes, and the hook cannot tell them apart — it sees only the live
+    log, not the archive. Say so plainly rather than assert the link was lost:
+    the most common cause is benign (the target was resolved, then compacted).
+    """
+    ids = ", ".join(unknown_ids)
+    with contextlib.suppress(OSError, ValueError):
+        _common.append_safe(
+            smm_dir,
+            concerns.make_concern(
+                f"Resolves-Event trailer names {ids}, absent from the live event "
+                "log. Either the target was already resolved and compacted away "
+                "(benign), or it aged out unresolved, or the id is mistyped. The "
+                "link will not resolve.",
+                "low",
+                agent_id,
+            ),
+        )
+
+
 def make_commit_event(
     agent_id: str,
     body: str,
@@ -320,13 +407,20 @@ def _handle_commit(
     is the pre-stripped command from `run` — passing it through avoids
     a second strip_quoted scan inside parse_effective_cwd.
     """
-    effective_cwd = commits.parse_effective_cwd(command, cwd, scan_target=scan_target)
-
-    raw_body = commits.get_commit_message_body(effective_cwd)
+    effective_cwd, raw_body = _confirm_commit_repo(
+        command, cwd, response_text, scan_target=scan_target
+    )
+    if effective_cwd is None:
+        # A rejected pre-commit also leaves HEAD unmatched, and that must stay
+        # silent. Only speak up when the command named a repo we genuinely
+        # could not inspect — a `-C` path hidden behind an unexpanded shell
+        # variable. A literal `-C` path that doesn't exist is a git failure
+        # (no commit anywhere), so dash_c_unreachable returns False for it.
+        if commits.dash_c_unreachable(command):
+            _record_unconfirmed_commit(smm_dir, command, agent_id)
+        return None
 
     msg = commits.parse_commit_message(response_text)
-    if not msg and not _head_matches_command(command, raw_body):
-        return None
 
     committed_files = commits.get_committed_files(effective_cwd)
     commit_hash = commits.get_head_commit_hash(effective_cwd)
@@ -353,6 +447,23 @@ def _handle_commit(
         return None
     resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
     body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
+
+    # A trailer naming an id absent from the live log resolves nothing.
+    # `resolve_prefix` is a lookup over the events it is handed, so an archived
+    # or mistyped target no-ops in silence. Record the commit either way — a
+    # dangling id is harmless — but surface the ids that will not link.
+    #
+    # `known` must be the SAME index the resolver consults: top-level event ids
+    # PLUS nested retrospective try-item ids (a trailer can close a retro Try).
+    # Membership is an exact-id test: `extract_resolves_trailer` already
+    # validated every id to exactly 12 hex (EVENT_ID_RE), and event ids are
+    # exactly 12 hex too, so no id is ever a strict prefix of another — the
+    # prefix-scan branch resolve_prefix keeps for short ids is unreachable here.
+    if resolves:
+        known = resolution.resolvable_event_ids(events)
+        unknown = [rid for rid in resolves if rid not in known]
+        if unknown:
+            _record_unlinkable_trailer(smm_dir, agent_id, unknown)
 
     import branching
     import sprint_store
