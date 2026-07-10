@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import file_domain_lock
 from _append_impl import flock_with_timeout, write_text_atomic
 from sprint_schema import (
     SPRINT_FILENAME,
@@ -237,6 +238,17 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 
     sprint, story = _load_story(smm_dir, story_id)
     story.update(updates)
+    if "file_domain" in updates:
+        # Reuse run()'s this-write-only collision gate at the edit-story
+        # bypass point — edit_story skips sprint_save.run(), so without this
+        # a domain edit could reintroduce a collision M1 forbids.
+        import sprint_save  # function-local: sprint_save imports sprint_store (cycle)
+
+        collisions = file_domain_lock.collision_report(sprint)
+        if collisions:
+            introduced = sprint_save._introduced_collisions(sprint, smm_dir, collisions)
+            if introduced:
+                raise ValueError(file_domain_lock.format_collision_report(introduced))
     save_sprint(smm_dir, sprint)
 
 
