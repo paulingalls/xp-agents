@@ -47,7 +47,10 @@ echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
 HOOK_STATUS=$(pre_commit_hook_present)
 echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
-echo "TEST_COMMAND=$(find_test_command)"
+# TEST_COMMAND is customer-set free text (system_context.stack.test_command,
+# not a git-constrained ref) — route it through emit_var so a newline in it
+# cannot forge a line that shadows the VERIFY_DEFERRED gate emitted below.
+emit_var TEST_COMMAND "$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
 echo "CLOSE_CYCLE_ID=$(generate_id)"
 
