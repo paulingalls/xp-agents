@@ -444,3 +444,49 @@ import markers
 markers.marker_write(Path(sys.argv[3]), getattr(markers, sys.argv[4]), sys.argv[5])
 ' "${PLUGIN_ROOT}/scripts" "${PLUGIN_ROOT}/smm" "${SMM_DIR}" "${marker_name}" "${content}" 2>/dev/null || true
 }
+
+# --- Sanitized preload emission -------------------------------------------
+# Preload stdout is BOTH a machine KEY=value contract AND raw LLM-prompt input.
+# A newline/CR/tab in an author-supplied value can forge a second KEY=value line
+# and shadow a real gate variable. Emit author-influenced values through these so
+# the one-line-per-variable invariant holds by construction. `tr -s '[:space:]'
+# ' '` is the exact shell analog of the Python `re.sub(r"\s+", " ", text).strip()`
+# rule this replaces (previously inlined in xp-schedule's python3 -c block).
+
+# flat VALUE -> collapse every whitespace run to a single space, trim ends.
+flat() {
+    local s
+    s=$(printf '%s' "${1-}" | tr -s '[:space:]' ' ')
+    s="${s# }"
+    s="${s% }"
+    printf '%s' "$s"
+}
+
+# emit_var KEY VALUE -> print exactly one `KEY=<flattened value>` line.
+emit_var() {
+    printf '%s=%s\n' "$1" "$(flat "${2-}")"
+}
+
+# sanitize_tsv_block (stdin) -> flatten each TAB field, preserve tab field-sep and
+# newline row-sep. For xp-accept's TEAMMATE_WORKTREES rows (id<TAB>path<TAB>sha<TAB>ref).
+# NOTE: operates on the already-serialized block, so it cannot un-break a field that
+# already held a raw newline (branching.py emits well-formed rows from real git state,
+# out of this domain). AC3's threat is whitespace/tab/CR inside a field — fully handled.
+# `IFS=$'\t' read -ra` treats tab as IFS-whitespace: an empty interior field collapses.
+# Harmless here — every snapshot row is id/path/sha/ref, never an empty middle field.
+sanitize_tsv_block() {
+    local line out i
+    local -a fields
+    while IFS= read -r line || [ -n "$line" ]; do
+        IFS=$'\t' read -ra fields <<< "$line"
+        out=""
+        for i in "${!fields[@]}"; do
+            if [ "$i" -eq 0 ]; then
+                out="$(flat "${fields[$i]}")"
+            else
+                out="${out}"$'\t'"$(flat "${fields[$i]}")"
+            fi
+        done
+        printf '%s\n' "$out"
+    done
+}

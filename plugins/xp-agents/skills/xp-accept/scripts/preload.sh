@@ -71,5 +71,7 @@ accept_env=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" --smm-dir "${SMM_DIR}
 if [ -n "$accept_env" ]; then
     echo ""
     echo "### TEAMMATE_WORKTREES"
-    echo "$accept_env"
+    # Sanitize each TAB field (paths can carry whitespace on macOS) while
+    # preserving the tab field-sep + newline row-sep framing the SKILL splits on.
+    printf '%s\n' "$accept_env" | sanitize_tsv_block
 fi
