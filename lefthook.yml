@@ -31,10 +31,13 @@ pre-commit:
 # No glob/{push_files} on either command: pre-push also fires from a detached
 # HEAD (close_common._push_relocated), where a file-list filter can come back
 # empty and silently skip the command.
+# `perf` pins both a file path and a class name: move or rename either and pytest
+# deselects everything and exits 5 — loud, not a silently empty gate. Keep in sync
+# with TestScaleBenchmarks in tests/engine/test_scale_invariants.py.
 pre-push:
   piped: true
   commands:
     integration:
       run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME pytest plugins/xp-agents/tests/integration -n auto -q
     perf:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_maintenance.py -k TestScaleBenchmarks -p no:xdist -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_scale_invariants.py -k TestScaleBenchmarks -p no:xdist -q

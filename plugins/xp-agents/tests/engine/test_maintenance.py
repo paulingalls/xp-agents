@@ -1,25 +1,43 @@
 #!/usr/bin/env python3
-"""Tests for repair, migration, and the scale invariants/benchmarks.
+"""Tests for the repair and migration maintenance scripts.
 
+Scale/parse-cost invariants live in test_scale_invariants.py.
 Split from smm/test_engine.py.
 """
 
 import json
-import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-import materialize
-import read_delta
 from conftest import _SMMTestCase, make_event
-from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_SESSION_END, EVENT_TYPE_STATUS
+from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
 
 # ===========================================================================
 # Repair (Milestone 8)
 # ===========================================================================
+
+
+class _CountingJson:
+    """Stand-in for the json module that counts loads() calls.
+
+    Everything else delegates to the real module — repair catches
+    json.JSONDecodeError, so a plain MagicMock(wraps=json) breaks the except
+    clause (a mock attribute is not an exception class) rather than counting.
+    """
+
+    def __init__(self):
+        self.loads_calls = 0
+
+    def loads(self, s, *args, **kwargs):
+        self.loads_calls += 1
+        return json.loads(s, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(json, name)
 
 
 class TestRepair(_SMMTestCase):
@@ -194,7 +212,13 @@ class TestRepair(_SMMTestCase):
         self.assertEqual(result["retained"], 2)
 
     def test_repair_single_pass_no_double_parse(self):
-        """repair() uses single-pass — no parse_jsonl import needed."""
+        """repair() parses each line exactly once.
+
+        This is the structural form of the old repair scale timer: a second parse
+        pass doubles the count here, deterministically, on any machine at any
+        load — where the wall-clock bound could only notice it as a slowdown, and
+        only if the box happened to be quiet.
+        """
         import repair
 
         # Verify parse_jsonl is not imported (single-pass, no double parse)
@@ -204,8 +228,21 @@ class TestRepair(_SMMTestCase):
         )
 
         e1 = make_event(content="good")
-        self._write_raw_lines([json.dumps(e1), "bad json", '"a string"'])
-        result = repair.repair(self.smm_dir, dry_run=True)
+        lines = [json.dumps(e1), "bad json", '"a string"']
+        self._write_raw_lines(lines)
+
+        # Patch repair's reference to json — not the json module itself, which
+        # the whole suite shares.
+        spy = _CountingJson()
+        with patch.object(repair, "json", spy):
+            result = repair.repair(self.smm_dir, dry_run=True)
+
+        self.assertEqual(
+            spy.loads_calls,
+            len(lines),
+            f"repair parsed {spy.loads_calls} times for {len(lines)} lines — "
+            "each line must be parsed exactly once",
+        )
         self.assertEqual(result["malformed"], 1)
         self.assertEqual(result["invalid"], 1)
         self.assertEqual(result["retained"], 1)
@@ -311,135 +348,6 @@ class TestMigrate(_SMMTestCase):
         event = make_event(ts="2026-03-12T10:30:00-05:00")
         result = migrate.migrate_event(event)
         self.assertEqual(result["ts"], "2026-03-12T10:30:00-05:00")
-
-
-# ===========================================================================
-# Performance Benchmarks (Milestone 8)
-# ===========================================================================
-
-
-def _generate_mixed_events(count: int) -> list[dict]:
-    """Generate a realistic distribution of events."""
-    import random
-
-    rng = random.Random(42)  # deterministic for reproducibility
-    type_weights = [
-        ("customer_input", 25),
-        ("status", 20),
-        ("decision", 8),
-        ("convention", 5),
-        ("concern", 8),
-        ("discovery", 5),
-        ("question", 8),
-        ("answer", 5),
-        ("assumption", 4),
-        ("session_end", 2),
-        ("goal", 1),
-        ("debt", 1),
-    ]
-    types = []
-    for t, w in type_weights:
-        types.extend([t] * w)
-
-    events = []
-    for i in range(count):
-        etype = rng.choice(types)
-        ts = f"2026-01-01T{i // 3600:02d}:{(i % 3600) // 60:02d}:{i % 60:02d}+00:00"
-        events.append(make_event(etype, content=f"event-{i}", ts=ts))
-    return events
-
-
-@unittest.skipUnless(os.environ.get("XP_PERF"), "perf suite — set XP_PERF=1")
-class TestScaleBenchmarks(_SMMTestCase):
-    """Wall-clock scale timers. Opt-in via XP_PERF because a wall-clock bound
-    measures the machine, not the code: under `pytest -n auto` these compete
-    with 15 sibling workers and go red on contention alone, blocking commits
-    whose diff touched none of this. lefthook's pre-push `perf` command is the
-    one place they run alone (piped, -p no:xdist), which is the only condition
-    under which the numbers mean anything.
-
-    Nothing here is the primary guard. The invariants these timers stood in for
-    (parse cost proportional to the delta, single-pass repair, compaction
-    actually reached) are asserted structurally in the gating suite, where they
-    hold on any machine at any load. A bound below only catches a change in
-    ORDER of magnitude, so it is deliberately loose — measured serially on a
-    16-core box: read_delta 1.3ms against a 100ms bound (~75x), compact 24ms and
-    repair 20ms against 1000ms (~40-50x). A quadratic is 100x+, so headroom that
-    wide still catches the only thing these can catch, while a tight bound would
-    cost the whole gate in false reds.
-    """
-
-    def test_read_delta_1000_with_watermark(self):
-        import time
-
-        events = _generate_mixed_events(1000)
-        self._write_events(events)
-        read_delta.write_watermark(self.smm_dir, "bench", 500)
-        start = time.monotonic()
-        read_delta.read_delta(self.smm_dir, "bench")
-        elapsed = (time.monotonic() - start) * 1000
-        self.assertLess(
-            elapsed, 100, f"read_delta(1000@500) took {elapsed:.0f}ms > 100ms"
-        )
-
-    def test_compact_5000_events(self):
-        import time
-
-        import compact
-
-        events = _generate_mixed_events(5000)
-        # Add session_end events at regular intervals
-        for i in range(10):
-            events.append(
-                make_event(
-                    EVENT_TYPE_SESSION_END,
-                    content=f"end-{i}",
-                    working_on=[],
-                    ts=f"2026-02-{i + 1:02d}T00:00:00+00:00",
-                )
-            )
-        self._write_events(events)
-        # A curation watermark is what makes this a compaction timer at all:
-        # without one, compact_after_curation early-exits before the retention
-        # split and the clock only ever measured read + parse.
-        materialize.write_curation_watermark(
-            self.smm_dir, len(events) // 2, "xp-housekeeper"
-        )
-
-        start = time.monotonic()
-        result = compact.compact(self.smm_dir, keep_sessions=3)
-        elapsed = (time.monotonic() - start) * 1000
-
-        self.assertGreater(result["archived"], 0, "timer must reach the archive path")
-        self.assertLess(elapsed, 1000, f"compact(5000) took {elapsed:.0f}ms > 1000ms")
-
-    def test_repair_5000_events(self):
-        import time
-
-        import repair
-
-        events = _generate_mixed_events(5000)
-        self._write_events(events)
-        start = time.monotonic()
-        repair.repair(self.smm_dir)
-        elapsed = (time.monotonic() - start) * 1000
-        self.assertLess(elapsed, 1000, f"repair(5000) took {elapsed:.0f}ms > 1000ms")
-
-
-class TestMixedEventGenerator(_SMMTestCase):
-    """The shared scale fixture itself — must stay honest even when the timers
-    above are skipped, since the structural invariants build on it."""
-
-    def test_mixed_event_generator_distribution(self):
-        """Verify _generate_mixed_events produces expected types."""
-        events = _generate_mixed_events(100)
-        types = {e["type"] for e in events}
-        # Should have at least a few different types
-        self.assertGreater(len(types), 5)
-        # All should be valid events
-        for e in events:
-            self.assertIn("id", e)
-            self.assertIn("type", e)
 
 
 if __name__ == "__main__":
