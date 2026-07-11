@@ -18,11 +18,23 @@ pre-commit:
     # separate unittest discover commands; pytest-xdist parallelism is finer-
     # grained than lefthook's per-command parallelism. See README "Development
     # setup" for pipx install + pytest-xdist injection.
+    # -u XP_PERF: an exported XP_PERF=1 must not re-arm the wall-clock scale
+    # timers on the commit gate. They are only meaningful when they run alone,
+    # which only pre-push's `piped` sequencing guarantees.
     tests:
-      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME pytest -n auto -q
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME -u XP_PERF pytest -n auto -q
 
+# piped (NOT parallel — lefthook rejects both) runs the commands sequentially,
+# in alphabetical order by name: integration, then perf. The scale timers are
+# wall-clock bounds, so they mean nothing while integration's 16 xdist workers
+# are saturating the box; serializing is what makes the numbers real.
+# No glob/{push_files} on either command: pre-push also fires from a detached
+# HEAD (close_common._push_relocated), where a file-list filter can come back
+# empty and silently skip the command.
 pre-push:
-  parallel: true
+  piped: true
   commands:
     integration:
       run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME pytest plugins/xp-agents/tests/integration -n auto -q
+    perf:
+      run: env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u XP_TEAMMATE_NAME XP_PERF=1 pytest plugins/xp-agents/tests/engine/test_maintenance.py -k TestScaleBenchmarks -p no:xdist -q
