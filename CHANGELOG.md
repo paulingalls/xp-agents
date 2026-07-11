@@ -2,6 +2,58 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.6.0 — The accept-gate sees in-flight work; perf tests stop measuring the machine
+
+Plan `Gates that see the work`, milestone 1 (sprint-116), plus one adjacent fix.
+
+### Accept-gate defers while an in-place teammate is mid-flight
+
+The sprint stop-gate deferred for *worktree* teammates, but an **in-place** teammate
+runs in the main checkout and registers no worktree — so the gate was blind to it and
+demanded `/xp-accept` on exactly the turn the lead was correctly idle-waiting for the
+spawn. Accepting there certifies a half-written tree. Four live reproductions are on
+record, one of which fired *during this sprint*, against the very branch fixing it.
+
+`worktree.has_live_in_place_teammate(smm_dir)` is a **name-free** probe (the Stop hook
+knows a story is in-progress, never who is executing it), and `_deferred` consults it.
+It is deliberately **not** a bare existence check: every other consumer pairs the marker
+with `XP_TEAMMATE_NAME`, which is why a leaked marker is inert today. Drop that half and
+one marker leaked by a SIGKILLed `spawn_teammate` would suppress the gate *forever* — so
+`write_in_place_marker` now records **pids**, and the probe ignores dead-pid markers and
+**reaps** them, so a recycled pid cannot resurrect one.
+
+Which pids matters. `spawn_teammate` is only a **tee** around the real teammate: it
+launches `claude` with a plain `Popen` (no `start_new_session`), so a signal to the
+supervisor's pid does *not* propagate — the child reparents to init and keeps running.
+A child mid-silent-stretch (a long model call; the watchdog tolerates 900s of them)
+outlives its supervisor indefinitely. So the marker records **every** process whose life
+means the episode is still in flight — supervisor *and* child — reads live while **any**
+survives, and is reaped only once **all** are *proven* dead. That is what lets the two
+consumers pull in opposite directions safely: the existence-only readers (identity, skill
+gating, commit attribution) never lose a *live* teammate's marker, while the gate's
+liveness probe still goes false once nothing is left running.
+
+Proven end-to-end by a capstone that drives the hook as a real subprocess with no mocks,
+and that is *falsifiable*: remove the gate clause and it goes red. The orphaned-teammate
+case carries its own positive control — same fixture, same dead supervisor, the recorded
+child alive in one and dead in the other — so "stays quiet" cannot pass for the wrong reason.
+
+### Perf benchmarks assert structural invariants, not wall-clock
+
+Six absolute wall-clock bounds gated every commit and measured the **scheduler**:
+`read_delta` costs 1.3ms serially but hit 53ms against a 50ms bound under `pytest -n auto`,
+blocking commits whose diff touched none of it — the likely root of a recurring
+"consecutive test failures" retro signal. Each timer is replaced by the structural
+invariant it stood in for (parse cost tracks the delta; the Write hook never scans the
+event log; the xp-* early return precedes all I/O), each with a **durable positive control**
+so a mis-scoped spy cannot be green forever. Two of the old tests were decorative:
+`compact_5000` never reached the compaction path, and the output-filter deadline never
+checked that it *waited*.
+
+The three timers survive behind `unittest.skipUnless(XP_PERF)` — stdlib, because CI runs
+`unittest discover` with no pytest — and now hard-gate `git push` via a **serialized**
+lefthook `pre-push`, so they run alone and their numbers mean something.
+
 ## v4.5.0 — Enforce the file-domain invariant at write time; explain non-parallelizable frontiers
 
 Plan `File-domain lock + stop-gate in-flight awareness`, milestones 1–2

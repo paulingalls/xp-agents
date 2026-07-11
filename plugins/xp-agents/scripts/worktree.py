@@ -317,44 +317,18 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:
     write_text_atomic(path, story_id)
 
 
-def in_place_marker_path(smm_dir: Path, name: str) -> Path:
-    """Return the path to an in-place teammate's lifetime-scoped active marker."""
-    return smm_dir / marker_names.IN_PLACE_ACTIVE.format(name=name)
-
-
-def write_in_place_marker(smm_dir: Path, name: str) -> None:
-    """Atomically write the in-place active marker with symlink rejection.
-
-    Written by spawn_teammate --in-place for the child's lifetime only;
-    commit_handling requires it before trusting the leaky XP_TEAMMATE_NAME env.
-    """
-    from _append_impl import write_text_atomic
-
-    path = in_place_marker_path(smm_dir, name)
-    if path.is_symlink():
-        raise OSError(f"Refusing to write to symlink: {path}")
-    write_text_atomic(path, name)
-
-
-def remove_in_place_marker(smm_dir: Path, name: str) -> None:
-    """Remove the in-place active marker (idempotent)."""
-    in_place_marker_path(smm_dir, name).unlink(missing_ok=True)
-
-
-def in_place_marker_exists(smm_dir: Path, name: str) -> bool:
-    """True when a live in-place teammate marker exists for `name`."""
-    return in_place_marker_path(smm_dir, name).is_file()
-
-
-def in_place_teammate_from_env(smm_dir: Path, env_name: str | None) -> bool:
-    """True when env_name names a live in-place teammate (marker present).
-
-    Wraps the env-name-not-None + in_place_marker_exists check the three
-    call sites (identity, pre_tool_skill, commit_handling) rolled by hand.
-    Caller-side id-shape validation (is_teammate_agent_id) and smm_dir
-    resolution stay at the call sites, which differ.
-    """
-    return env_name is not None and in_place_marker_exists(smm_dir, env_name)
+# Back-compat re-exports for the in-place teammate marker (presence +
+# pid-liveness), split into in_place_marker.py when worktree.py crossed the
+# 500-line ceiling. `worktree.<name>` stays the import surface for identity,
+# pre_tool_skill, commit_handling, spawn_teammate and sprint_stop_gate.
+from in_place_marker import (  # noqa: E402, F401
+    has_live_in_place_teammate,
+    in_place_marker_exists,
+    in_place_marker_path,
+    in_place_teammate_from_env,
+    remove_in_place_marker,
+    write_in_place_marker,
+)
 
 
 def normalize_path(file_path: str, cwd: str) -> str:

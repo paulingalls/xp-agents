@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -155,6 +156,7 @@ def run_with_tee(
     stdin,
     name: str,
     log_dir: Path = _DEFAULT_LOG_DIR,
+    on_spawn: Callable[[int], None] | None = None,
 ) -> bool:
     """Run *cmd*, mirroring stdout (and merged stderr) to both this process'
     stdout and ``<log_dir>/<name>.log``. Caller passes the worktree name
@@ -181,6 +183,15 @@ def run_with_tee(
 
     Raises ``subprocess.CalledProcessError`` on non-zero exit so callers
     keep the prior ``check=True`` failure semantics.
+
+    ``on_spawn``, when given, is called with the child's pid as soon as it
+    exists. This process is only a TEE around that child: it holds the child's
+    stdout pipe and waits, but the child is launched with a plain ``Popen`` (no
+    ``start_new_session``), so a signal delivered to THIS pid does not propagate
+    to it — the child can outlive us, reparented to init. Anything recording
+    "is the teammate still running?" must therefore know the child's pid, not
+    just ours. The callback runs before the read loop so no observer can catch
+    the child running while the record still says otherwise.
 
     Returns ``stdout_broken``: True when the downstream stdout consumer (the
     output filter) closed mid-stream. The teammate still ran to completion and
@@ -210,6 +221,21 @@ def run_with_tee(
         bufsize=1,
         text=True,
     )
+    if on_spawn is not None:
+        try:
+            on_spawn(proc.pid)
+        except BaseException:
+            # If the child's pid cannot be recorded, nothing can later prove the
+            # child alive -- so a reap would delete the marker of a LIVE teammate
+            # and demote it to lead, the failure this marker exists to prevent.
+            # Kill the child rather than leave it running unrecorded, and fail
+            # loud. Note the finally below does NOT kill: it stops the watchdog
+            # and then proc.wait()s, so merely raising past it would deadlock on
+            # a child whose stdout nobody is reading.
+            proc.kill()
+            proc.wait()
+            raise
+
     watchdog = _ActivityWatchdog(proc, name)
     watchdog.start()
     stdout_broken = False

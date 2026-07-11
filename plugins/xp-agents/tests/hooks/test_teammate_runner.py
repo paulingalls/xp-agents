@@ -6,6 +6,7 @@ run_with_tee's resilience to a downstream stdout consumer (the output
 filter) closing mid-stream. Lives beside the runner code it exercises.
 """
 
+import os
 import subprocess
 import sys
 import unittest
@@ -380,6 +381,107 @@ class TestRunWithTeeBrokenStdout(unittest.TestCase):
         # Drained to completion without raising; stdout intact → not broken.
         self.assertFalse(broken)
         proc.wait.assert_called()
+
+
+class TestRunWithTeeOnSpawn(unittest.TestCase):
+    """on_spawn hands out the REAL child's pid, against a REAL subprocess.
+
+    This is the load-bearing line of the in-place marker fix: the marker must
+    record the pid of the claude CHILD, not of this supervising process, because
+    the child is a plain Popen with no start_new_session and can outlive a signal
+    delivered here. Every other test of that fix stubs run_with_tee and calls
+    on_spawn itself — which proves only that the caller folds a pid it was handed,
+    not that the runner ever hands one out. Delete the on_spawn call and those
+    stay green; these do not.
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.log_dir = Path(tempfile.mkdtemp())
+
+    def test_on_spawn_receives_the_real_child_pid(self):
+        import teammate_runner
+
+        seen: list[int] = []
+
+        teammate_runner.run_with_tee(
+            cmd=[sys.executable, "-c", "print('hi')"],
+            cwd=".",
+            env=dict(os.environ),
+            stdin=None,
+            name="teammate-onspawn",
+            log_dir=self.log_dir,
+            on_spawn=seen.append,
+        )
+
+        self.assertEqual(len(seen), 1, "on_spawn must fire exactly once")
+        child = seen[0]
+        self.assertGreater(child, 0)
+        self.assertNotEqual(
+            child,
+            os.getpid(),
+            "on_spawn handed out OUR pid, not the child's — recording it would "
+            "let a reap delete a live teammate's marker once we are killed",
+        )
+        # It named a real process: reaped by proc.wait(), so it is now gone.
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child, 0)
+
+    def test_a_failing_on_spawn_kills_the_child_and_raises(self):
+        """If the child's pid cannot be recorded, nothing can later prove the
+        child alive — so a reap would delete a LIVE teammate's marker. Kill the
+        child rather than leave it running unrecorded.
+
+        Note the finally in run_with_tee does NOT kill: it stops the watchdog and
+        then proc.wait()s. Simply letting the exception fly past it would deadlock
+        on a child whose stdout nobody is reading.
+        """
+        from unittest.mock import patch
+
+        import teammate_runner
+
+        seen: list[int] = []
+        spawned: list[subprocess.Popen] = []
+        real_popen = subprocess.Popen
+
+        def capture(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            spawned.append(proc)
+            return proc
+
+        def boom(pid: int) -> None:
+            seen.append(pid)
+            raise OSError("cannot write marker")
+
+        with (
+            patch.object(teammate_runner.subprocess, "Popen", capture),
+            self.assertRaises(OSError),
+        ):
+            teammate_runner.run_with_tee(
+                # Long-lived and SILENT: it would outlive us if not killed.
+                cmd=[sys.executable, "-c", "import time; time.sleep(60)"],
+                cwd=".",
+                env=dict(os.environ),
+                stdin=None,
+                name="teammate-onspawn-fail",
+                log_dir=self.log_dir,
+                on_spawn=boom,
+            )
+
+        self.assertEqual(len(seen), 1)
+        # Assert on the Popen object, NOT os.kill(pid, 0): once the child is
+        # reaped its pid is free for reuse, and under `pytest -n auto` a sibling
+        # worker's subprocess really does recycle it — the probe then finds a
+        # LIVE unrelated process and the test flakes. (The same pid-reuse hazard
+        # this sprint's reap exists to bound.) returncode is set only by wait(),
+        # so a non-None value proves killed-and-reaped, immune to reuse.
+        proc = spawned[0]
+        self.assertIsNotNone(
+            proc.returncode,
+            "child was left running unreaped after on_spawn failed",
+        )
+        self.assertNotEqual(proc.returncode, 0, "child should have been killed")
 
 
 if __name__ == "__main__":

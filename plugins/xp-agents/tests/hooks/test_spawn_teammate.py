@@ -10,8 +10,10 @@ test_spawn_teammate_pipeline.py; liveness watchdog tests live in
 test_spawn_teammate_watchdog.py.
 """
 
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -19,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _IntegrationTestCase, _SMMTestCase
+from _bases import _AssertNotNoneMixin
+from conftest import _IntegrationTestCase, _SMMTestCase, dead_pid, live_pid
 
 
 class TestBuildCommand(unittest.TestCase):
@@ -597,6 +600,114 @@ class TestInPlaceMarker(unittest.TestCase):
                 worktree.in_place_marker_exists(smm_dir, "worktree-story-001"),
                 "marker must be removed even when the child run fails",
             )
+
+
+class TestInPlaceMarkerRecordsChildPid(_AssertNotNoneMixin, unittest.TestCase):
+    """spawn_teammate is a TEE around the real teammate (the `claude` child),
+    and a signal to spawn_teammate's pid does NOT propagate to that child — it
+    is reparented to init and keeps running. So the marker must record the
+    CHILD's pid too, or the liveness probe reaps a live teammate's marker and
+    un-suppresses the accept gate mid-flight.
+
+    This is the wiring test: run_with_tee hands the child's pid back via
+    on_spawn, and spawn_teammate must fold it into the marker.
+    """
+
+    def _run(self, *, in_place: bool, child_pid: int) -> str | None:
+        """Drive main() with run_with_tee stubbed to invoke on_spawn (as the
+        real one does right after Popen). Returns the marker content observed
+        DURING the run, or None if no marker existed."""
+        import tempfile
+        from unittest.mock import patch
+
+        import spawn_teammate
+        import worktree
+
+        name = "worktree-story-001"
+        seen: dict[str, str | None] = {}
+
+        def capture_tee(cmd, *, on_spawn=None, **kw):
+            if on_spawn is not None:
+                on_spawn(child_pid)
+            path = worktree.in_place_marker_path(self.smm_dir, name)
+            seen["during"] = path.read_text() if path.is_file() else None
+            return False
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        argv = [
+            "--name",
+            name,
+            "--smm-dir",
+            str(self.smm_dir),
+            "--prompt-file",
+            prompt_path,
+        ]
+        if in_place:
+            argv.append("--in-place")
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_tee),
+            ):
+                spawn_teammate.main(argv)
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+        return seen.get("during")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_marker_records_both_supervisor_and_child_pids(self):
+        """During the run the marker lists BOTH pids, so the episode reads live
+        while EITHER is alive."""
+        content = self._assert_not_none(self._run(in_place=True, child_pid=424242))
+        self.assertEqual(
+            content.split(),
+            [str(os.getpid()), "424242"],
+            "marker must list the supervisor's pid AND the child's",
+        )
+
+    def test_live_child_keeps_the_marker_alive_after_the_supervisor_dies(self):
+        """End-to-end of the fix: take the marker spawn_teammate actually wrote,
+        then simulate the supervisor being SIGKILLed by swapping its (live) pid
+        for a dead one. The child is still running, so the episode must still
+        read LIVE and the marker must survive.
+
+        Positive control below: same marker, same code path, child dead too."""
+        import worktree
+
+        with live_pid() as child:
+            self._assert_not_none(self._run(in_place=True, child_pid=child))
+            marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
+            marker.write_text(f"{dead_pid()} {child}")
+
+            self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+            self.assertTrue(marker.exists(), "live child must keep its marker")
+
+    def test_control_dead_child_lets_the_marker_go(self):
+        """Positive control for the test above. Identical in every way — same
+        spawn, same marker file, same probe — except the child is dead rather
+        than alive. Proves the "stays live" assertion above tracks the child's
+        liveness, and is not just a probe that can never go false.
+        """
+        import worktree
+
+        self._assert_not_none(self._run(in_place=True, child_pid=dead_pid()))
+        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
+        marker.write_text(f"{dead_pid()} {dead_pid()}")
+
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertFalse(marker.exists(), "fully-dead episode must be reaped")
+
+    def test_worktree_spawn_passes_no_on_spawn_callback(self):
+        """A worktree spawn writes no in-place marker, so it must not register
+        the callback either — nothing to record into."""
+        self.assertIsNone(self._run(in_place=False, child_pid=424242))
 
 
 if __name__ == "__main__":
