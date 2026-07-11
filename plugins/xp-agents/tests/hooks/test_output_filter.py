@@ -528,23 +528,43 @@ class TestStreamingTimeout(_PipeStdinMixin, _HookTestCase):
         self.assertEqual(outcome.get("code"), 1)
 
     def test_opt_in_timeout_still_exits_on_silent_pipe(self):
-        """Backstop: an explicit XP_TEAMMATE_FILTER_TIMEOUT still fires."""
+        """Backstop: an explicit XP_TEAMMATE_FILTER_TIMEOUT actually fires.
+
+        This is a semantic DEADLINE, not a CPU benchmark -- time is the behaviour
+        under test, so it stays time-based. Both bounds are expressed against the
+        configured timeout rather than a magic constant:
+
+        - lower: the filter must WAIT for the deadline. Nothing asserted this
+          before, so a filter that ignored the timeout and exited instantly passed.
+        - upper: a generous multiple, because the only failure it can catch is
+          "blocked to EOF instead of timing out" -- an unbounded wait, not a slow
+          one. A tight bound here would just re-import machine load into the gate.
+        """
         import teammate_output_filter
+
+        timeout = 0.2
 
         write_fd = self._open_pipe_stdin()
         os.write(write_fd, (_SYSTEM_LINE + "\n").encode("utf-8"))
 
-        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": "0.2"}):
+        with patch.dict(os.environ, {"XP_TEAMMATE_FILTER_TIMEOUT": str(timeout)}):
             start = time.monotonic()
             with self.assertRaises(SystemExit) as ctx:
                 teammate_output_filter.process_stream(self.smm_dir, "teammate-step-1")
             elapsed = time.monotonic() - start
 
         self.assertEqual(ctx.exception.code, 1)
+        self.assertGreaterEqual(
+            elapsed,
+            timeout,
+            f"filter exited after {elapsed:.2f}s, before its {timeout}s deadline -- "
+            "it is not waiting on the timeout at all",
+        )
         self.assertLess(
             elapsed,
-            0.6,
-            f"Filter blocked for {elapsed:.2f}s (>0.2s+0.4s slack) on silent pipe",
+            timeout * 10,
+            f"filter blocked {elapsed:.2f}s on a silent pipe -- more than 10x its "
+            f"{timeout}s deadline, so it is waiting for EOF, not the timeout",
         )
 
 
