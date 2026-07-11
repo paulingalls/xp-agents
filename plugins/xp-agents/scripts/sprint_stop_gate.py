@@ -74,6 +74,12 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
         return True
     if coordination.has_active_teammates(smm_dir, agent_id):
         return True
+    # In-place teammate: no worktree is registered for it, so
+    # has_live_teammates below is blind to it. Name-free, pid-liveness
+    # gated — a marker orphaned by a SIGKILLed spawn_teammate reads as
+    # dead and falls through rather than deferring forever.
+    if worktree.has_live_in_place_teammate(smm_dir):
+        return True
     # Live teammate worktrees: covers the spawn-to-first-write window where
     # coordination.json isn't populated yet.
     return bool(cwd) and worktree.has_live_teammates(cwd)
