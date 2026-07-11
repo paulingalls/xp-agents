@@ -385,13 +385,17 @@ class TestPreToolWriteCostInvariants(_HookTestCase):
     they hold on any machine at any load.
     """
 
-    def _paths_read(self, input_data: dict) -> list[Path]:
-        """Every path run() reads, captured at the one chokepoint.
+    def _names_read_during(self, action) -> set[str]:
+        """Filenames read by `action`, captured at the one chokepoint.
 
         Every events.jsonl read funnels through _append_impl.read_with_lock,
         which reads via path.read_text (_append_impl.py:184) -- so patching
         Path.read_text and capturing `self` sees any event-log scan, including
         read_delta's byte-offset path.
+
+        The assertion and its positive control BOTH go through this one helper:
+        a control that re-implements the spy only proves that some spy like it
+        would work, not that the spy actually guarding run() does.
         """
         seen: list[Path] = []
         real = Path.read_text
@@ -401,8 +405,8 @@ class TestPreToolWriteCostInvariants(_HookTestCase):
             return real(self, *args, **kwargs)
 
         with patch.object(Path, "read_text", spy):
-            pre_tool_write.run(input_data, smm_dir=self.smm_dir)
-        return seen
+            action()
+        return {p.name for p in seen}
 
     def test_run_never_scans_the_event_log(self):
         """run()'s cost is independent of history: it never reads events.jsonl.
@@ -414,38 +418,37 @@ class TestPreToolWriteCostInvariants(_HookTestCase):
         self._write_events(
             [make_event(EVENT_TYPE_STATUS, content=f"s{i}") for i in range(500)]
         )
+        input_data = _make_write_input(session_id="perf")
 
-        read = self._paths_read(_make_write_input(session_id="perf"))
+        read = self._names_read_during(
+            lambda: pre_tool_write.run(input_data, smm_dir=self.smm_dir)
+        )
 
         self.assertNotIn(
             "events.jsonl",
-            {p.name for p in read},
+            read,
             "run() scanned the event log -- its cost now grows with history",
         )
 
     def test_the_spy_sees_an_event_log_read(self):
         """Positive control for the assertion above (decision 308dd829d2a4).
 
-        A code path that DOES read events.jsonl must show up in the same spy.
-        Without this, a spy patched onto the wrong chokepoint sees nothing, and
-        'run() never reads the event log' passes forever while watching nothing.
+        A code path that DOES read events.jsonl must show up in the SAME spy --
+        hence the shared helper. Without this, a spy patched onto the wrong
+        chokepoint sees nothing, and 'run() never reads the event log' passes
+        forever while watching nothing.
         """
         self._write_events(
             [make_event(EVENT_TYPE_STATUS, content=f"s{i}") for i in range(10)]
         )
-        seen: list[Path] = []
-        real = Path.read_text
 
-        def spy(self, *args, **kwargs):
-            seen.append(self)
-            return real(self, *args, **kwargs)
-
-        with patch.object(Path, "read_text", spy):
-            read_delta.read_delta(self.smm_dir, "control")
+        read = self._names_read_during(
+            lambda: read_delta.read_delta(self.smm_dir, "control")
+        )
 
         self.assertIn(
             "events.jsonl",
-            {p.name for p in seen},
+            read,
             "the spy is not wired to the chokepoint -- it cannot see an event-log "
             "read even when one demonstrably happens",
         )
@@ -476,12 +479,20 @@ class TestPreToolWriteCostInvariants(_HookTestCase):
     def test_a_non_xp_agent_does_reach_those_collaborators(self):
         """Positive control for the assertion above (decision 308dd829d2a4).
 
-        The same collaborators, patched the same way, MUST be called for a normal
-        agent -- otherwise 'never called' is vacuous: a typo'd patch target would
-        make the assertion above pass while asserting nothing at all.
+        ALL THREE collaborators, patched the same way, MUST be called for a normal
+        agent -- otherwise 'never called' is vacuous: a patch target that run() no
+        longer calls (renamed, inlined, routed through another module) would make
+        the assertion above pass while asserting nothing at all. Every mock the
+        skip test asserts unreached is asserted REACHED here; leave none out.
+
+        marker_exists returns False rather than a bare MagicMock: a MagicMock is
+        truthy, which would trip the plan-review gate and raise BlockedError.
         """
         with (
             patch.object(coordination, "read_coordination", return_value={}) as coord,
+            patch.object(
+                pre_tool_write.markers, "marker_exists", return_value=False
+            ) as marker,
             patch.object(
                 pre_tool_write.sprint_state, "read_sprint_content", return_value=None
             ) as sprint,
@@ -489,6 +500,7 @@ class TestPreToolWriteCostInvariants(_HookTestCase):
             pre_tool_write.run(_make_write_input(session_id="perf"), self.smm_dir)
 
         coord.assert_called()
+        marker.assert_called()
         sprint.assert_called()
 
 

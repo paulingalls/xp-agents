@@ -536,9 +536,13 @@ class TestStreamingTimeout(_PipeStdinMixin, _HookTestCase):
 
         - lower: the filter must WAIT for the deadline. Nothing asserted this
           before, so a filter that ignored the timeout and exited instantly passed.
-        - upper: a generous multiple, because the only failure it can catch is
-          "blocked to EOF instead of timing out" -- an unbounded wait, not a slow
-          one. A tight bound here would just re-import machine load into the gate.
+        - upper: catches a deadline that fires LATE -- a units/slack/multiplier
+          bug that stretches the configured wait. It deliberately does NOT guard
+          the block-to-EOF regression: this test holds the pipe's write end open,
+          so a filter that blocked for EOF (or fell back to the ~20min default
+          backstop) would never return, and the runner would HANG here rather
+          than fail this bound. The bound is loose for the failures it can see;
+          a tight one would just re-import machine load into the gate.
         """
         import teammate_output_filter
 
@@ -563,8 +567,9 @@ class TestStreamingTimeout(_PipeStdinMixin, _HookTestCase):
         self.assertLess(
             elapsed,
             timeout * 10,
-            f"filter blocked {elapsed:.2f}s on a silent pipe -- more than 10x its "
-            f"{timeout}s deadline, so it is waiting for EOF, not the timeout",
+            f"filter waited {elapsed:.2f}s on a silent pipe -- more than 10x its "
+            f"{timeout}s deadline, so the configured value is being scaled or "
+            "padded rather than honoured",
         )
 
 

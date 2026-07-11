@@ -31,9 +31,13 @@ pre-commit:
 # No glob/{push_files} on either command: pre-push also fires from a detached
 # HEAD (close_common._push_relocated), where a file-list filter can come back
 # empty and silently skip the command.
-# `perf` pins both a file path and a class name: move or rename either and pytest
-# deselects everything and exits 5 — loud, not a silently empty gate. Keep in sync
-# with TestScaleBenchmarks in tests/engine/test_scale_invariants.py.
+# `perf` pins both a file path and a class name. Either one drifting fails LOUD
+# rather than silently gating nothing: rename the class and pytest deselects
+# everything (exit 5); move the file and pytest errors on the missing path
+# (exit 4). Dropping XP_PERF=1 is the one drift that WOULD pass silently (every
+# test skips, exit 0) — test_lefthook_perf_gate.py is the guard for that, and for
+# the skipUnless staying on the class. Keep in sync with TestScaleBenchmarks in
+# tests/engine/test_scale_invariants.py.
 pre-push:
   piped: true
   commands:

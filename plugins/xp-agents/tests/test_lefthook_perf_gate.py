@@ -121,6 +121,23 @@ def _test_paths_in(run: str) -> list[Path]:
     ]
 
 
+def _decorators_above(text: str, class_name: str) -> str:
+    """The contiguous decorator lines directly above `class <class_name>`."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith(f"class {class_name}"):
+            continue
+        above = []
+        for prev in reversed(lines[:i]):
+            if not prev.strip() or prev.lstrip().startswith("#"):
+                continue
+            if not prev.startswith("@") and not prev.startswith(" "):
+                break  # not part of the decorator block
+            above.append(prev)
+        return "\n".join(above)
+    return ""
+
+
 class TestPrePushSerializesThePerfTier(unittest.TestCase):
     def setUp(self):
         self.block = _hook("pre-push")
@@ -174,6 +191,32 @@ class TestPrePushSerializesThePerfTier(unittest.TestCase):
             any(f"class {name}" in p.read_text(encoding="utf-8") for p in paths),
             f"perf command selects `-k {name}`, but no class of that name exists in "
             f"{[p.name for p in paths]} — the selector would deselect every test.",
+        )
+
+    def test_the_selected_timers_stay_off_the_commit_gate(self):
+        """The converse of the check below, and the one that protects the commit
+        gate itself. `-k` naming a class that EXISTS is not enough: if the
+        XP_PERF skipUnless is ever dropped from it, those wall-clock timers rejoin
+        `pytest -n auto` at pre-commit and go red on 16-worker contention alone —
+        the exact flakiness this whole tier exists to remove — and no test goes red
+        to say so. Bind the selected class to its gate.
+        """
+        selector = re.search(r"-k\s+(\S+)", self.perf)
+        self.assertIsNotNone(selector, "perf command must select the timers with -k")
+        name = selector.group(1)  # pyright: ignore[reportOptionalMemberAccess]
+
+        gated = [
+            path
+            for path in _test_paths_in(self.perf)
+            if XP_PERF_GATE.search(
+                _decorators_above(path.read_text(encoding="utf-8"), name)
+            )
+        ]
+        self.assertTrue(
+            gated,
+            f"`class {name}` is what the perf command runs, but it carries no "
+            "XP_PERF skipUnless — its wall-clock timers would also run on every "
+            "commit under `pytest -n auto`, where contention alone turns them red.",
         )
 
     def test_every_xp_perf_gated_file_runs_at_the_push_gate(self):

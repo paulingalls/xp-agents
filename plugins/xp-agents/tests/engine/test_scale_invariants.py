@@ -181,8 +181,10 @@ class TestScaleBenchmarks(_SMMTestCase):
             self.smm_dir, len(events) // 2, "xp-housekeeper"
         )
 
+        # No keep_sessions: compact() documents it as ignored (the curation
+        # watermark above is the real boundary). Passing it implied otherwise.
         start = time.monotonic()
-        result = compact.compact(self.smm_dir, keep_sessions=3)
+        result = compact.compact(self.smm_dir)
         elapsed = (time.monotonic() - start) * 1000
 
         self.assertGreater(result["archived"], 0, "timer must reach the archive path")
