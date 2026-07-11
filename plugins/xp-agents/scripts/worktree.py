@@ -345,7 +345,16 @@ def remove_in_place_marker(smm_dir: Path, name: str) -> None:
 
 
 def in_place_marker_exists(smm_dir: Path, name: str) -> bool:
-    """True when a live in-place teammate marker exists for `name`."""
+    """True when an in-place teammate marker exists for `name`.
+
+    Deliberately existence-only, NOT pid-liveness like has_live_in_place_teammate
+    below: every caller pairs this with a non-None XP_TEAMMATE_NAME, and that
+    pairing is what makes a leaked marker inert for them. Adding a liveness probe
+    here to "match" would flip the fail direction for those callers — a probe
+    misfire would demote a LIVE teammate to the lead and lose its commit
+    attribution. The gate's name-free probe has no name to pair with, which is
+    why it (and only it) pays for liveness.
+    """
     return in_place_marker_path(smm_dir, name).is_file()
 
 
@@ -355,20 +364,39 @@ def _marker_pid_alive(path: Path) -> bool:
     POSIX-only: os.kill(pid, 0) is a liveness probe here, but on Windows it
     would terminate the target. The plugin is already POSIX (flock, bash
     preloads), so this is a note, not a branch.
+
+    Leaks are routine, not exotic: Python installs no SIGTERM handler, so
+    spawn_teammate's marker-removing `finally` does NOT run when a backgrounded
+    spawn is cancelled (the usual kill path) — only on a clean exit or SIGINT.
+    Every branch below therefore fails OPEN (reads dead -> the gate fires):
+    a suppressed accept gate certifies a half-written tree silently, whereas a
+    spurious one merely nags.
+
+    A marker proven dead is also REAPED, so leaks cannot accumulate until a
+    recycled pid reads live again and re-suppresses the gate. Reaping is
+    confined to the one adjudicable branch: a marker we cannot adjudicate is
+    left on disk, because deleting a LIVE teammate's marker would demote it to
+    lead and lose its commit attribution.
     """
     try:
         pid = int(path.read_text().strip())
     except (OSError, ValueError):
-        # Vanished mid-glob (spawn_teammate's finally), or legacy name-content.
+        # Vanished mid-glob (spawn_teammate's finally), or a legacy name-content
+        # marker — which may belong to a teammate still running the older code,
+        # so it is NOT reaped.
         return False
     if pid <= 0:
         # os.kill(0, 0) signals our OWN process group and SUCCEEDS.
         return False
     try:
         os.kill(pid, 0)
+    except ProcessLookupError:
+        # Proven dead — the only branch we may reap.
+        path.unlink(missing_ok=True)
+        return False
     except OSError:
-        # Includes PermissionError: a live process owned by another uid reads as
-        # dead here. Noisy-but-safe — the gate fires rather than staying silent.
+        # PermissionError: a LIVE process owned by another uid. Fail open (the
+        # gate fires), but never reap — its owner is still running.
         return False
     return True
 

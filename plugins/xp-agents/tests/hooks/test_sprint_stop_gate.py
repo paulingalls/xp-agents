@@ -6,7 +6,6 @@ Replaces TestAcceptGate. Covers the full cascade:
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
 """
 
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -23,16 +22,10 @@ from conftest import (
     SPRINT_REVIEWING_ONLY,
     _HookTestCase,
     _make_stop_input,
+    dead_pid,
     make_event,
 )
 from event_schema import EVENT_TYPE_SPRINT
-
-
-def _dead_pid() -> int:
-    """Spawn and reap a child process, returning its now-dead pid."""
-    proc = subprocess.Popen([sys.executable, "-c", "pass"])
-    proc.wait()
-    return proc.pid
 
 
 class TestSprintStopGateEarlyExits(_HookTestCase):
@@ -152,7 +145,7 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         (self.smm_dir / ".accept").write_text("done")
         worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
         marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-999")
-        marker.write_text(str(_dead_pid()))
+        marker.write_text(str(dead_pid()))
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         result = self._assert_not_none(result)
         self.assertIn("xp-accept", result)

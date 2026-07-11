@@ -6,7 +6,6 @@ Covers: story_assignment_path, in_place_teammate_from_env,
 has_live_in_place_teammate (pid-liveness probe).
 """
 
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,18 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
-
-
-def _dead_pid() -> int:
-    """Spawn and reap a child process, returning its now-dead pid.
-
-    Reaping via wait() removes the process table entry, so os.kill(pid, 0)
-    reliably raises ProcessLookupError afterward — no PID-reuse race within
-    a single test's timeframe.
-    """
-    proc = subprocess.Popen([sys.executable, "-c", "pass"])
-    proc.wait()
-    return proc.pid
+from conftest import dead_pid
 
 
 class TestStoryAssignmentPath(unittest.TestCase):
@@ -103,7 +91,7 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         process it named. Liveness must not let it defer forever."""
         worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
         marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
-        marker.write_text(str(_dead_pid()))
+        marker.write_text(str(dead_pid()))
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_pid_zero_marker_is_false(self):
@@ -122,6 +110,23 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
         marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
         marker.write_text("worktree-story-001")
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+
+    def test_unreadable_marker_is_false(self):
+        """Fail-open on an unreadable marker: read_text raises OSError, which
+        must read as DEAD so the gate FIRES. An unreadable marker that read as
+        live would silently suppress a legitimate accept gate forever."""
+        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
+        marker.mkdir()  # IsADirectoryError — an OSError from read_text
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+
+    def test_negative_pid_marker_is_false(self):
+        """os.kill accepts negative pids as PROCESS GROUP targets, so a
+        negative pid must not reach the probe either — the guard is pid<=0,
+        not pid==0."""
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
+        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
+        marker.write_text("-1")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_empty_dir_and_unrelated_files_are_false(self):
@@ -150,6 +155,58 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
         worktree.remove_in_place_marker(self.smm_dir, "worktree-story-007")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+
+
+class TestDeadMarkerReap(unittest.TestCase):
+    """The probe reaps markers it proves dead, so leaks cannot accumulate
+    until a recycled pid reads live again and re-suppresses the gate.
+
+    Reaping is surgical: only a definitively-dead pid (ProcessLookupError) is
+    unlinked. A marker we merely cannot adjudicate — unreadable, or holding a
+    legacy name written by a still-running older spawn_teammate — is left
+    alone, because deleting a LIVE teammate's marker would demote it to lead
+    and lose its commit attribution.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _marker(self, name: str) -> Path:
+        return worktree.in_place_marker_path(self.smm_dir, name)
+
+    def test_dead_pid_marker_is_reaped(self):
+        """A proven-dead marker is unlinked, not merely reported dead."""
+        path = self._marker("worktree-story-001")
+        path.write_text(str(dead_pid()))
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertFalse(path.exists(), "dead marker should have been reaped")
+
+    def test_live_marker_is_not_reaped(self):
+        """A live teammate's marker survives the probe."""
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-002")
+        path = self._marker("worktree-story-002")
+        self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertTrue(path.exists(), "live marker must never be reaped")
+
+    def test_legacy_name_marker_is_not_reaped(self):
+        """A legacy name-content marker may belong to a LIVE teammate running
+        the older spawn_teammate — unadjudicable, so leave it on disk."""
+        path = self._marker("worktree-story-003")
+        path.write_text("worktree-story-003")
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertTrue(path.exists(), "unadjudicable marker must not be reaped")
+
+    def test_dead_marker_reaped_while_live_one_survives(self):
+        """A mixed dir reaps only the dead marker and still reports live."""
+        dead = self._marker("worktree-story-004")
+        dead.write_text(str(dead_pid()))
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-005")
+        live = self._marker("worktree-story-005")
+        self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertFalse(dead.exists())
+        self.assertTrue(live.exists())
 
 
 if __name__ == "__main__":

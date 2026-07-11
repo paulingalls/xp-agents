@@ -20,6 +20,7 @@ import atexit
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -191,6 +192,19 @@ _STORY_BASE = {
     "interface_contracts": [],
     "acceptance_criteria": [],
 }
+
+
+def dead_pid() -> int:
+    """Spawn and reap a child process, returning its now-dead pid.
+
+    Reaping via wait() removes the process table entry, so os.kill(pid, 0)
+    reliably raises ProcessLookupError afterward — no PID-reuse race within
+    a single test's timeframe. Shared by every test that exercises a
+    pid-liveness probe (in-place teammate marker, sprint stop gate).
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
 
 
 def _extract_preload_var(stdout: str, name: str) -> str | None:
