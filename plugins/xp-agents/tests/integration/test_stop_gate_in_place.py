@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _branching_fixtures as _bf
 import worktree
 from conftest import (
     SPRINT_IN_PROGRESS,
@@ -43,40 +44,31 @@ class TestStopGateInPlace(_IntegrationTestCase):
         `commits_ahead(base) == 1` — a real, measured "has work" signal
         rather than the cannot-measure short-circuit.
 
-        The class git repo is shared across tests (`_bases.py`), so this
-        registers an `addCleanup` that restores `main` and deletes the
-        branch after the test — `setUp` resets the worktree/index but not
-        the checked-out branch.
+        The class git repo is shared across tests (`_bases.py`), and
+        `setUp` resets the worktree/index but NOT the checked-out branch.
+        So the restore is registered BEFORE the repo is mutated: a
+        `make_commit` that fails partway (branch created, commit not)
+        would otherwise leave the cleanup unregistered and leak the branch
+        into every sibling test in the class.
         """
-        subprocess.run(
-            ["git", "checkout", "-b", branch],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        (self.tmpdir / "story_file.txt").write_text("wip\n")
-        subprocess.run(
-            ["git", "add", "story_file.txt"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "commit", "-m", "wip"],
-            cwd=self.tmpdir,
-            capture_output=True,
-            check=True,
-        )
+        self.addCleanup(self._restore_main, branch)
+        _bf.make_commit(str(self.tmpdir), branch, "story_file.txt", "wip\n", "wip")
 
-        def _restore() -> None:
-            subprocess.run(
-                ["git", "checkout", "main"], cwd=self.tmpdir, capture_output=True
-            )
-            subprocess.run(
-                ["git", "branch", "-D", branch], cwd=self.tmpdir, capture_output=True
-            )
+    def _restore_main(self, branch: str) -> None:
+        """Put the class-shared repo back on `main` and drop the story branch.
 
-        self.addCleanup(_restore)
+        Fails LOUD (`check=True`) rather than swallowing git errors: a
+        silently-failed restore corrupts every subsequent test in the class,
+        which is exactly the failure a quiet cleanup would hide.
+        """
+        _bf.checkout_main(str(self.tmpdir))
+        if _bf.branch_exists(str(self.tmpdir), branch):
+            subprocess.run(
+                ["git", "branch", "-D", branch],
+                cwd=self.tmpdir,
+                capture_output=True,
+                check=True,
+            )
 
     def _run_gate(self, cwd: str | None = None) -> subprocess.CompletedProcess:
         overrides = {"cwd": cwd} if cwd is not None else {}
