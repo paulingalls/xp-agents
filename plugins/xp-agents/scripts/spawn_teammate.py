@@ -300,9 +300,20 @@ def main(argv: list[str] | None = None) -> None:
     # XP_TEAMMATE_NAME env instead. Write a lifetime-scoped marker so attribution
     # only trusts that env WHILE this child runs; a lead that later inherits a
     # leaked var has no live marker and falls through to the heuristics. Removed
-    # in the finally below. (A SIGKILL of spawn_teammate itself could leak the
-    # marker — a narrow window, strictly better than trusting env unconditionally.)
+    # in the finally below.
+    #
+    # The marker is written TWICE, by us both times. Now, because it must exist
+    # before the child's first hook runs or the child loses the identity race —
+    # but at this point only our pid exists to record. Then again from on_spawn
+    # below, once the child exists: WE are only a tee around it, and a SIGKILL up
+    # here does not propagate to it (see run_with_tee), so the child's pid is the
+    # one that must keep the marker alive when we die. Recording only ours would
+    # let the probe reap a LIVE teammate's marker.
     combined_path: str | None = None
+
+    def _record_child_pid(child_pid: int) -> None:
+        worktree.write_in_place_marker(Path(args.smm_dir), name, child_pid)
+
     try:
         if args.in_place:
             worktree.write_in_place_marker(Path(args.smm_dir), name)
@@ -334,6 +345,7 @@ def main(argv: list[str] | None = None) -> None:
                 stdin=combined_stdin,
                 name=name,
                 log_dir=log_dir,
+                on_spawn=_record_child_pid if args.in_place else None,
             )
         # A broken downstream stdout is NOT by itself a failed run: the output
         # filter writes its report BEFORE it exits and closes its read end, so

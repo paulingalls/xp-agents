@@ -17,6 +17,7 @@ unittest discovery, which lets us import from sibling `_*.py` modules.
 """
 
 import atexit
+import contextlib
 import json
 import os
 import shutil
@@ -205,6 +206,24 @@ def dead_pid() -> int:
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
     proc.wait()
     return proc.pid
+
+
+@contextlib.contextmanager
+def live_pid():
+    """Yield the pid of a real, LIVE child process; terminate + reap on exit.
+
+    The other pole of dead_pid(). A liveness probe needs both to prove it
+    discriminates: a test that only ever records its OWN pid (os.getpid())
+    cannot tell "this pid is alive" from "this pid is me", and so cannot
+    express the case where one recorded process is dead while ANOTHER is
+    still running — the orphaned-teammate case.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+    try:
+        yield proc.pid
+    finally:
+        proc.terminate()
+        proc.wait()
 
 
 def _extract_preload_var(stdout: str, name: str) -> str | None:

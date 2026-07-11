@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
-from conftest import dead_pid
+from conftest import dead_pid, live_pid
 
 
 class TestStoryAssignmentPath(unittest.TestCase):
@@ -221,6 +221,118 @@ class TestDeadMarkerReap(unittest.TestCase):
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
         self.assertFalse(dead.exists())
         self.assertTrue(live.exists())
+
+    def test_dead_marker_is_reaped_even_when_a_live_marker_is_seen_first(self):
+        """The reap is a SIDE EFFECT of the per-marker probe, so it must not
+        hang on `any()`'s short-circuit: the first live marker would stop the
+        scan and every dead marker behind it would survive. Which markers get
+        reaped would then depend on glob order — i.e. on the filesystem.
+
+        Sibling `test_dead_marker_reaped_while_live_one_survives` cannot catch
+        this: it creates the dead marker FIRST, so scandir order happens to
+        probe it before the live one. Here the live marker is created first, so
+        a short-circuiting scan skips the dead one and leaks it — which is the
+        accumulation the reap exists to prevent (a recycled pid later reads
+        live and re-suppresses the gate).
+        """
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
+        live = self._marker("worktree-story-001")
+        dead = self._marker("worktree-story-002")
+        dead.write_text(str(dead_pid()))
+
+        self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+
+        self.assertTrue(live.exists(), "live marker must never be reaped")
+        self.assertFalse(
+            dead.exists(),
+            "dead marker must be reaped regardless of the order glob yields it",
+        )
+
+
+class TestOrphanedTeammateMarker(unittest.TestCase):
+    """The supervising `spawn_teammate` is a TEE, not the teammate.
+
+    It launches the real teammate — the `claude` child — with a plain
+    `subprocess.Popen` (no `start_new_session`), then holds the child's stdout
+    pipe and waits. A SIGTERM/SIGKILL delivered to the SUPERVISOR's pid alone
+    does NOT propagate to that child: the child is reparented to init and keeps
+    running. Empirically, a child in a silent stretch — a long model call, which
+    the watchdog tolerates for 900s — survives its supervisor indefinitely. Only
+    a *chatty* child dies promptly, on BrokenPipe at its next stdout write.
+
+    A marker holding ONLY the supervisor's pid therefore reads DEAD while a live
+    teammate is still writing the tree, and BOTH consumers break:
+
+      - `has_live_in_place_teammate` -> False -> the accept gate fires
+        mid-flight and `/xp-accept` certifies a half-written tree — the very
+        defect this sprint exists to fix, through a different door.
+      - the probe REAPS the marker -> `in_place_marker_exists` -> False -> the
+        live teammate is demoted to the lead: it loses `xp-*` skill gating and
+        its commits are misattributed.
+
+    The marker records EVERY process whose life means the in-place episode is
+    still in flight. Alive if ANY is alive; reaped only once ALL are proven
+    dead — the one condition under which no consumer can be harmed. That is
+    what lets the two consumers pull in opposite directions safely: existence
+    outlives the supervisor (so a live teammate keeps its identity), while
+    liveness still goes false once nothing is left running (so a dead teammate
+    cannot suppress the gate, and leaks cannot accumulate).
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.name = "worktree-story-001"
+        self.marker = worktree.in_place_marker_path(self.smm_dir, self.name)
+
+    def test_orphaned_live_child_reads_live_though_supervisor_is_dead(self):
+        """The headline case: supervisor SIGKILLed, teammate still running."""
+        with live_pid() as child:
+            self.marker.write_text(f"{dead_pid()} {child}")
+            self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+
+    def test_orphaned_live_child_keeps_its_marker(self):
+        """...and the marker survives, so the live teammate keeps its identity
+        (skill gating + commit attribution) rather than being demoted to lead."""
+        with live_pid() as child:
+            self.marker.write_text(f"{dead_pid()} {child}")
+            worktree.has_live_in_place_teammate(self.smm_dir)
+            self.assertTrue(self.marker.exists())
+            self.assertTrue(
+                worktree.in_place_teammate_from_env(self.smm_dir, self.name)
+            )
+
+    def test_supervisor_alive_child_dead_reads_live(self):
+        """The post-exit bookkeeping window: the child has exited but the
+        supervisor is still promoting the story. Still in flight — defer."""
+        with live_pid() as supervisor:
+            self.marker.write_text(f"{supervisor} {dead_pid()}")
+            self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+            self.assertTrue(self.marker.exists())
+
+    def test_all_recorded_pids_dead_reads_dead_and_reaps(self):
+        """Only when EVERY recorded process is proven dead is the episode over
+        — and only then may the marker be reaped."""
+        self.marker.write_text(f"{dead_pid()} {dead_pid()}")
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertFalse(self.marker.exists(), "fully-dead marker must be reaped")
+
+    def test_supervisor_only_marker_is_still_live_before_the_child_spawns(self):
+        """The marker is written BEFORE the child exists (so the child's first
+        hook can never lose the identity race). In that window the supervisor's
+        pid is the whole truth, and a one-pid marker must still read live."""
+        worktree.write_in_place_marker(self.smm_dir, self.name)
+        self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+
+    def test_unadjudicable_pid_alongside_dead_one_is_not_reaped(self):
+        """A pid we cannot adjudicate (here: too large for a C int, which
+        os.kill raises OverflowError on) is not PROOF of death. Mixed with a
+        proven-dead pid it still blocks the reap — never delete a marker we
+        cannot prove is finished."""
+        self.marker.write_text(f"{dead_pid()} {10**30}")
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+        self.assertTrue(self.marker.exists(), "unadjudicable pid must block the reap")
 
 
 if __name__ == "__main__":

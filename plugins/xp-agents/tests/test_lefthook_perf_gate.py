@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The perf gate's own guard: lefthook.yml must keep running the scale timers alone.
 
-The wall-clock bounds in test_maintenance.TestScaleBenchmarks only mean something
+The wall-clock bounds in test_scale_invariants.TestScaleBenchmarks only mean something
 when nothing else is competing for the box. That condition lives entirely in
 lefthook.yml — `piped` (sequential) rather than `parallel`, and a `perf` command
 that opts the timers in with XP_PERF=1 and disables xdist. Every one of those is a

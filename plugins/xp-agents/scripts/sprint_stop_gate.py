@@ -74,10 +74,13 @@ def _deferred(smm_dir: Path, agent_id: str, cwd: str) -> bool:
         return True
     if coordination.has_active_teammates(smm_dir, agent_id):
         return True
-    # In-place teammate: no worktree is registered for it, so
-    # has_live_teammates below is blind to it. Name-free, pid-liveness
-    # gated — a marker orphaned by a SIGKILLed spawn_teammate reads as
-    # dead and falls through rather than deferring forever.
+    # In-place teammate: no worktree is registered for it, so has_live_teammates
+    # below is blind to it. Name-free and pid-liveness gated — it defers while
+    # EITHER the supervising spawn_teammate or the `claude` child it launched is
+    # still alive (the child OUTLIVES a SIGKILLed supervisor, so probing the
+    # supervisor alone would un-defer mid-flight), and falls through once both
+    # are gone rather than deferring forever on a leaked marker. Reaps the
+    # markers it proves fully dead — this call is not side-effect-free.
     if worktree.has_live_in_place_teammate(smm_dir):
         return True
     # Live teammate worktrees: covers the spawn-to-first-write window where

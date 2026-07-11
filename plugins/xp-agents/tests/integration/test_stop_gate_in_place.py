@@ -31,6 +31,7 @@ from conftest import (
     _IntegrationTestCase,
     _make_stop_input,
     dead_pid,
+    live_pid,
 )
 
 _MARKER_NAME = "worktree-story-999"
@@ -163,6 +164,52 @@ class TestStopGateInPlace(_IntegrationTestCase):
         result = self._run_gate()
 
         self._assert_accept_fired(result)
+
+    # -- Group C: the ORPHANED teammate (supervisor dead, teammate alive) --
+    #
+    # spawn_teammate is only a TEE around the real teammate: it launches the
+    # `claude` child with a plain Popen (no start_new_session), holds its stdout
+    # pipe, and waits. A SIGTERM/SIGKILL delivered to spawn_teammate's pid does
+    # NOT propagate to that child — it is reparented to init and keeps running.
+    # A child mid-silent-stretch (a long model call; the watchdog tolerates 900s
+    # of them) survives its supervisor indefinitely; only a chatty child dies
+    # promptly, on BrokenPipe at its next write.
+    #
+    # This is the routine leak path the reap exists for, so it is exactly where
+    # the gate must NOT go blind. The two tests below differ in ONE byte-level
+    # respect — whether the recorded child pid is alive — and nothing else.
+
+    def test_orphaned_live_teammate_still_silences_accept_gate(self):
+        """Supervisor SIGKILLed, teammate still writing the tree: the gate must
+        stay quiet, and the live teammate must KEEP its marker (else it is
+        demoted to the lead and its commits are misattributed)."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
+        with live_pid() as teammate:
+            marker.write_text(f"{dead_pid()} {teammate}")
+
+            result = self._run_gate()
+
+            self._assert_quiet(result)
+            self.assertTrue(marker.exists(), "a live teammate must keep its marker")
+
+    def test_control_orphaned_dead_teammate_fires_accept_gate(self):
+        """Positive control for the test above: identical fixture, identical
+        dead supervisor — the ONLY delta is that the recorded child is dead too.
+
+        Without this control, "stays quiet for an orphan" could pass for the
+        wrong reason: a probe that read live on any two-pid marker (or never
+        went false at all) would silence the gate forever and look identical.
+        Here the gate must fire and the marker must be reaped.
+        """
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
+        marker.write_text(f"{dead_pid()} {dead_pid()}")
+
+        result = self._run_gate()
+
+        self._assert_accept_fired(result)
+        self.assertFalse(marker.exists(), "fully-dead episode must be reaped")
 
 
 if __name__ == "__main__":

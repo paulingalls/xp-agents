@@ -19,11 +19,24 @@ knows a story is in-progress, never who is executing it), and `_deferred` consul
 It is deliberately **not** a bare existence check: every other consumer pairs the marker
 with `XP_TEAMMATE_NAME`, which is why a leaked marker is inert today. Drop that half and
 one marker leaked by a SIGKILLed `spawn_teammate` would suppress the gate *forever* — so
-`write_in_place_marker` now records its **supervising pid**, and the probe ignores dead-pid
-markers and **reaps** them, so a recycled pid cannot resurrect one.
+`write_in_place_marker` now records **pids**, and the probe ignores dead-pid markers and
+**reaps** them, so a recycled pid cannot resurrect one.
+
+Which pids matters. `spawn_teammate` is only a **tee** around the real teammate: it
+launches `claude` with a plain `Popen` (no `start_new_session`), so a signal to the
+supervisor's pid does *not* propagate — the child reparents to init and keeps running.
+A child mid-silent-stretch (a long model call; the watchdog tolerates 900s of them)
+outlives its supervisor indefinitely. So the marker records **every** process whose life
+means the episode is still in flight — supervisor *and* child — reads live while **any**
+survives, and is reaped only once **all** are *proven* dead. That is what lets the two
+consumers pull in opposite directions safely: the existence-only readers (identity, skill
+gating, commit attribution) never lose a *live* teammate's marker, while the gate's
+liveness probe still goes false once nothing is left running.
 
 Proven end-to-end by a capstone that drives the hook as a real subprocess with no mocks,
-and that is *falsifiable*: remove the gate clause and it goes red.
+and that is *falsifiable*: remove the gate clause and it goes red. The orphaned-teammate
+case carries its own positive control — same fixture, same dead supervisor, the recorded
+child alive in one and dead in the other — so "stays quiet" cannot pass for the wrong reason.
 
 ### Perf benchmarks assert structural invariants, not wall-clock
 
