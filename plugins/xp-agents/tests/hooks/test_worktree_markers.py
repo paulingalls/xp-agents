@@ -129,6 +129,20 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         marker.write_text("-1")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
+    def test_oversized_pid_marker_is_false(self):
+        """int() is arbitrary-precision but os.kill needs a C int, so a huge
+        value raises OverflowError — an ArithmeticError, which escapes BOTH
+        except clauses and crashes the Stop hook.
+
+        This is the one branch that failed in the WRONG direction: the probe
+        promises to fail OPEN (unreadable => dead => the gate fires), but a
+        crash means the gate never fires at all.
+        """
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
+        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
+        marker.write_text(str(10**30))
+        self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
+
     def test_empty_dir_and_unrelated_files_are_false(self):
         (self.smm_dir / ".accept").write_text("done")
         (self.smm_dir / "events.jsonl").write_text("")

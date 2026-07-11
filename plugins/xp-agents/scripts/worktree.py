@@ -390,6 +390,12 @@ def _marker_pid_alive(path: Path) -> bool:
         return False
     try:
         os.kill(pid, 0)
+    except OverflowError:
+        # int() is arbitrary-precision but os.kill needs a C int. OverflowError
+        # is an ArithmeticError, so it escapes the OSError clauses below and
+        # would CRASH the Stop hook -- the one branch that failed in the wrong
+        # direction, since a crash means the gate never fires at all.
+        return False
     except ProcessLookupError:
         # Proven dead — the only branch we may reap.
         path.unlink(missing_ok=True)
