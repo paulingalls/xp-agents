@@ -222,7 +222,20 @@ def run_with_tee(
         text=True,
     )
     if on_spawn is not None:
-        on_spawn(proc.pid)
+        try:
+            on_spawn(proc.pid)
+        except BaseException:
+            # If the child's pid cannot be recorded, nothing can later prove the
+            # child alive -- so a reap would delete the marker of a LIVE teammate
+            # and demote it to lead, the failure this marker exists to prevent.
+            # Kill the child rather than leave it running unrecorded, and fail
+            # loud. Note the finally below does NOT kill: it stops the watchdog
+            # and then proc.wait()s, so merely raising past it would deadlock on
+            # a child whose stdout nobody is reading.
+            proc.kill()
+            proc.wait()
+            raise
+
     watchdog = _ActivityWatchdog(proc, name)
     watchdog.start()
     stdout_broken = False
