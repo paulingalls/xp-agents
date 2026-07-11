@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for pre_tool_write.py: conflict detection, TDD order, performance."""
+"""Tests for pre_tool_write.py: conflict detection, TDD order, cost invariants."""
 
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import coordination
 import pre_tool_write
+import read_delta
 from conftest import (
     _HookTestCase,
     _make_bash_input,
@@ -373,37 +375,121 @@ class TestPreToolWriteNoDelta(_HookTestCase):
         self.assertIsNone(result)
 
 
-class TestPreToolWritePerformance(_HookTestCase):
-    """AC (M3.2): Fast -- minimal overhead on every tool call."""
+class TestPreToolWriteCostInvariants(_HookTestCase):
+    """The hook's cost must not scale with history, and xp-* must cost nothing.
 
-    def test_run_completes_within_budget(self):
-        """100 invocations should complete well under 2 seconds."""
-        import time
+    Both were guarded by wall-clock budgets (100 runs < 2s; 1000 skips < 1s),
+    which measured the machine: on a loaded box they go red on contention alone,
+    on a fast one they pass no matter how much work run() does. Assert the
+    structural invariants they stood in for instead -- WHAT run() touches -- and
+    they hold on any machine at any load.
+    """
 
-        events = [make_event(EVENT_TYPE_STATUS, content=f"s{i}") for i in range(10)]
-        self._write_events(events)
+    def _paths_read(self, input_data: dict) -> list[Path]:
+        """Every path run() reads, captured at the one chokepoint.
 
-        input_data = _make_write_input(session_id="perf")
+        Every events.jsonl read funnels through _append_impl.read_with_lock,
+        which reads via path.read_text (_append_impl.py:184) -- so patching
+        Path.read_text and capturing `self` sees any event-log scan, including
+        read_delta's byte-offset path.
+        """
+        seen: list[Path] = []
+        real = Path.read_text
 
-        start = time.monotonic()
-        for _ in range(100):
+        def spy(self, *args, **kwargs):
+            seen.append(self)
+            return real(self, *args, **kwargs)
+
+        with patch.object(Path, "read_text", spy):
             pre_tool_write.run(input_data, smm_dir=self.smm_dir)
-        elapsed = time.monotonic() - start
+        return seen
 
-        self.assertLess(elapsed, 2.0, f"100 runs took {elapsed:.2f}s -- too slow")
+    def test_run_never_scans_the_event_log(self):
+        """run()'s cost is independent of history: it never reads events.jsonl.
 
-    def test_xp_agent_skip_is_instant(self):
-        """xp-agent bypass should be near-zero cost."""
-        import time
+        Every check is deliberately file-based/O(1) -- .coordination.json, marker
+        files, sprint.json. A regression that scans the event log per tool call
+        makes every Write pay for the whole project's history.
+        """
+        self._write_events(
+            [make_event(EVENT_TYPE_STATUS, content=f"s{i}") for i in range(500)]
+        )
 
+        read = self._paths_read(_make_write_input(session_id="perf"))
+
+        self.assertNotIn(
+            "events.jsonl",
+            {p.name for p in read},
+            "run() scanned the event log -- its cost now grows with history",
+        )
+
+    def test_the_spy_sees_an_event_log_read(self):
+        """Positive control for the assertion above (decision 308dd829d2a4).
+
+        A code path that DOES read events.jsonl must show up in the same spy.
+        Without this, a spy patched onto the wrong chokepoint sees nothing, and
+        'run() never reads the event log' passes forever while watching nothing.
+        """
+        self._write_events(
+            [make_event(EVENT_TYPE_STATUS, content=f"s{i}") for i in range(10)]
+        )
+        seen: list[Path] = []
+        real = Path.read_text
+
+        def spy(self, *args, **kwargs):
+            seen.append(self)
+            return real(self, *args, **kwargs)
+
+        with patch.object(Path, "read_text", spy):
+            read_delta.read_delta(self.smm_dir, "control")
+
+        self.assertIn(
+            "events.jsonl",
+            {p.name for p in seen},
+            "the spy is not wired to the chokepoint -- it cannot see an event-log "
+            "read even when one demonstrably happens",
+        )
+
+    def test_xp_agent_skip_touches_nothing(self):
+        """The xp-* early return fires BEFORE any I/O.
+
+        `if _common.is_xp_agent(input_data): return None` is the first statement
+        in run(); everything after it (smm_dir validation, the coordination read,
+        marker stats, the sprint read) must be unreached. A regression that moves
+        the return below any of them makes every xp-* subagent pay the full gate
+        cost on every write.
+        """
         input_data = _make_write_input(session_id="perf", agent_type="xp-housekeeper")
 
-        start = time.monotonic()
-        for _ in range(1000):
-            pre_tool_write.run(input_data, smm_dir=self.smm_dir)
-        elapsed = time.monotonic() - start
+        with (
+            patch.object(coordination, "read_coordination") as coord,
+            patch.object(pre_tool_write.markers, "marker_exists") as marker,
+            patch.object(pre_tool_write.sprint_state, "read_sprint_content") as sprint,
+        ):
+            result = pre_tool_write.run(input_data, smm_dir=self.smm_dir)
 
-        self.assertLess(elapsed, 1.0, f"1000 xp-agent skips took {elapsed:.2f}s")
+        self.assertIsNone(result)
+        coord.assert_not_called()
+        marker.assert_not_called()
+        sprint.assert_not_called()
+
+    def test_a_non_xp_agent_does_reach_those_collaborators(self):
+        """Positive control for the assertion above (decision 308dd829d2a4).
+
+        The same collaborators, patched the same way, MUST be called for a normal
+        agent -- otherwise 'never called' is vacuous: a typo'd patch target would
+        make the assertion above pass while asserting nothing at all.
+        """
+        with (
+            patch.object(coordination, "read_coordination", return_value={}) as coord,
+            patch.object(
+                pre_tool_write.sprint_state, "read_sprint_content", return_value=None
+            ) as sprint,
+        ):
+            pre_tool_write.run(_make_write_input(session_id="perf"), self.smm_dir)
+
+        coord.assert_called()
+        sprint.assert_called()
 
 
 if __name__ == "__main__":
