@@ -6,6 +6,7 @@ Replaces TestAcceptGate. Covers the full cascade:
   2. sprint complete, no sprint_end event → block "run /xp-sprint-review"
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -25,6 +26,13 @@ from conftest import (
     make_event,
 )
 from event_schema import EVENT_TYPE_SPRINT
+
+
+def _dead_pid() -> int:
+    """Spawn and reap a child process, returning its now-dead pid."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
 
 
 class TestSprintStopGateEarlyExits(_HookTestCase):
@@ -106,6 +114,60 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertIsNone(result)
+
+    def test_live_in_place_teammate_allows_stop(self):
+        """Defer when a live in-place teammate marker exists — the gate
+        can't attribute the marker to a name, but pid-liveness alone is
+        enough to suppress the nudge against a half-written tree."""
+        import sprint_stop_gate
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
+        try:
+            result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+            self.assertIsNone(result)
+        finally:
+            worktree.remove_in_place_marker(self.smm_dir, "worktree-story-999")
+
+    def test_in_place_marker_removed_blocks_as_before(self):
+        """Once the in-place marker is gone, the accept message fires
+        exactly as it did before this probe existed."""
+        import sprint_stop_gate
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_dead_pid_in_place_marker_does_not_defer(self):
+        """A marker leaked by a SIGKILLed spawn_teammate must not
+        silently defer the gate forever — dead pid, no defer."""
+        import sprint_stop_gate
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
+        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-999")
+        marker.write_text(str(_dead_pid()))
+        result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result)
+
+    def test_deferred_returns_true_for_live_in_place_teammate(self):
+        """Direct unit: _deferred honors has_live_in_place_teammate."""
+        import sprint_stop_gate
+        import worktree
+
+        self.assertFalse(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
+        try:
+            self.assertTrue(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
+        finally:
+            worktree.remove_in_place_marker(self.smm_dir, "worktree-story-999")
 
     def test_completed_review_cycle_does_not_defer(self):
         """All review flags True means cycle is done — don't defer, block."""
