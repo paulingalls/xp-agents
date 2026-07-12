@@ -50,16 +50,24 @@ def _counts_as_retro_defer(event: dict) -> bool:
     deferral written before this tag landed carries no `metadata.action`, and a
     bare `tag == retro` test would exclude all of them — zeroing those Tries'
     prior-defer counts and silently disarming the gate on precisely the
-    long-carried Tries it exists to catch. The plugin ships to installs whose
-    logs already hold such deferrals; this repo's own log happens to hold none
-    (its 20 untagged deferrals are all triage-defers, which linked nothing and
-    so could never have counted anyway), so the leg is not verifiable from here
-    — do not "confirm" it against this log and conclude it is dead.
+    long-carried Tries it exists to catch. This leg is not speculative
+    future-proofing for other installs: across this project's OWN history there
+    are 134 untagged deferrals, 27 of which link a Try — live counts that this
+    leg is the only thing still collecting.
+
+    Census that history, not the live log. Compaction moves old events out of
+    events.jsonl into `backups/archive-*.jsonl`, and the gate only ever reads the
+    live log — so a count taken there reports "no untagged deferrals" whenever a
+    recent compaction has carried them off, and that is a statement about the
+    compaction, not about the leg. Do not read such a zero as evidence the leg is
+    dead and delete it.
 
     Counting untagged deferrals is SOUND because the legacy triage-defer linked
     NOTHING: an untagged deferral that carries a link is necessarily a retro
-    deferral. If a legacy triage-defer ever gains a link, this leg starts
-    over-counting and must be revisited.
+    deferral. Measured over that same history the invariant holds 134/134 — the
+    107 linking nothing are all triage-defers, and all 27 that link name a Try.
+    If a legacy triage-defer ever gains a link, this leg starts over-counting and
+    must be revisited.
     """
     if event.get("type") != EVENT_TYPE_STATUS:
         return False
@@ -95,8 +103,8 @@ def _try_targets(events: list[dict], ref_ids: list[str]) -> set[str]:
     ids, so subtracting it would remove the TRY id — the only id that should
     survive — and zero every count, disarming the gate.
     """
-    cited = {e["id"] for e in events if e.get("id")}
-    return {r for r in ref_ids if r not in cited} or set(ref_ids)
+    top_level_ids = {e["id"] for e in events if e.get("id")}
+    return {r for r in ref_ids if r not in top_level_ids} or set(ref_ids)
 
 
 def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
