@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import execution_plan_store
+import sprint_store
 from _event_fixtures import make_event
 from _system_context_fixtures import valid_doc
 from event_schema import EVENT_TYPE_CONCERN
@@ -406,6 +407,40 @@ def seed_sprint_with_stories(smm_dir: Path, stories: "list[tuple[str, str]]") ->
                 "stories": story_dicts,
             }
         )
+    )
+
+
+def write_sprint_json(
+    smm_dir: Path, sprint_id: str, goal: str, started: str = "2026-04-22"
+) -> None:
+    """Write a minimal valid sprint.json with one ready story.
+
+    Promoted here from a local helper in test_branching_sprint.py when
+    test_branching_reslice.py was split out (story-005) and needed the same
+    seed — one fixture beats two copies drifting apart.
+    """
+    sprint_store.save_sprint(
+        smm_dir,
+        {
+            "sprint_id": sprint_id,
+            "goal": goal,
+            "started": started,
+            "milestone": "test",
+            "stories": [
+                {
+                    "id": "story-001",
+                    "title": "Test",
+                    "status": "ready",
+                    "dependencies": [],
+                    "milestone_ref": "test",
+                    "design_sources": "test",
+                    "context": "test",
+                    "file_domain": [],
+                    "interface_contracts": [],
+                    "acceptance_criteria": ["test"],
+                }
+            ],
+        },
     )
 
 

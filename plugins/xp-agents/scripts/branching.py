@@ -380,6 +380,48 @@ def create_story_branch(
     return result
 
 
+def _recorded_sprint_branch(cwd: str, smm_dir: Path, sprint_id: str) -> str | None:
+    """The branch already recorded for THIS sprint_id, if it still exists.
+
+    Keyed on sprint_id, not on "a branch_name is recorded": the next sprint's
+    create overwrites the current sprint.json in place, so a stale record for
+    the PREVIOUS sprint is routinely on disk when the next sprint's branch is
+    cut. Resuming that would hand sprint N+1 sprint N's branch.
+
+    Requires the branch to still exist locally, mirroring get_story_base_branch's
+    recorded-then-verify check: a recorded name whose branch is gone is stale, and
+    the slug is the better guess (test_resume_re_records_fixing_drift pins that).
+
+    Fails open where get_story_base_branch lets SprintCorruptError fly, because
+    this runs BEFORE the stage gate: below the branching floor create_sprint_branch
+    must stay a clean no-op even on an unreadable sprint. It buys no silence above
+    the floor — set_branch re-raises on the same corruption once the branch is cut.
+    Loudness is delegated there, not dropped.
+    """
+    sprint = sprint_store.load_sprint_fail_open(smm_dir)
+    if sprint is None or sprint.get("sprint_id") != sprint_id:
+        return None
+    recorded = sprint.get("branch_name")
+    return recorded if recorded and branch_exists(cwd, recorded) else None
+
+
+def resolve_sprint_branch_name(
+    cwd: str, sprint_id: str, slug: str, smm_dir: Path
+) -> str:
+    """The branch ``create_sprint_branch`` will use: the one already recorded for
+    this sprint_id if it still exists, else one rebuilt from ``slug``.
+
+    Public because branching_cli must ask the SAME question to decide whether it
+    is about to create or resume. Deriving that from the slug alone reports a
+    resumed re-slice branch as ``created:`` — the slug-built name never exists on
+    a re-slice, which is the entire point — and SKILL.md Step 8 routes its
+    adopt/rename prompt on that token. One resolver, one answer, both callers.
+    """
+    return _recorded_sprint_branch(cwd, smm_dir, sprint_id) or branch_name(
+        identity.user_namespace(cwd), sprint_id, slug
+    )
+
+
 def create_sprint_branch(
     cwd: str, sprint_id: str, slug: str, smm_dir: Path
 ) -> str | None:
@@ -388,13 +430,28 @@ def create_sprint_branch(
     Forks off the recorded plan branch when execution_plan.branch is
     set and the branch exists locally; otherwise off current HEAD.
 
+    Prefers the branch already RECORDED for this sprint_id over one rebuilt
+    from `slug`. This is the second leg of the re-slice preserve, and without
+    it the first leg is useless: /xp-sprint-start runs `create` and THEN
+    `create-sprint --slug <goal-slug>`, so on a re-slice with a rewritten goal a
+    slug-derived name would overwrite the branch _cmd_create just carried
+    forward, cut a NEW empty branch, and orphan the real sprint branch —
+    the preserve would survive a raw-CLI re-slice only. Same key as that
+    preserve (sprint_id), so the two legs cannot disagree.
+
+    Accepted consequence: after a goal rewrite the sprint branch KEEPS its
+    original slug, and /xp-sprint-start's `resumed:` prompt becomes the only
+    rename path — so it now fires on every re-slice. That is the trade: a stable
+    branch beats a pretty name. A branch is an identity, not a label.
+
     Records the actual branch name into sprint.json on both create and
     resume paths so get_story_base_branch can look it up directly
-    instead of reconstructing via slugify(goal). The re-record on
-    resume is intentionally idempotent — it fixes any prior slug drift.
+    instead of reconstructing via slugify(goal). The re-record on resume is
+    intentionally idempotent — it fixes any prior slug drift, which is only
+    TRUE now that resume re-records what was recorded rather than what the
+    current goal happens to slugify to.
     """
-    user_ns = identity.user_namespace(cwd)
-    name = branch_name(user_ns, sprint_id, slug)
+    name = resolve_sprint_branch_name(cwd, sprint_id, slug, smm_dir)
     base = _recorded_plan_branch(cwd, smm_dir)
     result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["sprint"], base=base

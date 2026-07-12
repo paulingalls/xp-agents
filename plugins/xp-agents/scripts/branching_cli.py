@@ -48,8 +48,13 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
     smm_dir = Path(args.smm_dir)
-    user_ns = branching.identity.user_namespace(args.cwd)
-    name = branching.sprint_branch_name(user_ns, args.sprint, args.slug)
+    # Ask the resolver, not the slug: on a re-slice create_sprint_branch resumes
+    # the branch RECORDED for this sprint_id, and the slug-built name it no
+    # longer uses never exists — which would report a resume as `created:` and
+    # strand SKILL.md Step 8's adopt/rename prompt (it routes on that token).
+    name = branching.resolve_sprint_branch_name(
+        args.cwd, args.sprint, args.slug, smm_dir
+    )
     existed = branching.branch_exists(args.cwd, name)
     result = branching.create_sprint_branch(args.cwd, args.sprint, args.slug, smm_dir)
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["sprint"], resumed=existed)
