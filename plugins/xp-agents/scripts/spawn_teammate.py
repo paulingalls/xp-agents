@@ -32,6 +32,7 @@ from pathlib import Path
 import worktree  # isort: split
 
 import identity
+import in_place_marker
 import sprint_store
 import tier_wire
 
@@ -310,13 +311,23 @@ def main(argv: list[str] | None = None) -> None:
     # one that must keep the marker alive when we die. Recording only ours would
     # let the probe reap a LIVE teammate's marker.
     combined_path: str | None = None
+    # Our removal below proves ownership by CONTENT (the marker's first pid is
+    # ours), which is unforgeable ONLY given that we wrote the marker now at the
+    # path. If our write RAISES, that premise is false: what sits there is some
+    # earlier episode's leaked marker — routinely a live one, since a SIGKILLed
+    # supervisor skips its finally while its child runs on — and its (dead)
+    # supervisor's pid can have been recycled to us. So don't even look unless
+    # our write landed. write_text_atomic renames last, so a raise means it
+    # didn't.
+    wrote_marker = False
 
     def _record_child_pid(child_pid: int) -> None:
-        worktree.write_in_place_marker(Path(args.smm_dir), name, child_pid)
+        in_place_marker.write_in_place_marker(Path(args.smm_dir), name, child_pid)
 
     try:
         if args.in_place:
-            worktree.write_in_place_marker(Path(args.smm_dir), name)
+            in_place_marker.write_in_place_marker(Path(args.smm_dir), name)
+            wrote_marker = True
         preamble = "" if args.in_place else _worktree_preamble(run_cwd)
         combined = preamble + Path(prompt_file).read_text()
         with tempfile.NamedTemporaryFile(
@@ -363,8 +374,13 @@ def main(argv: list[str] | None = None) -> None:
         if not filter_incomplete:
             Path(prompt_file).unlink(missing_ok=True)
     finally:
-        if args.in_place:
-            worktree.remove_in_place_marker(Path(args.smm_dir), name)
+        if wrote_marker:
+            # Only if the marker is still OURS: a same-name teammate respawned
+            # while we were running owns the path now, and deleting ITS marker
+            # would demote a live teammate to the lead (see
+            # remove_own_in_place_marker). Failing to delete is the safe
+            # direction — a leaked marker reads dead and the reap collects it.
+            in_place_marker.remove_own_in_place_marker(Path(args.smm_dir), name)
         if combined_path is not None:
             Path(combined_path).unlink(missing_ok=True)
 

@@ -25,8 +25,10 @@ Split from worktree.py (which crossed the 500-line ceiling); re-exported there,
 so `worktree.<name>` remains the import surface for existing call sites.
 """
 
+import contextlib
 import os
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -73,8 +75,60 @@ def write_in_place_marker(
 
 
 def remove_in_place_marker(smm_dir: Path, name: str) -> None:
-    """Remove the in-place active marker (idempotent)."""
+    """Remove the in-place active marker (idempotent), whoever wrote it.
+
+    Unconditional. A supervisor tearing down its OWN episode must use
+    remove_own_in_place_marker instead — it races a same-name respawn, and this
+    deletes whatever sits at the path.
+    """
     in_place_marker_path(smm_dir, name).unlink(missing_ok=True)
+
+
+def remove_own_in_place_marker(smm_dir: Path, name: str) -> None:
+    """Remove the marker only while it is OURS and unchanged. Idempotent.
+
+    The supervisor's teardown is the SECOND unguarded unlink on this path (the
+    reap is the first), with the same blast radius: a same-name teammate
+    respawned while this supervisor is still running would have its LIVE marker
+    deleted by our `finally`, demoting it to the lead and misattributing its
+    commits. Kill-then-respawn is the documented recovery for a stuck teammate,
+    so this is a routine window, not an exotic one.
+
+    Ownership is proven by CONTENT, not by a stat remembered from write time. The
+    marker's first pid is the supervisor that wrote it — us (see
+    write_in_place_marker, which always records os.getpid() first) — and a pid
+    cannot be recycled while its own process is alive, so no respawn can forge
+    it. Content is the right predicate precisely because it is unforgeable.
+
+    A remembered stat could NOT do this job: write_text_atomic is mkstemp+rename,
+    so any stat taken after it is a stat BY PATH, and a respawn landing in that
+    window would poison the remembered identity — the finally would then delete
+    the respawn's marker, which is the exact bug being fixed.
+
+    Both legs are needed and neither is redundant:
+      - content proves the marker is ours (a different supervisor => not ours);
+      - inode identity, fstat'd on the very fd the content was read through,
+        proves it has not been replaced since we read it (_unlink_if_unchanged).
+    The fd is held open across both, pinning the inode against reuse.
+
+    Fail-safe in one direction only, like the reap: anything we cannot adjudicate
+    means we cannot prove the marker is ours, so we do NOT delete it. A leaked
+    marker is harmless — it reads dead and the reap collects it later.
+
+    One premise this CANNOT check, and its caller must: that we wrote the marker
+    now at the path. "First pid is ours" is unforgeable only against a LIVE
+    writer; a marker leaked by a SIGKILLed supervisor names a DEAD pid, and a
+    dead pid can be recycled to us while its orphaned child keeps the marker
+    live. spawn_teammate therefore calls this only once its own write has landed.
+    """
+    path = in_place_marker_path(smm_dir, name)
+    with _pinned_marker(path) as pinned:
+        if pinned is None:
+            return  # gone, symlinked, unreadable: nothing of ours to remove
+        identity, tokens = pinned
+        if not tokens or tokens[0] != str(os.getpid()):
+            return  # a respawn's marker (or a legacy one) — not ours to delete
+        _unlink_if_unchanged(path, identity)
 
 
 def in_place_marker_exists(smm_dir: Path, name: str) -> bool:
@@ -135,6 +189,52 @@ def _read_all(fd: int) -> bytes:
     while chunk := os.read(fd, 4096):
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+@contextlib.contextmanager
+def _pinned_marker(
+    path: Path,
+) -> Iterator[tuple[tuple[int, int, int, int], list[str]] | None]:
+    """Open the marker and yield (identity, tokens), or None if unadjudicable.
+
+    The single place the marker is read. BOTH readers — the reap and the
+    supervisor's teardown — go on to unlink based on what they find here, so all
+    three of this function's subtleties are load-bearing for both, and having
+    them in one place is what stops a future edit to one reader from silently
+    reopening a hole in it:
+
+      - O_NOFOLLOW mirrors the writer's symlink rejection: a symlinked marker is
+        not something we wrote, and refusing to read it fails in the safe
+        direction for both callers (reads dead / not ours).
+      - identity comes from FSTAT on the very descriptor the bytes came from, so
+        the content probed and the identity later compared are provably the same
+        inode. A stat BY PATH could describe a different file than the one read.
+      - the descriptor stays open for the whole `with` body — i.e. through the
+        caller's _unlink_if_unchanged. An open fd pins its inode even at
+        nlink=0, so the kernel cannot recycle that inode number into a
+        concurrent mkstemp during the compare. That makes inode reuse a
+        structural impossibility here rather than a low probability; closing the
+        fd right after the read would silently reinstate the gap.
+
+    Yields None on anything unreadable — vanished, symlinked, non-UTF-8 (a
+    UnicodeDecodeError is a ValueError). Letting those escape would crash the
+    Stop hook, and a crashed gate never fires at all.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        yield None
+        return
+    try:
+        try:
+            identity = _identity(os.fstat(fd))
+            tokens = _read_all(fd).decode().split()
+        except (OSError, ValueError):
+            yield None
+            return
+        yield identity, tokens
+    finally:
+        os.close(fd)
 
 
 def _identity(st: os.stat_result) -> tuple[int, int, int, int]:
@@ -212,43 +312,25 @@ def _marker_pid_alive(path: Path) -> bool:
 
     The read and the unlink are separated by N os.kill syscalls, and `unlink`
     deletes by PATH — so the marker it removes need not be the one whose pids it
-    proved dead. The identity captured here bounds that: the unlink happens only
-    while the same inode is still at the path (_unlink_if_unchanged). Identity is
-    taken by FSTAT on the very descriptor the bytes came from, so the content
-    probed and the identity compared are provably the same inode — a stat by path
-    could describe a different file than the one read.
-
-    The descriptor stays open until AFTER the comparison. An open fd pins its
-    inode even at nlink=0, so the kernel cannot recycle that inode number into a
-    concurrent mkstemp for the whole window; closing it right after the read would
-    silently reinstate the gap. That makes inode reuse a structural impossibility
-    here rather than a low probability.
+    proved dead. The identity captured by _pinned_marker bounds that: the unlink
+    happens only while the same inode is still at the path (_unlink_if_unchanged),
+    and the fd stays pinned across the whole compare. See _pinned_marker for why
+    fstat-not-stat and the held descriptor are what make that airtight.
 
     The guard attaches to the UNLINK only, never to the return value: every path
     below still reads dead on anything it cannot adjudicate, so the fail-open
     contract above is untouched. Declining to reap can only ever leak a marker,
     and a leaked marker reads dead and suppresses nothing.
     """
-    try:
-        # O_NOFOLLOW mirrors the writer's symlink rejection. A symlinked marker
-        # is not something we wrote; refusing to read it fails OPEN (reads dead),
-        # the same direction as every other unreadable marker.
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        # Vanished mid-scan (spawn_teammate's finally), or unreadable.
-        return False
-    try:
-        try:
-            identity = _identity(os.fstat(fd))
-            raw = _read_all(fd)
-        except OSError:
+    with _pinned_marker(path) as pinned:
+        # Vanished mid-scan (spawn_teammate's finally), symlinked, or unreadable.
+        if pinned is None:
             return False
+        identity, tokens = pinned
         try:
-            # A legacy name-content marker (or a non-UTF-8 one) may belong to a
-            # teammate still running the older code — unadjudicable, NOT reaped.
-            # UnicodeDecodeError is a ValueError, so both land here; letting it
-            # escape would crash the Stop hook, and a crashed gate never fires.
-            pids = [int(t) for t in raw.decode().split()]
+            # A legacy name-content marker may belong to a teammate still running
+            # the older code — unadjudicable, NOT reaped.
+            pids = [int(t) for t in tokens]
         except ValueError:
             return False
         if not pids:
@@ -259,8 +341,6 @@ def _marker_pid_alive(path: Path) -> bool:
         if all(v is False for v in verdicts):
             _unlink_if_unchanged(path, identity)
         return False
-    finally:
-        os.close(fd)
 
 
 def has_live_in_place_teammate(smm_dir: Path) -> bool:

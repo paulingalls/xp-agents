@@ -254,5 +254,203 @@ class TestInPlaceMarkerRecordsChildPid(_AssertNotNoneMixin, unittest.TestCase):
         self.assertIsNone(self._run(in_place=False, child_pid=424242))
 
 
+class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
+    """The SECOND door onto the same disaster.
+
+    The reap (in_place_marker) is one unguarded unlink on the marker path; the
+    supervisor's `finally` is the other, with the identical blast radius. If a
+    same-name teammate is respawned while the old supervisor is still running,
+    the old supervisor's `finally` deletes the LIVE teammate's marker — and the
+    three existence-only consumers then read "not a teammate", demoting it to the
+    lead and misattributing its commits.
+
+    This door is narrower than the reap's, but it is not closed: Python installs
+    no SIGTERM handler, so a SIGKILLed or SIGTERMed spawn skips `finally`
+    entirely (which is exactly why leaked markers are routine) — but the
+    clean-exit and SIGINT paths DO run it.
+
+    The predicate: delete the marker only if it is OURS and unchanged. Ownership
+    is proven by CONTENT, not by a remembered stat — the marker's first pid is
+    the supervisor that wrote it, i.e. us, and a pid cannot be recycled while its
+    process is alive, so no respawn can forge it. The unchanged half is the same
+    inode identity the reap uses.
+
+    Control for both tests below: `test_in_place_marker_present_during_run_
+    absent_after` — an unraced clean exit still removes its own marker.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+        self.name = "worktree-story-001"
+
+    def _run_with_respawn(self, respawn) -> Path:
+        """Drive an in-place main() to a clean exit, invoking `respawn` at the
+        exact point the supervisor has recorded its own marker (on_spawn, which
+        the real run_with_tee calls right after Popen). `respawn` simulates a
+        same-name teammate being re-spawned mid-flight. Returns the marker path.
+        """
+        from unittest.mock import patch
+
+        import spawn_teammate
+        import worktree
+
+        def capture_tee(cmd, *, on_spawn=None, **kw):
+            if on_spawn is not None:
+                on_spawn(424242)
+            respawn()
+            return False
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_tee),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        self.name,
+                        "--smm-dir",
+                        str(self.smm_dir),
+                        "--prompt-file",
+                        prompt_path,
+                        "--in-place",
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+        return worktree.in_place_marker_path(self.smm_dir, self.name)
+
+    def test_respawned_marker_survives_the_old_supervisors_finally(self):
+        """The headline race, shaped exactly as production produces it.
+
+        A real respawn is a DIFFERENT supervisor process writing through the
+        production atomic writer, so its marker differs from ours in both ways
+        that matter: a foreign supervisor pid (content) and a fresh inode
+        (mkstemp + rename). write_text_atomic is that writer — reached directly
+        here only because write_in_place_marker necessarily stamps the CALLER's
+        pid, and this test process is the old supervisor.
+
+        That distinction is the whole point rather than a testing detail: a
+        respawn cannot share our pid, because a pid cannot be recycled while its
+        process is alive. That is what makes the marker's first pid an
+        unforgeable proof of ownership.
+        """
+        import worktree
+        from _append_impl import write_text_atomic
+
+        marker = worktree.in_place_marker_path(self.smm_dir, self.name)
+        respawn_supervisor = dead_pid()
+
+        with live_pid() as respawn_child:
+            self._run_with_respawn(
+                lambda: write_text_atomic(
+                    marker, f"{respawn_supervisor} {respawn_child}"
+                )
+            )
+
+            self.assertTrue(
+                marker.exists(),
+                "the old supervisor's finally deleted a live respawn's marker",
+            )
+            self.assertTrue(
+                worktree.in_place_teammate_from_env(self.smm_dir, self.name),
+                "...demoting the respawned teammate to the lead",
+            )
+            self.assertTrue(
+                worktree.has_live_in_place_teammate(self.smm_dir),
+                "the respawn's marker must still read LIVE afterwards",
+            )
+
+    def test_a_failed_write_removes_nothing_even_when_the_pid_matches(self):
+        """The ownership proof's unstated premise: WE wrote the marker at the path.
+
+        Content is unforgeable only because a live pid cannot be recycled — but
+        that argument covers a marker whose supervisor is ALIVE. A marker leaked
+        by a SIGKILLed supervisor (routine: no SIGTERM handler, so its finally is
+        skipped) names a DEAD pid, and a dead pid can be recycled — to us. Its
+        child can still be running, so the marker is live.
+
+        If our own marker write raises (ENOSPC/EACCES; write_text_atomic renames
+        last, so nothing lands), the finally would otherwise read that stranger's
+        marker, find our pid at the front, and delete a LIVE teammate's marker —
+        the exact disaster this story exists to prevent, reached through the one
+        path where "the first pid is ours" does NOT mean "we wrote it".
+
+        So the removal is gated on our write having landed, not merely on
+        --in-place.
+        """
+        from unittest.mock import patch
+
+        import spawn_teammate
+        import worktree
+
+        marker = worktree.in_place_marker_path(self.smm_dir, self.name)
+
+        def boom(*a, **kw):
+            raise OSError("no space left on device")
+
+        with live_pid() as orphaned_child:
+            # A previous episode's leaked marker: its supervisor is dead and its
+            # pid has been recycled to us, but its child is still running.
+            marker.write_text(f"{os.getpid()} {orphaned_child}")
+
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(
+                    spawn_teammate.in_place_marker, "write_in_place_marker", boom
+                ),
+                self.assertRaises(OSError),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        self.name,
+                        "--smm-dir",
+                        str(self.smm_dir),
+                        "--prompt-file",
+                        "/nonexistent-prompt.txt",
+                        "--in-place",
+                    ]
+                )
+
+            self.assertTrue(
+                marker.exists(),
+                "a marker we never wrote must not be removed by our finally",
+            )
+            self.assertTrue(
+                worktree.has_live_in_place_teammate(self.smm_dir),
+                "...its orphaned child is still live",
+            )
+
+    def test_a_marker_naming_another_supervisor_is_never_deleted(self):
+        """Isolates the ownership leg from the inode leg.
+
+        Here the respawn rewrites the marker IN PLACE (write_text truncates), so
+        the file keeps its inode. Ownership is then the only thing that can save
+        it — and it does, because the first pid is not ours. Content is what
+        proves the marker is someone else's; the inode only proves it has not
+        changed since we read it.
+        """
+        import worktree
+
+        marker = worktree.in_place_marker_path(self.smm_dir, self.name)
+        other_supervisor = dead_pid()
+
+        with live_pid() as child:
+            self._run_with_respawn(
+                lambda: marker.write_text(f"{other_supervisor} {child}")
+            )
+            self.assertTrue(
+                marker.exists(),
+                "a marker naming a DIFFERENT supervisor must never be deleted",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
