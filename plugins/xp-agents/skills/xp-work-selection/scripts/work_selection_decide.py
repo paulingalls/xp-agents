@@ -48,6 +48,7 @@ from work_selection_events import (  # noqa: E402, F401
     _build_drop_event,
     _build_triage_event,
     _validate_future_iso_date,
+    build_adopt_event,
 )
 from work_selection_filters import (  # noqa: E402, F401
     _FORCE_CLOSE_THRESHOLD,
@@ -147,12 +148,7 @@ def run(
 
     match action:
         case "adopt":
-            event = _common.make_event(
-                "decision",
-                agent_id,
-                content,
-                topic=topic,
-            )
+            event = build_adopt_event(agent_id, content, topic)
         case "defer":
             event = _build_defer_event(
                 _events,

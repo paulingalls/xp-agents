@@ -22,17 +22,95 @@ import _common  # noqa: E402
 from event_builder import REFERENCES_KEY  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_DEFERRED,
+    EVENT_TYPE_STATUS,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_RETRO_TRY_DISPOSITION,
+    event_action,
 )
 
 # 3 prior deferrals = next plain defer is refused.
 _FORCE_CLOSE_THRESHOLD = 3
 
 
+def _counts_as_retro_defer(event: dict) -> bool:
+    """Whether *event* is a deferral of a retro TRY, for FORCE-CLOSE purposes.
+
+    Count it iff its lane tag says `retro_try_disposition`, OR it carries no
+    lane tag at all.
+
+    The lane check exists because a Try's ref bag holds the debt/concern ids the
+    Try's prose CITES, and the triage lane now links its own deferrals in the
+    same `references` field. Without it, deferring a *debt* would count as
+    deferring every *Try* that merely mentioned that debt, inflating the Try's
+    count toward a FORCE-CLOSE it never earned. (Live pair: Try 2b15e8490179's
+    bag holds debt 9ec0731f5597, which already carries triage-defer 181cb8fa2316.)
+
+    The untagged leg exists because the tag is new and the gate is not: every
+    deferral written before this tag landed carries no `metadata.action`, and a
+    bare `tag == retro` test would exclude all of them — zeroing those Tries'
+    prior-defer counts and silently disarming the gate on precisely the
+    long-carried Tries it exists to catch. The plugin ships to installs whose
+    logs already hold such deferrals; this repo's own log happens to hold none
+    (its 20 untagged deferrals are all triage-defers, which linked nothing and
+    so could never have counted anyway), so the leg is not verifiable from here
+    — do not "confirm" it against this log and conclude it is dead.
+
+    Counting untagged deferrals is SOUND because the legacy triage-defer linked
+    NOTHING: an untagged deferral that carries a link is necessarily a retro
+    deferral. If a legacy triage-defer ever gains a link, this leg starts
+    over-counting and must be revisited.
+    """
+    if event.get("type") != EVENT_TYPE_STATUS:
+        return False
+    meta = event.get("metadata") or {}
+    if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DEFERRED:
+        return False
+    action = event_action(event)
+    return action is None or action == STATUS_ACTION_RETRO_TRY_DISPOSITION
+
+
+def _try_targets(events: list[dict], ref_ids: list[str]) -> set[str]:
+    """The ids in *ref_ids* that name a TRY, not something the Try merely cites.
+
+    A Try is a nested item inside a retrospective event: it has no line of its
+    own in the log, so a Try id is NEVER a top-level event id. A debt/concern id
+    the Try's prose cites always IS one. Filtering the bag against the log's
+    top-level ids therefore separates the two without needing the retro that
+    carries the Try to still be on disk.
+
+    That last part is why this does not simply intersect against the retro Try
+    ids: those live inside retrospective EVENTS, which compaction can archive,
+    and a Try whose retro has aged out is exactly the long-carried Try the gate
+    exists to catch. Subtracting known cited ids degrades the other way — an
+    archived debt slips back into the bag and the gate over-counts as it does
+    today — so the failure mode stays "gate still fires", never "gate silently
+    disarmed".
+
+    Falls back to the whole bag when nothing survives (a defer naming no Try at
+    all), which preserves the pre-lane behaviour rather than disarming.
+
+    NOT `resolution.resolvable_event_ids`, which looks like the helper for this
+    and is the one thing that must not be used: it also lifts the nested try[]
+    ids, so subtracting it would remove the TRY id — the only id that should
+    survive — and zero every count, disarming the gate.
+    """
+    cited = {e["id"] for e in events if e.get("id")}
+    return {r for r in ref_ids if r not in cited} or set(ref_ids)
+
+
 def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
-    """Pure filter: count status events with disposition=deferred that name any
-    id in ref_ids. Each event contributes at most once.
+    """Pure filter: count retro-Try deferrals (see `_counts_as_retro_defer`) of
+    the Try named in ref_ids (see `_try_targets`). Each event contributes at most
+    once.
+
+    The two scopings are one rule applied to both halves of the bag leak. A Try's
+    ref bag holds the Try id PLUS the debt/concern ids its prose cites, so
+    matching on the raw bag counts any deferral that touches a CITED id — the
+    lane check rejects a *debt's* own deferral, and `_try_targets` rejects
+    another *TRY's* deferral arriving through a debt they both cite. Without the
+    second, Try A is FORCE-CLOSE refused because Try B, which happens to cite the
+    same debt, was deferred three times.
 
     BOTH link fields count. A deferral records intent, so it now names its Try
     in the top-level `references` field — but every deferral written before
@@ -42,14 +120,12 @@ def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
     """
     if not ref_ids:
         return 0
-    targets = set(ref_ids)
+    targets = _try_targets(events, ref_ids)
     count = 0
     for e in events:
-        if e.get("type") != "status":
+        if not _counts_as_retro_defer(e):
             continue
         meta = e.get("metadata") or {}
-        if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DEFERRED:
-            continue
         links = set(meta.get(METADATA_KEY_RESOLVES) or []) | set(
             e.get(REFERENCES_KEY) or []
         )

@@ -21,6 +21,13 @@ from event_schema import METADATA_KEY_RESOLVES
 
 _ID_FULL_LENGTH = 12
 
+# Synthetic type stamped on the nested retrospective try[] entries `index_event`
+# lifts into the id index. They are not real events — no such line exists in the
+# log — so this type never appears on disk; it exists so consumers can tell a
+# Try id apart from a top-level event id after indexing. `intent.retro_try_ids`
+# reads it to scope the retro intent map to Try ids only.
+RETRO_TRY_TYPE = "retro_try"
+
 
 def resolve_prefix(target_id: str, by_id: dict[str, dict]) -> tuple[str, dict] | None:
     """Resolve an event ID by exact match.
@@ -78,7 +85,7 @@ def index_event(event: dict, by_id: dict[str, dict]) -> None:
             try_id,
             {
                 "id": try_id,
-                "type": "retro_try",
+                "type": RETRO_TRY_TYPE,
                 "content": item.get("content", ""),
                 "ts": event.get("ts", ""),
                 "parent_retro_id": event_id,

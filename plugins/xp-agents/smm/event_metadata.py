@@ -110,6 +110,28 @@ STATUS_ACTION_EDIT_PROJECT_SPECIFIC = "edit_project_specific"
 STATUS_ACTION_EDIT_ACCEPTANCE_SURFACE = "edit_acceptance_surface"
 
 
+# Adopt/defer/drop lifecycle, one constant per LANE. Producer:
+# work_selection_decide — the retro-Try lane (`adopt`/`defer`/`drop`) and the
+# triage lane (`triage-adopt`/`-defer`/`-drop`). Consumer: smm/intent.py.
+#
+# The lane tag is what makes the intent link readable. Both lanes name their
+# target in the same top-level `references` field, so "id appears in references"
+# cannot by itself mean "adopted" — an adopting event's reference bag ALSO holds
+# the debt/concern ids the Try is merely ABOUT, and plenty of events reference an
+# id for reasons that are the opposite of adoption (an auto-raised "stale
+# question" concern references the question it is complaining about). Reading
+# metadata.action first scopes the question to one lane's own writer, which is
+# the same reason the rest of this vocabulary exists: consumers read
+# metadata.action so structured fields are not parsed back out of LLM-authored
+# content.
+#
+# Carried on a `decision` for a retro adoption and on a `status` for every other
+# adopt/defer/drop — the STATUS_ACTION_ prefix names the vocabulary family, not
+# a constraint on the event type.
+STATUS_ACTION_RETRO_TRY_DISPOSITION = "retro_try_disposition"
+STATUS_ACTION_TRIAGE_DISPOSITION = "triage_disposition"
+
+
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
 
@@ -193,6 +215,22 @@ DISPOSITION_WONT_FIX = "wont_fix"
 # the work actually landed.
 _TERMINAL_DISPOSITIONS = frozenset({DISPOSITION_DROPPED, DISPOSITION_WONT_FIX})
 
+# Every disposition the writers emit, and the INTENT set derived from it by
+# negation — the non-terminal dispositions, where the writer says something
+# durable about the target (it was taken on / it was carried) while leaving it
+# OPEN. Derived rather than re-listed: a hand-written second literal is exactly
+# how the closing and non-closing legs drift back apart, and `is_closing`'s
+# contract already promises this set is the complement.
+_ALL_DISPOSITIONS = frozenset(
+    {
+        DISPOSITION_ADOPTED,
+        DISPOSITION_DEFERRED,
+        DISPOSITION_DROPPED,
+        DISPOSITION_WONT_FIX,
+    }
+)
+_INTENT_DISPOSITIONS = _ALL_DISPOSITIONS - _TERMINAL_DISPOSITIONS
+
 
 def is_closing(event: dict) -> bool:
     """True when *event* carries a terminal disposition, i.e. it is evidence
@@ -209,6 +247,25 @@ def is_closing(event: dict) -> bool:
     if not metadata:
         return False
     return metadata.get(METADATA_KEY_DISPOSITION) in _TERMINAL_DISPOSITIONS
+
+
+def intent_disposition(event: dict) -> str | None:
+    """The event's NON-terminal disposition (`adopted` / `deferred`), or None
+    when it carries none — the exact mirror of `is_closing`, and the predicate
+    that decides whether an event records intent about its target.
+
+    Returns the disposition rather than a bool because every caller needs to
+    know WHICH intent was recorded, not merely that one was: adopted and
+    deferred read differently downstream (an adopted item is being worked, a
+    deferred one is being carried and its defer count feeds the FORCE-CLOSE
+    gate). A terminal disposition returns None — that is `is_closing`'s
+    question, and `metadata.resolves` is where its answer is written.
+    """
+    metadata = event.get("metadata")
+    if not metadata:
+        return None
+    disposition = metadata.get(METADATA_KEY_DISPOSITION)
+    return disposition if disposition in _INTENT_DISPOSITIONS else None
 
 
 # Retrospective event metadata.action discriminators — distinguish session

@@ -33,6 +33,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(
+    0,
+    str(
+        Path(__file__).parent.parent.parent / "skills" / "xp-work-selection" / "scripts"
+    ),
+)
 
 import _common
 import bash_failure
@@ -44,6 +50,7 @@ import review_cycle_done
 import smm_cli
 import sprint_save
 import subagent_stop
+import work_selection_decide
 from _commit_helpers import patch_commits
 from concerns import LINT_CONCERN_PREFIX
 from conftest import (
@@ -62,6 +69,7 @@ from conftest import (
 # test_post_tool.py for the canonical pattern + rationale.
 from event_schema import (
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
     EVENT_TYPE_QUESTION,
     event_action,
 )
@@ -231,6 +239,31 @@ def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     return _events(smm_dir)
 
 
+def _drive_retro_try_disposition(smm_dir: Path) -> list[dict]:
+    # work_selection_decide tags every retro-Try adopt/defer/drop. `defer` is
+    # driven here because it is the one the FORCE-CLOSE gate reads back.
+    work_selection_decide.run(
+        action="defer",
+        smm_dir=smm_dir,
+        content="Carry the Try [refs: aabbccdd1122]",
+    )
+    return _events(smm_dir)
+
+
+def _drive_triage_disposition(smm_dir: Path) -> list[dict]:
+    # The triage lane's adopt/defer/drop. `triage-defer` is driven here: it is
+    # the one whose link is new, so the tag and the link are pinned together.
+    debt = make_event(EVENT_TYPE_DEBT, content="a debt to carry")
+    _common.append_safe(smm_dir, debt)
+    work_selection_decide.run(
+        action="triage-defer",
+        smm_dir=smm_dir,
+        content="",
+        event_id=debt["id"],
+    )
+    return _events(smm_dir)
+
+
 # ---------------------------------------------------------------------------
 # Producer-case map: constant *name* -> driver callable.
 # Keyed by name (not value) so the missing-coverage canary cannot be silenced
@@ -255,6 +288,8 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
     "STATUS_ACTION_QUESTION_CLOSE": _drive_question_close,
+    "STATUS_ACTION_RETRO_TRY_DISPOSITION": _drive_retro_try_disposition,
+    "STATUS_ACTION_TRIAGE_DISPOSITION": _drive_triage_disposition,
 }
 
 

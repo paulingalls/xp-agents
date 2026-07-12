@@ -11,6 +11,14 @@ unaffected by the move.
 `load_events` is always run()'s memoized accessor, invoked lazily — a builder
 that needs no history never touches disk.
 
+Every event built here carries a LANE TAG in `metadata.action` — one of
+`retro_try_disposition` / `triage_disposition`. The two lanes name their targets
+in the same `references` field, so without the tag a reader cannot tell a Try's
+deferral from a debt's, and the readers that must tell them apart (smm/intent.py,
+the FORCE-CLOSE gate) would have to guess from event shape. The tag is the same
+deterministic-event doctrine the rest of the vocabulary follows: consumers read
+`metadata.action` so structured facts are not parsed back out of prose.
+
 Names keep their leading underscore: they are internal to the work-selection
 scripts, not a public surface — the trio of modules is one unit.
 """
@@ -33,6 +41,8 @@ from event_schema import (  # noqa: E402
     METADATA_KEY_DEFER_UNTIL,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    STATUS_ACTION_RETRO_TRY_DISPOSITION,
+    STATUS_ACTION_TRIAGE_DISPOSITION,
 )
 from retro_history import HEX_ID_RE  # noqa: E402
 from smm_schema import EVENT_ID_RE  # noqa: E402
@@ -42,6 +52,43 @@ from work_selection_filters import (  # noqa: E402
     _count_prior_defers_filter,
     _force_close_message,
 )
+
+
+def _retro_metadata(disposition: str, **extra: str) -> dict:
+    """Metadata for a retro-Try disposition: the lane tag plus the disposition.
+
+    Every retro-lane builder routes through here so no path can ship a
+    disposition without its lane tag — an untagged deferral is indistinguishable
+    from a triage deferral downstream, and the FORCE-CLOSE gate has to fall back
+    to counting it on faith (see `_counts_as_retro_defer`'s legacy leg).
+    """
+    # Literal "action" key, matching every other producer in the codebase
+    # (bash_post_tool, lint_check, commit_event); `event_action` is the reader.
+    return {
+        "action": STATUS_ACTION_RETRO_TRY_DISPOSITION,
+        METADATA_KEY_DISPOSITION: disposition,
+        **extra,
+    }
+
+
+def build_adopt_event(agent_id: str, content: str, topic: str | None) -> dict:
+    """Build the decision event for an `adopt` (and for `defer --force-adopt`).
+
+    Still a `decision`, so `topic` stays required by the schema — a None topic
+    is passed straight through to `validate_event`, which rejects it, exactly as
+    before. The added
+    disposition is deliberately non-terminal: `is_closing` stays False, so the
+    `[refs: ...]` ids keep routing to the top-level `references` field and the
+    adopted Try stays OPEN. Adoption is a promise to do the work, not evidence
+    that the work landed.
+    """
+    return _common.make_event(
+        "decision",
+        agent_id,
+        content,
+        topic=topic,
+        metadata=_retro_metadata(DISPOSITION_ADOPTED),
+    )
 
 
 def _validate_future_iso_date(value: str) -> None:
@@ -84,7 +131,7 @@ def _build_drop_event(
         agent_id,
         content,
         working_on=[],
-        metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DROPPED},
+        metadata=_retro_metadata(DISPOSITION_DROPPED),
     )
     tokens = set(HEX_ID_RE.findall(event["content"]))
     if not tokens:
@@ -122,12 +169,7 @@ def _build_defer_event(
             "--force-adopt, --force-drop, --force-defer-with-date"
         )
     if force_adopt_topic:
-        return _common.make_event(
-            "decision",
-            agent_id,
-            content,
-            topic=force_adopt_topic,
-        )
+        return build_adopt_event(agent_id, content, force_adopt_topic)
     if force_drop:
         return _build_drop_event(load_events, agent_id, content)
     if force_defer_until:
@@ -137,17 +179,16 @@ def _build_defer_event(
             agent_id,
             content,
             working_on=[],
-            metadata={
-                METADATA_KEY_DISPOSITION: DISPOSITION_DEFERRED,
-                METADATA_KEY_DEFER_UNTIL: force_defer_until,
-            },
+            metadata=_retro_metadata(
+                DISPOSITION_DEFERRED, **{METADATA_KEY_DEFER_UNTIL: force_defer_until}
+            ),
         )
     event = _common.make_event(
         "status",
         agent_id,
         content,
         working_on=[],
-        metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DEFERRED},
+        metadata=_retro_metadata(DISPOSITION_DEFERRED),
     )
     # A deferral is an intent event, so the suffix ids landed in `references`.
     refs = event.get(REFERENCES_KEY) or []
@@ -173,19 +214,30 @@ def _build_triage_event(
 ) -> dict:
     """Build the status event for a triage-adopt / -defer / -drop invocation.
 
-    Route the target id by evidence, mirroring extract_refs_suffix:
-    only a drop is terminal, so only a drop closes the target. Adopting
-    means taking the work ON — it links, and the target stays open
-    until the work lands. Deferring records neither: carrying an item
-    says nothing about it beyond "not now".
+    Route the target id by evidence, mirroring extract_refs_suffix: only a drop
+    is terminal, so only a drop closes the target via metadata.resolves. Adopting
+    and DEFERRING both link — the target id lands in the top-level `references`
+    field and the item stays OPEN.
+
+    The deferral link is new. It reverses an earlier judgement that "carrying an
+    item says nothing about it beyond 'not now'", which reasoned from a frame
+    where linking WAS closing and so a link had to be earned. That frame is gone:
+    linking is now strictly weaker than closing (a `status` lands in
+    `other_resolutions`, which does not relay closure — resolution.py). What is
+    left is that a deferral does say something durable — the user saw this item
+    and chose not now — and an unlinked deferral is undetectable by construction,
+    which is why the ~20 legacy triage-defers on disk are unrecoverable.
     """
     if event_id is None:
         raise ValueError(f"{action} requires --event-id")
     if not EVENT_ID_RE.match(event_id):
         raise ValueError(f"Invalid event ID format: {event_id}")
     disposition = _TRIAGE_DISPOSITIONS[action]
-    metadata: dict = {METADATA_KEY_DISPOSITION: disposition}
-    # Deliberately if/elif, not match/case: a bare NAME in a `case` is a
+    metadata: dict = {
+        "action": STATUS_ACTION_TRIAGE_DISPOSITION,
+        METADATA_KEY_DISPOSITION: disposition,
+    }
+    # Deliberately if/else, not match/case: a bare NAME in a `case` is a
     # capture pattern that matches ANY value, so `case DISPOSITION_DROPPED:`
     # would route every disposition into metadata.resolves — silently
     # restoring the exact defect this routing exists to remove. Comparison
@@ -193,7 +245,7 @@ def _build_triage_event(
     link_field: dict = {}
     if disposition == DISPOSITION_DROPPED:
         metadata[METADATA_KEY_RESOLVES] = [event_id]
-    elif disposition == DISPOSITION_ADOPTED:
+    else:
         link_field[REFERENCES_KEY] = [event_id]
     # Inline a snippet of the target event's content so cross-session
     # drop memory (retro_metrics.dropped_tries_recent) carries the
