@@ -84,7 +84,16 @@ class TestTddStopGate(_HookTestCase):
         assert result is not None
         self.assertIn("failing", result.lower())
 
-    def test_failed_test_run_blocks_stop(self):
+    def test_unresolved_test_concern_blocks_stop(self):
+        """The reader TRUSTS the writer: an unresolved concern matching
+        TEST_CONCERN_RE blocks, full stop. Attribution soundness is the
+        writer's job (bash_failure + test_attribution), not the gate's.
+
+        Do not "fix" this by demanding observed-run evidence HERE. That would
+        disarm the gate for every real failure with no parseable counts —
+        segfault, compile error, OOM, timeout, collection error — trading a
+        false positive for a false negative, which is the worse direction.
+        """
         self._write_events(
             [
                 make_event(
