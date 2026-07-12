@@ -15,7 +15,7 @@ sys.path.insert(
 )
 
 import triage_preload
-from conftest import _SMMTestCase, make_event
+from conftest import _SMMTestCase, adopt_try_event, make_event, triage_event
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
@@ -117,6 +117,69 @@ class TestRun(_SMMTestCase):
 
         output = triage_preload.run(self.smm_dir)
         self.assertIn(f"[id: {d['id']}]", output)
+
+
+class TestTriageIntentAnnotation(_SMMTestCase):
+    """AC3. A triage-adopted item is ANNOTATED as adopted and is STILL OFFERED.
+
+    Annotating rather than filtering is the whole design. Filtering would make
+    the item vanish from the kickoff list, which is indistinguishable from having
+    been fixed — laundering the item exactly the way this story exists to stop.
+    The user needs to see "you already said you'd do this", not silence.
+
+    Fixtures go through the real triage writer, so they cannot encode a shape the
+    writer does not produce.
+    """
+
+    def _triaged_debt(self, action: str, times: int = 1) -> dict:
+        debt = make_event(EVENT_TYPE_DEBT, content="Ship the retry budget")
+        self._write_events([debt])
+        for _ in range(times):
+            triage_event(self.smm_dir, action, debt["id"])
+        return debt
+
+    def test_adopted_debt_is_annotated_and_still_offered(self):
+        debt = self._triaged_debt("triage-adopt")
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Ship the retry budget", output)  # STILL OFFERED
+        self.assertIn(f"[id: {debt['id']}]", output)
+        self.assertIn("ADOPTED", output)
+
+    def test_deferred_debt_is_annotated_and_still_offered(self):
+        debt = self._triaged_debt("triage-defer", times=2)
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Ship the retry budget", output)  # STILL OFFERED
+        self.assertIn(f"[id: {debt['id']}]", output)
+        self.assertIn("DEFERRED", output)
+        self.assertIn("2", output)  # the defer count
+
+    def test_dropped_debt_is_gone_because_a_drop_really_does_close_it(self):
+        """The contrast that makes the other two mean something: a DROP is
+        terminal, so the item leaves the list. Adopt and defer do not."""
+        debt = self._triaged_debt("triage-drop")
+        output = triage_preload.run(self.smm_dir)
+        self.assertNotIn(f"[id: {debt['id']}]", output)
+
+    def test_untriaged_debt_carries_no_annotation(self):
+        debt = make_event(EVENT_TYPE_DEBT, content="Never triaged")
+        self._write_events([debt])
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Never triaged", output)
+        self.assertNotIn("ADOPTED", output)
+        self.assertNotIn("DEFERRED", output)
+
+    def test_a_cited_debt_is_not_annotated_as_adopted(self):
+        """The bag leak, at the surface a human actually reads. A retro Try's
+        adoption references the debt ids the Try's prose CITES. If the triage
+        lane read that bag, this debt would be labelled ADOPTED because some Try
+        mentioned it — a lie told directly to the user.
+        """
+        debt = make_event(EVENT_TYPE_DEBT, content="Merely cited by a Try")
+        self._write_events([debt])
+        adopt_try_event(self.smm_dir, "aa11bb22cc33", cites=[debt["id"]])
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Merely cited by a Try", output)
+        self.assertNotIn("ADOPTED", output)
 
 
 class TestFormatWithOverlap(unittest.TestCase):
