@@ -107,6 +107,25 @@ class TestRealAgentSpawnIsBlocked(unittest.TestCase):
         with self.assertRaises(RealAgentSpawnBlocked):
             subprocess.Popen(["/usr/local/bin/claude", "-p"])
 
+    def test_a_shell_command_line_naming_the_agent_is_blocked(self):
+        """Popen's first arg is a shell COMMAND LINE under shell=True, so the
+        program is its first TOKEN — not the whole string. A guard that only took
+        the basename of the whole string would wave `claude -p` straight through,
+        because "claude -p" != "claude"."""
+        with self.assertRaises(RealAgentSpawnBlocked):
+            subprocess.Popen("claude -p --name worktree-story-001", shell=True)
+
+    def test_the_convenience_wrappers_are_blocked_too(self):
+        """subprocess.run/call/check_output all funnel through the module-global
+        Popen, so patching it covers them — pinning that, because a future
+        `from .subprocess import Popen`-style rebind inside them would not."""
+        for launch in (subprocess.run, subprocess.call, subprocess.check_output):
+            with (
+                self.subTest(launch=launch.__name__),
+                self.assertRaises(RealAgentSpawnBlocked),
+            ):
+                launch(["claude", "-p"])
+
     def test_ordinary_subprocesses_still_run(self):
         """The guard must be surgical: the suite spawns real python, git and bash
         children constantly (dead_pid/live_pid, the integration pipeline). Only
@@ -169,52 +188,65 @@ class TestNoTestCanHangOnAChild(unittest.TestCase):
         )
 
 
-class TestEveryMainDriverLoadsTheGuard(unittest.TestCase):
+def _imports(path: Path, module: str) -> bool:
+    """True when `path` imports `module` under any spelling.
+
+    AST, not a substring scan. `import spawn_teammate as st` / `from
+    spawn_teammate import main` / a main() driven through a shared fixture all
+    read the same to the interpreter and must read the same here — a text scan
+    for a literal `spawn_teammate.main(` sees none of them.
+    """
+    tree = ast.parse(path.read_text(), filename=str(path))
+    return any(
+        (isinstance(n, ast.ImportFrom) and n.module == module)
+        or (isinstance(n, ast.Import) and any(a.name == module for a in n.names))
+        for n in ast.walk(tree)
+    )
+
+
+class TestEveryModuleTouchingTheSpawnerLoadsTheGuard(unittest.TestCase):
     """The one assumption the backstop rests on.
 
     Under pytest, conftest is imported automatically for every test. Under
     `unittest discover` — which is what CI runs — it is imported only when a test
-    module imports it. So a module that drives spawn_teammate.main() WITHOUT
-    importing conftest would run with the guard absent, and the hazard would be
-    back with no test failing.
+    module imports it. So a module that reaches spawn_teammate WITHOUT importing
+    conftest runs with the guard absent, and the hazard is back with no test
+    failing.
 
-    This pins that gap shut structurally, so it cannot be reopened silently.
+    The rule is deliberately drawn at IMPORTING spawn_teammate, not at calling
+    main(): the safety of a module must not depend on how its call to the spawner
+    is spelled. Importing the module that can spawn is the structural fact; how
+    main() is reached from there (directly, aliased, via a fixture) is a detail a
+    guard must not have to keep up with. Modules that only touch pure helpers pay
+    one import for the rule to stay structural — a trade worth making, since the
+    cost of over-applying the guard is zero and the cost of missing it is ~20
+    billable recursive agents.
     """
 
-    def _test_modules(self) -> list[Path]:
+    def _modules_touching_the_spawner(self) -> list[Path]:
         return [
             p
             for p in sorted(_TESTS_DIR.rglob("test_*.py"))
-            if "spawn_teammate.main(" in p.read_text()
+            if _imports(p, "spawn_teammate")
         ]
 
-    def test_the_scan_actually_finds_the_main_drivers(self):
+    def test_the_scan_actually_finds_the_spawner_modules(self):
         """A guard test that silently matched nothing would pass forever."""
         self.assertGreaterEqual(
-            len(self._test_modules()),
+            len(self._modules_touching_the_spawner()),
             5,
-            "expected to find the spawn_teammate.main() drivers — if this scan "
+            "expected to find the spawn_teammate test modules — if this scan "
             "matches nothing, the check below is vacuous",
         )
 
-    def test_every_module_driving_main_imports_conftest(self):
+    def test_every_module_importing_the_spawner_imports_conftest(self):
         """...so the Popen backstop is loaded under `unittest discover` too."""
-        for path in self._test_modules():
-            tree = ast.parse(path.read_text(), filename=str(path))
-            imports_conftest = any(
-                (isinstance(n, ast.ImportFrom) and n.module == "conftest")
-                or (
-                    isinstance(n, ast.Import)
-                    and any(a.name == "conftest" for a in n.names)
-                )
-                for n in ast.walk(tree)
-            )
+        for path in self._modules_touching_the_spawner():
             self.assertTrue(
-                imports_conftest,
-                f"{path.relative_to(_TESTS_DIR)} drives spawn_teammate.main() but "
-                "does not import conftest, so under `unittest discover` it runs "
-                "WITHOUT the real-agent spawn backstop. Add an import from "
-                "conftest.",
+                _imports(path, "conftest"),
+                f"{path.relative_to(_TESTS_DIR)} imports spawn_teammate but not "
+                "conftest, so under `unittest discover` it runs WITHOUT the "
+                "real-agent spawn backstop. Add an import from conftest.",
             )
 
 

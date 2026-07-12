@@ -31,6 +31,7 @@ constantly (dead_pid/live_pid, the integration pipeline) and those are untouched
 """
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -45,13 +46,35 @@ class RealAgentSpawnBlocked(RuntimeError):
 def _is_real_agent(args) -> bool:
     """True when `args` would exec the real agent binary.
 
-    Matches on the BASENAME so an absolute path (or a PATH-resolved argv[0])
-    cannot slip past, and tolerates the non-list forms Popen accepts.
+    Popen's first argument has THREE shapes and the program sits in a different
+    place in each, so a single basename check on it is not enough:
+
+      - a list/tuple -> the program is element 0;
+      - a bare string (no shell) -> the whole string IS the program;
+      - a shell command line (shell=True) -> the program is its FIRST TOKEN.
+
+    A check that only took the basename of the whole thing would let
+    `Popen("claude -p", shell=True)` through, because "claude -p" is not
+    "claude". So the first token is checked as well as the whole string.
+
+    The basename is what is compared, so an absolute path (or a PATH-resolved
+    argv[0]) cannot slip past either.
+
+    NOT covered, and it cannot be at this layer: a wrapper that execs the agent
+    itself (`bash -c 'claude -p ...'`) has argv[0] == "bash". Nothing in this
+    repo spawns the agent that way — teammate_runner passes a list whose element
+    0 is the binary — and over-reaching into shell-string contents would start
+    blocking ordinary `bash -c` children the suite depends on.
     """
     argv0 = args[0] if isinstance(args, (list, tuple)) and args else args
     if not isinstance(argv0, (str, bytes, os.PathLike)):
         return False
-    return Path(os.fsdecode(argv0)).name == REAL_AGENT_BINARY
+    text = os.fsdecode(argv0)
+    try:
+        first_token = shlex.split(text)[:1]
+    except ValueError:  # unbalanced quotes — not a command line we can parse
+        first_token = []
+    return any(Path(c).name == REAL_AGENT_BINARY for c in (text, *first_token))
 
 
 _RealPopen = subprocess.Popen

@@ -152,12 +152,22 @@ def rewrite_own_in_place_marker(smm_dir: Path, name: str, child_pid: int) -> Non
 
     Guarded for the same reason the deletes are: an unconditional write here
     re-forges the ownership the `finally` goes on to check. The claim already
-    stops a respawn appearing under a LIVE supervisor, so what this covers is the
+    stops a respawn appearing under a LIVE supervisor, so what this narrows is the
     case the claim cannot — the marker cleared out-of-band (an operator rm'ing a
-    "stuck" marker) and re-claimed by a respawn while we are still running. With
-    the guard, EVERY mutation of this path is either an exclusive create from
-    nothing or an ownership-checked write by its creator; without it, that
-    invariant has a hole and the delete guards inherit it.
+    "stuck" marker) and re-claimed by a respawn while we are still running.
+
+    NARROWS, not closes, and the difference is worth stating plainly. This is a
+    check-then-act: the ownership check reads one inode, and the rename that
+    follows replaces whatever inode is at the PATH. A respawn that lands entirely
+    inside that window (rm + claim, between our check and our rename) still gets
+    clobbered, and our `finally` — reading our own pid in the content we just
+    wrote — would then delete its live marker. Closing that for real needs the
+    rename to be conditional on the inode, which POSIX has no portable primitive
+    for; it needs a lock shared by all four doors. Left open deliberately: the
+    window is a few microseconds wide, it opens only when a human rm's a marker
+    that is milliseconds old, and the guard removes the case that was WIDE open
+    (an unconditional clobber for the whole life of the episode). Do not read the
+    guard as an airtight invariant it is not.
 
     Declining is the safe direction: our child's pid simply goes unrecorded, so
     the episode reads dead once WE exit. That fails OPEN (the accept gate fires),

@@ -20,20 +20,25 @@ The fix has two legs, and they close different doors:
     LIVE teammate holds cannot be taken at all — two live teammates under one
     name is the state we never want — so B can never appear under a live A in
     the first place.
-  - the GUARDED REWRITE (rewrite_own_in_place_marker) covers the case the claim
-    cannot: the marker being replaced under a live A after it was cleared
+  - the GUARDED REWRITE (rewrite_own_in_place_marker) narrows the case the claim
+    cannot reach: the marker being replaced under a live A after it was cleared
     out-of-band (an operator rm'ing a "stuck" marker, then a respawn claiming
-    it). It makes EVERY write on the path ownership-checked, so the invariant is
-    total: the path is only ever created from nothing, or mutated by its creator.
+    it). It makes every write on the path ownership-CHECKED — not ownership-
+    atomic: the check reads an inode and the rename that follows replaces the
+    path, so a respawn landing inside that window is still clobbered. See
+    rewrite_own_in_place_marker for why that residue is left open.
 
-Covers: claim exclusivity, the kill-then-respawn recovery path (a leaked all-dead
-marker must NOT permanently block a respawn), and the guarded rewrite.
+Covers: claim exclusivity (including against a CONCURRENT claimant — the property
+os.link buys over a rename, and the one a future refactor is most likely to lose),
+the kill-then-respawn recovery path (a leaked all-dead marker must NOT permanently
+block a respawn), and the guarded rewrite.
 """
 
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -44,7 +49,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import in_place_marker
 import worktree
-from conftest import dead_pid, live_pid, reap
+from conftest import (
+    _SCRIPTS_DIR,
+    _SMM_DIR,
+    CHILD_WAIT_TIMEOUT_S,
+    dead_pid,
+    live_pid,
+    reap,
+)
 
 
 class TestClaimIsExclusive(unittest.TestCase):
@@ -175,6 +187,84 @@ class TestClaimIsExclusive(unittest.TestCase):
 
         self.assertEqual(list(self.smm_dir.glob("*.tmp")), [])
         self.assertTrue(self.marker.read_text().strip())
+
+    def test_exactly_one_of_many_concurrent_claimants_wins(self):
+        """The property os.link buys, and the ONLY test here that can catch its loss.
+
+        Every other test in this class passes just as well against a
+        check-then-write (`if not path.exists(): write_text_atomic(...)`) — the
+        shape a future simplifier would naturally reach for, and exactly the bug:
+        two supervisors both read "free", both write, and the second silently owns
+        a name the first is already running under. Two live teammates under one
+        name is the state this whole module exists to prevent. os.link takes the
+        name in ONE atomic step (EEXIST rather than replace), and only racing real
+        processes at it can assert that — the failure mode is a lost race, not a
+        wrong answer, so no serial caller can observe the difference.
+
+        Each claimant HOLDS the name after winning (sleeps), because that is what a
+        real supervisor does — it lives for the whole episode. A claimant that won
+        and exited instantly would be a DEAD episode, and the others reaping its
+        marker and re-claiming would be the kill-then-respawn recovery path working
+        correctly, not an exclusivity violation. Getting that wrong turns this into
+        a test of the reap wearing an exclusivity costume.
+
+        Real subprocesses, not threads: the GIL serialises enough of a Python-level
+        check-then-write to hide the race, so threads would let the broken shape
+        pass.
+        """
+        claimants = 24
+        hold_s = 2  # >> the losers' claim attempts, << CHILD_WAIT_TIMEOUT_S
+        # The claimants spin to a shared wall-clock start so they hit the publish
+        # TOGETHER. Without the barrier they arrive spread over process-startup
+        # jitter (~tens of ms) — far wider than the check-then-write window they
+        # exist to catch — and the broken shape slips through most runs. The
+        # barrier is what makes this test a reliable detector rather than a
+        # lottery ticket.
+        start_at = time.time() + 1.0
+        script = (
+            "import os, sys, time\n"
+            f"sys.path[:0] = {[str(_SCRIPTS_DIR), str(_SMM_DIR)]!r}\n"
+            "from pathlib import Path\n"
+            "import in_place_marker\n"
+            f"while time.time() < {start_at!r}:\n"
+            "    pass\n"
+            "try:\n"
+            "    in_place_marker.claim_in_place_marker("
+            f"Path({str(self.smm_dir)!r}), {self.name!r})\n"
+            "except in_place_marker.InPlaceNameHeld:\n"
+            "    print('LOST', flush=True)\n"
+            "    sys.exit(0)\n"
+            "print('WON', os.getpid(), flush=True)\n"
+            f"time.sleep({hold_s})\n"  # hold the name, as a live supervisor does
+        )
+        procs = [
+            subprocess.Popen(
+                [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
+            )
+            for _ in range(claimants)
+        ]
+        try:
+            outcomes = [
+                p.communicate(timeout=CHILD_WAIT_TIMEOUT_S)[0].split() for p in procs
+            ]
+        finally:
+            for p in procs:
+                if p.poll() is None:
+                    reap(p)
+
+        winners = [o for o in outcomes if o and o[0] == "WON"]
+        self.assertEqual(
+            len(winners),
+            1,
+            f"{len(winners)} of {claimants} concurrent claimants took a name a LIVE "
+            f"claimant already held — taking it is not atomic: {outcomes}",
+        )
+        # The losers must also have left the winner's marker alone: a claimant that
+        # clobbers or reaps on its way out is the original bug, just racing.
+        self.assertEqual(self.marker.read_text().split(), [winners[0][1]])
+        self.assertEqual(
+            list(self.smm_dir.glob("*.tmp")), [], "a losing claimant leaked its temp"
+        )
 
 
 class TestGuardedRewrite(unittest.TestCase):
