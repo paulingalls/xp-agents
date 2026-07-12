@@ -161,6 +161,71 @@ class TestGetUncommittedCodeFiles(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# get_uncommitted_files -- the "is the tree dirty?" signal
+# ---------------------------------------------------------------------------
+
+
+def _git_out(stdout: str):
+    return type("R", (), {"returncode": 0, "stdout": stdout})()
+
+
+class TestGetUncommittedFiles(unittest.TestCase):
+    """commits.get_uncommitted_files() -- wider than get_uncommitted_code_files.
+
+    Backs the TDD gate's prior-session tree check
+    (tdd_check.find_last_test_signal). Every narrowing here is a way to DISARM
+    that gate, so test files and untracked files must both count as dirty.
+    """
+
+    @patch(_SUBPROCESS)
+    def test_includes_test_files(self, mock_run):
+        """A tree dirty with ONLY a broken test file is still dirty. The
+        narrower get_uncommitted_code_files drops it and reads CLEAN."""
+        mock_run.side_effect = [
+            _git_out(""),
+            _git_out("tests/test_app.py\n"),
+            _git_out(""),
+        ]
+        self.assertEqual(commits.get_uncommitted_files("/tmp"), ["tests/test_app.py"])
+
+    @patch(_SUBPROCESS)
+    def test_includes_untracked_files(self, mock_run):
+        """`git diff` never lists untracked files -- but a brand-new, never-added
+        failing test is the most common shape of the TDD red step."""
+        mock_run.side_effect = [
+            _git_out(""),
+            _git_out(""),
+            _git_out("tests/test_new.py\nsrc/new_mod.py\n"),
+        ]
+        self.assertEqual(
+            commits.get_uncommitted_files("/tmp"),
+            ["src/new_mod.py", "tests/test_new.py"],
+        )
+
+    @patch(_SUBPROCESS)
+    def test_excludes_non_code_and_dedups(self, mock_run):
+        """Docs churn is not broken work; a file in two lists appears once."""
+        mock_run.side_effect = [
+            _git_out("src/app.py\nREADME.md\n"),
+            _git_out("src/app.py\n"),
+            _git_out(""),
+        ]
+        self.assertEqual(commits.get_uncommitted_files("/tmp"), ["src/app.py"])
+
+    @patch(_SUBPROCESS)
+    def test_empty_on_clean_tree(self, mock_run):
+        mock_run.side_effect = [_git_out(""), _git_out(""), _git_out("")]
+        self.assertEqual(commits.get_uncommitted_files("/tmp"), [])
+
+    @patch(_SUBPROCESS, side_effect=OSError("no git"))
+    def test_exception_returns_empty(self, _mock):
+        """Graceful degradation. Note this reads as CLEAN, so a non-git project
+        never gates on a prior-session failure -- deliberate: failing closed
+        here would deadlock every project git cannot answer for."""
+        self.assertEqual(commits.get_uncommitted_files("/tmp"), [])
+
+
+# ---------------------------------------------------------------------------
 # open_issues_matching_commit
 # ---------------------------------------------------------------------------
 

@@ -14,26 +14,59 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import commits
 import concerns
 import resolution
 
 # Patterns that indicate test results in status/concern events
 TEST_PASS_RE = re.compile(
-    r"Tests?:.*\d+\s+passed.*0\s+failed"
-    r"|Tests?\s+passed\b",
+    r"Tests?:.*\d+\s+passed.*0\s+failed|Tests?\s+passed\b",
     re.IGNORECASE,
 )
 TEST_FAIL_RE = concerns.TEST_CONCERN_RE
 
 
-def find_last_test_signal(events: list[dict]) -> str | None:
-    """Scan events from end. Return 'pass', 'fail', or None.
+def _session_window_start(events: list[dict]) -> int:
+    """Index of the first event in the current session.
+
+    Deliberately NOT `_common.current_session_start_index`: with no anchor that
+    helper returns `len(events) - 200`, a TAIL CAP rather than a session
+    boundary. In a safety gate a tail cap is the DISARM direction — a genuine
+    in-session failure older than 200 events would silently stop blocking. With
+    no anchor we scan everything instead (precedent: session_start.py's
+    prior-backlog slice).
+    """
+    anchor = _common._last_index_of_type(events, _common.SESSION_STARTED)
+    return anchor if anchor >= 0 else 0
+
+
+def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
+    """Scan events from the end. Return 'pass', 'fail', or None.
 
     Skips resolved concerns — a resolved test failure should not block.
+
+    A failure from a PRIOR session gates only while the tree is DIRTY. A red
+    suite plus uncommitted broken code is still broken, but once the tree is
+    clean there is nothing left in the working copy for that failure to be
+    about, and it would otherwise gate every future session forever. Nothing
+    else un-gates it: `session_start._sweep_stale_concerns` only emits a
+    flag-concern, it never resolves the original.
+
+    ONE reverse walk, not two. A passing status has no effect on any gate except
+    to short-circuit this scan before an older unresolved failure is reached —
+    and that short-circuit is the only non-resolution mechanism by which a later
+    green run un-gates an earlier red one. Splitting the walk at the session
+    boundary would make {prior FAIL, later prior PASS, dirty tree} newly block.
+
+    `cwd` defaults to the hook process's working directory, which Claude Code
+    sets to the project (or teammate worktree) root — so the sibling gates
+    inherit the tree check without a call-site change.
     """
     resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
+    window_start = _session_window_start(events)
 
-    for e in reversed(events):
+    for i in range(len(events) - 1, -1, -1):
+        e = events[i]
         content = e.get("content", "")
         etype = e.get("type", "")
         if (
@@ -41,7 +74,14 @@ def find_last_test_signal(events: list[dict]) -> str | None:
             and TEST_FAIL_RE.search(content)
             and e.get("id", "") not in resolved_ids
         ):
-            return "fail"
+            if i >= window_start:
+                return "fail"
+            # Older than this session: the rare path, and the only one that
+            # pays for a git call. `get_uncommitted_files`, not the narrower
+            # `get_uncommitted_code_files` — the latter drops test files and
+            # untracked files, both of which would read CLEAN and disarm the
+            # gate on an uncommitted broken test.
+            return "fail" if commits.get_uncommitted_files(cwd) else None
         if etype == _common.STATUS and TEST_PASS_RE.search(content):
             return "pass"
     return None

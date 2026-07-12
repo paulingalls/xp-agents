@@ -349,31 +349,60 @@ def get_code_files_in_range(cwd: str, base: str) -> list[str]:
     ]
 
 
+_GIT_STAGED = ["git", "diff", "--cached", "--name-only"]
+_GIT_UNSTAGED = ["git", "diff", "--name-only"]
+_GIT_UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard"]
+
+
+def _changed_paths(cwd: str, cmds: list[list[str]]) -> set[str] | None:
+    """Union of the path lines emitted by several git commands.
+
+    None (not an empty set) when any git call failed, so callers can tell
+    "git could not answer" apart from "nothing changed".
+    """
+    paths: set[str] = set()
+    for cmd in cmds:
+        out = _run_git(cmd, cwd)
+        if out is None:
+            return None
+        paths.update(f.strip() for f in out.splitlines() if f.strip())
+    return paths
+
+
+def get_uncommitted_files(cwd: str) -> list[str]:
+    """Every code file in flight in the working tree: staged, unstaged, OR
+    untracked. Test files INCLUDED. This is the "is the tree dirty?" signal.
+
+    Deliberately wider than ``get_uncommitted_code_files``, which answers a
+    different question ("is a commit of *production* code warranted?") and so
+    drops test files. Dirtiness must not: a tree dirty with only a broken test
+    file is still broken work in flight, and an untracked brand-new failing
+    test is the single most common shape of the TDD red step. Both read as
+    CLEAN under the narrower helper — which, for the TDD gate
+    (``tdd_check.find_last_test_signal``), is the disarm direction.
+
+    Returns empty list on any git failure.
+    """
+    paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED, _GIT_UNTRACKED])
+    if not paths:
+        return []
+    return sorted(f for f in paths if code_files.is_code_file(f))
+
+
 def get_uncommitted_code_files(cwd: str) -> list[str]:
     """Get non-test code files with uncommitted changes (staged + unstaged).
 
     Used by the post-green-tests nudge to determine if a commit is warranted.
     Returns empty list on any git failure.
     """
-    all_files: set[str] = set()
-    for cmd in (
-        ["git", "diff", "--cached", "--name-only"],
-        ["git", "diff", "--name-only"],
-    ):
-        out = _run_git(cmd, cwd)
-        if out is None:
-            return []
-        all_files.update(f.strip() for f in out.splitlines() if f.strip())
-
-    if not all_files:
+    paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED])
+    if not paths:
         return []
 
     from pre_tool_write import is_test_file
 
     return [
-        f
-        for f in sorted(all_files)
-        if code_files.is_code_file(f) and not is_test_file(f)
+        f for f in sorted(paths) if code_files.is_code_file(f) and not is_test_file(f)
     ]
 
 
@@ -408,6 +437,7 @@ __all__ = [
     "get_staged_diff",
     "get_staged_files",
     "get_uncommitted_code_files",
+    "get_uncommitted_files",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
     "open_issues_matching_commit",
