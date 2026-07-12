@@ -71,7 +71,8 @@ def load_sprint(smm_dir: Path) -> dict | None:
         Parsed sprint dict, or None if file does not exist.
 
     Raises:
-        SprintCorruptError: Malformed JSON or schema validation failure
+        SprintCorruptError: Undecodable bytes, malformed JSON, or schema
+            validation failure — the three ways content can be unusable
             (a ValueError subclass — callers that must distinguish a
             corrupt-but-present sprint from absence catch this first).
         OSError: Path is a symlink.
@@ -83,6 +84,12 @@ def load_sprint(smm_dir: Path) -> dict | None:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
+    except UnicodeDecodeError as exc:
+        # Bytes that aren't even UTF-8 are corruption, not an OSError — and
+        # UnicodeDecodeError is a ValueError, so it would otherwise slip past
+        # every `except (SprintCorruptError, OSError)` guard as itself and
+        # traceback the caller. Normalize it to the one type those guards catch.
+        raise SprintCorruptError(f"Undecodable sprint file at {path}: {exc}") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -139,12 +146,23 @@ def load_sprint_required(smm_dir: Path) -> dict:
 def load_sprint_fail_open(smm_dir: Path) -> dict | None:
     """Load the sprint, degrading a corrupt/unreadable file to None.
 
-    Use this at the advisory/accounting call sites that run AFTER a merge has
-    already committed (trailer_gate, merge_commit_event, close_common's merge
-    helpers): a SMM-state problem there must never crash the close chain, so a
-    missing OR corrupt sprint collapses to the same None (the unwindowed,
-    fail-open denominator). Sibling of `load_sprint_required` — the same
-    load_sprint core, opposite posture on the must/may-exist axis.
+    For call sites whose read is ADVISORY — the sprint enriches the answer but
+    is not required to produce one — so a corrupt file must not crash them. A
+    missing OR corrupt sprint collapses to the same None. Sibling of
+    `load_sprint_required`: same load_sprint core, opposite posture on the
+    must/may-exist axis. Two families qualify, and a new caller must argue it
+    into one of them or use `load_sprint` and stay loud:
+
+    - Post-merge accounting (trailer_gate, merge_commit_event, close_common's
+      merge helpers): the merge already committed, so an SMM-state problem must
+      never crash the close chain.
+    - Reads whose degraded answer is SAFE and whose loudness is delegated to a
+      later, stricter step (sprint_save.introduced_collisions — losing the
+      baseline attributes EVERY collision to this write, making the gate
+      stricter; branching._recorded_sprint_branch — runs below the stage gate,
+      and set_branch re-raises on the same corruption once a branch is cut).
+      Both exist so `sprint_cli create` stays the repair path for a sprint.json
+      that no longer loads; a hard raise in either bricks it.
     """
     try:
         return load_sprint(smm_dir)
@@ -320,6 +338,7 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
 # enumerate ALL public names of this module, both module-defined and
 # re-exported, to be a complete contract.
 __all__ = [
+    "SprintCorruptError",
     "build_capstone_story",
     "compute_blockers",
     "compute_velocity",
@@ -348,6 +367,7 @@ __all__ = [
     "is_complete",
     "list_stories",
     "load_sprint",
+    "load_sprint_fail_open",
     "load_sprint_required",
     "next_in_progress_story_id",
     "next_scheduled_story_id",

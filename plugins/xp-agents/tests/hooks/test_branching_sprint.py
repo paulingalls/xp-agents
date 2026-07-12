@@ -25,34 +25,9 @@ _GIT_ENV = _bf.GIT_ENV
 _init_repo = _bf.init_repo
 _get_current_branch = _bf.get_current_branch
 _write_system_context = _bf.write_system_context
-
-
-def _write_sprint_json(
-    smm_dir: Path, sprint_id: str, goal: str, started: str = "2026-04-22"
-) -> None:
-    import sprint_store
-
-    data = {
-        "sprint_id": sprint_id,
-        "goal": goal,
-        "started": started,
-        "milestone": "test",
-        "stories": [
-            {
-                "id": "story-001",
-                "title": "Test",
-                "status": "ready",
-                "dependencies": [],
-                "milestone_ref": "test",
-                "design_sources": "test",
-                "context": "test",
-                "file_domain": [],
-                "interface_contracts": [],
-                "acceptance_criteria": ["test"],
-            }
-        ],
-    }
-    sprint_store.save_sprint(smm_dir, data)
+# Promoted to the shared fixtures module when test_branching_reslice.py split
+# out and needed the same seed (story-005).
+_write_sprint_json = _bf.write_sprint_json
 
 
 class TestCreateSprintBranch(unittest.TestCase):
