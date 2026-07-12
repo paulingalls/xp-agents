@@ -60,9 +60,11 @@ from branch_resolution import (  # noqa: F401
     get_primary_branch,
     get_protected_branches,
     get_story_base_branch,
+    get_story_base_branch_required,
     is_protected_branch,
     match_local_branches,
     resolve_sprint_branch_name,
+    resolve_story_base,
 )
 
 

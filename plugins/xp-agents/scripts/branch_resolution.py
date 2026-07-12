@@ -156,6 +156,19 @@ def branch_exists(cwd: str, name: str) -> bool:
     return r.returncode == 0
 
 
+def _verified_local(cwd: str, name: str | None) -> str | None:
+    """Return ``name`` only if it is set AND still names a local branch.
+
+    The invariant this module exists to enforce: a RECORDED branch name is
+    trustworthy only if it still EXISTS. Branches get deleted, renamed, and
+    left behind in other worktrees; sprint.json does not notice. Handing a
+    recorded-but-vanished name to `git checkout`/`git merge` as a ref is the
+    silent-corruption path — so every recorded name is verified before it is
+    returned as an answer.
+    """
+    return name if name and branch_exists(cwd, name) else None
+
+
 def match_local_branches(cwd: str, pattern: str) -> list[str]:
     """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
     r = _git(
@@ -228,8 +241,7 @@ def _recorded_sprint_branch(cwd: str, smm_dir: Path, sprint_id: str) -> str | No
     sprint = sprint_store.load_sprint_fail_open(smm_dir)
     if sprint is None or sprint.get("sprint_id") != sprint_id:
         return None
-    recorded = sprint.get("branch_name")
-    return recorded if recorded and branch_exists(cwd, recorded) else None
+    return _verified_local(cwd, sprint.get("branch_name"))
 
 
 def resolve_sprint_branch_name(
@@ -249,30 +261,98 @@ def resolve_sprint_branch_name(
     )
 
 
-def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
-    """Return the base branch for stories: sprint branch at stage 2+, else primary.
+def _slug_rebuilt_sprint_branch(cwd: str, sprint: dict) -> str:
+    """The sprint branch name rebuilt from slugify(goal).
 
-    Prefers sprint['branch_name'] (recorded atomically at create time) and
-    falls back to slugify(goal) reconstruction so older sprints written
-    before atomic recording still resolve.
+    The fallback candidate for sprints written before create_sprint_branch
+    recorded ``branch_name`` atomically. May or may not exist — callers verify.
     """
-    primary = get_primary_branch(smm_dir)
-    stage = get_branching_stage(smm_dir)
-    if stage < 2:
-        return primary
+    return sprint_branch_name(
+        identity.user_namespace(cwd), sprint["sprint_id"], sprint["goal"]
+    )
+
+
+def resolve_story_base(smm_dir: Path, cwd: str) -> str | None:
+    """The story base branch, or None when the recorded state is DISHONEST.
+
+    Returns the primary branch for the two LEGITIMATE degradations — below the
+    branching floor (stage < 2: sprint branches do not exist by design), and no
+    sprint at all (free/ad-hoc work). In both, primary is the TRUE answer, not
+    a guess, and callers proceed normally.
+
+    Returns None for exactly ONE state: a sprint EXISTS at stage >= 2, but
+    neither its recorded ``branch_name`` nor the name rebuilt from
+    slugify(goal) names a local branch. There IS a sprint branch we are
+    supposed to be based on, and we cannot find it. Any answer is a guess here
+    — and the guess the old code made was primary, i.e. the release branch.
+
+    Scoping the None to that one state is deliberate: widen it and the PROBE /
+    RESTORE callers (which are right to degrade) start failing too.
+
+    Reads through the LOUD ``load_sprint``. This runs ABOVE the stage gate and
+    feeds the branch we merge INTO, so a corrupt sprint.json must raise rather
+    than quietly become "no sprint" and hence "primary".
+    ``_recorded_sprint_branch`` uses the fail-open loader for the opposite
+    reason — it runs BELOW the gate, where a clean no-op is the right answer.
+    """
+    if get_branching_stage(smm_dir) < 2:
+        return get_primary_branch(smm_dir)
 
     sprint = sprint_store.load_sprint(smm_dir)
     if sprint is None:
-        return primary
+        return get_primary_branch(smm_dir)
 
-    stored = sprint.get("branch_name")
-    if stored and branch_exists(cwd, stored):
-        return stored
+    return _verified_local(cwd, sprint.get("branch_name")) or _verified_local(
+        cwd, _slug_rebuilt_sprint_branch(cwd, sprint)
+    )
 
-    user_ns = identity.user_namespace(cwd)
-    name = sprint_branch_name(user_ns, sprint["sprint_id"], sprint["goal"])
 
-    if branch_exists(cwd, name):
-        return name
+def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
+    """The story base branch, degrading to primary when it cannot be resolved.
 
-    return primary
+    Byte-identical to the historical behavior, silent primary-fallback included.
+    Correct ONLY for callers that PROBE or RESTORE — measure commits_ahead,
+    compute a diff range, heal an interrupted checkout. For them primary is a
+    serviceable approximation, and raising would take down a gate that is only
+    trying to observe.
+
+    Callers that BRANCH FROM or MERGE INTO the answer must use
+    ``get_story_base_branch_required``: handing THEM a silent primary cuts story
+    branches off the release branch, or merges them into it.
+    """
+    return resolve_story_base(smm_dir, cwd) or get_primary_branch(smm_dir)
+
+
+def get_story_base_branch_required(smm_dir: Path, cwd: str) -> str:
+    """The story base branch, raising when it cannot be honestly resolved.
+
+    The narrowing sibling of ``resolve_story_base``, in the shape the codebase
+    already uses for this (``sprint_store.load_sprint_required``,
+    ``execution_plan_store.load_plan_required``): pyright sees ``str``, so
+    callers that fork a branch or pick a merge target need no None-check.
+
+    For every caller that BRANCHES FROM or MERGES INTO the result. Raises
+    ValueError naming the sprint, both candidate names, the primary branch it
+    REFUSED to silently return, and the way out — the whole point is that the
+    caller must not proceed on a guess.
+    """
+    base = resolve_story_base(smm_dir, cwd)
+    if base is not None:
+        return base
+
+    # None only in the dishonest state, so the sprint loaded and exists — re-read
+    # it to name the candidates we could not resolve.
+    sprint = sprint_store.load_sprint_required(smm_dir)
+    recorded = sprint.get("branch_name") or "(none recorded)"
+    rebuilt = _slug_rebuilt_sprint_branch(cwd, sprint)
+    raise ValueError(
+        f"Cannot resolve the story base branch for {sprint['sprint_id']}: "
+        f"neither the recorded branch '{recorded}' nor the name rebuilt from "
+        f"the sprint goal '{rebuilt}' exists locally. Refusing to fall back to "
+        f"'{get_primary_branch(smm_dir)}' — branching a story off the "
+        f"integration branch (or merging one into it) is not what you asked "
+        f"for. Fix: if it exists on a remote (sprint branches are pushed when "
+        f"one is configured), `git fetch` and check it out locally; else re-cut "
+        f"it (`branching.py create-sprint`) or correct sprint.json's "
+        f"'branch_name' to a branch that exists."
+    )
