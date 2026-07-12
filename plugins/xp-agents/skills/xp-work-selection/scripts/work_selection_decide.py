@@ -35,11 +35,6 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
-
-# Imported as a module (not only via the from-import below) so the triage
-# routing can match on dotted value patterns — a bare NAME in a `case` is a
-# capture pattern that matches anything, not a comparison.
-import event_schema  # noqa: E402
 import identity  # noqa: E402
 from event_builder import REFERENCES_KEY, merge_resolves  # noqa: E402
 from event_schema import (  # noqa: E402
@@ -313,12 +308,16 @@ def run(
             # means taking the work ON — it links, and the target stays open
             # until the work lands. Deferring records neither: carrying an item
             # says nothing about it beyond "not now".
+            # Deliberately if/elif, not match/case: a bare NAME in a `case` is a
+            # capture pattern that matches ANY value, so `case DISPOSITION_DROPPED:`
+            # would route every disposition into metadata.resolves — silently
+            # restoring the exact defect this routing exists to remove. Comparison
+            # is what is meant here, so comparison is what is written.
             link_field: dict = {}
-            match disposition:
-                case event_schema.DISPOSITION_DROPPED:
-                    metadata[METADATA_KEY_RESOLVES] = [event_id]
-                case event_schema.DISPOSITION_ADOPTED:
-                    link_field[REFERENCES_KEY] = [event_id]
+            if disposition == DISPOSITION_DROPPED:
+                metadata[METADATA_KEY_RESOLVES] = [event_id]
+            elif disposition == DISPOSITION_ADOPTED:
+                link_field[REFERENCES_KEY] = [event_id]
             # Inline a snippet of the target event's content so cross-session
             # drop memory (retro_metrics.dropped_tries_recent) carries the
             # topic forward — opaque "Triage: dropped <id>" content defeats
