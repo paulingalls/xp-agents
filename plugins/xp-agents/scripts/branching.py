@@ -63,8 +63,10 @@ from branch_resolution import (  # noqa: F401
     get_story_base_branch_required,
     is_protected_branch,
     match_local_branches,
+    ref_exists,
     resolve_sprint_branch_name,
     resolve_story_base,
+    trusted_story_base,
 )
 
 
@@ -211,14 +213,23 @@ def create_story_branch(
 ) -> str | None:
     """Returns branch name or None if below story min stage.
 
-    When base is provided, the story branch forks from that ref (for
-    chaining dependent stories). When omitted, uses the resolved story
-    base (sprint branch at stage 2+, otherwise primary).
+    When base is provided, the story branch forks from that ref (for chaining
+    dependent stories). When omitted, the story base is resolved from the
+    sprint. Either way the value is VERIFIED before it reaches git — see
+    ``_trusted_story_base``, which raises rather than let an unresolvable or
+    silently-degraded base become a fork point.
+
+    The base=None arm is NOT dead code even though both SKILLs always pass
+    --base: `branching.py create` without --base still reaches it (argparse
+    defaults to None).
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
-    if base is None:
-        base = get_story_base_branch(smm_dir, cwd)
+    if get_branching_stage(smm_dir) >= BRANCH_MIN_STAGE["story"]:
+        # Below the floor no branch is cut at all (_create_or_resume_branch
+        # skips), so an unusable base is moot — and refusing one there would
+        # break stage-0 inertness, where the plugin must not touch git.
+        base = trusted_story_base(cwd, smm_dir, base)
     result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["story"], base=base
     )

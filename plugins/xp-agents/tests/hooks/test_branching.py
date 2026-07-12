@@ -568,6 +568,12 @@ class TestAutoPromote(_SMMTestCase):
             patch("branching.branch_exists", return_value=False),
             patch("branching.is_worktree_clean", return_value=True),
             patch("branching._git", return_value=fake_proc),
+            # create_story_branch now VERIFIES the base it is handed against git
+            # (trusted_story_base -> ref_exists). cwd here is the SMM temp dir,
+            # not a repo, and that check crosses into branch_resolution — where
+            # `patch("branching._git")` does not reach — so fake the collaborator
+            # in the module that owns the caller, like branch_exists above.
+            patch("branching.trusted_story_base", return_value="main"),
             # short-circuits the post-create set_story_branch lookup
             patch("branching.sprint_store.sprint_exists", return_value=False),
         ):

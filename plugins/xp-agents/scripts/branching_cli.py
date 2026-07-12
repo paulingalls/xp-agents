@@ -27,13 +27,52 @@ def _print_or_skip(result: str | None, min_stage: int, *, resumed: bool = False)
     return 0
 
 
+def _blank_base_refused(args: argparse.Namespace, cmd: str, resolves: str) -> bool:
+    """True (having explained itself on stderr) when --base was passed but blank.
+
+    argparse yields "" for `--base ""`, not None, so a blank base sails past
+    every downstream `base is None` check (which would have resolved and
+    verified a real one) and reaches git as an empty ref. On the create arm git
+    rejects it; on the RESUME arm nothing does — the branch is checked out,
+    `_fast_forward_if_safe` no-ops against the empty ref (`git merge-base
+    --is-ancestor <branch> ""` merely exits non-zero), and we print `resumed:`
+    and exit 0. A caller whose "$BASE" came back empty is told all is well.
+
+    Shared by BOTH --base-taking commands, not just `create`. `create` is where
+    a blank base is likeliest — the story SKILLs pass `--base "$BASE"` from a
+    command substitution that returns empty when its resolver refuses, and they
+    do not run under `set -e` — but `create-free` takes the same flag and has
+    the same silent resume arm, so guarding one leg and not the other just moves
+    the hole. No git ref is empty or whitespace-only, so refusing both is free:
+    a blank base is a caller bug, not a request.
+    """
+    if args.base is None or args.base.strip():
+        return False
+    sys.stderr.write(
+        f"{cmd}: --base was empty. Pass a real ref, or omit --base entirely "
+        f"to resolve {resolves}.\n"
+    )
+    return True
+
+
 def _cmd_create(args: argparse.Namespace) -> int:
+    if _blank_base_refused(args, "create", "the story base from the sprint"):
+        return 1
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.branch_name(user_ns, args.story, args.slug)
     existed = branching.branch_exists(args.cwd, name)
-    result = branching.create_story_branch(
-        args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
-    )
+    try:
+        result = branching.create_story_branch(
+            args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
+        )
+    except ValueError as exc:
+        # An unresolvable story base (sprint at stage 2+ whose branch is gone).
+        # That message IS the product of the refusal — it names the sprint, both
+        # candidate branches, the primary it would not silently fall back to, and
+        # the way out. Print it like every other ValueError in this CLI rather
+        # than letting a traceback bury the one thing the user has to read.
+        sys.stderr.write(f"{exc}\n")
+        return 1
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
 
@@ -179,6 +218,8 @@ def _cmd_create_plan(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_free(args: argparse.Namespace) -> int:
+    if _blank_base_refused(args, "create-free", "the merge target"):
+        return 1
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.free_branch_name(user_ns, args.slug)
     existed = branching.branch_exists(args.cwd, name)

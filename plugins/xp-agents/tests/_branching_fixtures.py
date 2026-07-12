@@ -511,6 +511,19 @@ def add_pre_push_hook(
     return marker
 
 
+def make_branch(cwd: str, name: str) -> None:
+    """Cut local branch `name` at HEAD without checking it out.
+
+    Arms the RESUME arm of _create_or_resume_branch, and seeds the sprint
+    branch a story base resolves to. `name` must match what the code under
+    test will compute — a story branch the code names differently is simply
+    not found, and the test quietly exercises the CREATE arm instead. When
+    the code path runs in a subprocess, derive the namespace from
+    `identity.user_namespace(cwd)` (git config), never a hardcoded one.
+    """
+    subprocess.run(["git", "branch", name], cwd=cwd, capture_output=True, check=True)
+
+
 def branch_exists(cwd: str, name: str) -> bool:
     """Return True if `name` is a local git branch in `cwd`. Test helper."""
     return (
