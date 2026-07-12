@@ -365,6 +365,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # /xp-accept review + /xp-story-close window so review-cycle fixes to the
         # closing story aren't blocked. Self-clears the instant a frontier is
         # promoted to in-progress.
+        #
+        # Deliberately NOT in _LEAD_GATES, and it needs no teammate exemption: it
+        # is state-derived, not a marker. A teammate only exists once a frontier
+        # is in motion — the very condition that makes this gate quiet — so a
+        # teammate can never meet it. Do not copy this as the pattern for a
+        # MARKER gate: a marker persists across the states that should clear it,
+        # which is how the plan gate came to forbid the pipeline for months. A
+        # new marker gate belongs in _LEAD_GATES.
         if (
             sprint_data is not None
             and schedule_gate_active_data(sprint_data)

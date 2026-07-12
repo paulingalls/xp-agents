@@ -356,6 +356,33 @@ class TestQuestionGate(_HookTestCase):
             )
         self.assertIn("AskUserQuestion", str(ctx.exception))
 
+    def test_lead_with_leaked_env_and_matching_live_marker_is_exempt(self):
+        """The one lead-facing behavior delta this branch ships, pinned.
+
+        The gates now hand smm_dir to the probe; the old code let its env leg
+        fall back to $SMM_DIR, which is normally unset for a lead, so the leg
+        failed CLOSED to gated. A lead carrying a leaked XP_TEAMMATE_NAME AND a
+        matching live in-place marker therefore flips from gated to exempt.
+
+        This is the probe's documented intent -- the marker is what makes the
+        leaky env var trustworthy, and only spawn_teammate writes it -- but it
+        is a real delta, so it is pinned rather than left to prose. Note the
+        sibling control above: a live marker for a name the writer does NOT
+        carry leaves the lead gated. The name must MATCH.
+        """
+        (self.smm_dir / ".question-gate").write_text("test-question-id")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-010"}, clear=False
+        ):
+            os.environ.pop("SMM_DIR", None)
+            result = pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/Users/dev/proj/src"),
+                smm_dir=self.smm_dir,
+            )
+        if result:
+            self.assertNotIn("AskUserQuestion", result)
+
     def test_gate_persists_after_decision_metadata_resolves(self):
         """Regression guard: a decision with metadata.resolves=[question_id]
         must NOT clear the gate (only AskUserQuestion's answer event does).
