@@ -71,7 +71,8 @@ def load_sprint(smm_dir: Path) -> dict | None:
         Parsed sprint dict, or None if file does not exist.
 
     Raises:
-        SprintCorruptError: Malformed JSON or schema validation failure
+        SprintCorruptError: Undecodable bytes, malformed JSON, or schema
+            validation failure — the three ways content can be unusable
             (a ValueError subclass — callers that must distinguish a
             corrupt-but-present sprint from absence catch this first).
         OSError: Path is a symlink.
@@ -83,6 +84,12 @@ def load_sprint(smm_dir: Path) -> dict | None:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
+    except UnicodeDecodeError as exc:
+        # Bytes that aren't even UTF-8 are corruption, not an OSError — and
+        # UnicodeDecodeError is a ValueError, so it would otherwise slip past
+        # every `except (SprintCorruptError, OSError)` guard as itself and
+        # traceback the caller. Normalize it to the one type those guards catch.
+        raise SprintCorruptError(f"Undecodable sprint file at {path}: {exc}") from exc
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:

@@ -31,6 +31,88 @@ sys.path.insert(0, str(Path(__file__).parent))
 import sprint_store as store
 
 
+def _preserve_branch_names(incoming: dict, smm_dir: Path) -> None:
+    """Carry recorded branch names across a same-id re-create (the re-slice).
+
+    `create` writes its payload verbatim, and the sprint-start payload names no
+    branch at either level — so re-creating the SAME sprint (to rewrite a goal
+    or drop a story: the only tool for either, since nothing archives and there
+    is no remove-story) erased the sprint's branch and every story's. The base
+    resolver then could not find the sprint branch and fell back to the primary
+    branch, and live teammate branches read as orphans.
+
+    Keyed on sprint_id, never on file existence. A DIFFERENT id is the rollover
+    — the next sprint's create deliberately overwrites the current file in
+    place — and carried-forward stories are RENUMBERED there, so a branch
+    carried across ids would name someone else's branch. Different id carries
+    nothing.
+
+    Fill-when-absent, never clobber: an incoming payload that names a branch
+    wins, or a deliberate rename would be silently reverted. A story the
+    re-slice drops loses its branch with it; the preserve carries branches for
+    SURVIVING stories, it does not reinstate the old story list.
+
+    The load is guarded because `create` is the repair path for a sprint file
+    that can no longer be loaded — load_sprint raises SprintCorruptError on all
+    three unusable-content causes: undecodable bytes, malformed JSON, and
+    schema-validation failure (e.g. a file written before a schema change).
+    An unguarded load here would turn the only repair tool into a traceback, so
+    a failed read carries nothing, says so, and still writes. sprint_save's
+    collision baseline fails open for the same reason — both legs are needed to
+    keep the repair path open, and both rely on load_sprint normalizing every
+    corruption cause to the one type they catch.
+
+    Forward-coupling — Milestone 5 adds sprint ARCHIVING to _cmd_create. Two
+    rules, both keyed on the same sprint_id comparison this function makes:
+    archiving must not move or clear sprint.json BEFORE this preserve reads it
+    (the preserve would find nothing and silently re-drop every branch), and it
+    must fire only on a DIFFERENT sprint_id — the rollover. A same-id re-slice
+    is not a completed sprint and must be neither archived nor cleared.
+    test_same_sprint_id_carries_every_branch_name enforces both: an
+    archive-before-preserve ordering, or an archive on a same-id create, fails
+    it.
+    """
+    try:
+        recorded = store.load_sprint(smm_dir)
+    except (store.SprintCorruptError, OSError) as exc:
+        print(
+            f"WARN: existing sprint.json could not be read ({exc}); "
+            "creating fresh — no branch names carried forward.",
+            file=sys.stderr,
+        )
+        return
+
+    if recorded is None or recorded.get("sprint_id") != incoming.get("sprint_id"):
+        return
+
+    carried: list[str] = []
+    if not incoming.get("branch_name") and recorded.get("branch_name"):
+        incoming["branch_name"] = recorded["branch_name"]
+        carried.append(f"sprint={recorded['branch_name']}")
+
+    recorded_stories = recorded.get("stories")
+    prior_branch = {
+        s.get("id"): s.get("branch_name")
+        for s in (recorded_stories if isinstance(recorded_stories, list) else [])
+        if isinstance(s, dict)
+    }
+    incoming_stories = incoming.get("stories")
+    for story in incoming_stories if isinstance(incoming_stories, list) else []:
+        if not isinstance(story, dict) or story.get("branch_name"):
+            continue
+        branch = prior_branch.get(story.get("id"))
+        if branch:
+            story["branch_name"] = branch
+            carried.append(f"{story['id']}={branch}")
+
+    if carried:
+        print(
+            f"Re-slicing {incoming.get('sprint_id')} — carried forward: "
+            f"{', '.join(carried)}",
+            file=sys.stderr,
+        )
+
+
 def _cmd_create(args: argparse.Namespace) -> int:
     raw = sys.stdin.read()
     try:
@@ -38,6 +120,11 @@ def _cmd_create(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
+    if isinstance(data, dict):
+        # Before the write, not inside sprint_save.run(): add-story also routes
+        # through run() on an existing sprint, and run()'s same-id overwrite is
+        # pinned at that layer. The re-slice is a CLI-level concern.
+        _preserve_branch_names(data, args.smm_dir)
     import sprint_save
 
     try:
@@ -51,7 +138,19 @@ def _cmd_create(args: argparse.Namespace) -> int:
 
 
 def _cmd_add_story(args: argparse.Namespace) -> int:
-    sprint = store.load_sprint(args.smm_dir)
+    # Unlike create, add-story cannot repair an unreadable sprint — it appends
+    # to the recorded story list, so it needs that list. But it fails the way
+    # every other handler does (message + rc 1), not with a stack trace that
+    # buries the actionable next step: `create` is the repair path.
+    try:
+        sprint = store.load_sprint(args.smm_dir)
+    except (store.SprintCorruptError, OSError) as exc:
+        print(
+            f"Existing sprint.json could not be read ({exc}). Cannot add a story "
+            "to a sprint that will not load — re-create the sprint to repair it.",
+            file=sys.stderr,
+        )
+        return 1
     if sprint is None:
         print("No sprint found.", file=sys.stderr)
         return 1

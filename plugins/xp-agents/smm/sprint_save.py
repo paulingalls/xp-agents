@@ -350,9 +350,16 @@ def introduced_collisions(
         if current_expanded
         else _expanded_report(data)
     )
-    baseline = sprint_store.load_sprint(smm_dir)
+    # Fail open: this read is advisory (it only says which collisions PRE-EXIST),
+    # so an unreadable file must not veto the write — a hard raise here shut the
+    # `create` repair path from inside the pipeline, before any CLI guard saw it.
+    # Losing the baseline makes the gate STRICTER, never laxer (see below), so
+    # only the corruption stops being fatal. edit_story's own load_sprint raises
+    # first, so it never reaches here with an unreadable file.
+    baseline = sprint_store.load_sprint_fail_open(smm_dir)
     if baseline is None:
-        # First create: nothing on disk, so every current collision is our fault.
+        # First create (or an unreadable baseline): nothing trustworthy on disk,
+        # so every current collision is our fault.
         return current_report
     baseline_report = _expanded_report(baseline)
 

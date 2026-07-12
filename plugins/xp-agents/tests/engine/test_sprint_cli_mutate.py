@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Tests for sprint_cli.py structural-mutation subcommands.
 
-Covers create, add-story, update-story, update-story-if, edit-story,
+Covers add-story, update-story, update-story-if, edit-story,
 build-capstone, update-story-branch, and the run()-vs-save() routing
-contract. Split out of test_sprint_cli.py in sprint-108 M1 to keep each
-test file under the 500-line cap (decision d027fe5c9066). The CLI is
+contract (which spans create too, so it stays here). Split out of
+test_sprint_cli.py in sprint-108 M1, and again in story-005 — `create`
+and the re-slice preserve now live in test_sprint_cli_create.py — to
+keep each test file under the 500-line cap (decision d027fe5c9066). The CLI is
 invoked as a subprocess via run_cli(_CLI, ...), so these subcommands
 still route through sprint_cli.py (which imports the handlers from
 sprint_cli_mutate.py) — no import repoint needed.
@@ -32,18 +34,6 @@ from conftest import (
 _CLI = Path(__file__).parent.parent.parent / "smm" / "sprint_cli.py"
 
 
-class TestCreateCommand(_SMMTestCase):
-    def test_create(self):
-        sprint = _make_sprint(goal="New Sprint")
-        result = run_cli(_CLI, ["create"], self.smm_dir, json.dumps(sprint))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.smm_dir / "sprint.json").exists())
-
-    def test_create_invalid(self):
-        result = run_cli(_CLI, ["create"], self.smm_dir, '{"bad": "data"}')
-        self.assertNotEqual(result.returncode, 0)
-
-
 class TestAddStoryCommand(_SMMTestCase):
     def test_add_story(self):
         (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
@@ -62,6 +52,25 @@ class TestAddStoryCommand(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         loaded = json.loads((self.smm_dir / "sprint.json").read_text())
         self.assertEqual(len(loaded["stories"]), 2)
+
+    def test_corrupt_sprint_fails_cleanly_not_with_a_traceback(self):
+        """add-story genuinely CANNOT proceed on a sprint it can't read — it
+        appends to the recorded story list. But it must say so the way every
+        other handler does (message + rc 1), not dump a stack: the actionable
+        next step is `create`, the repair path, and a traceback buries it."""
+        corrupt = '{"sprint_id": "sprint-001",'
+        (self.smm_dir / "sprint.json").write_text(corrupt)
+        result = run_cli(
+            _CLI, ["add-story"], self.smm_dir, json.dumps(_make_story(id="story-002"))
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("could not be read", result.stderr)
+        self.assertEqual(
+            (self.smm_dir / "sprint.json").read_text(),
+            corrupt,
+            "a refused add-story must not write",
+        )
 
 
 class TestAddStoryDupId(_SMMTestCase):
