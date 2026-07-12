@@ -2,6 +2,54 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.6.1 — The lead's gates stop forbidding the parallel pipeline
+
+### A teammate never plans, so the planning marker must not gate it
+
+The parallel pipeline exists so the lead can plan story N+1 while a teammate executes
+story N. The plan-review gate blocked **every** agent's writes while
+`.plan-awaiting-review` existed, so it forbade exactly that state: the lead exits plan
+mode, the marker lands in the shared SMM dir, and every running teammate is hard-blocked
+until `/xp-review-plan` clears it. A teammate cannot clear a marker it does not own, so
+it stalls mid-implementation.
+
+This was never a regression. The gate, `markers.py`, and both marker writers are
+byte-identical from v4.4.2 to v4.6.0, and no release back to v3.11.1 has an agent check
+anywhere near the gate. The contradiction has been latent for months and surfaced only
+when four teammates wrote into a long planning turn. It also violated the project's own
+constraint that gates are state-derived and self-clearing, never marker-blocks.
+
+The assign gate immediately below already exempts teammates for the same reason — they
+are dispatched *by* `/xp-assign` and share the SMM dir holding the marker. The plan gate
+was simply the odd one out, so the fix is that file's existing idiom rather than a new
+mechanism: planning belongs solely to the lead.
+
+The assign gate's own teammate guard now also receives `smm_dir` explicitly. The env leg
+of `is_worktree_teammate` falls back to `$SMM_DIR`, so a hook process running without
+that variable failed closed and over-gated a real in-place teammate as the lead.
+
+### The question gate had the same defect, one gate further down
+
+Review of the above found the identical hazard sitting unfixed immediately below it. A
+🔴 question — raised by *any* agent — arms `.question-gate` in the shared SMM dir, and
+`AskUserQuestion` is the **only** thing that clears it. A headless teammate has no user
+to ask, so it could clear neither the lead's question nor **its own**: a single blocking
+question from one teammate hard-blocked every write by that teammate, the lead, and every
+sibling, permanently.
+
+Teammates are now exempt from the question gate too. The lead stays gated — it is the
+only agent that *can* call `AskUserQuestion` — so a teammate's question still escalates
+to the user exactly as before. It simply no longer deadlocks the fleet while doing so.
+
+### The three lead-only gates now say so in one place
+
+Plan, assign and question each hand-rolled their own teammate exemption, so a gate added
+next would silently default to gating teammates — which is precisely how the plan gate
+came to forbid the pipeline unnoticed for months. They are now one ordered table whose
+entries are lead-only by construction. The teammate probe also moved *behind* the marker
+check and runs at most once, so the common case (lead, nothing armed) — every Write and
+Edit — no longer pays for a cwd parse, an env read and a marker stat it never consumes.
+
 ## v4.6.0 — The accept-gate sees in-flight work; perf tests stop measuring the machine
 
 Plan `Gates that see the work`, milestone 1 (sprint-116), plus one adjacent fix.
