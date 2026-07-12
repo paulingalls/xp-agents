@@ -123,6 +123,66 @@ def _probe_pid(pid: int) -> bool | None:
     return True
 
 
+def _read_all(fd: int) -> bytes:
+    """Read `fd` to EOF.
+
+    os.read returns what a single read syscall yields, which may be short; the
+    loop is what makes "the bytes I probed" the WHOLE file. Reading through the
+    descriptor (rather than path.read_text) is what lets the caller fstat the
+    exact inode the bytes came from.
+    """
+    chunks: list[bytes] = []
+    while chunk := os.read(fd, 4096):
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _identity(st: os.stat_result) -> tuple[int, int, int, int]:
+    """A marker's structural identity: "is this still the file I read?".
+
+    st_ino is the load-bearing component, and it is a STRUCTURAL invariant here,
+    not a probabilistic one: write_in_place_marker is the only production writer
+    and routes through write_text_atomic (mkstemp + rename), so there is no
+    in-place mutation path anywhere — every marker write lands a NEW inode by
+    construction. A respawn's marker therefore CANNOT share an inode with the one
+    it replaced. (test_rewriting_the_marker_changes_the_inode pins that coupling;
+    the guard is silently disarmed if the writer ever mutates in place.)
+
+    st_dev pairs with st_ino because inode numbers are only unique per device.
+    st_mtime_ns and st_size ride along as free extras — the same single stat call
+    — but correctness must never rest on them: a timestamp is not a structural
+    invariant, and a coarse filesystem mtime clock (1-4ms on ext4/tmpfs) cannot
+    resolve two writes microseconds apart.
+    """
+    return (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def _unlink_if_unchanged(path: Path, identity: tuple[int, int, int, int]) -> None:
+    """Unlink `path` only while it is still the inode whose pids were proven dead.
+
+    `unlink` targets the PATH, so it deletes whatever inode sits there NOW — not
+    the one that was read. A same-name respawn (the documented recovery for a
+    stuck teammate) can rename a fresh marker into place during the probe, and
+    deleting THAT demotes a live teammate to the lead and misattributes its
+    commits.
+
+    Fail-safe in one direction only: cannot prove the file is the one we proved
+    dead -> do not delete it. A skipped reap is harmless (the leaked marker reads
+    dead and suppresses nothing; the next Stop reaps it), so an OSError here is
+    simply another reason not to unlink.
+
+    lstat, not stat: a symlink that appeared at the path since the read is not
+    the file we read, whatever it points at.
+    """
+    try:
+        current = _identity(os.lstat(path))
+    except OSError:
+        return
+    if current != identity:
+        return
+    path.unlink(missing_ok=True)
+
+
 def _marker_pid_alive(path: Path) -> bool:
     """True when ANY process recorded in the marker is still alive.
 
@@ -149,26 +209,58 @@ def _marker_pid_alive(path: Path) -> bool:
     no consumer can be harmed. That keeps leaks from accumulating until a
     recycled pid reads live again and re-suppresses the gate, without ever
     deleting the marker of a teammate that is merely un-adjudicable.
+
+    The read and the unlink are separated by N os.kill syscalls, and `unlink`
+    deletes by PATH — so the marker it removes need not be the one whose pids it
+    proved dead. The identity captured here bounds that: the unlink happens only
+    while the same inode is still at the path (_unlink_if_unchanged). Identity is
+    taken by FSTAT on the very descriptor the bytes came from, so the content
+    probed and the identity compared are provably the same inode — a stat by path
+    could describe a different file than the one read.
+
+    The descriptor stays open until AFTER the comparison. An open fd pins its
+    inode even at nlink=0, so the kernel cannot recycle that inode number into a
+    concurrent mkstemp for the whole window; closing it right after the read would
+    silently reinstate the gap. That makes inode reuse a structural impossibility
+    here rather than a low probability.
+
+    The guard attaches to the UNLINK only, never to the return value: every path
+    below still reads dead on anything it cannot adjudicate, so the fail-open
+    contract above is untouched. Declining to reap can only ever leak a marker,
+    and a leaked marker reads dead and suppresses nothing.
     """
     try:
-        tokens = path.read_text().split()
+        # O_NOFOLLOW mirrors the writer's symlink rejection. A symlinked marker
+        # is not something we wrote; refusing to read it fails OPEN (reads dead),
+        # the same direction as every other unreadable marker.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     except OSError:
         # Vanished mid-scan (spawn_teammate's finally), or unreadable.
         return False
     try:
-        pids = [int(t) for t in tokens]
-    except ValueError:
-        # A legacy name-content marker, which may belong to a teammate still
-        # running the older code — unadjudicable, so it is NOT reaped.
+        try:
+            identity = _identity(os.fstat(fd))
+            raw = _read_all(fd)
+        except OSError:
+            return False
+        try:
+            # A legacy name-content marker (or a non-UTF-8 one) may belong to a
+            # teammate still running the older code — unadjudicable, NOT reaped.
+            # UnicodeDecodeError is a ValueError, so both land here; letting it
+            # escape would crash the Stop hook, and a crashed gate never fires.
+            pids = [int(t) for t in raw.decode().split()]
+        except ValueError:
+            return False
+        if not pids:
+            return False  # empty marker: not alive, but not proof of death
+        verdicts = [_probe_pid(p) for p in pids]
+        if any(v is True for v in verdicts):
+            return True
+        if all(v is False for v in verdicts):
+            _unlink_if_unchanged(path, identity)
         return False
-    if not pids:
-        return False  # empty marker: not alive, but not proof of death
-    verdicts = [_probe_pid(p) for p in pids]
-    if any(v is True for v in verdicts):
-        return True
-    if all(v is False for v in verdicts):
-        path.unlink(missing_ok=True)
-    return False
+    finally:
+        os.close(fd)
 
 
 def has_live_in_place_teammate(smm_dir: Path) -> bool:
