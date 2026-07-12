@@ -8,7 +8,7 @@ work_selection_decide.py when it crossed the 500-line cap; the orchestration
 so callers and tests are unaffected by the move.
 
 Names keep their leading underscore: they are internal to the work-selection
-scripts, not a public surface — the pair of modules is one unit.
+scripts, not a public surface — the trio of modules is one unit.
 """
 
 import sys
@@ -56,6 +56,17 @@ def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
         if targets.intersection(links):
             count += 1
     return count
+
+
+def _convention_topic_exists_filter(events: list[dict], topic: str) -> bool:
+    """Pure filter: True if `events` contains a convention event with `topic`.
+    Used to make force-drop convention emission idempotent — re-drops of
+    the same Try MUST NOT append a duplicate convention.
+    """
+    for e in events:
+        if e.get("type") == _common.CONVENTION and e.get("topic") == topic:
+            return True
+    return False
 
 
 def _cascade_ids_filter(events: list[dict], tokens: set[str]) -> set[str]:
