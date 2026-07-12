@@ -174,7 +174,7 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
         gated by the lead's own plan marker."""
         marker = self.smm_dir / ".plan-awaiting-review"
         marker.write_text("/Users/x/.claude/plans/lead-plan.md")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-010")
         in_place_input = _make_write_input(
             session_id="t",
             cwd="/Users/dev/proj/src",
@@ -249,7 +249,7 @@ class TestAssignPendingGate(_HookTestCase):
         """
         marker = self.smm_dir / ".assign-pending"
         marker.write_text("xp-plan-reviewer")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-010")
         in_place_input = _make_write_input(
             session_id="t",
             cwd="/Users/dev/proj/src",
@@ -325,7 +325,7 @@ class TestQuestionGate(_HookTestCase):
         """The in-place teammate shares the main checkout's cwd, so only its
         live in-place marker discriminates it. It is just as unable to answer."""
         (self.smm_dir / ".question-gate").write_text("test-question-id")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-010")
         in_place_input = _make_write_input(
             session_id="t",
             cwd="/Users/dev/proj/src",
@@ -348,7 +348,7 @@ class TestQuestionGate(_HookTestCase):
         existence of some teammate marker somewhere in the shared dir.
         """
         (self.smm_dir / ".question-gate").write_text("test-question-id")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-010")
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_write.run(
                 _make_write_input(session_id="t", cwd="/Users/dev/proj/src"),
@@ -371,7 +371,7 @@ class TestQuestionGate(_HookTestCase):
         carry leaves the lead gated. The name must MATCH.
         """
         (self.smm_dir / ".question-gate").write_text("test-question-id")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-010")
         with patch.dict(
             os.environ, {"XP_TEAMMATE_NAME": "worktree-story-010"}, clear=False
         ):
