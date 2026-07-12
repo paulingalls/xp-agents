@@ -7,6 +7,7 @@ No event log reads.
 
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -229,6 +230,84 @@ def _is_smm_write(smm_dir: Path | None, target_file: str | None, cwd: str) -> bo
         return False
 
 
+# ---------------------------------------------------------------------------
+# Lead-only marker gates
+# ---------------------------------------------------------------------------
+
+
+class _LeadGate(NamedTuple):
+    """A marker gate that applies to the LEAD only."""
+
+    marker: markers.MarkerDef
+    reason: str
+    short: str
+    plan_files_exempt: bool
+
+
+# Checked in order; the first armed gate blocks. Teammates are exempt from ALL
+# of them. Every marker lives in the SHARED SMM dir and a teammate can clear
+# none of them: it never plans, it is dispatched BY /xp-assign, and — running
+# headless — it has no user to answer an AskUserQuestion. So gating a teammate
+# forbids the parallel pipeline's whole purpose (the lead plans/assigns story
+# N+1 while a teammate executes story N) and strands the teammate mid-story
+# with no recovery path. A gate added to this table inherits the exemption by
+# construction; the hand-rolled gates this replaces defaulted the other way,
+# which is how the plan gate came to forbid the pipeline unnoticed for months.
+_LEAD_GATES: tuple[_LeadGate, ...] = (
+    _LeadGate(
+        markers.PLAN_AWAITING_REVIEW,
+        "Run /xp-review-plan before writing code. "
+        "Plan review extracts assumptions, decisions, and risks for the SMM.",
+        "Plan review required before implementation.",
+        plan_files_exempt=True,
+    ),
+    _LeadGate(
+        markers.ASSIGN_PENDING,
+        "Run /xp-assign to create the next story's branch and spawn its "
+        "teammate (per-story pipeline — one spawn per invocation) "
+        "before writing code.",
+        "Work assignment required before implementation.",
+        plan_files_exempt=True,
+    ),
+    _LeadGate(
+        markers.QUESTION_GATE,
+        "A blocking question needs the user's answer. AskUserQuestion is "
+        "the ONLY way to clear this — it records the answer and lifts the "
+        "gate. Do NOT record a decision/status event resolving the question "
+        "id: it does not clear the gate and fabricates an answer the user "
+        "never gave.",
+        "Blocking question requires user answer.",
+        plan_files_exempt=False,
+    ),
+)
+
+
+def check_lead_gates(
+    input_data: dict, smm_dir: Path | None, is_plan_file: bool
+) -> None:
+    """Raise BlockedError for the first armed lead-only gate. Teammates exempt.
+
+    The marker stat runs BEFORE the teammate probe, and the probe runs at most
+    once: run() is on the hot path for every Write/Edit/MultiEdit, and the
+    common case — lead, nothing armed — must not pay for a cwd parse, an env
+    read and a marker stat whose answer nothing consumes.
+
+    *smm_dir* is handed to the probe rather than left to its env fallback: that
+    leg reads $SMM_DIR and fails CLOSED without it, which would misread a live
+    in-place teammate as the lead and over-gate it.
+    """
+    if smm_dir is None:
+        return
+    for gate in _LEAD_GATES:
+        if gate.plan_files_exempt and is_plan_file:
+            continue
+        if not markers.marker_exists(smm_dir, gate.marker):
+            continue
+        if identity.is_worktree_teammate(input_data, smm_dir):
+            return  # a teammate can clear none of these gates
+        raise _common.BlockedError(gate.reason, gate.short)
+
+
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core logic. Returns additionalContext string or None. Raises BlockedError."""
     if _common.is_xp_agent(input_data):
@@ -262,51 +341,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 "File conflict detected — another agent is working on this file.",
             )
 
-    # Plan review gate. Plan files (.claude/plans/) are exempt. Teammates also
-    # exempt — planning belongs solely to the lead, and the marker lives in the
-    # shared SMM dir. Gating every agent would forbid the parallel pipeline's
-    # whole purpose: the lead plans story N+1 while a teammate executes story N.
-    is_plan_file = target_file and "/.claude/plans/" in target_file
-    plan_marker = (
-        smm_dir
-        and not is_plan_file
-        and not identity.is_worktree_teammate(input_data, smm_dir)
-        and markers.marker_exists(smm_dir, markers.PLAN_AWAITING_REVIEW)
-    )
-    if plan_marker:
-        raise _common.BlockedError(
-            "Run /xp-review-plan before writing code. "
-            "Plan review extracts assumptions, decisions, and risks for the SMM.",
-            "Plan review required before implementation.",
-        )
-
-    # Assign gate. Plan files exempt. Teammates also exempt — they were
-    # dispatched BY /xp-assign and share the SMM dir holding the marker.
-    assign_marker = (
-        smm_dir
-        and not is_plan_file
-        and not identity.is_worktree_teammate(input_data, smm_dir)
-        and markers.marker_exists(smm_dir, markers.ASSIGN_PENDING)
-    )
-    if assign_marker:
-        raise _common.BlockedError(
-            "Run /xp-assign to create the next story's branch and spawn its "
-            "teammate (per-story pipeline — one spawn per invocation) "
-            "before writing code.",
-            "Work assignment required before implementation.",
-        )
-
-    # Question gate
-    question_gate = smm_dir and markers.marker_exists(smm_dir, markers.QUESTION_GATE)
-    if question_gate:
-        raise _common.BlockedError(
-            "A blocking question needs the user's answer. AskUserQuestion is "
-            "the ONLY way to clear this — it records the answer and lifts the "
-            "gate. Do NOT record a decision/status event resolving the question "
-            "id: it does not clear the gate and fabricates an answer the user "
-            "never gave.",
-            "Blocking question requires user answer.",
-        )
+    # Plan, assign and question gates — all lead-only, all exempt plan files
+    # (.claude/plans/) except the question gate. See _LEAD_GATES.
+    is_plan_file = bool(target_file and "/.claude/plans/" in target_file)
+    check_lead_gates(input_data, smm_dir, is_plan_file)
 
     if target_file and smm_dir:
         tdd_nudge = check_tdd_order(smm_dir, agent_id, target_file)

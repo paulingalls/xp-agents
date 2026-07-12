@@ -304,6 +304,58 @@ class TestQuestionGate(_HookTestCase):
         self.assertIn("decision", msg.lower())
         self.assertIn("fabricat", msg.lower())
 
+    def test_teammate_worktree_exempt_from_question_gate(self):
+        """A teammate cannot clear a question gate, so it must not be gated.
+
+        The marker lives in the SHARED SMM dir and AskUserQuestion is the ONLY
+        thing that clears it -- but a headless teammate has no user to ask. A
+        gated teammate is stranded mid-implementation with no recovery path.
+        """
+        (self.smm_dir / ".question-gate").write_text("test-question-id")
+        teammate_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        result = pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("AskUserQuestion", result)
+
+    def test_in_place_teammate_exempt_from_question_gate(self):
+        """The in-place teammate shares the main checkout's cwd, so only its
+        live in-place marker discriminates it. It is just as unable to answer."""
+        (self.smm_dir / ".question-gate").write_text("test-question-id")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        in_place_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/src",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-010"}, clear=False
+        ):
+            result = pre_tool_write.run(in_place_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("AskUserQuestion", result)
+
+    def test_lead_still_gated_while_a_teammate_is_live(self):
+        """Positive control for the teammate exemption.
+
+        A live in-place teammate marker sits in the SMM dir, but THIS process is
+        the lead (no XP_TEAMMATE_NAME, cwd is the main checkout). The lead is the
+        only agent that can call AskUserQuestion, so it must still be gated. Pins
+        that the exemption keys on the writer's OWN identity -- not on the mere
+        existence of some teammate marker somewhere in the shared dir.
+        """
+        (self.smm_dir / ".question-gate").write_text("test-question-id")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        with self.assertRaises(_common.BlockedError) as ctx:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/Users/dev/proj/src"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertIn("AskUserQuestion", str(ctx.exception))
+
     def test_gate_persists_after_decision_metadata_resolves(self):
         """Regression guard: a decision with metadata.resolves=[question_id]
         must NOT clear the gate (only AskUserQuestion's answer event does).
@@ -330,6 +382,62 @@ class TestQuestionGate(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertIn("AskUserQuestion", str(ctx.exception))
+
+
+class TestLeadGateHotPath(_HookTestCase):
+    """run() fires on EVERY Write/Edit/MultiEdit, so the lead-only gate block
+    must not pay for the teammate probe it usually does not need."""
+
+    def test_no_armed_gate_skips_the_teammate_probe_entirely(self):
+        """Common case -- lead, nothing armed -- must not probe at all.
+
+        The probe parses cwd, reads the environment and can stat an in-place
+        marker. Ordering it before the marker stat taxes every write in the
+        overwhelmingly common no-marker case for an answer nothing consumes.
+        """
+        with patch.object(
+            pre_tool_write.identity, "is_worktree_teammate", return_value=False
+        ) as probe:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        probe.assert_not_called()
+
+    def test_teammate_probe_runs_at_most_once_when_gates_armed(self):
+        """Every lead-only gate shares one exemption, so one probe answers all.
+
+        With all three markers armed, a per-gate probe would re-parse cwd and
+        re-stat the in-place marker once per gate.
+        """
+        (self.smm_dir / ".plan-awaiting-review").write_text("p")
+        (self.smm_dir / ".assign-pending").write_text("a")
+        (self.smm_dir / ".question-gate").write_text("q")
+        teammate_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        with patch.object(
+            pre_tool_write.identity, "is_worktree_teammate", return_value=True
+        ) as probe:
+            pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
+        self.assertEqual(probe.call_count, 1)
+
+    def test_probe_receives_smm_dir_so_it_never_depends_on_the_env(self):
+        """The probe's env leg falls back to $SMM_DIR and fails CLOSED without
+        it. run() already holds a validated smm_dir, so it must hand it over --
+        otherwise a hook process with no SMM_DIR in env mistakes a live in-place
+        teammate for the lead and over-gates it."""
+        (self.smm_dir / ".assign-pending").write_text("a")
+        with patch.object(
+            pre_tool_write.identity, "is_worktree_teammate", return_value=True
+        ) as probe:
+            pre_tool_write.run(
+                _make_write_input(session_id="t", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        self.assertEqual(probe.call_args.args[1], self.smm_dir)
 
 
 class TestAcceptMarker(_HookTestCase):
