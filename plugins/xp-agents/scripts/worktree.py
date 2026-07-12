@@ -319,14 +319,22 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:
 
 # Back-compat re-exports for the in-place teammate marker (presence +
 # pid-liveness), split into in_place_marker.py when worktree.py crossed the
-# 500-line ceiling. `worktree.<name>` stays the import surface for identity,
-# pre_tool_skill, commit_handling, spawn_teammate and sprint_stop_gate.
+# 500-line ceiling. `worktree.<name>` stays the read surface for identity,
+# pre_tool_skill, commit_event and sprint_stop_gate. spawn_teammate — the
+# marker's only writer and only deleter — imports in_place_marker directly.
+#
+# Deletion is re-exported ONLY as remove_own_in_place_marker, which unlinks the
+# marker just while it is still the one we wrote. There is deliberately no
+# unguarded "remove it whoever wrote it" name here: it would sit next to the
+# guarded one as the obvious thing to reach for, and calling it would delete a
+# same-name respawn's LIVE marker — demoting that teammate to the lead and
+# misattributing its commits.
 from in_place_marker import (  # noqa: E402, F401
     has_live_in_place_teammate,
     in_place_marker_exists,
     in_place_marker_path,
     in_place_teammate_from_env,
-    remove_in_place_marker,
+    remove_own_in_place_marker,
     write_in_place_marker,
 )
 

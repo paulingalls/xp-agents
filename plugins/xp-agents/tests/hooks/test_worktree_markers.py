@@ -163,15 +163,15 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
         worktree.write_in_place_marker(self.smm_dir, "worktree-story-002")
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
-        worktree.remove_in_place_marker(self.smm_dir, "worktree-story-001")
+        worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-001")
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
-        worktree.remove_in_place_marker(self.smm_dir, "worktree-story-002")
+        worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-002")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_write_then_remove_lifecycle(self):
         worktree.write_in_place_marker(self.smm_dir, "worktree-story-007")
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
-        worktree.remove_in_place_marker(self.smm_dir, "worktree-story-007")
+        worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-007")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
 

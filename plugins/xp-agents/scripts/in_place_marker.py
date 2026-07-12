@@ -74,25 +74,18 @@ def write_in_place_marker(
     write_text_atomic(path, " ".join(str(p) for p in pids))
 
 
-def remove_in_place_marker(smm_dir: Path, name: str) -> None:
-    """Remove the in-place active marker (idempotent), whoever wrote it.
-
-    Unconditional. A supervisor tearing down its OWN episode must use
-    remove_own_in_place_marker instead — it races a same-name respawn, and this
-    deletes whatever sits at the path.
-    """
-    in_place_marker_path(smm_dir, name).unlink(missing_ok=True)
-
-
 def remove_own_in_place_marker(smm_dir: Path, name: str) -> None:
     """Remove the marker only while it is OURS and unchanged. Idempotent.
 
-    The supervisor's teardown is the SECOND unguarded unlink on this path (the
-    reap is the first), with the same blast radius: a same-name teammate
-    respawned while this supervisor is still running would have its LIVE marker
-    deleted by our `finally`, demoting it to the lead and misattributing its
-    commits. Kill-then-respawn is the documented recovery for a stuck teammate,
-    so this is a routine window, not an exotic one.
+    The ONLY way this module deletes a marker by name. The supervisor's teardown
+    is the second of the two doors onto the same disaster (the reap is the
+    other), with the same blast radius: a same-name teammate respawned while this
+    supervisor is still running would have its LIVE marker deleted by our
+    `finally`, demoting it to the lead and misattributing its commits.
+    Kill-then-respawn is the documented recovery for a stuck teammate, so this is
+    a routine window, not an exotic one. An unguarded sibling that "just unlinks"
+    would be the next person's default reach and would silently reopen it, which
+    is why no such helper exists.
 
     Ownership is proven by CONTENT, not by a stat remembered from write time. The
     marker's first pid is the supervisor that wrote it — us (see
