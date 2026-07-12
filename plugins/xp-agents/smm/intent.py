@@ -104,6 +104,15 @@ def build_retro_intent_map(events: list[dict], try_ids: set[str]) -> dict[str, d
     Targets are `references ∩ try_ids`. The intersection is load-bearing: an
     adopt event's reference bag also holds the debt/concern ids the Try cites,
     and those are NOT being adopted.
+
+    Note the FORCE-CLOSE gate solves this SAME "which id is the Try" question
+    with a DIFFERENT rule (`_try_targets`: an id absent from the log's top-level
+    ids is a Try). The two agree on every Try whose retrospective event is still
+    on disk. They diverge once compaction archives that event: `try_ids` goes
+    empty and this map falls silent (the Try reads as never-reviewed), while the
+    gate keeps counting. That is deliberate on the gate's side — it must fail
+    toward "still fires" — and it is the known compaction gap on this side. If
+    you change either rule, change it knowing the other exists.
     """
     return _build_intent_map(
         events,

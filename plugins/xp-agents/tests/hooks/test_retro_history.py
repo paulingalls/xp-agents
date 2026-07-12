@@ -365,5 +365,120 @@ class TestBuildResolutionsMapDisposition(_HookTestCase):
         self.assertNotIn("disposition", entry)
 
 
+class TestTryStatusProseContract(unittest.TestCase):
+    """The retro agent's PROMPT is the only gate on re-proposing an adopted Try.
+
+    No code filters adopted Tries out of the agent's input — the prose is what
+    stops the re-proposal, which makes `agents/xp-retrospective.md` production
+    code with a contract to honour. A green suite otherwise proves NOTHING about
+    this seam, and it has already drifted once: the closure channel can report
+    `disposition="deferred"` (a legacy defer that closed its target), and the
+    bullet telling the agent what to do with that state was deleted while the
+    code kept emitting it. The agent's fallback for an uncovered state is to read
+    `resolved_this_session: true` as "landed" — a carried Try reported as
+    delivered, the exact amnesia this milestone exists to end.
+
+    What this pins, honestly:
+      * every field key `_try_status` can emit is NAMED in the prose;
+      * every value each channel can carry is SPELLED WITH ITS CHANNEL
+        (`disposition: "deferred"`, not merely the word "deferred" somewhere) —
+        the pairing is the rule the agent acts on, and a bare mention elsewhere
+        is what let the deleted bullet slip through review.
+
+    What it does NOT pin: that the prose's ADVICE for a state is correct. That
+    stays human judgement. This is a floor, not a ceiling.
+
+    Keys are DERIVED by driving `_try_status` across every state it can reach,
+    never hardcoded — a hardcoded list is a second copy that drifts in its own
+    right.
+    """
+
+    def _emitted_keys(self) -> set[str]:
+        """Union of the keys `_try_status` emits across every reachable state."""
+        item = {"id": "a" * 12, "content": "carry the thing", "event_refs": []}
+        closure = {"resolver_id": "b" * 12, "resolver_type": "status"}
+        states = [
+            # CLOSURE channel: landed (no disposition), and each disposition
+            # build_resolutions_map can pass through from a resolver event.
+            ({item["id"]: closure}, {}),
+            ({item["id"]: {**closure, "disposition": "dropped"}}, {}),
+            ({item["id"]: {**closure, "disposition": "deferred"}}, {}),
+            ({item["id"]: {**closure, "disposition": "adopted"}}, {}),
+            # Legacy closing adoption: a `decision` resolver with no disposition.
+            ({item["id"]: {**closure, "resolver_type": EVENT_TYPE_DECISION}}, {}),
+            # INTENT channel.
+            (
+                {},
+                {
+                    item["id"]: {
+                        "intent": "adopted",
+                        "intent_by": "c" * 12,
+                        "intent_ts": "2026-01-01T00:00:00Z",
+                        "defer_count": 0,
+                    }
+                },
+            ),
+            (
+                {},
+                {
+                    item["id"]: {
+                        "intent": "deferred",
+                        "intent_by": "c" * 12,
+                        "intent_ts": "2026-01-01T00:00:00Z",
+                        "defer_count": 3,
+                    }
+                },
+            ),
+            # Neither channel.
+            ({}, {}),
+        ]
+        keys: set[str] = set()
+        for resolutions_map, intent_map in states:
+            keys |= set(retro_history._try_status(item, resolutions_map, intent_map))
+        return keys
+
+    def test_agent_prose_names_every_field_try_status_emits(self):
+        prose = (
+            Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
+        ).read_text(encoding="utf-8")
+        missing = sorted(k for k in self._emitted_keys() if k not in prose)
+        self.assertFalse(
+            missing,
+            "agents/xp-retrospective.md does not name these try_status fields, "
+            f"so the agent cannot act on them: {missing}. The prose is the only "
+            "gate on re-proposing an adopted Try — update it.",
+        )
+
+    def test_agent_prose_pairs_every_value_with_its_channel(self):
+        """Each value must be spelled WITH the channel that carries it.
+
+        A bare `"deferred"` somewhere in the prose is not a rule — the agent acts
+        on `<channel>: "<value>"`. Asserting the pairing is what makes this catch
+        the deleted `disposition: "deferred"` bullet; asserting the bare word
+        does not, because the intent bullet mentions it too.
+        """
+        prose = (
+            Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
+        ).read_text(encoding="utf-8")
+        # CLOSURE carries every disposition build_resolutions_map passes through
+        # from a resolver event; INTENT carries only the non-terminal two.
+        pairings = [
+            ("disposition", "adopted"),
+            ("disposition", "deferred"),
+            ("disposition", "dropped"),
+            ("intent", "adopted"),
+            ("intent", "deferred"),
+        ]
+        for channel, value in pairings:
+            with self.subTest(channel=channel, value=value):
+                self.assertIn(
+                    f'{channel}: "{value}"',
+                    prose,
+                    f"try_status can report {channel}={value!r}, but the agent "
+                    f"prose never states that pairing — so the agent has no rule "
+                    f"for that state and will fall back to reading it as landed.",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
