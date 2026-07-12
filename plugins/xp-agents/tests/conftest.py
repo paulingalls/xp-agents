@@ -157,7 +157,10 @@ from _cli_helpers import (  # noqa: E402, F401
     run_cli,
 )
 from _event_fixtures import (  # noqa: E402, F401
+    adopt_try_event,
     commit_event,
+    defer_try_event,
+    drop_try_event,
     failing_tests_concern,
     file_write_status,
     make_event,
@@ -165,6 +168,7 @@ from _event_fixtures import (  # noqa: E402, F401
     make_session_history_entry,
     passing_tests_status,
     tests_run_status,
+    triage_event,
     verify_events,
     write_events,
     write_smm_fixture,

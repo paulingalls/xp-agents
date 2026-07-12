@@ -165,7 +165,7 @@ def _build_retro_input(
     session_stats = _compute_session_stats(unanalyzed)
     digest = _build_retro_digest(events, start_idx, resolutions)
 
-    annotate_try_status(retro_history, build_resolutions_map(resolutions))
+    annotate_try_status(retro_history, build_resolutions_map(resolutions), events)
 
     decision_topics: list[str] = [
         topic

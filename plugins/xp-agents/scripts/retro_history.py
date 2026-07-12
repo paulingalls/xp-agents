@@ -14,8 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import intent
 import marker_names
-from event_schema import DISPOSITION_ADOPTED
+from event_schema import DISPOSITION_ADOPTED, EVENT_TYPE_DECISION
 
 MAX_RETRO_HISTORY = 1
 MAX_RETRO_FILE_SIZE = 1_048_576  # 1 MB
@@ -78,48 +79,90 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
     return result
 
 
-def annotate_try_status(previous_retros: list[dict], resolutions_map: dict) -> None:
-    """Annotate Try items on previous_retros[0] with try_status.
+def _candidate_ids(item) -> list[str]:
+    """The ids that might identify this Try, in strict precedence order:
+    its own id, then its event_refs in order, then hex tokens in its content in
+    match order. De-duplicated, first occurrence winning.
 
-    Attaches a parallel try_status list. Dropped Tries are NOT stripped —
-    the agent prompt rule "disposition='dropped' — do not re-propose" at
-    xp-retrospective.md:208 needs to see them. Cross-session drop memory
-    additionally surfaces via digest.dropped_tries_recent.
+    The ORDER is the fix. This was a `set`, and the lookup broke on the first
+    hit — so which id answered for the Try depended on PYTHONHASHSEED. While the
+    resolutions map was sparse that rarely bit; against a dense intent map it
+    makes the reported disposition a coin flip between the Try's own answer and
+    the answer belonging to some debt the Try's prose merely cites.
 
-    Only the most recent retro gets annotated — older retros already
-    went through a retro cycle, so their Try items are not candidates
-    for re-proposal. For each Try item, collect candidate ids: 12+ char
-    hex tokens in content, the event_refs list, and the Try's own id.
-    Direct lookup against resolutions_map (which keys on full event ids).
+    The Try's own id is the only id that IS the Try. Everything after it is a
+    fallback for Try items too old to carry one.
     """
-    if not previous_retros:
-        return
-    latest = previous_retros[0]
-    statuses: list[dict] = []
-    for item in latest.get("try", []):
-        content = item.get("content", "") if isinstance(item, dict) else item
-        refs = item.get("event_refs", []) if isinstance(item, dict) else []
-        own_id = item.get("id", "") if isinstance(item, dict) else ""
-        tokens = set(HEX_ID_RE.findall(content)) | set(refs)
-        if own_id:
-            tokens.add(own_id)
-        hit = None
-        for token in tokens:
-            hit = resolutions_map.get(token)
-            if hit:
-                break
-        if hit:
+    if not isinstance(item, dict):
+        return list(dict.fromkeys(HEX_ID_RE.findall(item or "")))
+    ids: list[str] = []
+    if own_id := item.get("id"):
+        ids.append(own_id)
+    ids.extend(item.get("event_refs", []))
+    ids.extend(HEX_ID_RE.findall(item.get("content", "")))
+    return list(dict.fromkeys(ids))
+
+
+def _try_status(item, resolutions_map: dict, intent_map: dict) -> dict:
+    """The status of ONE Try: closure if it has one, else intent, else neither.
+
+    Closure is consulted first for each candidate id, because terminal beats
+    intent — a Try that was adopted and later dropped is dropped.
+
+    The two answers stay in SEPARATE fields. `resolved_this_session` keeps its
+    closure-only meaning; an adoption reports `intent` instead. Overloading
+    `resolved_this_session` with "adopted" would hide the Try from work-selection
+    AND tell the retro agent it was implemented — a fresh amnesia, symmetric to
+    the one this milestone removes. Adopted is not done.
+    """
+    for token in _candidate_ids(item):
+        if hit := resolutions_map.get(token):
             entry: dict = {
                 "resolved_this_session": True,
                 "resolver_id": hit["resolver_id"],
             }
-            disposition = hit.get("disposition")
-            if disposition:
+            if disposition := hit.get("disposition"):
                 entry["disposition"] = disposition
-            elif hit.get("resolver_type") == "decision":
-                # Decisions without explicit disposition are adoptions
+            elif hit.get("resolver_type") == EVENT_TYPE_DECISION:
+                # Legacy read — the closure-channel twin of
+                # `intent._legacy_retro_disposition`. Before adoption stopped
+                # closing its target, adopting a Try wrote a `decision` carrying
+                # metadata.resolves and no disposition. No writer emits that
+                # shape now, but this reads the LOG, not the writers, and logs
+                # written before the change still hold it — on this project's
+                # own log, and on any install that upgrades mid-cycle. Such a
+                # Try is CLOSED, so the intent map excludes it by design and
+                # this is the only channel left that can speak for it. Silence
+                # here would read as "landed by a commit" (the other resolver
+                # that records no disposition) — a promise relabelled as
+                # delivery, this milestone's amnesia pointing the other way.
                 entry["disposition"] = DISPOSITION_ADOPTED
-            statuses.append(entry)
-        else:
-            statuses.append({"resolved_this_session": False})
-    latest["try_status"] = statuses
+            return entry
+        if recorded := intent_map.get(token):
+            return {"resolved_this_session": False, **recorded}
+    return {"resolved_this_session": False}
+
+
+def annotate_try_status(
+    previous_retros: list[dict], resolutions_map: dict, events: list[dict]
+) -> None:
+    """Annotate Try items on previous_retros[0] with try_status.
+
+    Attaches a parallel try_status list carrying two independent channels:
+    CLOSURE (`resolved_this_session` + `disposition` + `resolver_id`) and INTENT
+    (`intent` + `intent_by` + `intent_ts` + `defer_count`). See `_try_status`.
+
+    Dropped Tries are NOT stripped — the agent prompt rule "disposition='dropped'
+    — do not re-propose" needs to see them. Cross-session drop memory
+    additionally surfaces via digest.dropped_tries_recent.
+
+    Only the most recent retro gets annotated — older retros already went through
+    a retro cycle, so their Try items are not candidates for re-proposal.
+    """
+    if not previous_retros:
+        return
+    latest = previous_retros[0]
+    intent_map = intent.build_retro_intent_map(events, intent.retro_try_ids(events))
+    latest["try_status"] = [
+        _try_status(item, resolutions_map, intent_map) for item in latest.get("try", [])
+    ]

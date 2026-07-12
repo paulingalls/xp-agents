@@ -21,7 +21,6 @@ from conftest import _HookTestCase, make_event, make_retrospective_with_try
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_DEBT,
-    EVENT_TYPE_DECISION,
     EVENT_TYPE_STATUS,
 )
 
@@ -91,10 +90,15 @@ class TestGatherRetroHistoryAnalysisNotes(_HookTestCase):
         self.assertEqual(len(result), 1)
 
     def test_gather_preserves_try_id_for_annotation(self):
-        """A retro file's Try item id must survive slimming so
-        annotate_try_status can resolve it via the resolutions_map.
-        Without the id, Try items without event_refs always show
-        resolved=false (concern c5cb2ea74247)."""
+        """A retro file's Try item id must survive slimming so annotate_try_status
+        can match it. Without the id, Try items with no event_refs and no hex
+        token in their prose can never be matched at all (concern c5cb2ea74247).
+
+        Driven through the real adopt writer: the id survives iff the Try comes
+        back carrying the adoption's intent.
+        """
+        from conftest import adopt_try_event
+
         try_id = "abc111222333"
         self._write_retro(
             "2026-04-20T00-00-00.json",
@@ -112,18 +116,14 @@ class TestGatherRetroHistoryAnalysisNotes(_HookTestCase):
             },
         )
         gathered = retro_history.gather_retro_history(self.smm_dir)
-        rmap = {
-            try_id: {
-                "type": "other",
-                "resolver_id": "deadbeef0001",
-                "resolver_type": "decision",
-                "resolver_content": "Adopted",
-            }
-        }
-        retro_history.annotate_try_status(gathered, rmap)
+        events = [
+            make_retrospective_with_try(try_id, "Improve process with no event refs"),
+            adopt_try_event(self.smm_dir, try_id),
+        ]
+        retro_history.annotate_try_status(gathered, {}, events)
         status = gathered[0]["try_status"][0]
-        self.assertTrue(status["resolved_this_session"])
-        self.assertEqual(status["disposition"], "adopted")
+        self.assertEqual(status["intent"], "adopted")
+        self.assertFalse(status["resolved_this_session"])
 
 
 class TestTryItemIdResolution(unittest.TestCase):
@@ -158,7 +158,7 @@ class TestTryItemIdResolution(unittest.TestCase):
             }
         ]
         rmap = self._make_resolutions_map(try_id, "resolver999999")
-        retro_history.annotate_try_status(retros, rmap)
+        retro_history.annotate_try_status(retros, rmap, [])
         status = retros[0]["try_status"][0]
         self.assertTrue(status["resolved_this_session"])
 
@@ -170,12 +170,12 @@ class TestTryItemIdResolution(unittest.TestCase):
                 "fix": [],
             }
         ]
-        retro_history.annotate_try_status(retros, {})
+        retro_history.annotate_try_status(retros, {}, [])
         status = retros[0]["try_status"][0]
         self.assertFalse(status["resolved_this_session"])
 
 
-class TestEndToEndTryDispositionPipeline(unittest.TestCase):
+class TestEndToEndTryDispositionPipeline(_HookTestCase):
     """Pin the full compute_resolutions → build_resolutions_map →
     annotate_try_status pipeline. A status event with metadata.resolves=
     [try_id] disposition=dropped must propagate to the latest retro's
@@ -214,7 +214,7 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
                 "fix": [],
             }
         ]
-        retro_history.annotate_try_status(retros, rmap)
+        retro_history.annotate_try_status(retros, rmap, events)
 
         # Dropped tries are PRESERVED with disposition="dropped" so the
         # agent prompt rule at xp-retrospective.md:208 is reachable.
@@ -224,23 +224,23 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
         self.assertTrue(retros[0]["try_status"][0]["resolved_this_session"])
         self.assertEqual(retros[0]["try_status"][0]["disposition"], "dropped")
 
-    def test_adopt_via_metadata_resolves_marks_resolved_and_keeps_try(self):
-        """When a decision adopts a try via metadata.resolves, the try is
-        marked resolved_this_session and gets disposition='adopted' from
-        the resolver_type fallback in annotate_try_status. The try stays
-        in latest.try (no stripping for any disposition).
+    def test_adopt_via_the_real_writer_reports_intent_and_stays_unresolved(self):
+        """AC1 end-to-end, through the same pipeline production runs.
+
+        This test used to build a `decision` carrying metadata.resolves and
+        assert the Try came back RESOLVED. No writer has produced that shape
+        since adoption stopped closing its target — the test was green while
+        production was broken, which is the exact failure this story is about.
+        It now calls the real writer, and asserts BOTH halves: the Try reports
+        intent=adopted, and compute_resolutions still reports it UNRESOLVED.
         """
         import resolution
+        from conftest import adopt_try_event
         from retro_metrics import build_resolutions_map
 
         try_id = "aa22bb3344cc"
         retro_event = make_retrospective_with_try(try_id, "Try to adopt")
-        adopter = make_event(
-            EVENT_TYPE_DECISION,
-            content="Adopt the try",
-            topic="retro-try-adopt",
-            metadata={"resolves": [try_id]},
-        )
+        adopter = adopt_try_event(self.smm_dir, try_id)
         events = [retro_event, adopter]
 
         resolutions = resolution.compute_resolutions(events)
@@ -253,11 +253,15 @@ class TestEndToEndTryDispositionPipeline(unittest.TestCase):
                 "fix": [],
             }
         ]
-        retro_history.annotate_try_status(retros, rmap)
+        retro_history.annotate_try_status(retros, rmap, events)
 
+        status = retros[0]["try_status"][0]
         self.assertEqual(len(retros[0]["try"]), 1)
-        self.assertTrue(retros[0]["try_status"][0]["resolved_this_session"])
-        self.assertEqual(retros[0]["try_status"][0]["disposition"], "adopted")
+        self.assertEqual(status["intent"], "adopted")
+        self.assertEqual(status["intent_by"], adopter["id"])
+        # Linking is not closing: adoption must NOT resolve the Try.
+        self.assertFalse(status["resolved_this_session"])
+        self.assertNotIn(try_id, resolution.collect_all_resolved_ids(resolutions))
 
     def test_cascade_does_not_close_unrelated_event_referencing_retro_try(self):
         """Concern ade2305a435a: synthetic retro_try entries are visible to

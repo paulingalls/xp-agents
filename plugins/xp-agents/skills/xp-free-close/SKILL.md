@@ -32,7 +32,7 @@ allowed-tools:
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the recorded plan branch when `execution_plan.json` sets one (and that branch exists locally), else the primary integration branch (sprint-close parity) — a free branch forked off a plan branch merges back to the plan branch, never to main. Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
-**Commit trailer reminder.** When a commit on this free branch closed a carried retro Try (an adopted `retro-try-*` decision from this or a prior session), the commit body should include `Resolves-Event: <try-id-or-ref>` so `try_status` closes the loop. Cascade closure via the adoption decision's `metadata.resolves` covers most cases; explicit trailers cover the rest.
+**Commit trailer reminder — this is the ONLY leg that closes a Try.** When a commit on this free branch lands a carried retro Try (one adopted via `/xp-work-selection adopt`), the commit body **must** include `Resolves-Event: <try-id>`. Adoption now *links* its Try rather than closing it — deliberately, so that taking work on cannot close the item that verifies the work landed. There is no cascade to fall back on: without the trailer, the Try stays open forever and the retro agent keeps carrying it as adopted-but-never-landed.
 
 ## Step 1: Pre-flight
 
