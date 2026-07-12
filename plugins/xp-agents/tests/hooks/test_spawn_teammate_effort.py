@@ -22,6 +22,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+# Imported for its side effect as well as its symbols: conftest installs the
+# suite-wide backstop that makes launching the real `claude` binary impossible
+# (see test_no_test_can_spawn_a_real_agent.py). Under `unittest discover` — what
+# CI runs — conftest loads ONLY because a test module imports it, and this module
+# drives spawn_teammate.main(), whose tail is the real spawn.
+import conftest  # noqa: F401
+
 
 def _capture_spawn(extra_args: list[str]) -> tuple[list[str], str]:
     """Run spawn_teammate.main with a throwaway prompt file and patched

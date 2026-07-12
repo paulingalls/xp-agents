@@ -70,7 +70,7 @@ class TestResolveStoryId(_HookTestCase):
         assignment.write_text("story-002")
         # A live in-place teammate has the lifetime-scoped marker written by
         # spawn_teammate — required before the env-derived name is trusted.
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-002")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-002")
         with mock.patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-002"}):
             # cwd is the MAIN checkout (no worktree path marker).
             result = commit_handling._resolve_story_id(

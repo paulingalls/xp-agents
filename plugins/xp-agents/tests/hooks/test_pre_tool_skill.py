@@ -76,7 +76,7 @@ class TestTeammateLifecycleGate(_HookTestCase):
         """
         import worktree
 
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-008")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-008")
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-008"}):
             reason = pre_tool_skill.teammate_block_reason(
                 _make_skill_input("xp-sprint-close", cwd="/home/user/project"),
