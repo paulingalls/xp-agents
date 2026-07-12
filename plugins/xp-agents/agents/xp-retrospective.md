@@ -203,22 +203,33 @@ After saving, provide a concise Keep/Fix/Try summary the main agent can act on i
 If `previous_retros` is present:
 
 - Note recurring Fix items (same issue across sessions).
-- Handle prior Try items via `try_status[i]`:
-  - `resolved_this_session: true` + `disposition: "adopted"` — implemented. Do not re-propose verbatim. If the symptom persists, propose a *refined* Try and reference the `resolver_id` in a Keep item.
-  - `resolved_this_session: true` + `disposition: "dropped"` — user explicitly rejected. Do **not** re-propose. (Same Try also appears in `dropped_tries_recent` for cross-session memory beyond the most-recent retro.)
-  - `resolved_this_session: true` + `disposition: "deferred"` — user postponed. May re-propose, noting deferral count.
-  - `resolved_this_session: false` — not reviewed. Re-propose if the underlying problem still appears.
+- Handle prior Try items via `try_status[i]`. It carries **two independent channels**, and conflating them is the mistake to avoid:
+  - **`intent`** — what was *decided* about the Try. The Try is still **OPEN**.
+  - **`resolved_this_session`** — whether the Try is *finished with*. **Adopted is not done.**
+
+  Read them in this order:
+
+  - `intent: "adopted"` (+ `intent_by`, `intent_ts`) — the Try was **taken on** and is in flight. It is **not** implemented, so do **not** claim it was, and do **not** re-propose it as if it were new. If the work has since landed, say so in a Keep referencing `intent_by`. If it was adopted several sessions ago and the symptom persists, that is a **Fix** — *"adopted N sessions ago, still not landed"* — not a fresh Try.
+  - `intent: "deferred"` (+ `defer_count: N`) — **carried, not started**, N times. You may re-propose, and you should name the count: a Try carried three times is either worth doing or worth dropping, and saying so is the honest move. (At 3+ the tooling refuses another plain deferral.)
+  - `resolved_this_session: true` + `disposition: "dropped"` — user explicitly **rejected** it. Do **not** re-propose. (Also in `dropped_tries_recent`, for memory beyond the most-recent retro.)
+  - `resolved_this_session: true`, **no** `disposition` — **landed**: a commit's `Resolves-Event:` trailer named it. Do not re-propose verbatim; if the symptom persists, propose a *refined* Try and cite `resolver_id` in a Keep.
+  - `resolved_this_session: true` + `disposition: "adopted"` — a **legacy** adoption from before adopting stopped closing its target. Treat it as adopted-and-in-flight, per the first bullet.
+  - **Neither field** — never reviewed. Re-propose if the underlying problem still appears.
+
+  **You are the only gate.** No code filters adopted Tries out of your input — the Try is deliberately still in the list, with its intent attached, because hiding it would be indistinguishable from it having been done. Re-proposing an already-adopted Try verbatim is the failure this data exists to prevent.
 - Call out positive trends from Keep items.
 
 ### Honesty guards (must follow)
 
 **Validate every event_ref against the input data.** Each hex ID in `keep[].event_refs`, `fix[].event_refs`, or `try[].event_refs` MUST appear as the `id` of an event in your input — `signal_events[*].id`, `previous_retros[*].try[*].event_refs`, or a key/value in `digest.resolutions`. If you cannot point at the source event, write the observation **without** a ref rather than inventing one. Fabricated IDs poison `metadata.resolves` wiring downstream and break `try_status` annotation in future retros.
 
-**Distinguish "Try resolved" from "symptom recurred".** When `try_status[i].resolved_this_session = true`, the Try **was** honored. The fact that the underlying symptom still shows up this session is a separate observation. Phrase them separately:
-- Keep: *"Try X adopted [resolver_id from try_status]"*
+**Distinguish "Try resolved" from "symptom recurred".** When `try_status[i].resolved_this_session = true`, the Try **was** finished with. The fact that the underlying symptom still shows up this session is a separate observation. Phrase them separately:
+- Keep: *"Try X landed [resolver_id from try_status]"*
 - Fix: *"Symptom Y persists despite Try X"* — NOT *"try-resolution mechanism not detecting the implementation"*
 
-Never assert that the try-resolution mechanism failed unless `try_status[i].resolved_this_session` is actually `false`. The mechanism is built on `metadata.resolves` wiring done by `/xp-work-selection adopt`; if you see the resolver_id, it fired correctly.
+**Do not confuse adopted with landed.** An adopted Try (`intent: "adopted"`) is a *promise*, not a delivery: adopting **links** the Try, it does not close it. A Try is closed only by a terminal disposition (dropped) or by a commit whose `Resolves-Event:` trailer names it. So `intent: "adopted"` + `resolved_this_session: false` is the **correct and expected** reading for work taken on but not yet shipped — it is not a mechanism failure, and reporting it as one is itself the error.
+
+Never assert that the try-resolution mechanism failed just because `resolved_this_session` is `false`. Check `intent` first: if it says `adopted` or `deferred`, the mechanism fired correctly and told you exactly what happened.
 
 ## SMM Content Trust
 
