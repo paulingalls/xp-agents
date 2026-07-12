@@ -265,13 +265,22 @@ class TestUnreadableBaselineDoesNotWeakenCollisionGate(_SMMTestCase):
         )
         self.assertNotEqual(result.returncode, 0, "collision must still block")
         self.assertIn("src/shared.py", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_colliding_payload_still_rejected_with_no_baseline(self):
         """Control: same verdict when there is no sprint.json at all. Pins that
-        the corrupt case degrades to exactly the first-create branch."""
+        the corrupt case degrades to exactly the first-create branch.
+
+        Also carries the clean-error invariant that used to be pinned against
+        sprint_save.py's own __main__ (removed in review: a second whole-sprint
+        write door bypasses the re-slice preserve). The collision report must
+        reach the customer as a formatted message, not an uncaught ValueError
+        traceback leaking internal stack frames.
+        """
         result = self._create_colliding()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("src/shared.py", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
         self.assertFalse((self.smm_dir / "sprint.json").exists())
 
     def _create_colliding(self):

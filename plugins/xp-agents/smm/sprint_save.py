@@ -12,14 +12,17 @@ xp-work-selection, and xp-accept. After writing sprint.json it:
   iteration_complete status event, and — if the sprint is now complete —
   prints a sprint-review nudge to stdout for the main agent to see.
 
-Usage:
-    echo '<json>' | python3 sprint_save.py --smm-dir DIR
+Library only — no CLI entrypoint, deliberately. `sprint_cli.py create` is the
+sole way to write a whole sprint, because the re-slice preserve
+(sprint_cli_mutate._preserve_branch_names) runs at that layer: a second
+`python3 sprint_save.py < payload` door would reach run() without it and
+silently re-drop every recorded branch_name on a same-id re-create — the exact
+bug story-005 closed. Callers import run() (structural mutations) or save()
+(side-effect-free write).
 """
 
-import argparse
 import contextlib
 import copy
-import json
 import os
 import re
 import sys
@@ -471,30 +474,3 @@ def run(data: dict, smm_dir: Path) -> None:
         is_done = not sprint_store.has_active_stories_data(data)
         if is_done:
             print(_SPRINT_REVIEW_NUDGE)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Save sprint.json atomically")
-    parser.add_argument(
-        "--smm-dir",
-        type=Path,
-        required=True,
-        help="SMM directory path",
-    )
-    args = parser.parse_args()
-
-    raw = sys.stdin.read()
-    data = json.loads(raw)
-    # run() raises ValueError on a file_domain collision (and other validation
-    # failures). Surface it as a clean, formatted message + exit 1 — parity with
-    # sprint_cli_mutate, which wraps run() the same way — rather than letting the
-    # collision report escape as an uncaught traceback with internal stack frames.
-    try:
-        run(data, args.smm_dir)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

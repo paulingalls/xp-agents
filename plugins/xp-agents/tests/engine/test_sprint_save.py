@@ -5,6 +5,10 @@ Relocated from tests/hooks/test_sprint_start.py in sprint-108 M1 when the
 sprint-mutation pipeline (run/save) moved from the xp-sprint-start skill into
 the engine module smm/sprint_save.py. Sister-test auto-inclusion lives in
 test_sprint_save_sisters.py.
+
+sprint_save is a LIBRARY — it has no CLI entrypoint, so these tests drive
+run()/save() in-process. The collision-as-clean-error invariant is pinned
+against the real entrypoint (`sprint_cli create`) in test_sprint_cli_create.py.
 """
 
 import json
@@ -17,13 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import sprint_save
 from _system_context_fixtures import read_events
-from conftest import _SMMTestCase, make_milestone_dict, run_cli
-from conftest import make_sprint_dict as _make_sprint
-from conftest import make_story_dict as _make_story
+from conftest import _SMMTestCase, make_milestone_dict
 from event_helpers import events_of_type
 from event_schema import EVENT_TYPE_CONCERN, event_action
-
-_SAVE_CLI = Path(__file__).parent.parent.parent / "smm" / "sprint_save.py"
 
 
 class TestSaveSprint(_SMMTestCase):
@@ -318,36 +318,6 @@ class TestSaveSprintMilestoneTransition(_SMMTestCase):
             ),
             f"expected leaked-milestone concern; got {concerns}",
         )
-
-
-class TestSaveSprintCLICollision(_SMMTestCase):
-    """sprint_save.py's own __main__ entrypoint surfaces a file_domain
-    collision as a clean, formatted error — parity with sprint_cli_mutate,
-    which already wraps run() in try/except ValueError. Without the handler
-    the collision gate's ValueError escapes as an uncaught traceback that
-    leaks internal stack frames instead of the collision report."""
-
-    def test_collision_via_main_is_clean_error_not_traceback(self):
-        colliding = _make_sprint(
-            stories=[
-                _make_story(
-                    id="story-001",
-                    status="ready",
-                    dependencies=[],
-                    file_domain=["src/shared.py — first"],
-                ),
-                _make_story(
-                    id="story-002",
-                    status="ready",
-                    dependencies=[],
-                    file_domain=["src/shared.py — second"],
-                ),
-            ]
-        )
-        result = run_cli(_SAVE_CLI, [], self.smm_dir, json.dumps(colliding))
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
-        self.assertIn("src/shared.py", result.stderr)
 
 
 if __name__ == "__main__":
