@@ -268,6 +268,38 @@ def resolve_sprint_branch_name(
     resumed re-slice branch as ``created:`` — the slug-built name never exists on
     a re-slice, which is the entire point — and SKILL.md Step 8 routes its
     adopt/rename prompt on that token. One resolver, one answer, both callers.
+
+    THIS IS A CREATION ANSWER, NOT A NAVIGATION ANSWER. The name it returns MAY
+    NOT EXIST YET — on a fresh sprint it is guaranteed not to, which is the whole
+    job. NEVER route a checkout or a merge base through it.
+
+    ``resolve_story_base`` looks like a near-duplicate of this and CANNOT be
+    collapsed onto it. That collapse has been proposed once already and rejected;
+    the rejection lives HERE, not only in the event log, because the next agent to
+    notice the resemblance will read the function, not the SMM. Two reasons, both
+    load-bearing:
+
+    1. VERIFICATION POSTURE IS OPPOSITE. This function's fallback arm is
+       deliberately UNVERIFIED — it answers "what name WILL create_sprint_branch
+       use?", so the branch must be allowed not to exist. resolve_story_base can
+       never return such a name: every arm of it that returns a SPRINT branch is
+       _verified_local-checked, and when that check fails it returns None rather
+       than the unverified name, because it answers "what ref do I hand to `git
+       checkout` / `git merge`?" (Its other two arms return the primary branch —
+       degradations, not sprint-branch guesses.) Collapsing them would hand git a
+       branch that is absent in precisely the fresh-sprint case. That is worse
+       than the bug story-008 fixed: a degraded base at least pointed at a real
+       branch.
+    2. LOUDNESS IS OPPOSITE. This reads through ``load_sprint_fail_open`` because
+       it runs BELOW the stage gate, where a corrupt sprint.json must degrade to
+       a clean no-op. resolve_story_base reads through the loud ``load_sprint``
+       because it runs ABOVE the gate and feeds the branch we merge INTO, where
+       silently swallowing corruption is unacceptable. Routing one through the
+       other would swallow a corrupt sprint on the merge path.
+
+    (They also take different inputs — this one is handed sprint_id + slug;
+     resolve_story_base must load the sprint to find them. That difference is
+     real but incidental; the two above are the reasons.)
     """
     return _recorded_sprint_branch(cwd, smm_dir, sprint_id) or branch_name(
         identity.user_namespace(cwd), sprint_id, slug

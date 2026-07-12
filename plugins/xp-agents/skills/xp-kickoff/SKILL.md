@@ -43,7 +43,7 @@ If `STAGE < 2`, invoke `/xp-stage-migration` (it sets the Stage 2 floor directly
 **Orphan free-branch triage.** If the preload shows **ORPHAN_FREE_BRANCHES**, ask via `AskUserQuestion` for each: **merge / keep / delete?**
 - **merge** — invoke `/xp-free-close` against that branch (check it out first if needed).
 - **keep** — leave the branch alone.
-- **delete** — `branching.py delete --branch <name>`. Do not auto-delete branches with commits ahead of primary.
+- **delete** — `branching.py delete --cwd . --branch <name>`. Do not auto-delete branches with commits ahead of primary.
 
 **Orphan story-branch triage.** If the preload shows **ORPHAN_STORY_BRANCHES**, ask via `AskUserQuestion` for each: **merge / keep / delete?**
 - **merge** — `branching.py merge-branch --cwd . --branch <name>`, then `branching.py delete --cwd . --branch <name>`.

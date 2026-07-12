@@ -29,10 +29,11 @@ import sprint_store
 # resolves the name in that module's globals. Patch where the caller lives.
 from branch_lifecycle import (  # noqa: F401
     _fast_forward_if_safe,
-    _is_merged_into,
     _merge_into_target,
     delete_branch,
+    is_merged_into,
     merge_branch,
+    survives_delete_of,
 )
 from branch_names import (  # noqa: F401
     _SPRINT_BRANCH_RE,

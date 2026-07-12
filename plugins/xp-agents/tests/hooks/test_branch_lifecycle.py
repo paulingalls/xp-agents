@@ -42,14 +42,14 @@ class TestIsMergedInto(unittest.TestCase):
             init_repo(td)
             main = get_current_branch(td)
             _checkout_new(td, "feat")
-            self.assertTrue(branch_lifecycle._is_merged_into(td, main, "feat"))
+            self.assertTrue(branch_lifecycle.is_merged_into(td, main, "feat"))
 
     def test_diverged_returns_false(self):
         with tempfile.TemporaryDirectory() as td:
             init_repo(td)
             _checkout_new(td, "feat")
             append_commit(td, "feat.txt")
-            self.assertFalse(branch_lifecycle._is_merged_into(td, "feat", "main"))
+            self.assertFalse(branch_lifecycle.is_merged_into(td, "feat", "main"))
 
 
 class TestFastForwardIfSafe(unittest.TestCase):

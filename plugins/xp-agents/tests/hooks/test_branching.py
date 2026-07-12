@@ -41,16 +41,18 @@ class TestBranchLifecycleShimImports(unittest.TestCase):
     def test_lifecycle_symbols_resolve_via_branching(self):
         from branching import (
             _fast_forward_if_safe,
-            _is_merged_into,
             _merge_into_target,
             delete_branch,
+            is_merged_into,
             merge_branch,
+            survives_delete_of,
         )
 
         for fn in (
             delete_branch,
             merge_branch,
-            _is_merged_into,
+            is_merged_into,
+            survives_delete_of,
             _fast_forward_if_safe,
             _merge_into_target,
         ):
