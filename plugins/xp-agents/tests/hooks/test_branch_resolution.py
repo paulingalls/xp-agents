@@ -226,5 +226,69 @@ class TestResolveStoryBaseCorruptSprint(_ResolverTestCase):
                 call()
 
 
+class TestGetBaseCLI(_ResolverTestCase):
+    """The chokepoint. `get-base` serves BOTH postures from one subcommand, so
+    the fail-loud is opt-in: --required for the callers that branch from or
+    merge into the answer, default-degrading for the ones that only probe.
+    """
+
+    def _get_base(self, *flags: str):
+        cli = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+        return subprocess.run(
+            [
+                *[sys.executable, cli, "--smm-dir", str(self.smm_dir)],
+                *["get-base", "--cwd", self.cwd, *flags],
+            ],
+            capture_output=True,
+            text=True,
+            env=_bf.GIT_ENV,
+        )
+
+    def _break_the_sprint_branch(self) -> None:
+        """Stage 2, sprint exists, neither candidate branch does."""
+        _bf.write_system_context(self.smm_dir, stage=2)
+        _bf.write_sprint_json(self.smm_dir, "sprint-042", "ship it")
+        sprint_store.set_branch(self.smm_dir, "test/sprint-042-deleted")
+
+    def test_required_on_unresolvable_exits_1_with_empty_stdout(self):
+        """Empty-stdout-on-failure is a HARD CONTRACT, not a nicety: the
+        story-close preload does BASE=$(... get-base --required), and any byte
+        on stdout becomes the ref it merges INTO. The reason goes to stderr,
+        which is a separate stream precisely so a warning (log_hook_error
+        mirrors to stderr even on the SUCCESS path) can never be spliced into a
+        branch name."""
+        self._break_the_sprint_branch()
+        r = self._get_base("--required")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "", "stdout must be EMPTY on refusal")
+        self.assertTrue(r.stderr.strip(), "the reason belongs on stderr")
+        self.assertIn("sprint-042", r.stderr)
+
+    def test_default_on_unresolvable_still_prints_primary_and_exits_0(self):
+        """PINS the degrading contract xp-quality-review depends on for its
+        diff range. Adding --required must not have changed the default."""
+        self._break_the_sprint_branch()
+        r = self._get_base()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "main")
+
+    def test_required_on_resolvable_prints_the_sprint_branch(self):
+        _bf.write_system_context(self.smm_dir, stage=2)
+        _bf.make_branch(self.cwd, "test/sprint-042-ship-it")
+        _bf.write_sprint_json(self.smm_dir, "sprint-042", "ship it")
+        sprint_store.set_branch(self.smm_dir, "test/sprint-042-ship-it")
+        r = self._get_base("--required")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "test/sprint-042-ship-it")
+
+    def test_required_with_no_sprint_does_not_over_fire(self):
+        """The over-fire canary at the CLI seam: --required must NOT raise for
+        the legitimate degradations, or every no-sprint repo halts."""
+        _bf.write_system_context(self.smm_dir, stage=2)
+        r = self._get_base("--required")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), "main")
+
+
 if __name__ == "__main__":
     unittest.main()

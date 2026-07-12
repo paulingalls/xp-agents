@@ -100,8 +100,35 @@ def _cmd_create_sprint(args: argparse.Namespace) -> int:
 
 
 def _cmd_get_base(args: argparse.Namespace) -> int:
-    result = branching.get_story_base_branch(Path(args.smm_dir), args.cwd)
-    print(result)
+    """Print the story base branch. ``--required`` refuses to guess.
+
+    One subcommand, two postures, because one answer genuinely serves both:
+    callers that BRANCH FROM or MERGE INTO the base (xp-assign, xp-schedule,
+    xp-story-close) pass --required and must halt rather than act on a
+    degraded primary; callers that only PROBE (xp-quality-review's diff range)
+    take the default and are right to degrade.
+
+    The default is unchanged, deliberately — the degrading callers carry zero
+    risk from this flag existing.
+
+    On refusal: NOTHING on stdout, the reason on stderr, exit 1. Empty stdout
+    is a HARD CONTRACT — the story-close preload does BASE=$(... --required),
+    so any byte here becomes the ref it merges into. That is also why the two
+    streams stay separate and the caller keys off the EXIT CODE, never
+    `2>&1`: _common.log_hook_error mirrors to stderr always, and can fire on
+    the SUCCESS path (auto-promote against a read-only SMM), so folding stderr
+    into stdout would splice a warning into a branch name.
+    """
+    smm_dir = Path(args.smm_dir)
+    if not args.required:
+        print(branching.get_story_base_branch(smm_dir, args.cwd))
+        return 0
+    try:
+        base = branching.get_story_base_branch_required(smm_dir, args.cwd)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    print(base)
     return 0
 
 
@@ -345,6 +372,15 @@ def main() -> int:
 
     p_base = sub.add_parser("get-base", help="Print story base branch")
     p_base.add_argument("--cwd", required=True)
+    p_base.add_argument(
+        "--required",
+        action="store_true",
+        help=(
+            "Refuse to degrade: exit 1 with an empty stdout and a reason on "
+            "stderr when the story base cannot be honestly resolved. For "
+            "callers that branch from or merge into the answer."
+        ),
+    )
     p_base.set_defaults(func=_cmd_get_base)
 
     p_stage = sub.add_parser("stage", help="Print branching stage")
