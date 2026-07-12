@@ -185,6 +185,32 @@ DISPOSITION_DROPPED = "dropped"
 # via metadata.resolves.
 DISPOSITION_WONT_FIX = "wont_fix"
 
+# The dispositions that constitute terminal disposition of a target: the
+# writer is done with it and nobody will come back to it. Only these may
+# close a target via metadata.resolves. `adopted` and `deferred` are the
+# non-terminal ones — they record intent (work taken on / work carried),
+# and an event that records intent must never close the item that verifies
+# the work actually landed.
+_TERMINAL_DISPOSITIONS = frozenset({DISPOSITION_DROPPED, DISPOSITION_WONT_FIX})
+
+
+def is_closing(event: dict) -> bool:
+    """True when *event* carries a terminal disposition, i.e. it is evidence
+    that its target is finished with rather than merely referenced.
+
+    Closing is a property of the disposition, NOT of the event type: a status
+    event can be either, and a `decision` never is. Single source of truth for
+    both directions of the split — the writer routes suffix-derived ids to
+    metadata.resolves (closing) or `references` (intent) on this predicate, and
+    consumers that need the NON-terminal set derive it by negation. A
+    re-derived second copy is how those two legs drift back apart.
+    """
+    metadata = event.get("metadata")
+    if not metadata:
+        return False
+    return metadata.get(METADATA_KEY_DISPOSITION) in _TERMINAL_DISPOSITIONS
+
+
 # Retrospective event metadata.action discriminators — distinguish session
 # retros from sprint retros so the session-start watermark scanner only
 # advances on session retros. Without this, a sprint retro at end of session
