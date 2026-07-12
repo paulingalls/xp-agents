@@ -262,11 +262,15 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 "File conflict detected — another agent is working on this file.",
             )
 
-    # Plan review gate. Plan files (.claude/plans/) are exempt.
+    # Plan review gate. Plan files (.claude/plans/) are exempt. Teammates also
+    # exempt — planning belongs solely to the lead, and the marker lives in the
+    # shared SMM dir. Gating every agent would forbid the parallel pipeline's
+    # whole purpose: the lead plans story N+1 while a teammate executes story N.
     is_plan_file = target_file and "/.claude/plans/" in target_file
     plan_marker = (
         smm_dir
         and not is_plan_file
+        and not identity.is_worktree_teammate(input_data, smm_dir)
         and markers.marker_exists(smm_dir, markers.PLAN_AWAITING_REVIEW)
     )
     if plan_marker:
@@ -281,7 +285,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     assign_marker = (
         smm_dir
         and not is_plan_file
-        and not identity.is_worktree_teammate(input_data)
+        and not identity.is_worktree_teammate(input_data, smm_dir)
         and markers.marker_exists(smm_dir, markers.ASSIGN_PENDING)
     )
     if assign_marker:

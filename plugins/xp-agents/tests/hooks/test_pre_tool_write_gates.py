@@ -5,9 +5,11 @@ accept marker.
 Split from test_pre_tool_write.py -- keeps gate-related test classes separate.
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,6 +20,7 @@ import _common
 import markers
 import pre_tool_write
 import sprint_state
+import worktree
 from conftest import (
     SPRINT_CLOSING_ONLY,
     SPRINT_IN_PROGRESS,
@@ -148,6 +151,42 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
         if result:
             self.assertNotIn("xp-review-plan", result)
 
+    def test_teammate_worktree_exempt_from_plan_gate(self):
+        """A teammate never plans, so the lead's plan marker must not gate it.
+
+        The parallel pipeline exists so the lead can plan story N+1 while a
+        teammate executes story N; a global gate forbids exactly that state.
+        """
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text("/Users/x/.claude/plans/lead-plan.md")
+        teammate_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        result = pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("xp-review-plan", result)
+
+    def test_in_place_teammate_exempt_from_plan_gate(self):
+        """The in-place teammate runs in the MAIN checkout, so cwd cannot
+        discriminate it. Its live in-place marker must, or solo delegation is
+        gated by the lead's own plan marker."""
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text("/Users/x/.claude/plans/lead-plan.md")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        in_place_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/src",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-010"}, clear=False
+        ):
+            result = pre_tool_write.run(in_place_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("xp-review-plan", result)
+
 
 class TestAssignPendingGate(_HookTestCase):
     """PreToolUse blocks writes when /xp-assign hasn't run."""
@@ -198,6 +237,29 @@ class TestAssignPendingGate(_HookTestCase):
             tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
         )
         result = pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
+        if result:
+            self.assertNotIn("xp-assign", result)
+
+    def test_in_place_teammate_exempt_from_assign_gate_without_smm_dir_env(self):
+        """The in-place teammate is identified via its marker under smm_dir.
+
+        Passing smm_dir explicitly is load-bearing: the env leg falls back to
+        $SMM_DIR, so a hook process running without that var would fail closed
+        and over-gate a real teammate as the lead.
+        """
+        marker = self.smm_dir / ".assign-pending"
+        marker.write_text("xp-plan-reviewer")
+        worktree.write_in_place_marker(self.smm_dir, "worktree-story-010")
+        in_place_input = _make_write_input(
+            session_id="t",
+            cwd="/Users/dev/proj/src",
+            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
+        )
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-010"}, clear=False
+        ):
+            os.environ.pop("SMM_DIR", None)
+            result = pre_tool_write.run(in_place_input, smm_dir=self.smm_dir)
         if result:
             self.assertNotIn("xp-assign", result)
 
