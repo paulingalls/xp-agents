@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
+from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
     _LintTmpDirMixin,
@@ -248,7 +249,11 @@ class TestBashFailureConcernContent(_HookTestCase):
         concerns = events_of_type(events, EVENT_TYPE_CONCERN)
         self.assertEqual(len(concerns), 1)
         content = concerns[0]["content"]
-        self.assertIn("Test command failed", content)
+        # The gate reads concerns through TEST_CONCERN_RE, so that — not any
+        # one prefix — is the contract. This command is compound, and its
+        # payload corroborates real counts, so the concern reports those
+        # ("Test failures detected: 1 failed") rather than a bare exit code.
+        self.assertRegex(content, TEST_CONCERN_RE)
         self.assertNotIn("test session starts", content)
         self.assertLess(len(content), 200)
 

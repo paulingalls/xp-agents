@@ -31,7 +31,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not events:
         return None
 
-    signal = tdd_check.find_last_test_signal(events)
+    signal = tdd_check.find_last_test_signal(events, input_data.get("cwd", "."))
     if signal == "fail":
         return "Tests are failing. Fix failing tests before completing task."
 
