@@ -283,15 +283,6 @@ def main(argv: list[str] | None = None) -> None:
     plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
     cmd = build_command(name, args.model, plugin_dir, args.effort)
 
-    # Commit attribution: the teammate's name-keyed .story-assignment file is
-    # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
-    # worktree marker; an in-place child's cwd is the main checkout (no marker),
-    # so commit_handling recovers the name from the exported XP_TEAMMATE_NAME
-    # instead. Write the assignment in BOTH cases so attribution is explicit and
-    # robust even when a second story is concurrently in-progress (rather than
-    # relying on the single-in-progress heuristic).
-    write_story_assignment(Path(args.smm_dir), name, args.story_id)
-
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir
     env[identity._XP_TEAMMATE_ENV] = name
@@ -312,22 +303,39 @@ def main(argv: list[str] | None = None) -> None:
     # let the probe reap a LIVE teammate's marker.
     combined_path: str | None = None
     # Our removal below proves ownership by CONTENT (the marker's first pid is
-    # ours), which is unforgeable ONLY given that we wrote the marker now at the
-    # path. If our write RAISES, that premise is false: what sits there is some
-    # earlier episode's leaked marker — routinely a live one, since a SIGKILLed
-    # supervisor skips its finally while its child runs on — and its (dead)
-    # supervisor's pid can have been recycled to us. So don't even look unless
-    # our write landed. write_text_atomic renames last, so a raise means it
-    # didn't.
-    wrote_marker = False
+    # ours), which is unforgeable ONLY given that we took the name — a writer can
+    # always forge that proof against itself by overwriting. So the name is CLAIMED
+    # (exclusively linked into place), not written: if a live teammate already
+    # holds it, we refuse to spawn rather than clobber its marker and then delete
+    # it. And we don't even look at the path in the finally unless our claim
+    # landed: what sits there otherwise is some earlier episode's leaked marker —
+    # routinely a live one, since a SIGKILLed supervisor skips its finally while
+    # its child runs on — and its (dead) supervisor's pid can have been recycled
+    # to us.
+    claimed_marker = False
 
     def _record_child_pid(child_pid: int) -> None:
-        in_place_marker.write_in_place_marker(Path(args.smm_dir), name, child_pid)
+        in_place_marker.rewrite_own_in_place_marker(Path(args.smm_dir), name, child_pid)
 
     try:
         if args.in_place:
-            in_place_marker.write_in_place_marker(Path(args.smm_dir), name)
-            wrote_marker = True
+            in_place_marker.claim_in_place_marker(Path(args.smm_dir), name)
+            claimed_marker = True
+        # Commit attribution: the teammate's name-keyed .story-assignment file is
+        # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
+        # worktree marker; an in-place child's cwd is the main checkout (no marker),
+        # so commit_handling recovers the name from the exported XP_TEAMMATE_NAME
+        # instead. Write the assignment in BOTH cases so attribution is explicit and
+        # robust even when a second story is concurrently in-progress (rather than
+        # relying on the single-in-progress heuristic).
+        #
+        # AFTER the claim, never before: this file is keyed by NAME, and until the
+        # claim lands the name may still belong to a LIVE teammate. Writing it first
+        # meant a REFUSED spawn had already overwritten that teammate's assignment —
+        # sparing its marker (which then vouches for the name) while redirecting its
+        # commits to the story that failed to spawn. Every name-keyed side effect
+        # belongs on this side of the claim.
+        write_story_assignment(Path(args.smm_dir), name, args.story_id)
         preamble = "" if args.in_place else _worktree_preamble(run_cwd)
         combined = preamble + Path(prompt_file).read_text()
         with tempfile.NamedTemporaryFile(
@@ -374,7 +382,7 @@ def main(argv: list[str] | None = None) -> None:
         if not filter_incomplete:
             Path(prompt_file).unlink(missing_ok=True)
     finally:
-        if wrote_marker:
+        if claimed_marker:
             # Only if the marker is still OURS: a same-name teammate respawned
             # while we were running owns the path now, and deleting ITS marker
             # would demote a live teammate to the lead (see

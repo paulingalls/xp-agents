@@ -43,7 +43,7 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
 
     def test_live_marker_is_teammate(self):
         """AC2: a live in-place marker for the current name → still a teammate."""
-        worktree.write_in_place_marker(self.smm_dir, _TEAMMATE)
+        worktree.claim_in_place_marker(self.smm_dir, _TEAMMATE)
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
             self.assertTrue(
                 identity.is_worktree_teammate(_MAIN_CWD, smm_dir=self.smm_dir)
@@ -68,7 +68,7 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
     def test_resolves_smm_dir_from_env_when_param_omitted(self):
         """When smm_dir is not passed, it resolves from SMM_DIR env — a live
         marker under that dir → teammate (the real in-place-teammate path)."""
-        worktree.write_in_place_marker(self.smm_dir, _TEAMMATE)
+        worktree.claim_in_place_marker(self.smm_dir, _TEAMMATE)
         with patch.dict(
             os.environ,
             {"XP_TEAMMATE_NAME": _TEAMMATE, "SMM_DIR": str(self.smm_dir)},

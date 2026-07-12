@@ -134,7 +134,7 @@ class TestIsWorktreeTeammate(unittest.TestCase):
             ):
                 os.environ.pop("SMM_DIR", None)
                 self.assertFalse(identity.is_worktree_teammate(inp, smm_dir=smm_dir))
-                worktree.write_in_place_marker(smm_dir, "worktree-story-001")
+                worktree.claim_in_place_marker(smm_dir, "worktree-story-001")
                 self.assertTrue(identity.is_worktree_teammate(inp, smm_dir=smm_dir))
 
     def test_env_var_without_prefix_not_detected(self):

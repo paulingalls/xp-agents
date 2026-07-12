@@ -329,12 +329,12 @@ class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
     def test_respawned_marker_survives_the_old_supervisors_finally(self):
         """The headline race, shaped exactly as production produces it.
 
-        A real respawn is a DIFFERENT supervisor process writing through the
-        production atomic writer, so its marker differs from ours in both ways
-        that matter: a foreign supervisor pid (content) and a fresh inode
-        (mkstemp + rename). write_text_atomic is that writer — reached directly
-        here only because write_in_place_marker necessarily stamps the CALLER's
-        pid, and this test process is the old supervisor.
+        A real respawn is a DIFFERENT supervisor process publishing a fresh
+        marker, so its marker differs from ours in both ways that matter: a
+        foreign supervisor pid (content) and a fresh inode. write_text_atomic
+        stands in for that publisher — reached directly here only because
+        claim_in_place_marker necessarily stamps the CALLER's pid, and this test
+        process is the old supervisor.
 
         That distinction is the whole point rather than a testing detail: a
         respawn cannot share our pid, because a pid cannot be recycled while its
@@ -400,10 +400,24 @@ class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
             # pid has been recycled to us, but its child is still running.
             marker.write_text(f"{os.getpid()} {orphaned_child}")
 
+            def never_spawn(*_a, **_kw):
+                # run_with_tee is patched UNCONDITIONALLY, even though `boom`
+                # above is expected to stop main() long before it. The safety of
+                # a test must never rest on the correctness of the thing it is
+                # testing: if the claim stops raising, main() falls through to
+                # here — and unstubbed, that launches a REAL `claude -p`, which
+                # comes up with the plugin loaded, runs the suite, and re-enters
+                # this test. Fail loudly instead.
+                raise AssertionError(
+                    "run_with_tee was reached: main() would have launched a REAL "
+                    "`claude -p`"
+                )
+
             with (
                 patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=never_spawn),
                 patch.object(
-                    spawn_teammate.in_place_marker, "write_in_place_marker", boom
+                    spawn_teammate.in_place_marker, "claim_in_place_marker", boom
                 ),
                 self.assertRaises(OSError),
             ):

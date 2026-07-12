@@ -323,19 +323,23 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:
 # pre_tool_skill, commit_event and sprint_stop_gate. spawn_teammate — the
 # marker's only writer and only deleter — imports in_place_marker directly.
 #
-# Deletion is re-exported ONLY as remove_own_in_place_marker, which unlinks the
-# marker just while it is still the one we wrote. There is deliberately no
-# unguarded "remove it whoever wrote it" name here: it would sit next to the
-# guarded one as the obvious thing to reach for, and calling it would delete a
-# same-name respawn's LIVE marker — demoting that teammate to the lead and
-# misattributing its commits.
+# Every name here is guarded, and there is deliberately no unguarded sibling of
+# any of them — an "unlink it whoever wrote it" or "write it whatever is there"
+# helper would sit next to the guarded one as the obvious thing to reach for, and
+# either one deletes a same-name respawn's LIVE marker (the write door does it by
+# re-forging the ownership the delete guard checks). So:
+#   claim_in_place_marker       — takes the name exclusively, or refuses
+#   rewrite_own_in_place_marker — rewrites only while the marker is still ours
+#   remove_own_in_place_marker  — unlinks only while the marker is still ours
 from in_place_marker import (  # noqa: E402, F401
+    InPlaceNameHeld,
+    claim_in_place_marker,
     has_live_in_place_teammate,
     in_place_marker_exists,
     in_place_marker_path,
     in_place_teammate_from_env,
     remove_own_in_place_marker,
-    write_in_place_marker,
+    rewrite_own_in_place_marker,
 )
 
 

@@ -11,6 +11,7 @@ Covers: has_live_in_place_teammate's reap side effect, and the inode-identity
 guard that keeps it from deleting a same-name respawn's LIVE marker.
 """
 
+import os
 import sys
 import tempfile
 import unittest
@@ -58,7 +59,7 @@ class TestDeadMarkerReap(unittest.TestCase):
 
     def test_live_marker_is_not_reaped(self):
         """A live teammate's marker survives the probe."""
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-002")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-002")
         path = self._marker("worktree-story-002")
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
         self.assertTrue(path.exists(), "live marker must never be reaped")
@@ -126,7 +127,7 @@ class TestDeadMarkerReap(unittest.TestCase):
         """A mixed dir reaps only the dead marker and still reports live."""
         dead = self._marker("worktree-story-004")
         dead.write_text(str(dead_pid()))
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-005")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-005")
         live = self._marker("worktree-story-005")
         self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
         self.assertFalse(dead.exists())
@@ -145,7 +146,7 @@ class TestDeadMarkerReap(unittest.TestCase):
         accumulation the reap exists to prevent (a recycled pid later reads
         live and re-suppresses the gate).
         """
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-001")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-001")
         live = self._marker("worktree-story-001")
         dead = self._marker("worktree-story-002")
         dead.write_text(str(dead_pid()))
@@ -188,25 +189,40 @@ class TestReapIdentityGuard(unittest.TestCase):
     def _respawn_on_first_probe(self):
         """Simulate a same-name respawn landing between the read and the unlink.
 
-        Returns a _probe_pid side effect that, on its FIRST call, writes a fresh
-        marker through the PRODUCTION writer, then reports the pid it was asked
-        about as proven dead — driving the caller straight into the unlink with a
+        Returns a _probe_pid side effect that, on its FIRST call, publishes a
+        fresh marker at the path, then reports the pid it was asked about as
+        proven dead — driving the caller straight into the unlink with a
         different file now sitting at the path.
 
-        The fresh marker MUST go through write_in_place_marker (atomic
-        mkstemp+rename ⇒ a NEW inode), not path.write_text (truncate in place ⇒
-        the SAME inode). With write_text the identity would rest on st_mtime_ns
-        alone: the rewrite lands microseconds after the first write, which
-        macOS/APFS resolves but Linux's coarse 1-4ms mtime clock does NOT — both
-        writes would stamp the same tick, the guard would compare EQUAL, and this
-        test would delete the live marker and fail on CI while passing here.
+        This is the sequence a real respawn produces: it finds our proven-dead
+        marker, reaps it, and links its own in (claim_in_place_marker). The reap
+        under test is running in ANOTHER process — the lead's Stop hook — which is
+        why the identity guard is still what saves the respawn, and why the claim
+        does not make this test redundant.
+
+        The fresh marker MUST land a NEW INODE — write_text_atomic (mkstemp +
+        rename), like every production publisher — and not path.write_text
+        (truncate in place ⇒ the SAME inode). With write_text the identity would
+        rest on st_mtime_ns alone: the rewrite lands microseconds after the first
+        write, which macOS/APFS resolves but Linux's coarse 1-4ms mtime clock does
+        NOT — both writes would stamp the same tick, the guard would compare
+        EQUAL, and this test would delete the live marker and fail on CI while
+        passing here. (decision 07f346cdf7f7)
+
+        It cannot go through claim_in_place_marker itself: the claim adjudicates
+        the holder, which would re-enter the very _probe_pid we are patching.
         """
+        from _append_impl import write_text_atomic
+
         calls = []
 
         def side_effect(pid: int) -> bool:
             if not calls:
                 calls.append(pid)
-                worktree.write_in_place_marker(self.smm_dir, self.name)
+                write_text_atomic(
+                    worktree.in_place_marker_path(self.smm_dir, self.name),
+                    str(os.getpid()),
+                )
             return False  # proven dead — authorizes the reap
 
         return side_effect
@@ -284,22 +300,23 @@ class TestReapIdentityGuard(unittest.TestCase):
         """Pins the coupling the guard is built on.
 
         The identity check is only a valid "unchanged since I read it" predicate
-        while write_in_place_marker remains atomic (mkstemp + rename ⇒ a new
-        inode every write). Nothing else in the suite pins that. If a future
-        change makes the writer mutate the file in place, st_ino stops changing,
-        the guard compares EQUAL against a respawn's marker, and the race quietly
-        reopens with every other test still green. Break loudly here instead.
+        while every production write lands a NEW inode — the claim links a fresh
+        file in, the rewrite goes through mkstemp + rename. Nothing else in the
+        suite pins that from the REAP's side. If a future change makes either
+        writer mutate the file in place, st_ino stops changing, the guard compares
+        EQUAL against a respawn's marker, and the race quietly reopens with every
+        other test still green. Break loudly here instead.
         """
-        worktree.write_in_place_marker(self.smm_dir, self.name)
+        worktree.claim_in_place_marker(self.smm_dir, self.name)
         first = self.marker.stat().st_ino
 
-        worktree.write_in_place_marker(self.smm_dir, self.name, 424242)
+        worktree.rewrite_own_in_place_marker(self.smm_dir, self.name, 424242)
 
         self.assertNotEqual(
             first,
             self.marker.stat().st_ino,
-            "write_in_place_marker must stay atomic (new inode per write) — the "
-            "reap guard's identity check is disarmed the moment it writes in place",
+            "every marker write must land a new inode — the reap guard's identity "
+            "check is disarmed the moment a writer mutates in place",
         )
 
 
