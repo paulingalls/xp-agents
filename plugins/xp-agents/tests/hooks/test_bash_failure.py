@@ -267,6 +267,85 @@ class TestResolveTestConcerns(_HookTestCase):
         self.assertEqual(len(events), 0)
 
 
+class TestClearRequiresAnObservedRun(_HookTestCase):
+    """The CLEAR side of the same defect the writer side just fixed.
+
+    `bash_post_tool` reaches its clear branch on any SUCCEEDING command that
+    `is_test_run` matches — and `is_test_run` matches a runner name ANYWHERE,
+    including as an argument. So a successful `grep -rn pytest plugins/`
+    resolved EVERY open test-failure concern: a real red suite silently
+    un-gated by grepping for the word. Attributing too little on the write
+    side files a false concern; clearing on a run that never happened DISARMS
+    the gate, which is the far worse direction.
+
+    The clear is gated on the runner occupying the EXECUTABLE position, NOT on
+    the parser having extracted counts — that distinction is what keeps this
+    from deadlocking (see test_unparseable_green_run_still_clears).
+    """
+
+    def _open_failure(self) -> dict:
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content=f"{TEST_FAILURES_PREFIX}: 3 failed (pytest)",
+            severity="high",
+        )
+        _common.append_safe(self.smm_dir, concern)
+        return concern
+
+    def _run_green(self, command: str, stdout: str) -> bool:
+        """Drive the PostToolUse path; return True if the concern got resolved."""
+        with patch_commits(files=[], body=""):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=stdout),
+                smm_dir=self.smm_dir,
+            )
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        return any(e.get("metadata", {}).get("resolves") for e in events)
+
+    def test_grep_for_runner_name_does_not_clear(self):
+        """The disarm. `grep` exits 0 when it MATCHES — so grepping for the
+        word `pytest` while a suite is red wiped the gate."""
+        self._open_failure()
+        self.assertFalse(
+            self._run_green(
+                "grep -rn pytest plugins/",
+                "plugins/xp-agents/scripts/bash_failure.py:12:import pytest\n",
+            ),
+            "a grep that never ran a test must not resolve a test failure",
+        )
+
+    def test_cat_of_a_runner_config_does_not_clear(self):
+        self._open_failure()
+        self.assertFalse(self._run_green("cat pytest.ini", "[pytest]\n"))
+
+    def test_real_green_run_still_clears(self):
+        """Anti-deadlock control #1: the ordinary path must keep working."""
+        self._open_failure()
+        self.assertTrue(self._run_green("python3 -m pytest tests/", "5 passed in 1.2s"))
+
+    def test_unparseable_green_run_still_clears(self):
+        """Anti-deadlock control #2, and the reason the clear is gated on the
+        EXECUTABLE POSITION rather than on parser_status.
+
+        For a framework whose output this parser cannot read, a failing run
+        writes an exit-code concern (bash_failure) and the later passing run is
+        equally unparseable. Requiring parsed counts to clear would leave that
+        concern open forever — the gate would deadlock. Requiring only that the
+        runner actually RAN clears it.
+        """
+        self._open_failure()
+        self.assertTrue(
+            self._run_green("mix test", "some output this parser cannot read")
+        )
+
+    def test_compound_green_run_still_clears(self):
+        """Exit 0 from a compound means EVERY segment ran — including the
+        runner. The write side needs corroboration for compounds; the clear
+        side does not, and must not, or `cd app && npx jest` would deadlock."""
+        self._open_failure()
+        self.assertTrue(self._run_green("cd app && npx jest", "Tests: 5 passed"))
+
+
 class TestEventsReadDedup(_HookTestCase):
     """_handle_commit reads events.jsonl exactly once."""
 

@@ -58,9 +58,11 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
     green run un-gates an earlier red one. Splitting the walk at the session
     boundary would make {prior FAIL, later prior PASS, dirty tree} newly block.
 
-    `cwd` defaults to the hook process's working directory, which Claude Code
-    sets to the project (or teammate worktree) root — so the sibling gates
-    inherit the tree check without a call-site change.
+    `cwd` should be the hook input's `cwd` (the project or teammate-worktree
+    root), which is this codebase's authoritative source — the process cwd is a
+    known leak (see conftest's `identity._process_cwd` note). It only defaults
+    to "." so a caller with no hook input still works; a wrong cwd makes git
+    answer nothing, and "nothing" must never read as CLEAN — see below.
     """
     resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
     window_start = _session_window_start(events)
@@ -81,7 +83,12 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
             # `get_uncommitted_code_files` — the latter drops test files and
             # untracked files, both of which would read CLEAN and disarm the
             # gate on an uncommitted broken test.
-            return "fail" if commits.get_uncommitted_files(cwd) else None
+            #
+            # None means git could not answer (timeout, not a repo), which is
+            # NOT the same as a clean tree. Only a positive CLEAN reading may
+            # un-gate a real failure; absence of evidence keeps the teeth.
+            dirty = commits.get_uncommitted_files(cwd)
+            return "fail" if dirty is None or dirty else None
         if etype == _common.STATUS and TEST_PASS_RE.search(content):
             return "pass"
     return None

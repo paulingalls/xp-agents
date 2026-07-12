@@ -145,6 +145,47 @@ class TestGateStillBlocks(_GateTestCase):
         events = [session_anchor(), failing_tests_concern()]
         self.assertIsNotNone(self._stop(events, dirty=False))
 
+    def test_unanswerable_git_still_blocks(self):
+        """Absence of evidence is not evidence of a clean tree.
+
+        The tree check is the ONLY thing keeping a prior-session failure
+        gating, and this story's new untracked-file scan (`git ls-files
+        --others`) walks the whole worktree — the call most likely to hit
+        `_run_git`'s 5s timeout. A timeout that reads as CLEAN would un-gate a
+        real failure, so `get_uncommitted_files` returns None for "git could
+        not answer" and only a POSITIVE clean reading may un-gate.
+        """
+        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        self._write_events(events)
+        with patch("commits.get_uncommitted_files", return_value=None):
+            self.assertIsNotNone(
+                tdd_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+            )
+
+    def test_gates_check_the_tree_at_the_hook_input_cwd(self):
+        """The gate must consult the session's OWN tree.
+
+        `cwd` from the hook input is this codebase's authoritative source; the
+        process cwd is a documented leak. A teammate's Stop hook resolving to
+        the wrong tree makes git answer nothing, which — before the fail-safe
+        above — read as CLEAN. Pin that all three gates thread it through.
+        """
+        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        self._write_events(events)
+        for gate, make_input in (
+            (tdd_stop_gate, _make_stop_input),
+            (teammate_idle, _make_teammate_idle_input),
+            (task_completed, _make_task_completed_input),
+        ):
+            with self.subTest(gate=gate.__name__):
+                with patch(
+                    "commits.get_uncommitted_files", return_value=[]
+                ) as mock_tree:
+                    gate.run(
+                        make_input(cwd="/wt/worktree-story-007"), smm_dir=self.smm_dir
+                    )
+                mock_tree.assert_called_once_with("/wt/worktree-story-007")
+
     def test_teammate_idle_inherits_the_fix(self):
         """AC4. Fixed at the source — the sibling gates need no code change."""
         clean = [failing_tests_concern(), session_anchor(), *filler(3)]

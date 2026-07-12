@@ -16,6 +16,7 @@ import commits
 import concerns
 import git_commits
 import identity
+import test_attribution
 from commit_handling import _handle_commit, _prior_commit_was_test_only
 from event_schema import (
     METADATA_KEY_TDD_RED,
@@ -66,6 +67,28 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
         agent_id,
         "Test concern resolved",
     )
+
+
+def _observed_a_green_run(command: str) -> bool:
+    """True when this succeeding command actually EXECUTED a test runner.
+
+    The mirror of `bash_failure`'s attribution problem, and the more dangerous
+    half: `is_test_run` matches a runner name anywhere in the command, so a
+    SUCCEEDING `grep -rn pytest src/` (grep exits 0 when it matches) reached the
+    clear branch below and resolved every open test-failure concern — a red
+    suite silently un-gated by grepping for the word. Attributing too little on
+    the write side files a false concern; clearing on a run that never happened
+    DISARMS the gate.
+
+    Gated on the runner occupying the EXECUTABLE POSITION, NOT on the parser
+    having extracted counts. That distinction is what keeps the gate from
+    deadlocking: for a framework whose output the parser cannot read, a failing
+    run writes an exit-code concern and the later passing run is equally
+    unparseable, so a parser-status gate would never clear it. Exit 0 also means
+    every segment of a compound ran, so — unlike the failure path — no
+    corroboration is needed here.
+    """
+    return test_attribution.executed_framework(command) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +201,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 severity="high",
             )
             _common.append_safe(smm_dir, concern)
-        elif failed == 0:
+        elif failed == 0 and _observed_a_green_run(command):
             had_failures = _resolve_test_concerns(smm_dir, agent_id)
 
             # Nudge: commit after green if there are uncommitted code files

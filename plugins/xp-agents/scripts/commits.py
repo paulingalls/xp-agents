@@ -352,6 +352,10 @@ def get_code_files_in_range(cwd: str, base: str) -> list[str]:
 _GIT_STAGED = ["git", "diff", "--cached", "--name-only"]
 _GIT_UNSTAGED = ["git", "diff", "--name-only"]
 _GIT_UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard"]
+# O(1) repo probe — unlike the scans above it does not walk the worktree, so it
+# still answers when they time out. That asymmetry is the whole point: it tells
+# "no repo to ask about" apart from "this scan failed".
+_GIT_IS_REPO = ["git", "rev-parse", "--is-inside-work-tree"]
 
 
 def _changed_paths(cwd: str, cmds: list[list[str]]) -> set[str] | None:
@@ -369,7 +373,7 @@ def _changed_paths(cwd: str, cmds: list[list[str]]) -> set[str] | None:
     return paths
 
 
-def get_uncommitted_files(cwd: str) -> list[str]:
+def get_uncommitted_files(cwd: str) -> list[str] | None:
     """Every code file in flight in the working tree: staged, unstaged, OR
     untracked. Test files INCLUDED. This is the "is the tree dirty?" signal.
 
@@ -381,11 +385,25 @@ def get_uncommitted_files(cwd: str) -> list[str]:
     CLEAN under the narrower helper — which, for the TDD gate
     (``tdd_check.find_last_test_signal``), is the disarm direction.
 
-    Returns empty list on any git failure.
+    Two ways to not get an answer, and they must not be conflated:
+
+    * **There is no repo** (git absent, or not a work tree). Structural and
+      permanent. Reads as CLEAN — a project git cannot answer for at all must
+      not gate on a prior-session failure forever.
+    * **This scan failed** (timeout). Transient, and the untracked scan walks
+      the WHOLE worktree, so it is by far the likeliest ``_run_git`` timeout
+      here. Returns **None** = "could not answer". Collapsing that to "no
+      files" reads as a clean tree and UN-GATES a real failure, so the caller
+      must be able to fail safe.
+
+    The O(1) repo probe discriminates them: it still answers when a
+    worktree-walking scan times out.
     """
     paths = _changed_paths(cwd, [_GIT_STAGED, _GIT_UNSTAGED, _GIT_UNTRACKED])
-    if not paths:
-        return []
+    if paths is None:
+        if _run_git(_GIT_IS_REPO, cwd) is None:
+            return []
+        return None
     return sorted(f for f in paths if code_files.is_code_file(f))
 
 

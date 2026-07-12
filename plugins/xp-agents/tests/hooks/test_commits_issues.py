@@ -4,6 +4,7 @@
 Split from test_commits.py -- issue-matching and file-listing helpers.
 """
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -218,11 +219,30 @@ class TestGetUncommittedFiles(unittest.TestCase):
         self.assertEqual(commits.get_uncommitted_files("/tmp"), [])
 
     @patch(_SUBPROCESS, side_effect=OSError("no git"))
-    def test_exception_returns_empty(self, _mock):
-        """Graceful degradation. Note this reads as CLEAN, so a non-git project
-        never gates on a prior-session failure -- deliberate: failing closed
-        here would deadlock every project git cannot answer for."""
+    def test_no_repo_reads_clean(self, _mock):
+        """Graceful degradation. git is absent / this is not a work tree: a
+        structural, permanent condition. Reads as CLEAN, so a project git
+        cannot answer for at all never gates forever on a prior-session
+        failure."""
         self.assertEqual(commits.get_uncommitted_files("/tmp"), [])
+
+    @patch(_SUBPROCESS)
+    def test_scan_timeout_in_a_real_repo_is_unanswered_not_clean(self, mock_run):
+        """Anti-disarm, and the reason "no answer" is not one condition.
+
+        The untracked scan walks the WHOLE worktree, so it is the likeliest
+        _run_git timeout here. Collapsing that to "no files" reads as a CLEAN
+        tree and UN-GATES a real prior-session failure. The O(1) repo probe
+        still answers when the walking scan does not, which is what tells this
+        apart from the no-repo case above.
+        """
+        mock_run.side_effect = [
+            _git_out(""),  # staged
+            _git_out(""),  # unstaged
+            subprocess.TimeoutExpired(cmd="git ls-files", timeout=5),
+            _git_out("true"),  # repo probe: yes, this really is a work tree
+        ]
+        self.assertIsNone(commits.get_uncommitted_files("/tmp"))
 
 
 # ---------------------------------------------------------------------------
