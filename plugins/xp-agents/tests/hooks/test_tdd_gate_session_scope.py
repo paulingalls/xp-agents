@@ -20,11 +20,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
+import bash_failure
 import task_completed
 import tdd_stop_gate
 import teammate_idle
+from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
+    _make_bash_failure_input,
     _make_stop_input,
     _make_task_completed_input,
     _make_teammate_idle_input,
@@ -32,7 +36,15 @@ from conftest import (
     make_event,
     passing_tests_status,
 )
-from event_schema import EVENT_TYPE_SESSION_STARTED, EVENT_TYPE_STATUS
+from event_helpers import events_of_type
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_SESSION_STARTED,
+    EVENT_TYPE_STATUS,
+    STATUS_ACTION_BASH_FAILED,
+)
+
+_WATERMARK_ID = "test-tdd-gate-session-scope"
 
 
 def session_anchor() -> dict:
@@ -162,6 +174,75 @@ class TestGateStillBlocks(_GateTestCase):
             self.assertIsNotNone(
                 task_completed.run(_make_task_completed_input(), smm_dir=self.smm_dir)
             )
+
+
+class TestKickoffOnlySessionE2E(_HookTestCase):
+    """AC5, end to end: the session that produced the bug.
+
+    Writer and reader are driven in sequence through the real hooks, against a
+    real event log — no signal is hand-planted. `/xp-plan` ran a compound
+    `plan_cli … && pytest …` that short-circuited at the VALIDATOR (design_details
+    517/500 over budget) and exited 1. No test ran; no production code was
+    written; the tree was clean and the suite green. 87 seconds later the Stop
+    gate said "Tests are failing."
+    """
+
+    def _kickoff_session(self, command: str, error: str) -> str | None:
+        self._write_events([session_anchor(), *filler(2)])
+        bash_failure.run(
+            _make_bash_failure_input(command=command, error=error, exit_code=1),
+            smm_dir=self.smm_dir,
+        )
+        self.events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        with patch("commits.get_uncommitted_files", return_value=[]):
+            return tdd_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+    def _observed_failure(self) -> dict:
+        """The writer's record of the failed command — asserted POSITIVELY.
+
+        Without this, every other assertion here is vacuous: `bash_failure.run`
+        has five early returns (xp-agent, interrupt, no runner named, no SMM,
+        bad agent id), and on ANY of them it writes nothing, the gate finds no
+        signal, and a silent gate looks identical to a correctly-quiet one.
+        This pins that the writer actually OBSERVED the failure and classified
+        it — so the quiet gate below is quiet for the right reason.
+        """
+        failures = [
+            e
+            for e in events_of_type(self.events, EVENT_TYPE_STATUS)
+            if e.get("metadata", {}).get("action") == STATUS_ACTION_BASH_FAILED
+        ]
+        self.assertEqual(len(failures), 1, "writer never recorded the failure")
+        return failures[0]
+
+    def test_kickoff_only_session_does_not_report_failing_tests(self):
+        """AC1 + AC5. Falsifiable: make `attribute_failure` return the framework
+        unconditionally (its behavior before this story) and this goes red.
+        """
+        result = self._kickoff_session(
+            "python3 plan_cli.py validate --plan execution_plan.json "
+            "&& python3 -m pytest plugins/xp-agents/tests",
+            "Exit code 1\nValidation errors:\n  - design_details 517/500 OVER budget",
+        )
+        self.assertIsNone(result)
+
+        # And the log tells the truth about what happened: the command failed,
+        # but nothing claims a test failed.
+        self.assertNotRegex(self._observed_failure()["content"], TEST_CONCERN_RE)
+        self.assertEqual(events_of_type(self.events, EVENT_TYPE_CONCERN), [])
+
+    def test_real_failing_run_in_the_same_session_still_blocks(self):
+        """AC2, the control that makes the test above mean something. Same
+        session shape, same hooks — but the runner actually ran and failed."""
+        result = self._kickoff_session(
+            "python3 -m pytest plugins/xp-agents/tests",
+            "Exit code 1\n2 failed, 3 passed",
+        )
+        # The mirror of the test above: here the writer DID observe a run, so it
+        # DOES make a test claim — and the gate acts on it.
+        self.assertEqual(len(events_of_type(self.events, EVENT_TYPE_CONCERN)), 1)
+        self.assertIsNotNone(result)
+        self.assertIn("failing", str(result).lower())
 
 
 if __name__ == "__main__":
