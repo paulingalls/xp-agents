@@ -18,6 +18,7 @@ import _common
 import bash_failure
 import bash_post_tool
 from _commit_helpers import patch_commits
+from concerns import TEST_CONCERN_RE, TEST_FAILURES_PREFIX
 from conftest import (
     _HookTestCase,
     _make_bash_failure_input,
@@ -25,7 +26,11 @@ from conftest import (
     make_event,
 )
 from event_helpers import events_of_type
-from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
+from event_schema import (
+    EVENT_TYPE_CONCERN,
+    EVENT_TYPE_STATUS,
+    get_required_budget,
+)
 
 _WATERMARK_ID = "test-bash-failure"
 
@@ -123,6 +128,104 @@ class TestBashFailure(_HookTestCase):
         )
 
 
+class TestFailureAttribution(_HookTestCase):
+    """The writer only claims a test failure it can actually observe.
+
+    `bash_failure` fires on ANY non-zero Bash exit, and `is_test_run` matches a
+    runner name anywhere in the command — so before this, a compound command
+    that short-circuited before the runner filed a high-severity test-failure
+    concern for a run that never happened, and the TDD gate read it as
+    "tests are failing".
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.mod = bash_failure
+
+    def _run(self, command: str, error: str) -> list[dict]:
+        self.mod.run(
+            _make_bash_failure_input(command=command, error=error, exit_code=1),
+            smm_dir=self.smm_dir,
+        )
+        return _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+
+    def test_ambiguous_compound_writes_status_not_concern(self):
+        """The load-bearing assertion, and the original repro: the validator
+        failed, pytest never ran. Record that the command failed — but make NO
+        test claim, so the gate does not block on a run we never observed.
+
+        A status, not a concern: an unresolvable concern would gate the session
+        forever and inflate pending_concerns.
+        """
+        events = self._run(
+            "python3 plan_cli.py validate && python3 -m pytest tests/",
+            "Exit code 1\nValidation errors:\n  - design_details 517/500 OVER",
+        )
+        self.assertEqual(events_of_type(events, EVENT_TYPE_CONCERN), [])
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        self.assertEqual(len(statuses), 1)
+        self.assertNotRegex(statuses[0]["content"], TEST_CONCERN_RE)
+        self.assertEqual(statuses[0]["metadata"]["action"], "bash_failed")
+
+    def test_grep_for_runner_name_writes_status_not_concern(self):
+        """`grep -rn pytest src/` exits 1 on no-match and is NOT compound —
+        investigating this bug by grepping for the word reproduces it."""
+        events = self._run("grep -rn pytest plugins/", "Exit code 1")
+        self.assertEqual(events_of_type(events, EVENT_TYPE_CONCERN), [])
+        self.assertEqual(len(events_of_type(events, EVENT_TYPE_STATUS)), 1)
+
+    def test_attributed_failure_still_writes_concern(self):
+        """Anti-disarm control. A bare failing runner has no ambiguity: the exit
+        code IS the runner's, counts or no counts (segfault, collection error).
+        """
+        events = self._run("pytest tests/", "Exit code 1\nImportError: no module")
+        concern_events = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concern_events), 1)
+        self.assertEqual(concern_events[0]["severity"], "high")
+        self.assertRegex(concern_events[0]["content"], TEST_CONCERN_RE)
+
+    def test_corroborated_compound_reports_the_counts_it_observed(self):
+        """A compound command whose payload carries real counts is no longer
+        ambiguous — the concern is written, and it reports what was observed
+        rather than a bare exit code."""
+        events = self._run(
+            "cd app && npx jest",
+            "Exit code 1\nTests:  2 failed, 3 passed, 5 total",
+        )
+        concern_events = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concern_events), 1)
+        self.assertIn(TEST_FAILURES_PREFIX, concern_events[0]["content"])
+        self.assertIn("2 failed", concern_events[0]["content"])
+
+    def test_first_line_skips_exit_code_line(self):
+        """`error` is "Exit code N\\n<output>", so taking line 1 made every live
+        concern read "Test command failed (pytest): Exit code 1" — worthless."""
+        events = self._run("pytest tests/", "Exit code 1\nImportError: no module foo")
+        content = events_of_type(events, EVENT_TYPE_CONCERN)[0]["content"]
+        self.assertIn("ImportError: no module foo", content)
+        self.assertNotIn("Exit code 1", content)
+
+    def test_long_first_line_still_lands_the_concern(self):
+        """Anti-disarm control, budget edge. `append_safe` SILENTLY DROPS an
+        event that busts its content budget, so an unbounded detail line loses
+        the concern entirely — the gate goes quiet on a real failing run, the
+        worst direction. Line 1 used to be the harness's short "Exit code N",
+        which hid this; the detail line now carries real runner output, which
+        has no length bound (a one-line stack trace, a long assert repr).
+        """
+        events = self._run(
+            "pytest tests/",
+            "Exit code 1\nE   AssertionError: assert " + "x" * 500,
+        )
+        concern_events = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concern_events), 1)
+        self.assertRegex(concern_events[0]["content"], TEST_CONCERN_RE)
+        self.assertLessEqual(
+            len(concern_events[0]["content"]),
+            get_required_budget(_common.CONCERN),
+        )
+
+
 class TestBashFailureSecurity(_HookTestCase):
     """Security tests for bash_failure.py."""
 
@@ -203,7 +306,7 @@ class TestResolvesConcernsEventsKwarg(_HookTestCase):
 
         result = concerns.resolve_concerns(
             self.smm_dir,
-            concerns.TEST_CONCERN_RE.search,
+            TEST_CONCERN_RE.search,
             "main",
             "Test concern resolved",
         )
@@ -223,7 +326,7 @@ class TestResolvesConcernsEventsKwarg(_HookTestCase):
         with patch("concerns._common.read_events_locked") as mock_read:
             result = concerns.resolve_concerns(
                 self.smm_dir,
-                concerns.TEST_CONCERN_RE.search,
+                TEST_CONCERN_RE.search,
                 "main",
                 "Test concern resolved",
                 events=events,
