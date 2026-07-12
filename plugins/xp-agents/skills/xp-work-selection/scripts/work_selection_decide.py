@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""Adopt / defer / drop retro Try items, wiring metadata.resolves from refs.
+"""Adopt / defer / drop retro Try items, wiring the refs suffix by evidence.
 
 Parses the `[refs: id1, id2]` suffix produced by the preload's Try-item
 renderer and persists the correct event shape, so the LLM no longer has
 to craft `--metadata` JSON by hand (a discipline that failed four retros
 in a row).
 
+The refs land in the link field the action's own evidence warrants (see
+event_builder.extract_refs_suffix): only a terminal disposition closes its
+target via metadata.resolves. Adopting or deferring records INTENT, and names
+the target in the top-level `references` field instead — taking work on must
+not close the item that verifies the work actually landed.
+
 Subcommands:
-  adopt  → decision event with topic + metadata.resolves
-  defer  → status event, disposition=deferred, working_on=[]
-  drop   → status event, disposition=dropped, working_on=[]
+  adopt  → decision event with topic + references
+  defer  → status event, disposition=deferred, references, working_on=[]
+  drop   → status event, disposition=dropped, metadata.resolves, working_on=[]
 
 FORCE-CLOSE gate: a plain `defer` is refused once a Try has been deferred
 3+ times (carrying it further is dishonest). The caller must escape with
@@ -30,7 +36,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
 import identity  # noqa: E402
-from event_builder import merge_resolves  # noqa: E402
+from event_builder import REFERENCES_KEY, merge_resolves  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
@@ -44,10 +50,16 @@ from event_schema import (  # noqa: E402
 from retro_history import HEX_ID_RE  # noqa: E402
 from smm_schema import EVENT_ID_RE  # noqa: E402
 
-_WATERMARK_ID = "work-selection-decide"
+# Pure filters live next door (size cap); re-exported so callers and tests
+# keep importing them from here.
+from work_selection_filters import (  # noqa: E402
+    _FORCE_CLOSE_THRESHOLD,
+    _cascade_ids_filter,
+    _count_prior_defers_filter,
+    _force_close_message,
+)
 
-# 3 prior deferrals = next plain defer is refused.
-_FORCE_CLOSE_THRESHOLD = 3
+_WATERMARK_ID = "work-selection-decide"
 
 # Convention topics emitted on force-drop are prefixed to prevent
 # collision with retro-try-<slug> adoption topics. The rest of the slug
@@ -102,48 +114,6 @@ def _convention_topic_exists_filter(events: list[dict], topic: str) -> bool:
         if e.get("type") == _common.CONVENTION and e.get("topic") == topic:
             return True
     return False
-
-
-def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
-    """Pure filter: count status events with disposition=deferred whose
-    metadata.resolves overlaps any id in ref_ids. Each event contributes
-    at most once."""
-    if not ref_ids:
-        return 0
-    targets = set(ref_ids)
-    count = 0
-    for e in events:
-        if e.get("type") != "status":
-            continue
-        meta = e.get("metadata") or {}
-        if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DEFERRED:
-            continue
-        resolves = meta.get(METADATA_KEY_RESOLVES) or []
-        if targets.intersection(resolves):
-            count += 1
-    return count
-
-
-def _cascade_ids_filter(events: list[dict], tokens: set[str]) -> set[str]:
-    """Pure filter: ids of resolvable events (debt/concern/discovery) whose
-    id appears in tokens. Caller unions this into metadata.resolves so a
-    drop also closes the underlying signal.
-    """
-    return {
-        e.get("id", "")
-        for e in events
-        if e.get("type") in _common.PROBE_RESOLVABLE_TYPES and e.get("id", "") in tokens
-    }
-
-
-def _force_close_message(ref_ids: list[str], prior: int) -> str:
-    refs = ", ".join(r[:8] for r in ref_ids)
-    return (
-        f"FORCE-CLOSE: Try refs [{refs}] have {prior} prior deferrals "
-        f"(threshold {_FORCE_CLOSE_THRESHOLD}). Plain defer refused. "
-        "Re-run with --force-adopt <topic>, --force-drop, "
-        "or --force-defer-with-date <YYYY-MM-DD>."
-    )
 
 
 def _validate_future_iso_date(value: str) -> None:
@@ -251,7 +221,8 @@ def _build_defer_event(
         working_on=[],
         metadata={METADATA_KEY_DISPOSITION: DISPOSITION_DEFERRED},
     )
-    refs = (event.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
+    # A deferral is an intent event, so the suffix ids landed in `references`.
+    refs = event.get(REFERENCES_KEY) or []
     if refs:
         prior = _count_prior_defers_filter(load_events(), refs)
         if prior >= _FORCE_CLOSE_THRESHOLD:
@@ -332,8 +303,21 @@ def run(
             }
             disposition = _triage_dispositions[action]
             metadata: dict = {METADATA_KEY_DISPOSITION: disposition}
-            if disposition != DISPOSITION_DEFERRED:
+            # Route the target id by evidence, mirroring extract_refs_suffix:
+            # only a drop is terminal, so only a drop closes the target. Adopting
+            # means taking the work ON — it links, and the target stays open
+            # until the work lands. Deferring records neither: carrying an item
+            # says nothing about it beyond "not now".
+            # Deliberately if/elif, not match/case: a bare NAME in a `case` is a
+            # capture pattern that matches ANY value, so `case DISPOSITION_DROPPED:`
+            # would route every disposition into metadata.resolves — silently
+            # restoring the exact defect this routing exists to remove. Comparison
+            # is what is meant here, so comparison is what is written.
+            link_field: dict = {}
+            if disposition == DISPOSITION_DROPPED:
                 metadata[METADATA_KEY_RESOLVES] = [event_id]
+            elif disposition == DISPOSITION_ADOPTED:
+                link_field[REFERENCES_KEY] = [event_id]
             # Inline a snippet of the target event's content so cross-session
             # drop memory (retro_metrics.dropped_tries_recent) carries the
             # topic forward — opaque "Triage: dropped <id>" content defeats
@@ -355,6 +339,7 @@ def run(
                 triage_content,
                 working_on=[],
                 metadata=metadata,
+                **link_field,
             )
         case _:
             raise ValueError(f"Unknown action: {action}")
@@ -408,7 +393,11 @@ def run(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Adopt/defer/drop a retro Try item with auto-wired resolves."
+        description=(
+            "Adopt/defer/drop a retro Try item. The [refs: ...] suffix is "
+            "auto-wired: a drop closes its target; an adopt or defer only "
+            "references it."
+        )
     )
     sub = parser.add_subparsers(dest="action", required=True)
 

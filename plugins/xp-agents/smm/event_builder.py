@@ -16,8 +16,14 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from event_metadata import METADATA_KEY_RESOLVES, is_closing
 from event_schema import CONTENT_BUDGETS, MAX_JSON_ARG_SIZE, VALID_TYPES
 from smm_schema import EVENT_ID_RE
+
+# The top-level WEAK link field. Named here — beside the two merge helpers and
+# the extractor that write it — so producer and consumer can't drift on the
+# spelling, the same way METADATA_KEY_* pins the metadata keys.
+REFERENCES_KEY = "references"
 
 _REFS_SUFFIX_RE = re.compile(r"\[refs:\s*([^\]]+)\]\s*$")
 _REFS_SPLIT_RE = re.compile(r"[,\s]+")
@@ -66,27 +72,51 @@ def generate_id() -> str:
     return secrets.token_hex(6)
 
 
-def merge_resolves(event: dict, ids: Iterable[str]) -> None:
-    """Append `ids` into event["metadata"]["resolves"], preserving order
-    and skipping duplicates. Defensive copy avoids mutating a list the
-    caller may share across events. Mutates event in place.
+def _merge_ids(container: dict, key: str, ids: Iterable[str]) -> None:
+    """Append `ids` into container[key], preserving order and skipping
+    duplicates. Defensive copy avoids mutating a list the caller may share
+    across events. Mutates container in place.
     """
-    metadata = event.setdefault("metadata", {})
-    resolves = list(metadata.get("resolves", []))
+    merged = list(container.get(key, []))
     for tid in ids:
-        if tid not in resolves:
-            resolves.append(tid)
-    metadata["resolves"] = resolves
+        if tid not in merged:
+            merged.append(tid)
+    container[key] = merged
+
+
+def merge_resolves(event: dict, ids: Iterable[str]) -> None:
+    """Union `ids` into the STRONG closure link, event.metadata.resolves."""
+    _merge_ids(event.setdefault("metadata", {}), METADATA_KEY_RESOLVES, ids)
+
+
+def merge_references(event: dict, ids: Iterable[str]) -> None:
+    """Union `ids` into the WEAK link, the top-level `references` list."""
+    _merge_ids(event, REFERENCES_KEY, ids)
 
 
 def extract_refs_suffix(event: dict) -> None:
     """Strip a trailing `[refs: id1, id2]` suffix from event["content"] and
-    union extracted 12-hex IDs into event["metadata"]["resolves"].
+    union the extracted 12-hex IDs into the link field the event's own
+    evidence warrants:
 
-    Mutates the event in place. No-op when no suffix is present so callers
-    can apply this unconditionally. Malformed tokens (not 12-hex) are
-    silently dropped — typos shouldn't break adoption. Existing IDs in
-    metadata.resolves are preserved; duplicates are de-duped.
+      - closing event (terminal disposition, per `is_closing`) →
+        metadata.resolves, which marks the target RESOLVED
+      - every other event → the top-level `references` list, a WEAK link that
+        names the target without closing it
+
+    Recording that work was taken on (adoption) or carried (deferral) must not
+    close the item that verifies the work actually landed.
+
+    Mutates the event in place. No-op when no suffix is present so callers can
+    apply this unconditionally. Malformed tokens (not 12-hex) are silently
+    dropped — typos shouldn't break adoption. A caller-supplied
+    metadata.resolves is NEVER stripped or rewritten: routing decides only
+    where the SUFFIX-derived ids land. Existing IDs in the target field are
+    preserved; duplicates are de-duped.
+
+    Callers must apply `metadata` to the event BEFORE calling this — the
+    predicate reads the disposition off the event. Both entry points already
+    do (`build_event`, `_common.make_event`).
     """
     content = event.get("content", "")
     match = _REFS_SUFFIX_RE.search(content)
@@ -98,7 +128,10 @@ def extract_refs_suffix(event: dict) -> None:
     if not new_ids:
         event["content"] = cleaned
         return
-    merge_resolves(event, new_ids)
+    if is_closing(event):
+        merge_resolves(event, new_ids)
+    else:
+        merge_references(event, new_ids)
     event["content"] = cleaned
 
 

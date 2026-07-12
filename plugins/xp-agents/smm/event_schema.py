@@ -173,7 +173,9 @@ def event_category_of(event_type: str) -> EVENT_CATEGORY:
 # Re-exported from event_metadata (split-shim per convention 91fcf9b8744d
 # when this file crossed 500 lines). Definitions live in event_metadata.py;
 # callers keep using `event_schema.STATUS_ACTION_*` / `METADATA_KEY_*` /
-# `DISPOSITION_*` / `RETRO_ACTION_*` / `event_action(...)` unchanged.
+# `DISPOSITION_*` / `RETRO_ACTION_*` / `event_action(...)` / `is_closing(...)`
+# unchanged. EVERY public name in event_metadata belongs in this list — a
+# partial shim is how a caller discovers the split the hard way.
 from event_metadata import (  # noqa: E402, F401
     CONCERN_KIND_CLOSE_CYCLE_BYPASS,
     DISPOSITION_ADOPTED,
@@ -215,6 +217,7 @@ from event_metadata import (  # noqa: E402, F401
     STATUS_ACTION_SUBAGENT_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
+    is_closing,
 )
 
 MAX_JSON_ARG_SIZE = 65536
