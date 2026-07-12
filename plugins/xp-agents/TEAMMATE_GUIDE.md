@@ -18,11 +18,11 @@ Take small steps. Don't try to implement everything at once.
 
 Before each commit: `/xp-quality-review` → `git commit` (pre-commit hooks enforce tests + format). `/xp-quality-review` spawns the independent `xp-code-reviewer`, which self-finds correctness plus reuse, quality, efficiency, courage, drift, and debt. The broad multi-agent `/code-review` workflow is not per-commit — it runs once at sprint close.
 
-Security review is layered: deterministic secret/pattern scan runs automatically on staged diffs at commit; LLM `/security-review` fires at `/xp-{free,sprint,plan}-close` Step 4 against the cumulative close diff. There is no on-demand triage skill.
+Security review is layered: a deterministic secret/pattern scan on staged diffs at commit; `/security-review` at close. No on-demand triage skill.
 
 ## Sequential Discipline
 
-The harness tells you to batch independent tool calls in parallel. As a single-story teammate your work is sequential — do one action, observe its result, then proceed. The parallel-batching guidance applies only to genuinely independent read-only calls, not to dependent steps (e.g. save then verify, or a question and the action that uses its answer).
+The harness tells you to batch independent tool calls in parallel. As a single-story teammate your work is sequential — do one action, observe its result, then proceed. Batch only genuinely independent read-only calls, never dependent steps (e.g. save then verify).
 
 ## Commit Conventions
 
@@ -40,7 +40,9 @@ Stay in your assigned domain for work you initiate. If you must step outside to 
 
 ## Escalate on Ambiguity
 
-If the spec is too ambiguous to execute safely (conflicting contracts, missing AC, undecided architecture), stop and raise a blocking concern (`--type concern --severity high`) naming what's unclear. Do not guess.
+If the spec is too ambiguous to execute safely (conflicting contracts, missing AC, undecided architecture), raise a blocking concern (`--type concern --severity high`) naming what's unclear.
+
+It will not pause you — blocking gates do not apply to teammates, and only the lead clears one. Take the branch you can defend and state the assumption; if none is defensible, stop and say so in your final message. Never guess silently.
 
 ## Code Quality
 
