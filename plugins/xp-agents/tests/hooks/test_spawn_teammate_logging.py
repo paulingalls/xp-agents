@@ -35,8 +35,8 @@ class TestProjectScopedLogDir(unittest.TestCase):
         collide within a single project."""
         import spawn_teammate
 
-        a = spawn_teammate.project_log_dir("/data/8e1f07eb0759/smm")
-        b = spawn_teammate.project_log_dir("/data/deadbeefcafe/smm")
+        a = spawn_teammate.project_log_dir("/data/8e1f07eb0759/smm", sprint_id=None)
+        b = spawn_teammate.project_log_dir("/data/deadbeefcafe/smm", sprint_id=None)
 
         self.assertEqual(a.name, "8e1f07eb0759")
         self.assertEqual(b.name, "deadbeefcafe")
@@ -47,7 +47,7 @@ class TestProjectScopedLogDir(unittest.TestCase):
         project-id, never to '' or '.'."""
         import spawn_teammate
 
-        d = spawn_teammate.project_log_dir("/data/8e1f07eb0759/smm/")
+        d = spawn_teammate.project_log_dir("/data/8e1f07eb0759/smm/", sprint_id=None)
         self.assertEqual(d.name, "8e1f07eb0759")
 
     def test_main_passes_project_scoped_log_dir(self):
@@ -85,7 +85,7 @@ class TestProjectScopedLogDir(unittest.TestCase):
                 )
             self.assertEqual(
                 captured.get("log_dir"),
-                spawn_teammate.project_log_dir(smm_dir),
+                spawn_teammate.project_log_dir(smm_dir, sprint_id=None),
                 "main() must pass the project-scoped log_dir, not default /tmp",
             )
         finally:
@@ -125,7 +125,8 @@ class TestPrintLogPath(unittest.TestCase):
             )
 
         expected = str(
-            spawn_teammate.project_log_dir(smm_dir) / "worktree-story-005.log"
+            spawn_teammate.project_log_dir(smm_dir, sprint_id=None)
+            / "worktree-story-005.log"
         )
         self.assertEqual(buf.getvalue().strip(), expected)
         # Pure query — no worktree, no spawn.
@@ -174,10 +175,10 @@ class TestProjectScopedPromptPath(unittest.TestCase):
         import spawn_teammate
 
         a = spawn_teammate.project_prompt_path(
-            "/data/8e1f07eb0759/smm", "worktree-story-001"
+            "/data/8e1f07eb0759/smm", "worktree-story-001", sprint_id=None
         )
         b = spawn_teammate.project_prompt_path(
-            "/data/deadbeefcafe/smm", "worktree-story-001"
+            "/data/deadbeefcafe/smm", "worktree-story-001", sprint_id=None
         )
 
         self.assertEqual(a.parent.name, "8e1f07eb0759")
@@ -191,15 +192,19 @@ class TestProjectScopedPromptPath(unittest.TestCase):
         import spawn_teammate
 
         smm_dir = "/data/8e1f07eb0759/smm"
-        prompt = spawn_teammate.project_prompt_path(smm_dir, "worktree-story-001")
-        self.assertEqual(prompt.parent, spawn_teammate.project_log_dir(smm_dir))
+        prompt = spawn_teammate.project_prompt_path(
+            smm_dir, "worktree-story-001", sprint_id=None
+        )
+        self.assertEqual(
+            prompt.parent, spawn_teammate.project_log_dir(smm_dir, sprint_id=None)
+        )
 
     def test_prompt_path_handles_trailing_slash(self):
         """A trailing slash on the smm-dir still resolves to the project-id."""
         import spawn_teammate
 
         p = spawn_teammate.project_prompt_path(
-            "/data/8e1f07eb0759/smm/", "worktree-story-001"
+            "/data/8e1f07eb0759/smm/", "worktree-story-001", sprint_id=None
         )
         self.assertEqual(p.parent.name, "8e1f07eb0759")
 
@@ -240,7 +245,9 @@ class TestPrintPromptPath(unittest.TestCase):
                     ]
                 )
 
-            expected = spawn_teammate.project_prompt_path(smm_dir, "worktree-story-005")
+            expected = spawn_teammate.project_prompt_path(
+                smm_dir, "worktree-story-005", sprint_id=None
+            )
             self.assertEqual(buf.getvalue().strip(), str(expected))
             # Pure query — no worktree, no spawn.
             mock_wt.assert_not_called()
@@ -295,7 +302,9 @@ class TestPrintPromptPath(unittest.TestCase):
         # regular FILE, so mkdir(parents=True, exist_ok=True) raises.
         token = f"mkdir-fail-{uuid.uuid4().hex}"
         smm_dir = f"/data/{token}/smm"
-        blocker = spawn_teammate.project_prompt_path(smm_dir, "x").parent
+        blocker = spawn_teammate.project_prompt_path(
+            smm_dir, "x", sprint_id=None
+        ).parent
         blocker.parent.mkdir(parents=True, exist_ok=True)
         blocker.write_text("occupied")
         try:
@@ -336,7 +345,9 @@ class TestSpawnResolvesPromptPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             smm_dir = str(Path(tmp) / "8e1f07eb0759" / "smm")
             name = "worktree-story-007"
-            prompt_path = spawn_teammate.project_prompt_path(smm_dir, name)
+            prompt_path = spawn_teammate.project_prompt_path(
+                smm_dir, name, sprint_id=None
+            )
             prompt_path.parent.mkdir(parents=True, exist_ok=True)
             prompt_path.write_text("DETERMINISTIC PROMPT BODY")
 

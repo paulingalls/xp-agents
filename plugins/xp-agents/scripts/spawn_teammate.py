@@ -42,6 +42,33 @@ import tier_wire
 from teammate_runner import project_log_dir, project_prompt_path, run_with_tee
 
 
+def resolve_sprint_id(smm_dir: str | Path) -> str | None:
+    """Return the active sprint id, or None when there is no usable sprint.
+
+    The sprint id namespaces this teammate's prompt and log files (see
+    teammate_runner._project_dir): story ids repeat every sprint, so without it
+    last sprint's story-003 prompt sits where this sprint's story-003 spawns
+    from. Resolved HERE, once, and passed down — teammate_runner is documented
+    as self-contained ("imports no SMM/plugin modules, so it needs no sys.path
+    bootstrap"), and reading the sprint inside it would void that; this module
+    already imports sprint_store.
+
+    The read is advisory (fail-open): spawn_teammate legitimately runs with no
+    sprint at all (free branch, ad-hoc teammate), and a corrupt sprint.json must
+    not brick every spawn — both degrade to the project-only namespace, exactly
+    as before this scoping existed. That is safe because the degraded answer is
+    the SAME for --print-prompt-path and for the spawn (one function, one file),
+    so the lead and the teammate still meet at one path; and because loudness is
+    delegated to a later, stricter step — the prompt guard below refuses a
+    prompt that does not name the story's branch, however the path was resolved.
+    """
+    sprint = sprint_store.load_sprint_fail_open(Path(smm_dir))
+    if sprint is None:
+        return None
+    sprint_id = sprint.get("sprint_id")
+    return sprint_id if isinstance(sprint_id, str) and sprint_id else None
+
+
 def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
     """Clear a stale worktree before (re)creating one at the same path.
 
@@ -261,11 +288,16 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     name = args.name
 
+    # The namespace token for BOTH the prompt and the log. Resolved once, here,
+    # and threaded through every path call below — the queries included, so what
+    # --print-prompt-path hands the lead is the file the spawn actually reads.
+    sprint_id = resolve_sprint_id(args.smm_dir)
+
     # Pure query: print the live forensic-log path the tee will write to, and
     # exit before any worktree/spawn side effect. /xp-assign surfaces this as
     # the mid-flight `tail -f` target.
     if args.print_log_path:
-        print(project_log_dir(args.smm_dir) / f"{name}.log")
+        print(project_log_dir(args.smm_dir, sprint_id=sprint_id) / f"{name}.log")
         return
 
     # Pure query: print the per-project prompt-file path and exit before any
@@ -274,7 +306,7 @@ def main(argv: list[str] | None = None) -> None:
     # nothing else guarantees the dir exists; create it here (best-effort) so
     # the external writer can write regardless of how it writes.
     if args.print_prompt_path:
-        prompt_path = project_prompt_path(args.smm_dir, name)
+        prompt_path = project_prompt_path(args.smm_dir, name, sprint_id=sprint_id)
         # The external writer REQUIRES this dir (unlike the log dir, which
         # run_with_tee degrades around), so a mkdir failure must fail loud here
         # rather than print a path the writer will then fail to write to.
@@ -286,7 +318,9 @@ def main(argv: list[str] | None = None) -> None:
     # the deterministic project_prompt_path (derivable from --name + --smm-dir
     # already in this command) so no queried value has to survive a separate
     # Bash tool call. Used everywhere the prompt is read/preserved/unlinked.
-    prompt_file = args.prompt_file or str(project_prompt_path(args.smm_dir, name))
+    prompt_file = args.prompt_file or str(
+        project_prompt_path(args.smm_dir, name, sprint_id=sprint_id)
+    )
 
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
@@ -361,7 +395,7 @@ def main(argv: list[str] | None = None) -> None:
         ) as tf:
             tf.write(combined)
             combined_path = tf.name
-        log_dir = project_log_dir(args.smm_dir)
+        log_dir = project_log_dir(args.smm_dir, sprint_id=sprint_id)
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
