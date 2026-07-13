@@ -2,11 +2,12 @@
 """Tests for sprint_cli.py structural-mutation subcommands.
 
 Covers add-story, update-story, update-story-if, edit-story,
-build-capstone, update-story-branch, and the run()-vs-save() routing
-contract (which spans create too, so it stays here). Split out of
-test_sprint_cli.py in sprint-108 M1, and again in story-005 — `create`
-and the re-slice preserve now live in test_sprint_cli_create.py — to
-keep each test file under the 500-line cap (decision d027fe5c9066). The CLI is
+update-story-branch, and the run()-vs-save() routing contract (which spans
+create too, so it stays here). Split out of test_sprint_cli.py in
+sprint-108 M1, again in story-005 — `create` and the re-slice preserve now
+live in test_sprint_cli_create.py — and again in story-015 —
+build-capstone now lives in test_sprint_cli_build_capstone.py — to keep
+each test file under the 500-line cap (decision d027fe5c9066). The CLI is
 invoked as a subprocess via run_cli(_CLI, ...), so these subcommands
 still route through sprint_cli.py (which imports the handlers from
 sprint_cli_mutate.py) — no import repoint needed.
@@ -364,55 +365,6 @@ class TestUpdateStoryBranch(_SMMTestCase):
             self.smm_dir,
         )
         self.assertNotEqual(result.returncode, 0)
-
-
-class TestBuildCapstoneCommand(_SMMTestCase):
-    def _run(self, extra):
-        return run_cli(_CLI, ["build-capstone", *extra], self.smm_dir)
-
-    def test_prints_ready_capstone_json(self):
-        result = self._run(
-            [
-                "--milestone",
-                "Milestone 3: surface-coverage",
-                "--surfaces",
-                "cli,sdk",
-                "--depends-on",
-                "story-001,story-002",
-                "--story-id",
-                "story-006",
-            ]
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        story = json.loads(result.stdout)
-        self.assertEqual(story["id"], "story-006")
-        self.assertEqual(story["status"], "ready")
-        self.assertTrue(story["title"].startswith("Capstone:"))
-        self.assertEqual(story["dependencies"], ["story-001", "story-002"])
-        surfaces = {
-            a["surface"] for a in story["acceptance_criteria"] if isinstance(a, dict)
-        }
-        self.assertEqual(surfaces, {"cli", "sdk"})
-
-    def test_output_pipes_into_add_story(self):
-        (self.smm_dir / "sprint.json").write_text(
-            json.dumps(_make_sprint(stories=[_make_story(id="story-001")]))
-        )
-        built = self._run(
-            [
-                "--milestone",
-                "Milestone 3",
-                "--surfaces",
-                "cli",
-                "--depends-on",
-                "story-001",
-                "--story-id",
-                "story-006",
-            ]
-        )
-        self.assertEqual(built.returncode, 0, built.stderr)
-        added = run_cli(_CLI, ["add-story"], self.smm_dir, stdin_data=built.stdout)
-        self.assertEqual(added.returncode, 0, added.stderr)
 
 
 class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):

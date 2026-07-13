@@ -6,6 +6,10 @@ edit-story, build-capstone, update-story-branch) mutate sprint.json.
 sprint_cli.py imports them and wires them into its argparse dispatch
 table; the read-only query handlers and validate-domain stay there.
 
+build-capstone is the one exception to "mutate sprint.json" — it only
+prints a story dict to stdout — but it lives here anyway since it's a
+structural-mutation payload the skill pipes into add-story.
+
 Split out of sprint_cli.py in sprint-108 M1 to keep both modules under
 the 500-line cap (decision d027fe5c9066). One-directional import:
 sprint_cli -> sprint_cli_mutate -> sprint_store. No triage dependency —
@@ -22,12 +26,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 # sprint_save is imported lazily inside _cmd_create / _cmd_add_story (the
 # only callers that need it) so importing this module for the cheaper
 # mutation subcommands (update-story, edit-story, build-capstone, ...)
-# doesn't pay the cost of loading sister_tests + system_context_store +
-# BUILTIN_LAYOUTS construction. sprint_save is an engine-layer sibling in
-# smm/ (relocated in sprint-108 M1) — no skill sys.path insert needed;
-# structural-mutation subcommands drive its full pipeline (sister discovery
-# + milestone transition + accept-marker handling), while status-only edits
-# (_cmd_edit_story) bypass it via store.edit_story.
+# doesn't pay the cost of loading sister_tests + BUILTIN_LAYOUTS
+# construction. sprint_save is an engine-layer sibling in smm/ (relocated
+# in sprint-108 M1) — no skill sys.path insert needed; structural-mutation
+# subcommands drive its full pipeline (sister discovery + milestone
+# transition + accept-marker handling), while status-only edits
+# (_cmd_edit_story) bypass it via store.edit_story. build-capstone also
+# imports lazily — system_context_store, inside _resolve_capstone_harness
+# — but only on the path where --harness is omitted; an explicit --harness
+# skips system_context entirely.
 import sprint_store as store
 
 
@@ -270,24 +277,85 @@ def _cmd_set_executor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_capstone_harness(surfaces: list[str], smm_dir: Path) -> str | None:
+    """Resolve acceptance_execution.type from the capstone's OWN surfaces.
+
+    Looks up each of `surfaces` (not every surface in the project — the
+    capstone might span only some of them) against system_context's
+    declared acceptance_surfaces. A single agreed harness wins; surfaces
+    that disagree (a legitimate case in a polyglot repo — e.g. a TS
+    surface on vitest and a Python surface on pytest) or that declare no
+    harness fall back to None, which build_capstone_story renders as a
+    placeholder rather than guessing a language.
+
+    Never raises: a missing, corrupt, or symlinked system_context.json
+    degrades to None + a stderr warning, mirroring the best-effort
+    contract of system_context_store.acceptance_surface_names. Lazily
+    imports system_context_store — only reached when --harness is absent.
+    """
+    if not surfaces:
+        return None
+    import system_context_store
+
+    try:
+        doc = system_context_store.load_system_context(smm_dir)
+    except (ValueError, OSError) as exc:
+        print(
+            f"WARN: system_context.json could not be read ({exc}); "
+            "capstone acceptance_execution.type left as a placeholder.",
+            file=sys.stderr,
+        )
+        return None
+    if doc is None:
+        return None
+
+    harness_by_surface: dict[str, str] = {
+        s["name"]: s["harness"]
+        for s in doc.get("acceptance_surfaces", [])
+        if isinstance(s, dict)
+        and isinstance(s.get("name"), str)
+        and isinstance(s.get("harness"), str)
+    }
+    harnesses = {harness_by_surface[s] for s in surfaces if s in harness_by_surface}
+    if len(harnesses) == 1:
+        return next(iter(harnesses))
+    if len(harnesses) > 1:
+        print(
+            f"WARN: capstone surfaces {surfaces} declare different harnesses "
+            f"({sorted(harnesses)}); leaving acceptance_execution.type as a "
+            "placeholder rather than guessing.",
+            file=sys.stderr,
+        )
+    return None
+
+
 def _cmd_build_capstone(args: argparse.Namespace) -> int:
     """Print a deterministic capstone story as JSON on stdout.
 
-    Pure (no sprint read/write) — the skill pipes the output into
+    Does not read or write sprint.json — the skill pipes the output into
     `add-story`. Comma-separated --surfaces and --depends-on are split
     into lists; empty strings yield empty lists.
+
+    When --harness is omitted, resolves acceptance_execution.type from
+    the capstone's own --surfaces via system_context's acceptance_surfaces
+    (see _resolve_capstone_harness) — a single agreed harness wins,
+    disagreement or absence degrades to a placeholder. An explicit
+    --harness always wins over resolution.
     """
 
     def _split(raw: str) -> list[str]:
         return [p for p in (s.strip() for s in raw.split(",")) if p]
 
+    surfaces = _split(args.surfaces)
+    harness = args.harness or _resolve_capstone_harness(surfaces, args.smm_dir)
+
     story = store.build_capstone_story(
         args.story_id,
         args.milestone,
-        _split(args.surfaces),
+        surfaces,
         _split(args.depends_on),
         milestone_ref=args.milestone_ref,
-        harness=args.harness,
+        harness=harness,
     )
     print(json.dumps(story, indent=2))
     return 0

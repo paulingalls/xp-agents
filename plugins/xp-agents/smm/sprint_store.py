@@ -422,7 +422,7 @@ def build_capstone_story(
     depends_on: list[str],
     *,
     milestone_ref: str = "",
-    harness: str = "pytest",
+    harness: str | None = None,
 ) -> dict:
     """Return a schema-valid capstone story dict for a milestone.
 
@@ -434,6 +434,13 @@ def build_capstone_story(
     implementer replaces with the real cross-cutting invocation when the
     capstone's own story is built. Pure: the caller appends the result
     to the stories list and persists via ``save_sprint``.
+
+    ``harness`` is the resolved ``acceptance_execution.type``. It is
+    never guessed here — callers resolve it (e.g. from the project's
+    declared acceptance surfaces) and pass it in, or pass ``None`` when
+    no harness could be resolved. ``None`` yields a schema-valid
+    placeholder type rather than an omitted field, so the capstone stays
+    in the acceptance roll-up until an implementer fills it in.
     """
     acceptance_criteria: list[str | dict] = [
         f"E2E: Given the {milestone_name} stories ship, When the cross-cutting "
@@ -467,7 +474,7 @@ def build_capstone_story(
         "interface_contracts": [],
         "acceptance_criteria": acceptance_criteria,
         "acceptance_execution": {
-            "type": harness,
+            "type": harness or "<implementer fills: test harness>",
             "command": "<implementer fills: cross-cutting test invocation>",
             "notes": "Placeholder — fill with the real cross-cutting test command.",
         },
