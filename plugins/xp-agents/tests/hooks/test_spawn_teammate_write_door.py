@@ -228,7 +228,13 @@ class TestWriteDoorEndToEnd(unittest.TestCase):
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", delete=False
             ) as f:
-                f.write("test prompt")
+                # Must NAME story-A: the prompt guard (story-014) refuses a prompt
+                # that does not name the story being spawned, and it runs BEFORE
+                # the claim — a prompt that fails it never reaches the claim door
+                # this test exists to exercise. (Both guards defend the same
+                # invariant from different sides: no name-keyed side effect for a
+                # spawn that will be refused.)
+                f.write("test prompt for story-A")
                 prompt_path = f.name
 
             try:

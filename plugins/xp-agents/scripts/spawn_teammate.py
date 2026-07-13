@@ -36,9 +36,11 @@ import in_place_marker
 import sprint_store
 import tier_wire
 
-# The subprocess tee + liveness watchdog live in a sibling leaf module; keep
-# the names importable here so callers (and their tests) still see
-# spawn_teammate.run_with_tee / project_log_dir.
+# The prompt text (is this prompt ours, and what leads it) and the subprocess tee
+# + liveness watchdog live in sibling leaf modules; keep the names importable here
+# so callers (and their tests) still see spawn_teammate.run_with_tee /
+# project_log_dir.
+from spawn_prompt import load_prompt_for_story, worktree_preamble
 from teammate_runner import project_log_dir, project_prompt_path, run_with_tee
 
 
@@ -48,10 +50,10 @@ def resolve_sprint_id(smm_dir: str | Path) -> str | None:
     The sprint id namespaces this teammate's prompt and log files (see
     teammate_runner._project_dir): story ids repeat every sprint, so without it
     last sprint's story-003 prompt sits where this sprint's story-003 spawns
-    from. Resolved HERE, once, and passed down — teammate_runner is documented
-    as self-contained ("imports no SMM/plugin modules, so it needs no sys.path
-    bootstrap"), and reading the sprint inside it would void that; this module
-    already imports sprint_store.
+    from. Resolved HERE, once, and passed down to every path call — the leaf
+    modules that own those paths (teammate_runner, spawn_prompt) are both
+    documented as importing no SMM modules, and reading the sprint inside either
+    would void that. This module already imports sprint_store.
 
     The read is advisory (fail-open): spawn_teammate legitimately runs with no
     sprint at all (free branch, ad-hoc teammate), and a corrupt sprint.json must
@@ -59,8 +61,8 @@ def resolve_sprint_id(smm_dir: str | Path) -> str | None:
     as before this scoping existed. That is safe because the degraded answer is
     the SAME for --print-prompt-path and for the spawn (one function, one file),
     so the lead and the teammate still meet at one path; and because loudness is
-    delegated to a later, stricter step — the prompt guard below refuses a
-    prompt that does not name the story's branch, however the path was resolved.
+    delegated to a later, stricter step — load_prompt_for_story refuses a prompt
+    that does not name the story's branch, however the path was resolved.
     """
     sprint = sprint_store.load_sprint_fail_open(Path(smm_dir))
     if sprint is None:
@@ -193,40 +195,6 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     worktree.write_story_assignment(smm_dir, name, story_id)
 
 
-def _worktree_preamble(wt_path: str) -> str:
-    """Return the worktree-context preamble injected before the teammate prompt.
-
-    Names the worktree path explicitly and the main-repo path derived from
-    it, then instructs the teammate to re-root any absolute path under the
-    main repo to the worktree. The preamble lands FIRST in the teammate's
-    stdin so its rule is established before the prompt body's potentially
-    misleading paths.
-
-    Worktree layout (standardized by worktree.worktree_path):
-    `<main_repo>/.claude/worktrees/<name>`.
-    """
-    main_repo = str(Path(wt_path).parent.parent.parent)
-    return (
-        "## Worktree Context (injected by spawn_teammate.py)\n"
-        "\n"
-        f"Your current working directory is the worktree at: `{wt_path}`\n"
-        f"The main repository checkout is at:               `{main_repo}`\n"
-        "\n"
-        "All file paths in the prompt body that follows are intended to be "
-        "RELATIVE to this worktree, even when they appear written as absolute "
-        f"paths starting with `{main_repo}/`. Re-root any such absolute path "
-        "to your worktree before reading or editing files. "
-        f"Example: `{main_repo}/some/sub/path.py` becomes "
-        f"`{wt_path}/some/sub/path.py`.\n"
-        "\n"
-        "The SMM directory (passed via $SMM_DIR) is intentionally OUTSIDE the "
-        "worktree — use it unmodified.\n"
-        "\n"
-        "---\n"
-        "\n"
-    )
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
@@ -322,6 +290,16 @@ def main(argv: list[str] | None = None) -> None:
         project_prompt_path(args.smm_dir, name, sprint_id=sprint_id)
     )
 
+    # FIRST — before the worktree, the marker claim, and the name-keyed story
+    # assignment. Reading the prompt is pure, and refusing here is the only
+    # placement that leaves NOTHING behind: a guard at the point of use (where
+    # the prompt was previously read) would already have created an orphan
+    # worktree, clobbered another teammate's .story-assignment, and claimed the
+    # in-place name — on a spawn we then refuse.
+    prompt_body = load_prompt_for_story(
+        prompt_file, branch=args.branch, story_id=args.story_id
+    )
+
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
     # checked-out story branch — no worktree to isolate a single unit of work.
@@ -388,8 +366,8 @@ def main(argv: list[str] | None = None) -> None:
         # commits to the story that failed to spawn. Every name-keyed side effect
         # belongs on this side of the claim.
         write_story_assignment(Path(args.smm_dir), name, args.story_id)
-        preamble = "" if args.in_place else _worktree_preamble(run_cwd)
-        combined = preamble + Path(prompt_file).read_text()
+        preamble = "" if args.in_place else worktree_preamble(run_cwd)
+        combined = preamble + prompt_body
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".prompt.txt", delete=False
         ) as tf:

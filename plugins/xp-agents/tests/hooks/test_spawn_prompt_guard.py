@@ -266,5 +266,210 @@ class TestSprintScopedNamespace(_SpawnGuardTestCase):
         self.assertEqual(Path(log_dir).name, "sprint-117")
 
 
+class TestPromptNamesTheBranch(_SpawnGuardTestCase):
+    """LEG 2 — spawn refuses a prompt written for a DIFFERENT story.
+
+    Leg 1 makes a cross-sprint stale prompt unreachable by construction. This
+    leg is the assertion that does not depend on the path being right: whatever
+    prompt is at the resolved path, it must name the story we are spawning
+    before we act on it. It fires on a re-used prompt within one sprint too, and
+    it is the only leg that survives someone passing --prompt-file by hand.
+
+    Against the BRANCH, not the story id. Both prompts below contain the string
+    "story-003" — an id check passes on the stale one, and the stale one IS the
+    bug. Only the slug tells them apart.
+    """
+
+    def _refusal(self, *extra: str) -> str:
+        """Spawn expecting a refusal; return the message. Fails if it spawned."""
+        with self.assertRaises(SystemExit) as caught:
+            self._spawn(*extra)
+        self.create_worktree.assert_not_called()
+        self.run_with_tee.assert_not_called()
+        return str(caught.exception)
+
+    def test_refuses_a_prompt_whose_story_id_matches_but_slug_does_not(self):
+        """AC1/AC3 — THE case. Plant the sprint-116 story-003 prompt (perf
+        timers) exactly where sprint-117's story-003 (tools remember what was
+        adopted) is about to spawn from, and prove it is refused.
+
+        A test that planted a different story ID would prove nothing: the ids
+        are identical. That is the entire point of this story.
+        """
+        self._write_sprint("sprint-117")
+        stale = self._plant_prompt(
+            f"# story-003 — Perf timers\n\n**Story Branch:** `{_STALE_BRANCH}`\n"
+            "Add timing instrumentation to the event append path.\n"
+        )
+        self.assertIn("story-003", stale.read_text(), "fixture must share the id")
+
+        msg = self._refusal("--story-id", "story-003", "--branch", _LIVE_BRANCH)
+
+        # Names BOTH the story and the stale prompt path (AC1).
+        self.assertIn("story-003", msg)
+        self.assertIn(str(stale), msg)
+        self.assertIn(_LIVE_BRANCH, msg)
+
+    def test_the_stale_prompt_is_left_alone_never_silently_regenerated(self):
+        """A silent rewrite would paper over the collision the lead must see —
+        story-005's lesson. The refusal leaves the file exactly as found."""
+        self._write_sprint("sprint-117")
+        body = f"**Story Branch:** `{_STALE_BRANCH}`\n"
+        stale = self._plant_prompt(body)
+
+        self._refusal("--story-id", "story-003", "--branch", _LIVE_BRANCH)
+
+        self.assertEqual(stale.read_text(), body, "the stale prompt was rewritten")
+
+    def test_the_refusal_precedes_every_side_effect(self):
+        """Verification 2 / RED #2. 'Before Popen' is NOT early enough: main()'s
+        real order is create_worktree → claim_in_place_marker →
+        write_story_assignment → read(prompt). A guard where the prompt is USED
+        still leaves an orphan worktree, a clobbered name-keyed
+        .story-assignment, and a claimed marker behind on a spawn we refuse.
+
+        The prompt read is pure, so it goes FIRST. Here the in-place path is
+        driven (it claims the marker AND writes the assignment), and a
+        pre-existing assignment for ANOTHER story stands in for the live holder
+        whose attribution must not be redirected.
+        """
+        import in_place_marker
+        import worktree
+
+        self._write_sprint("sprint-117")
+        self._plant_prompt(f"**Story Branch:** `{_STALE_BRANCH}`\n")
+
+        assignment = worktree.story_assignment_path(self.smm_dir, _NAME)
+        assignment.write_text("story-B")
+
+        self._refusal("--story-id", "story-003", "--branch", _LIVE_BRANCH, "--in-place")
+
+        self.assertEqual(
+            assignment.read_text(),
+            "story-B",
+            "the refused spawn overwrote a name-keyed .story-assignment",
+        )
+        self.assertFalse(
+            in_place_marker.in_place_marker_path(self.smm_dir, _NAME).exists(),
+            "the refused spawn claimed the in-place name",
+        )
+        # create_worktree is asserted not-called by _refusal, so no worktree
+        # was cut and no branch was checked out for a spawn that never ran.
+
+    def test_a_prompt_written_for_this_story_spawns_normally(self):
+        """AC2 — no false refusal. The guard is worthless if it also blocks the
+        prompt the lead just wrote."""
+        self._write_sprint("sprint-117")
+        self._plant_prompt(
+            f"# story-003\n\n**Story Branch:** `{_LIVE_BRANCH}`\n\n"
+            "BODY-FOR-THIS-STORY\n"
+        )
+
+        self._spawn("--story-id", "story-003", "--branch", _LIVE_BRANCH)
+
+        self.create_worktree.assert_called_once()
+        self.assertIn("BODY-FOR-THIS-STORY", self.stdin_seen)
+
+    def test_without_a_branch_it_falls_back_to_the_id_and_says_it_is_weaker(self):
+        """--in-place (and any pre-branch stage) has no --branch to assert on.
+        Fall back to the story id, but SAY that the check is weaker there rather
+        than implying a guarantee it cannot make: two sprints' story-003 prompts
+        both contain 'story-003', so this leg alone cannot separate them — leg
+        1's sprint-scoped path is what does."""
+        self._write_sprint("sprint-117")
+        self._plant_prompt("a prompt for some other story entirely\n")
+
+        msg = self._refusal("--story-id", "story-003", "--in-place")
+
+        self.assertIn("story-003", msg)
+        self.assertRegex(msg, r"(?i)weak|only a story.ID check|cannot tell")
+
+    def test_an_empty_branch_degrades_to_the_id_check_it_does_not_disable_it(self):
+        """An EMPTY --branch must read as "no branch", never as "a branch that
+        every prompt contains" — `"" in text` is True for all text, so the wrong
+        null-check here (`branch if branch is not None else story_id`) silently
+        turns the strong check into no check at all, on the one input that is
+        most likely to arrive by accident.
+
+        Not hypothetical: a lead composing `--branch "$VAR"` in a second Bash
+        call hands the spawn an empty value, because shell state does not persist
+        across calls — the exact accident that made --prompt-file optional (see
+        parse_args). The guard must still refuse the stale prompt, on the id."""
+        self._write_sprint("sprint-117")
+        self._plant_prompt("a prompt for some other story entirely\n")
+
+        msg = self._refusal("--story-id", "story-003", "--branch", "")
+
+        self.assertIn("story-003", msg)
+
+    def test_the_id_fallback_accepts_a_prompt_that_names_the_story(self):
+        """The weak check still passes the prompt that names its story — it is a
+        weaker guarantee, not a broken one."""
+        self._write_sprint("sprint-117")
+        self._plant_prompt("Story: story-003\nIN-PLACE-BODY\n")
+
+        self._spawn("--story-id", "story-003", "--in-place")
+
+        self.assertIn("IN-PLACE-BODY", self.stdin_seen)
+
+    def test_an_ad_hoc_teammate_with_no_story_is_not_gated(self):
+        """No --branch and no --story-id: an ad-hoc teammate outside a sprint.
+        There is nothing to assert the prompt against, so it is taken as-is —
+        the guard must not invent a target and refuse every free spawn."""
+        self._plant_prompt("free-form ad-hoc prompt\n")
+
+        self._spawn()
+
+        self.assertIn("free-form ad-hoc prompt", self.stdin_seen)
+
+    def test_a_missing_prompt_is_refused_loudly_not_spawned_empty(self):
+        """The failure mode the required sprint token exists to prevent, caught
+        again at the last line of defence: no prompt at the resolved path means
+        the teammate would be fed an EMPTY prompt. Name the path and refuse,
+        before any side effect."""
+        self._write_sprint("sprint-117")
+        # Nothing planted.
+
+        msg = self._refusal("--story-id", "story-003", "--branch", _LIVE_BRANCH)
+
+        self.assertIn("story-003", msg)
+        self.assertIn(f"{_NAME}.prompt.txt", msg)
+
+
+class TestTheRefusalReachesTheLead(_SpawnGuardTestCase):
+    """A refusal is only as loud as the pipe it travels down.
+
+    /xp-assign never runs the spawn bare: it runs
+    ``spawn_teammate.py ... 2>&1 | teammate_output_filter.py``. That filter keeps
+    only the lines it RECOGNISES as diagnostics and drops the rest, so a refusal
+    it cannot see reaches the lead as "No result event in 1 stream-json lines" —
+    the stale path, the branch, and the remedy all gone. The lead's obvious next
+    move on a contentless failure is to re-run the spawn, which refuses again
+    just as opaquely.
+
+    The unhandled exception this guard replaced carried a "Traceback" the filter
+    matches; a clean SystemExit carries nothing. So the refusal names itself with
+    a token the filter knows, and this is the pin that keeps the two ends of that
+    contract from drifting apart.
+    """
+
+    def test_the_filter_surfaces_the_refusal_the_lead_must_act_on(self):
+        import teammate_output_filter
+
+        self._write_sprint("sprint-117")
+        stale = self._plant_prompt(f"**Story Branch:** `{_STALE_BRANCH}`\n")
+
+        with self.assertRaises(SystemExit) as caught:
+            self._spawn("--story-id", "story-003", "--branch", _LIVE_BRANCH)
+
+        # What the shell hands the filter: the refusal on stderr, merged by 2>&1.
+        diag = teammate_output_filter.extract_diagnostics(
+            str(caught.exception).splitlines()
+        )
+
+        self.assertIn(str(stale), diag, "the lead never learns WHICH prompt")
+        self.assertIn(_LIVE_BRANCH, diag, "...nor which branch it failed to name")
+
+
 if __name__ == "__main__":
     unittest.main()
