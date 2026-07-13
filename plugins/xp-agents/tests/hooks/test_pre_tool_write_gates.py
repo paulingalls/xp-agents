@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for pre_tool_write.py: plan review gate, assign gate, question gate,
+"""Tests for pre_tool_write.py: schedule gate, plan review gate, question gate,
 accept marker.
 
 Split from test_pre_tool_write.py -- keeps gate-related test classes separate.
+The assign gate and the shared _LEAD_GATES machinery live in test_lead_gates.py:
+the assign gate grew a state-derived `active_when` predicate and its suite with
+it, and this file was already over the 500-line cap.
 """
 
 import os
@@ -188,82 +191,6 @@ class TestPreToolWritePlanReviewGate(_HookTestCase):
             self.assertNotIn("xp-review-plan", result)
 
 
-class TestAssignPendingGate(_HookTestCase):
-    """PreToolUse blocks writes when /xp-assign hasn't run."""
-
-    def test_assign_pending_blocks_write(self):
-        """Write with .assign-pending marker should block."""
-        marker = self.smm_dir / ".assign-pending"
-        marker.touch()
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_write.run(
-                _make_write_input(session_id="t", cwd="/tmp"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertIn("xp-assign", str(ctx.exception))
-
-    def test_plan_file_exempt_from_assign_gate(self):
-        """Write to .claude/plans/ allowed with assign-pending marker."""
-        marker = self.smm_dir / ".assign-pending"
-        marker.touch()
-        plan_input = _make_write_input(
-            session_id="t",
-            cwd="/tmp",
-            tool_input={
-                "file_path": "/Users/x/.claude/plans/my-plan.md",
-                "content": "# Plan\n1. Do stuff",
-            },
-        )
-        result = pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
-        if result:
-            self.assertNotIn("xp-assign", result)
-
-    def test_no_assign_marker_no_block(self):
-        """Write without assign-pending marker should not block."""
-        result = pre_tool_write.run(
-            _make_write_input(session_id="t", cwd="/tmp"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-assign", result)
-
-    def test_teammate_worktree_exempt_from_assign_gate(self):
-        """Teammate Edit not blocked by stale .assign-pending in shared SMM."""
-        marker = self.smm_dir / ".assign-pending"
-        marker.write_text("xp-plan-reviewer")
-        teammate_input = _make_write_input(
-            session_id="t",
-            cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
-            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
-        )
-        result = pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
-        if result:
-            self.assertNotIn("xp-assign", result)
-
-    def test_in_place_teammate_exempt_from_assign_gate_without_smm_dir_env(self):
-        """The in-place teammate is identified via its marker under smm_dir.
-
-        Passing smm_dir explicitly is load-bearing: the env leg falls back to
-        $SMM_DIR, so a hook process running without that var would fail closed
-        and over-gate a real teammate as the lead.
-        """
-        marker = self.smm_dir / ".assign-pending"
-        marker.write_text("xp-plan-reviewer")
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-010")
-        in_place_input = _make_write_input(
-            session_id="t",
-            cwd="/Users/dev/proj/src",
-            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
-        )
-        with patch.dict(
-            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-010"}, clear=False
-        ):
-            os.environ.pop("SMM_DIR", None)
-            result = pre_tool_write.run(in_place_input, smm_dir=self.smm_dir)
-        if result:
-            self.assertNotIn("xp-assign", result)
-
-
 class TestQuestionGate(_HookTestCase):
     """PreToolUse blocks writes when a blocking question is unanswered."""
 
@@ -409,62 +336,6 @@ class TestQuestionGate(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertIn("AskUserQuestion", str(ctx.exception))
-
-
-class TestLeadGateHotPath(_HookTestCase):
-    """run() fires on EVERY Write/Edit/MultiEdit, so the lead-only gate block
-    must not pay for the teammate probe it usually does not need."""
-
-    def test_no_armed_gate_skips_the_teammate_probe_entirely(self):
-        """Common case -- lead, nothing armed -- must not probe at all.
-
-        The probe parses cwd, reads the environment and can stat an in-place
-        marker. Ordering it before the marker stat taxes every write in the
-        overwhelmingly common no-marker case for an answer nothing consumes.
-        """
-        with patch.object(
-            pre_tool_write.identity, "is_worktree_teammate", return_value=False
-        ) as probe:
-            pre_tool_write.run(
-                _make_write_input(session_id="t", cwd="/tmp"),
-                smm_dir=self.smm_dir,
-            )
-        probe.assert_not_called()
-
-    def test_teammate_probe_runs_at_most_once_when_gates_armed(self):
-        """Every lead-only gate shares one exemption, so one probe answers all.
-
-        With all three markers armed, a per-gate probe would re-parse cwd and
-        re-stat the in-place marker once per gate.
-        """
-        (self.smm_dir / ".plan-awaiting-review").write_text("p")
-        (self.smm_dir / ".assign-pending").write_text("a")
-        (self.smm_dir / ".question-gate").write_text("q")
-        teammate_input = _make_write_input(
-            session_id="t",
-            cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
-            tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
-        )
-        with patch.object(
-            pre_tool_write.identity, "is_worktree_teammate", return_value=True
-        ) as probe:
-            pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
-        self.assertEqual(probe.call_count, 1)
-
-    def test_probe_receives_smm_dir_so_it_never_depends_on_the_env(self):
-        """The probe's env leg falls back to $SMM_DIR and fails CLOSED without
-        it. run() already holds a validated smm_dir, so it must hand it over --
-        otherwise a hook process with no SMM_DIR in env mistakes a live in-place
-        teammate for the lead and over-gates it."""
-        (self.smm_dir / ".assign-pending").write_text("a")
-        with patch.object(
-            pre_tool_write.identity, "is_worktree_teammate", return_value=True
-        ) as probe:
-            pre_tool_write.run(
-                _make_write_input(session_id="t", cwd="/tmp"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertEqual(probe.call_args.args[1], self.smm_dir)
 
 
 class TestAcceptMarker(_HookTestCase):
