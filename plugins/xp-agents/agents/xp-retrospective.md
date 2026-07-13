@@ -109,7 +109,7 @@ Each item: one observation + event ref(s) + XP value. Keep = positive practice. 
 
 ## Sprint Analysis (conditional)
 
-If `.retro-input.json` contains `sizing_analysis`, a sprint just ended. Produce a **Sprint Analysis** section between Session Accomplishments and Keep/Fix/Try. If `sizing_analysis` is absent, skip this section entirely.
+If `.retro-input.json` contains `sizing_analysis`, a sprint just ended. Produce a **Sprint Analysis** section between Session Accomplishments and Keep/Fix/Try, and save with `--retro-kind sprint` (Actions) — that flag marks the sprint's retro complete and releases its commit events from the log. If `sizing_analysis` is absent, skip this section and omit the flag.
 
 `sizing_analysis` contains:
 - `sprint_id`, `goal`
@@ -180,6 +180,8 @@ Build a JSON object with your Keep/Fix/Try analysis and pipe to the save script.
 - `keep[].content` ≤ 250 chars, `fix[].content` ≤ 300 chars, `try[].content` ≤ 300 chars
 - **Max 4 Try items.** >4 candidates → merge similar, promote proven carry-forwards into Wisdom, reclassify non-experiments as Fix, drop lowest-value with count noted
 - `analysis_notes` ≤ 600 chars — populate with cross-session trends this session's K/F/T don't fully capture
+
+The command below is the session-retro form. On the sprint path (Sprint Analysis), append `--retro-kind sprint` to it.
 
 ```bash
 cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py --smm-dir <SMM_DIR>

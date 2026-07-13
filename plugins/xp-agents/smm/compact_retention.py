@@ -29,6 +29,27 @@ import session_history
 _DECISION_MAX_AGE = 3  # Sessions before unresolved decisions can compact
 _ASSUMPTION_MAX_AGE = 5  # Sessions before unresolved assumptions/questions can compact
 
+# How many of the most recently STARTED sprints keep their commits and sprint
+# starts pinned. The marker (`sprint_retro_done`) releases a sprint's history
+# PROMPTLY; this cap releases it EVENTUALLY. The two are deliberately independent,
+# and correctness rests on the CAP, not on the marker.
+#
+# Without it the rule reads "keep every commit whose sprint has not had a retro"
+# — and a sprint whose retro never runs never leaves `pending_retro_sprint_ids`,
+# so that is "keep every commit forever". Measured on the logs this shipped to,
+# commits were 60-75% of every live event file, re-read by every hook invocation.
+#
+# The marker could not fix those logs by itself: no marker exists in ANY of them,
+# and backfilling one would take a manual migration per project. An age rule
+# repairs them on the next compaction, which runs on every SessionEnd — so a
+# sprint whose retro will NEVER run must still release its commits. That is the
+# self-healing property, and it is why this cap exists rather than just wiring
+# the missing writer.
+#
+# 2 = the current sprint plus one back, matching the caps either side of it
+# (last 1 sprint_end, last 2 retrospectives).
+_RECENT_SPRINT_COUNT = 2
+
 # Event types intentionally NOT collected by _collect_smm_referenced_ids.
 # Derived from EVENT_CATEGORY with two named-set overrides:
 #   - TRANSIENT types EXCEPT goal (goal is retained as a cross-session
@@ -101,13 +122,52 @@ def _compute_pending_retro_sprint_ids(events: list[dict]) -> set[str]:
     return started - retro_done
 
 
+def _recent_sprint_ids(
+    events: list[dict], count: int = _RECENT_SPRINT_COUNT
+) -> set[str]:
+    """The *count* most recently STARTED sprint ids, ranked by FILE POSITION.
+
+    File position, NOT `sprint_id` order. Sorting the ids as strings reads
+    correctly today only because every id in every live log happens to be a
+    3-digit `sprint-NNN`; it inverts silently at the thousandth sprint
+    ("sprint-1000" < "sprint-999"), pinning a stale sprint's commits while
+    releasing the CURRENT one's. The id format is a convention, not a schema
+    rule, so ranking by position takes no bet on it at all — and it is the idiom
+    the neighbouring cap rules in `_classify_pre_watermark` already use. The log
+    is append-only and flock-serialized, so file order IS causal order.
+
+    De-duplicated on first start, so a sprint restarted mid-log keeps its
+    original rank instead of jumping the queue.
+    """
+    ordered: list[str] = []
+    for event in events:
+        meta = event.get("metadata") or {}
+        if (
+            event.get("type") == es.EVENT_TYPE_SPRINT
+            and meta.get("action") == es.SPRINT_ACTION_START
+            and (sprint_id := meta.get("sprint_id"))
+            and sprint_id not in ordered
+        ):
+            ordered.append(sprint_id)
+    return set(ordered[-count:]) if count > 0 else set()
+
+
 def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     """Collect IDs of events that are still active in the SMM.
 
     Active = unresolved goals, decisions/assumptions/questions (< 3 sessions old),
-    conventions, unresolved concerns/debt, open customer_intents, sprint_starts
-    of pending-retro sprints, and commits whose sprint_id is pending-retro
-    (so /xp-sprint-review can compute per-story metrics).
+    conventions, unresolved concerns/debt, open customer_intents, and the
+    sprint_starts + commits of sprints that are BOTH pending-retro AND recent —
+    so the sprint retro can still compute per-story metrics for a sprint whose
+    retro is plausibly still coming.
+
+    The commit readers are `story_metrics` and `retro_metrics` (per-story sizing,
+    resolves_link_rate), both reached from the sprint-retro path. NOT
+    /xp-sprint-review: that skill computes velocity from sprint.json's story
+    statuses and never opens events.jsonl. Both readers window their commits on
+    sprint.json's `started` date, i.e. the CURRENT sprint only — so no reader
+    consults the commits of a sprint two back, and none of them can produce a
+    WRONG number when an older sprint's commits age out. They simply never look.
     Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = resolution.compute_resolutions(events)
@@ -117,7 +177,21 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     # Sort is required — sessions_since_event uses bisect_right on this list.
     anchor_timestamps = session_history.filter_session_anchor_timestamps(events)
 
-    pending_retro_sprint_ids = _compute_pending_retro_sprint_ids(events)
+    # BOTH conditions, and neither alone would do. "Pending" never goes false for
+    # a sprint whose retro never runs — which is every sprint in every log today —
+    # so it alone means "forever". "Recent" alone would drop the history of an
+    # active sprint the moment two newer ones started, losing the metrics its
+    # retro still needs. See _RECENT_SPRINT_COUNT.
+    #
+    # Both arms below (sprint/start and commit) gate on this ONE set, so a
+    # sprint's start and its commits are always released in the SAME round. That
+    # symmetry is what keeps the release stable: `pinned` is derived entirely
+    # from live start events, so a sprint whose start is gone is in neither
+    # `pending` nor `recent` — it can never be pinned again (no resurrect), and
+    # it can never be pinned forever (no stuck sprint).
+    pinned_sprint_ids = _compute_pending_retro_sprint_ids(events) & _recent_sprint_ids(
+        events
+    )
 
     for event in events:
         eid = event.get("id", "")
@@ -169,14 +243,12 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 meta = event.get("metadata", {})
                 action = meta.get("action", "")
                 sprint_id = meta.get("sprint_id", "")
-                # Sprint starts retained until retro_done fires — keeps
-                # _compute_pending_retro_sprint_ids able to identify the
-                # sprint across multiple compaction rounds. Sprint ends
-                # handled by index-based retention below.
-                if (
-                    action == es.SPRINT_ACTION_START
-                    and sprint_id in pending_retro_sprint_ids
-                ):
+                # A sprint start is retained while its sprint is still pinned —
+                # that is what lets _compute_pending_retro_sprint_ids re-identify
+                # the sprint across compaction rounds. Once the sprint ages out,
+                # the start goes with its commits: nothing is left that needs to
+                # name it. Sprint ENDS are handled by index-based retention below.
+                if action == es.SPRINT_ACTION_START and sprint_id in pinned_sprint_ids:
                     referenced.add(eid)
             case es.EVENT_TYPE_RETROSPECTIVE:
                 # Keep last 2 for trend detection. _find_unanalyzed_start
@@ -185,7 +257,7 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
                 pass
             case es.EVENT_TYPE_COMMIT:
                 sid = (event.get("metadata") or {}).get("sprint_id")
-                if sid and sid in pending_retro_sprint_ids:
+                if sid and sid in pinned_sprint_ids:
                     referenced.add(eid)
 
     return referenced
