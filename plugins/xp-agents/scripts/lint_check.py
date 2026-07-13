@@ -157,6 +157,10 @@ def detect_linter_config(
     With file_path, only returns a linter whose extensions match — finds
     pyproject.toml [tool.ruff] in subdirs, blocks eslint for .py files.
     Returns (linter_name, config_path) or None.
+
+    lang-ok: the extension test routes a file to the linter that claims it, off
+    the _LINTER_EXTENSIONS table. Supporting one more language is a row in that
+    table, not a branch here; an unclaimed extension simply finds no linter.
     """
     file_suffix = Path(file_path).suffix if file_path else None
 
@@ -220,6 +224,10 @@ def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
     Skips flag-shaped paths (arg-injection guard) and extensions the linter
     doesn't claim. Shared by run_linter and run_linter_batch — single source
     so the security guard can't drift between callers.
+
+    lang-ok: same _LINTER_EXTENSIONS table as detect_linter_config — a linter
+    with no entry claims every path (`allowed is None`), so an unlisted language
+    is passed through rather than filtered out.
     """
     allowed = _LINTER_EXTENSIONS.get(linter_name)
     return [
@@ -443,6 +451,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if config is None:
         # Only nudge for code files — non-code (md, json, yml) doesn't need a linter
+        # lang-ok: _CODE_EXTENSIONS spans the languages a linter nudge can help;
+        # an unlisted one just gets no nudge, which is a missing suggestion, not
+        # a blocked or misjudged write.
         if Path(normalized).suffix not in _CODE_EXTENSIONS:
             return None
         # Nudge once per session — atomic create, no symlink follow
