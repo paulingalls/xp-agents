@@ -45,10 +45,13 @@ The lead per-story plans→reviews→assigns one story at a time; each /xp-assig
 run resolves the lowest-id un-spawned story in the batch and exits.
 
 **Parallelism shape:** earlier teammates run asynchronously while the
-lead plans + spawns the next story (the Bash `run_in_background=true`).
-As each teammate's task-notification fires, run `/xp-accept` on THAT
-teammate before its sibling stories pile up unaccepted — accepts and
-spawns interleave; they're not serialized.
+lead plans the next story (the Bash `run_in_background=true`). The
+precedence is **plan → SPAWN → accept**: on a task-notification, spawn
+any story that is already planned, reviewed and un-spawned before
+accepting the teammate that just finished — only accept immediately
+when nothing is left to spawn. Accepts and spawns still interleave
+(they're not serialized), but spawning never waits on an accept, or the
+background sits empty for a whole close cycle.
 
 ## Pre-flight
 
@@ -290,7 +293,7 @@ The Bash above runs with `run_in_background=true`. You'll receive a `task-notifi
 - **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin — it swallows the stream and emits exactly one summary line at exit, so this file stays ~empty during the run and then holds just that summary: `Report: <path> | Branch: <branch> | Cost: $<n>`. It names the structured **report file path**. For anything mid-flight (progress, a stall), tail the live forensic `.log` at `$LOG_PATH` from Step 4 instead — that is the file the tee writes live.
 - **Then open the report file** for the structured what-shipped narrative — this is what /xp-accept and the eventual retro need; don't skip it.
 - **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
-- **If exit was 0** — run `/xp-accept` for `$TARGET` (verify + close) AS its notification fires; don't accumulate unaccepted teammates. Spawns and accepts interleave: while one teammate runs, the lead plans + spawns the next story; when a notification arrives, the lead pauses planning to accept the one that just finished. Letting many in-flight teammates pile up unaccepted drifts the sprint frontier.
+- **If exit was 0** — apply the pipeline's precedence rule before touching `/xp-accept`: if any story is planned, reviewed and un-spawned, spawn it FIRST, then accept `$TARGET`. If there is nothing left to spawn, accept `$TARGET` immediately — the rule is about precedence, not about deferring the accept, so an exhausted spawn frontier must never stall acceptance. Either way don't accumulate unaccepted teammates once the frontier is exhausted; run `/xp-accept` for `$TARGET` (verify + close) so sibling stories don't pile up unaccepted.
 
 The orchestrator does NOT merge teammate branches. Each story branch stays
 alive on its teammate worktree until its `/xp-story-close` invocation

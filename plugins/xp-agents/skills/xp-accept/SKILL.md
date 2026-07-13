@@ -43,6 +43,15 @@ worktree, which has the code but no installed deps. A trailing
 main checkout that needs recovery before any checkout (Step 1's
 precondition below handles it).
 
+**Pipeline precedence, before draining this loop.** A task-notification
+lands here, at the top of the accept loop — not at some later handoff.
+Before working the selected set below, check whether any story is
+planned, reviewed and un-spawned: if so, hand off to `/xp-assign` to
+spawn it first, then return here to accept. If there is nothing left to
+spawn, accept immediately — the rule is precedence, not a reason to
+delay acceptance. Draining every `reviewing` story before checking for
+spawnable work leaves the background empty for the whole close cycle.
+
 ## Step 1: Review Each Story Under Acceptance
 
 Read the sprint file at `SPRINT_FILE`. For each story in the selected set
