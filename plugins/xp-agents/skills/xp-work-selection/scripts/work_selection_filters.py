@@ -23,8 +23,8 @@ from event_builder import REFERENCES_KEY  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_DEFERRED,
     EVENT_TYPE_STATUS,
-    METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
+    event_disposition,
     is_retro_lane,
 )
 
@@ -73,8 +73,7 @@ def _counts_as_retro_defer(event: dict) -> bool:
     """
     if event.get("type") != EVENT_TYPE_STATUS:
         return False
-    meta = event.get("metadata") or {}
-    if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DEFERRED:
+    if event_disposition(event) != DISPOSITION_DEFERRED:
         return False
     return is_retro_lane(event)
 

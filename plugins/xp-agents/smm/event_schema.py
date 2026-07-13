@@ -219,6 +219,7 @@ from event_metadata import (  # noqa: E402, F401
     STATUS_ACTION_TEST_RUN_COMPLETE,
     STATUS_ACTION_TRIAGE_DISPOSITION,
     event_action,
+    event_disposition,
     intent_disposition,
     is_closing,
     is_retro_lane,

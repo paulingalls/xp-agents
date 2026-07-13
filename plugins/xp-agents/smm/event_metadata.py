@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 """Metadata vocabulary: STATUS_ACTION_*, METADATA_KEY_*, DISPOSITION_*,
-RETRO_ACTION_*, CONCERN_KIND_* string constants.
+RETRO_ACTION_*, CONCERN_KIND_* string constants, plus the accessors and
+predicates that read them off an event (`event_action`, `event_disposition`,
+`is_closing`, `intent_disposition`, `is_retro_lane`, `is_triage_lane`).
 
 Extracted from event_schema.py (split-shim convention 91fcf9b8744d) when
-event_schema.py crossed 500 lines. event_schema.py re-exports every name
-here so callers continue to `from event_schema import STATUS_ACTION_*`
-without churn.
+event_schema.py crossed 500 lines. The convention is that event_schema.py
+re-exports every public name here, so callers keep writing
+`from event_schema import STATUS_ACTION_*` without churn.
 
-Pure string-leaf constants — zero dependencies on other event_schema
-symbols, so this module has no circular-import risk with event_schema.
+CAVEAT, so the next reader is not misled: the shim is NOT presently a complete
+mirror. The ten STATUS_ACTION_RETIRE_* / STATUS_ACTION_EDIT_* names are absent
+from it, and their only consumers (system_context_retire_cli,
+system_context_edit_cli) import them from THIS module directly, so nothing is
+broken today — but `from event_schema import STATUS_ACTION_RETIRE_MODULE` would
+raise ImportError, which is not what the convention above advertises. Whether
+to close the gap or to narrow the convention is an open question (see the SMM);
+either way, do not read the gap as license to skip a re-export.
+
+Zero dependencies on other event_schema symbols — nothing here imports from
+event_schema — so this module has no circular-import risk with it.
 """
 
 # Status event metadata.action discriminators — used by cascading gates
@@ -268,6 +279,30 @@ _ALL_DISPOSITIONS = frozenset(
     }
 )
 _INTENT_DISPOSITIONS = _ALL_DISPOSITIONS - _TERMINAL_DISPOSITIONS
+
+
+def event_disposition(event: dict) -> str | None:
+    """Return event.metadata.disposition, or None when absent.
+
+    The sibling of `event_action` for the other half of the lane vocabulary: a
+    lane tag says WHICH writer wrote the event, a disposition says WHAT it did
+    to its target. Centralized for the same reason — consumers should not
+    repeat `e.get("metadata", {}).get("disposition")`, which re-derives the
+    spelling at every site and allocates a fresh empty dict on every miss.
+
+    Returns the RAW disposition, terminal values included. That is the whole
+    difference from `intent_disposition`, which is deliberately blind to
+    `dropped` (a drop closes via metadata.resolves). A reader whose bucket
+    spans BOTH intent and closure — the housekeeper's "Deferred / Dropped" —
+    needs the raw value, and reaching for `intent_disposition` there would
+    silently delete the drops. Reach for this one when the bucket is yours to
+    define; reach for `intent_disposition` when the question is "does this
+    event leave its target open".
+    """
+    metadata = event.get("metadata")
+    if not metadata:
+        return None
+    return metadata.get(METADATA_KEY_DISPOSITION)
 
 
 def is_closing(event: dict) -> bool:

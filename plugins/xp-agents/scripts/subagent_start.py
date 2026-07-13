@@ -32,8 +32,8 @@ from event_schema import (
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,
-    METADATA_KEY_DISPOSITION,
     event_action,
+    event_disposition,
     is_retro_lane,
     is_triage_lane,
 )
@@ -87,18 +87,15 @@ def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[st
 _LEGACY_RETRO_TOPIC_PREFIX = "retro-try-"
 
 # This reader's own bucket is "Deferred / **Dropped**", so it keeps its own
-# disposition set and reads metadata.disposition directly. NOT
+# disposition set and reads the RAW disposition (`event_disposition`). NOT
 # intent_disposition(), which returns None for `dropped` by design — the intent
 # module is deliberately blind to drops (a drop closes via metadata.resolves).
 # Reusing it here would silently empty the Dropped half of this bucket.
 _RETRO_BUCKET_DISPOSITIONS = (DISPOSITION_DEFERRED, DISPOSITION_DROPPED)
 # The triage lane's own bucket. A triage DROP is absent on purpose: a drop is
-# closure, and it already reaches the housekeeper through the resolutions.
+# closure, so it lands in metadata.resolves — the one thing materialize reads
+# off a `status` event — and reaches the housekeeper through the resolutions.
 _TRIAGE_BUCKET_DISPOSITIONS = (DISPOSITION_ADOPTED, DISPOSITION_DEFERRED)
-
-
-def _disposition(event: dict) -> str | None:
-    return (event.get("metadata") or {}).get(METADATA_KEY_DISPOSITION)
 
 
 def _gather_work_selection_events(smm_dir: Path) -> str | None:
@@ -135,11 +132,13 @@ def _gather_work_selection_events(smm_dir: Path) -> str | None:
             case _common.DECISION if _is_retro_adoption(ev):
                 adopted.append(content)
             case _common.STATUS if (
-                is_retro_lane(ev) and _disposition(ev) in _RETRO_BUCKET_DISPOSITIONS
+                is_retro_lane(ev)
+                and event_disposition(ev) in _RETRO_BUCKET_DISPOSITIONS
             ):
                 deferred_dropped.append(content)
             case _common.STATUS if (
-                is_triage_lane(ev) and _disposition(ev) in _TRIAGE_BUCKET_DISPOSITIONS
+                is_triage_lane(ev)
+                and event_disposition(ev) in _TRIAGE_BUCKET_DISPOSITIONS
             ):
                 triaged.append(content)
             case _common.GOAL:
@@ -171,7 +170,7 @@ def _is_retro_adoption(event: dict) -> bool:
     untagged event, which is the one case where no tag can answer.
     """
     if event_action(event) is not None:
-        return is_retro_lane(event) and _disposition(event) == DISPOSITION_ADOPTED
+        return is_retro_lane(event) and event_disposition(event) == DISPOSITION_ADOPTED
     return (event.get("topic") or "").startswith(_LEGACY_RETRO_TOPIC_PREFIX)
 
 
