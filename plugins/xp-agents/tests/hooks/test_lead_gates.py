@@ -253,6 +253,62 @@ class TestAssignGateIsStateDerived(_AssignGateTestCase):
             self._assert_allows(_lead_write())
 
 
+class TestAssignGatePredicateFailsClosed(_AssignGateTestCase):
+    """The consume is DESTRUCTIVE, so its licence is that False can only ever
+    mean "the sprint positively says there is nothing to assign" — never "could
+    not tell". A predicate that answered False on a bad read would delete its own
+    arming marker and silently un-gate the lead.
+
+    That licence rests on a property of ANOTHER module: worktree's git call
+    swallows a failure into an empty iterator. Nothing here pinned it, so a
+    future refactor of `_iter_live_teammate_worktrees` — raising instead of
+    swallowing, or returning a sentinel — could turn this gate into a
+    marker-eater with every test still green. These pin the seam itself, through
+    the real worktree code, not through the patched batch lookup.
+    """
+
+    def _git_broken(self):
+        """The real chain, with git failing — not the batch lookup patched out."""
+        return patch.object(
+            worktree.subprocess,
+            "check_output",
+            side_effect=OSError("git not on PATH"),
+        )
+
+    def test_a_failing_git_blocks_rather_than_reading_stories_as_spawned(self):
+        """No worktrees discoverable -> every promoted story reads as un-spawned
+        -> the gate holds. The inverse (unreadable == nothing to do) would let a
+        broken git wave through the very assignment the marker is demanding."""
+        self._arm(SPRINT_TEAMMATE_IN_PROGRESS)
+        with self._git_broken():
+            self._assert_blocks(_lead_write())
+
+    def test_a_failing_git_never_consumes_the_marker(self):
+        """The destructive half. A bad read must leave the marker armed: consume
+        it and the gate is gone for good, with nothing left to re-arm it."""
+        self._arm(SPRINT_TEAMMATE_IN_PROGRESS)
+        with self._git_broken():
+            self._assert_blocks(_lead_write())
+        self.assertTrue(
+            (self.smm_dir / ".assign-pending").exists(),
+            "a predicate that cannot tell must not delete its own arming marker",
+        )
+
+    def test_a_corrupt_sprint_never_consumes_the_marker(self):
+        """The other bad read. load_sprint RAISES on malformed JSON rather than
+        returning None, so the error propagates and the consume is never reached
+        — absence (None) is the only thing that reads as "nothing to assign".
+        If that ever softened to a None-on-corrupt, the marker would be eaten.
+        """
+        self._arm("{ not json")
+        with self.assertRaises(ValueError):
+            pre_tool_write.run(_lead_write(), smm_dir=self.smm_dir)
+        self.assertTrue(
+            (self.smm_dir / ".assign-pending").exists(),
+            "a corrupt sprint must not disarm the gate",
+        )
+
+
 class TestAssignGateExemptions(_AssignGateTestCase):
     """Who the gate does not apply to. Unchanged by the state-derived fix."""
 

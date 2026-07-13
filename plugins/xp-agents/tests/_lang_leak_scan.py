@@ -130,11 +130,18 @@ def _subject_of(node: ast.expr) -> ast.expr:
     method call — not its argument — is what the call is about.
 
     Walking the spine rather than the whole subtree is what stops the own-source
-    exemption from being *borrowed*. A user's path measured against the plugin's
-    own root still reasons about the USER's file; the `__file__` in there is
-    incidental, and exempting on its mere presence would hand a real leak a
-    silent pass. That is the failure mode this whole pin exists to kill, so the
-    exemption has to be the narrow one.
+    exemption from being *borrowed* through a method call. A user's path measured
+    against the plugin's own root still reasons about the USER's file; the
+    `__file__` in there is incidental, and exempting on its mere presence would
+    hand a real leak a silent pass. That is the failure mode this whole pin
+    exists to kill, so the exemption has to be the narrow one.
+
+    The BinOp leg is the one place it is NOT narrow, and knowingly so: a join
+    keeps the subject of its LEFT operand, so `Path(__file__).parent / name` reads
+    as own-source for any `name` — including an absolute path, which `/` resolves
+    to by discarding the left operand. Kept because the shape it exempts (naming a
+    sibling of this module) is the only one in practice; the pin's docstring lists
+    it among the known limits rather than pretending it away.
     """
     while True:
         match node:

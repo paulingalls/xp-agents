@@ -43,7 +43,11 @@ def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
     That is `scripts/`, `smm/`, and each `skills/<name>/scripts/` — the code
     that runs in a user's project and therefore reads user-supplied paths.
     Tests are excluded: they never ship, so they are free to be Python-specific.
-    Excludes `__init__.py` (package markers carry no logic).
+
+    Nothing else is filtered out. The shipped tree carries no `__init__.py` (it
+    is not a package — modules are imported off a sys.path insert), so excluding
+    them would exempt a file class that does not exist while quietly narrowing
+    the scan if one ever appeared.
     """
     roots = [plugin_root / r for r in _SHIPPED_ROOTS]
     roots.extend(sorted(plugin_root.glob(_SHIPPED_SKILL_SCRIPTS)))
@@ -52,7 +56,7 @@ def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
     for root in roots:
         if not root.is_dir():
             continue
-        paths.extend(p for p in sorted(root.rglob("*.py")) if p.name != "__init__.py")
+        paths.extend(sorted(root.rglob("*.py")))
     return paths
 
 

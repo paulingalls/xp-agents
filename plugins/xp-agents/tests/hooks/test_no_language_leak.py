@@ -46,6 +46,16 @@ and `.endswith()` with a literal extension. Known shapes it MISSES, verified:
 passed into a helper as a parameter, where the comparison sits a function call
 away from the path. Each is a real leak the pin would let through.
 
+The `__file__` exemption has a hole of its own, deliberately left open: it
+survives a path JOIN, so `(Path(__file__).parent / name).suffix == ".py"` is
+exempt whatever `name` is. That is intended for the common shape — a sibling of
+the plugin's own module is still the plugin's own source — but `name` is not
+constrained to be relative, and joining an ABSOLUTE path discards the left
+operand entirely (`Path("/plugin") / "/user/x.py"` is `/user/x.py`). So the
+exemption CAN be borrowed through a join, unlike through a method call, where
+the spine-walk keeps it (see `_lang_leak_scan._subject_of`). Narrow the BinOp
+leg if a real leak ever takes that road; no shipped site needs it today.
+
 It would also have caught NONE of the three leaks this project has actually hit
 — not sprint-103's, not the "pytest prints to stdout" plan-reasoning leak (jest
 and vitest print to stderr), not a `harness="pytest"` config default. Those live
