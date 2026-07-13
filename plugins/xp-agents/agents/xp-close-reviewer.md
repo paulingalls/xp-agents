@@ -86,7 +86,7 @@ For each **Block** bullet — issues to fix before merging:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-close-reviewer" --severity "high" \
-  --content "<Block bullet, ≤400 chars>" \
+  --content "<Block bullet, ≤500 chars>" \
   --files '["<path/to/file.py>", ...]' \
   --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
@@ -96,7 +96,7 @@ For each **Concern** bullet — issues worth raising but not merge-blocking:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "concern" --agent "xp-close-reviewer" --severity "medium" \
-  --content "<Concern bullet, ≤400 chars>" \
+  --content "<Concern bullet, ≤500 chars>" \
   --files '["<path/to/file.py>", ...]' \
   --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
@@ -107,7 +107,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 **Flag-style concerns MUST include `references=[root_id]`.** When a bullet flags an existing root issue (stale, divert, escape, superseded, convention-violation — common when the close diff weakens a prior decision), pass `--references '["<root_id>"]'`. The WEAK cascade in `smm/resolution.py` then closes the flag when the root resolves.
 
-**Content budget:** 400 chars per `concern`. If longer, summarize tighter or split. **If `append.sh` exits non-zero**, retry — do NOT continue to prose until every bullet has exit-zero.
+**Content budget:** 500 chars per `concern` — room for the WHY (the causal chain), not just the conclusion. If longer, summarize tighter or split. **If `append.sh` exits non-zero**, retry — do NOT continue to prose until every bullet has exit-zero.
 
 ## Reporting Back
 

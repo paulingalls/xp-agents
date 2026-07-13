@@ -279,12 +279,12 @@ class TestContentBudgets(unittest.TestCase):
         self.assertEqual(errors, [])
 
     def test_decision_within_budget(self):
-        event = make_event(EVENT_TYPE_DECISION, content="x" * 400)
+        event = make_event(EVENT_TYPE_DECISION, content="x" * 500)
         errors = _append_impl.validate_event(event)
         self.assertEqual(errors, [])
 
     def test_decision_over_budget_rejected(self):
-        event = make_event(EVENT_TYPE_DECISION, content="x" * 401)
+        event = make_event(EVENT_TYPE_DECISION, content="x" * 501)
         errors = _append_impl.validate_event(event)
         self.assertTrue(any("budget" in e.lower() for e in errors))
 
