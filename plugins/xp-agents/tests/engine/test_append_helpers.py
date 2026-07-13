@@ -280,16 +280,24 @@ class TestStripAnsi(_SMMTestCase):
 
 
 class TestReplaceEventsFile(_SMMTestCase):
-    """Tests for _append_impl.replace_events_file."""
+    """Tests for _append_impl.replace_events_file.
+
+    `seen_ids` is required and keyword-only: it names the ids the caller LOOKED
+    AT, which is what lets the rewrite tell a deliberate removal apart from an
+    event that merely arrived while the caller was deciding. Concurrency cases
+    live in tests/engine/test_compact_concurrency.py.
+    """
 
     def test_replaces_content(self):
         # Seed initial events
         e1 = make_event(EVENT_TYPE_STATUS, content="old")
         _append_impl.append_event(self.smm_dir, e1)
 
-        # Replace with new events
+        # Replace with new events — the caller saw e1 and chose to drop it.
         e2 = make_event(EVENT_TYPE_STATUS, content="new")
-        original = _append_impl.replace_events_file(self.smm_dir, [e2])
+        original = _append_impl.replace_events_file(
+            self.smm_dir, [e2], seen_ids={e1["id"]}
+        )
 
         # Original content returned
         self.assertIn("old", original)
@@ -301,15 +309,35 @@ class TestReplaceEventsFile(_SMMTestCase):
 
     def test_returns_empty_for_missing_file(self):
         e = make_event(EVENT_TYPE_STATUS, content="first")
-        original = _append_impl.replace_events_file(self.smm_dir, [e])
+        original = _append_impl.replace_events_file(self.smm_dir, [e], seen_ids=set())
         self.assertEqual(original, "")
 
     def test_atomic_replacement(self):
         """File should contain exactly the replacement events."""
         events = [make_event(EVENT_TYPE_STATUS, content=f"item-{i}") for i in range(3)]
-        _append_impl.replace_events_file(self.smm_dir, events)
+        _append_impl.replace_events_file(self.smm_dir, events, seen_ids=set())
         lines = (self.smm_dir / "events.jsonl").read_text().strip().split("\n")
         self.assertEqual(len(lines), 3)
+
+    def test_seen_ids_is_required(self):
+        """A caller that forgets `seen_ids` must break loudly, not silently
+        return to erasing events it never saw."""
+        e = make_event(EVENT_TYPE_STATUS, content="x")
+        with self.assertRaises(TypeError):
+            _append_impl.replace_events_file(self.smm_dir, [e])  # type: ignore[call-arg]
+
+    def test_unseen_event_is_preserved(self):
+        """The primitive's own contract: an id absent from `seen_ids` stays."""
+        seen = make_event(EVENT_TYPE_STATUS, content="seen and dropped")
+        unseen = make_event(EVENT_TYPE_STATUS, content="never seen")
+        _append_impl.append_event(self.smm_dir, seen)
+        _append_impl.append_event(self.smm_dir, unseen)
+
+        _append_impl.replace_events_file(self.smm_dir, [], seen_ids={seen["id"]})
+
+        content = (self.smm_dir / "events.jsonl").read_text()
+        self.assertIn("never seen", content)
+        self.assertNotIn("seen and dropped", content)
 
 
 if __name__ == "__main__":

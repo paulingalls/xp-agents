@@ -34,6 +34,7 @@ import intent
 import resolution
 from _append_impl import (
     LockTimeoutError,
+    event_ids,
     read_with_lock,
     replace_events_file,
     resolve_smm_dir,
@@ -264,10 +265,24 @@ def compact_after_curation(smm_dir: Path) -> dict:
         archive_lines = [json.dumps(e, ensure_ascii=False) for e in archived]
         archive_file.write_text("\n".join(archive_lines) + "\n", encoding="utf-8")
 
-    # Atomic replacement
-    replace_events_file(smm_dir, retained)
+    # Atomic replacement. `seen_ids` is every event this pass READ: anything
+    # that landed in the log since then is not in `retained` and is not in the
+    # archive either, so only `replace_events_file` can save it — it preserves
+    # what we never saw, and drops what we deliberately archived.
+    replace_events_file(smm_dir, retained, seen_ids=event_ids(events))
 
-    # Reset watermarks
+    # Reset watermarks. Deliberately the RETAINED count, not the post-merge
+    # file length — the merge may have preserved events past index len(retained),
+    # and a watermark that counted them would put them BELOW it, so they would
+    # never be delivered as a prompt nugget: silently swallowed.
+    #
+    # The cost of erring this way is that an arrival a concurrent
+    # UserPromptSubmit had already delivered (bumping the watermark, which we
+    # then overwrite) gets delivered a second time. A repeated nugget is
+    # recoverable; a swallowed event is not. Same reasoning downstream: the
+    # `retained` we return is what `smm_cli.complete_curation` writes as the
+    # curation watermark, which leaves the preserved tail UNCURATED — correct,
+    # since the curator never saw it.
     new_count = len(retained)
 
     # Reset prompt-nugget watermark to post-compaction count

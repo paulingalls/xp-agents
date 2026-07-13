@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _append_impl import (
     LockTimeoutError,
+    event_ids,
     replace_events_file,
     resolve_smm_dir,
 )
@@ -109,8 +110,13 @@ def migrate_file(smm_dir: Path) -> dict:
     if migrated_count == 0:
         return {"migrated": 0, "unchanged": unchanged_count}
 
-    # Atomic replacement under exclusive flock
-    replace_events_file(smm_dir, events)
+    # Atomic replacement under exclusive flock. Migration TRANSFORMS the events
+    # it read, it never removes one, so `seen_ids` is simply everything it read
+    # — and ids are not touched by any migration, so the retained ids and the
+    # seen ids are the same set. An event appended mid-migration is unseen and
+    # survives, unmigrated: a v2 writer's event needs no migration anyway, and
+    # a rerun would catch anything that did.
+    replace_events_file(smm_dir, events, seen_ids=event_ids(parsed))
 
     return {"migrated": migrated_count, "unchanged": unchanged_count}
 
