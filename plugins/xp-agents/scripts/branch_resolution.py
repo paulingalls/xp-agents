@@ -403,16 +403,37 @@ def get_story_base_branch_required(smm_dir: Path, cwd: str) -> str:
     )
 
 
+def trusted_handed_base(cwd: str, base: str, *, omit_resolves: str) -> str:
+    """A base the CALLER handed us — returned only once git can resolve it.
+
+    Guards the arm that every ``--base``-taking command shares, and it is the
+    silent one. Both arms of ``_create_or_resume_branch`` turn a base into a git
+    ref, but only the CREATE arm has git to reject it (`git checkout -b <name>
+    <junk>` fails). On the RESUME arm nothing does: ``_fast_forward_if_safe``
+    asks `git merge-base --is-ancestor <branch> <junk>`, which merely exits
+    non-zero, so the fast-forward no-ops — and the branch is reported as
+    resumed while it still points at whatever it was originally forked from.
+
+    ``omit_resolves`` names what omitting ``--base`` would resolve instead, so
+    the way out is specific to the command the user actually ran.
+    """
+    if not ref_exists(cwd, base):
+        raise ValueError(
+            f"Cannot use '{base}' as the branch base: git cannot resolve it to a "
+            f"commit. Refusing to create or resume a branch against a base that "
+            f"does not exist — on the resume arm an unresolvable base is silently "
+            f"ignored, and the branch is reported as resumed while it still points "
+            f"at whatever it was originally forked from. Fix: pass a ref that "
+            f"exists, or omit the base entirely to resolve {omit_resolves}."
+        )
+    return base
+
+
 def trusted_story_base(cwd: str, smm_dir: Path, base: str | None) -> str:
     """The base a story branch forks from — never a guess, never a lie.
 
     The one entry point ``create_story_branch`` uses, covering both ways a base
-    arrives. Both arms of ``_create_or_resume_branch`` turn the result into a
-    git ref (`git checkout -b <name> <base>` when creating,
-    ``_fast_forward_if_safe`` when resuming), and the RESUME arm is the
-    dangerous one: it swallows a base git cannot resolve (`git merge-base
-    --is-ancestor <branch> <junk>` merely exits non-zero, so the fast-forward
-    silently no-ops) and still reports the branch as resumed.
+    arrives.
 
     base=None — resolve it, RAISING rather than degrading to primary. A silent
     primary cuts the story off the release branch; on the resume arm it
@@ -421,21 +442,13 @@ def trusted_story_base(cwd: str, smm_dir: Path, base: str | None) -> str:
     have), picking up everything landed since the fork — which story-close then
     merges straight back INTO primary.
 
-    base handed in — verify git resolves it. This is the arm that guards the
+    base handed in — ``trusted_handed_base``. This is the arm that guards the
     SHIPPED path: the story SKILLs capture a base from `get-base` and always
     pass --base explicitly, so hardening only the base=None arm would leave
     production untouched (decision harden-the-capture-not-the-default).
     """
     if base is None:
         return get_story_base_branch_required(smm_dir, cwd)
-    if not ref_exists(cwd, base):
-        raise ValueError(
-            f"Cannot use '{base}' as the story base: git cannot resolve it to a "
-            f"commit. Refusing to create or resume a story branch against a base "
-            f"that does not exist — on the resume arm an unresolvable base is "
-            f"silently ignored, and the branch is reported as resumed while it "
-            f"still points at whatever it was originally forked from. Fix: pass "
-            f"a ref that exists, or omit the base entirely to resolve it from "
-            f"the sprint."
-        )
-    return base
+    return trusted_handed_base(
+        cwd, base, omit_resolves="the story base from the sprint"
+    )

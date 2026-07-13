@@ -118,8 +118,18 @@ def get_current_branch(cwd: str) -> str:
 
 def get_head_sha(cwd: str) -> str:
     """Return the current HEAD commit SHA."""
+    return get_branch_sha(cwd, "HEAD")
+
+
+def get_branch_sha(cwd: str, ref: str) -> str:
+    """Return the commit SHA `ref` points at, or "" when it resolves to nothing.
+
+    The assertion for "did this branch MOVE?" — the resume arm's silent failures
+    (an unresolvable base, a base that fast-forwards a story branch onto primary)
+    are invisible in a return value and only show up in where the ref ends up.
+    """
     return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", ref],
         cwd=cwd,
         capture_output=True,
         text=True,

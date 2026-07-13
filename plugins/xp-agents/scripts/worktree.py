@@ -61,23 +61,24 @@ def worktree_path(name: str, cwd: str) -> Path:
     return Path(root) / WORKTREE_PATH_FRAGMENT / name
 
 
-def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
-    """Remove a git worktree directory, branch, and prune stale entries.
+def remove_worktree_dir(name: str, cwd: str) -> str | None:
+    """Remove the worktree DIRECTORY and prune stale entries. Delete NO branch.
 
-    Derives the worktree's actual branch from its HEAD before removal so
-    `git branch -d` targets the real ref. The worktree DIR name and the
-    BRANCH name diverge in production: `/xp-assign` creates worktrees
-    named `worktree-story-NNN` checked out to branches like
-    `<user>/story-NNN-<slug>`. Falling back to `name` when derivation
-    fails preserves the legacy contract for tests that create worktree
-    + branch with the same name (`spawn_teammate.create_worktree` in
-    no-branch mode does that).
+    Returns the branch the worktree had checked out — the caller cannot re-read
+    it afterwards, because the HEAD it is derived from goes away with the
+    directory. None means there was nothing to work with (not a git repo).
+
+    The worktree DIR name and the BRANCH name diverge in production: /xp-assign
+    creates worktrees named `worktree-story-NNN` checked out to branches like
+    `<user>/story-NNN-<slug>`. Falling back to `name` when derivation fails
+    preserves the legacy contract for callers that create worktree + branch
+    with the same name (`spawn_teammate.create_worktree` in no-branch mode).
     """
     try:
         wt = worktree_path(name, cwd)
     except RuntimeError:
-        return
-    branch_to_delete = name
+        return None
+    branch = name
     if wt.is_dir():
         # `identity.get_current_branch` returns "" on failure and "HEAD"
         # for detached HEAD (mid-rebase / mid-bisect / `git checkout <sha>`).
@@ -85,7 +86,7 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
         # tests that create worktree + branch with the same name.
         head = identity.get_current_branch(str(wt))
         if head and head != "HEAD":
-            branch_to_delete = head
+            branch = head
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(wt)],
             cwd=cwd,
@@ -96,6 +97,21 @@ def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
         cwd=cwd,
         capture_output=True,
     )
+    return branch
+
+
+def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
+    """Remove a git worktree directory, prune, AND delete its branch.
+
+    For callers that OWN the branch — it was cut for this worktree and dies
+    with it. A caller that is merely clearing the directory (so it can re-add a
+    worktree onto a branch someone else owns) must call ``remove_worktree_dir``
+    instead: `-D` here force-deletes whatever the worktree had checked out,
+    unmerged commits included.
+    """
+    branch_to_delete = remove_worktree_dir(name, cwd)
+    if branch_to_delete is None:
+        return
     flag = "-D" if force_branch else "-d"
     subprocess.run(
         ["git", "branch", flag, branch_to_delete],

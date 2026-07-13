@@ -101,15 +101,8 @@ class TestCreateStoryBranchRefusesDegradedBase(unittest.TestCase):
         with self.assertRaises(ValueError):
             branching.create_story_branch(self.td, "story-001", "resume", self.smm_dir)
 
-        story_sha = subprocess.run(
-            ["git", "rev-parse", "paul/story-001-resume"],
-            cwd=self.td,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
         self.assertEqual(
-            story_sha,
+            _bf.get_branch_sha(self.td, "paul/story-001-resume"),
             forked_at,
             "Resumed story branch was fast-forwarded onto primary — it now "
             "carries every commit landed on the release branch since the fork.",
@@ -290,6 +283,65 @@ class TestCLIRejectsBlankBase(unittest.TestCase):
             _bf.make_branch(td, free_branch)
             self.assertTrue(_bf.branch_exists(td, free_branch), "resume arm not armed")
             self._assert_refused(self._create_free(td, smm_dir))
+
+
+class TestCreateFreeRefusesUnresolvableHandedBase(unittest.TestCase):
+    """A blank base is only HALF of create-free's hole. `--base` is a documented
+    human-typed escape hatch ("fork this free branch off <ref>"), so the likeliest
+    bad value is not "" but a TYPO — and a typo takes the identical silent path:
+    `_fast_forward_if_safe` no-ops against a ref git cannot resolve, and the CLI
+    prints `resumed: <branch>` and exits 0 with the branch still pointing wherever
+    it was. `create` refuses this; refusing one caller of the same resume arm and
+    not the other leaves the hole open under a different key.
+    """
+
+    def setUp(self) -> None:
+        self._td = tempfile.TemporaryDirectory()
+        self._smm = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.addCleanup(self._smm.cleanup)
+        self.td = self._td.name
+        self.smm_dir = Path(self._smm.name)
+        _init_repo(self.td)
+        _write_system_context(self.smm_dir, stage=2)
+        self.ns = identity.user_namespace(self.td)
+        self.free = branching.free_branch_name(self.ns, "docs")
+
+    def _create_free(self, base: str) -> subprocess.CompletedProcess:
+        return _run_cli(
+            self.smm_dir,
+            *["create-free", "--cwd", self.td, "--slug", "docs"],
+            *["--base", base],
+        )
+
+    def test_typo_base_refused_on_resume_arm_rather_than_reported_resumed(self):
+        _bf.make_branch(self.td, self.free)
+        pinned = _bf.get_head_sha(self.td)
+        _make_feature_commit(self.td, "landed.txt")  # the free branch is now behind
+
+        r = self._create_free("paul/plan-typoo")
+
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertNotIn("resumed", r.stdout)
+        self.assertTrue(r.stderr.strip(), "must say WHY it refused")
+        self.assertIn("paul/plan-typoo", r.stderr)
+        self.assertEqual(
+            _bf.get_branch_sha(self.td, self.free),
+            pinned,
+            "the branch must not have moved",
+        )
+
+    def test_typo_base_refused_on_create_arm(self):
+        r = self._create_free("paul/plan-typoo")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertFalse(_bf.branch_exists(self.td, self.free))
+
+    def test_a_real_ref_is_still_accepted(self):
+        _make_feature_commit(self.td, "first.txt")
+        base_sha = _bf.get_head_sha(self.td)
+        r = self._create_free(base_sha)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(_bf.get_branch_sha(self.td, self.free), base_sha)
 
 
 if __name__ == "__main__":

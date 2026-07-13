@@ -67,6 +67,7 @@ from branch_resolution import (  # noqa: F401
     ref_exists,
     resolve_sprint_branch_name,
     resolve_story_base,
+    trusted_handed_base,
     trusted_story_base,
 )
 
@@ -217,7 +218,7 @@ def create_story_branch(
     When base is provided, the story branch forks from that ref (for chaining
     dependent stories). When omitted, the story base is resolved from the
     sprint. Either way the value is VERIFIED before it reaches git — see
-    ``_trusted_story_base``, which raises rather than let an unresolvable or
+    ``trusted_story_base``, which raises rather than let an unresolvable or
     silently-degraded base become a fork point.
 
     The base=None arm is NOT dead code even though both SKILLs always pass
@@ -360,9 +361,12 @@ def create_free_branch(
     into the plan branch at close time. With no active plan, get_merge_target
     falls back to primary, so the common case is unchanged.
 
-    An explicit ``base`` overrides that default — the escape hatch for free
-    work that must fork off a specific ref (mirrors create_story_branch's
-    ``base``). Forks off whatever ``base`` names; the caller owns correctness.
+    An explicit ``base`` overrides that default — the escape hatch for free work
+    that must fork off a specific ref (mirrors create_story_branch's ``base``).
+    It is VERIFIED, not trusted: ``--base`` here is a human-typed ref, and on the
+    resume arm a typo is silent (``_fast_forward_if_safe`` no-ops against a ref
+    git cannot resolve, and the CLI still prints `resumed:`). Same guard as the
+    story path, via the same ``trusted_handed_base``.
 
     Free branches are scratch work outside of plans/sprints. Date is UTC.
     Returns None below the plugin floor (stage < 2). Per BRANCH_LIFECYCLE
@@ -371,6 +375,11 @@ def create_free_branch(
     """
     user_ns = identity.user_namespace(cwd)
     name = free_branch_name(user_ns, slug)
+    if base is not None and get_branching_stage(smm_dir) >= BRANCH_MIN_STAGE["free"]:
+        # Stage-gated for the same reason create_story_branch's is: below the
+        # floor no branch is cut at all, so an unusable base is moot — and
+        # refusing there would break stage-0 inertness.
+        base = trusted_handed_base(cwd, base, omit_resolves="the merge target")
     return _create_or_resume_branch(
         cwd,
         name,

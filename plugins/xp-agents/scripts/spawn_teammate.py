@@ -42,9 +42,26 @@ import tier_wire
 from teammate_runner import project_log_dir, project_prompt_path, run_with_tee
 
 
-def cleanup_existing(name: str, cwd: str) -> None:
-    """Remove existing worktree and branch if present."""
-    worktree.remove_worktree(name, cwd, force_branch=True)
+def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
+    """Clear a stale worktree before (re)creating one at the same path.
+
+    ``owns_branch`` decides whether the worktree's BRANCH dies with it, and it
+    is the difference between an idempotent re-spawn and destroyed work:
+
+    - True (spawn cut the branch itself, in the no-``branch=`` arm where
+      ``worktree add -b <name>`` re-cuts it): force-delete it. A stale ref of
+      the same name would otherwise block the re-add.
+    - False (a branch was HANDED to ``create_worktree``): delete NOTHING. That
+      branch was cut by /xp-assign and is where the teammate has been
+      committing. Force-deleting it — which is what this did unconditionally —
+      destroyed unmerged commits AND then failed the very next
+      ``git worktree add <path> <branch>``, because the ref it was told to
+      check out no longer existed.
+    """
+    if owns_branch:
+        worktree.remove_worktree(name, cwd, force_branch=True)
+    else:
+        worktree.remove_worktree_dir(name, cwd)
 
 
 def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
@@ -52,9 +69,10 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
 
     When branch is provided, checks out that existing branch in the
     worktree instead of creating a new branch. Used by /xp-assign
-    to place teammates on story branches.
+    to place teammates on story branches — and spawn does not own that
+    branch, so a stale worktree is cleared without touching it.
     """
-    cleanup_existing(name, cwd)
+    cleanup_existing(name, cwd, owns_branch=branch is None)
 
     wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)

@@ -315,9 +315,15 @@ def _cmd_create_free(args: argparse.Namespace) -> int:
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.free_branch_name(user_ns, args.slug)
     existed = branching.branch_exists(args.cwd, name)
-    result = branching.create_free_branch(
-        args.cwd, args.slug, Path(args.smm_dir), base=args.base
-    )
+    try:
+        result = branching.create_free_branch(
+            args.cwd, args.slug, Path(args.smm_dir), base=args.base
+        )
+    except ValueError as exc:
+        # A `--base` git cannot resolve. Print it like `create` does, rather
+        # than let a traceback bury the ref that was misspelled.
+        sys.stderr.write(f"{exc}\n")
+        return 1
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["free"], resumed=existed)
 
 
