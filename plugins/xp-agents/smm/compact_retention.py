@@ -161,14 +161,26 @@ def _collect_smm_referenced_ids(events: list[dict]) -> set[str]:
     so the sprint retro can still compute per-story metrics for a sprint whose
     retro is plausibly still coming.
 
-    The commit readers are `story_metrics` and `retro_metrics` (per-story sizing,
+    The METRIC readers are `story_metrics` and `retro_metrics` (per-story sizing,
     resolves_link_rate), both reached from the sprint-retro path. NOT
     /xp-sprint-review: that skill computes velocity from sprint.json's story
-    statuses and never opens events.jsonl. Both readers window their commits on
-    sprint.json's `started` date, i.e. the CURRENT sprint only — so no reader
-    consults the commits of a sprint two back, and none of them can produce a
-    WRONG number when an older sprint's commits age out. They simply never look.
-    Retrospectives kept via separate retention logic (last 2).
+    statuses and never opens events.jsonl. Both window their commits on
+    sprint.json's `started` date, i.e. the CURRENT sprint only, so neither can
+    produce a WRONG number when an older sprint's commits age out.
+
+    But "no reader consults the commits of a sprint two back" — which an earlier
+    version of this docstring asserted — is FALSE, and the audit behind it was
+    never done. Three readers scan commits UNWINDOWED via
+    `commits.find_addressing_commits`: `triage_preload`, `draft_summary`, and
+    `concern_triage`. Releasing a sprint's commits therefore narrows the
+    MAYBE_ADDRESSED nudge: a concern actually fixed 2+ sprints ago stops surfacing
+    as maybe-addressed and simply stays open.
+
+    That direction is the safe one — an item stays OPEN rather than being falsely
+    closed, which is the error this milestone exists to prevent — and the archive
+    still holds the commits. It is a real narrowing of a convenience signal, not a
+    correctness loss. Recorded rather than hidden behind a claim the code does not
+    support. Retrospectives kept via separate retention logic (last 2).
     """
     resolutions = resolution.compute_resolutions(events)
     referenced: set[str] = set()

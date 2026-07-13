@@ -286,10 +286,21 @@ def _build_intent_map(
     }
     defer_counts: dict[str, int] = {}
     # Read off the WHOLE log up front, and applied at the end: a terminal
-    # disposition wins over an intent regardless of which came first. Shared with
-    # `adoption_store`'s prune (via `compact._fold_adoption_ledger`) so the reader
-    # and the pruner cannot disagree about what "closed" means — a disagreement
-    # that resurrects a finished item as adopted, permanently.
+    # disposition wins over an intent regardless of which came first.
+    #
+    # NOT the same set the pruner uses. `compact._fold_adoption_ledger` prunes on
+    # `resolution.closed_target_ids`, a strict SUPERSET of this one — it also
+    # honours the weak `references` cascade, which this reader deliberately does
+    # not. An earlier comment here claimed the two sets were shared "so the reader
+    # and the pruner cannot disagree about what closed means". They can, and the
+    # claim was false.
+    #
+    # It is not a live bug today: a retro Try carries no top-level `references`,
+    # so it can never cascade-close, and the two sets coincide on every id this
+    # map can hold. But the pruner is the stricter one, so a divergence can only
+    # drop an entry the reader would still have shown — never resurrect a finished
+    # item. If a future change gives Tries a `references` bag, revisit this: the
+    # sets part company at exactly that point.
     closed: set[str] = resolution.claimed_resolved_ids(events)
 
     for event in events:

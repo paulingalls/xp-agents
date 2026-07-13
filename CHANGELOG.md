@@ -25,6 +25,12 @@ block is the housekeeper's only signal that a concern was adopted).
 Verified by a differential over 12,757 real events: zero retro drops lost, 97 historical
 adoptions in and 97 out.
 
+**This fix is forward-only.** Items already laundered in your existing log stay closed —
+there is no backfill, and upgrading does not recover work that was already silently
+resolved. What it does is stop the bleeding: from v4.7.0 on, adopting something no longer
+closes it. If you suspect a debt or concern went quiet without being fixed, it is worth
+re-reading your `backups/archive-*.jsonl` before trusting the open set.
+
 ### Compaction annihilated events that arrived while it ran
 
 `replace_events_file` took the exclusive lock, re-read the file under it — and threw that
