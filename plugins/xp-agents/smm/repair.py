@@ -12,11 +12,11 @@
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import archive
 from _append_impl import (
     LockTimeoutError,
     replace_events_file,
@@ -57,7 +57,13 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     invalid = 0
     duplicates = 0
     valid_events: list[dict] = []
-    seen_ids: set[str] = set()
+    kept_ids: set[str] = set()
+    # EVERY id this pass parsed, valid or not — deliberately NOT `kept_ids`.
+    # This is what `replace_events_file` is told we SAW, and it drops what it
+    # saw and we did not keep. Hand it `kept_ids` instead and every event this
+    # pass counted as invalid reads back as "arrived concurrently", so repair
+    # would preserve exactly what it had just decided to delete.
+    parsed_ids: set[str] = set()
 
     for line in raw.splitlines():
         line = line.strip()
@@ -74,15 +80,18 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
             invalid += 1
             continue
 
+        if isinstance(obj.get("id"), str):
+            parsed_ids.add(obj["id"])
+
         if not _REQUIRED_FIELDS.issubset(obj.keys()):
             invalid += 1
             continue
 
         event_id = obj["id"]
-        if event_id in seen_ids:
+        if event_id in kept_ids:
             duplicates += 1
             continue
-        seen_ids.add(event_id)
+        kept_ids.add(event_id)
 
         valid_events.append(obj)
 
@@ -103,15 +112,17 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     if dry_run:
         return result
 
-    # Phase 3: Back up original
-    backups_dir = smm_dir / "backups"
-    backups_dir.mkdir(exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    backup_file = backups_dir / f"pre-repair-{ts}.jsonl"
-    backup_file.write_text(raw, encoding="utf-8")
+    # Phase 3: Back up original. Never-clobbering: phase 4 DROPS the malformed
+    # and invalid lines, so this backup is their only copy — a same-second second
+    # repair that overwrote it would annihilate them (see `archive.write_archive`).
+    archive.write_archive(smm_dir / "backups", "pre-repair", raw)
 
-    # Phase 4: Atomic replacement under exclusive flock
-    replace_events_file(smm_dir, valid_events)
+    # Phase 4: Atomic replacement under exclusive flock. An event appended
+    # while phases 1-3 ran is unknown to `parsed_ids`, so it survives the
+    # rewrite; the invalid and duplicate events ARE known, so they still go.
+    # (A malformed line has no id to be known by — `replace_events_file`
+    # drops it on that basis, which is what lets repair still repair.)
+    replace_events_file(smm_dir, valid_events, seen_ids=parsed_ids)
 
     # Phase 5: Write repair report
     report_file = smm_dir / ".repair-report.json"
