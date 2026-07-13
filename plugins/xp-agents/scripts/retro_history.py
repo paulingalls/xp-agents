@@ -144,7 +144,10 @@ def _try_status(item, resolutions_map: dict, intent_map: dict) -> dict:
 
 
 def annotate_try_status(
-    previous_retros: list[dict], resolutions_map: dict, events: list[dict]
+    previous_retros: list[dict],
+    resolutions_map: dict,
+    events: list[dict],
+    smm_dir: Path | None = None,
 ) -> None:
     """Annotate Try items on previous_retros[0] with try_status.
 
@@ -158,11 +161,21 @@ def annotate_try_status(
 
     Only the most recent retro gets annotated — older retros already went through
     a retro cycle, so their Try items are not candidates for re-proposal.
+
+    *smm_dir* unlocks the durable side of the INTENT channel, and without it this
+    annotation is exactly as amnesiac as it was. Try items are re-proposed from
+    `retrospectives/*.json`, which is NEVER compacted, while the adoption that
+    answers for them lives in the event log, which IS. So the item reliably comes
+    back while the memory of adopting it does not. The ledger is what closes that
+    asymmetry; None keeps the old (forgetful) behaviour for callers that have no
+    SMM dir to read.
     """
     if not previous_retros:
         return
     latest = previous_retros[0]
-    intent_map = intent.build_retro_intent_map(events, intent.retro_try_ids(events))
+    intent_map = intent.build_retro_intent_map(
+        events, intent.retro_try_ids(events), ledger=intent.load_ledger(smm_dir)
+    )
     latest["try_status"] = [
         _try_status(item, resolutions_map, intent_map) for item in latest.get("try", [])
     ]

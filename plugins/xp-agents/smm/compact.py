@@ -29,6 +29,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import adoption_store
+import intent
+import resolution
 from _append_impl import (
     LockTimeoutError,
     read_with_lock,
@@ -64,6 +67,78 @@ def _parse_events(raw: str) -> list[dict]:
     """Parse JSONL text into a list of event dicts, skipping bad lines."""
     events, _ = parse_jsonl(raw)
     return events
+
+
+def _fold_adoption_ledger(smm_dir: Path, events: list[dict]) -> None:
+    """Preserve the adoption memory carried by the events about to be archived.
+
+    The intent record ("this Try was adopted", "this debt was taken on") lives
+    ONLY in the event log, and this function is called from the one place that
+    destroys it. So the thing that would forget is the thing that remembers: the
+    memory becomes durable at exactly the instant it would otherwise be lost, and
+    the ledger is derived from the writers' own events rather than written
+    alongside them — which is why the adopt/defer writers need no changes at all
+    and cannot drift from it.
+
+    *events* is the FULL PRE-ARCHIVE list, and every word of that matters:
+
+      * PRE-ARCHIVE, because the retro lane's targets are Try ids nested inside
+        the retrospective event. Fold after the archive and `retro_try_ids` is
+        already ∅ — there would be nothing left to remember.
+      * FULL, because prune must see the whole log. `adoption_store.drop_resolved`
+        drops entries whose target is closed, and a closing event archived in
+        THIS pass is still here to be seen. Prune over the RETAINED list instead
+        and a resolved item resurrects as adopted the moment its closing event
+        goes — permanently, since nothing would ever close it again.
+
+    The fold reads the EXISTING ledger back in and folds THROUGH it, rather than
+    deriving the map from the log alone. Without that the fold is not monotone:
+    `fold_intents` overwrites an entry's fields wholesale, so a Try deferred twice
+    (both deferrals archived, ledger says 2) and deferred once more would be
+    written back as `defer_count: 1` — the log is the only source that can still
+    see a deferral, and it can only see the newest one. The count would fall every
+    time the item was carried again, which is precisely backwards. `defer_count`
+    is meant to be a floor on how long an item has been carried, and only a fold
+    that can see what was already remembered can keep it one.
+
+    Called BEFORE `replace_events_file`, deliberately: crash between the two and
+    the ledger holds intents whose events are still in the log, where the live
+    log simply wins on read. Crash the other way round and the memory is gone.
+
+    An UNREADABLE ledger must not abort the compaction. `load_adoption` fails
+    loud, and for its own callers that is right — but compaction is the only
+    thing that bounds `events.jsonl`, and its one production caller
+    (`smm_cli.compact_and_advance_watermark`) wraps it in
+    `contextlib.suppress(OSError, ValueError)`. So a ledger this module cannot
+    read — a rolled-back plugin meeting a newer `version`, a hand-edit, a bad
+    disk — would silently no-op compaction on EVERY session from then on, and the
+    log would grow without bound, with no signal and no way out but deleting a
+    file the user has never heard of. Trading an unbounded log for a forgotten
+    adoption is a bad trade. Quarantine the bad copy, say so on stderr, and
+    rebuild from the events still in hand; if the retry ALSO fails, the fault is
+    not the ledger's and it is allowed to surface.
+    """
+    ledger = intent.load_ledger(smm_dir)
+    intents = {
+        adoption_store.LANE_RETRO: intent.build_retro_intent_map(
+            events, intent.retro_try_ids(events), ledger=ledger
+        ),
+        adoption_store.LANE_TRIAGE: intent.build_triage_intent_map(
+            events, ledger=ledger
+        ),
+    }
+    closed = resolution.closed_target_ids(events)
+    try:
+        adoption_store.record_intents(smm_dir, intents, closed)
+    except (OSError, ValueError) as exc:
+        quarantined = adoption_store.quarantine_adoption(smm_dir)
+        print(
+            f"SMM: unreadable adoption ledger ({exc}); moved to {quarantined} "
+            "and rebuilt from the current log. Adoptions older than the log's "
+            "retention window are lost.",
+            file=sys.stderr,
+        )
+        adoption_store.record_intents(smm_dir, intents, closed)
 
 
 def _read_all_curation_watermarks(smm_dir: Path) -> list[dict]:
@@ -173,6 +248,8 @@ def compact_after_curation(smm_dir: Path) -> dict:
 
     # Write archive
     if archived:
+        _fold_adoption_ledger(smm_dir, events)
+
         backups_dir = smm_dir / "backups"
         backups_dir.mkdir(exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")

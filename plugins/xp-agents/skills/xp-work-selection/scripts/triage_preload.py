@@ -90,7 +90,7 @@ def run(smm_dir: Path) -> str:
     # carry-forward) that would silently lose it if the shared finder started
     # filtering on intent — laundering it in two new places instead of one.
     # Intent is presentation here: it annotates, it does not remove.
-    intents = intent.build_triage_intent_map(events)
+    intents = intent.build_triage_intent_map(events, ledger=intent.load_ledger(smm_dir))
 
     debts = triage.find_unresolved(events, event_schema.EVENT_TYPE_DEBT, all_resolved)
     concerns = triage.find_unresolved(

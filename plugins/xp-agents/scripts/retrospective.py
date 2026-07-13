@@ -146,6 +146,7 @@ def _build_retro_input(
     retro_history: list[dict],
     resolutions: dict | None = None,
     recent_summaries: list[dict] | None = None,
+    smm_dir: Path | None = None,
 ) -> dict:
     """Build the .retro-input.json structure.
 
@@ -165,7 +166,9 @@ def _build_retro_input(
     session_stats = _compute_session_stats(unanalyzed)
     digest = _build_retro_digest(events, start_idx, resolutions)
 
-    annotate_try_status(retro_history, build_resolutions_map(resolutions), events)
+    annotate_try_status(
+        retro_history, build_resolutions_map(resolutions), events, smm_dir
+    )
 
     decision_topics: list[str] = [
         topic
@@ -296,7 +299,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> tuple[str, int] | None
         ),
     )
     retro_input = _build_retro_input(
-        events, start_idx, retro_history, resolutions, recent_summaries
+        events, start_idx, retro_history, resolutions, recent_summaries, smm_dir
     )
 
     if sprint_id is not None:

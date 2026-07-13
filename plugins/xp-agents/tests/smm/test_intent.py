@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import adoption_store
 import intent
 import resolution
 from conftest import (
@@ -371,6 +372,133 @@ class TestLegacyEvents(_IntentTestCase):
             metadata={"disposition": DISPOSITION_DEFERRED},
         )
         self.assertEqual(self._triage_map([debt, legacy]), {})
+
+
+class TestLedgerIsMerged(_IntentTestCase):
+    """The reader half of the durable ledger.
+
+    Compaction folds the intent into `adoption.json` at the instant the event
+    would be lost (see `compact._fold_adoption_ledger`); these are the rules the
+    reader applies when the two sources disagree. The end-to-end proof — that the
+    adopting event is genuinely GONE from the log and the answer survives anyway —
+    lives in tests/engine/test_compact.py, where a real compaction can run.
+    """
+
+    def _ledger(self, lane: str, intents: dict[str, dict]) -> dict:
+        """A ledger doc built by its REAL producer, so no test can pass against
+        a shape `adoption_store` does not write."""
+        return adoption_store.fold_intents(
+            adoption_store.empty_adoption(), lane, intents
+        )
+
+    def _entry(self, intent_value: str, defer_count: int = 0) -> dict:
+        return {
+            "intent": intent_value,
+            "intent_by": "ev0000000001",
+            "intent_ts": "2026-01-01T00:00:00+00:00",
+            "defer_count": defer_count,
+        }
+
+    def test_retro_lane_reads_the_ledger_without_try_ids(self):
+        """The headline fix, and the trap the obvious implementation falls into.
+
+        A Try id has no line of its own — it is nested inside the retrospective
+        event. Once that event is archived, `retro_try_ids` returns ∅. If the
+        ledger were filtered through `∩ try_ids` like the log-derived targets
+        are, the ledger entry would be filtered away by the empty set and Half 1
+        would not actually be fixed. The ledger is consulted by target_id.
+        """
+        # No retrospective, no adopt event: the log has been compacted clean.
+        self.assertEqual(intent.retro_try_ids([]), set())
+
+        recorded = intent.build_retro_intent_map(
+            [],
+            intent.retro_try_ids([]),
+            ledger=self._ledger(
+                adoption_store.LANE_RETRO, {TRY_ID: self._entry(DISPOSITION_ADOPTED)}
+            ),
+        )
+        self.assertEqual(recorded[TRY_ID]["intent"], DISPOSITION_ADOPTED)
+
+    def test_triage_lane_reads_the_ledger(self):
+        recorded = intent.build_triage_intent_map(
+            [],
+            ledger=self._ledger(
+                adoption_store.LANE_TRIAGE, {DEBT_ID: self._entry(DISPOSITION_ADOPTED)}
+            ),
+        )
+        self.assertEqual(recorded[DEBT_ID]["intent"], DISPOSITION_ADOPTED)
+
+    def test_live_log_wins_on_conflict(self):
+        """The ledger is a snapshot taken at the last compaction; the log is
+        NOW. A Try adopted, then later deferred, reads as deferred."""
+        retro = make_retrospective_with_try(TRY_ID)
+        events = [retro, defer_try_event(self.smm_dir, TRY_ID)]
+
+        recorded = intent.build_retro_intent_map(
+            events,
+            intent.retro_try_ids(events),
+            ledger=self._ledger(
+                adoption_store.LANE_RETRO, {TRY_ID: self._entry(DISPOSITION_ADOPTED)}
+            ),
+        )
+        self.assertEqual(recorded[TRY_ID]["intent"], DISPOSITION_DEFERRED)
+
+    def test_a_closure_in_the_live_log_suppresses_a_ledger_entry(self):
+        """Terminal beats intent, and it must beat a REMEMBERED intent too.
+
+        Otherwise a Try adopted, then dropped, comes back as adopted the moment
+        its adopt event is archived — the resurrection this ledger must not cause.
+        """
+        retro = make_retrospective_with_try(TRY_ID)
+        events = [retro, drop_try_event(self.smm_dir, TRY_ID)]
+
+        recorded = intent.build_retro_intent_map(
+            events,
+            intent.retro_try_ids(events),
+            ledger=self._ledger(
+                adoption_store.LANE_RETRO, {TRY_ID: self._entry(DISPOSITION_ADOPTED)}
+            ),
+        )
+        self.assertNotIn(TRY_ID, recorded)
+
+    def test_defer_count_never_regresses_below_the_remembered_count(self):
+        """The ledger holds the count as of the last fold; the log holds only the
+        deferrals still on disk. Report the larger — a count that shrinks when
+        compaction runs would make a long-carried Try look freshly raised.
+        """
+        retro = make_retrospective_with_try(TRY_ID)
+        # one deferral still in the log; the ledger remembers three
+        events = [retro, defer_try_event(self.smm_dir, TRY_ID)]
+
+        recorded = intent.build_retro_intent_map(
+            events,
+            intent.retro_try_ids(events),
+            ledger=self._ledger(
+                adoption_store.LANE_RETRO,
+                {TRY_ID: self._entry(DISPOSITION_DEFERRED, defer_count=3)},
+            ),
+        )
+        self.assertEqual(recorded[TRY_ID]["defer_count"], 3)
+
+    def test_no_ledger_is_the_old_behaviour(self):
+        """Every existing caller passes no ledger. Same answers as before."""
+        retro = make_retrospective_with_try(TRY_ID)
+        events = [retro, adopt_try_event(self.smm_dir, TRY_ID)]
+
+        self.assertEqual(
+            intent.build_retro_intent_map(events, intent.retro_try_ids(events)),
+            self._retro_map(events),
+        )
+
+    def test_lanes_do_not_bleed_through_the_ledger(self):
+        """A ledger entry is keyed by (target_id, lane). The triage lane must not
+        read the retro lane's memory, or a Try adopted for work would annotate a
+        same-id debt as adopted."""
+        ledger = self._ledger(
+            adoption_store.LANE_RETRO, {TRY_ID: self._entry(DISPOSITION_ADOPTED)}
+        )
+        self.assertEqual(intent.build_triage_intent_map([], ledger=ledger), {})
 
 
 if __name__ == "__main__":
