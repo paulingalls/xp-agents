@@ -59,15 +59,27 @@ cannot drift from the writers of the events — it is derived from those events.
 
 import contextlib
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from _append_impl import write_text_atomic
+from _append_impl import flock_with_timeout, write_text_atomic
 
 ADOPTION_FILENAME = "adoption.json"
 # Where an unreadable ledger is parked. Compaction bounds the event log and must
 # never be wedged by this cache — see `quarantine_adoption`.
 QUARANTINE_FILENAME = "adoption.json.corrupt"
 SCHEMA_VERSION = 1
+
+# The ledger's OWN lock, deliberately not `events.lock`, for two reasons.
+# Sharing that lock would serialize every adoption write against every event
+# append, for no benefit — they touch different files. Worse, this module's only
+# writer is `compact._fold_adoption_ledger`, which runs a few lines outside
+# `replace_events_file`'s exclusive hold on `events.lock`; move the fold inside
+# that hold — a natural follow-on — and a same-process re-flock of the same path
+# through a second fd would BLOCK ON ITSELF. Follows `sprint_store`'s
+# `sprint.lock` precedent: one lock per file that has a read-modify-write.
+ADOPTION_LOCK_NAME = "adoption.lock"
 
 # Sized well above the open-item count of any plausible project. Reachable on the
 # retro lane over a long project life (adopted Tries are never closed by their own
@@ -85,6 +97,19 @@ VALID_LANES = frozenset({LANE_RETRO, LANE_TRIAGE})
 # returns, so `entries_for_lane` projects straight back into a lane map and a
 # reader can merge the two without translating.
 _INTENT_FIELDS = ("intent", "intent_by", "intent_ts", "defer_count")
+
+
+@contextmanager
+def _adoption_lock(smm_dir: Path) -> Iterator[None]:
+    """Hold an exclusive flock on `adoption.lock` for the duration of the block.
+
+    Makes `record_intents`' load → fold → save one indivisible critical section.
+    Reuses the shared `flock_with_timeout` — SIGALRM-bounded acquire, release
+    that cannot wedge on a flaky unlock — so a stuck sibling degrades into a
+    LockTimeoutError rather than a hang.
+    """
+    with flock_with_timeout(smm_dir / ADOPTION_LOCK_NAME):
+        yield
 
 
 def validate_adoption(data: object) -> list[str]:
@@ -202,6 +227,19 @@ def save_adoption(smm_dir: Path, data: dict) -> None:
     write_text_atomic(path, json.dumps(data, indent=2))
 
 
+def _defer_count(entry: dict) -> int:
+    """An entry's `defer_count` as an int, tolerating None/missing/non-int.
+
+    The ledger is a file on disk and `validate_adoption` runs on SAVE, not on
+    every in-memory map that reaches `fold_intents` — an intent map is built by
+    `intent.build_*_intent_map`, not by this module. Coercing here keeps the
+    floor comparison from raising on a shape the fold has no other reason to
+    reject.
+    """
+    value = entry.get("defer_count")
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def fold_intents(data: dict, lane: str, intents: dict[str, dict]) -> dict:
     """UPSERT one lane's intent map into *data*, returning a new document.
 
@@ -214,7 +252,33 @@ def fold_intents(data: dict, lane: str, intents: dict[str, dict]) -> dict:
       * the cap's "newest N" slice cannot be gamed by re-adopting an old target,
         which would evict someone else's entry to re-seat one that was already
         seated.
-    Last write wins on the fields — the freshest intent is the true one.
+    Last write wins on the fields.
+
+    EXCEPT `defer_count`, which takes the FLOOR of old and new. It is the one
+    field that ACCUMULATES rather than describes, and `record_intents`' lock
+    does not cover the caller's own read of the ledger
+    (`compact._fold_adoption_ledger` loads it to build these maps), so an
+    intent map can arrive carrying a count computed from a ledger that a
+    concurrent compaction has since advanced. Last-write-wins would then walk
+    the count BACKWARDS — and the count is memory too: it is the floor on how
+    long an item has been carried, and `intent._build_intent_map` already
+    maxes the log's view against the ledger's for exactly this reason. Nothing
+    legitimately lowers it; a finished target loses its whole entry via
+    `drop_resolved` instead.
+
+    The floor is NOT a general fix for stale maps, and last-write-wins on the
+    other fields is an ASSUMPTION, not a guarantee: it holds only while the
+    last writer is also the freshest, and a concurrent compaction can break
+    that. `record_intents`' lock serializes the ledger's read-modify-write, but
+    the map handed to it was derived from an EVENT snapshot read outside that
+    lock. A compaction holding an older snapshot can therefore fold a stale
+    `intent` over a fresher one. That is normally invisible — `_build_intent_map`
+    lets the LIVE LOG beat the ledger, and `replace_events_file` preserves an
+    event the stale caller never saw — so the next fold re-derives the truth.
+    It becomes PERMANENT only if the fresher intent event is archived by the
+    same pass that folded it, before the stale caller folds. Narrow, and not
+    closed here; the root fix is to derive the map under the same lock that
+    guards the write. See debt on `_fold_adoption_ledger`.
     """
     if lane not in VALID_LANES:
         raise ValueError(
@@ -227,6 +291,7 @@ def fold_intents(data: dict, lane: str, intents: dict[str, dict]) -> dict:
     for target_id, recorded in intents.items():
         fields = {field: recorded.get(field) for field in _INTENT_FIELDS}
         if existing := by_key.get((target_id, lane)):
+            fields["defer_count"] = max(_defer_count(fields), _defer_count(existing))
             existing.update(fields)
             continue
         entry = {"target_id": target_id, "lane": lane, **fields}
@@ -312,12 +377,32 @@ def record_intents(
     disagree about what is closed. Prune runs AFTER fold, so a target closed in
     the same pass that recorded its intent leaves no entry behind.
 
+    The whole load → fold → prune → save is a READ-MODIFY-WRITE, and it is held
+    under `adoption.lock` for its full length. `save_adoption`'s atomic write
+    only keeps a READER from seeing a torn file; it does nothing for two writers
+    interleaving. Teammates share one SMM directory and every SessionEnd
+    compacts, so two compactions overlapping is ordinary — and unlocked, the
+    later save is built on a ledger loaded before the earlier one landed, while
+    the fold only ever upserts. The earlier writer's entry is simply gone, and
+    its target reverts to the amnesia this module exists to end. The lock makes
+    the second writer load what the first wrote.
+
+    What the lock does NOT buy: *intents_by_lane* was derived by the CALLER,
+    from an event snapshot and a ledger read taken outside this lock. Serializing
+    the write does not make a stale map fresh — it only stops one writer's
+    entries from vanishing wholesale. `fold_intents` documents the residual and
+    why `defer_count` needs a floor to survive it.
+
+    Its own lock, NOT `events.lock` — see `ADOPTION_LOCK_NAME`. Nothing this
+    function calls takes a lock, so this hold cannot nest.
+
     See `drop_resolved` for what *resolved_ids* must contain. Returns the saved
     document.
     """
-    data = load_adoption(smm_dir)
-    for lane, intents in intents_by_lane.items():
-        data = fold_intents(data, lane, intents)
-    data = cap(drop_resolved(data, resolved_ids), max_entries)
-    save_adoption(smm_dir, data)
+    with _adoption_lock(smm_dir):
+        data = load_adoption(smm_dir)
+        for lane, intents in intents_by_lane.items():
+            data = fold_intents(data, lane, intents)
+        data = cap(drop_resolved(data, resolved_ids), max_entries)
+        save_adoption(smm_dir, data)
     return data

@@ -11,10 +11,16 @@ events.jsonl nor backups/.
 The rule these tests pin: an event the caller never saw was never a candidate
 for removal. Deliberate removals (archived, invalid, malformed) must still
 happen — the mirror-image failure is resurrecting what a caller meant to drop.
+
+The adoption ledger has the same shape of bug one level up: `record_intents`
+is a load → fold → save with no lock across it, so two concurrent compactions
+can lose an adoption memory.
 """
 
+import fcntl
 import json
 import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -22,6 +28,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
+import adoption_store
 import compact
 import materialize
 import migrate
@@ -33,6 +40,14 @@ from event_schema import (
     EVENT_TYPE_STATUS,
 )
 from materialize import read_curation_watermark
+
+# How long the writer UNDER TEST pauses mid-critical-section to let the racing
+# writer in. Broken (no lock), the racer takes the flock at once and the wait
+# ends early — the whole test runs in ~40ms. Fixed, the racer is blocked and the
+# wait always burns its full budget, so this IS a real 0.5s in the green path;
+# it is the price of proving the block. Keep it generous: a racer starved past
+# the budget on a loaded box would make a BROKEN build look green.
+_LOCK_WAIT = 0.5
 
 
 class _RewriteRaceMixin(_SMMTestCase):
@@ -250,6 +265,123 @@ class TestConcurrentAppendDuringMigration(_RewriteRaceMixin):
         self.assertIn(arrival["id"], by_id, "concurrent arrival was eaten by migrate")
         self.assertEqual(by_id[stale["id"]]["schema_version"], 2)
         self.assertEqual(by_id[stale["id"]]["ts"], "2026-03-01T00:00:00+00:00")
+
+
+class TestConcurrentAdoptionRecord(_SMMTestCase):
+    """`record_intents` is a read-modify-write; without a lock it loses updates."""
+
+    def _entry_ids(self) -> set[str]:
+        data = adoption_store.load_adoption(self.smm_dir)
+        return {e["target_id"] for e in data["entries"]}
+
+    def _competing_writer(self, target_id: str, done: threading.Event):
+        """A second compaction's record_intents, written by hand.
+
+        It cannot call `record_intents` itself: that takes the lock via
+        `flock_with_timeout`, which arms SIGALRM, and signals only work on the
+        main thread. So it takes the same flock raw and does the same
+        load → fold → save — which is exactly what a second PROCESS does.
+        """
+        real_load = adoption_store.load_adoption
+
+        def run() -> None:
+            fd = open(self.smm_dir / adoption_store.ADOPTION_LOCK_NAME, "a")  # noqa: SIM115
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                data = real_load(self.smm_dir)
+                data = adoption_store.fold_intents(
+                    data,
+                    adoption_store.LANE_RETRO,
+                    {
+                        target_id: {
+                            "intent": "adopted",
+                            "intent_by": "bbbbbbbbbbbb",
+                            "intent_ts": "2026-03-02T00:00:00+00:00",
+                            "defer_count": 0,
+                        }
+                    },
+                )
+                adoption_store.save_adoption(self.smm_dir, data)
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                fd.close()
+                done.set()
+
+        return threading.Thread(target=run)
+
+    def test_concurrent_record_does_not_lose_an_adoption(self):
+        """The classic lost update: A loads, B writes, A saves over B."""
+        done = threading.Event()
+        writer = self._competing_writer("bbbbbbbbbbbb", done)
+        real_load = adoption_store.load_adoption
+
+        def load_then_let_b_run(smm_dir):
+            data = real_load(smm_dir)
+            # B races here: between A's load and A's save. Under the lock B is
+            # blocked and the wait simply times out.
+            writer.start()
+            done.wait(timeout=_LOCK_WAIT)
+            return data
+
+        with mock.patch.object(adoption_store, "load_adoption", load_then_let_b_run):
+            adoption_store.record_intents(
+                self.smm_dir,
+                {
+                    adoption_store.LANE_RETRO: {
+                        "aaaaaaaaaaaa": {
+                            "intent": "adopted",
+                            "intent_by": "cccccccccccc",
+                            "intent_ts": "2026-03-01T00:00:00+00:00",
+                            "defer_count": 0,
+                        }
+                    }
+                },
+                set(),
+            )
+
+        writer.join(timeout=5.0)
+        self.assertFalse(writer.is_alive(), "competing writer never finished")
+
+        ids = self._entry_ids()
+        self.assertIn("aaaaaaaaaaaa", ids)
+        self.assertIn(
+            "bbbbbbbbbbbb",
+            ids,
+            "lost update: the concurrent adoption was overwritten by a stale "
+            "snapshot — the target reverts to amnesia",
+        )
+
+    def test_fold_never_regresses_defer_count(self):
+        """The ledger read in `compact` sits OUTSIDE the lock, so an intent map
+        can carry a stale `defer_count`. Folding must take the floor, never
+        walk it back — the count is memory too."""
+        data = adoption_store.fold_intents(
+            adoption_store.empty_adoption(),
+            adoption_store.LANE_RETRO,
+            {
+                "aaaaaaaaaaaa": {
+                    "intent": "deferred",
+                    "intent_by": "cccccccccccc",
+                    "intent_ts": "2026-03-02T00:00:00+00:00",
+                    "defer_count": 3,
+                }
+            },
+        )
+        stale = adoption_store.fold_intents(
+            data,
+            adoption_store.LANE_RETRO,
+            {
+                "aaaaaaaaaaaa": {
+                    "intent": "deferred",
+                    "intent_by": "dddddddddddd",
+                    "intent_ts": "2026-03-03T00:00:00+00:00",
+                    "defer_count": 1,
+                }
+            },
+        )
+        entry = stale["entries"][0]
+        self.assertEqual(entry["defer_count"], 3)
+        self.assertEqual(entry["intent_by"], "dddddddddddd", "fresher intent wins")
 
 
 if __name__ == "__main__":
