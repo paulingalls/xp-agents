@@ -225,14 +225,21 @@ class TestInjectionStaysFlatAsCapRises(_SMMTestCase):
     never the live SMM dir, which moves session to session and would flake.
 
     The bound below is a REAL number, not a "doesn't grow proportionally"
-    hand-wave: 20 items at today's verbatim emit (event_schema.py:67) would
-    run 20 * ~530 content-plus-overhead chars =~ 10,600+ bytes alone, well
-    past MAX_BLOCK_BYTES -- so this assertion FAILS against the pre-fix
-    triage_preload.py and only passes once injection excerpts content.
+    hand-wave, and it is MEASURED at both ends: 20 items at the 500-char cap
+    cost 8,798 bytes with the 400-char excerpt in place, and 10,798 bytes
+    emitted verbatim (pre-fix). MAX_BLOCK_BYTES sits between the two, so this
+    assertion genuinely FAILS against the pre-fix triage_preload.py and only
+    passes once injection excerpts content -- verified by reverting the
+    excerpt and watching it go red, not assumed.
+
+    The excerpt is 400 = the PREVIOUS content cap, so injection cost is pinned
+    at its pre-story value: the storage raise costs zero extra injected bytes
+    and the block loses nothing it used to show. See triage_preload.py.
     """
 
     _NUM_ITEMS = 20
-    _MAX_BLOCK_BYTES = 6000
+    # Between the excerpted cost (8,798) and the verbatim cost (10,798).
+    _MAX_BLOCK_BYTES = 9500
 
     def test_block_stays_within_bound_at_new_cap(self):
         events = [

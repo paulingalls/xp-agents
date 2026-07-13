@@ -25,7 +25,17 @@ import triage  # noqa: E402
 # event_schema.py) so the WHY survives; this kickoff block is read at every
 # session start, so it stays a bounded excerpt with the event id attached --
 # the full causal chain is one lookup away, never dropped.
-_EXCERPT_MAX_CHARS = 160
+#
+# The bound is 400 -- deliberately the PREVIOUS content cap, not a smaller
+# round number. That makes the contract exact: raising storage 400 -> 500 buys
+# room for the WHY at a cost of ZERO extra injected bytes, and the triage block
+# a lead reads at kickoff loses nothing it used to show. A tighter excerpt
+# would hold cost flat too, but it would silently degrade the block BELOW its
+# pre-existing quality -- and this block is how the lead decides what to adopt,
+# so a mid-sentence cut through the WHY buys tokens by making that decision
+# worse. If the block's total size ever needs to come down, the lever is the
+# ITEM COUNT (aging/collapsing stale items), not lossy per-item truncation.
+_EXCERPT_MAX_CHARS = 400
 
 
 def _format_intent(entry: dict, session_anchor_timestamps: list[str]) -> str:

@@ -250,7 +250,8 @@ class TestDetectConflictsCommon(_HookTestCase):
         self.assertEqual(flag.get("references"), [a["id"]])
 
     def test_assumption_contradicted_within_budget(self):
-        """Assumption contradicted concern must stay within 400-char budget."""
+        """Assumption contradicted concern must stay within the concern budget
+        (read from the schema below, so a budget change cannot strand it)."""
         from event_schema import get_required_budget
 
         a = make_event(EVENT_TYPE_ASSUMPTION, content="x" * 300)

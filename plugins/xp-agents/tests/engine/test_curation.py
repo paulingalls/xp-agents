@@ -569,6 +569,13 @@ class TestRenderMarkdownInsensitiveToEventBudgets(_SMMTestCase):
         smm = smm_store.load_smm(self.smm_dir)
         baseline = smm_cli.render_markdown(smm)
 
+        # Pin that the baseline actually rendered something. Without this, a
+        # future regression that made render_markdown return "" would leave
+        # the assertEqual below comparing "" to "" -- passing vacuously, which
+        # is precisely the failure mode this class exists to call out.
+        self.assertIn("Ship the thing", baseline)
+        self.assertIn("Auth bug", baseline)
+
         # Raw events.jsonl at the new 500-char cap -- render_markdown never
         # looks at this file, so the rendered output cannot move.
         events = [make_event(EVENT_TYPE_CONCERN, content="x" * 500) for _ in range(20)]
