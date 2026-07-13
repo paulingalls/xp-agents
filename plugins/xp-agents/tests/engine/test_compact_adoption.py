@@ -377,12 +377,14 @@ class TestDeferCountNeverFalls(_LedgerCompactionTestCase):
 class TestAnUnreadableLedgerCannotWedgeCompaction(_LedgerCompactionTestCase):
     """`load_adoption` fails LOUD, and compaction must not inherit that.
 
-    Compaction is the only thing that bounds `events.jsonl`, and its production
-    caller (`smm_cli.compact_and_advance_watermark`) suppresses OSError and
-    ValueError. So a ledger that cannot be read would silently no-op compaction
-    every session from then on, and the log would grow forever — with no signal,
-    and no remedy but hand-deleting a file the user has never heard of. An
-    unbounded log is a far worse failure than a forgotten adoption.
+    Compaction is the only thing that bounds `events.jsonl`, and it reaches
+    production two ways, both of which an unreadable ledger would break: `main()`
+    (SessionEnd + PostCompact) catches only LockTimeoutError, so a ValueError
+    escapes as a traceback; `smm_cli.complete_curation` suppresses OSError and
+    ValueError, so it no-ops in silence. Either way compaction stops every
+    session from then on, and the log grows forever — with no remedy but
+    hand-deleting a file the user has never heard of. An unbounded log is a far
+    worse failure than a forgotten adoption.
     """
 
     def _corrupt_case(self, body: str) -> list[dict]:

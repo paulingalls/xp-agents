@@ -107,16 +107,23 @@ def _fold_adoption_ledger(smm_dir: Path, events: list[dict]) -> None:
 
     An UNREADABLE ledger must not abort the compaction. `load_adoption` fails
     loud, and for its own callers that is right — but compaction is the only
-    thing that bounds `events.jsonl`, and its one production caller
-    (`smm_cli.compact_and_advance_watermark`) wraps it in
-    `contextlib.suppress(OSError, ValueError)`. So a ledger this module cannot
-    read — a rolled-back plugin meeting a newer `version`, a hand-edit, a bad
-    disk — would silently no-op compaction on EVERY session from then on, and the
-    log would grow without bound, with no signal and no way out but deleting a
-    file the user has never heard of. Trading an unbounded log for a forgotten
-    adoption is a bad trade. Quarantine the bad copy, say so on stderr, and
-    rebuild from the events still in hand; if the retry ALSO fails, the fault is
-    not the ledger's and it is allowed to surface.
+    thing that bounds `events.jsonl`, and it reaches production by TWO paths,
+    which fail differently and are both bad:
+
+      * `main()`, registered on SessionEnd and PostCompact, catches only
+        LockTimeoutError — a ValueError here escapes as an uncaught traceback and
+        the hook dies.
+      * `smm_cli.complete_curation`, which wraps it in
+        `contextlib.suppress(OSError, ValueError)` — so the failure is not even
+        reported; compaction silently no-ops.
+
+    Either way a ledger this module cannot read — a rolled-back plugin meeting a
+    newer `version`, a hand-edit, a bad disk — would stop compaction on EVERY
+    session from then on, and the log would grow without bound, with no remedy
+    but deleting a file the user has never heard of. Trading an unbounded log for
+    a forgotten adoption is a bad trade. Quarantine the bad copy, say so on
+    stderr, and rebuild from the events still in hand; if the retry ALSO fails,
+    the fault is not the ledger's and it is allowed to surface.
     """
     ledger = intent.load_ledger(smm_dir)
     intents = {
