@@ -5,7 +5,6 @@ Provides branch naming, creation, merge, and deletion for the
 branching doctrine's stage-based workflow.
 """
 
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -13,22 +12,28 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import _common
 import execution_plan_store
 import git_remote
 import identity
 import sprint_store
-import system_context_store
 
-# Back-compat re-exports for code split into branch_lifecycle.py (merge/
-# delete) and branch_names.py (pure-string helpers; tests patch
-# branch_names._utc_today_iso since the function lives there).
+# Back-compat re-exports for code split out of this module: branch_lifecycle.py
+# (merge/delete), branch_names.py (pure-string helpers; tests patch
+# branch_names._utc_today_iso since the function lives there), and
+# branch_resolution.py (SMM-state -> branch/stage answers).
+#
+# The privates are re-exported deliberately, not by accident: tests call
+# branching._recorded_plan_branch directly and patch branching._git /
+# branching.branch_exists. But a patch on THIS module only reaches callers that
+# still live in THIS module — a call path that crosses into branch_resolution
+# resolves the name in that module's globals. Patch where the caller lives.
 from branch_lifecycle import (  # noqa: F401
     _fast_forward_if_safe,
-    _is_merged_into,
     _merge_into_target,
     delete_branch,
+    is_merged_into,
     merge_branch,
+    survives_delete_of,
 )
 from branch_names import (  # noqa: F401
     _SPRINT_BRANCH_RE,
@@ -42,10 +47,29 @@ from branch_names import (  # noqa: F401
     scaffold_branch_name,
     sprint_branch_name,
 )
-
-
-def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+from branch_resolution import (  # noqa: F401
+    _DEFAULT_PRIMARY,
+    _PROTECTED_BRANCHES,
+    _git,
+    _load_branching_strategy,
+    _maybe_auto_promote,
+    _recorded_plan_branch,
+    _recorded_sprint_branch,
+    branch_exists,
+    get_branching_stage,
+    get_merge_target,
+    get_primary_branch,
+    get_protected_branches,
+    get_story_base_branch,
+    get_story_base_branch_required,
+    is_protected_branch,
+    match_local_branches,
+    ref_exists,
+    resolve_sprint_branch_name,
+    resolve_story_base,
+    trusted_handed_base,
+    trusted_story_base,
+)
 
 
 def _push_branch_if_remote(cwd: str, name: str) -> None:
@@ -77,168 +101,6 @@ def _push_branch_if_remote(cwd: str, name: str) -> None:
         sys.stderr.write(f"WARN: failed to push {name} at create: {r.stderr}")
 
 
-_DEFAULT_PRIMARY = "main"
-
-
-def _load_branching_strategy(smm_dir: Path) -> dict:
-    """Read system_context.branching_strategy or {} on any failure."""
-    path = smm_dir / "system_context.json"
-    if not path.exists() or path.is_symlink():
-        return {}
-    try:
-        ctx = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return ctx.get("branching_strategy") or {}
-
-
-def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
-    """Auto-promote Stage 1 -> Stage 2 (plugin floor). Idempotent.
-
-    Mutates system_context.json's branching_strategy.stage in place
-    and emits a one-time decision event. Returns 2 on success; on an
-    OSError (read-only SMM, missing dir, lock contention) returns the
-    original stage so the next call to get_branching_stage retries the
-    promotion. Schema-validation ValueErrors are intentionally NOT
-    caught — they signal corrupt input or a code bug and propagate.
-    """
-    if current != 1:
-        return current
-    try:
-        ctx = system_context_store.load_system_context(smm_dir)
-        if ctx is None:
-            return current
-        ctx.setdefault("branching_strategy", {})["stage"] = 2
-        system_context_store.save_system_context(smm_dir, ctx)
-        event = _common.make_event(
-            "decision",
-            "branching",
-            "Auto-promoted branching stage 1 -> 2 (plugin floor)",
-            topic="branching-stage-auto-promote",
-            metadata={"action": "stage_auto_promote", "from_stage": 1, "to_stage": 2},
-        )
-        _common.append_safe(smm_dir, event)
-        return 2
-    except OSError as e:  # narrow: ValueError (schema/code-bug) must crash loud
-        _common.log_hook_error(
-            f"branching auto-promote failed: {e}",
-            error_class=type(e).__name__,
-            from_stage=1,
-            to_stage=2,
-        )
-        return current
-
-
-def get_branching_stage(smm_dir: Path) -> int:
-    """Return the branching stage. NOT side-effect free.
-
-    A stage=1 read triggers a one-time auto-promotion (file mutation
-    + decision event) via `_maybe_auto_promote`. Read-only or locked
-    SMMs fail soft and return 1 unpromoted; the next call retries.
-    Stage 0/2/3 reads remain pure.
-    """
-    stage = _load_branching_strategy(smm_dir).get("stage", 0)
-    return _maybe_auto_promote(smm_dir, stage)
-
-
-def match_local_branches(cwd: str, pattern: str) -> list[str]:
-    """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
-    r = _git(
-        ["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{pattern}"],
-        cwd,
-    )
-    if r.returncode != 0:
-        return []
-    return [b for b in r.stdout.splitlines() if b]
-
-
-def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:
-    """Return execution_plan.branch when set AND a matching local branch exists.
-
-    Prefers exact match. Falls back to a `<branch>-*` suffix-prefix scan
-    (anchored on a separator so `plan-feat-*` doesn't match
-    `plan-featured`) and prints a stderr note when the fallback fires —
-    drift discovery should be visible. Note: get_story_base_branch
-    handles sprint slug drift by reconstructing via slugify(goal); plan
-    branches glob-scan because the recorded value IS the branch name.
-    """
-    plan = execution_plan_store.load_plan(smm_dir)
-    if plan is None:
-        return None
-    plan_branch = plan.get("branch")
-    if not plan_branch:
-        return None
-    if branch_exists(cwd, plan_branch):
-        return plan_branch
-    matches = sorted(match_local_branches(cwd, f"{plan_branch}-*"))
-    if not matches:
-        return None
-    drifted = matches[0]
-    print(
-        f"note: recorded plan branch '{plan_branch}' not found locally;"
-        f" using prefix match '{drifted}'",
-        file=sys.stderr,
-    )
-    return drifted
-
-
-def get_merge_target(smm_dir: Path, cwd: str) -> str:
-    """Return the branch to merge into.
-
-    Plan branch when execution_plan.branch resolves locally (exact match
-    preferred, `<branch>-*` prefix-fallback for slug drift); otherwise
-    the primary integration branch.
-    """
-    return _recorded_plan_branch(cwd, smm_dir) or get_primary_branch(smm_dir)
-
-
-def get_primary_branch(smm_dir: Path) -> str:
-    """Return the repo's primary integration branch.
-
-    Stage 0-2: 'main'. Stage 3: branching_strategy.integration_branch,
-    defaulting to 'main' when missing/null. Routes through
-    ``get_branching_stage`` so primary-branch reads also fire the
-    Stage 1 -> 2 auto-promote — single chokepoint for progression.
-    """
-    if get_branching_stage(smm_dir) < 3:
-        return _DEFAULT_PRIMARY
-    bs = _load_branching_strategy(smm_dir)
-    return bs.get("integration_branch") or _DEFAULT_PRIMARY
-
-
-_PROTECTED_BRANCHES = {"main", "master"}
-
-
-def get_protected_branches(smm_dir: Path, stage: int) -> set[str]:
-    """Return the stage-aware set of branches treated as protected.
-
-    Stage 0: empty (branching doctrine inactive).
-    Stage 1+: ``{main, master}`` plus ``branching_strategy.protected_branches``
-    plus (at stage 3+) ``branching_strategy.integration_branch``. The
-    integration branch is the daily fork-and-merge target — committing
-    directly to it is the same anti-pattern as committing to main.
-
-    ``stage`` is supplied by callers (rather than re-read here) so the
-    stage 1→2 auto-promote side effect in ``get_branching_stage`` fires
-    once per hook chain instead of doubling on every protection check.
-    """
-    if stage < 1:
-        return set()
-    result = set(_PROTECTED_BRANCHES)
-    bs = _load_branching_strategy(smm_dir)
-    declared = bs.get("protected_branches") or []
-    result.update(declared)
-    if stage >= 3:
-        integration = bs.get("integration_branch")
-        if integration:
-            result.add(integration)
-    return result
-
-
-def is_protected_branch(stage: int, branch: str, smm_dir: Path) -> bool:
-    return branch in get_protected_branches(smm_dir, stage)
-
-
 def is_worktree_clean(cwd: str) -> bool:
     r = _git(["git", "status", "--porcelain"], cwd)
     return r.returncode == 0 and r.stdout.strip() == ""
@@ -261,11 +123,6 @@ def is_git_worktree(cwd: str) -> bool:
         # one. Fail to "not a worktree" so callers skip rather than crash.
         return False
     return r.returncode == 0 and r.stdout.strip() == "true"
-
-
-def branch_exists(cwd: str, name: str) -> bool:
-    r = _git(["git", "rev-parse", "--verify", f"refs/heads/{name}"], cwd)
-    return r.returncode == 0
 
 
 def _try_checkout(cwd: str, branch: str) -> bool:
@@ -358,14 +215,23 @@ def create_story_branch(
 ) -> str | None:
     """Returns branch name or None if below story min stage.
 
-    When base is provided, the story branch forks from that ref (for
-    chaining dependent stories). When omitted, uses the resolved story
-    base (sprint branch at stage 2+, otherwise primary).
+    When base is provided, the story branch forks from that ref (for chaining
+    dependent stories). When omitted, the story base is resolved from the
+    sprint. Either way the value is VERIFIED before it reaches git — see
+    ``trusted_story_base``, which raises rather than let an unresolvable or
+    silently-degraded base become a fork point.
+
+    The base=None arm is NOT dead code even though both SKILLs always pass
+    --base: `branching.py create` without --base still reaches it (argparse
+    defaults to None).
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
-    if base is None:
-        base = get_story_base_branch(smm_dir, cwd)
+    if get_branching_stage(smm_dir) >= BRANCH_MIN_STAGE["story"]:
+        # Below the floor no branch is cut at all (_create_or_resume_branch
+        # skips), so an unusable base is moot — and refusing one there would
+        # break stage-0 inertness, where the plugin must not touch git.
+        base = trusted_story_base(cwd, smm_dir, base)
     result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["story"], base=base
     )
@@ -378,48 +244,6 @@ def create_story_branch(
                 f"branch {result} created but not recorded\n"
             )
     return result
-
-
-def _recorded_sprint_branch(cwd: str, smm_dir: Path, sprint_id: str) -> str | None:
-    """The branch already recorded for THIS sprint_id, if it still exists.
-
-    Keyed on sprint_id, not on "a branch_name is recorded": the next sprint's
-    create overwrites the current sprint.json in place, so a stale record for
-    the PREVIOUS sprint is routinely on disk when the next sprint's branch is
-    cut. Resuming that would hand sprint N+1 sprint N's branch.
-
-    Requires the branch to still exist locally, mirroring get_story_base_branch's
-    recorded-then-verify check: a recorded name whose branch is gone is stale, and
-    the slug is the better guess (test_resume_re_records_fixing_drift pins that).
-
-    Fails open where get_story_base_branch lets SprintCorruptError fly, because
-    this runs BEFORE the stage gate: below the branching floor create_sprint_branch
-    must stay a clean no-op even on an unreadable sprint. It buys no silence above
-    the floor — set_branch re-raises on the same corruption once the branch is cut.
-    Loudness is delegated there, not dropped.
-    """
-    sprint = sprint_store.load_sprint_fail_open(smm_dir)
-    if sprint is None or sprint.get("sprint_id") != sprint_id:
-        return None
-    recorded = sprint.get("branch_name")
-    return recorded if recorded and branch_exists(cwd, recorded) else None
-
-
-def resolve_sprint_branch_name(
-    cwd: str, sprint_id: str, slug: str, smm_dir: Path
-) -> str:
-    """The branch ``create_sprint_branch`` will use: the one already recorded for
-    this sprint_id if it still exists, else one rebuilt from ``slug``.
-
-    Public because branching_cli must ask the SAME question to decide whether it
-    is about to create or resume. Deriving that from the slug alone reports a
-    resumed re-slice branch as ``created:`` — the slug-built name never exists on
-    a re-slice, which is the entire point — and SKILL.md Step 8 routes its
-    adopt/rename prompt on that token. One resolver, one answer, both callers.
-    """
-    return _recorded_sprint_branch(cwd, smm_dir, sprint_id) or branch_name(
-        identity.user_namespace(cwd), sprint_id, slug
-    )
 
 
 def create_sprint_branch(
@@ -537,9 +361,12 @@ def create_free_branch(
     into the plan branch at close time. With no active plan, get_merge_target
     falls back to primary, so the common case is unchanged.
 
-    An explicit ``base`` overrides that default — the escape hatch for free
-    work that must fork off a specific ref (mirrors create_story_branch's
-    ``base``). Forks off whatever ``base`` names; the caller owns correctness.
+    An explicit ``base`` overrides that default — the escape hatch for free work
+    that must fork off a specific ref (mirrors create_story_branch's ``base``).
+    It is VERIFIED, not trusted: ``--base`` here is a human-typed ref, and on the
+    resume arm a typo is silent (``_fast_forward_if_safe`` no-ops against a ref
+    git cannot resolve, and the CLI still prints `resumed:`). Same guard as the
+    story path, via the same ``trusted_handed_base``.
 
     Free branches are scratch work outside of plans/sprints. Date is UTC.
     Returns None below the plugin floor (stage < 2). Per BRANCH_LIFECYCLE
@@ -548,6 +375,11 @@ def create_free_branch(
     """
     user_ns = identity.user_namespace(cwd)
     name = free_branch_name(user_ns, slug)
+    if base is not None and get_branching_stage(smm_dir) >= BRANCH_MIN_STAGE["free"]:
+        # Stage-gated for the same reason create_story_branch's is: below the
+        # floor no branch is cut at all, so an unusable base is moot — and
+        # refusing there would break stage-0 inertness.
+        base = trusted_handed_base(cwd, base, omit_resolves="the merge target")
     return _create_or_resume_branch(
         cwd,
         name,
@@ -592,35 +424,6 @@ def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
             execution_plan_store.set_branch(smm_dir, result)
         _push_branch_if_remote(cwd, result)
     return result
-
-
-def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
-    """Return the base branch for stories: sprint branch at stage 2+, else primary.
-
-    Prefers sprint['branch_name'] (recorded atomically at create time) and
-    falls back to slugify(goal) reconstruction so older sprints written
-    before atomic recording still resolve.
-    """
-    primary = get_primary_branch(smm_dir)
-    stage = get_branching_stage(smm_dir)
-    if stage < 2:
-        return primary
-
-    sprint = sprint_store.load_sprint(smm_dir)
-    if sprint is None:
-        return primary
-
-    stored = sprint.get("branch_name")
-    if stored and branch_exists(cwd, stored):
-        return stored
-
-    user_ns = identity.user_namespace(cwd)
-    name = sprint_branch_name(user_ns, sprint["sprint_id"], sprint["goal"])
-
-    if branch_exists(cwd, name):
-        return name
-
-    return primary
 
 
 def commits_ahead(cwd: str, base: str, head: str = "HEAD") -> int | None:

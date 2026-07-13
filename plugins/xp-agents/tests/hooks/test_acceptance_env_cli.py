@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for the `accept-env` CLI subcommands on branching_cli.py.
+"""Tests for the `accept-env` CLI subcommands, which live in branching_cli_accept.py.
 
 Subprocess style (the house norm for asserting stdout + exit code): invoke
 `python3 branching.py --smm-dir <smm> accept-env <action> ...`. branching.py's
-__main__ delegates to branching_cli.main(). Each test builds a FRESH per-test
-git repo + teammate worktree (HEAD-mutating cases must not leak across tests).
+__main__ delegates to branching_cli.main(), which calls
+branching_cli_accept.register() to attach this subparser tree. Each test builds a
+FRESH per-test git repo + teammate worktree (HEAD-mutating cases must not leak
+across tests).
 """
 
 import subprocess

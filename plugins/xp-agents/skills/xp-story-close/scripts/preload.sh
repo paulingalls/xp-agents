@@ -33,8 +33,43 @@ else
     TEAMMATE_CWD=""
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 fi
-TARGET_BRANCH=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
-    --smm-dir "${SMM_DIR}" get-base --cwd . 2>/dev/null || echo "")
+# TARGET_BRANCH is what the close MERGES INTO, so it takes `get-base
+# --required`: a silently-degraded primary here merges a story branch straight
+# into the release branch. On refusal get-base writes NOTHING to stdout, the
+# reason to stderr, and exits 1.
+#
+# The rc is captured INSIDE a helper that ALWAYS returns 0, and that is
+# structural rather than stylistic. This script runs under `set -euo pipefail`
+# and the resolve happens BEFORE the first stdout write, so a bare
+# `TARGET_BRANCH=$(... --required)` would abort the preload before line 1 and
+# hand the skill ZERO BYTES — no SMM_DIR, no STORY_ID, no reason. The old
+# `|| echo ""` prevented that only by swallowing the failure whole (empty
+# TARGET_BRANCH -> the skill merges into an empty string). Putting the guard
+# inside the helper means there is no `|| ...` at the call site for a future
+# edit to "clean up", and no way to be loud and truncating at the same time.
+#
+# NEVER capture with `2>&1`: _common.log_hook_error mirrors to stderr
+# unconditionally and can fire on the SUCCESS path (auto-promote against a
+# read-only SMM), so folding the streams would splice a warning into the branch
+# name we merge into. Streams stay apart; the verdict comes from the exit code.
+STORY_BASE_UNRESOLVED="false"
+STORY_BASE_REASON=""
+resolve_target_branch() {
+    local err_file out rc
+    err_file=$(mktemp 2>/dev/null) || err_file=""
+    out=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
+        --smm-dir "${SMM_DIR}" get-base --cwd . --required \
+        2>"${err_file:-/dev/null}") && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        STORY_BASE_UNRESOLVED="true"
+        out=""
+        [ -n "$err_file" ] && STORY_BASE_REASON=$(cat "$err_file")
+    fi
+    [ -n "$err_file" ] && rm -f "$err_file"
+    TARGET_BRANCH="$out"
+    return 0
+}
+resolve_target_branch
 
 echo "SMM_DIR=${SMM_DIR}"
 # Route author-influenced values through emit_var. Keep the shell vars
@@ -48,6 +83,32 @@ echo "SMM_DIR=${SMM_DIR}"
 emit_path_var TEAMMATE_CWD "$TEAMMATE_CWD"
 emit_var CURRENT_BRANCH "$CURRENT_BRANCH"
 emit_var TARGET_BRANCH "${TARGET_BRANCH}"
+# A deterministic key=value flag that disambiguates "the base could not be
+# resolved" from "the base happens to be empty" — mirrors
+# CLOSE_DIFF_UNAVAILABLE in xp-quality-review's preload. The prose reason goes
+# on STDOUT, not stderr, because stderr is not surfaced to the skill: a reason
+# the agent cannot read is not a reason. SKILL.md Step 0 halts on the flag.
+#
+# The reason is AUTHOR-INFLUENCED, so it goes through flat() like every other
+# such value here. It interpolates sprint.json's `branch_name` and
+# system_context's `integration_branch` — and the latter is only type-checked by
+# the schema (never pattern-checked), while the resolver reads it with a raw
+# json.loads that skips validation entirely. A newline in it forges a line at
+# column 0, and this block prints AFTER the real STORY_BASE_UNRESOLVED /
+# TARGET_BRANCH lines, so a forged `STORY_BASE_UNRESOLVED=false` +
+# `TARGET_BRANCH=main` pair would shadow them and re-authorize the exact merge
+# into the release branch this refusal exists to stop. flat() collapses every
+# whitespace run to one space: the reason stays one line, and one line cannot
+# forge a second.
+echo "STORY_BASE_UNRESOLVED=${STORY_BASE_UNRESOLVED}"
+if [ "$STORY_BASE_UNRESOLVED" = "true" ]; then
+    echo ""
+    echo "## Story base unresolved — do NOT merge"
+    echo "TARGET_BRANCH is the branch this close MERGES INTO. It could not be"
+    echo "resolved, and the fallback would be the primary/release branch."
+    printf '%s\n' "$(flat "${STORY_BASE_REASON}")"
+    echo ""
+fi
 echo "GH_AVAILABLE=$(gh_available)"
 echo "WORKTREE_CLEAN=$(worktree_clean)"
 HOOK_STATUS=$(pre_commit_hook_present)
@@ -69,7 +130,17 @@ STORY_ID=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
     --smm-dir "${SMM_DIR}" extract-story-id --branch "${CURRENT_BRANCH}")
 UNTOUCHED=""
 VERIFY_DEFERRED="false"
-if [ -n "$STORY_ID" ]; then
+# Also gate on a non-empty TARGET_BRANCH, and this guard is load-bearing rather
+# than defensive: verify_paths resolves its base as `args.base or
+# get_story_base_branch(...)`, and "" is FALSY — so passing `--base ""` does not
+# fail, it silently re-enters the DEGRADING resolver and computes the gate
+# against the primary/release branch. That is the exact degradation this story
+# removed from the merge target, smuggled back in through the gate that guards
+# it. (verify_deferred takes the other branch of the same fork: `git log
+# ""..HEAD` errors, so it answers "false" — the two CLIs do not even agree.)
+# When the base is unresolved the close halts at Step 0, so there is nothing to
+# gate: emit no verdict rather than one computed against the wrong base.
+if [ -n "$STORY_ID" ] && [ -n "$TARGET_BRANCH" ]; then
     UNTOUCHED=$(python3 "${PLUGIN_ROOT}/scripts/verify_paths.py" \
         --smm-dir "${SMM_DIR}" --cwd "${TEAMMATE_CWD:-.}" \
         --story "$STORY_ID" --base "${TARGET_BRANCH}" 2>/dev/null) || true

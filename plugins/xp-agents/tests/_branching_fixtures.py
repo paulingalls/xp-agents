@@ -118,8 +118,18 @@ def get_current_branch(cwd: str) -> str:
 
 def get_head_sha(cwd: str) -> str:
     """Return the current HEAD commit SHA."""
+    return get_branch_sha(cwd, "HEAD")
+
+
+def get_branch_sha(cwd: str, ref: str) -> str:
+    """Return the commit SHA `ref` points at, or "" when it resolves to nothing.
+
+    The assertion for "did this branch MOVE?" — the resume arm's silent failures
+    (an unresolvable base, a base that fast-forwards a story branch onto primary)
+    are invisible in a return value and only show up in where the ref ends up.
+    """
     return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", ref],
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -509,6 +519,19 @@ def add_pre_push_hook(
         hook.write_text(f'#!/bin/sh\ncat >> "{marker}"\nexit 0\n')
     hook.chmod(0o755)
     return marker
+
+
+def make_branch(cwd: str, name: str) -> None:
+    """Cut local branch `name` at HEAD without checking it out.
+
+    Arms the RESUME arm of _create_or_resume_branch, and seeds the sprint
+    branch a story base resolves to. `name` must match what the code under
+    test will compute — a story branch the code names differently is simply
+    not found, and the test quietly exercises the CREATE arm instead. When
+    the code path runs in a subprocess, derive the namespace from
+    `identity.user_namespace(cwd)` (git config), never a hardcoded one.
+    """
+    subprocess.run(["git", "branch", name], cwd=cwd, capture_output=True, check=True)
 
 
 def branch_exists(cwd: str, name: str) -> bool:

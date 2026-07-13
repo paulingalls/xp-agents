@@ -47,6 +47,19 @@ class TestVerifyTouchLifecycle(_IntegrationTestCase):
             "acceptance_criteria": [],
             "acceptance_execution": {"type": "pytest", "command": "pytest acc_test.py"},
         }
+        # Cut the sprint branch too. A sprint seeded at stage 2 whose branch
+        # does not exist is the unresolvable state story-008 taught the
+        # resolver to refuse — the story-close preload then emits no
+        # TARGET_BRANCH and skips the very gate these tests exercise. Pinned at
+        # main's tip (with -f: the class shares one repo across tests), which
+        # is where the old degraded primary pointed, so every verdict below is
+        # unchanged.
+        subprocess.run(
+            ["git", "branch", "-f", "t/sprint-001-g", "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
         (self.smm_dir / "sprint.json").write_text(
             json.dumps(
                 {
@@ -54,6 +67,7 @@ class TestVerifyTouchLifecycle(_IntegrationTestCase):
                     "goal": "g",
                     "started": "2026-05-21",
                     "milestone": "",
+                    "branch_name": "t/sprint-001-g",
                     "stories": [story],
                 }
             )

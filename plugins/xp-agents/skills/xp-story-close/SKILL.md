@@ -33,10 +33,20 @@ allowed-tools:
 > Independent read-only calls may still batch.
 
 The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
-`TARGET_BRANCH`, `GH_AVAILABLE`, `WORKTREE_CLEAN`. `TARGET_BRANCH` is
-the merge destination — the sprint branch at stage 2+, primary
-otherwise. Shared pipeline lives in
+`TARGET_BRANCH`, `STORY_BASE_UNRESOLVED`, `GH_AVAILABLE`, `WORKTREE_CLEAN`.
+`TARGET_BRANCH` is the merge destination — the sprint branch at stage 2+,
+primary otherwise. Shared pipeline lives in
 `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+
+## Step 0: Halt if the merge destination is unresolved
+
+If `STORY_BASE_UNRESOLVED=true`, **STOP. Run no further step.**
+
+`TARGET_BRANCH` is the branch this close merges the story INTO, and the only
+value it could have been guessed as is the release branch. There is no safe
+degraded close. Report the reason the preload printed: re-cut the sprint branch
+(`branching.py create-sprint`) or fix `sprint.json`'s `branch_name`, then
+re-run `/xp-story-close`.
 
 `TEAMMATE_CWD` is non-empty when closing a teammate story (orchestrator
 sits on the sprint branch; teammate commits live in

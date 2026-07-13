@@ -20,7 +20,13 @@ VALID_MILESTONE_STATUSES = frozenset(
 )
 VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 
-VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
+# `\Z`, not `$`: Python's `$` also matches BEFORE a trailing newline, so `$`
+# here accepted "main\n" as a valid branch name. These values become `git
+# checkout <ref>` / `git merge <ref>` arguments and get interpolated into the
+# preload's KEY=value contract, where a newline forges a line at column 0. A
+# trailing newline is never part of a legitimate branch name, so this only
+# rejects input that was already broken.
+VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\Z")
 
 MILESTONE_FIELD_MAXLENGTH: dict[str, int] = {
     "goal": 200,

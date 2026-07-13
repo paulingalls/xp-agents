@@ -172,13 +172,23 @@ EXECUTOR_EFFORT=$(echo "$STORY_JSON" | python3 -c "import json,sys; d=json.load(
 `execution_mode=teammate`; xp-assign only creates the branch the teammate
 worktree spawns into. If stage < 1, skip branch creation entirely.
 
+The branch is cut FROM `$BASE`, so `--required` refuses to degrade to the
+release branch. There is no `set -e` here: without the `||` guard an empty
+`$BASE` falls through to `create --base ""`.
+
 ```bash
-BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .)
+BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
+  get-base --cwd . --required) \
+  || { echo "HALT: story base unresolved" >&2; exit 1; }
 git checkout "$BASE"
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
   create --cwd . --story "$TARGET" --slug <title-slug> --base "$BASE"
 git checkout "$BASE"
 ```
+
+**On HALT, stop the assign.** Do not spawn the teammate and do not pick a base
+by hand. Report the stderr reason: re-cut the sprint branch
+(`branching.py create-sprint`) or fix `sprint.json`'s `branch_name`.
 
 ## Step 3: Write the prompt file for THIS story
 
