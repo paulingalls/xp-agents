@@ -329,6 +329,64 @@ class TestSessionStartedRegistration(unittest.TestCase):
         )
 
 
+class TestContentBudgetRaise(unittest.TestCase):
+    """concern/debt/decision/discovery budgets raised 400 -> 500 chars so a
+    full causal chain (the WHY, not just the conclusion) fits in one event.
+    status stays at 200 -- a signal is not an argument."""
+
+    _BASE: ClassVar[dict] = {
+        "id": "abc123def456",
+        "ts": "2026-07-13T00:00:00+00:00",
+        "agent_id": "main",
+        "schema_version": 1,
+    }
+
+    def _event(self, event_type: str, content: str) -> dict:
+        event = {**self._BASE, "type": event_type, "content": content}
+        if event_type == EVENT_TYPE_STATUS:
+            event["working_on"] = []
+        elif event_type in ("decision",):
+            event["topic"] = "default-topic"
+        return event
+
+    def test_500_char_concern_validates(self):
+        event = self._event(event_schema.EVENT_TYPE_CONCERN, "x" * 500)
+        self.assertEqual(event_schema.validate_event(event), [])
+
+    def test_501_char_concern_fails(self):
+        event = self._event(event_schema.EVENT_TYPE_CONCERN, "x" * 501)
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("budget" in e for e in errors),
+            f"Expected content-budget error; got: {errors}",
+        )
+
+    def test_500_char_debt_validates(self):
+        event = self._event(event_schema.EVENT_TYPE_DEBT, "x" * 500)
+        event["files"] = ["scripts/x.py"]
+        self.assertEqual(event_schema.validate_event(event), [])
+
+    def test_500_char_decision_validates(self):
+        event = self._event(event_schema.EVENT_TYPE_DECISION, "x" * 500)
+        self.assertEqual(event_schema.validate_event(event), [])
+
+    def test_500_char_discovery_validates(self):
+        event = self._event(event_schema.EVENT_TYPE_DISCOVERY, "x" * 500)
+        event["references"] = ["referenced-id"]
+        self.assertEqual(event_schema.validate_event(event), [])
+
+    def test_status_event_at_201_chars_still_fails(self):
+        event = self._event(EVENT_TYPE_STATUS, "x" * 201)
+        errors = event_schema.validate_event(event)
+        self.assertTrue(
+            any("budget" in e for e in errors),
+            f"Expected content-budget error; got: {errors}",
+        )
+
+    def test_status_budget_unchanged_at_200(self):
+        self.assertEqual(event_schema.get_required_budget(EVENT_TYPE_STATUS), 200)
+
+
 class TestUnknownKeyRejection(unittest.TestCase):
     """validate_event rejects unknown top-level keys per type, so field-name
     typos fail at write time instead of round-tripping into events.jsonl."""
