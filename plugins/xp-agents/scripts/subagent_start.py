@@ -29,9 +29,13 @@ import plugin_loader
 import smm_cli
 import target_routing
 from event_schema import (
+    DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,
-    METADATA_KEY_DISPOSITION,
+    event_action,
+    event_disposition,
+    is_retro_lane,
+    is_triage_lane,
 )
 
 
@@ -77,13 +81,38 @@ def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[st
     return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
 
 
-_RETRO_TRY_TOPIC_PREFIX = "retro-try-"
+# Only used to read events written BEFORE the lane tag existed — a tagged
+# adoption is identified by its tag, never by its topic. An LLM authors this
+# slug, so a tagged adoption whose slug drifts must still be seen.
+_LEGACY_RETRO_TOPIC_PREFIX = "retro-try-"
+
+# This reader's own bucket is "Deferred / **Dropped**", so it keeps its own
+# disposition set and reads the RAW disposition (`event_disposition`). NOT
+# intent_disposition(), which returns None for `dropped` by design — the intent
+# module is deliberately blind to drops (a drop closes via metadata.resolves).
+# Reusing it here would silently empty the Dropped half of this bucket.
+_RETRO_BUCKET_DISPOSITIONS = (DISPOSITION_DEFERRED, DISPOSITION_DROPPED)
+# The triage lane's own bucket. A triage DROP is absent on purpose: a drop is
+# closure, so it lands in metadata.resolves — the one thing materialize reads
+# off a `status` event — and reaches the housekeeper through the resolutions.
+_TRIAGE_BUCKET_DISPOSITIONS = (DISPOSITION_ADOPTED, DISPOSITION_DEFERRED)
 
 
 def _gather_work_selection_events(smm_dir: Path) -> str | None:
     """Current-session work-selection events as a markdown block, or None.
 
     Boundary is the most recent session_started anchor.
+
+    Both lanes write `status` events carrying the same disposition vocabulary,
+    so the disposition ALONE cannot say which lane an event came from. Each arm
+    below gates on the LANE first (`is_retro_lane` / `is_triage_lane`) and only
+    then on its own disposition set. Without the lane gate, a triage defer of a
+    DEBT arrived under "Deferred / Dropped" and the housekeeper read it as a
+    retro Try the session had declined.
+
+    Untagged events fall through to the legacy rules the tag replaced (a
+    `retro-try-` topic prefix for adoptions) — `is_retro_lane` admits them, so
+    events written before the tag existed keep being seen.
     """
     import materialize
 
@@ -95,32 +124,34 @@ def _gather_work_selection_events(smm_dir: Path) -> str | None:
 
     adopted: list[str] = []
     deferred_dropped: list[str] = []
+    triaged: list[str] = []
     goals: list[str] = []
     for ev in current:
-        etype = ev.get("type")
         content = ev.get("content", "")
-        match etype:
-            case _common.DECISION if ev.get("topic", "").startswith(
-                _RETRO_TRY_TOPIC_PREFIX
-            ):
+        match ev.get("type"):
+            case _common.DECISION if _is_retro_adoption(ev):
                 adopted.append(content)
-            case _common.STATUS if ev.get("metadata", {}).get(
-                METADATA_KEY_DISPOSITION
-            ) in (
-                DISPOSITION_DEFERRED,
-                DISPOSITION_DROPPED,
+            case _common.STATUS if (
+                is_retro_lane(ev)
+                and event_disposition(ev) in _RETRO_BUCKET_DISPOSITIONS
             ):
                 deferred_dropped.append(content)
+            case _common.STATUS if (
+                is_triage_lane(ev)
+                and event_disposition(ev) in _TRIAGE_BUCKET_DISPOSITIONS
+            ):
+                triaged.append(content)
             case _common.GOAL:
                 goals.append(content)
 
-    if not (adopted or deferred_dropped or goals):
+    if not (adopted or deferred_dropped or triaged or goals):
         return None
 
     sections: list[str] = ["## Session Work Selection", ""]
     for heading, items in (
         ("### Adopted Tries", adopted),
         ("### Deferred / Dropped", deferred_dropped),
+        ("### Triage: Adopted / Deferred", triaged),
         ("### Goals", goals),
     ):
         if items:
@@ -128,6 +159,19 @@ def _gather_work_selection_events(smm_dir: Path) -> str | None:
             sections.extend(f"- {item}" for item in items)
             sections.append("")
     return "\n".join(sections).rstrip()
+
+
+def _is_retro_adoption(event: dict) -> bool:
+    """A `decision` that adopts a retro Try: tagged for the retro lane with an
+    `adopted` disposition, or — untagged — slugged with the legacy topic prefix.
+
+    The tag is decisive when present, so an adoption whose LLM-authored slug
+    drifted off the prefix is still seen. The topic check is reached only by an
+    untagged event, which is the one case where no tag can answer.
+    """
+    if event_action(event) is not None:
+        return is_retro_lane(event) and event_disposition(event) == DISPOSITION_ADOPTED
+    return (event.get("topic") or "").startswith(_LEGACY_RETRO_TOPIC_PREFIX)
 
 
 def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
