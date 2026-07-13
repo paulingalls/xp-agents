@@ -12,6 +12,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
+import _common  # noqa: E402
 import commits  # noqa: E402
 import event_schema  # noqa: E402
 import intent  # noqa: E402
@@ -19,6 +20,12 @@ import materialize  # noqa: E402
 import resolution  # noqa: E402
 import session_history  # noqa: E402
 import triage  # noqa: E402
+
+# Storage != injection. Events store up to the full CONTENT_BUDGETS cap (see
+# event_schema.py) so the WHY survives; this kickoff block is read at every
+# session start, so it stays a bounded excerpt with the event id attached --
+# the full causal chain is one lookup away, never dropped.
+_EXCERPT_MAX_CHARS = 160
 
 
 def _format_intent(entry: dict, session_anchor_timestamps: list[str]) -> str:
@@ -63,9 +70,8 @@ def format_triage_section(
         suffix = ""
         if intents and (entry := intents.get(event_id)):
             suffix = _format_intent(entry, session_anchor_timestamps)
-        lines.append(
-            f"- [id: {event_id}] {item.get('content', '')} ({age_str} old){suffix}"
-        )
+        excerpt = _common.truncate(item.get("content", ""), _EXCERPT_MAX_CHARS)
+        lines.append(f"- [id: {event_id}] {excerpt} ({age_str} old){suffix}")
         if commit_overlap and event_id in commit_overlap:
             msgs = "; ".join(
                 c.get("content", "")[:80] for c in commit_overlap[event_id][:3]

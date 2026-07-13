@@ -215,6 +215,63 @@ class TestFormatWithOverlap(unittest.TestCase):
         self.assertNotIn("MAYBE ADDRESSED", result)
 
 
+class TestInjectionStaysFlatAsCapRises(_SMMTestCase):
+    """AC3/AC4. Storage != injection: raising the event write cap (story-013,
+    400 -> 500) must NOT raise the kickoff triage block's size in lockstep.
+    The full causal chain lives in the SMM; the block shows a bounded
+    excerpt plus the event id, so the full text stays one lookup away.
+
+    Built against a SYNTHETIC temp SMM (via _SMMTestCase / _write_events),
+    never the live SMM dir, which moves session to session and would flake.
+
+    The bound below is a REAL number, not a "doesn't grow proportionally"
+    hand-wave: 20 items at today's verbatim emit (event_schema.py:67) would
+    run 20 * ~530 content-plus-overhead chars =~ 10,600+ bytes alone, well
+    past MAX_BLOCK_BYTES -- so this assertion FAILS against the pre-fix
+    triage_preload.py and only passes once injection excerpts content.
+    """
+
+    _NUM_ITEMS = 20
+    _MAX_BLOCK_BYTES = 6000
+
+    def test_block_stays_within_bound_at_new_cap(self):
+        events = [
+            make_event(EVENT_TYPE_CONCERN, content="x" * 500)
+            for _ in range(self._NUM_ITEMS)
+        ]
+        self._write_events(events)
+
+        output = triage_preload.run(self.smm_dir)
+        size = len(output.encode("utf-8"))
+        self.assertLessEqual(
+            size,
+            self._MAX_BLOCK_BYTES,
+            f"triage block is {size} bytes for {self._NUM_ITEMS} items at the "
+            f"500-char cap -- injection must excerpt content, not emit it verbatim",
+        )
+
+    def test_full_content_not_emitted_verbatim(self):
+        event = make_event(EVENT_TYPE_DEBT, content="z" * 500)
+        self._write_events([event])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertNotIn("z" * 500, output)
+
+    def test_event_id_still_present_for_full_text_lookup(self):
+        event = make_event(EVENT_TYPE_CONCERN, content="y" * 500)
+        self._write_events([event])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn(f"[id: {event['id']}]", output)
+
+    def test_short_content_unaffected(self):
+        event = make_event(EVENT_TYPE_DEBT, content="Short debt")
+        self._write_events([event])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Short debt", output)
+
+
 class TestRunWithOverlap(_SMMTestCase):
     """run() annotates concerns with commit overlap in output."""
 
