@@ -204,6 +204,11 @@ def _staged_ruff_findings(
     Fail-closed when the batch is missing any staged .py path so unverified
     F401/F811 cannot ship.
     """
+    # lang-ok: ruff is Python's linter, so selecting Python paths for it is the
+    # dispatch, not an assumption about the project. A Rust or JS repo stages no
+    # .py files, the list is empty, and the leg no-ops at the next line — that
+    # graceful no-op IS the cross-language behavior. Adding another linter means
+    # adding its own dispatch beside this one, never widening this filter.
     py_paths = [p for p in staged_files if p.endswith(".py")]
     if not py_paths:
         return []

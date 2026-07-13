@@ -46,7 +46,15 @@ _JS_TS_TEST_SUFFIXES = (
 
 
 def is_test_file(path: str) -> bool:
-    """Heuristic: does the file path look like a test file?"""
+    """Heuristic: does the file path look like a test file?
+
+    lang-ok: an enumeration of 13 ecosystems' test-naming conventions, in which
+    Python is one peer among Go, Rust, Swift, Java/Kotlin/Scala, Ruby, C/C++,
+    C#, PHP, Dart, Elixir and the JS/TS family. Coverage, not a leak — a new
+    language is added by appending a branch. The per-branch predicates below all
+    inherit this justification; do NOT copy one out of the function without
+    stating why the new site is agnostic too.
+    """
     p = Path(path)
     name = p.name
     stem = p.stem

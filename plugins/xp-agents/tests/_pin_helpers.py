@@ -14,6 +14,11 @@ walker; this helper owns the file-discovery boilerplate.
 
 from pathlib import Path
 
+# The shipped Python surface, relative to plugins/xp-agents/. `hooks/` is
+# absent on purpose: it holds hooks.json and no Python at all.
+_SHIPPED_ROOTS = ("scripts", "smm")
+_SHIPPED_SKILL_SCRIPTS = "skills/*/scripts"
+
 
 def files_to_scan(root: Path, exclude_self: Path) -> list[Path]:
     """Return test_*.py + _*.py + conftest.py at any depth under root.
@@ -29,6 +34,25 @@ def files_to_scan(root: Path, exclude_self: Path) -> list[Path]:
             continue
         if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
             paths.append(p)
+    return paths
+
+
+def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
+    """Return every shipped Python module under *plugin_root*.
+
+    That is `scripts/`, `smm/`, and each `skills/<name>/scripts/` — the code
+    that runs in a user's project and therefore reads user-supplied paths.
+    Tests are excluded: they never ship, so they are free to be Python-specific.
+    Excludes `__init__.py` (package markers carry no logic).
+    """
+    roots = [plugin_root / r for r in _SHIPPED_ROOTS]
+    roots.extend(sorted(plugin_root.glob(_SHIPPED_SKILL_SCRIPTS)))
+
+    paths: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        paths.extend(p for p in sorted(root.rglob("*.py")) if p.name != "__init__.py")
     return paths
 
 

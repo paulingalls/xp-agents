@@ -265,6 +265,8 @@ def _has_non_sample_pre_commit_content(root: Path) -> bool:
     chmod +x. ``git_hooks.will_fire_hook`` is strict and would say False here.
     """
     hook = root / ".git" / "hooks" / "pre-commit"
+    # lang-ok: `.sample` is git's own boilerplate suffix in .git/hooks, identical
+    # in every repo git creates. It names no programming language.
     if not hook.exists() or hook.name.endswith(".sample"):
         return False
     try:
