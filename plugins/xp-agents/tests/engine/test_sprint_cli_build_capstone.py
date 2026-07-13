@@ -155,6 +155,68 @@ class TestBuildCapstoneCommand(_SMMTestCase):
             story["acceptance_execution"]["type"], "<implementer fills: test harness>"
         )
 
+    def test_polyglot_capstone_spanning_one_surface_resolves_that_harness(self):
+        # The other direction of the polyglot case, and the one that pins the
+        # story's whole point: the project is polyglot (Go + Rust) but THIS
+        # capstone spans only the Go surface, so it must resolve go_test.
+        # Resolving over every surface the PROJECT declares (rather than the
+        # ones the capstone spans) would see two harnesses, degrade to a
+        # placeholder, and strand every polyglot repo — the exact users this
+        # story exists for. Without this test that regression is green: the
+        # disagree/dogfood tests span every surface they seed, so they cannot
+        # tell the two implementations apart.
+        self._seed_surfaces(
+            [
+                {
+                    "name": "cli",
+                    "signals": ["x"],
+                    "harness": "go_test",
+                    "status": "covered",
+                },
+                {
+                    "name": "api",
+                    "signals": ["x"],
+                    "harness": "rust_cargo",
+                    "status": "covered",
+                },
+            ]
+        )
+        result = self._run(
+            [
+                "--milestone",
+                "Milestone 3",
+                "--surfaces",
+                "cli",
+                "--story-id",
+                "story-006",
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads(result.stdout)
+        self.assertEqual(story["acceptance_execution"]["type"], "go_test")
+
+    def test_surface_declaring_no_harness_degrades_to_placeholder(self):
+        # `harness` is optional in the acceptance_surfaces schema
+        # (system_context_entry_validators: `if "harness" in entry`), so a
+        # declared-but-harnessless surface is a legitimate shape, not a
+        # corrupt one. It must degrade, never KeyError.
+        self._seed_surfaces([{"name": "cli", "signals": ["x"], "status": "covered"}])
+        result = self._run(
+            [
+                "--milestone",
+                "Milestone 3",
+                "--surfaces",
+                "cli",
+                "--story-id",
+                "story-006",
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        story = json.loads(result.stdout)
+        self.assertEqual(
+            story["acceptance_execution"]["type"], "<implementer fills: test harness>"
+        )
+
     def test_explicit_harness_wins_over_resolution(self):
         self._seed_surfaces(
             [
