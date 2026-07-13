@@ -15,6 +15,12 @@ happen — the mirror-image failure is resurrecting what a caller meant to drop.
 The adoption ledger has the same shape of bug one level up: `record_intents`
 is a load → fold → save with no lock across it, so two concurrent compactions
 can lose an adoption memory.
+
+And the archive itself is the same bug one layer OUT: `compact` and `repair`
+delete what they archive, so the file under backups/ is the ONLY copy. A name
+stamped at one-second resolution cannot carry that weight — two runs in the
+same second name the same file, and the second write silently overwrites the
+first run's only copy.
 """
 
 import fcntl
@@ -22,6 +28,7 @@ import json
 import sys
 import threading
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -29,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _append_impl
 import adoption_store
+import archive
 import compact
 import materialize
 import migrate
@@ -48,6 +56,10 @@ from materialize import read_curation_watermark
 # it is the price of proving the block. Keep it generous: a racer starved past
 # the budget on a loaded box would make a BROKEN build look green.
 _LOCK_WAIT = 0.5
+
+# Both same-second tests pin the archive clock here: the bug IS the one-second
+# name resolution, so the two runs must land in the same tick to exercise it.
+_FIXED_NOW = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 class _RewriteRaceMixin(_SMMTestCase):
@@ -94,8 +106,8 @@ class _RewriteRaceMixin(_SMMTestCase):
 
     def _archived_ids(self) -> set[str]:
         ids: set[str] = set()
-        for archive in (self.smm_dir / "backups").glob("*.jsonl"):
-            for line in archive.read_text().splitlines():
+        for archive_file in (self.smm_dir / "backups").glob("*.jsonl"):
+            for line in archive_file.read_text().splitlines():
                 if line.strip():
                     ids.add(json.loads(line)["id"])
         return ids
@@ -382,6 +394,79 @@ class TestConcurrentAdoptionRecord(_SMMTestCase):
         entry = stale["entries"][0]
         self.assertEqual(entry["defer_count"], 3)
         self.assertEqual(entry["intent_by"], "dddddddddddd", "fresher intent wins")
+
+
+class TestArchiveNeverClobbers(_RewriteRaceMixin):
+    """The archive is the ONLY copy of what the rewriter deleted.
+
+    `compact` archives events and then removes them from events.jsonl;
+    `repair` backs up the raw log and then drops the bad lines from it. In both
+    cases backups/ holds the last copy, so a second run that reuses the name and
+    overwrites it annihilates the first run's events exactly as surely as the
+    snapshot bug did — gone from the log, gone from backups/, no trace.
+
+    One-second timestamp resolution is the whole gap: every teammate compacts at
+    SessionEnd, so same-second runs are ordinary in team mode.
+    """
+
+    def _frozen_second(self):
+        """Pin the archive clock so both runs compute the same name.
+
+        Patched on `archive`, which is where the timestamp is now stamped —
+        both rewriters route their only-copy writes through it.
+        """
+        return mock.patch.object(
+            archive, "datetime", mock.Mock(now=mock.Mock(return_value=_FIXED_NOW))
+        )
+
+    def test_second_compaction_in_same_second_keeps_first_archive(self):
+        events = self._seed_session(count=5, session_num=1)
+        self._write_events(events)
+
+        # Run 1: archive the first slice, which compaction then deletes.
+        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
+        with self._frozen_second():
+            first = compact.compact_after_curation(self.smm_dir)
+        self.assertGreater(first["archived"], 0, "run 1 archived nothing")
+        archived_by_run1 = self._archived_ids()
+
+        # Run 2, SAME UTC second, archiving a DIFFERENT slice.
+        materialize.write_curation_watermark(self.smm_dir, 3, "xp-housekeeper")
+        with self._frozen_second():
+            second = compact.compact_after_curation(self.smm_dir)
+        self.assertGreater(second["archived"], 0, "run 2 archived nothing")
+
+        live, archived = self._live_ids(), self._archived_ids()
+        annihilated = (archived_by_run1 - archived) - live
+        self.assertEqual(
+            annihilated,
+            set(),
+            "run 2's archive clobbered run 1's — these events are in no archive "
+            "and no longer in events.jsonl: ANNIHILATED",
+        )
+
+    def test_second_repair_in_same_second_keeps_first_backup(self):
+        good = make_event(EVENT_TYPE_CUSTOMER_INPUT, content="keeper")
+        bad_one = {"id": "aaaaaaaaaaaa", "type": EVENT_TYPE_STATUS}
+        self._write_raw_lines([json.dumps(good), json.dumps(bad_one)])
+
+        with self._frozen_second():
+            repair.repair(self.smm_dir)
+            # A second bad line arrives; repair runs again in the same second.
+            bad_two = {"id": "bbbbbbbbbbbb", "type": EVENT_TYPE_STATUS}
+            with self.events_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(bad_two) + "\n")
+            repair.repair(self.smm_dir)
+
+        backed_up = "".join(
+            f.read_text() for f in (self.smm_dir / "backups").glob("*.jsonl")
+        )
+        self.assertIn(
+            bad_one["id"],
+            backed_up,
+            "the second repair's backup clobbered the first's — the only copy of "
+            "the line repair deleted is gone",
+        )
 
 
 if __name__ == "__main__":

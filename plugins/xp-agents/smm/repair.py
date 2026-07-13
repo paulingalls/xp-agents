@@ -12,11 +12,11 @@
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import archive
 from _append_impl import (
     LockTimeoutError,
     replace_events_file,
@@ -112,12 +112,10 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     if dry_run:
         return result
 
-    # Phase 3: Back up original
-    backups_dir = smm_dir / "backups"
-    backups_dir.mkdir(exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    backup_file = backups_dir / f"pre-repair-{ts}.jsonl"
-    backup_file.write_text(raw, encoding="utf-8")
+    # Phase 3: Back up original. Never-clobbering: phase 4 DROPS the malformed
+    # and invalid lines, so this backup is their only copy — a same-second second
+    # repair that overwrote it would annihilate them (see `archive.write_archive`).
+    archive.write_archive(smm_dir / "backups", "pre-repair", raw)
 
     # Phase 4: Atomic replacement under exclusive flock. An event appended
     # while phases 1-3 ran is unknown to `parsed_ids`, so it survives the

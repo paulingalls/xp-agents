@@ -24,12 +24,12 @@ import argparse
 import contextlib
 import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 import adoption_store
+import archive
 import intent
 import resolution
 from _append_impl import (
@@ -254,16 +254,15 @@ def compact_after_curation(smm_dir: Path) -> dict:
     # All post-watermark events are retained
     retained.extend(post_watermark)
 
-    # Write archive
+    # Write archive. Never-clobbering: `replace_events_file` below DELETES these
+    # events, so this file is their only copy — see `archive.write_archive`.
     if archived:
         _fold_adoption_ledger(smm_dir, events)
 
-        backups_dir = smm_dir / "backups"
-        backups_dir.mkdir(exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        archive_file = backups_dir / f"archive-{ts}.jsonl"
         archive_lines = [json.dumps(e, ensure_ascii=False) for e in archived]
-        archive_file.write_text("\n".join(archive_lines) + "\n", encoding="utf-8")
+        archive.write_archive(
+            smm_dir / "backups", "archive", "\n".join(archive_lines) + "\n"
+        )
 
     # Atomic replacement. `seen_ids` is every event this pass READ: anything
     # that landed in the log since then is not in `retained` and is not in the
