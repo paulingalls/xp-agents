@@ -66,7 +66,10 @@ class TestSpawnTeammatePromoteE2E(_IntegrationTestCase):
         import spawn_teammate
 
         prompt_file = Path(self.tmpdir) / f"{name}.prompt.txt"
-        prompt_file.write_text("body")
+        # The body must NAME the story being spawned: spawn refuses a prompt that
+        # does not, because a prompt file outlives its story and story ids repeat
+        # every sprint (story-014). A bare "body" is refused before any promote.
+        prompt_file.write_text("body for story-001")
 
         with (
             unittest.mock.patch.object(
@@ -185,7 +188,9 @@ class TestSpawnTeammateInPlace(_IntegrationTestCase):
         import spawn_teammate
 
         prompt_file = Path(self.tmpdir) / "p.prompt.txt"
-        prompt_file.write_text("BODY-MARKER")
+        # Names story-001: spawn refuses a prompt that does not name the story it
+        # is spawning (story-014), and this drive passes --story-id story-001.
+        prompt_file.write_text("BODY-MARKER for story-001")
 
         def tee_capture(cmd, **kwargs):
             capture["cwd"] = kwargs.get("cwd")

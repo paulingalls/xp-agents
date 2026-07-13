@@ -160,9 +160,14 @@ def load_sprint_fail_open(smm_dir: Path) -> dict | None:
       later, stricter step (sprint_save.introduced_collisions — losing the
       baseline attributes EVERY collision to this write, making the gate
       stricter; branching._recorded_sprint_branch — runs below the stage gate,
-      and set_branch re-raises on the same corruption once a branch is cut).
-      Both exist so `sprint_cli create` stays the repair path for a sprint.json
-      that no longer loads; a hard raise in either bricks it.
+      and set_branch re-raises on the same corruption once a branch is cut;
+      spawn_teammate.resolve_sprint_id — the sprint only NAMESPACES the teammate
+      prompt/log path, and it degrades to the project-only namespace identically
+      for the path query and for the spawn that reads the file back, so the two
+      still meet at one path; the stale-prompt refusal downstream stays loud
+      however the path resolved). The first two also keep `sprint_cli create`
+      the repair path for a sprint.json that no longer loads; a hard raise in
+      either bricks it.
     """
     try:
         return load_sprint(smm_dir)

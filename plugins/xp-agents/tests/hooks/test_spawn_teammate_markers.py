@@ -392,6 +392,14 @@ class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
 
         marker = worktree.in_place_marker_path(self.smm_dir, self.name)
 
+        # A REAL prompt file, not a bogus path. The prompt guard (story-014) reads
+        # the prompt BEFORE the claim and refuses an unreadable one — so a
+        # nonexistent --prompt-file now stops main() short of `boom`, and this
+        # test would pass without ever exercising the failed-write path it is
+        # about. The prompt needs no story name: no --story-id is passed here.
+        prompt_file = self.smm_dir / "marker-test.prompt.txt"
+        prompt_file.write_text("test prompt")
+
         def boom(*a, **kw):
             raise OSError("no space left on device")
 
@@ -428,7 +436,7 @@ class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
                         "--smm-dir",
                         str(self.smm_dir),
                         "--prompt-file",
-                        "/nonexistent-prompt.txt",
+                        str(prompt_file),
                         "--in-place",
                     ]
                 )

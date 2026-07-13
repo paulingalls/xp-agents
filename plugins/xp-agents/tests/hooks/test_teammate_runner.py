@@ -4,6 +4,11 @@
 Covers _ActivityWatchdog (unit), its integration with run_with_tee, and
 run_with_tee's resilience to a downstream stdout consumer (the output
 filter) closing mid-stream. Lives beside the runner code it exercises.
+
+The module's OTHER half — the /tmp prompt/log namespace (_project_dir,
+_path_token) — is tested in test_teammate_runner_paths.py: a pure
+path-resolution concern, no subprocess involved, and splitting it keeps both
+files under the size cap.
 """
 
 import os

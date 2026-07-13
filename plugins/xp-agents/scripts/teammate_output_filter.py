@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import identity
+import spawn_prompt
 import teammate_runner
 import worktree
 
@@ -33,7 +34,18 @@ get_current_branch = identity.get_current_branch
 
 _DECISION_BLOCK = "block"
 _STREAM_JSON_RESULT_TYPE = "result"
-_ERROR_SIGNALS = ("Error:", "Error(", "fatal:", "Traceback")
+# Markers that make a non-JSON line worth showing the lead. The spawn's own
+# refusal is the one signal we OWN rather than inherit from a tool's output
+# conventions: it exits cleanly (no traceback), so without its token here it is
+# dropped and the lead sees only "No result event" — losing the stale prompt's
+# path and the remedy, on a failure that only a human can clear.
+_ERROR_SIGNALS = (
+    "Error:",
+    "Error(",
+    "fatal:",
+    "Traceback",
+    spawn_prompt.REFUSAL_PREFIX,
+)
 
 # No-progress deadline. Primary liveness is owned by spawn_teammate.py's
 # watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`

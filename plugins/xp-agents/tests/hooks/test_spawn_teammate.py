@@ -274,13 +274,17 @@ class TestMechanicalPromote(_SMMTestCase):
     these tests assert against the CAS callsite, not the legacy pair.
     """
 
-    def _make_prompt_file(self):
+    def _make_prompt_file(self, story_id: str | None):
+        """A prompt naming *story_id* — spawn refuses one that does not name the
+        story it is spawning (story-014: prompt files outlive their story and
+        story ids repeat every sprint), so a bare "body" never reaches the
+        promote this class is about."""
         import tempfile
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".prompt.txt", delete=False
         ) as f:
-            f.write("body")
+            f.write(f"body for {story_id}" if story_id else "ad-hoc body")
             return f.name
 
     def _run_promote(
@@ -314,7 +318,7 @@ class TestMechanicalPromote(_SMMTestCase):
         import spawn_teammate
         import worktree
 
-        prompt_path = self._make_prompt_file()
+        prompt_path = self._make_prompt_file(story_id)
         captured_calls: list[tuple[str, str, str, str]] = []
         name = "worktree-story-001" if story_id else "worktree-foo"
 

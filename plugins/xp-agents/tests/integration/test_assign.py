@@ -285,7 +285,10 @@ class TestAssignPerStorySpawnShape(_IntegrationTestCase):
             captured.append(list(cmd))
 
         prompt_file = Path(self.tmpdir) / f"prompt-{argv[1]}.txt"
-        prompt_file.write_text("story prompt")
+        # argv[1] is the teammate name (worktree-story-NNN), so it carries the
+        # story id — spawn refuses a prompt that does not name the story it is
+        # spawning, since prompt files outlive their story (story-014).
+        prompt_file.write_text(f"story prompt for {argv[1]}")
         argv_with_prompt = [*argv, "--prompt-file", str(prompt_file)]
 
         with (

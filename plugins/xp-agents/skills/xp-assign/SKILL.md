@@ -217,9 +217,25 @@ separate Bash call anyway. The teammate has no prior context. Include:
 - **What to Change** — detailed changes from `PLAN_FILE`
 - **Acceptance Criteria** — derived from the story record
 - **Interface Contracts** — shared boundaries with other stories
-- **Story Branch** — the branch name created in Step 2 (from sprint.json `branch_name`)
+- **Story Branch** — the story branch created in Step 2, **verbatim**: the exact
+  string, the same one you pass to `--branch` in Step 4 (the story's own
+  `branch_name`, NOT the sprint-level one). Copy it; do not shorten it to the
+  story id, re-slug it, or prettify it.
 - **SMM Directory** — `SMM_DIR=<path>`
 - TDD + review cycle instructions
+
+**The branch is a hard gate, not a nicety.** The spawn refuses any prompt that
+does not contain the `--branch` string, and exits non-zero without spawning.
+Story ids repeat every sprint and nothing invalidates a prompt file, so a prompt
+naming only `story-003` is indistinguishable from a stale one written for LAST
+sprint's story-003 — the branch (id + slug) is the only thing that tells them
+apart. A paraphrased branch therefore fails the spawn exactly as a stale prompt
+does; write it exactly.
+
+The solo `--in-place` variant below passes no `--branch`, so the spawn can only
+fall back to checking the story id there — a weaker check, since both sprints'
+prompts carry the same id. Write the branch verbatim anyway: it costs nothing,
+and it is what the check uses wherever it is present.
 
 ## Step 4: Spawn ONE teammate async
 
