@@ -79,6 +79,27 @@ class TestBuildCapstoneStory(unittest.TestCase):
         sprint["stories"].append(story)
         self.assertEqual(sprint_schema.validate_sprint(sprint), [])
 
+    def test_default_harness_is_placeholder_not_pytest(self):
+        # Bug: build_capstone_story used to default harness to "pytest",
+        # stamping a Python test harness onto every non-Python project's
+        # capstone. No caller should get "pytest" without asking for it.
+        story = self._build()
+        ae = story["acceptance_execution"]
+        self.assertNotEqual(ae["type"], "pytest")
+        self.assertEqual(ae["type"], "<implementer fills: test harness>")
+
+    def test_explicit_harness_flows_through(self):
+        story = self._build(harness="go_test")
+        self.assertEqual(story["acceptance_execution"]["type"], "go_test")
+
+    def test_no_harness_placeholder_is_schema_valid(self):
+        import sprint_schema
+
+        story = self._build(harness=None)
+        sprint = _make_sprint()
+        sprint["stories"].append(story)
+        self.assertEqual(sprint_schema.validate_sprint(sprint), [])
+
 
 if __name__ == "__main__":
     unittest.main()
