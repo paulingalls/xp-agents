@@ -15,15 +15,51 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import SAMPLE_SPRINT_MD as _SAMPLE_SPRINT
-from conftest import _HookTestCase, make_event, write_smm_fixture
+from conftest import (
+    _HookTestCase,
+    adopt_try_event,
+    drop_try_event,
+    make_event,
+    triage_event,
+    write_smm_fixture,
+)
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_CUSTOMER_INPUT,
+    EVENT_TYPE_DEBT,
     EVENT_TYPE_DECISION,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
 )
+
+_ADOPTED_TRIES = "### Adopted Tries"
+_DEFERRED_DROPPED = "### Deferred / Dropped"
+_TRIAGE = "### Triage: Adopted / Deferred"
+
+
+def _section(block: str, heading: str) -> str:
+    """The lines under *heading* in the work-selection block, or "" if absent.
+
+    Substring checks against the whole block cannot tell a leak from a correct
+    placement — a triage defer that landed under the wrong heading is still
+    "in" the block. Every lane assertion below is scoped to one section.
+    """
+    lines = block.splitlines()
+    if heading not in lines:
+        return ""
+    start = lines.index(heading) + 1
+    body: list[str] = []
+    for line in lines[start:]:
+        # Any heading ends the section — `###` for the next bucket, and the
+        # bare `#` of the XP-values doc that `run` concatenates after the
+        # block. Without the latter, the LAST bucket's body would swallow the
+        # values text and every assertion scoped to it would be junk.
+        if line.startswith("#"):
+            break
+        body.append(line)
+    return "\n".join(body)
+
 
 # ===========================================================================
 # Sprint-aware tier tests (M10)
@@ -318,6 +354,84 @@ class TestSubagentStartHousekeeper(_HookTestCase):
         )
         result = self._run_housekeeper()
         self.assertNotIn("## Session Work Selection", result)
+
+    # -- Lane separation -----------------------------------------------------
+    # Both lanes write `status` events with the same disposition vocabulary, so
+    # the disposition ALONE cannot say which lane an event came from. The events
+    # below all go through the REAL writer (conftest fixtures), because the shape
+    # is the whole point: a hand-rolled fixture would encode the shape its author
+    # believed the writer produces, which is how this reader stayed green while
+    # leaking triage items into a retro-Try bucket.
+
+    def _seed_triage_targets(self) -> tuple[dict, dict]:
+        """A concern and a debt for the triage lane to dispose of."""
+        concern = make_event(
+            EVENT_TYPE_CONCERN, content="Flaky auth test", severity="medium"
+        )
+        debt = make_event(EVENT_TYPE_DEBT, content="Legacy shim in loader")
+        self._write_events([concern, debt])
+        return concern, debt
+
+    def test_triage_dispositions_stay_out_of_the_retro_buckets(self):
+        """A triage-lane defer/drop/adopt disposes of a DEBT or CONCERN, not a
+        retro Try. Before the lane check, the deferred/dropped arm matched on
+        disposition alone and paraded them under "Deferred / Dropped" — the
+        housekeeper read them as Tries the session had declined."""
+        concern, debt = self._seed_triage_targets()
+        triage_event(self.smm_dir, "triage-defer", concern["id"])
+        triage_event(self.smm_dir, "triage-drop", debt["id"])
+        triage_event(self.smm_dir, "triage-adopt", concern["id"])
+
+        result = self._run_housekeeper()
+        retro_buckets = _section(result, _DEFERRED_DROPPED) + _section(
+            result, _ADOPTED_TRIES
+        )
+        self.assertNotIn("Triage:", retro_buckets)
+        self.assertNotIn(concern["id"][:8], retro_buckets)
+        self.assertNotIn(debt["id"][:8], retro_buckets)
+
+    def test_triage_adoptions_are_shown_under_their_own_heading(self):
+        """Excluding triage items from the retro buckets must not DELETE them:
+        the housekeeper's only signal that a concern/debt was adopted is this
+        block (triage events are `status`, which materialize buckets nowhere).
+        A drop needs no bucket — it closes its target, which reaches the
+        housekeeper through the resolutions."""
+        concern, debt = self._seed_triage_targets()
+        triage_event(self.smm_dir, "triage-adopt", concern["id"])
+        triage_event(self.smm_dir, "triage-defer", debt["id"])
+
+        triage = _section(self._run_housekeeper(), _TRIAGE)
+        self.assertIn("Flaky auth test", triage)
+        self.assertIn("Legacy shim in loader", triage)
+
+    def test_retro_drop_is_still_reported_as_dropped(self):
+        """The trap: this bucket is "Deferred / **Dropped**", so a retro DROP
+        must keep appearing in it. `intent_disposition()` returns None for a
+        drop by design (a drop closes via metadata.resolves), so mirroring the
+        intent-lane predicate verbatim here would silently delete retro drops
+        with every test still green."""
+        self._write_events([])
+        drop_try_event(
+            self.smm_dir, "aaaaaaaaaaaa", content="Dropped Try: split the god module"
+        )
+
+        dropped = _section(self._run_housekeeper(), _DEFERRED_DROPPED)
+        self.assertIn("split the god module", dropped)
+
+    def test_lane_tag_beats_a_drifted_adopt_topic(self):
+        """The tag is the truth, the slug is not. A correctly-tagged retro
+        adoption whose LLM-authored topic drifts off the `retro-try-` prefix was
+        silently invisible to the housekeeper."""
+        self._write_events([])
+        adopt_try_event(
+            self.smm_dir,
+            "bbbbbbbbbbbb",
+            topic="adopt-the-carried-item",
+            content="Adopted Try: run the suite before staging",
+        )
+
+        adopted = _section(self._run_housekeeper(), _ADOPTED_TRIES)
+        self.assertIn("run the suite before staging", adopted)
 
     def test_session_boundary_filters_old_events(self):
         """retro-try-* decisions before the session_started anchor are ignored."""

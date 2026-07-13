@@ -146,6 +146,44 @@ def event_action(event: dict) -> str | None:
     return metadata.get("action")
 
 
+def is_retro_lane(event: dict) -> bool:
+    """True when *event* belongs to the retro-Try lane — its tag names that
+    lane, or it carries no tag at all.
+
+    The UNTAGGED leg is what makes this a lane gate rather than a tag test. The
+    tag is newer than the events: every disposition written before it landed
+    carries no `metadata.action`, and a bare `tag == retro` test would exclude
+    all of them — disarming the FORCE-CLOSE gate on precisely the long-carried
+    Tries it exists to catch, and hiding old adoptions from the housekeeper.
+    Untagged does NOT mean "retro" as a fact about the writer; it means "the
+    tag cannot answer, fall through to the reader's own legacy rule". Each
+    caller supplies that rule (a topic prefix, a disposition set) — this gate
+    only says the lane tag does not RULE THE EVENT OUT.
+
+    Callers keep their own disposition set. This is deliberately only the LANE
+    half of the question: `intent_disposition` is blind to `dropped` (a drop
+    closes via metadata.resolves, which resolution.py owns), so a reader whose
+    bucket must include drops — the housekeeper's "Deferred / Dropped" — has to
+    read `metadata.disposition` itself. Folding a disposition check in here
+    would silently delete retro drops from that bucket.
+    """
+    tag = event_action(event)
+    return tag is None or tag == STATUS_ACTION_RETRO_TRY_DISPOSITION
+
+
+def is_triage_lane(event: dict) -> bool:
+    """True when *event*'s tag names the triage lane (a debt/concern/question
+    disposition, NOT a retro Try).
+
+    No untagged leg, and the asymmetry with `is_retro_lane` is a fact about the
+    log rather than an oversight: a legacy triage-defer linked NOTHING, so it
+    carries no id to read and no rule can recover it (see smm/intent.py). An
+    untagged event is therefore never admitted here — it falls to the retro
+    lane, where it can at least be judged by a legacy rule.
+    """
+    return event_action(event) == STATUS_ACTION_TRIAGE_DISPOSITION
+
+
 # Cross-module metadata keys. Centralized here so producer and consumer
 # cannot drift on the spelling.
 #   METADATA_KEY_RESOLVES       — STRONG resolution link: event IDs this

@@ -221,6 +221,8 @@ from event_metadata import (  # noqa: E402, F401
     event_action,
     intent_disposition,
     is_closing,
+    is_retro_lane,
+    is_triage_lane,
 )
 
 MAX_JSON_ARG_SIZE = 65536

@@ -25,8 +25,7 @@ from event_schema import (  # noqa: E402
     EVENT_TYPE_STATUS,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
-    STATUS_ACTION_RETRO_TRY_DISPOSITION,
-    event_action,
+    is_retro_lane,
 )
 
 # 3 prior deferrals = next plain defer is refused.
@@ -36,8 +35,8 @@ _FORCE_CLOSE_THRESHOLD = 3
 def _counts_as_retro_defer(event: dict) -> bool:
     """Whether *event* is a deferral of a retro TRY, for FORCE-CLOSE purposes.
 
-    Count it iff its lane tag says `retro_try_disposition`, OR it carries no
-    lane tag at all.
+    Count it iff it is a deferring `status` in the retro lane — `is_retro_lane`
+    (its tag names that lane, or it carries no tag at all).
 
     The lane check exists because a Try's ref bag holds the debt/concern ids the
     Try's prose CITES, and the triage lane now links its own deferrals in the
@@ -46,14 +45,13 @@ def _counts_as_retro_defer(event: dict) -> bool:
     count toward a FORCE-CLOSE it never earned. (Live pair: Try 2b15e8490179's
     bag holds debt 9ec0731f5597, which already carries triage-defer 181cb8fa2316.)
 
-    The untagged leg exists because the tag is new and the gate is not: every
-    deferral written before this tag landed carries no `metadata.action`, and a
-    bare `tag == retro` test would exclude all of them — zeroing those Tries'
-    prior-defer counts and silently disarming the gate on precisely the
-    long-carried Tries it exists to catch. This leg is not speculative
-    future-proofing for other installs: across this project's OWN history there
-    are 134 untagged deferrals, 27 of which link a Try — live counts that this
-    leg is the only thing still collecting.
+    The untagged leg `is_retro_lane` admits is not speculative future-proofing:
+    the tag is new and the gate is not, so every deferral written before the tag
+    landed carries no `metadata.action`, and a bare `tag == retro` test would
+    exclude all of them — zeroing those Tries' prior-defer counts and silently
+    disarming the gate on precisely the long-carried Tries it exists to catch.
+    Across this project's OWN history there are 134 untagged deferrals, 27 of
+    which link a Try — live counts that leg is the only thing still collecting.
 
     Census that history, not the live log. Compaction moves old events out of
     events.jsonl into `backups/archive-*.jsonl`, and the gate only ever reads the
@@ -68,14 +66,17 @@ def _counts_as_retro_defer(event: dict) -> bool:
     107 linking nothing are all triage-defers, and all 27 that link name a Try.
     If a legacy triage-defer ever gains a link, this leg starts over-counting and
     must be revisited.
+
+    The DISPOSITION set stays local. `is_retro_lane` answers only "which lane",
+    because each reader's disposition question is its own: this gate counts
+    deferrals, while the housekeeper's bucket also holds drops.
     """
     if event.get("type") != EVENT_TYPE_STATUS:
         return False
     meta = event.get("metadata") or {}
     if meta.get(METADATA_KEY_DISPOSITION) != DISPOSITION_DEFERRED:
         return False
-    action = event_action(event)
-    return action is None or action == STATUS_ACTION_RETRO_TRY_DISPOSITION
+    return is_retro_lane(event)
 
 
 def _try_targets(events: list[dict], ref_ids: list[str]) -> set[str]:
