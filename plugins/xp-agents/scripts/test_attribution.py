@@ -33,11 +33,46 @@ from test_parsing import PARSER_STATUS_PARSED, is_test_run, parse_test_results
 # whole command's, so the runner is not unambiguously to blame.
 _SEGMENT_BREAK_RE = re.compile(r"&&|\|\||;|\||\n|\$\(|`")
 
-# Tokens that wrap another executable without being the thing under test.
-# Peeled so `time grep pytest x` is still seen as a grep, not as a test run.
-_WRAPPER_TOKENS = frozenset(
-    {"env", "sudo", "time", "nice", "nohup", "command", "exec", "stdbuf", "xargs"}
-)
+# Tokens that wrap another executable without being the thing under test, mapped
+# to the options each one takes a SEPARATE VALUE for. Peeled so `time grep pytest
+# x` is still seen as a grep, not as a test run.
+#
+# The value map is what keeps the peel from eating the executable. An option zone
+# holds two kinds of flag and they consume differently:
+#
+#   * value-taking (`sudo -u ci grep ...`) — the NEXT token is the flag's value.
+#     Not skipping it leaves `ci` as the head, which is in no refusal list, so
+#     the grep escapes and a no-match exit 1 is blamed on the runner it grepped
+#     for.
+#   * boolean (`time -p grep ...`) — the next token IS the executable. Skipping
+#     it eats `grep` and leaves `pytest` as the head: same false attribution,
+#     arrived at from the opposite direction.
+#
+# So neither blanket rule is safe, and "consume the value too" — which this did
+# unconditionally — is not the conservative choice it looks like. The set of
+# wrappers is small, closed, and ours; enumerating their value-taking options is
+# the only thing that answers both. An option NOT listed for a wrapper is treated
+# as boolean and consumes nothing; `--opt=value` carries its own value and never
+# consumes the next token either.
+_WRAPPER_VALUE_OPTS: dict[str, frozenset[str]] = {
+    "env": frozenset({"-u", "-C", "-S", "--unset", "--chdir", "--split-string"}),
+    "sudo": frozenset(
+        {"-u", "-g", "-p", "-C", "-U", "-h", "-r", "-t", "--user", "--group",
+         "--prompt", "--close-from", "--other-user", "--host", "--role", "--type"}
+    ),
+    "time": frozenset({"-o", "-f", "--output", "--format"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "nohup": frozenset(),
+    "command": frozenset(),
+    "exec": frozenset({"-a"}),
+    "stdbuf": frozenset({"-i", "-o", "-e", "--input", "--output", "--error"}),
+    "xargs": frozenset(
+        {"-n", "-I", "-i", "-P", "-d", "-s", "-E", "-e", "-L", "-a", "--max-args",
+         "--replace", "--max-procs", "--delimiter", "--max-chars", "--eof",
+         "--max-lines", "--arg-file"}
+    ),
+}  # fmt: skip
+_WRAPPER_TOKENS = frozenset(_WRAPPER_VALUE_OPTS)
 
 # Commands that CONSUME a runner name as data (a search pattern, a filename)
 # instead of executing it. When one of these heads the segment, the runner
@@ -111,14 +146,20 @@ def _head_token(segment: str) -> str:
     shell punctuation, VAR=val assignments, and wrapper commands with their
     options, reduced to its basename.
 
-    A flag is only ever reachable here while still inside a wrapper's option
-    zone (`sudo -u ci grep ...` — the executable cannot itself start with `-`),
-    so a flag is consumed together with a possible value. Over-consuming an
-    attached-value flag (`env -i pytest`) yields an empty head, which attributes
-    — the safe direction. Under-consuming would let the grep in `sudo -u ci grep
-    pytest src/` masquerade as the head's option and escape the refusal list.
+    A flag is only ever reachable here while still inside a wrapper's option zone
+    (`sudo -u ci grep ...` — the executable cannot itself start with `-`), so
+    whether it swallows the token after it is a question about THAT wrapper, and
+    is answered by `_WRAPPER_VALUE_OPTS` rather than by a blanket rule. Both
+    blanket rules mis-attribute (see that table): always-consume eats the `grep`
+    in `time -p grep pytest x`, never-consume leaves `ci` heading
+    `sudo -u ci grep pytest src/`.
+
+    A flag seen with no wrapper open (`-x foo` — not a shape any real segment
+    takes) consumes nothing, which is the same fail-safe direction: the worst it
+    can do is attribute.
     """
     tokens = segment.split()
+    wrapper = ""  # the wrapper whose option zone we are in, if any
     i = 0
     while i < len(tokens):
         token = tokens[i].lstrip(_HEAD_PUNCTUATION)
@@ -126,10 +167,16 @@ def _head_token(segment: str) -> str:
         if not token or _ASSIGNMENT_RE.match(token):
             continue
         if token.startswith("-"):
-            i += 1  # a wrapper option: skip its value too
+            # `--opt=value` carries its own value; only the separated form can
+            # reach forward for the next token.
+            if "=" not in token and token in _WRAPPER_VALUE_OPTS.get(
+                wrapper, frozenset()
+            ):
+                i += 1
             continue
         basename = token.rsplit("/", 1)[-1]
         if basename in _WRAPPER_TOKENS:
+            wrapper = basename
             continue
         return basename
     return ""

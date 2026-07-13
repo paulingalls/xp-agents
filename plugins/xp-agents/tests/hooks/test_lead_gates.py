@@ -4,7 +4,11 @@ the machinery every lead gate shares (teammate exemption, hot path, and the
 `active_when` predicate that makes a marker gate self-clearing).
 
 Split from test_pre_tool_write_gates.py, which was over the 500-line cap; the
-plan and question gate suites and the accept marker stay there.
+plan and question gate suites and the accept marker stay there. Split AGAIN, for
+the same reason, when the fail-closed suite grew: every "a read this gate cannot
+trust must BLOCK, never allow" test now lives in test_write_gate_fails_closed.py,
+which owns that seam across BOTH modules. The fixtures the two share are in
+tests/_lead_gate_fixtures.py.
 
 WHY THE ASSIGN GATE IS STATE-DERIVED. The marker alone used to block. That made
 it a marker-block gate: `/xp-assign` clears the marker, but nothing cleared it
@@ -43,84 +47,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
 import lead_gates
 import pre_tool_write
 import worktree
-from conftest import _HookTestCase, _make_write_input, _s, _sprint_json
-
-# One teammate story promoted to in-progress — the state /xp-assign exists to
-# act on. Whether the gate fires depends on whether it has a worktree yet.
-SPRINT_TEAMMATE_IN_PROGRESS = _sprint_json(
-    [
-        _s(
-            "story-001",
-            "As a user I can log in",
-            "in-progress",
-            execution_mode="teammate",
-        )
-    ]
+from _lead_gate_fixtures import (
+    BRANCH_001,
+    BRANCH_002,
+    SPRINT_ALL_ACCEPTED,
+    SPRINT_SCHEDULED_AFTER_STALE,
+    SPRINT_SOLO_IN_PROGRESS,
+    SPRINT_TEAMMATE_IN_PROGRESS,
+    _AssignGateTestCase,
+    _lead_write,
 )
-
-# The stale case: the story the marker was armed for is done. Nothing to assign.
-SPRINT_ALL_ACCEPTED = _sprint_json([_s("story-001", "As a user I can log in", "done")])
-
-# The resurrection case: a story is scheduled AFTER the stale marker was
-# suppressed. Still nothing to assign — /xp-schedule promotes, /xp-assign spawns.
-SPRINT_SCHEDULED_AFTER_STALE = _sprint_json(
-    [
-        _s("story-001", "As a user I can log in", "done"),
-        _s("story-002", "As a user I can register", "scheduled"),
-    ]
-)
-
-# A solo story in progress: /xp-assign has no teammate to spawn for it.
-SPRINT_SOLO_IN_PROGRESS = _sprint_json(
-    [_s("story-001", "As a user I can log in", "in-progress", execution_mode="solo")]
-)
-
-
-def _lead_write(**kw):
-    return _make_write_input(session_id="t", cwd="/tmp", **kw)
-
-
-class _AssignGateTestCase(_HookTestCase):
-    """Shared setup: arm the marker, control whether teammates are spawned."""
-
-    def _arm(self, sprint_json: str | None = None) -> None:
-        (self.smm_dir / ".assign-pending").write_text("xp-plan-reviewer")
-        if sprint_json is not None:
-            (self.smm_dir / "sprint.json").write_text(sprint_json)
-
-    def _spawned(self, *story_ids: str):
-        """Patch the worktree lookup: the named stories have a live teammate.
-
-        Patches the BATCH lookup, not the per-story one: the predicate must
-        answer every story from a single `git worktree list`. A per-story lookup
-        re-runs that subprocess once per story, on every Write/Edit.
-        """
-        return patch.object(
-            lead_gates.worktree,
-            "list_live_teammate_worktree_paths",
-            side_effect=lambda _cwd: [
-                (sid, f"/wt/worktree-{sid}") for sid in story_ids
-            ],
-        )
-
-    def _assert_blocks(self, input_data: dict) -> None:
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_write.run(input_data, smm_dir=self.smm_dir)
-        self.assertIn("xp-assign", str(ctx.exception))
-
-    def _assert_allows(self, input_data: dict) -> None:
-        """The assign gate must not fire. Asserts on check_lead_gates directly:
-        run() can raise for unrelated reasons (the schedule gate), and a test
-        that accepted any BlockedError would pass for the wrong reason.
-        """
-        try:
-            lead_gates.check_lead_gates(input_data, self.smm_dir, is_plan_file=False)
-        except _common.BlockedError as e:  # pragma: no cover - failure path
-            self.fail(f"assign gate fired when it should not have: {e}")
+from conftest import _make_write_input, _s, _sprint_json
 
 
 class TestAssignGateIsLive(_AssignGateTestCase):
@@ -157,8 +97,20 @@ class TestAssignGateIsLive(_AssignGateTestCase):
         self._arm(
             _sprint_json(
                 [
-                    _s("story-001", "First", "in-progress", execution_mode="teammate"),
-                    _s("story-002", "Second", "in-progress", execution_mode="teammate"),
+                    _s(
+                        "story-001",
+                        "First",
+                        "in-progress",
+                        execution_mode="teammate",
+                        branch_name=BRANCH_001,
+                    ),
+                    _s(
+                        "story-002",
+                        "Second",
+                        "in-progress",
+                        execution_mode="teammate",
+                        branch_name=BRANCH_002,
+                    ),
                 ]
             )
         )
@@ -225,7 +177,13 @@ class TestAssignGateIsStateDerived(_AssignGateTestCase):
             _sprint_json(
                 [
                     _s("story-001", "First", "done", execution_mode="teammate"),
-                    _s("story-002", "Second", "in-progress", execution_mode="teammate"),
+                    _s(
+                        "story-002",
+                        "Second",
+                        "in-progress",
+                        execution_mode="teammate",
+                        branch_name=BRANCH_002,
+                    ),
                 ]
             )
         )
@@ -251,62 +209,6 @@ class TestAssignGateIsStateDerived(_AssignGateTestCase):
         (self.smm_dir / "sprint.json").write_text(SPRINT_TEAMMATE_IN_PROGRESS)
         with self._spawned():
             self._assert_allows(_lead_write())
-
-
-class TestAssignGatePredicateFailsClosed(_AssignGateTestCase):
-    """The consume is DESTRUCTIVE, so its licence is that False can only ever
-    mean "the sprint positively says there is nothing to assign" — never "could
-    not tell". A predicate that answered False on a bad read would delete its own
-    arming marker and silently un-gate the lead.
-
-    That licence rests on a property of ANOTHER module: worktree's git call
-    swallows a failure into an empty iterator. Nothing here pinned it, so a
-    future refactor of `_iter_live_teammate_worktrees` — raising instead of
-    swallowing, or returning a sentinel — could turn this gate into a
-    marker-eater with every test still green. These pin the seam itself, through
-    the real worktree code, not through the patched batch lookup.
-    """
-
-    def _git_broken(self):
-        """The real chain, with git failing — not the batch lookup patched out."""
-        return patch.object(
-            worktree.subprocess,
-            "check_output",
-            side_effect=OSError("git not on PATH"),
-        )
-
-    def test_a_failing_git_blocks_rather_than_reading_stories_as_spawned(self):
-        """No worktrees discoverable -> every promoted story reads as un-spawned
-        -> the gate holds. The inverse (unreadable == nothing to do) would let a
-        broken git wave through the very assignment the marker is demanding."""
-        self._arm(SPRINT_TEAMMATE_IN_PROGRESS)
-        with self._git_broken():
-            self._assert_blocks(_lead_write())
-
-    def test_a_failing_git_never_consumes_the_marker(self):
-        """The destructive half. A bad read must leave the marker armed: consume
-        it and the gate is gone for good, with nothing left to re-arm it."""
-        self._arm(SPRINT_TEAMMATE_IN_PROGRESS)
-        with self._git_broken():
-            self._assert_blocks(_lead_write())
-        self.assertTrue(
-            (self.smm_dir / ".assign-pending").exists(),
-            "a predicate that cannot tell must not delete its own arming marker",
-        )
-
-    def test_a_corrupt_sprint_never_consumes_the_marker(self):
-        """The other bad read. load_sprint RAISES on malformed JSON rather than
-        returning None, so the error propagates and the consume is never reached
-        — absence (None) is the only thing that reads as "nothing to assign".
-        If that ever softened to a None-on-corrupt, the marker would be eaten.
-        """
-        self._arm("{ not json")
-        with self.assertRaises(ValueError):
-            pre_tool_write.run(_lead_write(), smm_dir=self.smm_dir)
-        self.assertTrue(
-            (self.smm_dir / ".assign-pending").exists(),
-            "a corrupt sprint must not disarm the gate",
-        )
 
 
 class TestAssignGateExemptions(_AssignGateTestCase):
@@ -349,7 +251,13 @@ class TestAssignGateExemptions(_AssignGateTestCase):
         self._arm(
             _sprint_json(
                 [
-                    _s("story-010", "Mine", "in-progress", execution_mode="teammate"),
+                    _s(
+                        "story-010",
+                        "Mine",
+                        "in-progress",
+                        execution_mode="teammate",
+                        branch_name="dev/story-010-mine",
+                    ),
                 ]
             )
         )
@@ -358,7 +266,9 @@ class TestAssignGateExemptions(_AssignGateTestCase):
             cwd="/Users/dev/proj/.claude/worktrees/worktree-story-010",
             tool_input={"file_path": "/Users/dev/proj/src/app.py", "content": "x"},
         )
-        with self._spawned("story-010"):  # predicate WOULD say "nothing to assign"
+        with self._spawned(
+            "story-010", branches={"story-010": "dev/story-010-mine"}
+        ):  # predicate WOULD say "nothing to assign"
             pre_tool_write.run(teammate_input, smm_dir=self.smm_dir)
         self.assertTrue(
             (self.smm_dir / ".assign-pending").exists(),

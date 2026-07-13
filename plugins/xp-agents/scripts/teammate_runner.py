@@ -40,6 +40,32 @@ def _path_token(value: str | None) -> str | None:
     return safe.strip("._-") or None
 
 
+def safe_name(name: str) -> str:
+    """*name*, verified to be ONE path segment that cannot traverse. Else raises.
+
+    The sprint id was sanitized against traversal (`_path_token`) and the
+    teammate NAME — which lands in the same directory, as the filename half of
+    both the prompt path and the tee log path — was passed through raw. It is CLI
+    input (`spawn_teammate --name`, authored by /xp-assign), so `--name
+    ../../../etc/x` walked the prompt file straight out of the per-project
+    namespace, and the same raw value is joined into the worktree path, the
+    `.story-assignment-<name>` marker and the in-place marker. One guard at the
+    boundary covers all five.
+
+    VERIFIES rather than sanitizes: a silent rewrite would resolve to a different
+    path than the one the caller believes it asked for, and the lead and the
+    teammate must meet at the SAME prompt file. A name that is not already safe
+    is a bug in the caller, so say so.
+    """
+    if _path_token(name) != name:
+        raise ValueError(
+            f"unsafe teammate name {name!r}: must be one path segment of "
+            "alphanumerics, '.', '_' or '-' (it becomes a filename in the "
+            "prompt/log namespace and a directory in the worktree path)"
+        )
+    return name
+
+
 def _project_dir(smm_dir: str | Path, sprint_id: str | None) -> Path:
     """Return the /tmp namespace directory for *smm_dir* within *sprint_id*.
 
@@ -88,8 +114,12 @@ def project_prompt_path(
     which repeats across projects AND across sprints — so they share the
     namespace and the collision argument of ``_project_dir``. Co-locate the
     prompt beside the log under that one dir.
+
+    Raises ValueError on a name that could escape the namespace — see
+    ``safe_name``. This is the leaf guard; ``spawn_teammate.main`` refuses the
+    same name at the boundary, BEFORE any side effect.
     """
-    return _project_dir(smm_dir, sprint_id) / f"{name}.prompt.txt"
+    return _project_dir(smm_dir, sprint_id) / f"{safe_name(name)}.prompt.txt"
 
 
 # Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,
@@ -234,7 +264,7 @@ def run_with_tee(
     the log is intact, but the filter that owns the report/completion/
     coordination-clear did not finish — the caller must skip the rc=0 promote.
     """
-    log_path = log_dir / f"{name}.log"
+    log_path = log_dir / f"{safe_name(name)}.log"
     log_file = None
     try:
         log_file = log_path.open("a")

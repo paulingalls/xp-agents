@@ -189,15 +189,33 @@ def in_progress_is_teammate(smm_dir: Path) -> bool:
     return in_progress_is_teammate_data(sprint)
 
 
+def select_promoted_teammate_stories(stories: list[dict]) -> list[dict]:
+    """The stories /xp-assign has a teammate to spawn for: in-progress AND
+    execution_mode == 'teammate'.
+
+    The single home for that pair of literals. It was spelled out by hand at
+    every site that needed it — `in_progress_is_teammate_data` here, the assign
+    gate's predicate in lead_gates, /xp-assign's own preload — and the three had
+    already begun to answer the same question in their own words. Sibling of
+    `select_closing_stories` / `select_in_motion_stories`: the selector is the
+    shared thing, and the boolean is derived from it, not the other way round.
+
+    (The preload's copy is in shell and cannot import this; it stays a known
+    duplicate — see the standing Reuse concern — but the Python side is one.)
+    """
+    return [
+        s
+        for s in stories
+        if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
+    ]
+
+
 def in_progress_is_teammate_data(data: dict) -> bool:
     """True iff the sprint dict has an in-progress story with
     execution_mode == 'teammate'. Sibling to in_progress_is_teammate for
     callers holding the loaded dict.
     """
-    return any(
-        s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
-        for s in data.get("stories", [])
-    )
+    return bool(select_promoted_teammate_stories(data.get("stories", [])))
 
 
 def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:

@@ -41,7 +41,12 @@ import tier_wire
 # so callers (and their tests) still see spawn_teammate.run_with_tee /
 # project_log_dir.
 from spawn_prompt import load_prompt_for_story, worktree_preamble
-from teammate_runner import project_log_dir, project_prompt_path, run_with_tee
+from teammate_runner import (
+    project_log_dir,
+    project_prompt_path,
+    run_with_tee,
+    safe_name,
+)
 
 
 def resolve_sprint_id(smm_dir: str | Path) -> str | None:
@@ -86,11 +91,21 @@ def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
       destroyed unmerged commits AND then failed the very next
       ``git worktree add <path> <branch>``, because the ref it was told to
       check out no longer existed.
+
+    The branch was only HALF the story, and this is the other half. Sparing the
+    branch spares what the teammate COMMITTED; the worktree DIRECTORY still went
+    away under `--force`, taking everything it had not committed yet. A live
+    teammate re-spawned under the same name lost its whole working tree, and the
+    branch it was spared pointed at the last commit before the loss. The in-place
+    path took an exclusive claim to stop exactly this (`claim_in_place_marker`);
+    the worktree path had no check at all. `force=False` hands the decision to
+    git, which refuses to remove a tree with modified or untracked files —
+    covering the live teammate and the crashed-before-commit one alike.
     """
     if owns_branch:
         worktree.remove_worktree(name, cwd, force_branch=True)
     else:
-        worktree.remove_worktree_dir(name, cwd)
+        worktree.remove_worktree_dir(name, cwd, force=False)
 
 
 def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
@@ -254,7 +269,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """Parse args and spawn the teammate."""
     args = parse_args(argv)
-    name = args.name
+    # FIRST, before every path this name is joined into. `--name` is CLI input
+    # authored by /xp-assign, and it lands unescaped in FIVE paths: the prompt
+    # file, the tee log, the worktree directory, `.story-assignment-<name>` and
+    # the in-place marker. The sprint id was already sanitized against traversal
+    # for exactly this reason (teammate_runner._path_token) and the name — right
+    # beside it in the same directory — was not, so a `../` in it walked out of
+    # the namespace and, for the SMM-dir markers, out of the SMM dir. Refusing at
+    # the boundary covers all five with one guard; the two leaf path builders
+    # keep their own (teammate_runner.safe_name) so they cannot be called
+    # unguarded from elsewhere.
+    name = safe_name(args.name)
 
     # The namespace token for BOTH the prompt and the log. Resolved once, here,
     # and threaded through every path call below — the queries included, so what

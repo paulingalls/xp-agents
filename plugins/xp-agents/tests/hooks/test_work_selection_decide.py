@@ -23,6 +23,7 @@ sys.path.insert(
     ),
 )
 
+import adoption_store
 import work_selection_decide
 from conftest import _HookTestCase, make_event
 from event_schema import (
@@ -907,6 +908,91 @@ class TestForceCloseGateMixedHistory(_ForceCloseTestCase):
                 content="Defer once more [refs: aaaaaaaaaaaa]",
             )
         self.assertIn("have 3 prior deferrals", str(ctx.exception))
+
+
+class TestForceCloseGateSurvivesCompaction(_ForceCloseTestCase):
+    """The gate must not forget what compaction erased.
+
+    A deferral is a `status` event, and compaction archives those — so the Try
+    whose deferrals are OLD ENOUGH to have aged out of `events.jsonl` is exactly
+    the long-carried Try the gate exists to catch. Counting the live log alone
+    reads ZERO for it and waves the 4th plain defer straight through: the gate
+    silently disarms on its own target population, for a reason (a compaction)
+    that has nothing to do with the Try.
+
+    The durable ledger is the memory that outlives the log — `adoption_store`
+    exists for this, and carries `defer_count` for this. `intent` already reads
+    it. The gate did not, so the milestone that made the memory durable left the
+    mechanism that most needs it still amnesiac.
+    """
+
+    TRY_ID = "aaaaaaaaaaaa"
+
+    def _remember(self, count: int, target_id: str | None = None) -> None:
+        """Seed the ledger as `compact._fold_adoption_ledger` would have, then
+        leave the live log EMPTY — the post-compaction state."""
+        adoption_store.save_adoption(
+            self.smm_dir,
+            {
+                "version": adoption_store.SCHEMA_VERSION,
+                "entries": [
+                    {
+                        "target_id": target_id or self.TRY_ID,
+                        "lane": adoption_store.LANE_RETRO,
+                        "intent": "deferred",
+                        "intent_by": "b" * 12,
+                        "intent_ts": "2026-01-01T00:00:00+00:00",
+                        "defer_count": count,
+                    }
+                ],
+            },
+        )
+
+    def test_deferrals_archived_out_of_the_log_still_fire_the_gate(self):
+        self._remember(_FORCE_CLOSE_THRESHOLD)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content=f"Defer once more [refs: {self.TRY_ID}]",
+            )
+        self.assertIn("FORCE-CLOSE", str(ctx.exception))
+
+    def test_below_the_threshold_the_remembered_count_still_allows_a_defer(self):
+        """The control: the ledger must not make the gate trigger-happy either."""
+        self._remember(_FORCE_CLOSE_THRESHOLD - 1)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Carry it once more [refs: {self.TRY_ID}]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_log_and_ledger_are_maxed_not_summed(self):
+        """The two sources count OVERLAPPING windows — the ledger's snapshot
+        includes deferrals the log can still see. Summing double-counts them and
+        force-closes a Try deferred only twice; the max never double-counts and
+        never regresses. Same reconciliation `intent._build_intent_map` makes.
+        """
+        self._remember(2)
+        self._seed_prior_defers(self.TRY_ID, 2, "references")
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Third carry [refs: {self.TRY_ID}]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_another_trys_remembered_count_does_not_leak(self):
+        """The ledger is keyed by target id; a different Try's memory is not
+        this Try's."""
+        self._remember(_FORCE_CLOSE_THRESHOLD + 2, target_id="bbbbbbbbbbbb")
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"A different Try [refs: {self.TRY_ID}]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
 
 
 class TestForceCloseLaneScoping(_ForceCloseTestCase):

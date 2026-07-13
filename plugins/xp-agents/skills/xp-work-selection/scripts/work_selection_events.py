@@ -33,6 +33,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
+import intent  # noqa: E402
 from event_builder import REFERENCES_KEY, merge_resolves  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_ADOPTED,
@@ -149,6 +150,7 @@ def _build_defer_event(
     force_adopt_topic: str | None,
     force_drop: bool,
     force_defer_until: str | None,
+    smm_dir: Path | None = None,
 ) -> dict:
     """Build the event for a `defer` invocation, applying the FORCE-CLOSE gate.
 
@@ -162,6 +164,16 @@ def _build_defer_event(
       --force-defer-with-date → status event, disposition=deferred + defer_until
     With no force flag, builds the deferred status event and refuses if the
     Try has been deferred at or above _FORCE_CLOSE_THRESHOLD times.
+
+    *smm_dir* is what lets the gate SURVIVE COMPACTION. The prior-defer count was
+    read from the live log alone, and a deferral is a `status` event — the first
+    compaction that crosses it archives it. So a Try carried long enough to hit
+    the threshold is also a Try whose deferrals have aged out of `events.jsonl`,
+    and the gate read zero and waved it through: the mechanism disarmed itself on
+    precisely the item it exists to catch. The durable ledger is the memory that
+    outlives the log (`adoption_store`), and it is consulted alongside it — see
+    `_count_prior_defers_filter`. None keeps the log-only (forgetful) behaviour
+    for a caller with no SMM dir, mirroring `intent.load_ledger`.
     """
     if sum([bool(force_adopt_topic), force_drop, bool(force_defer_until)]) > 1:
         raise ValueError(
@@ -193,7 +205,9 @@ def _build_defer_event(
     # A deferral is an intent event, so the suffix ids landed in `references`.
     refs = event.get(REFERENCES_KEY) or []
     if refs:
-        prior = _count_prior_defers_filter(load_events(), refs)
+        prior = _count_prior_defers_filter(
+            load_events(), refs, intent.load_ledger(smm_dir)
+        )
         if prior >= _FORCE_CLOSE_THRESHOLD:
             raise ValueError(_force_close_message(refs, prior))
     return event

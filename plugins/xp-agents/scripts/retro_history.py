@@ -80,26 +80,41 @@ def gather_retro_history(smm_dir: Path, limit: int = MAX_RETRO_HISTORY) -> list[
 
 
 def _candidate_ids(item) -> list[str]:
-    """The ids that might identify this Try, in strict precedence order:
-    its own id, then its event_refs in order, then hex tokens in its content in
-    match order. De-duplicated, first occurrence winning.
+    """The ids that may ANSWER for this Try.
 
-    The ORDER is the fix. This was a `set`, and the lookup broke on the first
-    hit — so which id answered for the Try depended on PYTHONHASHSEED. While the
-    resolutions map was sparse that rarely bit; against a dense intent map it
-    makes the reported disposition a coin flip between the Try's own answer and
-    the answer belonging to some debt the Try's prose merely cites.
+    A Try that carries its OWN id is answered by that id ALONE. Ordering the ids
+    by precedence and breaking on the first hit was not enough: precedence only
+    decides which id is consulted FIRST, and the walk still FALLS THROUGH to the
+    `event_refs` and prose tokens whenever the Try's own id has no answer — which
+    is the common case, since most Tries are neither adopted nor closed. Those
+    ids are the debt/concern ids the Try's prose is ABOUT (the same "a ref bag is
+    not all targets" hazard `intent.build_retro_intent_map` intersects away with
+    `∩ try_ids`), so a commit that closed a debt the Try merely CITES was
+    reported as the TRY's closure: `resolved_this_session: True` for a Try nobody
+    had done, which then drops out of re-proposal forever.
 
-    The Try's own id is the only id that IS the Try. Everything after it is a
-    fallback for Try items too old to carry one.
+    There is nothing a fallback can add for an item that carries its own id, and
+    everything for it to get wrong. So it gets none.
+
+    A LEGACY Try — no id of its own — is a different case, and its fallback is
+    NOT a leak. Such a Try has no other handle: `_preload_base.get_try_items`
+    renders its `[refs: ...]` bag from `event_refs` alone, so `/xp-work-selection
+    drop` closes it by resolving the CITED id, and its `event_refs` are the only
+    thing that can say it was honoured. Filtering them out would not fix a false
+    positive; it would delete the only closure signal the item has and re-propose
+    a Try that was explicitly dropped. Order still decides which one answers, so
+    it stays explicit: refs in order, then content tokens in match order,
+    de-duplicated, first occurrence winning. (It was a `set`, which made the
+    answer a function of PYTHONHASHSEED.)
     """
     if not isinstance(item, dict):
         return list(dict.fromkeys(HEX_ID_RE.findall(item or "")))
-    ids: list[str] = []
     if own_id := item.get("id"):
-        ids.append(own_id)
-    ids.extend(item.get("event_refs", []))
-    ids.extend(HEX_ID_RE.findall(item.get("content", "")))
+        return [own_id]
+    ids: list[str] = [
+        *item.get("event_refs", []),
+        *HEX_ID_RE.findall(item.get("content", "")),
+    ]
     return list(dict.fromkeys(ids))
 
 
@@ -108,6 +123,11 @@ def _try_status(item, resolutions_map: dict, intent_map: dict) -> dict:
 
     Closure is consulted first for each candidate id, because terminal beats
     intent — a Try that was adopted and later dropped is dropped.
+
+    Which ids may speak for the Try at all is `_candidate_ids`' business, and it
+    is what keeps the CLOSURE channel from answering with the fate of a debt the
+    Try merely cites. (The INTENT channel was already immune: its map is keyed by
+    Try ids only.)
 
     The two answers stay in SEPARATE fields. `resolved_this_session` keeps its
     closure-only meaning; an adoption reports `intent` instead. Overloading

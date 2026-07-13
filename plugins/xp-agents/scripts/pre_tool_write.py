@@ -286,7 +286,32 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # re-arm during the close-then-done window so fix-cycle Edits don't re-arm
     # .accept while the per-story accept dispatch is in flight.
     if smm_dir and not is_plan_file:
-        sprint_data = sprint_state.read_sprint_content(smm_dir)
+        is_smm_write = _is_smm_write(smm_dir, target_file, cwd)
+        try:
+            sprint_data = sprint_state.read_sprint_content(smm_dir)
+        except (ValueError, OSError) as exc:
+            # A bad read is not "no sprint". `load_sprint` RAISES on a corrupt /
+            # schema-invalid / symlinked sprint.json, and letting that escape is
+            # not a block but an ALLOW: the hook dies with a traceback and exits
+            # 1, which PreToolUse treats as a NON-blocking error — every gate
+            # below is skipped and the write lands. On the Write hot path an
+            # unreadable sprint must fail CLOSED, exactly as the marker gates
+            # above now do (lead_gates._unspawned_teammate_story_exists).
+            #
+            # SMM writes stay exempt, for the same reason they are exempt from
+            # the schedule gate: sprint.json lives in the SMM dir, and a gate
+            # that blocks the only tool that can repair the file it is choking on
+            # is a gate with no recovery path. `sprint_cli create` (Bash) is the
+            # documented repair, and this keeps the Write/Edit route open too.
+            if not is_smm_write:
+                raise _common.BlockedError(
+                    f"sprint.json cannot be read ({exc}). Every sprint gate is "
+                    "blind until it is repaired, so writes are blocked rather "
+                    "than silently un-gated. Repair it (smm/sprint_cli.py create) "
+                    "or restore it from backup, then retry.",
+                    "Sprint state unreadable — gates cannot be evaluated.",
+                ) from exc
+            sprint_data = None
 
         # Schedule gate (state-derived, no marker). In the pre-promotion window
         # (scheduled stories exist, no story in motion) force /xp-schedule before
@@ -311,7 +336,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if (
             sprint_data is not None
             and schedule_gate_active_data(sprint_data)
-            and not _is_smm_write(smm_dir, target_file, cwd)
+            and not is_smm_write
         ):
             raise _common.BlockedError(
                 "Run /xp-schedule to promote the next frontier (scheduled -> "

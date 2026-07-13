@@ -123,10 +123,39 @@ def _fold_adoption_ledger(smm_dir: Path, events: list[dict]) -> None:
     session from then on, and the log would grow without bound, with no remedy
     but deleting a file the user has never heard of. Trading an unbounded log for
     a forgotten adoption is a bad trade. Quarantine the bad copy, say so on
-    stderr, and rebuild from the events still in hand; if the retry ALSO fails,
-    the fault is not the ledger's and it is allowed to surface.
+    stderr, and rebuild from the events still in hand.
+
+    QUARANTINE ONLY ON A FAILED READ, which is why the load is its own try. It
+    used to sit inside `record_intents` — where the LOAD and the SAVE both raise
+    ValueError and are indistinguishable from outside — so a save-side failure (a
+    schema-invalid INTENT MAP, which is ours, not the ledger's) quarantined a
+    perfectly healthy adoption.json and then re-raised from the un-wrapped retry.
+    The cure destroyed the patient and killed the hook anyway. Reading first names
+    the fault: an unreadable ledger is the ledger's, and only that one is moved
+    aside.
+
+    And NOTHING the ledger does may abort the compaction. The write is wrapped
+    too, LockTimeoutError included — a `LockTimeoutError` is a bare `Exception`
+    subclass, so an `except (OSError, ValueError)` misses it entirely, and a
+    contended `adoption.lock` (teammates share one SMM dir; every SessionEnd
+    compacts, so overlap is ordinary) would propagate out and abandon the pass
+    BEFORE the archive and the atomic replace ever ran. The ledger is a CACHE of
+    what the log already said; the log's bound is not optional. Losing a fold is
+    recoverable — the next compaction re-derives it from the events still in hand.
+    Losing compaction is not.
     """
-    ledger = intent.load_ledger(smm_dir)
+    try:
+        ledger = adoption_store.load_adoption(smm_dir)
+    except (OSError, ValueError) as exc:
+        quarantined = adoption_store.quarantine_adoption(smm_dir)
+        print(
+            f"SMM: unreadable adoption ledger ({exc}); moved to {quarantined} "
+            "and rebuilt from the current log. Adoptions older than the log's "
+            "retention window are lost.",
+            file=sys.stderr,
+        )
+        ledger = adoption_store.empty_adoption()
+
     intents = {
         adoption_store.LANE_RETRO: intent.build_retro_intent_map(
             events, intent.retro_try_ids(events), ledger=ledger
@@ -138,15 +167,14 @@ def _fold_adoption_ledger(smm_dir: Path, events: list[dict]) -> None:
     closed = resolution.closed_target_ids(events)
     try:
         adoption_store.record_intents(smm_dir, intents, closed)
-    except (OSError, ValueError) as exc:
-        quarantined = adoption_store.quarantine_adoption(smm_dir)
+    except (OSError, ValueError, LockTimeoutError) as exc:
         print(
-            f"SMM: unreadable adoption ledger ({exc}); moved to {quarantined} "
-            "and rebuilt from the current log. Adoptions older than the log's "
-            "retention window are lost.",
+            f"SMM: could not record the adoption ledger ({exc}); compaction "
+            "continues and the log is still bounded. The intents this pass would "
+            "have folded are re-derived from the log at the next compaction, "
+            "unless their events have been archived by then.",
             file=sys.stderr,
         )
-        adoption_store.record_intents(smm_dir, intents, closed)
 
 
 def _read_all_curation_watermarks(smm_dir: Path) -> list[dict]:

@@ -61,7 +61,20 @@ def worktree_path(name: str, cwd: str) -> Path:
     return Path(root) / WORKTREE_PATH_FRAGMENT / name
 
 
-def remove_worktree_dir(name: str, cwd: str) -> str | None:
+class WorktreeNotEmpty(Exception):
+    """A worktree could not be removed without destroying uncommitted work.
+
+    Raised only by ``remove_worktree_dir(force=False)``. Refusing is the point:
+    the alternative is `git worktree remove --force`, which deletes the tree —
+    modified files, untracked files and all. When the worktree belongs to a
+    teammate that is still RUNNING, that is its in-flight story; when it belongs
+    to one that crashed, it is the only copy of work that was never committed.
+    Neither is ours to throw away, and a loud refusal is recoverable (inspect it,
+    commit or discard, re-run) where a silent delete is not.
+    """
+
+
+def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | None:
     """Remove the worktree DIRECTORY and prune stale entries. Delete NO branch.
 
     Returns the branch the worktree had checked out — the caller cannot re-read
@@ -73,6 +86,19 @@ def remove_worktree_dir(name: str, cwd: str) -> str | None:
     `<user>/story-NNN-<slug>`. Falling back to `name` when derivation fails
     preserves the legacy contract for callers that create worktree + branch
     with the same name (`spawn_teammate.create_worktree` in no-branch mode).
+
+    *force* is the caller's claim about who owns the tree, and the two callers
+    genuinely differ:
+
+      - True (post-merge cleanup): the story is merged and done, so build
+        artifacts and stray files are debris — `--force` is what clears them.
+      - False (`spawn_teammate.cleanup_existing` clearing the path for a
+        re-spawn): the tree may belong to a teammate that is STILL RUNNING, and
+        `--force` would delete its uncommitted work out from under it. Git's own
+        non-force refusal ("contains modified or untracked files") is the signal
+        we want, so let it refuse and raise WorktreeNotEmpty rather than
+        overriding it. A crashed teammate's un-committed work is protected by the
+        same refusal, which is the other half of what makes it right.
     """
     try:
         wt = worktree_path(name, cwd)
@@ -87,11 +113,24 @@ def remove_worktree_dir(name: str, cwd: str) -> str | None:
         head = identity.get_current_branch(str(wt))
         if head and head != "HEAD":
             branch = head
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", str(wt)],
+        cmd = ["git", "worktree", "remove"]
+        if force:
+            cmd.append("--force")
+        result = subprocess.run(
+            [*cmd, str(wt)],
             cwd=cwd,
             capture_output=True,
+            text=True,
         )
+        if not force and result.returncode != 0 and wt.is_dir():
+            raise WorktreeNotEmpty(
+                f"refusing to clear the worktree at {wt}: git will not remove it "
+                f"({result.stderr.strip() or 'non-zero exit'}). It holds modified "
+                "or untracked files — a teammate is either still working there or "
+                "crashed before committing, and forcing the removal would destroy "
+                "that work. Inspect it, commit or discard the changes, remove the "
+                "worktree by hand, then re-run."
+            )
     subprocess.run(
         ["git", "worktree", "prune"],
         cwd=cwd,
@@ -186,6 +225,29 @@ def list_live_teammate_worktree_paths(cwd: str) -> list[tuple[str, str]]:
         (Path(wt_path).name[skip:], wt_path)
         for wt_path, _branch in _iter_live_teammate_worktrees(cwd)
     ]
+
+
+def live_teammate_branch_by_story(cwd: str) -> dict[str, str]:
+    """Map story_id → the BRANCH each live teammate worktree has checked out.
+
+    The story-id half alone cannot identify a worktree, and every caller that
+    treats it as if it could is answering a cross-sprint question with a
+    within-sprint key. Story ids repeat every sprint, so
+    `.claude/worktrees/worktree-story-003` may be LAST sprint's story-003, left
+    registered after an abandoned close. The branch carries the slug
+    (`<user>/story-003-perf-timers` vs `<user>/story-003-tools-remember`), so it
+    is the only thing on the worktree that tells the two apart — the same
+    argument `spawn_prompt.load_prompt_for_story` makes about the prompt file.
+
+    An empty branch value means the worktree is on a detached HEAD (porcelain
+    emits no `branch` line): not a match for any story, which is the safe
+    direction for a caller deciding "is this story's teammate live?".
+    """
+    skip = len(_WORKTREE_PREFIX)
+    return {
+        Path(wt_path).name[skip:]: branch
+        for wt_path, branch in _iter_live_teammate_worktrees(cwd)
+    }
 
 
 def find_closing_teammate_worktree(smm_dir: Path, cwd: str) -> tuple[str, str] | None:

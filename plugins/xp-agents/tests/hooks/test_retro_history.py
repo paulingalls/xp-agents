@@ -16,9 +16,6 @@ story fixes: it would both hide the Try from work-selection AND declare it
 implemented. `TestAdoptedTryIsNotResolved` pins that they stay separate.
 """
 
-import json
-import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -27,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import resolution
 import retro_history
+from _retro_annotate_fixtures import _AnnotateTestCase
 from conftest import (
     _HookTestCase,
     adopt_try_event,
@@ -38,56 +35,10 @@ from conftest import (
 )
 from event_schema import (
     EVENT_TYPE_COMMIT,
-    EVENT_TYPE_DEBT,
     EVENT_TYPE_DECISION,
     EVENT_TYPE_STATUS,
 )
 from retro_metrics import build_resolutions_map
-
-_SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
-
-# Reports `_candidate_ids(item)` from a FRESH interpreter, so the caller can
-# choose its PYTHONHASHSEED. A set's iteration order is fixed for the life of a
-# process, so this is the only way a test can see a set-ordering regression at
-# all — see TestAnnotationIsDeterministic.
-_CANDIDATE_ORDER_PROBE = (
-    "import json,sys;sys.path.insert(0,sys.argv[1]);import retro_history;"
-    "print(json.dumps(retro_history._candidate_ids(json.loads(sys.argv[2]))))"
-)
-
-
-def _candidate_ids_under_hash_seed(item: dict, seed: str) -> list[str]:
-    """`_candidate_ids(item)` as computed by an interpreter run at `seed`."""
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            _CANDIDATE_ORDER_PROBE,
-            str(_SCRIPTS_DIR),
-            json.dumps(item),
-        ],
-        capture_output=True,
-        text=True,
-        env={**os.environ, "PYTHONHASHSEED": seed},
-        check=True,
-    )
-    return json.loads(result.stdout)
-
-
-class _AnnotateTestCase(_HookTestCase):
-    """Drives annotate_try_status the way retrospective.py drives it: the
-    resolutions map and the intent map both derive from the same event list, so
-    a test cannot hand the annotator a combination production never produces.
-    """
-
-    def _annotate(self, try_items: list[dict], events: list[dict]) -> list[dict]:
-        retros = [{"try": try_items, "keep": [], "fix": []}]
-        resolutions_map = build_resolutions_map(resolution.compute_resolutions(events))
-        retro_history.annotate_try_status(retros, resolutions_map, events)
-        return retros[0]["try_status"]
-
-    def _try(self, try_id: str, content: str = "Carry this Try") -> dict:
-        return {"id": try_id, "content": content, "event_refs": []}
 
 
 class TestAdoptedTryIsNotResolved(_AnnotateTestCase):
@@ -214,86 +165,6 @@ class TestLegacyClosingAdoptionReadsAsAdopted(_AnnotateTestCase):
         self.assertTrue(status["resolved_this_session"])
         self.assertEqual(status["resolver_id"], legacy_adopt["id"])
         self.assertEqual(status["disposition"], "adopted")
-
-
-class TestAnnotationIsDeterministic(_AnnotateTestCase):
-    """Story test 5. The old lookup built its candidate tokens as a SET and broke
-    on the first hit, so which token matched depended on PYTHONHASHSEED. With a
-    sparse map that rarely bit; a dense intent map makes the reported disposition
-    a coin flip.
-
-    Precedence is now explicit: own_id → event_refs (in order) → content tokens
-    (in match order). The Try's OWN id is what the Try is; an id its prose cites
-    is not.
-    """
-
-    TRY_ID = "cc33dd44ee55"
-
-    def _events_where_own_id_and_cited_id_disagree(self):
-        """The Try is DEFERRED. The debt its content cites is DROPPED. The two
-        ids therefore carry different answers, and only one of them is the Try's.
-        """
-        retro = make_retrospective_with_try(self.TRY_ID)
-        debt = make_event(EVENT_TYPE_DEBT, content="The cited debt")
-        dropper = make_event(
-            EVENT_TYPE_STATUS,
-            content="Drop the debt",
-            working_on=[],
-            metadata={"resolves": [debt["id"]], "disposition": "dropped"},
-        )
-        defer = defer_try_event(self.smm_dir, self.TRY_ID)
-        return [retro, debt, dropper, defer], debt
-
-    def test_own_id_wins_over_a_cited_id(self):
-        events, debt = self._events_where_own_id_and_cited_id_disagree()
-        item = {
-            "id": self.TRY_ID,
-            "content": f"Carry this Try, which is about {debt['id']}",
-            "event_refs": [],
-        }
-        status = self._annotate([item], events)[0]
-        # The Try is deferred. It is NOT the dropped debt.
-        self.assertEqual(status["intent"], "deferred")
-        self.assertFalse(status["resolved_this_session"])
-
-    def test_candidate_order_holds_across_hash_seeds(self):
-        """The regression this class exists to catch is a set's iteration order,
-        which is a function of PYTHONHASHSEED — and the hash seed is fixed for
-        the life of a process. Any in-process loop, however many iterations, gets
-        the SAME set order every time and so can never see the bug: the previous
-        version of this test ran the annotation 25x in one process and passed
-        under a reverted set-based `_candidate_ids` on every seed tried.
-
-        Varying the seed means varying the PROCESS. Each subprocess reports the
-        candidate order for one Try whose own id, refs and content tokens all
-        differ; a set-backed implementation disagrees with the declared
-        precedence on all but a vanishing fraction of seeds, and disagrees
-        BETWEEN seeds regardless.
-        """
-        item = {
-            "id": "cc33dd44ee55",
-            "event_refs": ["ref1ref1ref1", "ref2ref2ref2"],
-            "content": "cites aaaaaaaaaaaa and bbbbbbbbbbbb",
-        }
-        expected = [
-            "cc33dd44ee55",
-            "ref1ref1ref1",
-            "ref2ref2ref2",
-            "aaaaaaaaaaaa",
-            "bbbbbbbbbbbb",
-        ]
-        for seed in ("0", "1", "2", "3", "4"):
-            with self.subTest(hash_seed=seed):
-                self.assertEqual(_candidate_ids_under_hash_seed(item, seed), expected)
-
-    def test_event_refs_beat_content_tokens(self):
-        events, debt = self._events_where_own_id_and_cited_id_disagree()
-        item = {
-            "content": f"A Try with no id of its own, about {debt['id']}",
-            "event_refs": [self.TRY_ID],
-        }
-        status = self._annotate([item], events)[0]
-        self.assertEqual(status["intent"], "deferred")
 
 
 class TestBuildResolutionsMapDisposition(_HookTestCase):

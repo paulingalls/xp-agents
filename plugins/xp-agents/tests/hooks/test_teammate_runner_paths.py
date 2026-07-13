@@ -20,6 +20,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+# Not unused: importing conftest installs the real-agent spawn backstop, which
+# every module that touches spawn_teammate must load — pinned by
+# test_no_test_can_spawn_a_real_agent. TestTeammateNameCannotEscapeTheNamespace
+# drives spawn_teammate.main.
+import conftest  # noqa: F401
+
 
 class TestProjectDirSprintToken(unittest.TestCase):
     """_project_dir namespaces teammate files under project AND sprint.
@@ -96,6 +102,60 @@ class TestProjectDirSprintToken(unittest.TestCase):
                 base,
                 f"junk token {junk!r} must collapse to the project namespace",
             )
+
+
+class TestTeammateNameCannotEscapeTheNamespace(unittest.TestCase):
+    """The sprint id was guarded against traversal; the NAME beside it was not.
+
+    Both land in the same directory — the sprint id as the dir, the name as the
+    filename — and the name is CLI input (`spawn_teammate --name`, authored by
+    /xp-assign). It is joined RAW into five paths: the prompt file, the tee log,
+    the worktree directory, `.story-assignment-<name>` and the in-place marker.
+    The last two live inside the SMM dir, so a `../` in the name escapes the SMM
+    tree, not merely the /tmp namespace.
+
+    Refuse, don't sanitize: a silent rewrite resolves to a path the caller did
+    not ask for, and the lead (which writes the prompt) and the spawn (which
+    reads it) must meet at the SAME file.
+    """
+
+    ESCAPES = (
+        "../../../etc/passwd",
+        "../sibling-project",
+        "a/b",
+        "..",
+        "",
+    )
+
+    def test_a_traversing_name_is_refused_by_the_prompt_path(self):
+        import teammate_runner
+
+        for name in self.ESCAPES:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                teammate_runner.project_prompt_path(
+                    "/data/proj-a/smm", name, sprint_id="sprint-117"
+                )
+
+    def test_a_traversing_name_is_refused_at_the_spawn_boundary(self):
+        """The boundary refusal is what covers the worktree dir and the two
+        SMM-dir markers, which no leaf path builder sees. It must fire BEFORE any
+        side effect — the same placement argument `load_prompt_for_story` makes.
+        """
+        import spawn_teammate
+
+        for name in self.ESCAPES:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                spawn_teammate.main(["--name", name, "--smm-dir", "/data/proj-a/smm"])
+
+    def test_a_real_teammate_name_is_untouched(self):
+        """The control. The names production actually uses must pass through
+        verbatim — a guard that rewrote them would break the lead/spawn rendezvous
+        on the prompt path."""
+        import teammate_runner
+
+        for name in ("worktree-story-001", "worktree-story-042", "solo.teammate_1"):
+            with self.subTest(name=name):
+                self.assertEqual(teammate_runner.safe_name(name), name)
 
 
 if __name__ == "__main__":

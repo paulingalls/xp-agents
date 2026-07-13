@@ -336,6 +336,7 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     schedule_gate_active_data,
     select_closing_stories,
     select_in_motion_stories,
+    select_promoted_teammate_stories,
 )
 
 # Public API contract — listed for pyright (so re-exports aren't flagged
@@ -385,6 +386,7 @@ __all__ = [
     "schedule_gate_active_data",
     "select_closing_stories",
     "select_in_motion_stories",
+    "select_promoted_teammate_stories",
     "set_branch",
     "set_story_branch",
     "sprint_exists",

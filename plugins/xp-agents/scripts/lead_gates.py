@@ -27,6 +27,7 @@ import _common
 import identity
 import markers
 import sprint_state
+import sprint_status
 import worktree
 
 
@@ -53,6 +54,36 @@ class _LeadGate(NamedTuple):
     active_when: Callable[[dict, Path], bool] | None = None
 
 
+def _story_is_spawned(story: dict, live_branches: dict[str, str]) -> bool:
+    """True when *story*'s OWN teammate is live — matched on story id AND branch.
+
+    The id alone is not an identity. Story ids repeat every sprint, and a
+    worktree left registered by an abandoned close keeps its
+    `worktree-story-003` directory name forever — so an id-only match reads
+    LAST sprint's story-003 worktree as THIS sprint's spawned teammate. And
+    because check_lead_gates CONSUMES the marker on a False, that misread does
+    not merely skip the gate once: it DELETES it, permanently, and nothing
+    re-arms it. /xp-assign is then never demanded, no branch is cut, no teammate
+    is spawned, and the lead silently implements the story in the main checkout
+    with its commits misattributed.
+
+    The branch is what disambiguates, because it carries the slug
+    (`<user>/story-003-perf-timers` vs `<user>/story-003-tools-remember`).
+    /xp-assign records it on the story (branching.create_story_branch ->
+    sprint_store.set_story_branch) in Step 2, BEFORE the Step 4 spawn, so by the
+    time a worktree can exist the story already names the branch it must be on.
+    Exactly the defence `spawn_prompt.load_prompt_for_story` makes for the prompt
+    file, applied to the worktree.
+
+    Both sides must be NON-EMPTY. A story with no recorded branch cannot have
+    been spawned (assign cuts the branch first), and a worktree on a detached
+    HEAD reports no branch — letting `"" == ""` pass would re-open the id-only
+    hole for exactly the states that are least trustworthy.
+    """
+    branch = story.get("branch_name") or ""
+    return bool(branch) and live_branches.get(story.get("id", "")) == branch
+
+
 def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     """True while some in-progress teammate story still has no live worktree.
 
@@ -67,32 +98,48 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     promoting a frontier is /xp-schedule's business, and its own state-derived
     gate covers that window.
 
-    FAILS CLOSED — which is what lets check_lead_gates delete the marker on a
-    False. A `git worktree list` that errors yields no live worktrees, so every
-    story reads as un-spawned and the gate blocks. False therefore means the
-    sprint positively says there is nothing to assign, never "could not tell".
+    FAILS CLOSED, on EVERY read it makes — which is the licence check_lead_gates
+    needs to DELETE the marker on a False. There are three reads and each one
+    blocks rather than guesses:
+
+      * `git worktree list` errors -> no live worktrees -> every story reads
+        un-spawned -> block.
+      * sprint.json is corrupt/unreadable -> we cannot tell -> block. `load_sprint`
+        RAISES (SprintCorruptError, a ValueError; OSError on a symlink) rather
+        than returning None, and an uncaught raise here is not a block but an
+        ALLOW: the hook dies with a traceback and exits 1, which PreToolUse
+        treats as a non-blocking error — the write lands, and the QUESTION gate
+        further down _LEAD_GATES is never even reached. Note this is deliberately
+        NOT `load_sprint_fail_open`: degrading a bad read to None would make it
+        indistinguishable from "no sprint", which returns False and EATS the
+        marker. On the Write hot path a bad read must fail closed.
+      * a stale same-id worktree from a previous sprint -> not a branch match ->
+        reads un-spawned -> block (see _story_is_spawned).
+
+    False therefore means the sprint positively says there is nothing to assign,
+    never "could not tell".
 
     HOT PATH. Reached only after the marker stat and the teammate exemption; the
     stale case returns before touching git. ONE `git worktree list` answers every
     story — find_teammate_worktree_for_story re-runs it per call, costing a
     subprocess PER STORY on every Write/Edit. See check_lead_gates.
     """
-    sprint_data = sprint_state.read_sprint_content(smm_dir)
+    try:
+        sprint_data = sprint_state.read_sprint_content(smm_dir)
+    except (ValueError, OSError):
+        return True  # cannot tell -> stay armed, stay blocking
     if sprint_data is None:
         return False
 
-    promoted = [
-        story
-        for story in sprint_data.get("stories", [])
-        if story.get("status") == "in-progress"
-        and story.get("execution_mode") == "teammate"
-    ]
+    promoted = sprint_status.select_promoted_teammate_stories(
+        sprint_data.get("stories", [])
+    )
     if not promoted:
         return False  # the stale case — settled without paying for git
 
     cwd = input_data.get("cwd", ".")
-    spawned = {sid for sid, _path in worktree.list_live_teammate_worktree_paths(cwd)}
-    return any(story.get("id", "") not in spawned for story in promoted)
+    live_branches = worktree.live_teammate_branch_by_story(cwd)
+    return any(not _story_is_spawned(story, live_branches) for story in promoted)
 
 
 # Checked in order; the first armed gate blocks. Teammates are exempt from ALL

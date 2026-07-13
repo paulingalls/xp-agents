@@ -157,6 +157,7 @@ def run(
                 force_adopt_topic,
                 force_drop,
                 force_defer_until,
+                smm_dir,
             )
         case "drop":
             event = _build_drop_event(_events, agent_id, content)

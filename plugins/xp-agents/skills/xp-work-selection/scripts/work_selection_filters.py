@@ -19,6 +19,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
 import _common  # noqa: E402
+import adoption_store  # noqa: E402
 from event_builder import REFERENCES_KEY  # noqa: E402
 from event_schema import (  # noqa: E402
     DISPOSITION_DEFERRED,
@@ -107,10 +108,46 @@ def _try_targets(events: list[dict], ref_ids: list[str]) -> set[str]:
     return {r for r in ref_ids if r not in top_level_ids} or set(ref_ids)
 
 
-def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
-    """Pure filter: count retro-Try deferrals (see `_counts_as_retro_defer`) of
-    the Try named in ref_ids (see `_try_targets`). Each event contributes at most
-    once.
+def _remembered_defer_count(ledger: dict | None, targets: set[str]) -> int:
+    """The largest `defer_count` the durable ledger remembers for *targets*.
+
+    The live log is a WINDOW, not a history. Compaction archives old `status`
+    events, and a deferral IS one — so a Try carried across four sessions can
+    have every deferral swept out of `events.jsonl`. A log-only count then reads
+    ZERO for exactly the long-carried Try this gate exists to catch: the gate
+    silently disarms, on the item it was built for, for a reason (a compaction)
+    that has nothing to do with the Try.
+
+    The ledger exists precisely because compaction destroys this memory — that is
+    `adoption_store`'s whole premise, and `defer_count` is a field it carries for
+    this purpose. `intent._build_intent_map` already reconciles against it. The
+    FORCE-CLOSE gate, the OTHER consumer of the same count, did not, so the
+    milestone that made the memory durable left the mechanism that most needs it
+    still amnesiac.
+
+    MAX across targets, not sum: `_try_targets` yields the ids that may name the
+    Try, and the ledger keys entries by target id — the highest remembered count
+    is the honest floor for "this Try". Summing would double-count one Try that
+    is reachable under two ids.
+    """
+    if not ledger:
+        return 0
+    remembered = adoption_store.entries_for_lane(ledger, adoption_store.LANE_RETRO)
+    return max(
+        (
+            entry.get("defer_count") or 0
+            for target_id, entry in remembered.items()
+            if target_id in targets
+        ),
+        default=0,
+    )
+
+
+def _count_prior_defers_filter(
+    events: list[dict], ref_ids: list[str], ledger: dict | None = None
+) -> int:
+    """Count retro-Try deferrals (see `_counts_as_retro_defer`) of the Try named
+    in ref_ids (see `_try_targets`). Each event contributes at most once.
 
     The two scopings are one rule applied to both halves of the bag leak. A Try's
     ref bag holds the Try id PLUS the debt/concern ids its prose cites, so
@@ -125,6 +162,16 @@ def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
     that routing existed names it in metadata.resolves. Reading only the
     current field would reset every Try's deferral count to zero and silently
     disarm the FORCE-CLOSE gate on exactly the Tries it exists to catch.
+
+    AND the answer is the MAX of what the log can still SEE and what the ledger
+    REMEMBERS — the same reconciliation `intent._build_intent_map` performs, over
+    the same two sources, for the same reason. The two count different windows and
+    neither is complete on its own: summing double-counts every deferral present
+    in both, while the log alone regresses to zero the moment compaction runs.
+    The max never double-counts and never regresses. See `_remembered_defer_count`.
+
+    *ledger* defaults to None — the log-only answer — so a caller with no SMM dir
+    to read degrades to the old behaviour rather than erroring.
     """
     if not ref_ids:
         return 0
@@ -139,7 +186,7 @@ def _count_prior_defers_filter(events: list[dict], ref_ids: list[str]) -> int:
         )
         if targets.intersection(links):
             count += 1
-    return count
+    return max(count, _remembered_defer_count(ledger, targets))
 
 
 def _convention_topic_exists_filter(events: list[dict], topic: str) -> bool:

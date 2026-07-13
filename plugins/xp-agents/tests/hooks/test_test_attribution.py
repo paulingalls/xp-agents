@@ -77,6 +77,19 @@ class TestRunsTestBinary(unittest.TestCase):
             "(grep -rn pytest plugins/)",
             "sudo -u ci grep pytest src/",
             "env -u PYTHONPATH grep pytest src/",
+            # BOOLEAN wrapper flags. The peel used to consume the next token
+            # unconditionally as "the flag's value", which ate the `grep` and
+            # left `pytest` as the head — so a grep that merely found nothing
+            # (exit 1) was reported as a failing test run, the exact false
+            # attribution this module exists to eliminate. A flag consumes a
+            # value only when its wrapper says it takes one.
+            "time -p grep pytest plugins/",
+            "sudo -n grep pytest src/",
+            "env -i grep pytest src/",
+            "nice -n 10 grep pytest src/",  # value-taking, still peeled correctly
+            "xargs -0 grep pytest",
+            # `--opt=value` carries its own value; it must not reach forward.
+            "env --unset=PYTHONPATH grep pytest src/",
         ):
             with self.subTest(command=command):
                 framework = is_test_run(command)
@@ -97,6 +110,11 @@ class TestRunsTestBinary(unittest.TestCase):
             # value, so peeling over-consumes — and must still attribute.
             "env -u GIT_DIR -u SMM_DIR pytest -n auto",
             "env -i pytest",
+            # The control for the boolean-flag fix: not consuming a boolean
+            # flag's "value" must not stop attributing a REAL run behind one.
+            "time -p pytest tests/",
+            "sudo -n pytest tests/",
+            "nice -n 10 pytest tests/",
         ):
             with self.subTest(command=command):
                 framework = is_test_run(command)
