@@ -2,6 +2,78 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.7.0 — Adoption records intent, not resolution — and compaction stops eating the record
+
+Two of these are silent data loss that shipped in v4.6.1. If you run this plugin, upgrade.
+
+### Adopting work is not finishing it
+
+Every leg of the adoption path folded a `[refs: ...]` suffix into `metadata.resolves`. So
+"I'll do this" was recorded as "this is done": the target closed, the housekeeper read it
+as confirmed-fixed and dropped it from your curated pillars, and the work evaporated. You
+were never told.
+
+Closure (a terminal disposition) now writes `metadata.resolves`. Intent (adopt/defer) names
+its target in top-level `references` and leaves it **OPEN**. The predicate is the
+disposition, not the event type. `subagent_start` was the last reader still inferring the
+lane from an LLM-authored topic slug, and its status arm had no lane check at all — so
+triage-lane defers of *debts and concerns* reached the housekeeper mislabelled as retro
+Tries. The lane gate is now one definition, and triage items get their own heading rather
+than being deleted (they are `status` events, which `materialize` buckets nowhere — that
+block is the housekeeper's only signal that a concern was adopted).
+
+Verified by a differential over 12,757 real events: zero retro drops lost, 97 historical
+adoptions in and 97 out.
+
+### Compaction annihilated events that arrived while it ran
+
+`replace_events_file` took the exclusive lock, re-read the file under it — and threw that
+read away, writing the caller's stale snapshot. An event appended in that window was erased
+from `events.jsonl` **and** absent from the archive, which was built from the same stale
+snapshot. It reached **neither**. No trace, no signal. Teammates share one SMM dir and every
+SessionEnd compacts, so this was the normal case, not an exotic one.
+
+A whole-file rewriter now passes `seen_ids` — the ids it *read*, not the ids it keeps — and
+the primitive merges under the lock. An event the caller never saw was never a candidate for
+removal. A second door was found and closed in review: second-resolution archive filenames
+let two same-second compactions clobber each other's archive, losing the first run's events
+entirely.
+
+### Compaction could never release a commit event, in any project
+
+`compact.py` pinned every commit whose sprint lacked a `sprint_retro_done` marker — and
+nothing ever wrote that marker. Measured across 11 projects: **100% of commit events pinned,
+in every one** (74% of the live log in the worst case). The live log could never shrink, and
+every hook re-read and re-parsed all of it.
+
+Commits are now released by an **age rule**, so the fix is self-healing: it repairs existing
+projects on the next compaction, with no migration. Against the live log it released 473 of
+522 commits — ~579 KB of a 952 KB file — with zero markers present.
+
+### Adoption memory now outlives the event that recorded it
+
+A sidecar ledger (`adoption.json`, the ring-buffer template) upserts one record per adopted
+target, so a compacted adopt event no longer means forgotten work. Compaction itself is the
+writer — the thing that destroyed the memory is the thing that preserves it — so the adopt
+path needed no changes and the ledger cannot drift from it. `events.jsonl` gains nothing.
+
+### Also
+
+- **The project-agnostic guardrail gets teeth.** An AST pin fails the suite when shipped code
+  branches on a file extension for a *user-supplied* path without an inline `# lang-ok:`
+  justification. It is a floor, not a ceiling, and its docstring says so.
+- **The capstone stops assuming you write Python.** `build_capstone_story` no longer defaults
+  `acceptance_execution.type` to `pytest`; it resolves from the surfaces the capstone spans,
+  and degrades to a placeholder rather than guessing a language.
+- **Spawn refuses a prompt that names another story.** Story ids repeat every sprint, so a
+  stale prompt could spawn a teammate on the wrong story, silently.
+- **The pipeline stops inverting itself.** `xp-assign` told the lead to *pause planning* to
+  accept a finished teammate — which empties the background for the whole accept cycle.
+  Spawnable work goes out first.
+- **The `.assign-pending` gate self-clears** when there is nothing left to assign.
+- **Reasoning budgets 400 → 500** for concern/debt/decision/discovery, with the kickoff
+  injection bounded at *injection* time — so storage grows at zero extra injected bytes.
+
 ## v4.6.1 — The lead's gates stop forbidding the parallel pipeline
 
 ### A teammate never plans, so the planning marker must not gate it
