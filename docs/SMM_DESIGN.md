@@ -143,6 +143,10 @@ When adding a new mutable state file, copy the `session_history.py` template (`v
 
 **Constraint reference:** SMM constraint `83297d6921d4` codifies this pattern.
 
+Current instances: `session_history.json` and `adoption.json`.
+
+`adoption.json` (`smm/adoption_store.py`) carries one caveat worth copying if you write another derived state file. It records which retro Try items and triage items were adopted or deferred — a memory that otherwise lives only in events the log eventually archives, while the items themselves are re-offered from files that are never compacted. Its only writer is `compact.py`, at the instant the events would be lost. That makes it a **derived cache**, and a cache may not be allowed to wedge the thing that derives it: compaction is the only bound on `events.jsonl`, so an unreadable ledger is quarantined (moved to `adoption.json.corrupt`, never deleted) and rebuilt, rather than raising. The store still fails loud per the pattern above — the recovery lives in its caller, so a direct reader never silently gets an empty ledger.
+
 ### SMM_DIR resolution (separate from SMM)
 
 All scripts resolve the SMM directory via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` (single canonical source). The shell helper honors a `$SMM_DIR` environment override; otherwise it derives `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/`.

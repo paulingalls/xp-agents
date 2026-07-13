@@ -54,14 +54,15 @@ only be a retro deferral. Both this module and the FORCE-CLOSE gate rest on it.
 """
 
 from collections.abc import Callable
+from pathlib import Path
 
+import adoption_store
 import event_schema
 import resolution
 from event_builder import REFERENCES_KEY
 from event_metadata import (
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
-    METADATA_KEY_RESOLVES,
     STATUS_ACTION_RETRO_TRY_DISPOSITION,
     STATUS_ACTION_TRIAGE_DISPOSITION,
     event_action,
@@ -98,21 +99,49 @@ def retro_try_ids(events: list[dict]) -> set[str]:
     }
 
 
-def build_retro_intent_map(events: list[dict], try_ids: set[str]) -> dict[str, dict]:
+def load_ledger(smm_dir: Path | None) -> dict | None:
+    """The durable ledger for *smm_dir*, or None when there is nothing to read.
+
+    Fail-QUIET, deliberately, and it is the one place in this story that is: the
+    ledger ANNOTATES an item that the caller has already decided to show. A
+    corrupt sidecar must not take down the retro or the triage preload with it —
+    the worst case without it is the pre-story behaviour (the item is re-offered),
+    which is bad but is not an outage. `adoption_store.load_adoption` still fails
+    LOUD for its writer, where a silent empty read would destroy memory rather
+    than merely forget it.
+    """
+    if smm_dir is None:
+        return None
+    try:
+        return adoption_store.load_adoption(smm_dir)
+    except (OSError, ValueError):
+        return None
+
+
+def build_retro_intent_map(
+    events: list[dict], try_ids: set[str], *, ledger: dict | None = None
+) -> dict[str, dict]:
     """Map retro-Try id → the intent recorded about it. See module docstring.
 
     Targets are `references ∩ try_ids`. The intersection is load-bearing: an
     adopt event's reference bag also holds the debt/concern ids the Try cites,
     and those are NOT being adopted.
 
-    Note the FORCE-CLOSE gate solves this SAME "which id is the Try" question
-    with a DIFFERENT rule (`_try_targets`: an id absent from the log's top-level
-    ids is a Try). The two agree on every Try whose retrospective event is still
-    on disk. They diverge once compaction archives that event: `try_ids` goes
-    empty and this map falls silent (the Try reads as never-reviewed), while the
-    gate keeps counting. That is deliberate on the gate's side — it must fail
-    toward "still fires" — and it is the known compaction gap on this side. If
-    you change either rule, change it knowing the other exists.
+    *ledger* closes the compaction gap this docstring used to merely confess.
+    A Try id has no line of its own — it is nested inside the retrospective
+    event — so once compaction archives that event `try_ids` goes empty, every
+    log-derived target is filtered away, and the map falls silent: the Try reads
+    as never-reviewed and is re-proposed forever. The ledger is therefore
+    consulted DIRECTLY BY TARGET ID and never through `∩ try_ids`; putting it
+    behind that intersection would filter it against the same empty set and fix
+    nothing.
+
+    Note the FORCE-CLOSE gate solves the "which id is the Try" question with a
+    DIFFERENT rule (`_try_targets`: an id absent from the log's top-level ids is
+    a Try). It fails toward "still fires", which is right for a gate. The two
+    now agree for as long as the ledger remembers, rather than diverging the
+    moment the retrospective is archived. If you change either rule, change it
+    knowing the other exists.
     """
     return _build_intent_map(
         events,
@@ -121,21 +150,37 @@ def build_retro_intent_map(events: list[dict], try_ids: set[str]) -> dict[str, d
         lambda event: [
             ref for ref in event.get(REFERENCES_KEY) or [] if ref in try_ids
         ],
+        _lane_entries(ledger, adoption_store.LANE_RETRO),
     )
 
 
-def build_triage_intent_map(events: list[dict]) -> dict[str, dict]:
+def build_triage_intent_map(
+    events: list[dict], *, ledger: dict | None = None
+) -> dict[str, dict]:
     """Map triaged debt/concern/question id → the intent recorded about it.
 
     No intersection needed here: a triage disposition links exactly one id, the
     item being triaged.
+
+    A triage disposition is a `status` event — TRANSIENT, so the FIRST compaction
+    that crosses it archives it, and it is the entire intent record for this
+    lane. *ledger* is what survives that. See `build_retro_intent_map`.
     """
     return _build_intent_map(
         events,
         STATUS_ACTION_TRIAGE_DISPOSITION,
         _legacy_triage_disposition,
         lambda event: list(event.get(REFERENCES_KEY) or []),
+        _lane_entries(ledger, adoption_store.LANE_TRIAGE),
     )
+
+
+def _lane_entries(ledger: dict | None, lane: str) -> dict[str, dict]:
+    """One lane's remembered intents. Keyed by `(target_id, lane)` in the ledger,
+    so one lane can never read the other's memory."""
+    if not ledger:
+        return {}
+    return adoption_store.entries_for_lane(ledger, lane)
 
 
 def _legacy_retro_disposition(event: dict) -> str | None:
@@ -202,41 +247,61 @@ def _build_intent_map(
     action: str,
     legacy: LegacyRule,
     targets: TargetSelector,
+    remembered: dict[str, dict],
 ) -> dict[str, dict]:
     """The precedence walk both lanes share.
 
-    Precedence: a terminal disposition (`metadata.resolves`) beats any intent,
-    and among intents the LAST one wins. One walk, one copy — two hand-rolled
-    copies is how the two lanes drift apart, which is the failure this module
-    exists to fix.
+    Precedence: a terminal disposition (`metadata.resolves`) beats any intent;
+    among intents the LIVE LOG beats the ledger; and within the log the LAST one
+    wins. One walk, one copy — two hand-rolled copies is how the two lanes drift
+    apart, which is the failure this module exists to fix.
 
     "Last" means last in FILE ORDER, NOT by `ts`. `ts` is stamped BEFORE the
     flock is taken (see `retro_metrics._collect_dropped_tries_recent`), so under
     concurrent writers two events can land in the file out of ts order. The log
     is append-only and flock-serialized, so file order IS causal order.
 
+    *remembered* is the ledger's view of this lane, seeded FIRST so the log's
+    walk overwrites it: the ledger is a snapshot taken at the last compaction,
+    the log is now. Seeding it here rather than merging afterwards is what makes
+    a closure suppress a REMEMBERED intent too — `closed` is computed from the
+    live log and applied to both sources at once. Without that, a Try adopted and
+    later dropped would come back as adopted the moment its adopt event was
+    archived, and stay adopted forever.
+
     Each entry is `{intent, intent_by, intent_ts, defer_count}`. `defer_count`
     counts every deferral of that target, not just consecutive ones, so a Try
     deferred twice and then adopted still carries the honest count of how long it
     was carried.
     """
-    intents: dict[str, dict] = {}
+    intents: dict[str, dict] = {
+        target_id: dict(entry) for target_id, entry in remembered.items()
+    }
+    # Held apart from `intents` because the log's walk REPLACES an entry
+    # wholesale — a fresher deferral must overwrite the remembered intent, but
+    # it must not take the remembered COUNT down with it.
+    remembered_counts: dict[str, int] = {
+        target_id: entry.get("defer_count") or 0
+        for target_id, entry in remembered.items()
+    }
     defer_counts: dict[str, int] = {}
-    closed: set[str] = set()
+    # Read off the WHOLE log up front, and applied at the end: a terminal
+    # disposition wins over an intent regardless of which came first. Shared with
+    # `adoption_store`'s prune (via `compact._fold_adoption_ledger`) so the reader
+    # and the pruner cannot disagree about what "closed" means — a disagreement
+    # that resurrects a finished item as adopted, permanently.
+    closed: set[str] = resolution.claimed_resolved_ids(events)
 
     for event in events:
-        metadata = event.get("metadata") or {}
-        # Collected across the WHOLE walk, and applied at the end: a terminal
-        # disposition wins over an intent regardless of which came first.
-        closed.update(metadata.get(METADATA_KEY_RESOLVES) or [])
-
         disposition = _lane_disposition(event, action, legacy)
         if disposition is None:
             continue
         for target_id in targets(event):
             if disposition == DISPOSITION_DEFERRED:
                 defer_counts[target_id] = defer_counts.get(target_id, 0) + 1
-            # Plain assignment, so a later intent overwrites an earlier one.
+            # Plain assignment, so a later intent overwrites an earlier one —
+            # and overwrites the ledger's remembered one, which is older by
+            # construction.
             intents[target_id] = {
                 "intent": disposition,
                 "intent_by": event.get("id", ""),
@@ -244,7 +309,20 @@ def _build_intent_map(
             }
 
     return {
-        target_id: {**entry, "defer_count": defer_counts.get(target_id, 0)}
+        target_id: {
+            **entry,
+            # The larger of what the log can still SEE and what the ledger
+            # REMEMBERS. The two count different windows and neither is complete
+            # on its own: the ledger holds the count as of the last fold, the log
+            # holds only the deferrals still on disk. Summing them double-counts
+            # every deferral present in both windows; taking the log's alone makes
+            # a Try carried for five sessions read as freshly raised the moment
+            # compaction runs. The max never double-counts and never regresses —
+            # an honest floor on how long the item has been carried.
+            "defer_count": max(
+                defer_counts.get(target_id, 0), remembered_counts.get(target_id, 0)
+            ),
+        }
         for target_id, entry in intents.items()
         if target_id not in closed
     }

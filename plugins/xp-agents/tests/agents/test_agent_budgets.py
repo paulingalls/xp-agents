@@ -26,7 +26,12 @@ AGENT_BUDGETS: dict[str, int] = {
     "xp-code-reviewer": 8550,
     "xp-housekeeper": 11230,
     "xp-plan-reviewer": 21940,
-    "xp-retrospective": 21770,
+    # Bumped 21770 -> 22050 for the --retro-kind sprint instruction. This agent
+    # is the ONLY caller of save_retrospective.py, so without that instruction
+    # the sprint-retro completion marker has no reachable producer and every
+    # sprint's commits stay pinned in the log forever. Load-bearing prose, not
+    # padding — deliberate bump per this module's docstring.
+    "xp-retrospective": 22050,
     "xp-sprint-reviewer": 4660,
     "xp-system-analyzer": 19640,
 }

@@ -303,6 +303,30 @@ def compute_resolutions(events: list[dict]) -> dict:
     }
 
 
+def claimed_resolved_ids(events: list[dict]) -> set[str]:
+    """Every id any event CLAIMS to close, read straight off `metadata.resolves`.
+
+    INDEX-FREE, and that is the whole point of it existing beside
+    `collect_all_resolved_ids`. `compute_resolutions` can only mark a target
+    resolved if `resolve_prefix` still finds the target's own event in the log —
+    so once a target is archived, a closer naming it resolves NOTHING.
+
+    That gap is fatal for any durable store of open items (`adoption_store`): the
+    ids such a store remembers are precisely the ones whose events are gone, so
+    pruning it on `compute_resolutions` alone is blind exactly where it must see.
+    A closer would land, be archived itself (it is a transient `status`), and the
+    store would go on calling a finished item open forever.
+
+    Prefix targets and cascade closures are NOT visible here — those need the
+    index. The two functions are complements, not substitutes: union them.
+    """
+    return {
+        target
+        for event in events
+        for target in (event.get("metadata") or {}).get(METADATA_KEY_RESOLVES) or []
+    }
+
+
 def collect_all_resolved_ids(resolutions: dict) -> set[str]:
     """Union every set value at a `*_ids` key in *resolutions*.
 
@@ -317,6 +341,32 @@ def collect_all_resolved_ids(resolutions: dict) -> set[str]:
         if key.endswith("_ids"):
             resolved |= value
     return resolved
+
+
+def closed_target_ids(events: list[dict]) -> set[str]:
+    """Every id the log says is finished with — the ledger's prune signal.
+
+    The UNION of the two closure readings, because each is blind where the other
+    sees, and the ledger needs both:
+
+      * `collect_all_resolved_ids(compute_resolutions(...))` resolves through the
+        id INDEX, so it alone catches prefix targets and WEAK-cascade closures
+        (an adopt `decision` closes when its `references` reach a resolved root).
+        But it can only resolve a target whose OWN event is still in the log.
+      * `claimed_resolved_ids` reads `metadata.resolves` raw, so it sees a closer
+        naming a target that was archived long ago — which is the ledger's entire
+        population. This is the one that stops the resurrection: a Try dropped
+        after its retrospective was archived is unindexable, so the resolver
+        cannot see the drop at all, the entry would survive the drop event's own
+        archival, and the Try would read as adopted forever.
+
+    It is also exactly the set `intent._build_intent_map` treats as closed, plus
+    the index-derived ids — so the reader can never call something open that the
+    pruner called closed.
+    """
+    return collect_all_resolved_ids(compute_resolutions(events)) | claimed_resolved_ids(
+        events
+    )
 
 
 # ---------------------------------------------------------------------------
