@@ -27,6 +27,7 @@ import resolution
 import security_patterns
 import security_scanner
 import staged_lint
+import story_done_gate
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
 # ---------------------------------------------------------------------------
@@ -50,6 +51,12 @@ _CD_WORKTREE_GIT_WARNING = (
     "so the PostToolUse trailer-extract reads the wrong HEAD and "
     "Resolves-Event auto-link silently breaks. Use `git -C <worktree> ...` instead."
 )
+
+# The merge gate's escape hatch. Matched on the COMMAND rather than parsed from the
+# story, because the gate must honor the override before it does any work. The CLI
+# is what enforces that the reason is non-empty and records the debt event — a hook
+# that merely sees the flag cannot police what follows it.
+_FORCE_UNMERGED_RE = re.compile(r"--force-unmerged\b")
 
 
 # ---------------------------------------------------------------------------
@@ -331,15 +338,34 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if nudge:
                 parts.append(nudge)
 
+    mark_done = re.search(r"update-story\s+(\S+)\s+done\b", command)
+
     if (
         smm_dir is not None
-        and re.search(r"update-story\s+\S+\s+done\b", command)
+        and mark_done
         and markers.marker_exists(smm_dir, markers.ACCEPT)
     ):
         raise _common.BlockedError(
             "Run /xp-accept to verify acceptance criteria before marking stories done.",
             "Acceptance verification required.",
         )
+
+    # The merge gate. The ACCEPT marker above cannot cover this: /xp-accept's own
+    # preload CONSUMES that marker at the start of the run, long before the close
+    # merges — so by mark-done time it is gone. This gate is state-derived and
+    # evaluated at the instant of mark-done, which is the only moment the answer
+    # ("did the merge actually land?") is knowable.
+    if smm_dir is not None and mark_done and not _FORCE_UNMERGED_RE.search(command):
+        # `cwd`, not `effective_cwd`: the latter is bound only on the git-commit
+        # path (it parses a `git -C <path>` prefix), and a mark-done command has no
+        # such prefix to unwrap. It is also the orchestrator's repo, which is where
+        # the story's branch and its base actually live.
+        block = story_done_gate.merged_block(smm_dir, cwd, mark_done.group(1))
+        if block:
+            raise _common.BlockedError(
+                f"Refusing to mark {mark_done.group(1)} done: {block}",
+                "Merge not verified — the story's work is not on its base branch.",
+            )
 
     if smm_dir is not None:
         args = _common.parse_append_sh_args(command)
