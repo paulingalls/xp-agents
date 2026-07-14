@@ -19,183 +19,17 @@ import marker_names
 import worktree
 from event_schema import STATUS_ACTION_LINT_RESOLVED
 
-_LINTER_CONFIGS = [
-    # (config_pattern, linter_name, check_content)
-    # Python
-    ("ruff.toml", "ruff", None),
-    (".flake8", "flake8", None),
-    ("pyproject.toml", "ruff", "[tool.ruff]"),
-    ("setup.cfg", "flake8", "[flake8]"),
-    # JavaScript/TypeScript
-    (".eslintrc", "eslint", None),
-    (".eslintrc.json", "eslint", None),
-    (".eslintrc.js", "eslint", None),
-    (".eslintrc.yml", "eslint", None),
-    (".eslintrc.yaml", "eslint", None),
-    ("eslint.config.js", "eslint", None),
-    ("eslint.config.mjs", "eslint", None),
-    ("eslint.config.ts", "eslint", None),
-    (".prettierrc", "prettier", None),
-    (".prettierrc.json", "prettier", None),
-    (".prettierrc.js", "prettier", None),
-    # Rust (clippy is built into cargo)
-    ("Cargo.toml", "clippy", None),
-    # Go
-    (".golangci.yml", "golangci-lint", None),
-    (".golangci.yaml", "golangci-lint", None),
-    # Ruby
-    (".rubocop.yml", "rubocop", None),
-    # C/C++
-    (".clang-tidy", "clang-tidy", None),
-    (".clang-format", "clang-format", None),
-    # Java/Kotlin
-    ("checkstyle.xml", "checkstyle", None),
-    ("detekt.yml", "detekt", None),
-    # PHP
-    ("phpcs.xml", "phpcs", None),
-    (".php-cs-fixer.php", "php-cs-fixer", None),
-    # Dart/Flutter
-    ("analysis_options.yaml", "dart-analyze", None),
-    # Elixir
-    (".credo.exs", "credo", None),
-    # C#
-    ("stylecop.json", "dotnet-format", None),
-    # Swift
-    (".swiftlint.yml", "swiftlint", None),
-]
-
-_LINTER_COMMANDS = {
-    # `--output-format=concise` pins ruff to the single-line `path:line:col: CODE
-    # msg` shape that run_ruff's edit-time parser expects. Without it, ruff 0.15+
-    # defaults to multi-line "full" format, that parser extracts zero codes, and
-    # the edit-time lint concern silently stops firing. Do NOT remove. (The
-    # commit-time gate parses nothing, but still reads better concise.)
-    "ruff": ["ruff", "check", "--output-format=concise"],
-    "flake8": ["flake8"],
-    "eslint": ["npx", "eslint"],
-    "prettier": ["npx", "prettier", "--check"],
-    "clippy": ["cargo", "clippy", "--", "-D", "warnings"],
-    "golangci-lint": ["golangci-lint", "run"],
-    "rubocop": ["rubocop"],
-    "clang-tidy": ["clang-tidy"],
-    "clang-format": ["clang-format", "--dry-run", "-Werror"],
-    "checkstyle": ["checkstyle", "-c", "/google_checks.xml"],
-    "detekt": ["detekt"],
-    "phpcs": ["phpcs"],
-    "php-cs-fixer": ["php-cs-fixer", "fix", "--dry-run"],
-    "dart-analyze": ["dart", "analyze"],
-    "credo": ["mix", "credo"],
-    "dotnet-format": ["dotnet", "format", "--verify-no-changes"],
-    "swiftlint": ["swiftlint"],
-}
-
-_LINTER_EXTENSIONS: dict[str, set[str]] = {
-    "ruff": {".py", ".pyi", ".ipynb"},
-    "flake8": {".py", ".pyi"},
-    "eslint": {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".vue"},
-    "prettier": {
-        ".js",
-        ".ts",
-        ".jsx",
-        ".tsx",
-        ".css",
-        ".scss",
-        ".json",
-        ".md",
-        ".yaml",
-        ".yml",
-    },
-    "clippy": {".rs"},
-    "golangci-lint": {".go"},
-    "rubocop": {".rb"},
-    "clang-tidy": {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"},
-    "clang-format": {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"},
-    "checkstyle": {".java"},
-    "detekt": {".kt", ".kts"},
-    "phpcs": {".php"},
-    "php-cs-fixer": {".php"},
-    "dart-analyze": {".dart"},
-    "credo": {".ex", ".exs"},
-    "dotnet-format": {".cs"},
-    "swiftlint": {".swift"},
-}
-
-# Extensions that warrant a "set up a linter" nudge — excludes prettier-only
-# formats (md, json, yaml, css) which don't need a real linter.
-_CODE_EXTENSIONS: frozenset[str] = frozenset(
-    ext
-    for linter, exts in _LINTER_EXTENSIONS.items()
-    if linter != "prettier"
-    for ext in exts
+# detect_linter_config is re-exported into this namespace on purpose: ~25 tests
+# and lint_resolution reach it as `lint_check.detect_linter_config`, and the
+# patch sites bind to THIS module. The tables live in `linters` — one home for
+# everything language-specific; see that module's docstring.
+from linters import (
+    CODE_EXTENSIONS,
+    LINTER_BINARIES,
+    LINTER_COMMANDS,
+    LINTER_EXTENSIONS,
+    detect_linter_config,
 )
-
-_LINTER_BINARIES = {
-    "ruff": "ruff",
-    "flake8": "flake8",
-    "eslint": "npx",
-    "prettier": "npx",
-    "clippy": "cargo",
-    "golangci-lint": "golangci-lint",
-    "rubocop": "rubocop",
-    "clang-tidy": "clang-tidy",
-    "clang-format": "clang-format",
-    "checkstyle": "checkstyle",
-    "detekt": "detekt",
-    "phpcs": "phpcs",
-    "php-cs-fixer": "php-cs-fixer",
-    "dart-analyze": "dart",
-    "credo": "mix",
-    "dotnet-format": "dotnet",
-    "swiftlint": "swiftlint",
-}
-
-
-def detect_linter_config(
-    cwd: str, git_root: str, file_path: str | None = None
-) -> tuple[str, str] | None:
-    """Walk from file dir (or cwd) up to git_root for linter config.
-
-    With file_path, only returns a linter whose extensions match — finds
-    pyproject.toml [tool.ruff] in subdirs, blocks eslint for .py files.
-    Returns (linter_name, config_path) or None.
-
-    lang-ok: the extension test routes a file to the linter that claims it, off
-    the _LINTER_EXTENSIONS table. Supporting one more language is a row in that
-    table, not a branch here; an unclaimed extension simply finds no linter.
-    """
-    file_suffix = Path(file_path).suffix if file_path else None
-
-    if file_path is not None:
-        start_path = Path(cwd, file_path).resolve().parent
-    else:
-        start_path = Path(cwd).resolve()
-    root_path = Path(git_root).resolve()
-
-    current = start_path
-    while True:
-        for config_name, linter, content_check in _LINTER_CONFIGS:
-            if file_suffix is not None:
-                allowed = _LINTER_EXTENSIONS.get(linter)
-                if allowed is not None and file_suffix not in allowed:
-                    continue
-
-            config_path = current / config_name
-            if config_path.exists():
-                if content_check is not None:
-                    try:
-                        text = config_path.read_text(encoding="utf-8")
-                        if content_check not in text:
-                            continue
-                    except (OSError, UnicodeDecodeError):
-                        continue
-                return (linter, str(config_path))
-
-        if current == root_path or current == current.parent:
-            break
-        current = current.parent
-
-    return None
-
 
 # Per-file timeout (run_linter); also the base for run_linter_batch's scaled
 # timeout: min(CAP, BASE + PER_PATH * N). Single source so bumps land in both.
@@ -240,11 +74,11 @@ def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
     doesn't claim. Shared by run_linter and run_linter_batch — single source
     so the security guard can't drift between callers.
 
-    lang-ok: same _LINTER_EXTENSIONS table as detect_linter_config — a linter
+    lang-ok: same LINTER_EXTENSIONS table as detect_linter_config — a linter
     with no entry claims every path (`allowed is None`), so an unlisted language
     is passed through rather than filtered out.
     """
-    allowed = _LINTER_EXTENSIONS.get(linter_name)
+    allowed = LINTER_EXTENSIONS.get(linter_name)
     return [
         p
         for p in paths
@@ -254,7 +88,7 @@ def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
 
 def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
     """Run linter on file. Returns error output, or None if clean/unavailable."""
-    binary = _LINTER_BINARIES.get(linter_name)
+    binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
 
@@ -262,7 +96,7 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
         return None
 
     # "--" separates flags from filename arg
-    cmd = _LINTER_COMMANDS[linter_name] + ["--", file_path]
+    cmd = LINTER_COMMANDS[linter_name] + ["--", file_path]
     try:
         result = subprocess.run(
             cmd,
@@ -355,7 +189,7 @@ def run_linter_batch(
     Timeout: min(10, 5 + 0.05 * N) — single-file batches fail fast, large
     batches stay bounded so a hung linter can't stall a 100-file commit.
     """
-    binary = _LINTER_BINARIES.get(linter_name)
+    binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return LintRun("unverified", f"{linter_name}: `{binary}` is not on PATH")
 
@@ -373,7 +207,7 @@ def run_linter_batch(
     if not eligible:
         return LintRun("clean", "")
 
-    cmd = _LINTER_COMMANDS[linter_name] + ["--"] + eligible
+    cmd = LINTER_COMMANDS[linter_name] + ["--"] + eligible
     timeout = min(
         BATCH_TIMEOUT_CAP_S,
         LINTER_BASE_TIMEOUT_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
@@ -488,10 +322,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if config is None:
         # Only nudge for code files — non-code (md, json, yml) doesn't need a linter
-        # lang-ok: _CODE_EXTENSIONS spans the languages a linter nudge can help;
+        # lang-ok: CODE_EXTENSIONS spans the languages a linter nudge can help;
         # an unlisted one just gets no nudge, which is a missing suggestion, not
         # a blocked or misjudged write.
-        if Path(normalized).suffix not in _CODE_EXTENSIONS:
+        if Path(normalized).suffix not in CODE_EXTENSIONS:
             return None
         # Nudge once per session — atomic create, no symlink follow
         flag = smm_dir / marker_names.LINT_WARNED
@@ -510,7 +344,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     linter_name, config_path = config
 
-    binary = _LINTER_BINARIES.get(linter_name)
+    binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
 
