@@ -4,10 +4,20 @@ History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
 ## v4.8.0 — Gates that fail OPEN
 
-Five gates in this plugin could be made to wave work through. Every one of them is fixed here,
-and **four were found by review, not by the story that opened the file.**
+**Seven gates in this plugin could be made to wave work through**, and one of them had never
+fired in production at all. Every one is fixed here — and **most were found by review, not by
+the story that opened the file.** Twice, review disproved a claim the author had already
+written into a commit message.
 
 A gate that fails open is worse than no gate: it reports that it checked.
+
+The sharpest lesson of the sprint is in the two gates that were *added* here. One shipped
+**dead** — its pattern required the CLI name on the same line as the subcommand, but the real
+invocation is wrapped across a line continuation, and every test passed because the test's
+fixture was single-line. A fixture that does not have production's shape is a mirror, not a
+test. The other was built on an invariant that turned out to be **false**: "git refuses to
+delete an unmerged branch" is true only of a branch with no upstream, and this pipeline pushes
+every branch before it merges.
 
 ### The schedule gate blocked the wrong writes — and the plan door failed open
 
@@ -85,6 +95,50 @@ deliverable.
 Building it exposed a fail-open in the id pattern itself: `EVENT_ID_RE` was anchored with `$`, which
 in Python matches **before a trailing newline** — so `"<id>\n"` validated as an id and then matched
 nothing. It guards `metadata.resolves` too.
+
+### A story could be recorded as shipped when its merge never happened
+
+The close pipeline merged, then marked the story done — and **nothing stood between those two
+steps.** When a merge failed on a transient `.git/index.lock` (a sibling worktree holding the
+index for a moment), the pipeline carried on and recorded work that was not on the branch.
+
+The failure was never silent at the git level; the merge exits non-zero with git's own stderr.
+The silence is that the *caller* is an agent following prose. So mark-done is now gated on
+**proof from git**, not on the agent's word.
+
+Getting the proof right mattered more than it looked. The obvious design — record the merged
+SHA at merge time — is a trap: if the merge succeeds and the state write then fails, re-running
+the merge answers *"Already up to date"*, no SHA can ever be produced, and the story becomes
+**permanently un-markable**. A gate whose only repair path is blocked by itself is worse than
+the bug.
+
+So the proof is derived from git at the instant of mark-done. And the invariant it first rested
+on — *"git refuses to delete an unmerged branch, so the branch's absence proves the merge"* —
+is **false**: `git branch -d` defers to the branch's **upstream**, and story-close pushes every
+branch before merging. Git will delete an unmerged-but-pushed branch and exit 0. The merge proof
+is now *ours*, checked before any delete, rather than something we hoped git enforced.
+
+The transient lock is retried too (bounded, backing off, lock-signature only — a real conflict
+must still fail on the first attempt). But the retry only **narrows** the window. The gate is
+the fix.
+
+There is an escape hatch, because a gate with no recovery path is its own failure mode:
+`--force-unmerged "<reason>"` requires a non-empty reason and records a debt event. The bypass
+is never silent.
+
+### The test suite stopped writing into a shared /tmp root
+
+Tests that drive a teammate spawn were minting real directories under the real, shared
+`/tmp/xp-agents-teammates` — hundreds of them, four more every run.
+
+The obvious fix (have the test base delete the directory it created) was **more dangerous than
+the leak**: the path is derived from the SMM dir, `init.sh` honors an exported `SMM_DIR`
+verbatim, and that is exactly a CLI teammate's environment — so the sweep could resolve to a
+**live project's id** and delete a running teammate's logs.
+
+Redirect, don't sweep. The log root now resolves through `XP_TEAMMATE_LOG_ROOT`, and the test
+suite points it at a sandbox. Nothing is written to the real root, so nothing can delete the
+wrong thing — the class of bug is gone rather than guarded against.
 
 ### What is actually gated, and what only advises
 
