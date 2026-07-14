@@ -24,7 +24,6 @@ from conftest import _PLUGIN_ROOT
 
 _VALID_ID = "1a2b3c4d5e6f"
 _VALID_ID_2 = "aabbccddeeff"
-_VALID_ID_3 = "123456789abc"
 _VALID_TS = "2026-04-09T02:15:28.155493+00:00"
 
 
@@ -286,6 +285,29 @@ class TestValidateSMMEntryBase(unittest.TestCase):
         e = _entry(type="goal", source_event_id="bogus")
         errors = smm_schema.validate_smm(_smm(intent=[e]))
         self.assertTrue(any("source_event_id" in err for err in errors))
+
+
+class TestEventIdRe(unittest.TestCase):
+    """EVENT_ID_RE is THE id pattern — event_schema (metadata.resolves),
+    system_context (source_event_id), and execution_plan (milestone.schedules)
+    all validate against it, then consume the id by exact string equality.
+    """
+
+    def test_accepts_bare_12_hex(self):
+        self.assertTrue(smm_schema.EVENT_ID_RE.match(_VALID_ID))
+
+    def test_rejects_trailing_newline(self):
+        """Anchored with `\\Z`, not `$` — `$` also matches BEFORE a trailing
+        newline, so it accepted "1a2b3c4d5e6f\\n" as valid. Such an id passes
+        validation and then equals no real id, silently resolving/scheduling
+        nothing.
+        """
+        self.assertIsNone(smm_schema.EVENT_ID_RE.match(_VALID_ID + "\n"))
+
+    def test_rejects_wrong_length_and_non_hex(self):
+        for bad in ("1a2b3c4d5e6", "1a2b3c4d5e6ff", "1A2B3C4D5E6F", "not-an-id", ""):
+            with self.subTest(bad=bad):
+                self.assertIsNone(smm_schema.EVENT_ID_RE.match(bad))
 
 
 if __name__ == "__main__":

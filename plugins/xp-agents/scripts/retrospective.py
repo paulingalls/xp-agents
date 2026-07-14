@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import execution_plan_store
 import marker_names
 import session_history
 import story_metrics
@@ -48,6 +49,71 @@ RETRO_THRESHOLD = 5
 # by the xp-assign hand-off as a status event; the writer is shell and cannot
 # import this, so this anchors the reader side).
 _TIER_OVERRIDE_ACTION = tier_wire.TIER_OVERRIDE_ACTION
+
+
+def _build_plan_schedule(smm_dir: Path | None) -> dict[str, str]:
+    """Map each recorded item id the OPEN plan schedules to the milestone that
+    schedules it: ``{"<event id>": "M4: Close gates honor evidence, not intent"}``.
+
+    This is what lets the retro agent tell "already scheduled" apart from
+    "unresolved xN". Without it the agent sees an aging debt, counts the sessions
+    it has survived, and escalates — even when a milestone was written to fix
+    exactly that debt.
+
+    Only ACTIVE milestones (``execution_plan_store.ACTIVE_MILESTONE_STATUSES``)
+    schedule anything, and the shared constant is the point: a `!= "delivered"`
+    test — or a second hand-written status list — ADMITS `deferred`, and a
+    deferred milestone schedules nothing. Reporting a debt as "scheduled in M5"
+    when M5 is deferred (or shipped without fixing it) would stop the retro
+    escalating work nobody will do: the same false reassurance this map exists to
+    prevent, merely mirrored.
+
+    Keyed by ID rather than filtered to the digest's events on purpose: the agent
+    must be able to look up ANY id it is about to escalate, including one it
+    recalled from a previous retro's prose after the event itself was compacted
+    out of the live log. That is how most of these nags actually arise.
+
+    Degrades to an empty map when there is no plan (``load_plan`` returns None) —
+    an absent plan means nothing is scheduled, which is not an error.
+
+    Degrades the same way when the plan is UNREADABLE, and that is a deliberate
+    departure from `load_plan`'s fail-loud contract. Its other callers are plan
+    tools, and a plan tool facing a corrupt plan genuinely has nothing to do; this
+    caller merely ANNOTATES a retro the hook has already decided to run. Letting
+    the plan's corruption escape here would newly couple every session start to
+    plan validity and take down the retro. The cost of degrading is bounded and
+    known: an empty map means "nothing known to be scheduled", i.e. the behaviour
+    from before this field existed. Same call, same reasoning, as
+    `intent.load_ledger`.
+    """
+    if smm_dir is None:
+        return {}
+
+    try:
+        plan = execution_plan_store.load_plan(smm_dir)
+    except (ValueError, OSError) as exc:
+        print(
+            f"retrospective: ignoring unreadable execution plan: {exc}",
+            file=sys.stderr,
+        )
+        return {}
+    if plan is None:
+        return {}
+
+    schedule: dict[str, str] = {}
+    # By NUMBER, not by list order. When two open milestones schedule the same id
+    # the first one wins, and "first" has to mean the one that reaches the debt
+    # sooner — that is the label that stays true if the later milestone is
+    # re-planned. List order is not that order: `number` is validated only as an
+    # int (no ordering, no uniqueness) and `add-milestone` appends, so a
+    # late-authored M3 sits after M6 on disk.
+    for milestone in sorted(plan["milestones"], key=lambda m: m["number"]):
+        if milestone["status"] not in execution_plan_store.ACTIVE_MILESTONE_STATUSES:
+            continue
+        label = f"M{milestone['number']}: {milestone['name']}"
+        for event_id in milestone.get("schedules", []):
+            schedule.setdefault(event_id, label)
+    return schedule
 
 
 def _compute_tier_override_signal(events: list[dict]) -> dict:
@@ -208,6 +274,7 @@ def _build_retro_input(
         "recent_summaries": recent_summaries or [],
         "event_type_counts": type_counts,
         "session_stats": session_stats,
+        "plan_schedule": _build_plan_schedule(smm_dir),
         "digest": digest,
     }
 

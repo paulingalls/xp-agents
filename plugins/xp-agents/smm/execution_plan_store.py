@@ -165,8 +165,15 @@ def set_branch(smm_dir: Path, branch: str | None) -> None:
     save_plan(smm_dir, plan, enforce_budget=False)
 
 
-_TERMINAL_STATUSES = frozenset({"delivered", "deferred"})
-_ACTIVE_STATUSES = VALID_MILESTONE_STATUSES - _TERMINAL_STATUSES
+TERMINAL_MILESTONE_STATUSES = frozenset({"delivered", "deferred"})
+
+# The statuses under which a milestone still owes work: shipped (`delivered`)
+# and consciously dropped (`deferred`) are the only two that don't. DERIVED from
+# the schema's valid set, never re-listed: a hand-written `{planned,
+# in-progress}` copy silently drops any status added later, and every consumer
+# asking "is this milestone still going to happen?" must answer alike. Public
+# because that question is asked outside this module (retrospective.py).
+ACTIVE_MILESTONE_STATUSES = VALID_MILESTONE_STATUSES - TERMINAL_MILESTONE_STATUSES
 
 
 def plan_is_complete(plan: dict) -> bool:
@@ -176,7 +183,7 @@ def plan_is_complete(plan: dict) -> bool:
     Deferred milestones are terminal (consciously dropped) and do not
     count as remaining work — same class as delivered for completion.
     """
-    return not any(m["status"] in _ACTIVE_STATUSES for m in plan["milestones"])
+    return not any(m["status"] in ACTIVE_MILESTONE_STATUSES for m in plan["milestones"])
 
 
 def has_remaining_work(smm_dir: Path) -> bool:

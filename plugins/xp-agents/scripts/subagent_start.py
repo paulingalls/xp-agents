@@ -32,6 +32,7 @@ from event_schema import (
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,
+    LEGACY_RETRO_TOPIC_PREFIX,
     event_action,
     event_disposition,
     is_retro_lane,
@@ -80,11 +81,6 @@ def _inject_retrospective(smm: dict, smm_dir: Path, input_data: dict) -> list[st
     """xp-retrospective: advertise paths (retrospective.py writes RETRO_INPUT)."""
     return [f"SMM_DIR={smm_dir}\nRETRO_INPUT={smm_dir / _common.RETRO_INPUT_FILENAME}"]
 
-
-# Only used to read events written BEFORE the lane tag existed — a tagged
-# adoption is identified by its tag, never by its topic. An LLM authors this
-# slug, so a tagged adoption whose slug drifts must still be seen.
-_LEGACY_RETRO_TOPIC_PREFIX = "retro-try-"
 
 # This reader's own bucket is "Deferred / **Dropped**", so it keeps its own
 # disposition set and reads the RAW disposition (`event_disposition`). NOT
@@ -171,7 +167,7 @@ def _is_retro_adoption(event: dict) -> bool:
     """
     if event_action(event) is not None:
         return is_retro_lane(event) and event_disposition(event) == DISPOSITION_ADOPTED
-    return (event.get("topic") or "").startswith(_LEGACY_RETRO_TOPIC_PREFIX)
+    return (event.get("topic") or "").startswith(LEGACY_RETRO_TOPIC_PREFIX)
 
 
 def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
