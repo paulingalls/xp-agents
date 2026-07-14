@@ -184,14 +184,25 @@ def _handle_sprint_review_done(smm_dir: Path, input_data: dict) -> None:
 
 
 def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
-    """Consume CLOSE_CYCLE_ACTIVE after xp-close-reviewer completes.
+    """Emit the close-reviewer's completion evidence, then consume CLOSE_CYCLE_ACTIVE.
 
     Must run BEFORE the is_xp_agent skip — close-reviewer is xp-*, would
     otherwise be silently skipped and leave the close-cycle gate blocking.
+
+    The close-reviewer was the one subagent emitting NO completion event: it
+    returned at the is_xp_agent skip before the generic _record_completion
+    path. Emit the SAME subagent_complete evidence every other subagent
+    produces (mirroring the sibling _handle_plan_review_done) so the
+    close-cycle gate can cross-check reviewer-completion rather than trust the
+    bare marker. Order is load-bearing: emit FIRST, consume SECOND — a crash
+    between them must leave evidence, not a silently-consumed marker. The
+    marker_consume stays: the marker is still the state teardown and
+    abandonment backstop.
     """
     agent_type = input_data.get("agent_type", "")
     if target_routing.strip_our_namespace(agent_type) != _CLOSE_REVIEWER_BARE:
         return
+    _emit_subagent_complete(smm_dir, input_data)
     markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
 
 
