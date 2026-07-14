@@ -344,14 +344,38 @@ def detect_linter_config(
 
 
 # Re-exported BY IDENTITY from the invocation module, which is split out to keep this
-# file under the 500-line cap. `linters.linter_argv is linter_invocation.linter_argv`.
-# The import sits at the bottom because that module imports the TABLES above — a
-# top-of-file import would be circular.
-from linter_invocation import (  # noqa: E402, F401
-    _compile_db_covers,
-    degrade_reason,
-    is_file_scoped,
-    linter_argv,
-    linter_command,
-    preconditions_met,
+# file under the 500-line cap. `linters.linter_argv IS linter_invocation.linter_argv`.
+#
+# LAZILY, via PEP 562, and that is not a style choice. A bottom-of-file
+# `from linter_invocation import ...` only works while `linters` is imported FIRST:
+# import the invocation module first and it imports these tables, which run to the
+# bottom, which re-imports a module that is still half-initialized —
+#
+#     ImportError: cannot import name '_compile_db_covers' from 'linter_invocation'
+#
+# Nothing does that today, so it never fired. But in a PreToolUse hook an ImportError
+# exits 1, and the harness reads a non-2 exit as NON-BLOCKING: the commit lint gate
+# would not fail closed, it would fail OPEN, and the commit would land unlinted. A
+# gate taken down by an import order is the failure this release is named after.
+#
+# Deferring to first attribute access breaks the cycle without forking the function
+# into two objects — `linters.linter_argv is linter_invocation.linter_argv` still
+# holds, so a patch on either name intercepts the other.
+_REEXPORTED = frozenset(
+    {
+        "_compile_db_covers",
+        "degrade_reason",
+        "is_file_scoped",
+        "linter_argv",
+        "linter_command",
+        "preconditions_met",
+    }
 )
+
+
+def __getattr__(name: str):
+    if name in _REEXPORTED:
+        import linter_invocation
+
+        return getattr(linter_invocation, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

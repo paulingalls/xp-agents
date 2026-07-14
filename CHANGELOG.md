@@ -142,9 +142,9 @@ wrong thing — the class of bug is gone rather than guarded against.
 
 ### What is actually gated, and what only advises
 
-The heading above says "any language", and when it was written nobody had run the binaries. So we
-ran them, and the claim was too strong. **C/C++ and Java were not gated at all** — both were parked
-as advisory-only, while the release note said otherwise.
+The first draft of this note claimed "any language", and when it was written nobody had run the
+binaries. So we ran them, and the claim was too strong. **C/C++ and Java were not gated at all** —
+both were parked as advisory-only, while the release note said otherwise.
 
 **C/C++ is now genuinely gated**, and getting there refuted the fix we had written down for it:
 
@@ -157,7 +157,10 @@ as advisory-only, while the release note said otherwise.
 - Our own recorded fix said "sources before the separator, **trailing `--`**". The trailing `--`
   means *no compiler flags* and **overrides `compile_commands.json`**, throwing away the database
   that lets clang-tidy resolve an `#include`. Half our prescription was wrong.
-- So C/C++ is gated **where a compile database exists**, and degrades honestly where it does not —
+- So C/C++ is gated **where a compile database covers the staged file** — not merely where one
+  exists. A partial or stale database (a new subtree, generated sources, a DB nobody re-ran) leaves
+  that file no include flags, and clang-tidy then fails to *compile* it — which the gate would read
+  as a finding and refuse the commit over. Uncovered files degrade honestly instead —
   because without one, a header in another directory fails to *compile*, and the gate would block on
   an error no diff can fix.
 

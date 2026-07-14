@@ -115,10 +115,23 @@ class _ScheduleGateFixture(_HookTestCase):
     def setUp(self):
         super().setUp()
         worktree._clear_git_root_cache()
-        cwd = tempfile.mkdtemp(prefix="xp-gate-repo-")
-        self.addCleanup(shutil.rmtree, cwd, ignore_errors=True)
-        self._cwd = cwd  # through the symlink, as a hook payload carries it
-        self._root = str(Path(cwd).resolve())  # physical, as git reports it
+        # BUILD the symlink; do not inherit one from the platform.
+        #
+        # This used to be a bare `mkdtemp()` for `_cwd` and its `.resolve()` for
+        # `_root`, which differ ONLY because macOS makes /tmp a symlink into
+        # /private/tmp. On Linux they are the same string, so `_cwd == _root`, the
+        # guard assertion fired, and CI went red — while the suite stayed green on
+        # every developer's Mac. The symlink case was never exercised on the platform
+        # CI runs, which is the one that matters: a fixture that depends on the OS's
+        # own filesystem layout tests the OS, not the code.
+        physical = tempfile.mkdtemp(prefix="xp-gate-repo-")
+        link = Path(tempfile.mkdtemp(prefix="xp-gate-link-")) / "repo"
+        link.symlink_to(physical, target_is_directory=True)
+        self.addCleanup(shutil.rmtree, physical, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, link.parent, ignore_errors=True)
+
+        self._cwd = str(link)  # through the symlink, as a hook payload carries it
+        self._root = str(Path(physical).resolve())  # physical, as git reports it
 
     def tearDown(self):
         worktree._clear_git_root_cache()
