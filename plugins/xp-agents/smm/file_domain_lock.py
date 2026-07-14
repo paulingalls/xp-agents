@@ -98,21 +98,26 @@ def ancestors(stories: list[dict]) -> dict[str, set[str]]:
     return closure
 
 
-def _concurrent(a: dict, b: dict, ancestors: dict[str, set[str]]) -> bool:
+def _concurrent(a: dict, b: dict, story_ancestors: dict[str, set[str]]) -> bool:
     """True when claims `a` and `b` could be worked at the same time.
 
     Terminal stories (done/deferred) have merged or been dropped, so they hold
-    nothing. A dependency edge in either direction serializes the pair.
+    nothing. A dependency edge in either direction serializes the pair --
+    `story_ancestors` is transitive, so an indirect edge serializes it too.
     """
     if a["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
         return False
     if b["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
         return False
     a_id, b_id = a["story_id"], b["story_id"]
-    return not (b_id in ancestors.get(a_id, ()) or a_id in ancestors.get(b_id, ()))
+    return not (
+        b_id in story_ancestors.get(a_id, ()) or a_id in story_ancestors.get(b_id, ())
+    )
 
 
-def collision_report(data: dict) -> dict[str, list[dict]]:
+def collision_report(
+    data: dict, *, scope: set[str] | None = None
+) -> dict[str, list[dict]]:
     """{path: [{"story_id": str, "origin": str}, ...]} for every path claimed
     by 2+ stories that could run concurrently. Empty dict == no collisions.
 
@@ -120,6 +125,13 @@ def collision_report(data: dict) -> dict[str, list[dict]]:
     dependency edge, or when either claimant is done/deferred. Duplicate
     story_ids claiming one path stay a collision -- neither depends on the
     other, so the malformed sprint is surfaced rather than excused.
+
+    `scope` restricts WHOSE claims are reported (None = every story). It must
+    never restrict which DEPENDENCIES exist: serialization is transitive, so an
+    edge between two scoped stories can run through an unscoped one. Pass the
+    whole sprint as `data` and narrow with `scope` -- pre-filtering `data` to
+    the scoped stories instead would truncate the closure and report a phantom
+    collision between a pair that is in fact strictly sequential.
     """
     stories = [
         s
@@ -130,6 +142,8 @@ def collision_report(data: dict) -> dict[str, list[dict]]:
 
     owners: dict[str, list[dict]] = {}
     for story in stories:
+        if scope is not None and story["id"] not in scope:
+            continue
         for path, origin in _story_claims(story).items():
             owners.setdefault(path, []).append(
                 {

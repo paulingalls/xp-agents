@@ -5,10 +5,9 @@ description: >-
   frontier or one that cannot run concurrently (overlapping domains or a
   dependency edge), ask solo/parallel on >=2 stories that form a disjoint
   antichain, then promote the chosen scheduled stories to in-progress and set
-  each story's
-  execution_mode. Runs before planning so the mode choice sets the planning
-  scope. Solo also creates+checks out the branch; parallel leaves branches to
-  /xp-assign.
+  each story's execution_mode. Runs before planning so the mode choice sets
+  the planning scope. Solo also creates+checks out the branch; parallel leaves
+  branches to /xp-assign.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

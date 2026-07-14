@@ -245,15 +245,20 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     if len(subset) < 2:
         return {"collisions": {}, "glob_forced": False}
 
-    # Scoping to `subset` is safe, but NOT because a frontier member can
-    # never depend on another (it can — see sprint_frontier's antichain
-    # guard, which handles exactly that transitively, including through a
-    # story absent from `story_ids`). It's safe because a pair's collision
-    # answer is decided entirely by that pair's own dependency edge, which is
-    # present in the subset either way. What collision_report's "no collision"
-    # does NOT mean is "safe to run concurrently" — a dependency edge can
-    # suppress the collision precisely because it serializes the pair.
-    collisions = file_domain_lock.collision_report({"stories": subset})
+    # `scope`, not a pre-filtered story list: the subset narrows whose claims
+    # are REPORTED, never which dependencies exist. Serialization is transitive,
+    # and the edge that serializes two named stories can run through a story
+    # absent from `story_ids` — handing collision_report only the subset would
+    # truncate its closure and report a phantom collision between a pair that
+    # is in fact strictly sequential.
+    #
+    # A frontier member CAN depend on another (see sprint_frontier's antichain
+    # guard, which catches exactly that, transitively). So what "no collision"
+    # does NOT mean is "safe to run concurrently" — a dependency edge suppresses
+    # the collision precisely because it serializes the pair. Concurrency safety
+    # is the antichain guard's question; this helper only answers "do stories
+    # that COULD overlap in time claim the same path".
+    collisions = file_domain_lock.collision_report(data, scope=wanted)
 
     glob_forced = False
     for story in subset:
