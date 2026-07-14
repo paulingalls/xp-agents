@@ -31,7 +31,14 @@ AGENT_BUDGETS: dict[str, int] = {
     # the sprint-retro completion marker has no reachable producer and every
     # sprint's commits stay pinned in the log forever. Load-bearing prose, not
     # padding — deliberate bump per this module's docstring.
-    "xp-retrospective": 22050,
+    #
+    # Bumped 22050 -> 23100 for the plan_schedule check in the aging-debt
+    # escalation ladder. No code computes debt age or emits "unresolved xN" —
+    # the ladder is prose and the model counts the sessions, so the prompt is
+    # the only place the "already scheduled, do not escalate" rule can live
+    # (TestPlanScheduleProseContract pins it). Re-trimmed first: the field
+    # description and the rule were cut ~670 chars before this bump.
+    "xp-retrospective": 23100,
     "xp-sprint-reviewer": 4660,
     "xp-system-analyzer": 19640,
 }

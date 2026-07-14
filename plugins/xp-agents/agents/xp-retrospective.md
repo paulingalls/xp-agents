@@ -33,6 +33,7 @@ The preload provides `SMM_DIR=<path>`. Read `${SMM_DIR}/.retro-input.json`:
   - CLOSURE — `{resolved_this_session, resolver_id?, disposition?}`. True = *finished with*.
   - INTENT — `{intent, intent_by, intent_ts, defer_count}`, present only when `resolved_this_session` is `false`. `intent` ∈ `"adopted"` / `"deferred"`; the Try is still **OPEN**.
 - `recent_summaries` — last 1-2 entries from `session_history.json` (each carries `ts`, `summary`, `carry_forward`, and `staleness={status, skipped_sessions}`). Use these ONLY for cross-session pattern detection — recurring concerns, drift across sessions, recurring Try resurfacing. **Do NOT retell the narrative.** Your primary analysis source is `digest`; cite a summary only when a pattern genuinely spans sessions. Empty list is normal on fresh installs.
+- `plan_schedule` — `{event_id: "M<n>: <milestone name>"}`: recorded items (debt, concern) that an **open** milestone of the execution plan is written to fix. Look up **any** id you are about to escalate, including one recalled from a previous retro rather than seen in this session's events. Empty map is normal. Consulting it before escalating is mandatory — see "Debt in Retrospectives".
 - `event_type_counts`, `session_stats`
 
 Read `previous_retros[0].analysis_notes` if present. Factor cross-session trends in — increment counters ("3rd consecutive" → "4th consecutive"), drop trends resolved this session (note in Keep with resolver ID).
@@ -147,6 +148,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 ```
 
 Debt aging is computed from event timestamps at consumption time. The digest's `resolutions` map and `signal_events` show resolved vs open. Escalating aging debt urgency:
+
+**First, check `plan_schedule`.** Before escalating ANY aging debt or concern, look its id up. If present, the plan already schedules the work: report it as **"scheduled in M\<n\>"** with the milestone label — *not* as "unresolved xN", and never as high-priority-because-old. Age is not neglect when the work is planned. This is a lookup, not a judgment: an id in the map is scheduled, an id absent from it is not. Never infer scheduling any other way — a milestone that merely *mentions* a debt may be **refuting** it, and one that touches its files may ship without fixing it.
+
+Only if the id is NOT in `plan_schedule`, escalate by age:
 - 0-3 sessions: mention if relevant
 - 4-6 sessions: Fix as "aging debt, address soon"
 - 7+ sessions: Fix as **high-priority**, first Fix item

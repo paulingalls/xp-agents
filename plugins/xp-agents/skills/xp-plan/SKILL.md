@@ -25,7 +25,7 @@ allowed-tools:
 
 > **Sequential discipline.** The harness batches independent tool calls in
 > parallel; this skill is step-gated. Run Mode Detection → System-Context Check →
-> Create (Steps 1–6) or Update (Steps 1–10) strictly, one step per turn — make
+> Create (Steps 1–6) or Update (Steps 1–11) strictly, one step per turn — make
 > the call, observe, then decide the next. Never put an `AskUserQuestion` and the
 > action consuming its answer in one block (the Step 1 source-gathering question
 > vs writing the plan); never spawn the same subagent twice. Independent
@@ -80,6 +80,7 @@ For each milestone:
 - **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Remaining read-only call-sites land here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
+- **Schedules** (optional): Ids of the recorded items (debt, concern) this milestone is written to FIX — `["<12-hex event id>", ...]`. The retrospective reads it to report "scheduled in M\<n\>" instead of escalating the item as aging debt. List an id only when the milestone *does that work* — not when it merely mentions the item, touches its files, or **refutes** it. A milestone whose design *rejects* a debt's prescription must NOT list it: claiming otherwise silences the escalation forever. Omit when the milestone answers no recorded item.
 - **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when `system_context.json` has an `acceptance_surfaces` entry with `status: "covered"`. Format: `{"type": "<harness>", "command": "<run command>"}` for one command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple (run in order, fail on first non-zero). Optional `setup` and `notes` fields. When a command is present, name the proof test file directly (the path-naming binary form, e.g. `npx playwright test <spec>`) rather than a bare script alias whose proof file is hidden in config.
 
 Guidelines:
@@ -119,6 +120,7 @@ cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_D
       "impact_zones": [{"path": "path/to/file", "note": "<why affected>"}],
       "design_details": "<decisions, patterns, implementation notes>",
       "constraints": ["<limit or requirement>"],
+      "schedules": ["<12-hex id of a recorded item this milestone fixes>"],
       "acceptance_execution": null
     }
   ]
@@ -166,25 +168,31 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 2. Show the user a summary (milestone counts from preload, titles from file).
 3. Ask via `AskUserQuestion`: "Add milestones", "Refine existing", "Add sources", "Archive and start fresh", "Done".
 4. For archive: run `python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> archive`, then switch to the **Create Flow** (step 1 above).
-5. For new milestones:
+5. For new milestones — author the same field set as Create Step 3, `schedules` included:
    ```bash
    cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-milestone
    {"number": N, "name": "...", "status": "planned", "delivered_sprint": null, ...}
    EOF
    ```
-6. For new sources:
+6. For refining an existing milestone, patch only the fields that change. This is how an item recorded *after* the plan was written gets scheduled — a patched key REPLACES its old value, so send `schedules` as the full new list:
+   ```bash
+   cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> edit-milestone N
+   {"schedules": ["<12-hex event id>"]}
+   EOF
+   ```
+7. For new sources:
    ```bash
    cat <<'EOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> add-source
    {"label": "...", "location": "...", "type": "repo", "content": null}
    EOF
    ```
-7. For overview changes:
+8. For overview changes:
    ```bash
    echo "New overview text" | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> set-overview
    ```
-8. **NEVER modify `delivered` milestones** — only `/xp-sprint-review` does that.
-9. Render and **output the plan as text** for review:
-   ```bash
-   python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
-   ```
-10. Record a status event describing what changed.
+9. **NEVER modify `delivered` milestones** — only `/xp-sprint-review` does that.
+10. Render and **output the plan as text** for review:
+    ```bash
+    python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
+    ```
+11. Record a status event describing what changed.

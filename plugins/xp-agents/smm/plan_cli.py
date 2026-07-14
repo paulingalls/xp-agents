@@ -161,6 +161,18 @@ def _cmd_edit_milestone(args: argparse.Namespace) -> int:
         print(f"No milestone with number {milestone_num}", file=sys.stderr)
         return 1
 
+    # "Never modify a delivered milestone" was prose-only, and prose does not
+    # stop a patch. Delivery is recorded by the sprint reviewer through
+    # update-status (the only writer of delivered_sprint); an edit-milestone
+    # patch would silently rewrite the shipped record behind it.
+    if milestone["status"] == "delivered":
+        print(
+            f"Milestone {milestone_num} is delivered — only update-status may "
+            "change it.",
+            file=sys.stderr,
+        )
+        return 1
+
     raw = sys.stdin.read()
     try:
         patch = json.loads(raw)

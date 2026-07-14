@@ -264,6 +264,27 @@ class TestEditMilestoneCommand(_SMMTestCase):
         # Original goal preserved
         self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
 
+    def test_edit_milestone_refuses_delivered(self):
+        """A delivered milestone is a shipped record — patching it is refused.
+
+        The rule lived only in skill prose, and prose does not stop a patch. The
+        sprint reviewer records delivery through update-status (the sole writer
+        of delivered_sprint); an edit-milestone patch would rewrite the record
+        behind it, leaving the plan claiming a delivery that never happened.
+        """
+        plan = _make_plan()
+        plan["milestones"][0]["status"] = "delivered"
+        plan["milestones"][0]["delivered_sprint"] = "sprint-001"
+        (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+
+        patch = json.dumps({"goal": "Rewritten after the fact"})
+        result = run_cli(_CLI, ["edit-milestone", "1"], self.smm_dir, stdin_data=patch)
+
+        self.assertNotEqual(result.returncode, 0)
+        loaded = json.loads((self.smm_dir / "execution_plan.json").read_text())
+        self.assertEqual(loaded["milestones"][0]["goal"], "Build the foundation")
+        self.assertEqual(loaded["milestones"][0]["delivered_sprint"], "sprint-001")
+
 
 class TestSetBranchCommand(_SMMTestCase):
     def test_set_branch_writes_field(self):
