@@ -5,7 +5,9 @@ Conftest is the canonical import surface for tests:
     from conftest import _SMMTestCase, make_event, ...
 
 The implementations live in focused sibling modules to keep this file small:
-- `_bases.py` — base test cases + path constants
+- `_paths.py` — tree path constants (the leaf of the tests/ import graph)
+- `_bases.py` — the SMM + integration base test cases
+- `_repo_bases.py` — the temp-git-repo base case + worktree cleanup
 - `_event_fixtures.py` — make_event, write_smm_fixture, signal helpers
 - `_hook_inputs.py` — canonical hook input dict factories
 - `_in_place_helpers.py` — real processes in known liveness states, for the

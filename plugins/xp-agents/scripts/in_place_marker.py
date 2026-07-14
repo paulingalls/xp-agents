@@ -45,6 +45,16 @@ WHAT THIS DOES NOT CLOSE, stated plainly:
     quiet. Not a regression — the old glob did the same — but not closed either.
   - a RECYCLED CHILD pid reads LIVE and refuses the name. Rm-recoverable, and the
     price of not regressing the live-orphan case above.
+  - the OR-leg covers the orphaned child only ONCE THE CHILD'S PID IS RECORDED.
+    Between Popen returning and rewrite_own_in_place_marker landing, the marker
+    still names the supervisor alone, so _child_pid is None and the OR-leg
+    contributes NOTHING. A SIGKILL inside that sub-millisecond window frees the
+    lock, and a live orphaned `claude` is then read DEAD and its marker reaped —
+    the very harm the OR-leg exists to prevent, in the one window the leg cannot
+    see. Not a regression (the old all-pids-dead verdict reaped it too), and
+    closable only by letting the child INHERIT the lock fd, which we declined so
+    as not to couple a safety gate to a third-party binary's fd handling (see
+    in_place_locks). Stated here so the OR-leg is not read as total.
   - rm'ing a holder LOCK does not, on its own, free a live name — but only
     because of _legacy_verdict. With the lock file gone the name falls back to the
     OLD pid adjudication, which still refuses while the marker's pids read alive.
@@ -63,7 +73,7 @@ import contextlib
 import os
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
@@ -74,9 +84,16 @@ from _append_impl import write_text_atomic
 
 # The three verdicts. "PROVEN dead" is a strictly narrower claim than "not
 # alive", and only the former may ever authorize a reap — hence three, not two.
-_LIVE = "live"
-_DEAD = "dead"
-_UNPROVEN = "unproven"
+#
+# Typed as a Literal, not a bare str: every door branches on this value, and
+# reaping is gated on ONE of the three. A typo'd or invented state would silently
+# take the not-_DEAD path — which is the safe direction, but silently, and a
+# `state != _DEAD` that can never be true is a gate that never fires. Pyright
+# rejects it instead.
+_State = Literal["live", "dead", "unproven"]
+_LIVE: _State = "live"
+_DEAD: _State = "dead"
+_UNPROVEN: _State = "unproven"
 
 
 class _Verdict(NamedTuple):
@@ -88,7 +105,7 @@ class _Verdict(NamedTuple):
     it (a reap: it was transient, which is what the door mutex hides).
     """
 
-    state: str
+    state: _State
     hold: int | None
 
 
@@ -166,7 +183,7 @@ def claim_in_place_marker(smm_dir: Path, name: str) -> None:
             raise
 
 
-def _refusal(name: str, marker: Path, state: str) -> str:
+def _refusal(name: str, marker: Path, state: _State) -> str:
     match state:
         case "live":
             return (
