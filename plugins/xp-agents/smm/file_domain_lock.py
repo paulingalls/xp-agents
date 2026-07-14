@@ -62,14 +62,23 @@ def _story_claims(story: dict) -> dict[str, str]:
     return claims
 
 
-def _ancestors(stories: list[dict]) -> dict[str, set[str]]:
+def ancestors(stories: list[dict]) -> dict[str, set[str]]:
     """{story_id: every story it transitively depends on}.
 
     Iterated to a fixed point rather than recursed, so a malformed dependency
     cycle terminates instead of blowing the stack. In a cycle each member ends
     up an ancestor of the other, which reads as "never concurrent" -- the
     conservative answer, and the same one a topological sort could not give.
+
+    Filters to dicts with a str `id` before indexing -- callers may pass a
+    sprint's raw `stories` list (unvalidated shape), and `story["id"]`
+    unfiltered would raise on a malformed entry. Mirrors `collision_report`'s
+    own pre-filter so both callers share one safety net instead of each
+    re-deriving it.
     """
+    stories = [
+        s for s in stories if isinstance(s, dict) and isinstance(s.get("id"), str)
+    ]
     direct: dict[str, set[str]] = {}
     for story in stories:
         deps = story.get("dependencies") or []
@@ -89,21 +98,26 @@ def _ancestors(stories: list[dict]) -> dict[str, set[str]]:
     return closure
 
 
-def _concurrent(a: dict, b: dict, ancestors: dict[str, set[str]]) -> bool:
+def _concurrent(a: dict, b: dict, story_ancestors: dict[str, set[str]]) -> bool:
     """True when claims `a` and `b` could be worked at the same time.
 
     Terminal stories (done/deferred) have merged or been dropped, so they hold
-    nothing. A dependency edge in either direction serializes the pair.
+    nothing. A dependency edge in either direction serializes the pair --
+    `story_ancestors` is transitive, so an indirect edge serializes it too.
     """
     if a["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
         return False
     if b["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
         return False
     a_id, b_id = a["story_id"], b["story_id"]
-    return not (b_id in ancestors.get(a_id, ()) or a_id in ancestors.get(b_id, ()))
+    return not (
+        b_id in story_ancestors.get(a_id, ()) or a_id in story_ancestors.get(b_id, ())
+    )
 
 
-def collision_report(data: dict) -> dict[str, list[dict]]:
+def collision_report(
+    data: dict, *, scope: set[str] | None = None
+) -> dict[str, list[dict]]:
     """{path: [{"story_id": str, "origin": str}, ...]} for every path claimed
     by 2+ stories that could run concurrently. Empty dict == no collisions.
 
@@ -111,16 +125,25 @@ def collision_report(data: dict) -> dict[str, list[dict]]:
     dependency edge, or when either claimant is done/deferred. Duplicate
     story_ids claiming one path stay a collision -- neither depends on the
     other, so the malformed sprint is surfaced rather than excused.
+
+    `scope` restricts WHOSE claims are reported (None = every story). It must
+    never restrict which DEPENDENCIES exist: serialization is transitive, so an
+    edge between two scoped stories can run through an unscoped one. Pass the
+    whole sprint as `data` and narrow with `scope` -- pre-filtering `data` to
+    the scoped stories instead would truncate the closure and report a phantom
+    collision between a pair that is in fact strictly sequential.
     """
     stories = [
         s
         for s in data.get("stories", [])
         if isinstance(s, dict) and isinstance(s.get("id"), str)
     ]
-    ancestors = _ancestors(stories)
+    story_ancestors = ancestors(stories)
 
     owners: dict[str, list[dict]] = {}
     for story in stories:
+        if scope is not None and story["id"] not in scope:
+            continue
         for path, origin in _story_claims(story).items():
             owners.setdefault(path, []).append(
                 {
@@ -136,7 +159,7 @@ def collision_report(data: dict) -> dict[str, list[dict]]:
             claim
             for i, claim in enumerate(claims)
             if any(
-                _concurrent(claim, other, ancestors)
+                _concurrent(claim, other, story_ancestors)
                 for j, other in enumerate(claims)
                 if i != j
             )
