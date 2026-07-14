@@ -13,6 +13,7 @@ bootstrap.
 """
 
 import contextlib
+import os
 import subprocess
 import sys
 import threading
@@ -22,7 +23,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 _DEFAULT_LOG_DIR = Path("/tmp")
-_LOG_ROOT = _DEFAULT_LOG_DIR / "xp-agents-teammates"
+_LOG_ROOT_ENV = "XP_TEAMMATE_LOG_ROOT"
+
+
+def _log_root() -> Path:
+    """Root of the teammate prompt/tee-log namespace.
+
+    Under `/tmp` by design: ephemeral, discoverable, and it outlives a crashed
+    lead so a hung teammate stays forensically inspectable.
+
+    That root is REAL and SHARED, which is the whole reason for the override.
+    Anything driving a spawn mkdirs a namespace beneath it — including a TEST
+    suite, whose project id is a throwaway temp token, so every run stranded a
+    fresh directory that nothing ever removed (668 of them had piled up). The
+    fix has to be a redirect, not a sweep: a test that instead deleted its token
+    back OUT of the shared root is one bad token away from erasing a live
+    project's teammate logs, and the token is derived, not owned. Point the root
+    somewhere disposable and the writes are contained by construction — nothing
+    to delete, nothing that CAN delete the wrong thing.
+
+    Read per call, never frozen into a module constant: an import-time value
+    would capture whatever env the first importer happened to see, which is the
+    documented way env-dependent caching breaks isolation in this codebase.
+    """
+    root = Path(os.environ.get(_LOG_ROOT_ENV) or _DEFAULT_LOG_DIR)
+    return root / "xp-agents-teammates"
 
 
 def _path_token(value: str | None) -> str | None:
@@ -94,7 +119,7 @@ def _project_dir(smm_dir: str | Path, sprint_id: str | None) -> Path:
 
     Single source of truth for the namespace token shared by logs and prompts.
     """
-    project = _LOG_ROOT / Path(smm_dir).resolve().parent.name
+    project = _log_root() / Path(smm_dir).resolve().parent.name
     token = _path_token(sprint_id)
     return project / token if token else project
 

@@ -73,6 +73,27 @@ _test_plugin_data = tempfile.mkdtemp(prefix="xp-agents-test-plugin-data-")
 os.environ["CLAUDE_PLUGIN_DATA"] = _test_plugin_data
 atexit.register(shutil.rmtree, _test_plugin_data, ignore_errors=True)
 
+# Same redirect, same reason, for the teammate prompt/tee-log namespace. Anything
+# that drives a spawn mkdirs `<root>/<project-id>/<sprint-id>/` for real, and the
+# project id is derived from a throwaway temp SMM dir — so the suite minted a real
+# directory under the real, SHARED /tmp root and nothing removed it (668 stranded
+# dirs; ten suites across three base classes still mint one every run).
+#
+# A redirect, NOT a post-hoc rmtree of the token back out of the shared root: the
+# token is derived from whatever SMM dir a test happens to hold, so one leaked
+# SMM_DIR turns that sweep into `rm -rf` of a LIVE project's teammate logs. Here
+# the writes simply never land in the real root, which is the same containment
+# CLAUDE_PLUGIN_DATA gets above and needs no destructive step to hold.
+#
+# Honors an inherited value so a parent process can aim a child suite at a root it
+# can inspect — test_temp_dir_reaping does exactly that to prove spawns really do
+# mint namespaces here, rather than passing because nothing was created at all.
+_teammate_log_root = os.environ.get("XP_TEAMMATE_LOG_ROOT")
+if not _teammate_log_root:
+    _teammate_log_root = tempfile.mkdtemp(prefix="xp-agents-test-teammate-logs-")
+    atexit.register(shutil.rmtree, _teammate_log_root, ignore_errors=True)
+os.environ["XP_TEAMMATE_LOG_ROOT"] = _teammate_log_root
+
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules. _bases.py owns the

@@ -58,14 +58,15 @@ class _SpawnGuardTestCase(unittest.TestCase):
     """A temp SMM dir under a UNIQUE project token, with an optional sprint.
 
     The project token is the smm dir's parent name, and it keys a real
-    directory under /tmp — a fixed token would let two tests (or two `pytest
-    -n auto` workers) share, and then delete, one another's prompt files.
+    directory — a fixed token would let two tests (or two `pytest -n auto`
+    workers) share, and then delete, one another's prompt files.
 
-    That uniqueness is also why the /tmp namespace must be torn down here: the
-    code under test mkdir's `_LOG_ROOT/<project>/<sprint>` for real, and a token
-    that is never reused means every run of every test would otherwise strand a
-    fresh directory under /tmp forever. Unique token → the whole subtree is ours
-    → remove it wholesale (which subsumes the individual prompt files in it).
+    The namespace this mints is contained by conftest, which points the log root
+    at a disposable dir for the whole session (see `teammate_runner._log_root`),
+    so the code under test can mkdir for real without stranding anything in the
+    shared /tmp root. Removing our own subtree here is still worth the line —
+    unique token → the whole subtree is ours → the session root stays small — but
+    it is now tidiness, not the thing standing between the suite and a leak.
     """
 
     def setUp(self):
@@ -75,7 +76,7 @@ class _SpawnGuardTestCase(unittest.TestCase):
         self.smm_dir.mkdir(parents=True)
         self.addCleanup(
             shutil.rmtree,
-            teammate_runner._LOG_ROOT / self.project_id,
+            teammate_runner._log_root() / self.project_id,
             ignore_errors=True,
         )
 
