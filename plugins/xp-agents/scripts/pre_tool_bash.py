@@ -58,6 +58,23 @@ _CD_WORKTREE_GIT_WARNING = (
 # that merely sees the flag cannot police what follows it.
 _FORCE_UNMERGED_RE = re.compile(r"--force-unmerged\b")
 
+# Mark-done, as an INVOCATION rather than as prose. `sprint_cli` must appear on the
+# same line, ahead of the subcommand.
+#
+# Requiring it is not belt-and-braces — without it the pattern matches text that
+# merely DESCRIBES the command, and both gates below fire on a `git commit` whose
+# MESSAGE happens to mention `update-story <id> done`. That is not hypothetical: it
+# blocked the very commit that added this gate, because the message documented the
+# flag. A gate that refuses a commit over what its message SAYS is a false positive,
+# and false positives are how people learn to route around gates.
+#
+# It does not close the mirror-image hole — a story id in a shell variable
+# (`update-story "$SID" done`) still slips both gates — but that one fails toward
+# doing less, not toward blocking honest work.
+_MARK_DONE_RE = re.compile(
+    r"sprint_cli(?:\.py)?\b[^\n]*?\bupdate-story\s+(\S+)\s+done\b"
+)
+
 
 # ---------------------------------------------------------------------------
 # Decision-time open-questions nudge
@@ -338,7 +355,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if nudge:
                 parts.append(nudge)
 
-    mark_done = re.search(r"update-story\s+(\S+)\s+done\b", command)
+    mark_done = _MARK_DONE_RE.search(command)
 
     if (
         smm_dir is not None

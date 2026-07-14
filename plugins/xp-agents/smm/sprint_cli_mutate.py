@@ -19,6 +19,7 @@ that belongs to validate-domain, which stays in sprint_cli.py.
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -36,6 +37,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 # — but only on the path where --harness is omitted; an explicit --harness
 # skips system_context entirely.
 import sprint_store as store
+from _append_impl import append_event
+from event_builder import generate_id
+from event_schema import EVENT_TYPE_DEBT
 
 
 def _preserve_branch_names(incoming: dict, smm_dir: Path) -> None:
@@ -190,7 +194,57 @@ def _cmd_add_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_forced_unmerged(smm_dir: Path, story_id: str, reason: str) -> None:
+    """Write the debt event that PAYS for a merge-gate bypass.
+
+    Raises on failure, and the caller lets that abort the mark-done: an override
+    nobody can see is exactly the silent mark-done-past-a-failed-merge this gate
+    exists to stop. The record is the price of the bypass, so it is taken FIRST —
+    a recorded bypass whose status write then failed is harmless noise, while a
+    status write whose record failed is the bug wearing the fix's clothes.
+    """
+    append_event(
+        smm_dir,
+        {
+            "id": generate_id(),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": EVENT_TYPE_DEBT,
+            "agent_id": "sprint_cli",
+            "content": (
+                f"MERGE GATE BYPASSED for {story_id}: marked done via "
+                f'--force-unmerged, with no verified merge. Reason: "{reason}". '
+                f"Verify the work actually reached the base branch."
+            ),
+            "files": ["sprint.json"],
+            "schema_version": 1,
+        },
+    )
+
+
 def _cmd_update_story(args: argparse.Namespace) -> int:
+    reason = getattr(args, "force_unmerged", None)
+
+    if reason is not None:
+        if not reason.strip():
+            print(
+                "Error: --force-unmerged requires a non-empty reason — an empty one "
+                "is a silent bypass wearing an accountable one's costume.",
+                file=sys.stderr,
+            )
+            return 1
+        if args.status != "done":
+            print(
+                f"Error: --force-unmerged only applies to `done` (got "
+                f"{args.status!r}); the merge gate fires nowhere else.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            _record_forced_unmerged(args.smm_dir, args.story_id, reason.strip())
+        except (OSError, ValueError) as exc:
+            print(f"Error: bypass not recorded ({exc}); refusing.", file=sys.stderr)
+            return 1
+
     try:
         store.update_story_status(args.smm_dir, args.story_id, args.status)
     except ValueError as exc:

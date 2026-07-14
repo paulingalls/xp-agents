@@ -442,5 +442,79 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
         self.assertEqual(loaded["stories"][0]["status"], "in-progress")
 
 
+class TestForceUnmerged(_SMMTestCase):
+    """The mark-done merge gate's escape hatch.
+
+    A gate with no recovery path is the trap this project keeps re-learning, so
+    the bypass exists. But it is never SILENT: the CLI -- deterministic code, not
+    LLM prose -- records a debt event, and refuses an empty reason.
+    """
+
+    def _status(self) -> str:
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        return loaded["stories"][0]["status"]
+
+    def _debts(self) -> list[dict]:
+        path = self.smm_dir / "events.jsonl"
+        if not path.exists():
+            return []
+        events = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+        return [e for e in events if e["type"] == "debt"]
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+
+    def test_force_unmerged_marks_done_and_records_a_debt(self):
+        """The bypass works, and it leaves a trace. The debt is the PRICE of the
+        override -- it is what turns 'I skipped the gate' from a private decision
+        into something the retro can see."""
+        result = run_cli(
+            _CLI,
+            ["update-story", "story-001", "done", "--force-unmerged", "merged by hand"],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._status(), "done")
+        debts = self._debts()
+        self.assertEqual(len(debts), 1)
+        self.assertIn("story-001", debts[0]["content"])
+        self.assertIn("merged by hand", debts[0]["content"])
+
+    def test_empty_reason_is_refused_and_nothing_moves(self):
+        """`--force-unmerged ""` would be a SILENT bypass wearing the costume of
+        an accountable one. Refuse it, and leave the story where it was."""
+        result = run_cli(
+            _CLI,
+            ["update-story", "story-001", "done", "--force-unmerged", "   "],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertNotEqual(self._status(), "done")
+        self.assertEqual(self._debts(), [])
+
+    def test_force_unmerged_only_applies_to_done(self):
+        """The gate only fires on `done`, so the override is meaningless anywhere
+        else. Accepting it there would mint debt events for nothing."""
+        result = run_cli(
+            _CLI,
+            ["update-story", "story-001", "deferred", "--force-unmerged", "why"],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self._debts(), [])
+
+    def test_plain_mark_done_records_no_debt(self):
+        """The ordinary path stays clean -- no debt, no noise."""
+        result = run_cli(_CLI, ["update-story", "story-001", "done"], self.smm_dir)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._status(), "done")
+        self.assertEqual(self._debts(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

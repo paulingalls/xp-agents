@@ -132,6 +132,52 @@ class TestUnmergedStoryCannotBeMarkedDone(_GateCase):
         self.assertIn("--force-unmerged", msg)
 
 
+class TestGateMatchesInvocationsNotProse(_GateCase):
+    """The gate must fire on the COMMAND, not on text that merely describes it.
+
+    Found by dogfooding: committing this very story was BLOCKED because the commit
+    MESSAGE documents the flag -- the heredoc body contains the words
+    `update-story <id> done`, and the regex scanned the whole command string. A
+    gate that blocks `git commit` because of what the message SAYS is a
+    false-positive that teaches people to work around gates.
+
+    Pre-existing in the ACCEPT gate; inherited the moment the merge gate reused its
+    regex. Both are fixed by requiring the CLI itself to be in the command.
+    """
+
+    def test_a_commit_message_describing_the_command_is_not_blocked(self):
+        """The exact shape that blocked this story's own commit.
+
+        Asserts NOT-BLOCKED rather than returns-None: a `git commit` legitimately
+        picks up advisory context from other rules (the direct-to-main nudge, say),
+        and those are strings, not refusals. The claim under test is that the merge
+        gate does not RAISE on prose.
+        """
+        self._unmerged_story_branch()
+        self._seed_sprint()
+        commit = (
+            "git commit -F - <<'EOF'\n"
+            "[story-007] The merge gate gets an escape hatch\n\n"
+            'The bypass is `update-story story-001 done --force-unmerged "why"`,\n'
+            "enforced by the CLI rather than by prose.\n"
+            "EOF"
+        )
+
+        result = self._run(commit)  # must not raise
+
+        self.assertNotIn("not merged", result or "")
+
+    def test_a_real_cli_invocation_is_still_blocked(self):
+        """The control. Tightening the regex must not disarm the gate -- the whole
+        point is that a genuine `sprint_cli.py ... update-story X done` still
+        refuses when the merge never landed."""
+        self._unmerged_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(_done_cmd())
+
+
 class TestGateFailsClosedOnBadReads(_GateCase):
     """Unknowable == blocked. The gate never waves a mark-done through blind."""
 
