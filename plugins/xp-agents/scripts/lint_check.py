@@ -26,9 +26,9 @@ from event_schema import STATUS_ACTION_LINT_RESOLVED
 from linters import (
     CODE_EXTENSIONS,
     LINTER_BINARIES,
-    LINTER_COMMANDS,
     LINTER_EXTENSIONS,
     detect_linter_config,
+    linter_command,
 )
 
 # Per-file timeout (run_linter); also the base for run_linter_batch's scaled
@@ -96,7 +96,7 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
         return None
 
     # "--" separates flags from filename arg
-    cmd = LINTER_COMMANDS[linter_name] + ["--", file_path]
+    cmd = [*linter_command(linter_name), "--", file_path]
     try:
         result = subprocess.run(
             cmd,
@@ -207,7 +207,7 @@ def run_linter_batch(
     if not eligible:
         return LintRun("clean", "")
 
-    cmd = LINTER_COMMANDS[linter_name] + ["--"] + eligible
+    cmd = [*linter_command(linter_name), "--", *eligible]
     timeout = min(
         BATCH_TIMEOUT_CAP_S,
         LINTER_BASE_TIMEOUT_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),

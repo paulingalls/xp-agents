@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
+import linters
 from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
@@ -162,6 +163,113 @@ class TestSummarizeLintOutput(unittest.TestCase):
         self.assertIn("FURB169", result)
         self.assertIn("ASYNC100", result)
         self.assertIn("3 errors", result)
+
+
+class TestLinterTableColumns(unittest.TestCase):
+    """The two columns that make "non-zero exit" a sufficient finding signal.
+
+    The gate reads only the exit code (see run_linter_batch). That is sound ONLY
+    if two things hold per linter, and out of the box neither does:
+
+    (a) STRICTNESS — some linters exit 0 even when they found something. eslint
+        exits 0 when only *warnings* fire, and `no-unused-vars` is `warn` in many
+        popular configs — so the headline case of this whole story (a staged .ts
+        with an unused import) would sail straight through the gate. swiftlint
+        and `dart analyze` share the shape.
+
+    (b) FILE SCOPE — some linters cannot lint a single file at all. `cargo clippy
+        -- -D warnings` lints the whole crate and exits non-zero if ANY warning
+        exists anywhere, staged or not. A Rust repo with one pre-existing warning
+        in an untouched file would have every commit blocked, unfixably.
+
+    Both are per-row DATA, not branches: a flag column and a capability column.
+    Note what they are NOT — a map of per-language rule codes
+    ({eslint: no-unused-vars, clippy: unused_imports}). That would be a hardcoded
+    model of each language's rule semantics, the exact leak the guardrail forbids,
+    and test_no_language_leak.py could not see it (it only scans extension
+    predicates). A strictness flag says "be strict"; it does not say what strict
+    means in that language. The linter decides that.
+    """
+
+    def test_eslint_carries_a_strictness_flag(self):
+        """Without --max-warnings=0, eslint exits 0 on a warn-level finding and
+        the gate reads a repo full of unused imports as clean."""
+        self.assertIn("--max-warnings=0", linters.linter_command("eslint"))
+
+    def test_swiftlint_and_dart_carry_strictness_flags(self):
+        self.assertIn("--strict", linters.linter_command("swiftlint"))
+        self.assertIn("--fatal-infos", linters.linter_command("dart-analyze"))
+
+    def test_ruff_needs_no_strictness_flag(self):
+        """ruff already exits non-zero on any finding. A row only carries a flag
+        when its linter would otherwise lie about having found nothing."""
+        self.assertEqual(
+            linters.linter_command("ruff"),
+            ["ruff", "check", "--output-format=concise"],
+        )
+
+    def test_strictness_flag_reaches_the_commit_gate_argv(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run_linter_batch("eslint", ["src/a.ts"], cwd="/tmp")
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("--max-warnings=0", cmd)
+        # ...and before the `--` separator, or eslint reads it as a filename.
+        self.assertLess(cmd.index("--max-warnings=0"), cmd.index("--"))
+
+    def test_strictness_flag_reaches_edit_time_argv(self):
+        """The command table is SHARED with the edit-time run_linter path. The
+        flag applies there too, on purpose: if the gate blocks at commit on a
+        warn-level finding that edit-time never mentioned, the agent gets
+        ambushed by a rule it was never told about."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run_linter("eslint", "src/a.ts")
+        self.assertIn("--max-warnings=0", mock_run.call_args[0][0])
+
+    def test_edit_time_run_linter_still_reports_findings(self):
+        """Pin against regression: the shared-table change must not disturb
+        edit-time's contract (output on non-zero, None on clean)."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1, stdout="  1:10  warning  'foo' is unused  no-unused-vars"
+            )
+            found = lint_check.run_linter("eslint", "src/a.ts")
+            mock_run.return_value = _mock_ruff_result()
+            clean = lint_check.run_linter("eslint", "src/a.ts")
+        assert found is not None
+        self.assertIn("no-unused-vars", found)
+        self.assertIsNone(clean)
+
+    def test_project_scoped_rows_are_not_file_scoped(self):
+        """These lint the whole project and exit non-zero on state that has
+        nothing to do with the staged files. The gate must DEGRADE on them, not
+        block — a pre-existing warning in an untouched file is not something the
+        committing agent can fix by fixing its own diff."""
+        for linter in ("clippy", "checkstyle", "detekt", "credo", "dotnet-format"):
+            self.assertFalse(
+                linters.is_file_scoped(linter),
+                msg=f"{linter} lints the whole project — it cannot judge one file",
+            )
+
+    def test_file_scoped_rows_can_judge_one_file(self):
+        for linter in ("ruff", "flake8", "eslint", "golangci-lint", "rubocop"):
+            self.assertTrue(linters.is_file_scoped(linter))
+
+    def test_every_row_has_a_scope_answer(self):
+        """No silent gap: a new linter row must be classified, not defaulted by
+        accident. is_file_scoped answers for every command row there is."""
+        for linter in linters.LINTER_COMMANDS:
+            self.assertIsInstance(linters.is_file_scoped(linter), bool)
 
 
 class TestRunLinterBatchScaledTimeout(unittest.TestCase):

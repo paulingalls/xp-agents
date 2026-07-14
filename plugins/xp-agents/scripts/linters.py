@@ -94,6 +94,53 @@ LINTER_COMMANDS = {
     "swiftlint": ["swiftlint"],
 }
 
+# COLUMN: strictness. "Non-zero exit means it found something" is NOT true out of
+# the box for every linter — some exit 0 even when they have findings to report,
+# and a gate that reads only the exit code would call those runs clean.
+#
+# A row appears here only when its linter would otherwise lie about having found
+# nothing. ruff, flake8, rubocop et al. are absent because they already exit
+# non-zero on any finding; adding a redundant flag would just be noise.
+#
+# This is a flag, not a rule-code map. "--max-warnings=0" says BE STRICT; it does
+# not encode what any particular rule of that language means. The linter still
+# decides what it found — that distinction is the whole guardrail.
+LINTER_STRICT_FLAGS: dict[str, list[str]] = {
+    # eslint exits 0 when only warnings fire — and `no-unused-vars` is `warn` in
+    # many popular configs, so the headline case (a staged .ts with an unused
+    # import) would NOT block without this.
+    "eslint": ["--max-warnings=0"],
+    # swiftlint exits 0 on warning-severity violations unless told otherwise.
+    "swiftlint": ["--strict"],
+    # `dart analyze` exits 0 on info-severity lints, which is where its unused
+    # import rule lands.
+    "dart-analyze": ["--fatal-infos"],
+}
+
+# COLUMN: file scope. Some linters cannot judge a single file at all — they lint
+# the whole project and exit non-zero on state that has nothing to do with what
+# is staged. `cargo clippy -- -D warnings` compiles the entire crate: ONE
+# pre-existing warning in a file nobody touched would block EVERY commit in the
+# repo, unfixably, because the committing agent cannot fix it by fixing its diff.
+#
+# The gate DEGRADES on these rows (does not block) rather than blocking on
+# whole-project state. That costs commit-time coverage for these ecosystems, and
+# it is the right direction to be wrong in: a gate that cannot be satisfied is
+# worse than one that stays quiet, because the first thing anyone does with an
+# unfixable gate is disable it.
+#
+# Membership is per-row DATA. Moving a linter to file-scoped means proving it can
+# lint one file and report only that file's findings — then delete its row.
+PROJECT_SCOPED_LINTERS: frozenset[str] = frozenset(
+    {
+        "clippy",  # cargo clippy compiles the whole crate
+        "checkstyle",  # config-driven project sweep
+        "detekt",  # --input defaults to the whole source set
+        "credo",  # mix credo walks the project
+        "dotnet-format",  # --verify-no-changes covers the solution
+    }
+)
+
 LINTER_EXTENSIONS: dict[str, set[str]] = {
     "ruff": {".py", ".pyi", ".ipynb"},
     "flake8": {".py", ".pyi"},
@@ -153,6 +200,36 @@ LINTER_BINARIES = {
     "dotnet-format": "dotnet",
     "swiftlint": "swiftlint",
 }
+
+
+def linter_command(linter_name: str) -> list[str]:
+    """The argv to invoke `linter_name` with, strictness flags included.
+
+    Single source for both the edit-time (`run_linter`) and commit-time
+    (`run_linter_batch`) paths, so the two cannot disagree about how strict the
+    linter is. That matters: if the commit gate blocked on a warn-level finding
+    that edit-time never surfaced, the agent would be ambushed at commit by a
+    rule nothing had told it about.
+
+    Callers append `["--", *paths]` themselves — the flags must land before that
+    separator or the linter reads them as filenames.
+    """
+    return LINTER_COMMANDS[linter_name] + LINTER_STRICT_FLAGS.get(linter_name, [])
+
+
+def is_file_scoped(linter_name: str) -> bool:
+    """Can this linter judge ONE file, and report only that file's findings?
+
+    False for linters that lint the whole project (see PROJECT_SCOPED_LINTERS).
+    The commit-time gate must not block on a False row: its non-zero exit may be
+    reporting project-wide state the staged diff neither caused nor can fix.
+
+    Unknown rows answer True. A linter nobody classified is far likelier to be a
+    normal file-scoped one than a project sweep, and the cost of being wrong that
+    way is a too-strict block the agent can actually act on — versus the
+    unfixable one that the other default would produce.
+    """
+    return linter_name not in PROJECT_SCOPED_LINTERS
 
 
 def detect_linter_config(
