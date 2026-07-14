@@ -147,8 +147,10 @@ def run_linter(
     if not _eligible_for_linter(linter_name, [file_path]):
         return None
 
+    # base=cwd: paths resolve where the linter RUNS, not at root. See linter_invocation.
+    base = cwd or root or "."
     cmd = linters.linter_argv(
-        linter_name, [file_path], root=root or cwd or ".", config_path=config_path
+        linter_name, [file_path], root=root or base, config_path=config_path, base=base
     )
     if cmd is None:
         return None
@@ -277,8 +279,10 @@ def run_linter_batch(
     # ONE argv builder, shared with the edit-time path. It also places the paths:
     # clang-tidy takes them BEFORE the separator (everything after `--` is compiler
     # flags), so the old universal `[*cmd, "--", *paths]` handed it zero sources.
+    # `base=cwd` for the same reason as run_linter: see linter_invocation.
+    base = cwd or root or "."
     cmd = linters.linter_argv(
-        linter_name, eligible, root=root or cwd or ".", config_path=config_path
+        linter_name, eligible, root=root or base, config_path=config_path, base=base
     )
     if cmd is None:
         # "Must not run here" — an unmet precondition, or a config-required linter

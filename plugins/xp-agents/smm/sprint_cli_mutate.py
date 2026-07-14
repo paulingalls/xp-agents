@@ -283,15 +283,19 @@ def _cmd_edit_story(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
-    # Status/metadata edits intentionally bypass sprint_save.run(). /xp-accept
-    # and /xp-schedule drive edit-story for status flips and execution_mode
-    # writes; firing the full run() pipeline on every flip would re-walk
-    # sister discovery and re-fire milestone transition on every accept
-    # (impact-zone constraint per plan-review e7b72bd57c84). store.edit_story
-    # already routes through sprint_store.save_sprint directly — the same
-    # atomic-write that sprint_save.save() wraps — so the architectural split
-    # is preserved without duplicating the isinstance / immutable-fields /
+    # Metadata edits intentionally bypass sprint_save.run(). /xp-schedule drives
+    # edit-story for execution_mode / executor_model writes; firing the full run()
+    # pipeline on every one would re-walk sister discovery and re-fire milestone
+    # transition (impact-zone constraint per plan-review e7b72bd57c84).
+    # store.edit_story already routes through sprint_store.save_sprint directly —
+    # the same atomic-write that sprint_save.save() wraps — so the architectural
+    # split is preserved without duplicating the isinstance / immutable-fields /
     # load-find-update guards here.
+    #
+    # It also REFUSES `status`: a status transition belongs to update-story /
+    # update-story-if, which is where the merge gate stands. A patch that wrote the
+    # field would forge a `done` past that gate — the very hole plan_cli.edit-milestone
+    # closes for `status`/`delivered_sprint`.
     try:
         store.edit_story(args.smm_dir, args.story_id, updates)
     except ValueError as exc:

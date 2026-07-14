@@ -44,7 +44,7 @@ def linter_command(linter_name: str) -> list[str]:
     return LINTER_COMMANDS[linter_name] + LINTER_STRICT_FLAGS.get(linter_name, [])
 
 
-def _compile_db_covers(root: str, paths: list[str]) -> bool:
+def _compile_db_covers(root: str, paths: list[str], base: str) -> bool:
     """Can the compile database supply build flags for EVERY one of `paths`?
 
     Existence is not coverage, and the difference is an unfixable block. A partial or
@@ -59,6 +59,15 @@ def _compile_db_covers(root: str, paths: list[str]) -> bool:
     command for a file the database does not name from its covered siblings. Matching
     names exactly would degrade every newly-added source and quietly hand C/C++ back
     the non-gate this story exists to remove.
+
+    `root` locates the DATABASE; `base` is the directory `paths` are relative TO, and
+    they are NOT the same directory — conflating them was an unfixable block. The
+    database sits at the git root, but a linter runs FROM its config file's directory
+    (`lint_check.lint_invocation_target`), so its paths are relative to THAT. With a
+    `.clang-tidy` one level down — the ordinary C/C++ layout — `src/app.c` arrives
+    here as `app.c`, resolves to `<root>/app.c`, matches no covered directory, and a
+    file the database covers perfectly well is refused. Ask the caller where its paths
+    came from; never assume.
 
     Unreadable or malformed database → NOT covered. The safe direction here is
     "advise", never "block": we lose a little coverage, instead of handing the user a
@@ -87,11 +96,13 @@ def _compile_db_covers(root: str, paths: list[str]) -> bool:
     if not covered_dirs:
         return False
 
-    root_path = Path(root)
-    return all((root_path / p).resolve().parent in covered_dirs for p in paths)
+    base_path = Path(base)
+    return all((base_path / p).resolve().parent in covered_dirs for p in paths)
 
 
-def preconditions_met(linter_name: str, root: str, paths: list[str]) -> bool:
+def preconditions_met(
+    linter_name: str, root: str, paths: list[str], *, base: str | None = None
+) -> bool:
     """Can this linter actually be RUN over `paths`, here, in this checkout?
 
     Not a property of the linter — a property of the checkout AND the files. See
@@ -101,6 +112,11 @@ def preconditions_met(linter_name: str, root: str, paths: list[str]) -> bool:
     version asked only "does compile_commands.json exist at the root?", which is a
     different question from "can clang-tidy compile this staged file?" — and they come
     apart exactly where it hurts. See `_compile_db_covers`.
+
+    `base` names the directory `paths` are relative to; it defaults to `root` for the
+    caller that reads them straight out of `git diff --cached` (root-relative), and
+    must be passed by the callers that hand over the linter's OWN argv paths, which
+    are relative to the directory it will run in. See `_compile_db_covers`.
     """
     required = LINTER_PRECONDITIONS.get(linter_name)
     if required is None:
@@ -108,7 +124,7 @@ def preconditions_met(linter_name: str, root: str, paths: list[str]) -> bool:
     if not (Path(root) / required).exists():
         return False
     if required == "compile_commands.json":
-        return _compile_db_covers(root, paths)
+        return _compile_db_covers(root, paths, base or root)
     return True
 
 
@@ -118,6 +134,7 @@ def linter_argv(
     *,
     root: str,
     config_path: str | None = None,
+    base: str | None = None,
 ) -> list[str] | None:
     """The FULL argv to run `linter_name` over `paths`, or None if it must not run.
 
@@ -143,8 +160,13 @@ def linter_argv(
     compile_commands.json and throws away the very database that lets clang-tidy
     resolve an `#include`. Since the row is only ever invoked WITH a database (the
     precondition above), there is no case left in which appending it would be right.
+
+    `base` is the directory `paths` are relative to — i.e. the cwd this argv will be
+    RUN from. Pass it whenever that differs from `root` (it does whenever the config
+    file lives in a subdirectory), or the precondition resolves the paths against the
+    wrong directory and refuses to build an argv it should have built.
     """
-    if not preconditions_met(linter_name, root, paths):
+    if not preconditions_met(linter_name, root, paths, base=base):
         return None
 
     shape = LINTER_ARGV_SHAPES.get(linter_name, SEPARATOR_BEFORE_PATHS)
@@ -168,7 +190,11 @@ def linter_argv(
 
 
 def degrade_reason(
-    linter_name: str, root: str, paths: list[str] | None = None
+    linter_name: str,
+    root: str,
+    paths: list[str] | None = None,
+    *,
+    base: str | None = None,
 ) -> str | None:
     """Why the commit gate must not BLOCK on this linter here, or None if it may.
 
@@ -179,12 +205,17 @@ def degrade_reason(
       * the linter judges the whole project, not one file (clippy);
       * its exit code cannot express what it found (checkstyle);
       * this checkout lacks something it needs (clang-tidy without a compile DB).
+
+    `base` defaults to `root`, which is right for the commit gate — it asks this with
+    the paths git named, and git names them from the root. See `_compile_db_covers`.
     """
     static = DEGRADED_LINTERS.get(linter_name)
     if static is not None:
         return static
     required = LINTER_PRECONDITIONS.get(linter_name)
-    if required is not None and not preconditions_met(linter_name, root, paths or []):
+    if required is not None and not preconditions_met(
+        linter_name, root, paths or [], base=base
+    ):
         return (
             f"this project has no {required}, so {linter_name} cannot resolve "
             f"includes — it would fail to COMPILE the file and block on an error "
@@ -193,7 +224,13 @@ def degrade_reason(
     return None
 
 
-def is_file_scoped(linter_name: str, root: str, paths: list[str] | None = None) -> bool:
+def is_file_scoped(
+    linter_name: str,
+    root: str,
+    paths: list[str] | None = None,
+    *,
+    base: str | None = None,
+) -> bool:
     """Can the commit gate BLOCK on this linter, in THIS project?
 
     False where a non-zero exit would report something the staged diff neither caused
@@ -204,4 +241,4 @@ def is_file_scoped(linter_name: str, root: str, paths: list[str] | None = None) 
     ordinary file-scoped one than a project sweep, and being wrong that way produces
     a too-strict block the agent can actually act on.
     """
-    return degrade_reason(linter_name, root, paths) is None
+    return degrade_reason(linter_name, root, paths, base=base) is None

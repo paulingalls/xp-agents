@@ -422,7 +422,7 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
         )
 
     def test_edit_story_uses_save_not_run(self):
-        """Status flips via edit-story must NOT trigger sister discovery or
+        """Metadata edits via edit-story must NOT trigger sister discovery or
         soft-warn (impact-zone constraint per plan-review e7b72bd57c84)."""
         sprint = self._sample_sprint()
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
@@ -430,7 +430,7 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
             _CLI,
             ["edit-story", "story-001"],
             self.smm_dir,
-            json.dumps({"status": "in-progress"}),
+            json.dumps({"execution_mode": "solo"}),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(
@@ -439,7 +439,45 @@ class TestStructuralSubcommandsRouteThroughRun(_SMMTestCase):
             "soft-warn marker should NOT exist (locks the architectural split)",
         )
         loaded = json.loads((self.smm_dir / "sprint.json").read_text())
-        self.assertEqual(loaded["stories"][0]["status"], "in-progress")
+        self.assertEqual(loaded["stories"][0]["execution_mode"], "solo")
+
+    def test_edit_story_refuses_to_write_status(self):
+        """The FORGE. The mark-done merge gate stands at `update-story <id> done`;
+        `edit-story` reached the same field with a raw JSON patch and never met it —
+        so `{"status":"done"}` recorded a ship whose merge nobody ever proved.
+
+        Same hole plan_cli.edit-milestone closed for `status`/`delivered_sprint`, and
+        the same answer: a status TRANSITION has a state machine (update-story /
+        update-story-if) that owns its rules; a patch path that writes the field
+        walks around that machine. So the patch path does not write it at all."""
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"status": "done"}),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("update-story", result.stderr, "name the path that IS gated")
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertNotEqual(loaded["stories"][0]["status"], "done", "no forged done")
+
+    def test_edit_story_still_accepts_the_fields_it_owns(self):
+        """The control: refusing `status` must not refuse the edits skills rely on."""
+        sprint = self._sample_sprint()
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+        result = run_cli(
+            _CLI,
+            ["edit-story", "story-001"],
+            self.smm_dir,
+            json.dumps({"execution_mode": "teammate", "executor_model": "haiku"}),
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class TestForceUnmerged(_SMMTestCase):

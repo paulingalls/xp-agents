@@ -716,5 +716,65 @@ class TestSubprocessConsolidation(_HookTestCase):
         )
 
 
+class TestTheCommitGatesReadTheRepoTheCommitLandsIn(_HookTestCase):
+    """`git -C <worktree> commit` retargets the REPO — so must every gate's read.
+
+    The gates below the commit branch all shell out to git, and they were handed the
+    hook's raw `cwd` while the commit itself ran in the `-C` target. In the main
+    checkout nothing is staged, so `git diff --cached` comes back EMPTY: the tier-1
+    security scan sees no diff, the lint gate finds no groups, and the commit lands
+    with zero coverage from either. A silent no-op, in the pattern this project
+    explicitly tells agents to PREFER over `cd` (feedback_cd_persists_in_bash).
+    """
+
+    def _seen_cwds(self, command: str, cwd: str) -> dict[str, str]:
+        seen: dict[str, str] = {}
+
+        def _diff(where: str) -> str:
+            seen["diff"] = where
+            return ""
+
+        def _files(where: str) -> list[str]:
+            seen["files"] = where
+            return []
+
+        def _gate(_staged: list[str], where: str) -> list[str]:
+            seen["lint"] = where
+            return []
+
+        def _code_files(where: str, *_a, **_kw) -> list[str]:
+            seen["review"] = where
+            return []
+
+        with (
+            patch("commits.get_staged_diff", side_effect=_diff),
+            patch("commits.get_staged_files", side_effect=_files),
+            patch("staged_lint.staged_lint_gate", side_effect=_gate),
+            patch("commits.get_code_files_for_review", side_effect=_code_files),
+        ):
+            pre_tool_bash.run(
+                _make_bash_input(command=command, cwd=cwd), smm_dir=self.smm_dir
+            )
+        return seen
+
+    def test_git_dash_C_retargets_every_staged_read(self):
+        with tempfile.TemporaryDirectory() as worktree:
+            seen = self._seen_cwds(f'git -C {worktree} commit -m "x"', "/tmp")
+
+        self.assertEqual(seen["diff"], worktree, "tier-1 scanned the wrong repo")
+        self.assertEqual(seen["files"], worktree, "the lint gate saw nothing staged")
+        self.assertEqual(seen["lint"], worktree, "and resolved the wrong git root")
+        self.assertEqual(seen["review"], worktree, "review cycle counted no files")
+
+    def test_a_plain_commit_still_reads_the_hooks_own_cwd(self):
+        """The control: no `-C`, no `cd` — nothing is retargeted."""
+        with tempfile.TemporaryDirectory() as repo:
+            seen = self._seen_cwds('git commit -m "x"', repo)
+
+            self.assertEqual(
+                set(seen.values()), {repo}, "every read stays in the hook's cwd"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

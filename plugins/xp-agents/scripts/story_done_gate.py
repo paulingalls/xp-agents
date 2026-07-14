@@ -34,6 +34,7 @@ Marker-FREE and state-derived, so it stays out of `lead_gates._LEAD_GATES` (whic
 the Write/Edit hook's table anyway); see the doctrine note in `pre_tool_write.run`.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -48,6 +49,82 @@ import sprint_store
 # the sole `remove_worktree(force_branch=True)` -- a `-D` with no merge proof. It is
 # narrow (a re-spawn moves the story back to in-progress, so it is not then marked
 # done) and recorded as debt rather than papered over here.
+
+
+# ---------------------------------------------------------------------------
+# What COUNTS as marking a story done -- the command side of the gate
+# ---------------------------------------------------------------------------
+
+# The escape hatch. Read off the COMMAND rather than the story, because the gate must
+# honour an override before it does any work. The CLI is what enforces that the reason
+# is non-empty and writes the debt event -- a hook that merely sees the flag cannot
+# police what follows it.
+_FORCE_UNMERGED_RE = re.compile(r"--force-unmerged\b")
+
+# Mark-done as an INVOCATION, not as prose: `sprint_cli` must precede the subcommand.
+#
+# Requiring it is not belt-and-braces. Without it the pattern matches text that merely
+# DESCRIBES the command, and the gate fires on a `git commit` whose MESSAGE happens to
+# mention `update-story <id> done` -- which blocked the very commit that added this
+# gate, because the message documented the flag. A gate that refuses a commit over what
+# its message SAYS is how people learn to route around gates.
+#
+# `(?:\\\n|[^\n])*?` spans a backslash-continuation because the shipped invocation is
+# wrapped (`sprint_cli.py --smm-dir X \` newline `update-story story-NNN done`). A
+# plain `[^\n]*?` matches every hand-written single-line test and NONE of /xp-accept
+# Step 4 -- dead precisely where it is needed. Spanning the continuation but NOT a bare
+# newline is also what keeps the prose false-positive shut: a heredoc message is
+# separated from the CLI's name by real newlines, not by `\`-continuations.
+_MARK_DONE_RE = re.compile(
+    r"sprint_cli(?:\.py)?\b(?:\\\n|[^\n])*?\bupdate-story\s+(\S+)\s+done\b"
+)
+
+# The OTHER writer of `done` -- a compare-and-swap onto the same field. The gate did
+# not know this subcommand existed, so the whole merge proof was one flag away. It
+# cannot match _MARK_DONE_RE (there `update-story` is followed by whitespace, here by
+# `-if`), so the two patterns are disjoint by construction.
+_MARK_DONE_IF_RE = re.compile(
+    r"sprint_cli(?:\.py)?\b(?:\\\n|[^\n])*?\bupdate-story-if\s+(\S+)"
+    r"(?:\\\n|[^\n])*?--new(?:=|\s+)done\b"
+)
+
+# The shell strips these before the CLI ever sees the id, so we must too: `\S+` used to
+# capture `'story-001'` WITH its quotes, `get_story` found no such story, and the
+# ValueError arm below read that as "nothing to check" and ALLOWED the mark-done.
+# Quoting an id is ordinary -- /xp-schedule quotes `"$FIRST"` in the same pipeline.
+_SHELL_QUOTES = "\"'"
+
+# One Bash call can hold several invocations; each is judged on its OWN text. An
+# override belongs to the invocation that TYPED it, and a `--force-unmerged` matched
+# against the whole command would waive a chained second story that never carried one.
+# `(?<!\\)\n` leaves the wrapped-invocation shape above intact while still splitting
+# genuine newlines.
+_SEGMENT_RE = re.compile(r"&&|\|\||;|(?<!\\)\n")
+
+
+def mark_done_invocations(command: str) -> list[tuple[str, bool]]:
+    """Every `(story_id, force_overridden)` `command` marks `done`, in first-seen order.
+
+    EVERY one. The gate used to read the FIRST match only, and a close that wraps up
+    two stories in one chained command (`... done && ... done`) is the shape that makes
+    the second one interesting. A gate that inspects one of two writes is not a gate.
+
+    A story id hidden in a shell variable (`update-story "$SID" done`) still yields
+    nothing -- the hook sees the literal text, never its value. That failure does LESS
+    (no gate) rather than blocking honest work, and it is closed for good only at the
+    engine altitude, where every writer of the field converges. Recorded as debt.
+    """
+    found: list[tuple[str, bool]] = []
+    seen: set[str] = set()
+    for segment in _SEGMENT_RE.split(command):
+        forced = bool(_FORCE_UNMERGED_RE.search(segment))
+        for regex in (_MARK_DONE_RE, _MARK_DONE_IF_RE):
+            for match in regex.finditer(segment):
+                story_id = match.group(1).strip(_SHELL_QUOTES)
+                if story_id and story_id not in seen:
+                    seen.add(story_id)
+                    found.append((story_id, forced))
+    return found
 
 
 def merged_block(smm_dir: Path, cwd: str, story_id: str) -> str | None:

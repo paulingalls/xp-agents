@@ -52,42 +52,9 @@ _CD_WORKTREE_GIT_WARNING = (
     "Resolves-Event auto-link silently breaks. Use `git -C <worktree> ...` instead."
 )
 
-# The merge gate's escape hatch. Matched on the COMMAND rather than parsed from the
-# story, because the gate must honor the override before it does any work. The CLI
-# is what enforces that the reason is non-empty and records the debt event — a hook
-# that merely sees the flag cannot police what follows it.
-_FORCE_UNMERGED_RE = re.compile(r"--force-unmerged\b")
-
-# Mark-done, as an INVOCATION rather than as prose: `sprint_cli` must precede the
-# subcommand within ONE shell command.
-#
-# Requiring it is not belt-and-braces — without it the pattern matches text that
-# merely DESCRIBES the command, and both gates below fire on a `git commit` whose
-# MESSAGE happens to mention `update-story <id> done`. That is not hypothetical: it
-# blocked the very commit that added this gate, because the message documented the
-# flag. A gate that refuses a commit over what its message SAYS is a false positive,
-# and false positives are how people learn to route around gates.
-#
-# `(?:\\\n|[^\n])*?` — everything up to the newline, PLUS backslash-newline, because
-# the one invocation production runs is wrapped:
-#
-#     python3 .../sprint_cli.py --smm-dir <SMM_DIR> \
-#       update-story story-NNN done
-#
-# A plain `[^\n]*?` cannot cross that continuation, so it matches every hand-written
-# single-line test and NONE of /xp-accept Step 4: the gate would be dead precisely
-# where it is needed, and the ACCEPT gate (which shares this regex) would silently
-# lose coverage its looser pattern already had. Spanning the continuation and not a
-# bare newline is what keeps the prose false-positive shut: a heredoc commit message
-# is separated from the CLI's name by real newlines, not by `\`-continuations.
-#
-# It does not close the mirror-image hole — a story id in a shell variable
-# (`update-story "$SID" done`) still slips both gates — but that one fails toward
-# doing less, not toward blocking honest work.
-_MARK_DONE_RE = re.compile(
-    r"sprint_cli(?:\.py)?\b(?:\\\n|[^\n])*?\bupdate-story\s+(\S+)\s+done\b"
-)
-
+# Recognizing a mark-done INVOCATION lives with the gate it feeds
+# (story_done_gate.mark_done_invocations), not here: what counts as marking a story
+# done is a property of the gate, and the ACCEPT gate below reads the same answer.
 
 # ---------------------------------------------------------------------------
 # Decision-time open-questions nudge
@@ -280,9 +247,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # 3+ code-files threshold there is no per-commit security gate
     # (close-skill Step 4 covers the cumulative diff at close).
     if smm_dir is not None and git_commits.is_git_commit(command):
+        # EVERY git read below runs in the repo the commit will land in, not in the
+        # hook's own cwd. `git -C <worktree> commit` (the form this project tells
+        # agents to prefer over `cd`) stages nothing in the main checkout, so a raw
+        # `cwd` makes `git diff --cached` come back empty — and an empty diff is not
+        # a blocked commit, it is a SILENT one: the tier-1 scan has nothing to scan
+        # and the lint gate has no files to group. Both gates no-op, unlinted and
+        # unscanned bytes ship, and nothing says so. Parse the target once, here,
+        # above the first read.
+        effective_cwd = commits.parse_effective_cwd(command, cwd)
+
         # Tier 1 fires before the review-cycle gate so deterministic
         # patterns block even when /code-review and /xp-quality-review are done.
-        diff = commits.get_staged_diff(cwd)
+        diff = commits.get_staged_diff(effective_cwd)
         if diff is None:
             raise _common.BlockedError(
                 "Tier 1 security scan could not run: `git diff --cached` failed. "
@@ -310,13 +287,13 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         # Single name-only call shared by the lint gate and downstream
         # checks — one fork instead of two.
-        staged = commits.get_staged_files(cwd)
+        staged = commits.get_staged_files(effective_cwd)
 
-        parts.extend(staged_lint.staged_lint_gate(staged, cwd))
+        parts.extend(staged_lint.staged_lint_gate(staged, effective_cwd))
 
         cycle = markers.read_review_cycle(smm_dir, agent_id)
         code_files = commits.get_code_files_for_review(
-            cwd,
+            effective_cwd,
             cycle.get("last_review_commit", ""),
             command,
             staged_diff=diff,
@@ -345,8 +322,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
         stage = branching.get_branching_stage(smm_dir)
         if stage >= 1:
-            # `git -C <path>` retargets cwd — branch-check the named path.
-            effective_cwd = commits.parse_effective_cwd(command, cwd)
             branch = identity.get_current_branch(effective_cwd)
             is_escape = commits.is_escape_hatch_commit(command)
             if branching.is_protected_branch(stage, branch, smm_dir) and not is_escape:
@@ -368,7 +343,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if nudge:
                 parts.append(nudge)
 
-    mark_done = _MARK_DONE_RE.search(command)
+    mark_done = story_done_gate.mark_done_invocations(command)
 
     if (
         smm_dir is not None
@@ -385,17 +360,20 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # merges — so by mark-done time it is gone. This gate is state-derived and
     # evaluated at the instant of mark-done, which is the only moment the answer
     # ("did the merge actually land?") is knowable.
-    if smm_dir is not None and mark_done and not _FORCE_UNMERGED_RE.search(command):
-        # `cwd`, not `effective_cwd`: the latter is bound only on the git-commit
-        # path (it parses a `git -C <path>` prefix), and a mark-done command has no
-        # such prefix to unwrap. It is also the orchestrator's repo, which is where
-        # the story's branch and its base actually live.
-        block = story_done_gate.merged_block(smm_dir, cwd, mark_done.group(1))
-        if block:
-            raise _common.BlockedError(
-                f"Refusing to mark {mark_done.group(1)} done: {block}",
-                "Merge not verified — the story's work is not on its base branch.",
-            )
+    #
+    # `cwd`, not the commit path's effective_cwd: a mark-done command carries no
+    # `git -C <path>` prefix to unwrap, and this is the orchestrator's repo, which is
+    # where the story's branch and its base actually live.
+    if smm_dir is not None:
+        for story_id, forced in mark_done:
+            if forced:
+                continue  # on the record — the CLI writes the debt event
+            block = story_done_gate.merged_block(smm_dir, cwd, story_id)
+            if block:
+                raise _common.BlockedError(
+                    f"Refusing to mark {story_id} done: {block}",
+                    "Merge not verified — the story's work is not on its base branch.",
+                )
 
     if smm_dir is not None:
         args = _common.parse_append_sh_args(command)
