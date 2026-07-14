@@ -547,19 +547,29 @@ class TestTheRecoveryHatch(_ClaimTestCase):
         """Names the mechanism, so deleting it breaks a test rather than a user.
 
         With no lock file, the ONLY thing that knows the name is taken is the
-        marker's supervisor pid, read by the legacy fallback. Strip the marker's
-        pids (leave it unparseable) and the refusal survives only because an
-        unadjudicable marker is never treated as free either — but strip the
-        marker itself and the name goes.
+        marker's supervisor pid, read by the legacy fallback's PID adjudication.
+
+        Asserting merely "it raises" would NOT pin that: an unparseable marker
+        raises too (unadjudicable is never treated as free), so a `_legacy_verdict`
+        gutted to answer a blanket UNPROVEN for every lockless marker would keep
+        this green while quietly ceasing to read pids at all. The refusal MESSAGE
+        is what tells the two legs apart, so that is what is asserted — once for
+        each leg.
         """
         with live_in_place_holder(self.smm_dir, self.name):
             in_place_locks.holder_lock_path(self.smm_dir, self.name).unlink()
 
-            # Proof it is the PIDS doing the refusing: an unparseable marker is
-            # still refused (unadjudicable ≠ free), but for a different reason.
-            self.marker.write_text("worktree-story-001")
-            with self.assertRaises(in_place_marker.InPlaceNameHeld):
+            # The PID leg: live pids in the marker ⇒ refused as LIVE.
+            with self.assertRaises(in_place_marker.InPlaceNameHeld) as live_refusal:
                 in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+            self.assertIn("a live in-place teammate", str(live_refusal.exception))
+
+            # The UNPROVEN leg: same missing lock, but nothing left to read pids
+            # from ⇒ still refused, and the message says so in the other voice.
+            self.marker.write_text("worktree-story-001")
+            with self.assertRaises(in_place_marker.InPlaceNameHeld) as unproven:
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+            self.assertIn("neither live nor provably dead", str(unproven.exception))
 
     def test_rm_ing_BOTH_frees_a_live_name_which_is_the_hatch_and_the_hazard(self):
         """The hatch, and the hazard, are the same act — so it is pinned, not

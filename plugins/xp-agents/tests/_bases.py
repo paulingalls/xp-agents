@@ -281,6 +281,19 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
                 cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
         finally:
+            # Same hold-release as _SMMTestCase.tearDown — and this class does NOT
+            # inherit it (its base is unittest.TestCase, not _SMMTestCase), so it
+            # needs its own call. It needs it MORE, in fact: `smm_dir` here is
+            # CLASS-scoped and reused by every test in the class, while setUp
+            # unlinks the lock FILE. A claim left in the registry therefore keys a
+            # path the NEXT test will reuse, so `holds_name` answers True for a
+            # name this process no longer meaningfully holds — and the next door
+            # that trusts it would unlink a marker owned by someone else. Must run
+            # before setUp removes the lock files: the release derives names from
+            # the locks on disk.
+            from _in_place_helpers import release_in_place_holds
+
+            release_in_place_holds(self.smm_dir)
             super().tearDown()
 
     def _run_preload(

@@ -23,6 +23,7 @@ from conftest import (
     _HookTestCase,
     _make_stop_input,
     dead_in_place_holder,
+    held_door_mutex,
     make_event,
 )
 from event_schema import EVENT_TYPE_SPRINT
@@ -164,6 +165,52 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
             self.assertTrue(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
         finally:
             worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-999")
+
+    def test_the_gate_still_defers_when_the_door_mutex_is_unavailable(self):
+        """The liveness verdict now takes a lock, and that lock can be
+        unavailable. What the gate must NEVER do then is answer "nobody is live":
+        that fires /xp-accept on a LIVE teammate's half-written tree and certifies
+        it — the exact defect the marker exists to prevent, reached through the
+        lock's own failure path.
+
+        Nor may it raise. A Stop hook that crashes is a gate that never fires at
+        all, which is worse than either wrong answer.
+        """
+        import sprint_stop_gate
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-999")
+        try:
+            with held_door_mutex(self.smm_dir):
+                result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+            self.assertIsNone(
+                result,
+                "the gate went blind to a live teammate because a lock was busy",
+            )
+        finally:
+            worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-999")
+
+    def test_the_gate_reaps_nothing_when_the_door_mutex_is_unavailable(self):
+        """...and the other half of the rule: it still ANSWERS for a dead one, but
+        skips the unlink. A reap without the mutex is a hold a concurrent claimant
+        cannot distinguish from a live teammate's."""
+        import sprint_stop_gate
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
+        (self.smm_dir / ".accept").write_text("done")
+        dead_in_place_holder(self.smm_dir, "worktree-story-999")
+        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-999")
+
+        with held_door_mutex(self.smm_dir):
+            result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+
+        result = self._assert_not_none(result)
+        self.assertIn("xp-accept", result, "the gate must still ANSWER for a dead one")
+        self.assertTrue(marker.exists(), "nothing may be reaped without the mutex")
 
     def test_completed_review_cycle_does_not_defer(self):
         """All review flags True means cycle is done — don't defer, block."""

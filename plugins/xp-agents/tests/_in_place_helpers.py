@@ -36,6 +36,17 @@ from _bases import _SCRIPTS_DIR, _SMM_DIR
 # never hits it, small enough that a broken one fails fast instead of wedging.
 _MUTEX_STARTUP_TIMEOUT_S = 2.0
 
+# How long the holder thread keeps the door mutex before giving up on it.
+#
+# This is NOT a free knob. It must comfortably exceed the real, UNPATCHED
+# _append_impl.LOCK_TIMEOUT_SECONDS (10s), because a door in a SUBPROCESS sits out
+# that whole budget before it concludes the mutex is unavailable — the in-process
+# `budget` patch does not cross a process boundary. Set it below that and the
+# mutex is released mid-wait, the starved door happily ACQUIRES it, and the test
+# passes having exercised the uncontended path. held_door_mutex raises rather than
+# let that go quiet, but the margin is what stops it happening at all.
+_MUTEX_HOLD_TIMEOUT_S = 30.0
+
 # Every wait() on a child in this suite is BOUNDED. A test that blocks forever on
 # a subprocess wedges CI with no output — which is not a hypothetical: a run once
 # sat for 28 minutes waiting on a spawned process that had been killed out from
@@ -219,6 +230,11 @@ def live_in_place_holder(
     finally:
         if proc.poll() is None:
             reap(proc)
+        # wait() reaps the process but does NOT close the pipe we opened for it,
+        # so without this the read end leaks until the GC happens to collect the
+        # Popen. `dead_in_place_holder` gets this for free from communicate().
+        if proc.stdout is not None:
+            proc.stdout.close()
         if child_pid is not None:
             _kill_by_pid(child_pid)
 
@@ -255,13 +271,21 @@ def held_door_mutex(smm_dir: Path, *, budget: int = 1) -> Iterator[None]:
 
     Same shape as `_lock_helpers.held_events_lock` (which hardcodes events.lock):
     a THREAD takes the flock — signals only arm in the main thread, so the code
-    under test must be the one that waits — and LOCK_TIMEOUT_SECONDS is patched
-    down so the waiter raises LockTimeoutError promptly rather than sitting out
-    the real 10s budget.
+    under test must be the one that waits.
 
-    flock conflicts across open file descriptions even within one process, so
-    this makes the mutex unavailable to an in-process door AND to a subprocess
-    one (the Stop hook), which is what the integration test needs.
+    flock conflicts across open file descriptions even within one process, so the
+    mutex is unavailable to an in-process door AND to a subprocess one (the Stop
+    hook), which is what the integration test needs.
+
+    `budget` IS IN-PROCESS ONLY, and the asymmetry is worth stating because it is
+    invisible at the call site: it patches `_append_impl.LOCK_TIMEOUT_SECONDS`,
+    which a SUBPROCESS door does not read — that one re-imports the module and
+    sits out the FULL real budget (10s, measured) before its SIGALRM fires and
+    `door_mutex` yields False. So an in-process door under this fixture fails fast
+    and a subprocess door costs ~10s. That is the price of a REAL cross-process
+    contention rather than a patched one, and it is why the subprocess mutex test
+    is the slowest in the suite. `_MUTEX_HOLD_TIMEOUT_S` must stay comfortably
+    above that real budget — see below for what happens if it does not.
     """
     from unittest import mock
 
@@ -270,11 +294,18 @@ def held_door_mutex(smm_dir: Path, *, budget: int = 1) -> Iterator[None]:
     lock_fd = open(smm_dir / marker_names.IN_PLACE_DOOR_LOCK, "a")  # noqa: SIM115
     acquired = threading.Event()
     release = threading.Event()
+    timed_out = threading.Event()
 
     def hold() -> None:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         acquired.set()
-        release.wait(timeout=CHILD_WAIT_TIMEOUT_S)
+        if not release.wait(timeout=_MUTEX_HOLD_TIMEOUT_S):
+            # We are about to drop the mutex while the body is STILL RUNNING, so
+            # whatever it does next runs UNCONTENDED. That is not a slow test, it
+            # is a test that silently stops testing anything — the door it wanted
+            # to starve simply takes the mutex and takes the happy path. Recorded
+            # here and raised at exit, because a thread cannot fail a test.
+            timed_out.set()
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
     holder = threading.Thread(target=hold)
@@ -290,3 +321,11 @@ def held_door_mutex(smm_dir: Path, *, budget: int = 1) -> Iterator[None]:
         lock_fd.close()
         if holder.is_alive():
             raise RuntimeError("door-mutex holder thread did not exit — flock leak")
+    # Outside the finally, so a real failure in the body reports itself rather
+    # than being masked by this one.
+    if timed_out.is_set():
+        raise RuntimeError(
+            f"the door mutex was released after {_MUTEX_HOLD_TIMEOUT_S}s, while the "
+            "body was still running — the code under test ran UNCONTENDED, so this "
+            "test proved nothing. It went green anyway; that is why this raises."
+        )
