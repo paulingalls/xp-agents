@@ -19,6 +19,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import identity
 from _branching_fixtures import init_repo
 
+# Direct from the sibling, NOT through conftest: this module deliberately does
+# not import conftest (see TestIsWorktreeTeammate.setUp — it must stand alone
+# under an isolated `python3 -m unittest hooks.test_identity`).
+from _in_place_helpers import release_in_place_holds
+
 
 class TestResolveAgentId(unittest.TestCase):
     def test_platform_provided_agent_id(self):
@@ -135,7 +140,10 @@ class TestIsWorktreeTeammate(unittest.TestCase):
                 os.environ.pop("SMM_DIR", None)
                 self.assertFalse(identity.is_worktree_teammate(inp, smm_dir=smm_dir))
                 worktree.claim_in_place_marker(smm_dir, "worktree-story-001")
-                self.assertTrue(identity.is_worktree_teammate(inp, smm_dir=smm_dir))
+                detected = identity.is_worktree_teammate(inp, smm_dir=smm_dir)
+                # The claim holds a REAL lock; give it back before the dir goes.
+                release_in_place_holds(smm_dir)
+                self.assertTrue(detected)
 
     def test_env_var_without_prefix_not_detected(self):
         """XP_TEAMMATE_NAME without worktree-story- prefix not detected."""

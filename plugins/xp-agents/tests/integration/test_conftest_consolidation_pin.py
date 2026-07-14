@@ -68,14 +68,18 @@ class TestConftestConsolidation(unittest.TestCase):
         self.assertEqual(hits[0].name, "_md_helpers.py")
 
     def test_single_markers_py_constant_definition(self):
+        # Home is `_paths.py` (the leaf of the tests/ import graph), not `_bases.py`
+        # — `_bases` re-exports it by identity, so every `from _bases import
+        # _MARKERS_PY` still resolves. The invariant pinned here is the one that
+        # matters: ONE definition, never a copy-paste into a second test module.
         hits = _files_matching(r"^_MARKERS_PY\s*=\s*")
         self.assertEqual(
             len(hits),
             1,
-            f"_MARKERS_PY should be defined exactly once (in tests/_bases.py); "
+            f"_MARKERS_PY should be defined exactly once (in tests/_paths.py); "
             f"found in: {[str(p) for p in hits]}",
         )
-        self.assertEqual(hits[0].name, "_bases.py")
+        self.assertEqual(hits[0].name, "_paths.py")
 
     def test_single_mixin_base_definition(self):
         # Story-020: _MixinBase (TYPE_CHECKING shim that lets pyright see

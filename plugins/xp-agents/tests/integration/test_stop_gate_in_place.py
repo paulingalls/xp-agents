@@ -30,7 +30,10 @@ from conftest import (
     SPRINT_REVIEWING_ONLY,
     _IntegrationTestCase,
     _make_stop_input,
+    dead_in_place_holder,
     dead_pid,
+    held_door_mutex,
+    live_in_place_holder,
     live_pid,
 )
 
@@ -110,21 +113,24 @@ class TestStopGateInPlace(_IntegrationTestCase):
 
         self._assert_accept_fired(result)
 
-    def test_dead_pid_marker_emits_accept_message_with_cwd(self):
-        """A leaked marker (supervising process dead) cannot silence the gate."""
+    def test_dead_holders_leaked_marker_emits_accept_message_with_cwd(self):
+        """A leaked marker (supervising process dead) cannot silence the gate.
+
+        The holder claims in a SUBPROCESS that then dies without teardown —
+        leaking its marker and letting the kernel release its lock, which is
+        exactly what a SIGKILLed spawn_teammate leaves behind.
+        """
         self._checkout_story_branch("story-dead-marker")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
-        marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
-        marker.write_text(str(dead_pid()))
+        dead_in_place_holder(self.smm_dir, _MARKER_NAME)
 
         result = self._run_gate(cwd=str(self.tmpdir))
 
         self._assert_accept_fired(result)
 
-    def test_dead_pid_marker_is_reaped_by_the_hook(self):
-        """The dead-pid marker is deleted as a side effect of gate evaluation.
+    def test_dead_holders_marker_is_reaped_by_the_hook(self):
+        """The leaked marker is deleted as a side effect of gate evaluation.
 
         Builds its own fixture and fires its own subprocess (self-contained,
         per the no-inter-test-dependency rule) and asserts BOTH that the gate
@@ -135,9 +141,9 @@ class TestStopGateInPlace(_IntegrationTestCase):
         self._checkout_story_branch("story-reap")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
+        dead_in_place_holder(self.smm_dir, _MARKER_NAME)
         marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
-        marker.write_text(str(dead_pid()))
+        self.assertTrue(marker.exists(), "fixture: the dead holder must leak it")
 
         result = self._run_gate(cwd=str(self.tmpdir))
 
@@ -210,6 +216,67 @@ class TestStopGateInPlace(_IntegrationTestCase):
 
         self._assert_accept_fired(result)
         self.assertFalse(marker.exists(), "fully-dead episode must be reaped")
+
+    # -- Group D: the kill-then-respawn round trip, end to end --
+
+    def test_kill_then_respawn_round_trip(self):
+        """The capstone: claim, `kill -9`, respawn — every step a real process,
+        the gate a real subprocess, the locks real kernel locks.
+
+        The three claims the story rests on, in the order an operator meets them:
+
+          1. while the teammate is LIVE, the gate is quiet and its marker survives
+             (reaping it would demote the teammate to the lead mid-run);
+          2. `kill -9` — the ROUTINE cancel path, which runs no `finally` — leaves
+             the marker behind but cannot leave the LOCK behind, so the gate fires
+             and collects the marker;
+          3. the name is then free, so the respawn comes up.
+
+        Step 3 is the one that used to fail in the field: the leaked marker named
+        a dead supervisor whose pid could be RECYCLED, and a recycled pid read LIVE
+        forever — no respawn of that name could ever come up again.
+        """
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
+
+        with live_in_place_holder(self.smm_dir, _MARKER_NAME) as holder:
+            self._assert_quiet(self._run_gate())
+            self.assertTrue(marker.exists(), "a live teammate must keep its marker")
+
+            holder.sigkill()
+
+            self._assert_accept_fired(self._run_gate())
+            self.assertFalse(marker.exists(), "the leaked marker must be reaped")
+
+        # The name is free again: the respawn claims it and the gate goes quiet.
+        # Entering the context IS the proof that the claim landed — the fixture
+        # raises if the holder never announces one — and the pid is a NEW process,
+        # not the killed one answering from the grave.
+        with live_in_place_holder(self.smm_dir, _MARKER_NAME) as respawn:
+            self.assertNotEqual(respawn.pid, holder.pid, "the respawn is a new process")
+            self._assert_quiet(self._run_gate())
+            self.assertTrue(marker.exists())
+
+    def test_a_live_teammate_survives_a_gate_that_cannot_take_the_door_mutex(self):
+        """AC #4 at subprocess level, and the most dangerous branch in the story.
+
+        The hook runs in its own process, so this holds the mutex from the TEST
+        process — a real cross-process contention, not a patched one. The gate must
+        still answer LIVE from the holder lock, stay quiet, and reap nothing.
+
+        A blanket `False` here would be catastrophic in a way the other failure
+        directions are not: it fires /xp-accept against a teammate that is at that
+        moment writing the tree, and /xp-accept certifies what it finds.
+        """
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
+
+        with live_in_place_holder(self.smm_dir, _MARKER_NAME):
+            with held_door_mutex(self.smm_dir):
+                result = self._run_gate()
+
+            self._assert_quiet(result)
+            self.assertTrue(marker.exists(), "nothing may be reaped without the mutex")
 
 
 if __name__ == "__main__":

@@ -395,20 +395,24 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str) -> None:
     write_text_atomic(path, story_id)
 
 
-# Back-compat re-exports for the in-place teammate marker (presence +
-# pid-liveness), split into in_place_marker.py when worktree.py crossed the
-# 500-line ceiling. `worktree.<name>` stays the read surface for identity,
-# pre_tool_skill, commit_event and sprint_stop_gate. spawn_teammate — the
-# marker's only writer and only deleter — imports in_place_marker directly.
+# Back-compat re-exports for the in-place teammate marker (presence + liveness),
+# split into in_place_marker.py when worktree.py crossed the 500-line ceiling.
+# `worktree.<name>` stays the read surface for identity, pre_tool_skill,
+# commit_event and sprint_stop_gate. spawn_teammate — the marker's only writer
+# and only deleter — imports in_place_marker directly.
+#
+# Liveness is a LOCK, not a pid: the supervisor holds a per-name flock for the
+# whole episode and the kernel releases it however that process dies, OR'd with
+# the recorded child pid (the `claude` child outlives a SIGKILLed supervisor).
+# See in_place_marker / in_place_locks.
 #
 # Every name here is guarded, and there is deliberately no unguarded sibling of
 # any of them — an "unlink it whoever wrote it" or "write it whatever is there"
 # helper would sit next to the guarded one as the obvious thing to reach for, and
-# either one deletes a same-name respawn's LIVE marker (the write door does it by
-# re-forging the ownership the delete guard checks). So:
+# either one deletes a same-name respawn's LIVE marker. So:
 #   claim_in_place_marker       — takes the name exclusively, or refuses
-#   rewrite_own_in_place_marker — rewrites only while the marker is still ours
-#   remove_own_in_place_marker  — unlinks only while the marker is still ours
+#   rewrite_own_in_place_marker — rewrites only while we HOLD the name
+#   remove_own_in_place_marker  — unlinks only while we HOLD the name
 from in_place_marker import (  # noqa: E402, F401
     InPlaceNameHeld,
     claim_in_place_marker,
