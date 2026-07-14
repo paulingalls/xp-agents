@@ -245,6 +245,23 @@ class TestMergeBranch(unittest.TestCase):
             self.assertEqual(get_current_branch(td), main)
 
 
+class TestPushSourceNoVerify(unittest.TestCase):
+    """The pre-merge re-push warns but NEVER raises — its whole contract is that
+    a failed re-push cannot abort the merge that follows it."""
+
+    def test_spawn_failure_warns_and_returns_instead_of_raising(self):
+        """subprocess.run has no timeout here (a slow push must not raise), but it
+        can still raise OSError/FileNotFoundError on a spawn failure. That must be
+        swallowed into a warning, not propagated to abort cmd_merge before merge."""
+
+        def boom(*a, **k):
+            raise FileNotFoundError("git not on PATH")
+
+        with patch.object(branch_lifecycle.subprocess, "run", boom):
+            # Must not raise.
+            branch_lifecycle.push_source_no_verify("/repo", "story-src")
+
+
 class TestDeleteBranch(unittest.TestCase):
     def test_deletes_merged_branch(self):
         with tempfile.TemporaryDirectory() as td:

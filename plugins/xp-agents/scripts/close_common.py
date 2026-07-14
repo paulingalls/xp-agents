@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import acceptance_env
+import branch_lifecycle
 import branching
 import close_verify_gate
 import commits
@@ -277,6 +278,14 @@ def cmd_merge(args: argparse.Namespace) -> int:
     if review_block:
         sys.stderr.write(review_block + "\n")
         return 1
+
+    # Re-push <source> so the PR record reflects close-time fixes (Step 4b
+    # validate-and-fix, Step 5c "fix now") that landed after Step 2's push and
+    # now ship in this merge — otherwise the PR stays stale relative to what
+    # merged. --no-verify + warn-don't-abort; see push_source_no_verify. Only
+    # when a remote exists (reuse the target push's remote probe).
+    if git_remote.has_remote(args.cwd):
+        branch_lifecycle.push_source_no_verify(args.cwd, args.source)
 
     branching.merge_branch(args.cwd, args.source, target=args.target)
     print(f"merged: {args.source} -> {args.target}")
