@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import worktree
-from conftest import dead_pid, live_pid
+from conftest import dead_pid, live_pid, release_in_place_holds
 
 
 class TestStoryAssignmentPath(unittest.TestCase):
@@ -51,6 +51,8 @@ class TestInPlaceTeammateFromEnv(unittest.TestCase):
             smm_dir = Path(tmpdir)
             worktree.claim_in_place_marker(smm_dir, "worktree-story-001")
             result = worktree.in_place_teammate_from_env(smm_dir, "worktree-story-001")
+            # The claim holds a REAL lock; give it back before the dir goes.
+            release_in_place_holds(smm_dir)
             self.assertTrue(result)
 
     def test_returns_false_when_env_name_is_none(self):
@@ -69,13 +71,18 @@ class TestInPlaceTeammateFromEnv(unittest.TestCase):
 
 
 class TestHasLiveInPlaceTeammate(unittest.TestCase):
-    """has_live_in_place_teammate probes marker files for a LIVE pid,
-    name-free — the sensor the accept-gate consumes when it doesn't know
-    which teammate (if any) is executing in place.
+    """has_live_in_place_teammate answers name-free — the sensor the accept gate
+    consumes when it doesn't know which teammate (if any) is executing in place.
 
-    A marker leaked by a SIGKILLed spawn_teammate must read as dead, not
-    linger forever — that's the whole point of the pid-liveness bound over
-    a bare existence check.
+    Liveness is the holder LOCK now (see test_in_place_marker_reap.py, which owns
+    that contract). What survives HERE is the pid machinery it still rests on: the
+    LEGACY fallback, which adjudicates a pre-lock marker by its pids exactly as
+    before. Every marker below is written WITHOUT a claim, so it has no lock file
+    beside it — which is precisely what makes it legacy.
+
+    The pid guards are unchanged and still load-bearing: the same _probe_pid also
+    answers the child-pid OR-leg, where a mis-read pid would reap a live
+    teammate's marker.
     """
 
     def setUp(self):
@@ -85,35 +92,36 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
+    def _legacy_marker(self, content: str, name: str = "worktree-story-001") -> Path:
+        """A pre-lock marker: pid content, and NO holder lock beside it."""
+        marker = worktree.in_place_marker_path(self.smm_dir, name)
+        marker.write_text(content)
+        return marker
+
     def test_live_pid_marker_for_any_name_is_true(self):
-        """Name-free: a live-pid marker under ANY teammate name reports True."""
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-042")
-        self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
+        """Name-free: a live legacy marker under ANY teammate name reports True."""
+        with live_pid() as pid:
+            self._legacy_marker(str(pid), name="worktree-story-042")
+            self.assertTrue(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_dead_pid_marker_is_false(self):
         """The leak case: a SIGKILLed spawn_teammate's marker outlives the
         process it named. Liveness must not let it defer forever."""
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-001")
-        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
-        marker.write_text(str(dead_pid()))
+        self._legacy_marker(str(dead_pid()))
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_pid_zero_marker_is_false(self):
         """os.kill(0, 0) signals the caller's own process group and
         succeeds — a naive liveness check would treat pid 0 as alive
         forever. The pid<=0 guard exists specifically to kill this trap."""
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-001")
-        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
-        marker.write_text("0")
+        self._legacy_marker("0")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_legacy_name_content_marker_is_false(self):
-        """A marker written before this story's pid change contains a
-        teammate NAME, not a pid. Unparseable as an int -> treated as
-        dead, so the gate fires rather than staying silently suppressed."""
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-001")
-        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
-        marker.write_text("worktree-story-001")
+        """A marker written before the pid change contains a teammate NAME, not
+        a pid. Unparseable as an int -> treated as dead, so the gate fires rather
+        than staying silently suppressed."""
+        self._legacy_marker("worktree-story-001")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_unreadable_marker_is_false(self):
@@ -128,9 +136,7 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         """os.kill accepts negative pids as PROCESS GROUP targets, so a
         negative pid must not reach the probe either — the guard is pid<=0,
         not pid==0."""
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-001")
-        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
-        marker.write_text("-1")
+        self._legacy_marker("-1")
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_oversized_pid_marker_is_false(self):
@@ -142,9 +148,7 @@ class TestHasLiveInPlaceTeammate(unittest.TestCase):
         promises to fail OPEN (unreadable => dead => the gate fires), but a
         crash means the gate never fires at all.
         """
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-001")
-        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-001")
-        marker.write_text(str(10**30))
+        self._legacy_marker(str(10**30))
         self.assertFalse(worktree.has_live_in_place_teammate(self.smm_dir))
 
     def test_empty_dir_and_unrelated_files_are_false(self):
@@ -209,6 +213,9 @@ class TestOrphanedTeammateMarker(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.smm_dir = Path(self._tmp.name)
         self.addCleanup(self._tmp.cleanup)
+        # A claim keeps its holder lock for the life of the PROCESS. Right for a
+        # supervisor (it exits); an fd leak in a test worker (it does not).
+        self.addCleanup(release_in_place_holds, self.smm_dir)
         self.name = "worktree-story-001"
         self.marker = worktree.in_place_marker_path(self.smm_dir, self.name)
 

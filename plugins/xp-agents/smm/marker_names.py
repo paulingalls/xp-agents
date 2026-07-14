@@ -41,6 +41,23 @@ STORY_ASSIGNMENT = ".story-assignment-{name}"
 # leaky XP_TEAMMATE_NAME env for attribution.
 IN_PLACE_ACTIVE = ".in-place-active-{name}"
 
+# The two in-place LOCKS. Neither may ever match IN_PLACE_ACTIVE's reap glob
+# (".in-place-active-*") — a lock file caught by that glob would be probed as if
+# it were a marker. That is why the holder lock is ".in-place-holder-", not
+# ".in-place-active-...lock".
+#
+# IN_PLACE_DOOR_LOCK — one per SMM dir, held for MICROSECONDS by every door that
+# takes a holder lock it does not intend to keep (the reap proving death, the
+# teardown releasing). Without it, such a transient hold is indistinguishable to
+# a concurrent claimant from a live teammate's.
+#
+# IN_PLACE_HOLDER — one per name, taken LOCK_NB by the supervisor and held for
+# the WHOLE episode. Its being held IS the liveness verdict: the kernel releases
+# it when the supervisor dies, however it dies — which no pid bookkeeping can
+# promise, since a pid can be recycled.
+IN_PLACE_DOOR_LOCK = ".in-place.lock"
+IN_PLACE_HOLDER = ".in-place-holder-{name}.lock"
+
 SPRINT_REVIEW_INPUT_PREFIX = ".sprint-review-input."
 
 RETROSPECTIVES_DIR = "retrospectives"

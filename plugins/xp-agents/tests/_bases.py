@@ -94,6 +94,13 @@ class _SMMTestCase(_AssertNotNoneMixin, unittest.TestCase):
             os.environ.pop("SMM_DIR", None)
         else:
             os.environ["SMM_DIR"] = self._prev_smm_dir
+        # A claim in a test keeps its holder lock for the LIFE OF THE PROCESS: a
+        # real supervisor then exits, a test worker runs thousands more tests.
+        # Imported here, not at module scope: _in_place_helpers imports this
+        # module for its path constants.
+        from _in_place_helpers import release_in_place_holds
+
+        release_in_place_holds(self.smm_dir)
         shutil.rmtree(self.smm_dir)
 
     def _write_events(self, events: list[dict]) -> None:

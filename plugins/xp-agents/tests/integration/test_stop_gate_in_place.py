@@ -30,6 +30,7 @@ from conftest import (
     SPRINT_REVIEWING_ONLY,
     _IntegrationTestCase,
     _make_stop_input,
+    dead_in_place_holder,
     dead_pid,
     live_pid,
 )
@@ -110,21 +111,24 @@ class TestStopGateInPlace(_IntegrationTestCase):
 
         self._assert_accept_fired(result)
 
-    def test_dead_pid_marker_emits_accept_message_with_cwd(self):
-        """A leaked marker (supervising process dead) cannot silence the gate."""
+    def test_dead_holders_leaked_marker_emits_accept_message_with_cwd(self):
+        """A leaked marker (supervising process dead) cannot silence the gate.
+
+        The holder claims in a SUBPROCESS that then dies without teardown —
+        leaking its marker and letting the kernel release its lock, which is
+        exactly what a SIGKILLed spawn_teammate leaves behind.
+        """
         self._checkout_story_branch("story-dead-marker")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
-        marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
-        marker.write_text(str(dead_pid()))
+        dead_in_place_holder(self.smm_dir, _MARKER_NAME)
 
         result = self._run_gate(cwd=str(self.tmpdir))
 
         self._assert_accept_fired(result)
 
-    def test_dead_pid_marker_is_reaped_by_the_hook(self):
-        """The dead-pid marker is deleted as a side effect of gate evaluation.
+    def test_dead_holders_marker_is_reaped_by_the_hook(self):
+        """The leaked marker is deleted as a side effect of gate evaluation.
 
         Builds its own fixture and fires its own subprocess (self-contained,
         per the no-inter-test-dependency rule) and asserts BOTH that the gate
@@ -135,9 +139,9 @@ class TestStopGateInPlace(_IntegrationTestCase):
         self._checkout_story_branch("story-reap")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
+        dead_in_place_holder(self.smm_dir, _MARKER_NAME)
         marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
-        marker.write_text(str(dead_pid()))
+        self.assertTrue(marker.exists(), "fixture: the dead holder must leak it")
 
         result = self._run_gate(cwd=str(self.tmpdir))
 

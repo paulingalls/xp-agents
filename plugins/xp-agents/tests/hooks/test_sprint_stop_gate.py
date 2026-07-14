@@ -22,7 +22,7 @@ from conftest import (
     SPRINT_REVIEWING_ONLY,
     _HookTestCase,
     _make_stop_input,
-    dead_pid,
+    dead_in_place_holder,
     make_event,
 )
 from event_schema import EVENT_TYPE_SPRINT
@@ -136,16 +136,19 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         self.assertIn("xp-accept", result)
 
     def test_dead_pid_in_place_marker_does_not_defer(self):
-        """A marker leaked by a SIGKILLed spawn_teammate must not
-        silently defer the gate forever — dead pid, no defer."""
+        """A marker leaked by a SIGKILLed spawn_teammate must not silently defer
+        the gate forever.
+
+        The holder claims in a SUBPROCESS that then dies without teardown — the
+        only fixture that can produce a genuinely dead holder, since a claim made
+        HERE would be held by this very process and read LIVE (correctly).
+        """
         import sprint_stop_gate
-        import worktree
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-999")
-        marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-999")
-        marker.write_text(str(dead_pid()))
+        dead_in_place_holder(self.smm_dir, "worktree-story-999")
+
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
         result = self._assert_not_none(result)
         self.assertIn("xp-accept", result)

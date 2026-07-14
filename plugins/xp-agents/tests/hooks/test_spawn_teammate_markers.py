@@ -255,25 +255,21 @@ class TestInPlaceMarkerRecordsChildPid(_AssertNotNoneMixin, unittest.TestCase):
 
 
 class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
-    """The SECOND door onto the same disaster.
+    """The teardown door: the supervisor's `finally` unlinks a marker.
 
-    The reap (in_place_marker) is one unguarded unlink on the marker path; the
-    supervisor's `finally` is the other, with the identical blast radius. If a
-    same-name teammate is respawned while the old supervisor is still running,
-    the old supervisor's `finally` deletes the LIVE teammate's marker — and the
-    three existence-only consumers then read "not a teammate", demoting it to the
-    lead and misattributing its commits.
+    Its blast radius used to be the same as the reap's — a same-name teammate
+    respawned mid-flight had its LIVE marker deleted by the old supervisor's
+    finally, demoting it to the lead and misattributing its commits.
 
-    This door is narrower than the reap's, but it is not closed: Python installs
-    no SIGTERM handler, so a SIGKILLed or SIGTERMed spawn skips `finally`
-    entirely (which is exactly why leaked markers are routine) — but the
-    clean-exit and SIGINT paths DO run it.
+    The predicate is now the HOLD: remove the marker only for a name this process
+    HOLDS the lock on. That is a strictly stronger proof than the content check it
+    replaces — content ("the first pid is mine") was forgeable by a writer against
+    itself, which is how the disaster was reached; a lock is not. It also makes
+    the "respawn mid-flight" premise unreachable: no rival can take a name we
+    hold.
 
-    The predicate: delete the marker only if it is OURS and unchanged. Ownership
-    is proven by CONTENT, not by a remembered stat — the marker's first pid is
-    the supervisor that wrote it, i.e. us, and a pid cannot be recycled while its
-    process is alive, so no respawn can forge it. The unchanged half is the same
-    inode identity the reap uses.
+    What is left to pin here is that the hold is scoped to the NAME (a marker we
+    do not hold is untouched) and that it is only ours once the claim LANDED.
 
     Control for both tests below: `test_in_place_marker_present_during_run_
     absent_after` — an unraced clean exit still removes its own marker.
@@ -326,45 +322,56 @@ class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
             Path(prompt_path).unlink(missing_ok=True)
         return worktree.in_place_marker_path(self.smm_dir, self.name)
 
-    def test_respawned_marker_survives_the_old_supervisors_finally(self):
-        """The headline race, shaped exactly as production produces it.
+    def test_a_respawn_is_refused_the_name_rather_than_racing_the_finally(self):
+        """The headline race, DISSOLVED rather than guarded.
 
-        A real respawn is a DIFFERENT supervisor process publishing a fresh
-        marker, so its marker differs from ours in both ways that matter: a
-        foreign supervisor pid (content) and a fresh inode. write_text_atomic
-        stands in for that publisher — reached directly here only because
-        claim_in_place_marker necessarily stamps the CALLER's pid, and this test
-        process is the old supervisor.
+        A real respawn is a different supervisor process taking the name. Under
+        the holder lock it cannot: the name is held for the whole episode, so the
+        respawn is refused at the claim and never publishes a marker at all.
+        There is therefore no live respawn marker for the old supervisor's finally
+        to delete — the race the guard used to defend against is unreachable.
 
-        That distinction is the whole point rather than a testing detail: a
-        respawn cannot share our pid, because a pid cannot be recycled while its
-        process is alive. That is what makes the marker's first pid an
-        unforgeable proof of ownership.
+        Fired at the exact moment the old fixture published the respawn's marker
+        (on_spawn, mid-run), so it lands in the same window.
         """
+        import in_place_marker
         import worktree
-        from _append_impl import write_text_atomic
 
         marker = worktree.in_place_marker_path(self.smm_dir, self.name)
-        respawn_supervisor = dead_pid()
+        refused: list[Exception] = []
 
-        with live_pid() as respawn_child:
-            self._run_with_respawn(
-                lambda: write_text_atomic(
-                    marker, f"{respawn_supervisor} {respawn_child}"
-                )
-            )
+        def respawn() -> None:
+            try:
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+            except in_place_marker.InPlaceNameHeld as exc:
+                refused.append(exc)
 
-            self.assertTrue(
-                marker.exists(),
-                "the old supervisor's finally deleted a live respawn's marker",
-            )
-            self.assertTrue(
-                worktree.in_place_teammate_from_env(self.smm_dir, self.name),
-                "...demoting the respawned teammate to the lead",
-            )
-            self.assertTrue(
-                worktree.has_live_in_place_teammate(self.smm_dir),
-                "the respawn's marker must still read LIVE afterwards",
+        self._run_with_respawn(respawn)
+
+        self.assertEqual(len(refused), 1, "a respawn took a name a LIVE spawn held")
+        self.assertFalse(
+            marker.exists(),
+            "the supervisor's own marker is removed on its clean exit, as ever",
+        )
+
+    def test_a_marker_under_a_DIFFERENT_name_is_never_touched(self):
+        """The hold is scoped to the NAME. A teardown that reached past its own
+        name would take out a sibling in-place teammate — the same demotion, one
+        marker over."""
+        import worktree
+
+        sibling = worktree.in_place_marker_path(self.smm_dir, "worktree-story-002")
+
+        with live_pid() as sibling_child:
+            content = f"{dead_pid()} {sibling_child}"
+            sibling.write_text(content)
+
+            self._run_with_respawn(lambda: None)
+
+            self.assertEqual(
+                sibling.read_text(),
+                content,
+                "the teardown deleted a marker belonging to another name",
             )
 
     def test_a_failed_write_removes_nothing_even_when_the_pid_matches(self):
@@ -448,29 +455,6 @@ class TestSupervisorOnlyRemovesItsOwnMarker(unittest.TestCase):
             self.assertTrue(
                 worktree.has_live_in_place_teammate(self.smm_dir),
                 "...its orphaned child is still live",
-            )
-
-    def test_a_marker_naming_another_supervisor_is_never_deleted(self):
-        """Isolates the ownership leg from the inode leg.
-
-        Here the respawn rewrites the marker IN PLACE (write_text truncates), so
-        the file keeps its inode. Ownership is then the only thing that can save
-        it — and it does, because the first pid is not ours. Content is what
-        proves the marker is someone else's; the inode only proves it has not
-        changed since we read it.
-        """
-        import worktree
-
-        marker = worktree.in_place_marker_path(self.smm_dir, self.name)
-        other_supervisor = dead_pid()
-
-        with live_pid() as child:
-            self._run_with_respawn(
-                lambda: marker.write_text(f"{other_supervisor} {child}")
-            )
-            self.assertTrue(
-                marker.exists(),
-                "a marker naming a DIFFERENT supervisor must never be deleted",
             )
 
 

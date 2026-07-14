@@ -344,30 +344,28 @@ def main(argv: list[str] | None = None) -> None:
 
     # In-place teammates share the main checkout, so their cwd carries no
     # worktree path marker — commit_handling recovers the name from the leaky
-    # XP_TEAMMATE_NAME env instead. Write a lifetime-scoped marker so attribution
+    # XP_TEAMMATE_NAME env instead. Claim a lifetime-scoped marker so attribution
     # only trusts that env WHILE this child runs; a lead that later inherits a
-    # leaked var has no live marker and falls through to the heuristics. Removed
+    # leaked var has no live marker and falls through to the heuristics. Released
     # in the finally below.
+    #
+    # The CLAIM takes a holder lock and keeps it for this whole episode, and that
+    # lock — not the marker's content — is what makes the name ours. It is the
+    # only proof that cannot be forged: a writer can always overwrite a marker and
+    # then read its own pid back as "ownership", which is exactly how a supervisor
+    # came to delete a LIVE teammate's marker. And the kernel releases the lock
+    # when we die however we die, which no pid can promise (a pid gets recycled,
+    # and a recycled pid wedges the name forever).
     #
     # The marker is written TWICE, by us both times. Now, because it must exist
     # before the child's first hook runs or the child loses the identity race —
     # but at this point only our pid exists to record. Then again from on_spawn
     # below, once the child exists: WE are only a tee around it, and a SIGKILL up
-    # here does not propagate to it (see run_with_tee), so the child's pid is the
-    # one that must keep the marker alive when we die. Recording only ours would
-    # let the probe reap a LIVE teammate's marker.
+    # here does not propagate to it (see run_with_tee), so the child is the one
+    # still writing the tree after our lock is gone. Its pid is the OR-leg that
+    # keeps the marker alive — recording only ours would let the reap collect a
+    # LIVE teammate's marker.
     combined_path: str | None = None
-    # Our removal below proves ownership by CONTENT (the marker's first pid is
-    # ours), which is unforgeable ONLY given that we took the name — a writer can
-    # always forge that proof against itself by overwriting. So the name is CLAIMED
-    # (exclusively linked into place), not written: if a live teammate already
-    # holds it, we refuse to spawn rather than clobber its marker and then delete
-    # it. And we don't even look at the path in the finally unless our claim
-    # landed: what sits there otherwise is some earlier episode's leaked marker —
-    # routinely a live one, since a SIGKILLed supervisor skips its finally while
-    # its child runs on — and its (dead) supervisor's pid can have been recycled
-    # to us.
-    claimed_marker = False
 
     def _record_child_pid(child_pid: int) -> None:
         in_place_marker.rewrite_own_in_place_marker(Path(args.smm_dir), name, child_pid)
@@ -375,7 +373,6 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.in_place:
             in_place_marker.claim_in_place_marker(Path(args.smm_dir), name)
-            claimed_marker = True
         # Commit attribution: the teammate's name-keyed .story-assignment file is
         # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
         # worktree marker; an in-place child's cwd is the main checkout (no marker),
@@ -437,13 +434,13 @@ def main(argv: list[str] | None = None) -> None:
         if not filter_incomplete:
             Path(prompt_file).unlink(missing_ok=True)
     finally:
-        if claimed_marker:
-            # Only if the marker is still OURS: a same-name teammate respawned
-            # while we were running owns the path now, and deleting ITS marker
-            # would demote a live teammate to the lead (see
-            # remove_own_in_place_marker). Failing to delete is the safe
-            # direction — a leaked marker reads dead and the reap collects it.
-            in_place_marker.remove_own_in_place_marker(Path(args.smm_dir), name)
+        # A no-op unless we HOLD the name — which is the whole ownership test now,
+        # so there is no separate "did we claim?" flag to keep in sync with it. A
+        # refused or failed claim therefore removes nothing: what sits at that path
+        # is someone else's marker, routinely a LIVE one (a SIGKILLed supervisor
+        # skips its finally while its `claude` child runs on), and deleting it
+        # would demote that teammate to the lead.
+        in_place_marker.remove_own_in_place_marker(Path(args.smm_dir), name)
         if combined_path is not None:
             Path(combined_path).unlink(missing_ok=True)
 

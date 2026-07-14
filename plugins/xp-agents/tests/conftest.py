@@ -185,9 +185,14 @@ from _hook_inputs import (  # noqa: E402, F401
 )
 from _in_place_helpers import (  # noqa: E402, F401
     CHILD_WAIT_TIMEOUT_S,
+    Holder,
+    dead_in_place_holder,
     dead_pid,
+    held_door_mutex,
+    live_in_place_holder,
     live_pid,
     reap,
+    release_in_place_holds,
 )
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename

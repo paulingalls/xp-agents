@@ -61,15 +61,20 @@ def _never_spawn(*_args, **_kwargs):
 
 
 class TestWriteDoorEndToEnd(unittest.TestCase):
-    """The reported sequence, driven through spawn_teammate.main.
+    """The reported sequence, driven through spawn_teammate.main — and how the
+    lock DISSOLVES it rather than guarding it.
 
-    The old supervisor A is this test process. B is a respawn that takes the
-    marker path while A is mid-flight — reachable in production once the marker
-    has been cleared out-of-band. B's marker is published through an atomic
-    rename (a NEW inode), which is what any real publisher does; an in-place
-    truncate would preserve st_ino and st_size and leave the guard resting on a
-    ~70us st_mtime_ns delta that Linux's coarse 1-4ms mtime clock cannot resolve
-    (decision 07f346cdf7f7).
+    The old sequence needed a rival supervisor B to publish a marker under a name
+    A was already running. Ownership was proven by CONTENT, so A's next write
+    re-forged that proof against itself and A's finally then deleted B's LIVE
+    marker.
+
+    Under the holder lock, B cannot exist. A holds the name for its whole episode,
+    and a lock cannot be forged — so B's claim is REFUSED before it publishes
+    anything, and there is no foreign marker for A to clobber or delete. The tests
+    below therefore pin the DISSOLUTION: the rival is turned away at the door
+    (test 1), and merely writing bytes into the marker file — which is all the old
+    fixtures ever did — does not make anyone an owner (test 2).
     """
 
     def setUp(self):
@@ -82,11 +87,8 @@ class TestWriteDoorEndToEnd(unittest.TestCase):
     def _run_with_respawn_before_on_spawn(self, respawn) -> None:
         """Drive an in-place main() to a clean exit, firing `respawn` BEFORE
         on_spawn records the child's pid — i.e. inside the window where the old
-        supervisor still has an unconditional write ahead of it.
-
-        The existing door-2 test fires its respawn AFTER on_spawn, which is why
-        it passes without this fix: A's clobbering write has already happened.
-        """
+        supervisor still has a write ahead of it, which is where the clobber used
+        to land."""
         import spawn_teammate
 
         def capture_tee(cmd, *, on_spawn=None, **kw):
@@ -118,44 +120,59 @@ class TestWriteDoorEndToEnd(unittest.TestCase):
         finally:
             Path(prompt_path).unlink(missing_ok=True)
 
-    def test_a_live_respawns_marker_survives_the_old_supervisors_child_write(self):
-        """The headline: A must neither overwrite B's marker nor delete it."""
+    def test_a_respawn_cannot_take_the_name_while_the_supervisor_is_mid_flight(self):
+        """The whole bug class, closed at the door.
+
+        A rival claim fired at the exact moment the old fixtures published B's
+        marker — inside A's run, before A's child write — is REFUSED. B never
+        publishes, so nothing A does afterwards can touch a live teammate's
+        marker. Note the rival is refused even though it is THIS process: the
+        holder lock conflicts across open file descriptions, not across pids, so
+        "I already hold this name" is not something a claimant can talk its way
+        out of.
+        """
+        refusals: list[Exception] = []
+
+        def rival_claim() -> None:
+            try:
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+            except in_place_marker.InPlaceNameHeld as exc:
+                refusals.append(exc)
+
+        self._run_with_respawn_before_on_spawn(rival_claim)
+
+        self.assertEqual(
+            len(refusals),
+            1,
+            "a respawn took a name a LIVE supervisor was holding — two `claude` "
+            "processes in one checkout, and whichever tears down first deletes "
+            "the other's marker",
+        )
+
+    def test_writing_bytes_into_the_marker_does_not_make_you_its_owner(self):
+        """Ownership is the LOCK, not the content — which is why the content can
+        no longer be forged.
+
+        Someone (an operator, a stale script) writes foreign pids into the marker
+        file mid-episode. That is not a claim: the name is still A's, so A's child
+        write and A's teardown are still operating on A's OWN marker, and the
+        stray bytes are simply overwritten. Under the old content-proof this same
+        fixture WAS a rival supervisor, and A's finally deleted its marker.
+        """
         from _append_impl import write_text_atomic
 
-        with live_pid() as b_child:
-            b_content = f"{dead_pid()} {b_child}"
+        with live_pid() as stray_pid:
             self._run_with_respawn_before_on_spawn(
-                lambda: write_text_atomic(self.marker, b_content)
+                lambda: write_text_atomic(self.marker, f"{dead_pid()} {stray_pid}")
             )
 
-            self.assertTrue(
+            self.assertFalse(
                 self.marker.exists(),
-                "A overwrote B's marker with its own pids, then its finally saw "
-                "its own pid at the front and deleted a LIVE teammate's marker",
+                "the marker A published under a name A held is A's to remove",
             )
-            self.assertEqual(
-                self.marker.read_text(),
-                b_content,
-                "A must not re-forge ownership by overwriting B's marker",
-            )
-
-    def test_the_respawned_teammate_is_not_demoted_to_lead(self):
-        """...and the consequence that actually bites."""
-        from _append_impl import write_text_atomic
-
-        with live_pid() as b_child:
-            self._run_with_respawn_before_on_spawn(
-                lambda: write_text_atomic(self.marker, f"{dead_pid()} {b_child}")
-            )
-
-            self.assertTrue(
-                worktree.in_place_teammate_from_env(self.smm_dir, self.name),
-                "B was demoted to the lead: its skill gating drops and its "
-                "commits are misattributed",
-            )
-            self.assertTrue(
+            self.assertFalse(
                 worktree.has_live_in_place_teammate(self.smm_dir),
-                "B's child is still running — the episode must read LIVE",
+                "and once A is gone, nothing live remains under that name",
             )
 
     def test_spawning_over_a_live_teammate_refuses_and_spares_its_marker(self):
