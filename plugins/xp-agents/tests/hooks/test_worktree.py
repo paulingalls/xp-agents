@@ -41,6 +41,29 @@ class TestResolveGitRoot(unittest.TestCase):
         result = worktree.resolve_git_root("/")
         self.assertIsNone(result)
 
+    def test_any_os_error_from_git_degrades_to_none_rather_than_escaping(self):
+        """A failing git fork must return None, not raise through the caller.
+
+        resolve_git_root sits under normalize_path, which sits under the
+        Write/Edit hot path (pre_tool_write.check_working_on_overlap). An
+        exception that escapes here does not block the write — it kills the hook
+        with a traceback, and PreToolUse treats a non-2 exit as a NON-blocking
+        error, so the write is waved through UN-GATED. That is a fail-OPEN in the
+        one path that must fail closed.
+
+        FileNotFoundError/NotADirectoryError were caught; every other OSError the
+        fork can raise (PermissionError on a non-executable git, EAGAIN under
+        fork pressure) was not. The gap hid behind the per-cwd cache: whether it
+        fired at all depended on whether some earlier caller had already warmed
+        the cache for that cwd, which is why the fail-closed suite that trips it
+        (test_write_gate_fails_closed) went flaky under a parallel runner instead
+        of simply red.
+        """
+        with patch.object(
+            worktree.subprocess, "check_output", side_effect=OSError("git broke")
+        ):
+            self.assertIsNone(worktree.resolve_git_root("/some/cwd"))
+
     def test_caches_per_cwd(self):
         """resolve_git_root caches results per cwd."""
         worktree.resolve_git_root("/")

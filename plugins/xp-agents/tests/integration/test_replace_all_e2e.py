@@ -6,7 +6,7 @@ over a 3-edit migration where ``import re`` is added to file_a.py before it
 has any consumer, then file_b.py grows the call site, then file_a.py is
 completed. Between edits 1 and 3 the ``import re`` in file_a.py is locally
 unused -- ruff would emit F401 if the edit-time deferral filter
-(``lint_check.run_ruff(..., context='edit')``) weren't engaged.
+(``lint_check.run_ruff``, which drops EDIT_DEFERRED_CODES) weren't engaged.
 
 Pins story-007 AC4 ("E2E multi-file replace_all migration with imports
 added then consumed -> no stale F401"). Existing unit slices cover the
@@ -15,8 +15,9 @@ regression that re-routes either hook past the deferral filter -- or
 flips ``EDIT_DEFERRED_CODES`` -- breaks here, not just in
 ``test_lint`` / ``test_pre_tool_bash``.
 
-Skipped when ``ruff`` isn't on PATH; without it the staging gate is a
-no-op and an absent-F401 assertion would pass for the wrong reason.
+Skipped when ``ruff`` isn't on PATH; without it the commit gate cannot read
+anything (it fails closed as unverified) and an absent-F401 assertion would
+pass for the wrong reason.
 """
 
 import shutil

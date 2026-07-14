@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PreToolUse hook for Bash: commit-time review/security/ruff gates +
+"""PreToolUse hook for Bash: commit-time review/security/lint gates +
 cd-into-worktree-git advisory + decision-time SMM nudges.
 
 No file-modification coordination gate — `pre_tool_write` covers Edit/Write
@@ -22,11 +22,11 @@ import commits
 import concerns
 import git_commits
 import identity
-import lint_check
 import markers
 import resolution
 import security_patterns
 import security_scanner
+import staged_lint
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
 # ---------------------------------------------------------------------------
@@ -185,62 +185,6 @@ def _same_topic_decisions_context(
 
 
 # ---------------------------------------------------------------------------
-# Staged ruff gate
-# ---------------------------------------------------------------------------
-
-
-def _staged_ruff_findings(
-    staged_files: list[str], cwd: str
-) -> list[tuple[str, list[str]]]:
-    """Run staging-context ruff over each staged .py file.
-
-    Returns [(path, codes), ...] for files with non-empty findings, narrowed
-    to lint_check.EDIT_DEFERRED_CODES (F401/F811). Other ruff codes already
-    surface as concerns at edit time — do NOT broaden the commit-time block
-    beyond the deferral policy. ``staged_files`` is reused from the caller to
-    avoid a second `git diff --cached --name-only` invocation
-    (invariant: `test_common_path_at_most_one_name_only_call`).
-
-    Fail-closed when the batch is missing any staged .py path so unverified
-    F401/F811 cannot ship.
-    """
-    # lang-ok: ruff is Python's linter, so selecting Python paths for it is the
-    # dispatch, not an assumption about the project. A Rust or JS repo stages no
-    # .py files, the list is empty, and the leg no-ops at the next line — that
-    # graceful no-op IS the cross-language behavior. Adding another linter means
-    # adding its own dispatch beside this one, never widening this filter.
-    py_paths = [p for p in staged_files if p.endswith(".py")]
-    if not py_paths:
-        return []
-    # Intentionally cwd=repo-root (not lint_check.lint_invocation_target's
-    # config-dir): ruff is a single global PATH binary that resolves config
-    # per-file by walking up from each path, so one batch can span subpackages
-    # with different configs. The config-dir convention exists for npx-resolved
-    # eslint v9 (local binary + cwd-relative flat config), which this leg never runs.
-    per_file = lint_check.run_linter_batch("ruff", py_paths, context="staging", cwd=cwd)
-    missing = [p for p in py_paths if p not in per_file]
-    if missing:
-        raise _common.BlockedError(
-            "\n".join(
-                [
-                    "Staged ruff check could not verify these files:",
-                    *(f"  - {p}" for p in missing),
-                    "",
-                    "Resolve (ruff on PATH? timeout?) and retry the commit.",
-                ]
-            ),
-            "Staged ruff fail-closed: incomplete batch coverage.",
-        )
-    findings: list[tuple[str, list[str]]] = []
-    for path in py_paths:
-        codes = per_file.get(path, [])
-        deferred = [c for c in codes if c in lint_check.EDIT_DEFERRED_CODES]
-        if deferred:
-            findings.append((path, deferred))
-    return findings
-
-
-# ---------------------------------------------------------------------------
 # Verify-touch nudge
 # ---------------------------------------------------------------------------
 
@@ -295,7 +239,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     parts: list[str] = []
 
-    # Commit gate: review cycle + tier-1 security + ruff. Below the
+    # Commit gate: review cycle + tier-1 security + lint. Below the
     # 3+ code-files threshold there is no per-commit security gate
     # (close-skill Step 4 covers the cumulative diff at close).
     if smm_dir is not None and git_commits.is_git_commit(command):
@@ -327,23 +271,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     "Tier 1 security pattern detected.",
                 )
 
-        # Single name-only call shared by the ruff gate and downstream
+        # Single name-only call shared by the lint gate and downstream
         # checks — one fork instead of two.
         staged = commits.get_staged_files(cwd)
 
-        ruff_findings = _staged_ruff_findings(staged, cwd)
-        if ruff_findings:
-            raise _common.BlockedError(
-                "\n".join(
-                    [
-                        "Staged ruff check blocked this commit:",
-                        *(f"  - {p}: {', '.join(codes)}" for p, codes in ruff_findings),
-                        "",
-                        "Fix the flagged imports/redefinitions, or unstage the file.",
-                    ]
-                ),
-                "Ruff F401/F811 detected on staged files.",
-            )
+        parts.extend(staged_lint.staged_lint_gate(staged, cwd))
 
         cycle = markers.read_review_cycle(smm_dir, agent_id)
         code_files = commits.get_code_files_for_review(
@@ -357,7 +289,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             if markers.read_review_cadence(smm_dir) == "story":
                 # Story cadence: review relocates to /xp-story-close (merge).
                 # Emit a visible deferral advisory instead of blocking — the
-                # tier-1 security and ruff gates above stay unconditional.
+                # tier-1 security and lint gates above stay unconditional.
                 parts.append(
                     f"Story cadence: per-commit review deferred to "
                     f"/xp-story-close ({len(code_files)} code files changed "
