@@ -82,6 +82,66 @@ class TestDeleteBranchForceSafety(unittest.TestCase):
             self.assertTrue(_bf.branch_exists(td, "paul/story-003-unmerged"))
 
 
+class TestDeleteBranchUpstreamLoophole(unittest.TestCase):
+    """`git branch -d` deletes an UNMERGED branch once it is merged to its UPSTREAM.
+
+    Git's rule for `-d` is "fully merged in its upstream branch, OR in HEAD if no
+    upstream was set" — upstream WINS when one exists. Every story branch has one:
+    /xp-story-close Step 2 runs `close_common.py push` → `git push -u origin
+    <branch>`. So after the push, `git branch -d <story>` exits 0 and deletes the
+    branch even though nothing was ever merged into the base.
+
+    This is not a tidiness bug. `story_done_gate` reads branch ABSENCE as git-enforced
+    PROOF that the merge landed ("every delete path refuses to delete an unmerged
+    branch"). The upstream loophole makes that claim false, and a story whose merge
+    failed can then be marked `done` — the exact bug the gate exists to stop. So
+    `delete_branch` must prove the ancestry ITSELF rather than trusting `-d` to.
+    """
+
+    @staticmethod
+    def _pushed_unmerged_branch(td: str, branch: str) -> str:
+        """A branch pushed with an upstream (Step 2), never merged (Step 7 failed)."""
+        _bf.init_repo(td)
+        _bf.add_bare_remote(td)
+        main = _bf.get_current_branch(td)
+        _bf.make_commit(td, branch, "s.txt", "x", "story work")
+        subprocess.run(
+            ["git", "push", "-u", "origin", branch],
+            cwd=td,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", main], cwd=td, capture_output=True, check=True
+        )
+        return main
+
+    def test_refuses_to_delete_a_pushed_but_unmerged_branch(self):
+        with tempfile.TemporaryDirectory() as td:
+            branch = "paul/story-006-pushed"
+            main = self._pushed_unmerged_branch(td, branch)
+
+            self.assertFalse(
+                branching.is_merged_into(td, branch, main),
+                "fixture must be UNMERGED for this test to mean anything",
+            )
+            self.assertFalse(branching.delete_branch(td, branch, merge_target=main))
+            self.assertTrue(
+                _bf.branch_exists(td, branch),
+                "an unmerged branch must survive: its absence is what the mark-done "
+                "gate reads as proof the merge landed",
+            )
+
+    def test_refuses_without_a_merge_target_too(self):
+        """No target = prove it against HEAD, which is what `-d` is believed to do."""
+        with tempfile.TemporaryDirectory() as td:
+            branch = "paul/story-007-pushed"
+            self._pushed_unmerged_branch(td, branch)
+
+            self.assertFalse(branching.delete_branch(td, branch))
+            self.assertTrue(_bf.branch_exists(td, branch))
+
+
 class TestDeleteBranchForceNeedsASurvivingRef(unittest.TestCase):
     """The `-D` proof is "the branch is an ancestor of the target, so every
     commit on it is reachable from the target". That is only worth something

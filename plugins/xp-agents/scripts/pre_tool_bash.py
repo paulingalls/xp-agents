@@ -58,8 +58,8 @@ _CD_WORKTREE_GIT_WARNING = (
 # that merely sees the flag cannot police what follows it.
 _FORCE_UNMERGED_RE = re.compile(r"--force-unmerged\b")
 
-# Mark-done, as an INVOCATION rather than as prose. `sprint_cli` must appear on the
-# same line, ahead of the subcommand.
+# Mark-done, as an INVOCATION rather than as prose: `sprint_cli` must precede the
+# subcommand within ONE shell command.
 #
 # Requiring it is not belt-and-braces — without it the pattern matches text that
 # merely DESCRIBES the command, and both gates below fire on a `git commit` whose
@@ -68,11 +68,24 @@ _FORCE_UNMERGED_RE = re.compile(r"--force-unmerged\b")
 # flag. A gate that refuses a commit over what its message SAYS is a false positive,
 # and false positives are how people learn to route around gates.
 #
+# `(?:\\\n|[^\n])*?` — everything up to the newline, PLUS backslash-newline, because
+# the one invocation production runs is wrapped:
+#
+#     python3 .../sprint_cli.py --smm-dir <SMM_DIR> \
+#       update-story story-NNN done
+#
+# A plain `[^\n]*?` cannot cross that continuation, so it matches every hand-written
+# single-line test and NONE of /xp-accept Step 4: the gate would be dead precisely
+# where it is needed, and the ACCEPT gate (which shares this regex) would silently
+# lose coverage its looser pattern already had. Spanning the continuation and not a
+# bare newline is what keeps the prose false-positive shut: a heredoc commit message
+# is separated from the CLI's name by real newlines, not by `\`-continuations.
+#
 # It does not close the mirror-image hole — a story id in a shell variable
 # (`update-story "$SID" done`) still slips both gates — but that one fails toward
 # doing less, not toward blocking honest work.
 _MARK_DONE_RE = re.compile(
-    r"sprint_cli(?:\.py)?\b[^\n]*?\bupdate-story\s+(\S+)\s+done\b"
+    r"sprint_cli(?:\.py)?\b(?:\\\n|[^\n])*?\bupdate-story\s+(\S+)\s+done\b"
 )
 
 

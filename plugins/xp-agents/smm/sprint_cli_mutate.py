@@ -202,6 +202,11 @@ def _record_forced_unmerged(smm_dir: Path, story_id: str, reason: str) -> None:
     exists to stop. The record is the price of the bypass, so it is taken FIRST —
     a recorded bypass whose status write then failed is harmless noise, while a
     status write whose record failed is the bug wearing the fix's clothes.
+
+    Being written first, the record must not claim the write it PRECEDES already
+    happened: it reports the bypass that was AUTHORIZED, which is true in both
+    windows. "Marked done" would be a lie in the one where the status write fails,
+    and a debt event nobody can trust is not worth the price it charges.
     """
     append_event(
         smm_dir,
@@ -211,7 +216,7 @@ def _record_forced_unmerged(smm_dir: Path, story_id: str, reason: str) -> None:
             "type": EVENT_TYPE_DEBT,
             "agent_id": "sprint_cli",
             "content": (
-                f"MERGE GATE BYPASSED for {story_id}: marked done via "
+                f"MERGE GATE BYPASSED for {story_id}: `done` authorized via "
                 f'--force-unmerged, with no verified merge. Reason: "{reason}". '
                 f"Verify the work actually reached the base branch."
             ),

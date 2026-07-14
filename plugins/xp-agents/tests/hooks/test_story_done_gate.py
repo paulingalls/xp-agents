@@ -9,11 +9,13 @@ on a failed merge, printing git's stderr. The silence is that the caller is an L
 following skill prose: /xp-accept Step 2 closes, Step 4 marks done, and nothing
 deterministic stands between them. A louder error cannot fix that. Only a gate can.
 
-The proof is derived from GIT, never from a recorded token: branch ABSENCE proves
-the merge, because every delete path refuses to delete an unmerged branch (`-d`
-refuses; the `-D` fallback fires only when `is_merged_into` already proved it). A
-token would have to be written, and a write that fails after a successful merge
-would strand the story permanently un-markable.
+The proof is derived from GIT, never from a recorded token: branch ABSENCE proves the
+merge, because no delete path deletes an unmerged branch -- `delete_branch` proves
+`is_merged_into` itself before deleting (it cannot delegate that to `git branch -d`,
+which happily deletes a branch merged only to its UPSTREAM; see
+test_branching_delete.TestDeleteBranchUpstreamLoophole). A token would have to be
+written, and a write that fails after a successful merge would strand the story
+permanently un-markable.
 """
 
 import subprocess
@@ -177,6 +179,26 @@ class TestGateMatchesInvocationsNotProse(_GateCase):
         with self.assertRaises(_common.BlockedError):
             self._run(_done_cmd())
 
+    def test_the_shipped_invocation_shape_is_blocked(self):
+        """THE shape the pipeline actually runs -- /xp-accept Step 4, verbatim.
+
+        The skill wraps the command with a shell line-continuation, so `sprint_cli.py`
+        lands on one line and `update-story <id> done` on the next. A regex that
+        requires them on the SAME line matches every hand-written single-line test
+        above and NONE of production: the gate would be dead exactly where it is
+        needed, and the ACCEPT gate (which shares the regex) would silently lose
+        coverage it already had.
+        """
+        self._unmerged_story_branch()
+        self._seed_sprint()
+        shipped = (
+            "python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir /tmp/smm \\\n"
+            "  update-story story-001 done"
+        )
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(shipped)
+
 
 class TestGateFailsClosedOnBadReads(_GateCase):
     """Unknowable == blocked. The gate never waves a mark-done through blind."""
@@ -208,6 +230,28 @@ class TestGateFailsClosedOnBadReads(_GateCase):
 
         with self.assertRaises(_common.BlockedError):
             self._run(_done_cmd())
+
+    def test_a_git_that_cannot_be_read_blocks(self):
+        """The keystone's pass arm is reached by a FAILED git read, not just a
+        deleted branch.
+
+        `branch_exists` shells out to `git rev-parse --verify refs/heads/<b>` and
+        answers False on ANY non-zero exit — branch genuinely gone, cwd not a repo,
+        git broken. The gate reads that False as "deleted, therefore merged" and
+        PASSES. A bad read must fail CLOSED (project convention: gates fail closed
+        on a corrupt file or a failed subprocess; only annotation-only reads degrade
+        quiet).
+        """
+        self._unmerged_story_branch()
+        self._seed_sprint()
+        not_a_repo = tempfile.TemporaryDirectory()
+        self.addCleanup(not_a_repo.cleanup)
+
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(command=_done_cmd(), cwd=not_a_repo.name),
+                smm_dir=self.smm_dir,
+            )
 
 
 class TestGateDoesNotBlockLegitimateCloses(_GateCase):

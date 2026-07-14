@@ -16,12 +16,19 @@ then fails, the gate demands the sha, and re-running the merge answers "Already 
 to date" -- so no sha can ever be produced and the story is PERMANENTLY un-markable.
 A gate whose only repair path is blocked by itself is worse than the bug.
 
-Git already holds the proof, in a form that survives cleanup: every delete path
-refuses to delete an unmerged branch. `delete_branch` tries `git branch -d` (git
-itself refuses when unmerged) and falls back to `-D` ONLY when `survives_delete_of`
-AND `is_merged_into` have already proved the merge. So BRANCH ABSENCE IS
-GIT-ENFORCED PROOF OF MERGE -- which inverts the deleted branch from the thing that
-would break a naive ancestor check into the thing that passes it.
+Git already holds the proof, in a form that survives cleanup: no delete path deletes
+an unmerged branch. `delete_branch` proves `is_merged_into` ITSELF before it deletes,
+and falls back to `-D` only once `survives_delete_of` also holds. So BRANCH ABSENCE
+IS PROOF OF MERGE -- which inverts the deleted branch from the thing that would break
+a naive ancestor check into the thing that passes it.
+
+That proof is OURS, not git's, and the difference is load-bearing. `git branch -d` is
+NOT the safety net it is taken for: its rule is "fully merged in its UPSTREAM branch,
+or in HEAD if no upstream was set", and upstream wins when one exists. Story-close
+Step 2 pushes with `git push -u`, so on any repo with a remote a plain `-d` deletes a
+branch that was merely PUSHED and never merged -- exit 0, warning nobody reads. Left
+to git, the keystone would be false on every remote-backed project. `delete_branch`
+checks the ancestry up front for exactly this reason; do not "simplify" that away.
 
 Marker-FREE and state-derived, so it stays out of `lead_gates._LEAD_GATES` (which is
 the Write/Edit hook's table anyway); see the doctrine note in `pre_tool_write.run`.
@@ -72,10 +79,22 @@ def merged_block(smm_dir: Path, cwd: str, story_id: str) -> str | None:
     if not branch:
         return None  # never branched (stage 0/1) -- no merge to prove
 
+    if not branch_resolution.ref_exists(cwd, "HEAD"):
+        # The keystone's PASS arm is reached by a failed git read, not only by a
+        # deleted branch: `branch_exists` shells out and answers False on ANY
+        # non-zero exit -- branch gone, cwd not a repo, git broken. Absence only
+        # proves a merge if git could actually be asked. Prove git answers here
+        # first, so a bad read fails CLOSED like every other read in this gate.
+        return (
+            f"git cannot be read in {cwd}, so whether {branch} merged is "
+            "unknowable. Re-run from the repository root."
+        )
+
     if not branch_resolution.branch_exists(cwd, branch):
-        # THE KEYSTONE. Git refused to delete this branch unless it was merged, so
-        # its absence IS the proof. This is also the normal close path: the merge
-        # deletes the story branch, and mark-done runs afterwards.
+        # THE KEYSTONE. `delete_branch` refuses to delete a branch it has not proved
+        # merged (it does NOT delegate that to `git branch -d`, which deletes a
+        # merely-pushed branch), so absence IS the proof. This is also the normal
+        # close path: the merge deletes the story branch, mark-done runs afterwards.
         return None
 
     # The branch is still here, so it must be an ancestor of the base it merges into.

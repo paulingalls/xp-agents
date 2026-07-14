@@ -163,24 +163,34 @@ def survives_delete_of(cwd: str, name: str, target: str) -> bool:
 
 
 def delete_branch(cwd: str, name: str, *, merge_target: str | None = None) -> bool:
-    """Delete a branch; try ``-d`` first, fall back to ``-D`` only when proven safe.
+    """Delete a branch, and never one whose work is not already somewhere else.
 
-    ``git branch -d`` refuses when a branch's tip differs from its
-    upstream tracking ref, even if it is fully merged to the
-    integration target — the case worktree teammates hit every close.
-    When ``merge_target`` is provided AND ``-d`` refuses, fall back to
-    ``-D`` iff the branch is provably an ancestor of ``merge_target`` AND
-    ``merge_target`` is a ref that survives the delete (see
-    ``survives_delete_of`` — the ancestry test alone says "safe" about a target
-    that IS the branch). Without ``merge_target`` the legacy contract holds:
-    False on -d refusal, no force-delete attempted.
+    NEVER TRUST ``git branch -d`` TO BE THE MERGE PROOF. Git's rule is "fully merged
+    in its UPSTREAM branch, or in HEAD if no upstream was set" — and upstream WINS
+    when one exists. Every story branch has one by the time it is deleted:
+    /xp-story-close Step 2 runs ``git push -u origin <branch>``. So on any repo with
+    a remote, `-d` exits 0 on a branch that was merely PUSHED and never merged into
+    its base, printing a warning nobody reads. Verified empirically, not inferred.
+
+    That is why the ancestry check runs FIRST here, against ``merge_target`` (or HEAD,
+    which is what `-d` is universally believed to check). It is not defence in depth:
+    ``story_done_gate`` reads branch ABSENCE as git-enforced proof that the merge
+    landed, so a `-d` that deletes an unmerged branch lets a story whose merge FAILED
+    be marked done — the exact bug that gate exists to stop.
+
+    ``-d`` still runs after the check, for the guards it alone has (refusing to
+    delete the branch you are standing on, say). It legitimately refuses when a
+    branch's tip differs from its upstream tracking ref even though it is fully
+    merged to the target — the case worktree teammates hit every close — so with a
+    ``merge_target`` we fall back to ``-D``, but only once ``survives_delete_of``
+    proves the target is a ref that OUTLIVES the delete (the ancestry test alone says
+    "safe" about a target that IS the branch). Without ``merge_target`` the legacy
+    contract holds: False on -d refusal, no force-delete attempted.
     """
+    if not is_merged_into(cwd, name, merge_target or "HEAD"):
+        return False
     if _git(["git", "branch", "-d", name], cwd).returncode == 0:
         return True
-    if (
-        merge_target
-        and survives_delete_of(cwd, name, merge_target)
-        and is_merged_into(cwd, name, merge_target)
-    ):
+    if merge_target and survives_delete_of(cwd, name, merge_target):
         return _git(["git", "branch", "-D", name], cwd).returncode == 0
     return False

@@ -125,6 +125,25 @@ class TestAcceptGate(_HookTestCase):
                 smm_dir=self.smm_dir,
             )
 
+    def test_shipped_continuation_shape_with_marker_blocks(self):
+        """/xp-accept Step 4 wraps the invocation across a shell line-continuation.
+
+        The ACCEPT gate matched that shape for free while its regex looked only for
+        `update-story <id> done`. Requiring `sprint_cli` on the SAME line (the merge
+        gate's tightening, which this gate now shares) silently drops it — and this
+        is the ONE shape production actually runs.
+        """
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "done")
+        shipped = (
+            "python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir /tmp/smm \\\n"
+            "  update-story story-001 done"
+        )
+        with self.assertRaises(_common.BlockedError):
+            pre_tool_bash.run(
+                _make_bash_input(command=shipped),
+                smm_dir=self.smm_dir,
+            )
+
     def test_update_story_done_without_marker_allows(self):
         """update-story done without ACCEPT marker should allow."""
         result = pre_tool_bash.run(
