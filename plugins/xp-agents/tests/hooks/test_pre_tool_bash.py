@@ -733,6 +733,69 @@ class TestStagedLintGateAnyLanguage(_HookTestCase):
         self.assertIn("E302", str(ctx.exception))
         self.assertIn("ruff", mock_run.call_args[0][0])
 
+    def test_the_whole_gate_cannot_outlive_the_harness_hook_timeout(self):
+        """The budget is a TOTAL across every linter group, not a per-group one.
+
+        BATCH_TIMEOUT_CAP_S bounds ONE batch, and the reasoning behind its value
+        ("40s leaves ~20s of headroom under the harness's 60s hook timeout") is
+        only sound for ONE. The gate runs a batch per LINTER GROUP, and the test
+        below proves two groups is a real repo shape — so two hung linters would
+        burn 2 x CAP of wall clock, three would burn 3 x.
+
+        Past the harness's hook timeout the harness KILLS the hook. A killed hook
+        exits no 2, so it does not block: the commit is waved through UNLINTED.
+        The bigger per-batch budget this story added — to avoid an unfixable
+        block on a slow-but-honest linter — must not buy that back as a fail-OPEN
+        on a hung one, which is strictly the worse direction to be wrong in.
+
+        Here both linters burn every second they are handed.
+        """
+        self._seed("ruff.toml", "eslint.config.mjs", "src/app.py", "web/app.ts")
+        elapsed = 0.0
+
+        def _burn_the_whole_budget(*_args, **kwargs):
+            nonlocal elapsed
+            elapsed += float(kwargs["timeout"])
+            return _mock_ruff_result(returncode=0)
+
+        with (
+            patch("staged_lint.time.monotonic", side_effect=lambda: elapsed),
+            patch("lint_check.shutil.which", return_value="/usr/bin/tool"),
+            patch("lint_check.subprocess.run", side_effect=_burn_the_whole_budget),
+            contextlib.suppress(_common.BlockedError),
+        ):
+            self._run(["src/app.py", "web/app.ts"])
+
+        self.assertLessEqual(
+            elapsed,
+            lint_check.BATCH_TIMEOUT_CAP_S,
+            "linter groups must SHARE one budget, not each get a full one — a "
+            "gate that outlives the harness hook timeout fails OPEN",
+        )
+
+    def test_an_exhausted_budget_fails_closed_rather_than_skipping_the_linter(self):
+        """And when the budget IS spent, the groups that never ran are a bad
+        read, not a pass. Running out of time is exactly the state where the
+        temptation to shrug is strongest and the cost is highest: the unlinted
+        file ships. Block, and say the budget ran out."""
+        self._seed("ruff.toml", "eslint.config.mjs", "src/app.py", "web/app.ts")
+
+        def _burn_the_whole_budget(*_args, **kwargs):
+            return _mock_ruff_result(returncode=0)
+
+        # The clock jumps past the deadline the moment the first group returns.
+        clock = iter([0.0, 0.0, 999.0, 999.0, 999.0])
+        with (
+            patch("staged_lint.time.monotonic", side_effect=lambda: next(clock)),
+            patch("lint_check.shutil.which", return_value="/usr/bin/tool"),
+            patch("lint_check.subprocess.run", side_effect=_burn_the_whole_budget),
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            self._run(["src/app.py", "web/app.ts"])
+        msg = str(ctx.exception).lower()
+        self.assertIn("budget", msg)
+        self.assertIn("ruff", msg, "the linter that never got to run must be named")
+
     def test_a_polyglot_repo_routes_each_file_to_its_own_linter(self):
         """A monorepo with Python AND TypeScript: each staged file reaches the
         linter that claims it. One fork per linter, not one per file."""

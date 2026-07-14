@@ -265,6 +265,37 @@ class TestLinterTableColumns(unittest.TestCase):
         for linter in ("ruff", "flake8", "eslint", "golangci-lint", "rubocop"):
             self.assertTrue(linters.is_file_scoped(linter))
 
+    def test_no_gated_row_overloads_the_argv_separator(self):
+        """Every gated row must read `-- <paths>` as PATHS.
+
+        run_linter_batch builds one argv shape for all of them:
+        ``[*linter_command(name), "--", *paths]``. That rests on `--` meaning
+        "end of options, positional args follow" — true for almost every CLI,
+        and NOT true for clang-tidy, whose documented synopsis is
+
+            clang-tidy [options] <source0> ... <sourceN> -- [compiler-flags]
+
+        There, everything after `--` is COMPILER FLAGS. `clang-tidy -- app.c`
+        therefore lints ZERO sources and hands `app.c` to the compiler driver.
+        The run then either exits 0 having checked nothing — a silent false-clean
+        for every C/C++ repo, which is the precise bug this whole story exists to
+        close, walking back in through the argv — or exits non-zero with "no
+        input files", which reads as FINDINGS and blocks every C/C++ commit with
+        something no one can fix. Both are bad, and which one you get is a detail
+        of a binary we cannot run here.
+
+        So a row whose separator semantics we cannot honor must not be GATED on.
+        It degrades to an advisory, like the other rows we cannot judge one file
+        with. Fixing it properly means giving clang-tidy its real argv (sources
+        BEFORE the separator, trailing `--` for "no compiler args") and proving it
+        against the real binary — debt, not a guess shipped into a gate.
+        """
+        self.assertFalse(
+            linters.is_file_scoped("clang-tidy"),
+            msg="clang-tidy reads `-- <path>` as a compiler flag, not a source: "
+            "gating on it would lint nothing and call it clean",
+        )
+
     def test_every_row_has_a_scope_answer(self):
         """No silent gap: a new linter row must be classified, not defaulted by
         accident. is_file_scoped answers for every command row there is."""

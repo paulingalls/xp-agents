@@ -59,13 +59,20 @@ LINTER_BASE_TIMEOUT_S: float = 5.0
 # worse than the block we are widening this to avoid. 40s leaves ~20s of headroom
 # for the rest of the hook (tier-1 diff scan, git forks, SMM loads). Do NOT raise
 # the CAP past that without raising the hook's registered timeout first.
+#
+# The CAP is a TOTAL, not a per-batch allowance: one commit can run several
+# batches (a polyglot repo routes each file to its own linter), and N batches of
+# CAP each would breach the ceiling N-fold. staged_lint_gate spends this one
+# budget across all of them and passes what is left as `budget_s`; a batch with
+# nothing left is UNVERIFIED, which blocks. Bound per-batch alone and the
+# ceiling above is only true of a single-language repo.
 BATCH_TIMEOUT_BASE_S: float = 30.0
 BATCH_TIMEOUT_PER_PATH_S: float = 0.25
 BATCH_TIMEOUT_CAP_S: float = 40.0
 
 # Codes deferred until staging. F401 (unused import) / F811 (redef of unused)
 # false-positive during multi-Edit migrations — an import added in one Edit and
-# consumed in the next fires F401 mid-stream. pre_tool_bash._staged_lint_gate
+# consumed in the next fires F401 mid-stream. staged_lint.staged_lint_gate
 # catches the real cases at commit time: it blocks on ANY finding the linter
 # reports, these two included, so nothing deferred here escapes — it is deferred,
 # not excused.
@@ -181,6 +188,7 @@ def run_linter_batch(
     paths: list[str],
     *,
     cwd: str | None = None,
+    budget_s: float | None = None,
 ) -> LintRun:
     """Run a linter once over many paths; classify the run by its EXIT CODE.
 
@@ -215,6 +223,14 @@ def run_linter_batch(
     Timeout: min(CAP, BATCH_BASE + PER_PATH * N) — sized for a real linter's
     cold start (this budget BLOCKS when it runs out, unlike the edit-time one),
     still bounded so a hung linter can't stall a 100-file commit forever.
+
+    `budget_s` narrows that further to the wall clock the CALLER has left. One
+    commit can run several batches (a polyglot repo routes each file to its own
+    linter), and the CAP bounds only ONE of them — so without a shared budget,
+    two hung linters outlive the harness's hook timeout, the harness kills the
+    hook, and a killed hook exits no 2: the commit is not blocked, it is waved
+    through unlinted. A spent budget is UNVERIFIED, not clean; the caller fails
+    closed on it, like any other bad read. See staged_lint.staged_lint_gate.
     """
     binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
@@ -239,6 +255,15 @@ def run_linter_batch(
         BATCH_TIMEOUT_CAP_S,
         BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
     )
+    if budget_s is not None:
+        timeout = min(timeout, budget_s)
+        if timeout <= 0:
+            return LintRun(
+                "unverified",
+                f"{linter_name}: the commit gate's "
+                f"{BATCH_TIMEOUT_CAP_S:g}s lint budget was spent by earlier "
+                f"linters — this one never ran",
+            )
     try:
         proc = subprocess.run(
             cmd,

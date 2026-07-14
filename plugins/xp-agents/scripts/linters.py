@@ -131,6 +131,11 @@ LINTER_STRICT_FLAGS: dict[str, list[str]] = {
 #
 # Membership is per-row DATA. Moving a linter to file-scoped means proving it can
 # lint one file and report only that file's findings — then delete its row.
+#
+# The set really answers "can the gate BLOCK on this row?", and there are two
+# ways to answer no: the linter cannot judge one file (clippy), or the gate
+# cannot invoke it correctly on one (clang-tidy — see below). Both degrade, for
+# the same reason: a gate that cannot be satisfied gets disabled.
 PROJECT_SCOPED_LINTERS: frozenset[str] = frozenset(
     {
         "clippy",  # cargo clippy compiles the whole crate
@@ -138,6 +143,16 @@ PROJECT_SCOPED_LINTERS: frozenset[str] = frozenset(
         "detekt",  # --input defaults to the whole source set
         "credo",  # mix credo walks the project
         "dotnet-format",  # --verify-no-changes covers the solution
+        # clang-tidy is genuinely FILE-scoped — but `run_linter_batch` invokes
+        # every row as `[*cmd, "--", *paths]`, and clang-tidy is the one CLI
+        # here for which `--` does not mean "options end, paths follow". Its
+        # synopsis is `clang-tidy [options] <source0>...<sourceN> -- [compiler
+        # -flags]`: everything AFTER the separator is compiler flags. So
+        # `clang-tidy -- app.c` lints zero sources — reading back as either a
+        # silent false-clean (the exact bug this gate exists to prevent) or an
+        # unfixable block. Degraded until its real argv (sources before the
+        # separator, trailing `--`) is proven against the actual binary.
+        "clang-tidy",
     }
 )
 

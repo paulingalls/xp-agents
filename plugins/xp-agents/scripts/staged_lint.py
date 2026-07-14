@@ -13,6 +13,7 @@ never the linter's words.
 """
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -74,8 +75,9 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
         blocking on that blocks every commit in the repo, unfixably. Returned as
         an advisory, not silence.
       * config present but the linter could not RUN (binary missing, timeout, a
-        non-zero exit with nothing to say) → FAIL CLOSED, block. The project
-        declares it lints; we simply could not check. A bad read is not a pass.
+        non-zero exit with nothing to say, or no wall clock left in the shared
+        budget) → FAIL CLOSED, block. The project declares it lints; we simply
+        could not check. A bad read is not a pass.
       * the linter ran and found something → BLOCK, showing its output.
 
     Returns advisories (degraded groups) for the caller to surface. Raises
@@ -99,6 +101,16 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     advisories: list[str] = []
     findings: list[str] = []
     unverified: list[str] = []
+
+    # ONE budget, spent across every group — not one per group. A polyglot repo
+    # routes each staged file to its own linter, so this loop can run several
+    # batches, and run_linter_batch's CAP bounds only ONE of them. Two hung
+    # linters would therefore outlive the HARNESS's hook timeout, and a hook the
+    # harness kills exits no 2 — it does not block, it waves the commit through
+    # UNLINTED. Which is why the budget is enforced here, where the batches are
+    # counted, and not only where each one is run: the ceiling that keeps this
+    # gate failing closed is a property of the whole hook, not of one linter.
+    deadline = time.monotonic() + lint_check.BATCH_TIMEOUT_CAP_S
 
     for (linter_name, config_path), paths in sorted(
         _group_staged_by_linter(staged_files, root).items()
@@ -126,7 +138,9 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
         ]
         lint_cwd = targets[0][0]  # constant per group: same config, same dir
         args = [file_arg for _, file_arg in targets]
-        run = lint_check.run_linter_batch(linter_name, args, cwd=lint_cwd)
+        run = lint_check.run_linter_batch(
+            linter_name, args, cwd=lint_cwd, budget_s=deadline - time.monotonic()
+        )
         match run.status:
             case "findings":
                 findings.append(f"{linter_name}:\n{run.output}")

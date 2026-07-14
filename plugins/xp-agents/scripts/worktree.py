@@ -42,7 +42,14 @@ def resolve_git_root(cwd: str) -> str | None:
             stderr=subprocess.DEVNULL,
             cwd=cwd,
         ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, NotADirectoryError):
+    # OSError, not just the two subclasses this used to name. Every caller
+    # already handles None (they degrade to cwd/absolute paths), but an
+    # exception ESCAPING here does not block — it kills the hook with a
+    # traceback, and PreToolUse reads a non-2 exit as a non-blocking error, so
+    # the Write it sits under is waved through un-gated. A fail-open, from the
+    # bottom of the one path that must fail closed. FileNotFoundError and
+    # NotADirectoryError are OSError subclasses, so this only widens.
+    except (subprocess.CalledProcessError, OSError):
         root = None
     _git_root_cache[cwd] = root
     return root
