@@ -137,6 +137,19 @@ class TestCreatePlanBranch(unittest.TestCase):
 
 
 class TestCreateFreeBranch(unittest.TestCase):
+    """Patches branch_resolution.get_primary_branch, NOT branching's alias.
+
+    create_free_branch forks off get_merge_target, which LIVES in
+    branch_resolution and calls its OWN module's get_primary_branch — so
+    `patch("branching.get_primary_branch")` never reaches it and is a silent
+    no-op. It would still pass (init_repo pins `git init -b main`, so the
+    patched and real values coincide at "main"), which is exactly why it has
+    to be patched at the owning module instead: a dead patch that passes is
+    worse than one that fails. Contrast TestCreatePlanBranch, whose identical
+    patch on branching IS live — create_plan_branch calls get_primary_branch
+    directly from branching's own namespace.
+    """
+
     def test_creates_with_date_pattern(self):
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
@@ -146,7 +159,7 @@ class TestCreateFreeBranch(unittest.TestCase):
 
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
-                patch("branching.get_primary_branch", return_value=primary),
+                patch("branch_resolution.get_primary_branch", return_value=primary),
                 patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 result = branching.create_free_branch(td, "spike-foo", smm_dir)
@@ -166,7 +179,7 @@ class TestCreateFreeBranch(unittest.TestCase):
 
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
-                patch("branching.get_primary_branch", return_value=primary),
+                patch("branch_resolution.get_primary_branch", return_value=primary),
                 patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 branching.create_free_branch(td, "spike", smm_dir)
@@ -317,7 +330,7 @@ class TestCreateFreeBranch(unittest.TestCase):
 
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
-                patch("branching.get_primary_branch", return_value=primary),
+                patch("branch_resolution.get_primary_branch", return_value=primary),
                 patch("branch_names._utc_today_iso", return_value="2026-04-24"),
             ):
                 result = branching.create_free_branch(td, "spike", smm_dir)

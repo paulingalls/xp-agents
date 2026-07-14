@@ -173,7 +173,7 @@ class TestKickoffGate(_HookTestCase):
         import worktree
 
         (self.smm_dir / ".needs-kickoff").write_text("startup")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-step-1")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-step-1")
         with patch.dict(
             os.environ,
             {

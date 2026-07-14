@@ -392,8 +392,12 @@ class TestEventTypeMatchCompleteness(unittest.TestCase):
     SMM_ROOT: ClassVar[Path] = Path(__file__).parent.parent.parent / "smm"
 
     MATCH_BLOCKS: ClassVar[list[_MatchBlockSpec]] = [
+        # The retention policy moved to compact_retention.py; compact.py
+        # re-exports it by identity. This gate reads SOURCE (AST), not the
+        # re-export, so it must name the file the match block actually lives
+        # in — the one edit the split could not avoid.
         _MatchBlockSpec(
-            "compact.py",
+            "compact_retention.py",
             "_collect_smm_referenced_ids",
             "etype",
             "_COMPACT_INTENTIONALLY_ABSENT",

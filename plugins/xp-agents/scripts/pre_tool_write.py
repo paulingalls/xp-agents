@@ -7,7 +7,6 @@ No event log reads.
 
 import sys
 from pathlib import Path
-from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -20,6 +19,7 @@ import identity
 import markers
 import sprint_state
 import worktree
+from lead_gates import check_lead_gates
 from sprint_status import (
     has_in_progress_stories_data,
     has_under_acceptance_stories_data,
@@ -46,7 +46,15 @@ _JS_TS_TEST_SUFFIXES = (
 
 
 def is_test_file(path: str) -> bool:
-    """Heuristic: does the file path look like a test file?"""
+    """Heuristic: does the file path look like a test file?
+
+    lang-ok: an enumeration of 13 ecosystems' test-naming conventions, in which
+    Python is one peer among Go, Rust, Swift, Java/Kotlin/Scala, Ruby, C/C++,
+    C#, PHP, Dart, Elixir and the JS/TS family. Coverage, not a leak — a new
+    language is added by appending a branch. The per-branch predicates below all
+    inherit this justification; do NOT copy one out of the function without
+    stating why the new site is agnostic too.
+    """
     p = Path(path)
     name = p.name
     stem = p.stem
@@ -230,84 +238,6 @@ def _is_smm_write(smm_dir: Path | None, target_file: str | None, cwd: str) -> bo
         return False
 
 
-# ---------------------------------------------------------------------------
-# Lead-only marker gates
-# ---------------------------------------------------------------------------
-
-
-class _LeadGate(NamedTuple):
-    """A marker gate that applies to the LEAD only."""
-
-    marker: markers.MarkerDef
-    reason: str
-    short: str
-    plan_files_exempt: bool
-
-
-# Checked in order; the first armed gate blocks. Teammates are exempt from ALL
-# of them. Every marker lives in the SHARED SMM dir and a teammate can clear
-# none of them: it never plans, it is dispatched BY /xp-assign, and — running
-# headless — it has no user to answer an AskUserQuestion. So gating a teammate
-# forbids the parallel pipeline's whole purpose (the lead plans/assigns story
-# N+1 while a teammate executes story N) and strands the teammate mid-story
-# with no recovery path. A gate added to this table inherits the exemption by
-# construction; the hand-rolled gates this replaces defaulted the other way,
-# which is how the plan gate came to forbid the pipeline unnoticed for months.
-_LEAD_GATES: tuple[_LeadGate, ...] = (
-    _LeadGate(
-        markers.PLAN_AWAITING_REVIEW,
-        "Run /xp-review-plan before writing code. "
-        "Plan review extracts assumptions, decisions, and risks for the SMM.",
-        "Plan review required before implementation.",
-        plan_files_exempt=True,
-    ),
-    _LeadGate(
-        markers.ASSIGN_PENDING,
-        "Run /xp-assign to create the next story's branch and spawn its "
-        "teammate (per-story pipeline — one spawn per invocation) "
-        "before writing code.",
-        "Work assignment required before implementation.",
-        plan_files_exempt=True,
-    ),
-    _LeadGate(
-        markers.QUESTION_GATE,
-        "A blocking question needs the user's answer. AskUserQuestion is "
-        "the ONLY way to clear this — it records the answer and lifts the "
-        "gate. Do NOT record a decision/status event resolving the question "
-        "id: it does not clear the gate and fabricates an answer the user "
-        "never gave.",
-        "Blocking question requires user answer.",
-        plan_files_exempt=False,
-    ),
-)
-
-
-def check_lead_gates(
-    input_data: dict, smm_dir: Path | None, is_plan_file: bool
-) -> None:
-    """Raise BlockedError for the first armed lead-only gate. Teammates exempt.
-
-    The marker stat runs BEFORE the teammate probe, and the probe runs at most
-    once: run() is on the hot path for every Write/Edit/MultiEdit, and the
-    common case — lead, nothing armed — must not pay for a cwd parse, an env
-    read and a marker stat whose answer nothing consumes.
-
-    *smm_dir* is handed to the probe rather than left to its env fallback: that
-    leg reads $SMM_DIR and fails CLOSED without it, which would misread a live
-    in-place teammate as the lead and over-gate it.
-    """
-    if smm_dir is None:
-        return
-    for gate in _LEAD_GATES:
-        if gate.plan_files_exempt and is_plan_file:
-            continue
-        if not markers.marker_exists(smm_dir, gate.marker):
-            continue
-        if identity.is_worktree_teammate(input_data, smm_dir):
-            return  # a teammate can clear none of these gates
-        raise _common.BlockedError(gate.reason, gate.short)
-
-
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core logic. Returns additionalContext string or None. Raises BlockedError."""
     if _common.is_xp_agent(input_data):
@@ -342,7 +272,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             )
 
     # Plan, assign and question gates — all lead-only, all exempt plan files
-    # (.claude/plans/) except the question gate. See _LEAD_GATES.
+    # (.claude/plans/) except the question gate. See lead_gates._LEAD_GATES.
     is_plan_file = bool(target_file and "/.claude/plans/" in target_file)
     check_lead_gates(input_data, smm_dir, is_plan_file)
 
@@ -356,7 +286,32 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # re-arm during the close-then-done window so fix-cycle Edits don't re-arm
     # .accept while the per-story accept dispatch is in flight.
     if smm_dir and not is_plan_file:
-        sprint_data = sprint_state.read_sprint_content(smm_dir)
+        is_smm_write = _is_smm_write(smm_dir, target_file, cwd)
+        try:
+            sprint_data = sprint_state.read_sprint_content(smm_dir)
+        except (ValueError, OSError) as exc:
+            # A bad read is not "no sprint". `load_sprint` RAISES on a corrupt /
+            # schema-invalid / symlinked sprint.json, and letting that escape is
+            # not a block but an ALLOW: the hook dies with a traceback and exits
+            # 1, which PreToolUse treats as a NON-blocking error — every gate
+            # below is skipped and the write lands. On the Write hot path an
+            # unreadable sprint must fail CLOSED, exactly as the marker gates
+            # above now do (lead_gates._unspawned_teammate_story_exists).
+            #
+            # SMM writes stay exempt, for the same reason they are exempt from
+            # the schedule gate: sprint.json lives in the SMM dir, and a gate
+            # that blocks the only tool that can repair the file it is choking on
+            # is a gate with no recovery path. `sprint_cli create` (Bash) is the
+            # documented repair, and this keeps the Write/Edit route open too.
+            if not is_smm_write:
+                raise _common.BlockedError(
+                    f"sprint.json cannot be read ({exc}). Every sprint gate is "
+                    "blind until it is repaired, so writes are blocked rather "
+                    "than silently un-gated. Repair it (smm/sprint_cli.py create) "
+                    "or restore it from backup, then retry.",
+                    "Sprint state unreadable — gates cannot be evaluated.",
+                ) from exc
+            sprint_data = None
 
         # Schedule gate (state-derived, no marker). In the pre-promotion window
         # (scheduled stories exist, no story in motion) force /xp-schedule before
@@ -366,17 +321,22 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # closing story aren't blocked. Self-clears the instant a frontier is
         # promoted to in-progress.
         #
-        # Deliberately NOT in _LEAD_GATES, and it needs no teammate exemption: it
-        # is state-derived, not a marker. A teammate only exists once a frontier
-        # is in motion — the very condition that makes this gate quiet — so a
-        # teammate can never meet it. Do not copy this as the pattern for a
-        # MARKER gate: a marker persists across the states that should clear it,
-        # which is how the plan gate came to forbid the pipeline for months. A
-        # new marker gate belongs in _LEAD_GATES.
+        # Deliberately NOT in lead_gates, and it needs no teammate exemption: it
+        # has no marker to arm it, and a teammate only exists once a frontier is
+        # in motion — the very condition that makes this gate quiet — so a
+        # teammate can never meet it.
+        #
+        # Being state-derived is NOT what keeps it out of the table. A marker
+        # gate can be state-derived too, and the assign gate now is: it arms on
+        # the marker and self-clears on lead_gates._LeadGate.active_when. Being
+        # marker-FREE is what keeps it out. So a new gate with a marker belongs
+        # in lead_gates._LEAD_GATES, with an active_when if anything but its own
+        # demanded action can make it moot — never as a fourth hand-rolled `if`
+        # here, which inherits neither the teammate exemption nor the hot path.
         if (
             sprint_data is not None
             and schedule_gate_active_data(sprint_data)
-            and not _is_smm_write(smm_dir, target_file, cwd)
+            and not is_smm_write
         ):
             raise _common.BlockedError(
                 "Run /xp-schedule to promote the next frontier (scheduled -> "

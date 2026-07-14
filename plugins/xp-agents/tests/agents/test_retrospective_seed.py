@@ -93,6 +93,51 @@ class TestRetrospectiveSeedPath(unittest.TestCase):
             )
 
 
+class TestSprintRetroFlagIsWired(unittest.TestCase):
+    """The agent must ASK for the sprint variant, or the producer is unreachable.
+
+    `save_retrospective` only emits the sprint-retro completion marker — the
+    event that releases an ended sprint's commits from compaction's retention —
+    when its caller passes `--retro-kind sprint`. This agent prompt is the ONLY
+    caller of save_retrospective.py in the whole plugin, so if the prompt never
+    names the flag, the marker has a producer FUNCTION and no reachable producer
+    PATH: an in-code unit test drives it green while zero markers are ever
+    written in a live project. That was the state of every real log — 0 markers,
+    every commit pinned forever.
+
+    The flag's condition must be the same signal the Sprint Analysis section
+    branches on (`sizing_analysis` in `.retro-input.json`), because that is the
+    only thing telling the agent a sprint just ended.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.content = _AGENT_PROMPT.read_text()
+
+    def test_save_command_offers_the_sprint_kind_flag(self):
+        self.assertIn(
+            "--retro-kind sprint",
+            self.content,
+            "xp-retrospective.md is the only caller of save_retrospective.py; "
+            "without --retro-kind sprint the sprint-retro marker is never "
+            "produced in a live project and sprint commits stay pinned",
+        )
+
+    def test_the_flag_is_conditioned_on_the_sprint_signal(self):
+        """`sizing_analysis` is the agent's only 'a sprint just ended' signal."""
+        before, _, after = self.content.partition("--retro-kind sprint")
+        # The instruction naming the flag must sit near the sizing_analysis
+        # condition — not floating in an unrelated section.
+        window = before[-600:] + after[:600]
+        self.assertIn(
+            "sizing_analysis",
+            window,
+            "the --retro-kind sprint instruction must name sizing_analysis as "
+            "its condition, or the agent cannot tell a sprint retro from a "
+            "session retro",
+        )
+
+
 class TestRetrospectivePopulatedPathPreserved(unittest.TestCase):
     """Regression guard: populated-input path is unchanged.
 

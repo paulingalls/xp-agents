@@ -33,6 +33,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(
+    0,
+    str(
+        Path(__file__).parent.parent.parent / "skills" / "xp-work-selection" / "scripts"
+    ),
+)
 
 import _common
 import bash_failure
@@ -41,9 +47,11 @@ import event_schema
 import post_tool_exit_plan
 import post_tool_use
 import review_cycle_done
+import save_retrospective
 import smm_cli
 import sprint_save
 import subagent_stop
+import work_selection_decide
 from _commit_helpers import patch_commits
 from concerns import LINT_CONCERN_PREFIX
 from conftest import (
@@ -62,7 +70,11 @@ from conftest import (
 # test_post_tool.py for the canonical pattern + rationale.
 from event_schema import (
     EVENT_TYPE_CONCERN,
+    EVENT_TYPE_DEBT,
     EVENT_TYPE_QUESTION,
+    EVENT_TYPE_SPRINT,
+    SPRINT_ACTION_END,
+    SPRINT_ACTION_START,
     event_action,
 )
 
@@ -231,6 +243,72 @@ def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
     return _events(smm_dir)
 
 
+def _drive_retro_try_disposition(smm_dir: Path) -> list[dict]:
+    # work_selection_decide tags every retro-Try adopt/defer/drop. `defer` is
+    # driven here because it is the one the FORCE-CLOSE gate reads back.
+    work_selection_decide.run(
+        action="defer",
+        smm_dir=smm_dir,
+        content="Carry the Try [refs: aabbccdd1122]",
+    )
+    return _events(smm_dir)
+
+
+def _drive_triage_disposition(smm_dir: Path) -> list[dict]:
+    # The triage lane's adopt/defer/drop. `triage-defer` is driven here: it is
+    # the one whose link is new, so the tag and the link are pinned together.
+    debt = make_event(EVENT_TYPE_DEBT, content="a debt to carry")
+    _common.append_safe(smm_dir, debt)
+    work_selection_decide.run(
+        action="triage-defer",
+        smm_dir=smm_dir,
+        content="",
+        event_id=debt["id"],
+    )
+    return _events(smm_dir)
+
+
+def _drive_sprint_retro_done(smm_dir: Path) -> list[dict]:
+    # The sprint-retro completion marker. It is what RELEASES a sprint's commit
+    # events from compaction's retention, and until this driver existed no
+    # producer emitted it at all — `save_retrospective` wrote the same action
+    # string on a RETROSPECTIVE-type event with no sprint_id, while both readers
+    # (compact_retention, retrospective.needs_sprint_retro) require a STATUS type
+    # AND a sprint_id. It missed on two counts, and every project's commits were
+    # pinned forever (debt ef03cbc32f1e).
+    #
+    # The sprint_id must come from the sprint_end event in the LOG, never from
+    # sprint.json — that may already have rolled over to the next sprint by retro
+    # time, and a wrong id would release the WRONG sprint's commits.
+    for event in (
+        make_event(
+            EVENT_TYPE_SPRINT,
+            content="Start",
+            metadata={"sprint_id": "sprint-001", "action": SPRINT_ACTION_START},
+        ),
+        make_event(
+            EVENT_TYPE_SPRINT,
+            content="Sprint complete",
+            metadata={
+                "sprint_id": "sprint-001",
+                "action": SPRINT_ACTION_END,
+                "stories_planned": 1,
+                "stories_delivered": 1,
+                "stories_carried": 0,
+            },
+        ),
+    ):
+        _common.append_safe(smm_dir, event)
+
+    save_retrospective.run(
+        {"keep": ["kept"], "fix": [], "try": []},
+        smm_dir=smm_dir,
+        prefix="Sprint retrospective",
+        retro_kind="sprint",
+    )
+    return _events(smm_dir)
+
+
 # ---------------------------------------------------------------------------
 # Producer-case map: constant *name* -> driver callable.
 # Keyed by name (not value) so the missing-coverage canary cannot be silenced
@@ -255,6 +333,9 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
     "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
     "STATUS_ACTION_QUESTION_CLOSE": _drive_question_close,
+    "STATUS_ACTION_RETRO_TRY_DISPOSITION": _drive_retro_try_disposition,
+    "STATUS_ACTION_TRIAGE_DISPOSITION": _drive_triage_disposition,
+    "STATUS_ACTION_SPRINT_RETRO_DONE": _drive_sprint_retro_done,
 }
 
 
@@ -268,16 +349,12 @@ _PRODUCER_CASES: dict[str, Driver] = {
 #      LLM-via-SKILL.md producer pattern).
 # ---------------------------------------------------------------------------
 
-_DOCTRINE_GAPS: dict[str, str] = {
-    # STATUS_ACTION_SPRINT_RETRO_DONE is consumed by retrospective.py and
-    # compact.py expecting a status-type event with this action, but no
-    # producer emits one. save_retrospective.py emits the same string
-    # value but on a retrospective-type event (via RETRO_ACTION_SPRINT_DONE).
-    # Tracked by debt event ef03cbc32f1e — either wire a status producer
-    # at sprint-retro completion, or remove the constant and rewrite the
-    # consumers against retrospective-type events.
-    "STATUS_ACTION_SPRINT_RETRO_DONE": "ef03cbc32f1e",
-}
+# Empty, and that is the point: this dict ASSERTS that no producer exists for
+# each constant in it. Its last entry (STATUS_ACTION_SPRINT_RETRO_DONE, debt
+# ef03cbc32f1e) graduated to _PRODUCER_CASES when save_retrospective started
+# emitting the status event. Leaving it here after wiring the producer would
+# make the doctrine guard state a falsehood.
+_DOCTRINE_GAPS: dict[str, str] = {}
 
 
 # Non-hook producers: the action constant is emitted from somewhere
@@ -373,6 +450,63 @@ class TestActionVocabularySmoke(_HookTestCase):
                     f"driver for {name} emitted no event with "
                     f"metadata.action={action_value!r}; actions seen: {actions!r}",
                 )
+
+    def test_sprint_retro_done_is_a_status_event_carrying_its_sprint_id(self):
+        """The canary above CANNOT see this one, so it is pinned by hand.
+
+        `event_schema` declares TWO constants with the identical value
+        `sprint_retro_done` on DIFFERENT event types — STATUS_ACTION_SPRINT_RETRO_DONE
+        (status) and RETRO_ACTION_SPRINT_DONE (retrospective). The canary matches on
+        `metadata.action` alone, so the long-standing retrospective-type event
+        satisfies it VACUOUSLY: the driver goes green whether or not the status
+        producer exists at all. It did exactly that before this test was written.
+
+        What the consumers actually require is the pair — type `status` AND a
+        `sprint_id` — because that is what releases a sprint's commit events from
+        compaction's retention (`compact_retention._compute_pending_retro_sprint_ids`)
+        and what stops `needs_sprint_retro` re-firing. Emitting the action on the
+        wrong type, or on the right type with no sprint_id, misses on either count
+        and pins the sprint's commits forever. That was debt ef03cbc32f1e.
+
+        The retrospective-type event must SURVIVE: retro tooling reads its action to
+        tell a sprint retro from a session retro. This is an ADDED event, not a
+        retyped one.
+        """
+        self._reset_smm()
+        events = _drive_sprint_retro_done(self.smm_dir)
+
+        markers = [
+            e
+            for e in events
+            if e.get("type") == event_schema.EVENT_TYPE_STATUS
+            and event_action(e) == event_schema.STATUS_ACTION_SPRINT_RETRO_DONE
+        ]
+        self.assertEqual(
+            len(markers),
+            1,
+            "exactly one status-type sprint_retro_done marker must be emitted; "
+            f"saw {len(markers)}",
+        )
+        self.assertEqual(
+            markers[0]["metadata"].get("sprint_id"),
+            "sprint-001",
+            "the marker must name the sprint from the sprint_end event in the LOG "
+            "— sprint.json may already have rolled over, and a wrong id would "
+            "release the WRONG sprint's commits",
+        )
+
+        retros = [
+            e
+            for e in events
+            if e.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE
+            and event_action(e) == event_schema.RETRO_ACTION_SPRINT_DONE
+        ]
+        self.assertEqual(
+            len(retros),
+            1,
+            "the retrospective-type event must still be written — retro tooling "
+            "reads its action to tell a sprint retro from a session retro",
+        )
 
 
 if __name__ == "__main__":

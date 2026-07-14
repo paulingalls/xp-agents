@@ -314,7 +314,8 @@ class TestCloseCycleStopGate(_HookTestCase):
 
     def test_bypass_concern_content_fits_concern_budget(self):
         """The bypass concern content + the recovery hint together must stay
-        under the concern event's CONTENT_BUDGET (400 chars). append_safe
+        under the concern event's CONTENT_BUDGET (read from the schema, not
+        hardcoded here — it was 400, raised to 500 by story-013). append_safe
         silently drops over-budget events — pre-this-test, extending
         _BYPASS_RECOVERY pushed the content to ~440 chars and the bypass
         concern stopped landing, breaking abandonment surfacing entirely.

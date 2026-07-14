@@ -25,35 +25,101 @@ _DEFAULT_LOG_DIR = Path("/tmp")
 _LOG_ROOT = _DEFAULT_LOG_DIR / "xp-agents-teammates"
 
 
-def _project_dir(smm_dir: str | Path) -> Path:
-    """Return the per-project /tmp namespace directory for *smm_dir*.
+def _path_token(value: str | None) -> str | None:
+    """Reduce *value* to one safe path segment, or None if there is nothing left.
+
+    The sprint id reaches us from sprint.json, where it is schema-checked as a
+    string but NOT as a path. A `/` or a `..` in it would walk the namespace out
+    of the per-project dir — into a sibling project's prompts, or out of /tmp
+    entirely. Keep only characters that cannot traverse, and treat a token that
+    survives as nothing (``..``, ``/``, blank) as absent.
+    """
+    if value is None:
+        return None
+    safe = "".join(c for c in value if c.isalnum() or c in "._-")
+    return safe.strip("._-") or None
+
+
+def safe_name(name: str) -> str:
+    """*name*, verified to be ONE path segment that cannot traverse. Else raises.
+
+    The sprint id was sanitized against traversal (`_path_token`) and the
+    teammate NAME — which lands in the same directory, as the filename half of
+    both the prompt path and the tee log path — was passed through raw. It is CLI
+    input (`spawn_teammate --name`, authored by /xp-assign), so `--name
+    ../../../etc/x` walked the prompt file straight out of the per-project
+    namespace, and the same raw value is joined into the worktree path, the
+    `.story-assignment-<name>` marker and the in-place marker. One guard at the
+    boundary covers all five.
+
+    VERIFIES rather than sanitizes: a silent rewrite would resolve to a different
+    path than the one the caller believes it asked for, and the lead and the
+    teammate must meet at the SAME prompt file. A name that is not already safe
+    is a bug in the caller, so say so.
+    """
+    if _path_token(name) != name:
+        raise ValueError(
+            f"unsafe teammate name {name!r}: must be one path segment of "
+            "alphanumerics, '.', '_' or '-' (it becomes a filename in the "
+            "prompt/log namespace and a directory in the worktree path)"
+        )
+    return name
+
+
+def _project_dir(smm_dir: str | Path, sprint_id: str | None) -> Path:
+    """Return the /tmp namespace directory for *smm_dir* within *sprint_id*.
 
     Teammate names (``worktree-story-001``) and story ids repeat across
     projects, so a flat ``/tmp/<name>.log`` or ``/tmp/prompt-<id>.txt`` collides
     when two xp-agents sessions in different projects spawn same-named teammates.
     SMM lives at ``${CLAUDE_PLUGIN_DATA}/{project-id}/smm/``, so the SMM parent's
     name is a per-project token — namespace teammate files under it to keep them
-    isolated while preserving /tmp's ephemerality and discoverability. Single
-    source of truth for the project-id token shared by logs and prompts.
+    isolated while preserving /tmp's ephemerality and discoverability.
+
+    Story ids repeat across SPRINTS for the identical reason, and a stale
+    prompt is far likelier to come from last sprint's story-003 than from
+    another project's: nothing invalidates a prompt file, so sprint-116's
+    story-003 prompt would otherwise sit exactly where sprint-117's story-003
+    spawns from — a plausible prompt for the WRONG story. So the sprint id
+    EXTENDS the project token rather than replacing it: two projects' sprint-117
+    must still stay apart.
+
+    *sprint_id* is REQUIRED, never defaulted: spawn_teammate resolves it once
+    and passes it to every call site. An optional arg would let a missed site
+    silently resolve the OLD (project-only) path — the lead writing the prompt
+    to one path while spawn reads another, i.e. a spawn on an EMPTY prompt,
+    which is worse than the stale-prompt bug this scoping exists to kill. None
+    is a legitimate VALUE (no sprint: free branch, ad-hoc teammate) and degrades
+    to the project-only namespace; it just may not be a default.
+
+    Single source of truth for the namespace token shared by logs and prompts.
     """
-    return _LOG_ROOT / Path(smm_dir).resolve().parent.name
+    project = _LOG_ROOT / Path(smm_dir).resolve().parent.name
+    token = _path_token(sprint_id)
+    return project / token if token else project
 
 
-def project_log_dir(smm_dir: str | Path) -> Path:
-    """Return the project-scoped forensic-log directory for *smm_dir*."""
-    return _project_dir(smm_dir)
+def project_log_dir(smm_dir: str | Path, *, sprint_id: str | None) -> Path:
+    """Return the sprint-scoped forensic-log directory for *smm_dir*."""
+    return _project_dir(smm_dir, sprint_id)
 
 
-def project_prompt_path(smm_dir: str | Path, name: str) -> Path:
-    """Return the deterministic per-project prompt-file path for *name*.
+def project_prompt_path(
+    smm_dir: str | Path, name: str, *, sprint_id: str | None
+) -> Path:
+    """Return the deterministic prompt-file path for *name* in *sprint_id*.
 
     The orchestrator writes each teammate's spawn prompt here before invoking
     spawn_teammate. Prompt files, like logs, are keyed on the teammate name,
-    which repeats across projects — a flat ``/tmp/prompt-<id>.txt`` collides
-    across concurrent sessions exactly as the flat log path did. Co-locate the
-    prompt beside the log under the same per-project dir.
+    which repeats across projects AND across sprints — so they share the
+    namespace and the collision argument of ``_project_dir``. Co-locate the
+    prompt beside the log under that one dir.
+
+    Raises ValueError on a name that could escape the namespace — see
+    ``safe_name``. This is the leaf guard; ``spawn_teammate.main`` refuses the
+    same name at the boundary, BEFORE any side effect.
     """
-    return _project_dir(smm_dir) / f"{name}.prompt.txt"
+    return _project_dir(smm_dir, sprint_id) / f"{safe_name(name)}.prompt.txt"
 
 
 # Watchdog: max silence (no .ping()) before SIGTERM. 900s = 15 min,
@@ -198,7 +264,7 @@ def run_with_tee(
     the log is intact, but the filter that owns the report/completion/
     coordination-clear did not finish — the caller must skip the rc=0 promote.
     """
-    log_path = log_dir / f"{name}.log"
+    log_path = log_dir / f"{safe_name(name)}.log"
     log_file = None
     try:
         log_file = log_path.open("a")

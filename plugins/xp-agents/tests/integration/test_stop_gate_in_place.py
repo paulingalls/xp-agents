@@ -92,7 +92,7 @@ class TestStopGateInPlace(_IntegrationTestCase):
         self._checkout_story_branch("story-live-marker")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.write_in_place_marker(self.smm_dir, _MARKER_NAME)
+        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
 
         result = self._run_gate(cwd=str(self.tmpdir))
 
@@ -115,7 +115,7 @@ class TestStopGateInPlace(_IntegrationTestCase):
         self._checkout_story_branch("story-dead-marker")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.write_in_place_marker(self.smm_dir, _MARKER_NAME)
+        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
         marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
         marker.write_text(str(dead_pid()))
 
@@ -135,7 +135,7 @@ class TestStopGateInPlace(_IntegrationTestCase):
         self._checkout_story_branch("story-reap")
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").touch()
-        worktree.write_in_place_marker(self.smm_dir, _MARKER_NAME)
+        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
         marker = worktree.in_place_marker_path(self.smm_dir, _MARKER_NAME)
         marker.write_text(str(dead_pid()))
 
@@ -151,7 +151,7 @@ class TestStopGateInPlace(_IntegrationTestCase):
         (no `.accept` marker, no commits-ahead check needed) — so the
         in-place marker is provably the SOLE variable that silences it."""
         (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
-        worktree.write_in_place_marker(self.smm_dir, _MARKER_NAME)
+        worktree.claim_in_place_marker(self.smm_dir, _MARKER_NAME)
 
         result = self._run_gate()
 

@@ -41,16 +41,18 @@ class TestBranchLifecycleShimImports(unittest.TestCase):
     def test_lifecycle_symbols_resolve_via_branching(self):
         from branching import (
             _fast_forward_if_safe,
-            _is_merged_into,
             _merge_into_target,
             delete_branch,
+            is_merged_into,
             merge_branch,
+            survives_delete_of,
         )
 
         for fn in (
             delete_branch,
             merge_branch,
-            _is_merged_into,
+            is_merged_into,
+            survives_delete_of,
             _fast_forward_if_safe,
             _merge_into_target,
         ):
@@ -393,6 +395,15 @@ class TestGetPrimaryBranch(unittest.TestCase):
 
 
 class TestGetMergeTarget(unittest.TestCase):
+    """Patches branch_resolution.branch_exists, NOT branching.branch_exists.
+
+    get_merge_target lives in branch_resolution and calls its OWN module's
+    branch_exists (via _recorded_plan_branch), so a patch on branching's
+    re-exported alias never reaches it — the tempdirs here are not git repos,
+    so the real branch_exists would answer False and the plan branch would
+    resolve to primary.
+    """
+
     def _setup_smm(self, td: str, *, stage: int, plan_branch: str | None) -> Path:
         smm = Path(td)
         ctx = {"branching_strategy": {"stage": stage}}
@@ -411,14 +422,14 @@ class TestGetMergeTarget(unittest.TestCase):
     def test_returns_plan_branch_when_set_and_exists(self):
         with tempfile.TemporaryDirectory() as td:
             smm = self._setup_smm(td, stage=2, plan_branch="paul/plan-redesign")
-            with patch("branching.branch_exists", return_value=True):
+            with patch("branch_resolution.branch_exists", return_value=True):
                 result = branching.get_merge_target(smm, cwd=td)
             self.assertEqual(result, "paul/plan-redesign")
 
     def test_falls_back_when_plan_branch_missing_locally(self):
         with tempfile.TemporaryDirectory() as td:
             smm = self._setup_smm(td, stage=2, plan_branch="paul/plan-redesign")
-            with patch("branching.branch_exists", return_value=False):
+            with patch("branch_resolution.branch_exists", return_value=False):
                 result = branching.get_merge_target(smm, cwd=td)
             self.assertEqual(result, "main")
 
@@ -559,6 +570,12 @@ class TestAutoPromote(_SMMTestCase):
             patch("branching.branch_exists", return_value=False),
             patch("branching.is_worktree_clean", return_value=True),
             patch("branching._git", return_value=fake_proc),
+            # create_story_branch now VERIFIES the base it is handed against git
+            # (trusted_story_base -> ref_exists). cwd here is the SMM temp dir,
+            # not a repo, and that check crosses into branch_resolution — where
+            # `patch("branching._git")` does not reach — so fake the collaborator
+            # in the module that owns the caller, like branch_exists above.
+            patch("branching.trusted_story_base", return_value="main"),
             # short-circuits the post-create set_story_branch lookup
             patch("branching.sprint_store.sprint_exists", return_value=False),
         ):

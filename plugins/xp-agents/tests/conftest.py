@@ -8,6 +8,8 @@ The implementations live in focused sibling modules to keep this file small:
 - `_bases.py` — base test cases + path constants
 - `_event_fixtures.py` — make_event, write_smm_fixture, signal helpers
 - `_hook_inputs.py` — canonical hook input dict factories
+- `_spawn_guard.py` — blocks any test from launching the real `claude` binary
+  (installed on import; not optional — see that module for the incident)
 
 Sprint fixtures stay inline (single consumer set, ~70 lines).
 
@@ -69,11 +71,19 @@ _test_plugin_data = tempfile.mkdtemp(prefix="xp-agents-test-plugin-data-")
 os.environ["CLAUDE_PLUGIN_DATA"] = _test_plugin_data
 atexit.register(shutil.rmtree, _test_plugin_data, ignore_errors=True)
 
+
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules. _bases.py owns the
 # canonical _PLUGIN_ROOT / _SCRIPTS_DIR / _SMM_DIR; conftest re-exports.
+#
+# `_spawn_guard` below is imported for its SIDE EFFECT as much as its symbol: it
+# installs the suite-wide backstop that makes launching the real `claude` binary
+# impossible from any test. A test that drives spawn_teammate.main() expecting it
+# to REFUSE before spawning is safe only while the refusal works — in a TDD red
+# phase it does not, main() falls through to a real `claude -p`, and that agent
+# runs this suite and spawns another. It happened: ~20 billable, recursive,
+# orphaned agents. See _spawn_guard.py.
 # ---------------------------------------------------------------------------
-
 from _bases import (  # noqa: E402, F401
     _CADENCE_CLI_PY,
     _MARKERS_PY,
@@ -108,6 +118,7 @@ from _budget_helpers import (  # noqa: E402, F401
 )
 from _lint_fixtures import _LintTmpDirMixin, _mock_ruff_result  # noqa: E402, F401
 from _md_helpers import _slice, _split_frontmatter_body  # noqa: E402, F401
+from _spawn_guard import RealAgentSpawnBlocked  # noqa: E402, F401
 from _test_typing import _MixinBase  # noqa: E402, F401
 from _worktree_fixtures import _NormalizePathIdentityMixin  # noqa: E402, F401
 
@@ -146,7 +157,10 @@ from _cli_helpers import (  # noqa: E402, F401
     run_cli,
 )
 from _event_fixtures import (  # noqa: E402, F401
+    adopt_try_event,
     commit_event,
+    defer_try_event,
+    drop_try_event,
     failing_tests_concern,
     file_write_status,
     make_event,
@@ -154,6 +168,7 @@ from _event_fixtures import (  # noqa: E402, F401
     make_session_history_entry,
     passing_tests_status,
     tests_run_status,
+    triage_event,
     verify_events,
     write_events,
     write_smm_fixture,
@@ -195,6 +210,23 @@ _STORY_BASE = {
 }
 
 
+# Every wait() on a child in this suite is BOUNDED. A test that blocks forever on
+# a subprocess wedges CI with no output — which is not a hypothetical: a run once
+# sat for 28 minutes waiting on a spawned process that had been killed out from
+# under it. An unbounded wait is a defect even when the child is one we control.
+CHILD_WAIT_TIMEOUT_S = 30
+
+
+def reap(proc: subprocess.Popen, *, timeout: float = CHILD_WAIT_TIMEOUT_S) -> None:
+    """Terminate and reap `proc`, escalating to SIGKILL, never blocking forever."""
+    proc.terminate()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=timeout)
+
+
 def dead_pid() -> int:
     """Spawn and reap a child process, returning its now-dead pid.
 
@@ -204,7 +236,7 @@ def dead_pid() -> int:
     pid-liveness probe (in-place teammate marker, sprint stop gate).
     """
     proc = subprocess.Popen([sys.executable, "-c", "pass"])
-    proc.wait()
+    proc.wait(timeout=CHILD_WAIT_TIMEOUT_S)
     return proc.pid
 
 
@@ -222,8 +254,7 @@ def live_pid():
     try:
         yield proc.pid
     finally:
-        proc.terminate()
-        proc.wait()
+        reap(proc)
 
 
 def _extract_preload_var(stdout: str, name: str) -> str | None:

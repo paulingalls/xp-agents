@@ -11,9 +11,9 @@ import json
 import sys
 from pathlib import Path
 
-import acceptance_env
 import branch_queries
 import branching
+import branching_cli_accept
 import identity
 import worktree
 
@@ -27,13 +27,52 @@ def _print_or_skip(result: str | None, min_stage: int, *, resumed: bool = False)
     return 0
 
 
+def _blank_base_refused(args: argparse.Namespace, cmd: str, resolves: str) -> bool:
+    """True (having explained itself on stderr) when --base was passed but blank.
+
+    argparse yields "" for `--base ""`, not None, so a blank base sails past
+    every downstream `base is None` check (which would have resolved and
+    verified a real one) and reaches git as an empty ref. On the create arm git
+    rejects it; on the RESUME arm nothing does — the branch is checked out,
+    `_fast_forward_if_safe` no-ops against the empty ref (`git merge-base
+    --is-ancestor <branch> ""` merely exits non-zero), and we print `resumed:`
+    and exit 0. A caller whose "$BASE" came back empty is told all is well.
+
+    Shared by BOTH --base-taking commands, not just `create`. `create` is where
+    a blank base is likeliest — the story SKILLs pass `--base "$BASE"` from a
+    command substitution that returns empty when its resolver refuses, and they
+    do not run under `set -e` — but `create-free` takes the same flag and has
+    the same silent resume arm, so guarding one leg and not the other just moves
+    the hole. No git ref is empty or whitespace-only, so refusing both is free:
+    a blank base is a caller bug, not a request.
+    """
+    if args.base is None or args.base.strip():
+        return False
+    sys.stderr.write(
+        f"{cmd}: --base was empty. Pass a real ref, or omit --base entirely "
+        f"to resolve {resolves}.\n"
+    )
+    return True
+
+
 def _cmd_create(args: argparse.Namespace) -> int:
+    if _blank_base_refused(args, "create", "the story base from the sprint"):
+        return 1
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.branch_name(user_ns, args.story, args.slug)
     existed = branching.branch_exists(args.cwd, name)
-    result = branching.create_story_branch(
-        args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
-    )
+    try:
+        result = branching.create_story_branch(
+            args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
+        )
+    except ValueError as exc:
+        # An unresolvable story base (sprint at stage 2+ whose branch is gone).
+        # That message IS the product of the refusal — it names the sprint, both
+        # candidate branches, the primary it would not silently fall back to, and
+        # the way out. Print it like every other ValueError in this CLI rather
+        # than letting a traceback bury the one thing the user has to read.
+        sys.stderr.write(f"{exc}\n")
+        return 1
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
 
@@ -41,23 +80,120 @@ def _resolve_target(args: argparse.Namespace) -> str:
     return args.target or branching.get_merge_target(Path(args.smm_dir), args.cwd)
 
 
+def _delete_refusal(cwd: str, branch: str, target: str) -> str:
+    """Why the delete was refused — reporting only what we actually CHECKED.
+
+    Every arm re-derives its fact from git rather than asserting one. A single
+    hardcoded "it is not merged into <target>" is a LIE in three reachable
+    states: the branch does not exist, the target does not resolve (so no
+    ancestry was proven either way), and the target resolved to the branch
+    itself. Sending a user to `git merge` over a branch that was never there is
+    worse than the silence it replaced — silence at least misleads no one.
+
+    A branch checked out in a worktree cannot be deleted no matter how merged it
+    is, and that is a different fix (free the worktree) from an unmerged branch
+    (merge it). Do NOT borrow close_common's escape hatch of returning 0 there:
+    that leans on close-specific knowledge — cleanup_teammate will remove the
+    branch later — which kickoff does not have.
+    """
+    if not branching.branch_exists(cwd, branch):
+        return f"there is no local branch '{branch}'."
+    if worktree.branch_held_by_worktree(cwd, branch):
+        return (
+            f"'{branch}' is checked out in a worktree — a checked-out branch "
+            f"cannot be deleted. Switch that worktree to another branch (or "
+            f"remove the worktree), then delete."
+        )
+    if not branching.survives_delete_of(cwd, branch, target):
+        return (
+            f"cannot prove '{branch}' is safe to delete: its merge target "
+            f"resolved to '{target}', which is not a ref that would survive the "
+            f"delete (it is the branch itself, or not a ref at all). Pass "
+            f"--target <the branch it was merged into>."
+        )
+    if not branching.is_merged_into(cwd, branch, target):
+        return (
+            f"refusing to delete '{branch}': it is not merged into '{target}' "
+            f"(it has commits '{target}' does not). Merge it first, or delete it "
+            f"by hand if the work is meant to be discarded."
+        )
+    return f"git refused to delete '{branch}'. Run `git branch -d {branch}` to see why."
+
+
 def _cmd_delete(args: argparse.Namespace) -> int:
-    ok = branching.delete_branch(args.cwd, args.branch)
-    return 0 if ok else 1
+    """Delete a branch, telling delete_branch what it was merged INTO.
+
+    Without a merge_target, delete_branch's ancestry-proven ``-D`` fallback can
+    never engage — so from the CLI it was unreachable, and `git branch -d`
+    refuses whenever a branch's tip differs from its upstream tracking ref even
+    though it is fully merged: the case worktree teammates hit at every close.
+    xp-kickoff says "merge ... then delete", and did exactly that — merged, then
+    called delete without saying what the target was. The user answered "merge",
+    got the merge, and then a silent exit 1.
+
+    Defaulting the target is safe because ``delete_branch`` owns BOTH halves of
+    the ``-D`` proof (ancestry AND a surviving ref — read it there, it is not
+    re-derived here). The ancestry half is also exactly kickoff's own rule ("do
+    not auto-delete branches with commits ahead"), now enforced by construction
+    rather than by remembering. The default itself comes from ``_resolve_target``,
+    the same resolver kickoff's merge-branch uses, so the merge leg and the
+    ancestry proof cannot disagree — but note it can answer with the recorded
+    PLAN branch, which is why the surviving-ref half exists.
+
+    On refusal: exit 1 WITH a reason we verified. The silence was half the bug;
+    a confidently wrong reason would be the other half back again.
+    """
+    target = _resolve_target(args)
+    if branching.delete_branch(args.cwd, args.branch, merge_target=target):
+        return 0
+    sys.stderr.write(f"delete: {_delete_refusal(args.cwd, args.branch, target)}\n")
+    return 1
 
 
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
     smm_dir = Path(args.smm_dir)
-    user_ns = branching.identity.user_namespace(args.cwd)
-    name = branching.sprint_branch_name(user_ns, args.sprint, args.slug)
+    # Ask the resolver, not the slug: on a re-slice create_sprint_branch resumes
+    # the branch RECORDED for this sprint_id, and the slug-built name it no
+    # longer uses never exists — which would report a resume as `created:` and
+    # strand SKILL.md Step 8's adopt/rename prompt (it routes on that token).
+    name = branching.resolve_sprint_branch_name(
+        args.cwd, args.sprint, args.slug, smm_dir
+    )
     existed = branching.branch_exists(args.cwd, name)
     result = branching.create_sprint_branch(args.cwd, args.sprint, args.slug, smm_dir)
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["sprint"], resumed=existed)
 
 
 def _cmd_get_base(args: argparse.Namespace) -> int:
-    result = branching.get_story_base_branch(Path(args.smm_dir), args.cwd)
-    print(result)
+    """Print the story base branch. ``--required`` refuses to guess.
+
+    One subcommand, two postures, because one answer genuinely serves both:
+    callers that BRANCH FROM or MERGE INTO the base (xp-assign, xp-schedule,
+    xp-story-close) pass --required and must halt rather than act on a
+    degraded primary; callers that only PROBE (xp-quality-review's diff range)
+    take the default and are right to degrade.
+
+    The default is unchanged, deliberately — the degrading callers carry zero
+    risk from this flag existing.
+
+    On refusal: NOTHING on stdout, the reason on stderr, exit 1. Empty stdout
+    is a HARD CONTRACT — the story-close preload does BASE=$(... --required),
+    so any byte here becomes the ref it merges into. That is also why the two
+    streams stay separate and the caller keys off the EXIT CODE, never
+    `2>&1`: _common.log_hook_error mirrors to stderr always, and can fire on
+    the SUCCESS path (auto-promote against a read-only SMM), so folding stderr
+    into stdout would splice a warning into a branch name.
+    """
+    smm_dir = Path(args.smm_dir)
+    if not args.required:
+        print(branching.get_story_base_branch(smm_dir, args.cwd))
+        return 0
+    try:
+        base = branching.get_story_base_branch_required(smm_dir, args.cwd)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
+    print(base)
     return 0
 
 
@@ -174,12 +310,20 @@ def _cmd_create_plan(args: argparse.Namespace) -> int:
 
 
 def _cmd_create_free(args: argparse.Namespace) -> int:
+    if _blank_base_refused(args, "create-free", "the merge target"):
+        return 1
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.free_branch_name(user_ns, args.slug)
     existed = branching.branch_exists(args.cwd, name)
-    result = branching.create_free_branch(
-        args.cwd, args.slug, Path(args.smm_dir), base=args.base
-    )
+    try:
+        result = branching.create_free_branch(
+            args.cwd, args.slug, Path(args.smm_dir), base=args.base
+        )
+    except ValueError as exc:
+        # A `--base` git cannot resolve. Print it like `create` does, rather
+        # than let a traceback bury the ref that was misspelled.
+        sys.stderr.write(f"{exc}\n")
+        return 1
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["free"], resumed=existed)
 
 
@@ -213,67 +357,6 @@ def _cmd_check_divergence(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_accept_env_prepare(args: argparse.Namespace) -> int:
-    """Detach the main checkout onto a teammate story's tip; print the restore ref.
-
-    The SKILL captures stdout (the sprint base) to pass back to
-    ``accept-env restore`` after the acceptance harness runs.
-    """
-    try:
-        tip, base = acceptance_env.resolve_story_tip(
-            Path(args.smm_dir), args.cwd, args.story
-        )
-        acceptance_env.checkout_story_tip(args.cwd, tip)
-    except ValueError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 1
-    print(base)
-    return 0
-
-
-def _cmd_accept_env_restore(args: argparse.Namespace) -> int:
-    """Return the main checkout to ``--restore-ref`` (the base from prepare)."""
-    try:
-        acceptance_env.restore(args.cwd, args.restore_ref)
-    except ValueError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 1
-    return 0
-
-
-def _cmd_accept_env_recover(args: argparse.Namespace) -> int:
-    """Heal an interrupted main checkout; print the recovered state (else nothing)."""
-    try:
-        state = acceptance_env.recover(Path(args.smm_dir), args.cwd)
-    except ValueError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 1
-    if state:
-        print(state)
-    return 0
-
-
-def _cmd_accept_env_inspect(args: argparse.Namespace) -> int:
-    """Print a read-only prepare-readiness snapshot for the /xp-accept preload.
-
-    One TSV row per live teammate worktree:
-    ``story_id<TAB>path<TAB>tip<TAB>restore_ref``. A trailing
-    ``MAIN_STATE<TAB><state>`` line flags a window needing recovery before a
-    detached-HEAD checkout (interrupted state, else dirty); omitted on a clean
-    tree. Tab-delimited because macOS paths can contain spaces.
-    """
-    try:
-        snap = acceptance_env.inspect(Path(args.smm_dir), args.cwd)
-    except ValueError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 1
-    for row in snap.rows:
-        print(f"{row.story_id}\t{row.wt_path}\t{row.tip_sha}\t{row.restore_ref}")
-    if snap.main_state:
-        print(f"MAIN_STATE\t{snap.main_state}")
-    return 0
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Branch lifecycle operations")
     parser.add_argument("--smm-dir", required=True, help="SMM directory path")
@@ -289,6 +372,15 @@ def main() -> int:
     p_delete = sub.add_parser("delete", help="Delete a branch")
     p_delete.add_argument("--cwd", required=True)
     p_delete.add_argument("--branch", required=True)
+    p_delete.add_argument(
+        "--target",
+        default=None,
+        help=(
+            "The branch it was merged into. Defaults to the merge target. "
+            "Enables the ancestry-proven force-delete for a branch that is "
+            "fully merged but has drifted from its upstream tracking ref."
+        ),
+    )
     p_delete.set_defaults(func=_cmd_delete)
 
     p_csprint = sub.add_parser("create-sprint", help="Create a sprint branch")
@@ -299,6 +391,15 @@ def main() -> int:
 
     p_base = sub.add_parser("get-base", help="Print story base branch")
     p_base.add_argument("--cwd", required=True)
+    p_base.add_argument(
+        "--required",
+        action="store_true",
+        help=(
+            "Refuse to degrade: exit 1 with an empty stdout and a reason on "
+            "stderr when the story base cannot be honestly resolved. For "
+            "callers that branch from or merge into the answer."
+        ),
+    )
     p_base.set_defaults(func=_cmd_get_base)
 
     p_stage = sub.add_parser("stage", help="Print branching stage")
@@ -388,29 +489,7 @@ def main() -> int:
     p_div.add_argument("--threshold", type=int, default=10)
     p_div.set_defaults(func=_cmd_check_divergence)
 
-    p_ae = sub.add_parser(
-        "accept-env",
-        help="Serial main-checkout acceptance env (prepare/restore/recover)",
-    )
-    ae = p_ae.add_subparsers(dest="accept_env_action", required=True)
-    ae_prep = ae.add_parser(
-        "prepare", help="Detach onto a story's tip; print the restore ref"
-    )
-    ae_prep.add_argument("--cwd", required=True)
-    ae_prep.add_argument("--story", required=True)
-    ae_prep.set_defaults(func=_cmd_accept_env_prepare)
-    ae_rest = ae.add_parser("restore", help="Restore the main checkout to a ref")
-    ae_rest.add_argument("--cwd", required=True)
-    ae_rest.add_argument("--restore-ref", required=True)
-    ae_rest.set_defaults(func=_cmd_accept_env_restore)
-    ae_rec = ae.add_parser("recover", help="Heal an interrupted main checkout")
-    ae_rec.add_argument("--cwd", required=True)
-    ae_rec.set_defaults(func=_cmd_accept_env_recover)
-    ae_insp = ae.add_parser(
-        "inspect", help="Read-only prepare-readiness snapshot (rows + MAIN_STATE flag)"
-    )
-    ae_insp.add_argument("--cwd", required=True)
-    ae_insp.set_defaults(func=_cmd_accept_env_inspect)
+    branching_cli_accept.register(sub)
 
     args = parser.parse_args()
     return args.func(args)

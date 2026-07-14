@@ -448,22 +448,39 @@ def _run_duplicate_debt_probe(smm_dir: Path, event: dict) -> None:
 
 
 def append_safe(smm_dir: Path, event: dict) -> None:
-    """Validate and append event. LockTimeoutError is logged + swallowed."""
+    """Validate and append event. A drop is always logged, never silent.
+
+    Both drop paths — schema-invalid and lock-timeout — go through
+    log_hook_error, which mirrors to stderr AND to hook_errors.jsonl. The
+    schema branch used to drop with no signal at all: an event missing a
+    required field simply never appeared, and the failure looked like nothing
+    at all (a marker that never lands is indistinguishable from a marker that
+    was never meant to land). Callers must not have to pre-validate to find
+    out; that workaround is what this logging replaces.
+    """
     import _append_impl
 
     errors = _append_impl.validate_event(event)
-    if not errors:
-        try:
-            _append_impl.append_event(smm_dir, event)
-        except _append_impl.LockTimeoutError as e:
-            log_hook_error(
-                f"append_safe dropped event: {e}",
-                error_class=type(e).__name__,
-                event_id=event.get("id"),
-                event_type=event.get("type"),
-            )
-        else:
-            _run_duplicate_debt_probe(smm_dir, event)
+    if errors:
+        log_hook_error(
+            f"append_safe dropped schema-invalid event: {'; '.join(errors)}",
+            error_class="SchemaValidationError",
+            event_id=event.get("id"),
+            event_type=event.get("type"),
+        )
+        return
+
+    try:
+        _append_impl.append_event(smm_dir, event)
+    except _append_impl.LockTimeoutError as e:
+        log_hook_error(
+            f"append_safe dropped event: {e}",
+            error_class=type(e).__name__,
+            event_id=event.get("id"),
+            event_type=event.get("type"),
+        )
+    else:
+        _run_duplicate_debt_probe(smm_dir, event)
 
 
 def parse_append_sh_args(command: str) -> dict[str, str]:

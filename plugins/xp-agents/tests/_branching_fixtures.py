@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import execution_plan_store
+import sprint_store
 from _event_fixtures import make_event
 from _system_context_fixtures import valid_doc
 from event_schema import EVENT_TYPE_CONCERN
@@ -117,8 +118,18 @@ def get_current_branch(cwd: str) -> str:
 
 def get_head_sha(cwd: str) -> str:
     """Return the current HEAD commit SHA."""
+    return get_branch_sha(cwd, "HEAD")
+
+
+def get_branch_sha(cwd: str, ref: str) -> str:
+    """Return the commit SHA `ref` points at, or "" when it resolves to nothing.
+
+    The assertion for "did this branch MOVE?" — the resume arm's silent failures
+    (an unresolvable base, a base that fast-forwards a story branch onto primary)
+    are invisible in a return value and only show up in where the ref ends up.
+    """
     return subprocess.run(
-        ["git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", ref],
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -409,6 +420,40 @@ def seed_sprint_with_stories(smm_dir: Path, stories: "list[tuple[str, str]]") ->
     )
 
 
+def write_sprint_json(
+    smm_dir: Path, sprint_id: str, goal: str, started: str = "2026-04-22"
+) -> None:
+    """Write a minimal valid sprint.json with one ready story.
+
+    Promoted here from a local helper in test_branching_sprint.py when
+    test_branching_reslice.py was split out (story-005) and needed the same
+    seed — one fixture beats two copies drifting apart.
+    """
+    sprint_store.save_sprint(
+        smm_dir,
+        {
+            "sprint_id": sprint_id,
+            "goal": goal,
+            "started": started,
+            "milestone": "test",
+            "stories": [
+                {
+                    "id": "story-001",
+                    "title": "Test",
+                    "status": "ready",
+                    "dependencies": [],
+                    "milestone_ref": "test",
+                    "design_sources": "test",
+                    "context": "test",
+                    "file_domain": [],
+                    "interface_contracts": [],
+                    "acceptance_criteria": ["test"],
+                }
+            ],
+        },
+    )
+
+
 def seed_plan(smm_dir: Path, branch: str | None = None) -> None:
     """Write a minimal valid execution_plan.json. Optionally sets the branch field."""
     plan = {
@@ -474,6 +519,19 @@ def add_pre_push_hook(
         hook.write_text(f'#!/bin/sh\ncat >> "{marker}"\nexit 0\n')
     hook.chmod(0o755)
     return marker
+
+
+def make_branch(cwd: str, name: str) -> None:
+    """Cut local branch `name` at HEAD without checking it out.
+
+    Arms the RESUME arm of _create_or_resume_branch, and seeds the sprint
+    branch a story base resolves to. `name` must match what the code under
+    test will compute — a story branch the code names differently is simply
+    not found, and the test quietly exercises the CREATE arm instead. When
+    the code path runs in a subprocess, derive the namespace from
+    `identity.user_namespace(cwd)` (git config), never a hardcoded one.
+    """
+    subprocess.run(["git", "branch", name], cwd=cwd, capture_output=True, check=True)
 
 
 def branch_exists(cwd: str, name: str) -> bool:

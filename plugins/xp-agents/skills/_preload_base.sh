@@ -283,15 +283,19 @@ get_latest_retro() {
 # Extract Try items from a retrospective JSON file.
 # Usage: get_try_items "$RETRO_FILE"
 # Outputs "- <content> [refs: <id1>, ...]" lines when event_refs present.
+#
+# Every Try is offered, none are skipped. There used to be a `try_status` skip
+# branch here, and it was dormant: `try_status` is computed for the retro AGENT
+# and never persisted — save_retrospective writes only timestamp/keep/fix/try/
+# analysis_notes — so the file this reads has never carried it. Were it revived
+# it would now be actively wrong: `resolved_this_session` means "finished with",
+# and an ADOPTED Try is open, in flight, and must stay on offer. Dropping it from
+# the list is indistinguishable from it having been done.
 get_try_items() {
     python3 -c "
 import json, sys
 data = json.load(open(sys.argv[1]))
-items = data.get('try', [])
-statuses = data.get('try_status', [])
-for i, item in enumerate(items):
-    if i < len(statuses) and statuses[i].get('resolved_this_session'):
-        continue
+for item in data.get('try', []):
     c = item.get('content', item) if isinstance(item, dict) else item
     refs = list(item.get('event_refs', [])) if isinstance(item, dict) else []
     own_id = item.get('id', '') if isinstance(item, dict) else ''

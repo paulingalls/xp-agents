@@ -2,8 +2,10 @@
 """Tests for work_selection_decide.py — the Try-item adopt/defer/drop helper.
 
 The helper extracts `[refs: ...]` from retro Try text and appends a decision
-or status event with metadata.resolves populated automatically. Replaces
-LLM-crafted --metadata JSON discipline with code.
+or status event with the refs routed by evidence: a closing event (terminal
+disposition) populates metadata.resolves; an intent event (adoption, deferral)
+populates top-level `references`. Replaces LLM-crafted --metadata JSON
+discipline with code.
 """
 
 import os
@@ -21,6 +23,7 @@ sys.path.insert(
     ),
 )
 
+import adoption_store
 import work_selection_decide
 from conftest import _HookTestCase, make_event
 from event_schema import (
@@ -32,6 +35,13 @@ from event_schema import (
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_STATUS,
 )
+from work_selection_filters import _FORCE_CLOSE_THRESHOLD
+
+# The exact metadata every retro-lane disposition now carries. Spelled out once:
+# a test that asserts the whole dict is what catches a lane tag going missing,
+# and a missing lane tag silently disarms the FORCE-CLOSE gate.
+_RETRO_DEFERRED = {"action": "retro_try_disposition", "disposition": "deferred"}
+_RETRO_DROPPED = {"action": "retro_try_disposition", "disposition": "dropped"}
 
 
 class _DecideTestCase(_HookTestCase):
@@ -66,9 +76,14 @@ class _DecideTestCase(_HookTestCase):
 
 
 class TestAdopt(_DecideTestCase):
-    """adopt subcommand: emits decision event with topic + optional resolves."""
+    """adopt subcommand: emits decision event with topic + optional references.
 
-    def test_adopt_with_refs_populates_metadata_resolves(self):
+    Adoption records intent, not resolution — the refs land in the WEAK
+    `references` field so taking the work on cannot close the item that
+    verifies it.
+    """
+
+    def test_adopt_with_refs_populates_references(self):
         self.mod.run(
             action="adopt",
             smm_dir=self.smm_dir,
@@ -78,10 +93,8 @@ class TestAdopt(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["topic"], "retro-try-commit-after-green")
-        self.assertEqual(
-            event["metadata"]["resolves"],
-            ["abc123def456", "7df84bb18a49"],
-        )
+        self.assertEqual(event["references"], ["abc123def456", "7df84bb18a49"])
+        self.assertNotIn("resolves", event.get("metadata", {}))
 
     def test_adopt_with_refs_strips_suffix_from_content(self):
         self.mod.run(
@@ -93,7 +106,7 @@ class TestAdopt(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["content"], "Commit after green")
 
-    def test_adopt_without_refs_has_no_resolves_key(self):
+    def test_adopt_without_refs_has_no_link_fields(self):
         self.mod.run(
             action="adopt",
             smm_dir=self.smm_dir,
@@ -104,6 +117,7 @@ class TestAdopt(_DecideTestCase):
         self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["topic"], "retro-try-refactor-first")
         self.assertNotIn("resolves", event.get("metadata", {}))
+        self.assertNotIn("references", event)
         self.assertEqual(event["content"], "Refactor prep before add")
 
     def test_adopt_emits_decision_event_type(self):
@@ -128,9 +142,13 @@ class TestAdopt(_DecideTestCase):
 
 
 class TestDefer(_DecideTestCase):
-    """defer subcommand: status event, disposition=deferred, working_on=[]."""
+    """defer subcommand: status event, disposition=deferred, working_on=[].
 
-    def test_defer_with_refs_sets_resolves_and_disposition(self):
+    Deferral is intent (the Try is carried, not closed), so its refs land in
+    `references` — deferred is not a terminal disposition.
+    """
+
+    def test_defer_with_refs_sets_references_and_disposition(self):
         self.mod.run(
             action="defer",
             smm_dir=self.smm_dir,
@@ -139,13 +157,8 @@ class TestDefer(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["working_on"], [])
-        self.assertEqual(
-            event["metadata"],
-            {
-                "resolves": ["abc123def456", "7df84bb18a49"],
-                "disposition": "deferred",
-            },
-        )
+        self.assertEqual(event["references"], ["abc123def456", "7df84bb18a49"])
+        self.assertEqual(event["metadata"], _RETRO_DEFERRED)
 
     def test_defer_overbudget_content_truncates_preserves_refs(self):
         """A Try whose prose exceeds the 200-char status budget defers
@@ -165,7 +178,7 @@ class TestDefer(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertLessEqual(len(event["content"]), 200)
-        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["references"], ["abc123def456"])
         self.assertEqual(event["metadata"]["disposition"], "deferred")
 
     def test_defer_without_refs_has_only_disposition(self):
@@ -176,7 +189,8 @@ class TestDefer(_DecideTestCase):
         )
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
-        self.assertEqual(event["metadata"], {"disposition": "deferred"})
+        self.assertEqual(event["metadata"], _RETRO_DEFERRED)
+        self.assertNotIn("references", event)
         self.assertEqual(event["working_on"], [])
         self.assertEqual(event["content"], "Defer this with no refs")
 
@@ -200,7 +214,7 @@ class TestDrop(_DecideTestCase):
         )
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
-        self.assertEqual(event["metadata"], {"disposition": "dropped"})
+        self.assertEqual(event["metadata"], _RETRO_DROPPED)
         self.assertEqual(event["working_on"], [])
         self.assertNotIn("resolves", event["metadata"])
 
@@ -213,8 +227,7 @@ class TestDrop(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(
-            event["metadata"],
-            {"resolves": ["abc123def456"], "disposition": "dropped"},
+            event["metadata"], {**_RETRO_DROPPED, "resolves": ["abc123def456"]}
         )
 
     def test_drop_overbudget_content_truncates(self):
@@ -239,7 +252,7 @@ class TestRefParsing(_DecideTestCase):
             topic="retro-try-filter",
         )
         event = self._last_event()
-        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["references"], ["abc123def456"])
 
     def test_no_refs_suffix_leaves_content_untouched(self):
         self.mod.run(
@@ -250,7 +263,7 @@ class TestRefParsing(_DecideTestCase):
         )
         event = self._last_event()
         self.assertEqual(event["content"], "Plain content no refs")
-        self.assertNotIn("resolves", event.get("metadata", {}))
+        self.assertNotIn("references", event)
 
     def test_all_malformed_refs_treated_as_no_refs(self):
         self.mod.run(
@@ -260,7 +273,7 @@ class TestRefParsing(_DecideTestCase):
             topic="retro-try-nothing",
         )
         event = self._last_event()
-        self.assertNotIn("resolves", event.get("metadata", {}))
+        self.assertNotIn("references", event)
 
     def test_refs_with_only_whitespace_separator(self):
         self.mod.run(
@@ -270,10 +283,7 @@ class TestRefParsing(_DecideTestCase):
             topic="retro-try-space",
         )
         event = self._last_event()
-        self.assertEqual(
-            event["metadata"]["resolves"],
-            ["abc123def456", "7df84bb18a49"],
-        )
+        self.assertEqual(event["references"], ["abc123def456", "7df84bb18a49"])
 
     def test_trailing_whitespace_after_refs_stripped(self):
         self.mod.run(
@@ -362,7 +372,7 @@ class TestCliArgparse(_DecideTestCase):
         self.assertEqual(code, 0)
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_DECISION)
-        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["references"], ["abc123def456"])
 
     def test_main_defer_persists_event(self):
         code = self._run_main(
@@ -377,10 +387,8 @@ class TestCliArgparse(_DecideTestCase):
         self.assertEqual(code, 0)
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
-        self.assertEqual(
-            event["metadata"],
-            {"resolves": ["abc123def456"], "disposition": "deferred"},
-        )
+        self.assertEqual(event["references"], ["abc123def456"])
+        self.assertEqual(event["metadata"], _RETRO_DEFERRED)
 
 
 # ---------------------------------------------------------------------------
@@ -389,9 +397,15 @@ class TestCliArgparse(_DecideTestCase):
 
 
 class TestTriageAdopt(_DecideTestCase):
-    """triage-adopt: status event, disposition=adopted, resolves=[id]."""
+    """triage-adopt: status event, disposition=adopted, references=[id].
 
-    def test_creates_status_with_resolves(self):
+    Adopting an item means taking the work on. It must NOT close the item —
+    the item closes when the work lands. This is the headline defect the
+    routing exists to fix: an adopted-but-unfixed debt used to launder itself
+    into the curated pillars as "confirmed fixed".
+    """
+
+    def test_creates_status_with_references_not_resolves(self):
         self.mod.run(
             action="triage-adopt",
             smm_dir=self.smm_dir,
@@ -400,9 +414,33 @@ class TestTriageAdopt(_DecideTestCase):
         )
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
-        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["references"], ["abc123def456"])
+        self.assertNotIn("resolves", event["metadata"])
         self.assertEqual(event["metadata"]["disposition"], "adopted")
         self.assertEqual(event["working_on"], [])
+
+    def test_adopted_concern_stays_open(self):
+        """End-to-end against the resolver: the adopted concern is NOT closed."""
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="secret scan misses .env files",
+            severity="high",
+            files=["scan.py"],
+        )
+        from _common import append_safe
+
+        append_safe(self.smm_dir, concern)
+        self.mod.run(
+            action="triage-adopt",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id=concern["id"],
+        )
+        from resolution import compute_resolutions
+
+        resolutions = compute_resolutions(self._read_events())
+        self.assertNotIn(concern["id"], resolutions["resolved_concern_ids"])
+        self.assertEqual(self._last_event()["references"], [concern["id"]])
 
     def test_content_includes_short_id(self):
         self.mod.run(
@@ -416,9 +454,17 @@ class TestTriageAdopt(_DecideTestCase):
 
 
 class TestTriageDefer(_DecideTestCase):
-    """triage-defer: status event, disposition=deferred, no resolves."""
+    """triage-defer: status event, disposition=deferred, target in `references`.
 
-    def test_creates_status_without_resolves(self):
+    The link is the reversal: a deferral used to record NO link at all, on the
+    reasoning that carrying an item says nothing about it. But an unlinked defer
+    is undetectable by construction — it is the reason the ~20 legacy
+    triage-defers on disk can never be recovered, and the reason a deferred debt
+    was re-offered bare at every kickoff, forever. Linking is not closing: the
+    debt must stay OPEN, which the second test asserts.
+    """
+
+    def test_creates_status_with_references_not_resolves(self):
         self.mod.run(
             action="triage-defer",
             smm_dir=self.smm_dir,
@@ -428,8 +474,26 @@ class TestTriageDefer(_DecideTestCase):
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["disposition"], "deferred")
+        self.assertEqual(event["metadata"]["action"], "triage_disposition")
         self.assertNotIn("resolves", event["metadata"])
+        self.assertEqual(event["references"], ["abc123def456"])
         self.assertEqual(event["working_on"], [])
+
+    def test_deferred_debt_stays_open(self):
+        """Linking is NOT closing — a `status` lands in `other_resolutions`,
+        which does not relay closure. The debt must still be offered."""
+        import resolution
+
+        debt = make_event(EVENT_TYPE_DEBT, content="A debt to carry")
+        self._write_events([debt])
+        self.mod.run(
+            action="triage-defer",
+            smm_dir=self.smm_dir,
+            content="",
+            event_id=debt["id"],
+        )
+        resolutions = resolution.compute_resolutions(self._read_events())
+        self.assertNotIn(debt["id"], resolution.collect_all_resolved_ids(resolutions))
 
 
 class TestTriageDrop(_DecideTestCase):
@@ -557,27 +621,43 @@ class TestTriageEnrichment(_DecideTestCase):
 
 
 class _ForceCloseTestCase(_DecideTestCase):
-    """Helpers for seeding prior-defer history against a Try id."""
+    """Helpers for seeding prior-defer history against a Try id.
 
-    def _seed_prior_defers(self, try_ref_id: str, count: int) -> None:
-        events = []
-        for i in range(count):
-            events.append(
-                {
-                    "id": f"{i:012x}",
-                    "ts": f"2026-01-{i + 1:02d}T00:00:00+00:00",
-                    "type": EVENT_TYPE_STATUS,
-                    "agent_id": "main",
-                    "content": f"Defer {i}",
-                    "schema_version": 1,
-                    "working_on": [],
-                    "metadata": {
-                        "resolves": [try_ref_id],
-                        "disposition": "deferred",
-                    },
-                }
-            )
-        self._write_events(events)
+    `link_field` selects how the seeded deferral names its Try:
+      - "resolves"   → legacy metadata.resolves (every deferral already on
+                       disk in a real SMM log carries this shape)
+      - "references" → the new top-level field deferrals write from now on
+    The gate must count BOTH, or migrating the writer silently resets every
+    Try's deferral count to zero and disarms the gate on exactly the Tries it
+    exists to catch.
+    """
+
+    def _seed_prior_defers(
+        self, try_ref_id: str, count: int, link_field: str = "resolves"
+    ) -> None:
+        self._write_events(
+            [self._defer_event(i, try_ref_id, link_field) for i in range(count)]
+        )
+
+    def _defer_event(self, index: int, try_ref_id: str, link_field: str) -> dict:
+        event = {
+            "id": f"{index:012x}",
+            "ts": f"2026-01-{index + 1:02d}T00:00:00+00:00",
+            "type": EVENT_TYPE_STATUS,
+            "agent_id": "main",
+            "content": f"Defer {index}",
+            "schema_version": 1,
+            "working_on": [],
+            "metadata": {"disposition": "deferred"},
+        }
+        match link_field:
+            case "resolves":
+                event["metadata"]["resolves"] = [try_ref_id]
+            case "references":
+                event["references"] = [try_ref_id]
+            case _:
+                raise ValueError(f"unknown link_field: {link_field}")
+        return event
 
 
 class TestForceCloseGate(_ForceCloseTestCase):
@@ -635,7 +715,7 @@ class TestForceCloseGate(_ForceCloseTestCase):
             smm_dir=self.smm_dir,
             content="Defer with no refs",
         )
-        self.assertEqual(self._last_event()["metadata"], {"disposition": "deferred"})
+        self.assertEqual(self._last_event()["metadata"], _RETRO_DEFERRED)
 
     def test_defers_for_other_try_dont_count(self):
         """Only defers whose resolves overlap with the current refs count."""
@@ -662,7 +742,9 @@ class TestForceAdoptBreaksGate(_ForceCloseTestCase):
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_DECISION)
         self.assertEqual(event["topic"], "retro-try-finally-adopted")
-        self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
+        # Forced or not, an adoption is still intent — it links, it doesn't close.
+        self.assertEqual(event["references"], ["aaaaaaaaaaaa"])
+        self.assertNotIn("resolves", event.get("metadata", {}))
         self.assertEqual(event["content"], "Adopt now")
 
 
@@ -698,7 +780,8 @@ class TestForceDeferWithDateBreaksGate(_ForceCloseTestCase):
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
         self.assertEqual(event["metadata"]["disposition"], "deferred")
         self.assertEqual(event["metadata"]["defer_until"], "2026-09-01")
-        self.assertEqual(event["metadata"]["resolves"], ["aaaaaaaaaaaa"])
+        self.assertEqual(event["references"], ["aaaaaaaaaaaa"])
+        self.assertNotIn("resolves", event["metadata"])
 
     def test_force_defer_with_date_rejects_bad_date_format(self):
         self._seed_prior_defers("aaaaaaaaaaaa", 3)
@@ -736,6 +819,288 @@ class TestForceDeferWithDateBreaksGate(_ForceCloseTestCase):
         msg = str(ctx.exception)
         self.assertIn("aaaaaaaa", msg)
         self.assertIn("bbbbbbbb", msg)
+
+
+class _ReferencesHistoryMixin:
+    """Re-run a FORCE-CLOSE suite against deferral history recorded the NEW
+    way (top-level `references`) instead of the legacy metadata.resolves.
+
+    Subclassing rather than parameterizing: this file runs under plain
+    `unittest discover` in CI, where a pytest marker would deselect nothing
+    and break the run (decision `test-runner-portability`).
+    """
+
+    def _seed_prior_defers(
+        self, try_ref_id: str, count: int, link_field: str = "references"
+    ) -> None:
+        super()._seed_prior_defers(try_ref_id, count, link_field)  # type: ignore[misc]
+
+
+class TestForceCloseGateReferencesHistory(_ReferencesHistoryMixin, TestForceCloseGate):
+    """The gate counts deferrals linked via `references`, not just resolves."""
+
+
+class TestForceAdoptBreaksGateReferencesHistory(
+    _ReferencesHistoryMixin, TestForceAdoptBreaksGate
+):
+    pass
+
+
+class TestForceDropBreaksGateReferencesHistory(
+    _ReferencesHistoryMixin, TestForceDropBreaksGate
+):
+    pass
+
+
+class TestForceDeferWithDateBreaksGateReferencesHistory(
+    _ReferencesHistoryMixin, TestForceDeferWithDateBreaksGate
+):
+    pass
+
+
+class TestForceCloseGateMixedHistory(_ForceCloseTestCase):
+    """A real SMM log at migration time holds BOTH shapes: deferrals written
+    before the routing change (metadata.resolves) and after (references).
+    Neither leg alone reaches the threshold — only counting both does.
+    """
+
+    def _seed_mixed(self, try_ref_id: str, legacy: int, modern: int) -> None:
+        events = [self._defer_event(i, try_ref_id, "resolves") for i in range(legacy)]
+        events += [
+            self._defer_event(legacy + i, try_ref_id, "references")
+            for i in range(modern)
+        ]
+        self._write_events(events)
+
+    def test_mixed_legacy_and_new_history_reaches_threshold(self):
+        self._seed_mixed("aaaaaaaaaaaa", legacy=2, modern=1)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Defer once more [refs: aaaaaaaaaaaa]",
+            )
+        self.assertIn("FORCE-CLOSE", str(ctx.exception))
+        self.assertEqual(len(self._read_events()), 3)
+
+    def test_mixed_history_below_threshold_still_allowed(self):
+        self._seed_mixed("aaaaaaaaaaaa", legacy=1, modern=1)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content="Defer again [refs: aaaaaaaaaaaa]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_one_event_carrying_both_shapes_counts_once(self):
+        """A deferral naming the Try in both fields is still ONE deferral."""
+        events = []
+        for i in range(3):
+            event = self._defer_event(i, "aaaaaaaaaaaa", "resolves")
+            event["references"] = ["aaaaaaaaaaaa"]
+            events.append(event)
+        self._write_events(events)
+        # 3 events, double-linked — the gate must see 3, not 6, and refuse.
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content="Defer once more [refs: aaaaaaaaaaaa]",
+            )
+        self.assertIn("have 3 prior deferrals", str(ctx.exception))
+
+
+class TestForceCloseGateSurvivesCompaction(_ForceCloseTestCase):
+    """The gate must not forget what compaction erased.
+
+    A deferral is a `status` event, and compaction archives those — so the Try
+    whose deferrals are OLD ENOUGH to have aged out of `events.jsonl` is exactly
+    the long-carried Try the gate exists to catch. Counting the live log alone
+    reads ZERO for it and waves the 4th plain defer straight through: the gate
+    silently disarms on its own target population, for a reason (a compaction)
+    that has nothing to do with the Try.
+
+    The durable ledger is the memory that outlives the log — `adoption_store`
+    exists for this, and carries `defer_count` for this. `intent` already reads
+    it. The gate did not, so the milestone that made the memory durable left the
+    mechanism that most needs it still amnesiac.
+    """
+
+    TRY_ID = "aaaaaaaaaaaa"
+
+    def _remember(self, count: int, target_id: str | None = None) -> None:
+        """Seed the ledger as `compact._fold_adoption_ledger` would have, then
+        leave the live log EMPTY — the post-compaction state."""
+        adoption_store.save_adoption(
+            self.smm_dir,
+            {
+                "version": adoption_store.SCHEMA_VERSION,
+                "entries": [
+                    {
+                        "target_id": target_id or self.TRY_ID,
+                        "lane": adoption_store.LANE_RETRO,
+                        "intent": "deferred",
+                        "intent_by": "b" * 12,
+                        "intent_ts": "2026-01-01T00:00:00+00:00",
+                        "defer_count": count,
+                    }
+                ],
+            },
+        )
+
+    def test_deferrals_archived_out_of_the_log_still_fire_the_gate(self):
+        self._remember(_FORCE_CLOSE_THRESHOLD)
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content=f"Defer once more [refs: {self.TRY_ID}]",
+            )
+        self.assertIn("FORCE-CLOSE", str(ctx.exception))
+
+    def test_below_the_threshold_the_remembered_count_still_allows_a_defer(self):
+        """The control: the ledger must not make the gate trigger-happy either."""
+        self._remember(_FORCE_CLOSE_THRESHOLD - 1)
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Carry it once more [refs: {self.TRY_ID}]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_log_and_ledger_are_maxed_not_summed(self):
+        """The two sources count OVERLAPPING windows — the ledger's snapshot
+        includes deferrals the log can still see. Summing double-counts them and
+        force-closes a Try deferred only twice; the max never double-counts and
+        never regresses. Same reconciliation `intent._build_intent_map` makes.
+        """
+        self._remember(2)
+        self._seed_prior_defers(self.TRY_ID, 2, "references")
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Third carry [refs: {self.TRY_ID}]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+    def test_another_trys_remembered_count_does_not_leak(self):
+        """The ledger is keyed by target id; a different Try's memory is not
+        this Try's."""
+        self._remember(_FORCE_CLOSE_THRESHOLD + 2, target_id="bbbbbbbbbbbb")
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"A different Try [refs: {self.TRY_ID}]",
+        )
+        self.assertEqual(self._last_event()["metadata"]["disposition"], "deferred")
+
+
+class TestForceCloseLaneScoping(_ForceCloseTestCase):
+    """The gate counts deferrals of the TRY, not deferrals of things the Try
+    merely mentions — and it must keep counting the untagged deferrals written
+    before the lane tag existed.
+
+    Three legs, load-bearing in opposite directions. Drop the lane check and a
+    *debt's* deferral inflates a Try's count toward a FORCE-CLOSE it never
+    earned. Drop the try-target scoping and another *Try's* deferral does the
+    same thing through a debt they both cite — same bag, one lane over. Drop the
+    untagged leg and pre-tag deferrals stop counting, zeroing those Tries' counts
+    and disarming the gate on exactly the long-carried Tries it exists to catch.
+    """
+
+    TRY_ID = "2b15e8490179"
+
+    def test_triage_defer_of_a_cited_debt_does_not_inflate_the_count(self):
+        """Story test 3. The Try's ref bag holds the debt ids its prose cites,
+        and the triage lane now links its deferrals in that same `references`
+        field. A debt's deferral is not the Try's.
+
+        Live pair this reproduces: Try 2b15e8490179's bag holds debt
+        9ec0731f5597, which already carries triage-defer 181cb8fa2316.
+        """
+        debt = make_event(EVENT_TYPE_DEBT, content="The debt the Try cites")
+        self._write_events([debt])
+        for _ in range(_FORCE_CLOSE_THRESHOLD + 1):
+            self.mod.run(
+                action="triage-defer",
+                smm_dir=self.smm_dir,
+                content="",
+                event_id=debt["id"],
+            )
+        # The Try itself has NEVER been deferred; only the debt it cites has.
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Carry the Try [refs: {self.TRY_ID}, {debt['id']}]",
+        )
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["disposition"], "deferred")
+        self.assertIn(self.TRY_ID, event["references"])
+
+    def test_defer_of_another_try_citing_the_same_debt_does_not_inflate(self):
+        """The SAME bag leak, one lane over. The lane check stops a *debt's*
+        deferral from counting; it does nothing about another *Try's* deferral
+        reaching this Try through a shared cited id, because both events are
+        retro-lane and both bags hold the debt.
+
+        This Try has NEVER been deferred. Only the other one has.
+        """
+        debt = make_event(EVENT_TYPE_DEBT, content="The debt BOTH Tries cite")
+        self._write_events([debt])
+        other_try = "3c3c3c3c3c3c"
+        for _ in range(_FORCE_CLOSE_THRESHOLD):
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content=f"Carry the OTHER Try [refs: {other_try}, {debt['id']}]",
+            )
+        self.mod.run(
+            action="defer",
+            smm_dir=self.smm_dir,
+            content=f"Carry THIS Try [refs: {self.TRY_ID}, {debt['id']}]",
+        )
+        event = self._last_event()
+        self.assertEqual(event["metadata"]["disposition"], "deferred")
+        self.assertIn(self.TRY_ID, event["references"])
+
+    def test_legacy_untagged_defer_still_counts(self):
+        """Story test 3b. Every retro deferral written before the lane tag
+        existed carries no `metadata.action`; a bare
+        `action == retro_try_disposition` gate would exclude all of them and
+        disarm this gate on the Tries carried longest. The plugin ships to
+        installs whose logs hold exactly this shape, which is why the fixture
+        builds it explicitly rather than reading one off this repo's log — this
+        repo has none (its untagged deferrals are all unlinked triage-defers).
+        """
+        self._seed_prior_defers(self.TRY_ID, _FORCE_CLOSE_THRESHOLD, "references")
+        seeded = self._read_events()
+        self.assertTrue(
+            all("action" not in e["metadata"] for e in seeded),
+            "fixture must be UNTAGGED or this test proves nothing",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content=f"Carry it again [refs: {self.TRY_ID}]",
+            )
+        self.assertIn("FORCE-CLOSE", str(ctx.exception))
+
+    def test_tagged_retro_defers_count(self):
+        """The forward path: deferrals the writer tags today reach the gate."""
+        for _ in range(_FORCE_CLOSE_THRESHOLD):
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content=f"Carry it [refs: {self.TRY_ID}]",
+            )
+        with self.assertRaises(ValueError) as ctx:
+            self.mod.run(
+                action="defer",
+                smm_dir=self.smm_dir,
+                content=f"Carry it again [refs: {self.TRY_ID}]",
+            )
+        self.assertIn("FORCE-CLOSE", str(ctx.exception))
 
 
 class TestForceCloseCli(_ForceCloseTestCase):
@@ -835,7 +1200,8 @@ class TestTriageCliArgparse(_DecideTestCase):
         self.assertEqual(code, 0)
         event = self._last_event()
         self.assertEqual(event["type"], EVENT_TYPE_STATUS)
-        self.assertEqual(event["metadata"]["resolves"], ["abc123def456"])
+        self.assertEqual(event["references"], ["abc123def456"])
+        self.assertNotIn("resolves", event["metadata"])
 
     def test_triage_defer_persists_event(self):
         code = self._run_main(
@@ -1289,6 +1655,50 @@ class TestForceDropFilterFunctions(unittest.TestCase):
                 self._events(), ["aaaaaaaaaaaa"]
             ),
             1,
+        )
+
+    def test_count_prior_defers_filter_counts_references_link(self):
+        """New-shape deferrals name their Try in `references`."""
+        events = [
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="deferred Try",
+                metadata={"disposition": "deferred"},
+                references=["cccccccccccc"],
+            )
+        ]
+        self.assertEqual(
+            work_selection_decide._count_prior_defers_filter(events, ["cccccccccccc"]),
+            1,
+        )
+
+    def test_count_prior_defers_filter_counts_double_linked_event_once(self):
+        events = [
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="deferred Try",
+                metadata={"disposition": "deferred", "resolves": ["cccccccccccc"]},
+                references=["cccccccccccc"],
+            )
+        ]
+        self.assertEqual(
+            work_selection_decide._count_prior_defers_filter(events, ["cccccccccccc"]),
+            1,
+        )
+
+    def test_count_prior_defers_filter_ignores_non_deferred_references(self):
+        """An adopting status also carries `references` now — it is not a defer."""
+        events = [
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="adopted Try",
+                metadata={"disposition": "adopted"},
+                references=["cccccccccccc"],
+            )
+        ]
+        self.assertEqual(
+            work_selection_decide._count_prior_defers_filter(events, ["cccccccccccc"]),
+            0,
         )
 
     def test_count_prior_defers_filter_handles_empty_refs(self):

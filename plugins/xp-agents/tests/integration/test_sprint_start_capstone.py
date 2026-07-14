@@ -73,7 +73,11 @@ class TestSprintStartCapstone(_IntegrationTestCase):
         surfaces = {a["surface"] for a in acs if isinstance(a, dict)}
         self.assertEqual(surfaces, {"cli", "api"})
         ae = capstone["acceptance_execution"]
-        self.assertEqual(ae["type"], "pytest")
+        # No harness resolution happens at this layer — build_capstone_story
+        # is pure and never guesses a language. Resolution from the
+        # capstone's own surfaces lives in sprint_cli_mutate's
+        # _cmd_build_capstone, exercised by TestBuildCapstoneCommand.
+        self.assertEqual(ae["type"], "<implementer fills: test harness>")
         self.assertTrue(ae["command"])  # non-empty placeholder
 
     def test_assembled_sprint_with_capstone_round_trips(self) -> None:

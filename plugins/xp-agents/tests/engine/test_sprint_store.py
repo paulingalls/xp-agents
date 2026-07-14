@@ -70,6 +70,27 @@ class TestLoadSprint(_SMMTestCase):
         with self.assertRaises(sprint_store.SprintCorruptError):
             sprint_store.load_sprint(self.smm_dir)
 
+    def test_load_undecodable_bytes_raises_corrupt_error(self):
+        # Byte-level corruption is the third unusable-content cause, alongside
+        # malformed JSON and schema-invalid. It must surface as the SAME type:
+        # every guard that keeps the `create` repair path open catches
+        # SprintCorruptError, so a UnicodeDecodeError leaking through as itself
+        # bypasses them all and tracebacks the only tool that can overwrite the
+        # bad file.
+        import sprint_store
+
+        (self.smm_dir / "sprint.json").write_bytes(b'{"goal": "\xff\xfe"}')
+        with self.assertRaises(sprint_store.SprintCorruptError):
+            sprint_store.load_sprint(self.smm_dir)
+
+    def test_fail_open_degrades_undecodable_bytes_to_none(self):
+        # load_sprint_fail_open catches (SprintCorruptError, OSError) — so it
+        # only degrades byte corruption once load_sprint raises the right type.
+        import sprint_store
+
+        (self.smm_dir / "sprint.json").write_bytes(b'{"goal": "\xff\xfe"}')
+        self.assertIsNone(sprint_store.load_sprint_fail_open(self.smm_dir))
+
     def test_corrupt_error_is_value_error_subclass(self):
         # Existing handlers catch (ValueError, OSError); the new type must
         # remain catchable by them so only the opt-in gate changes behavior.

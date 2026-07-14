@@ -115,8 +115,21 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
 If the preload shows "### Open Debts:", present each item to the user via AskUserQuestion.
 Options per item: **adopt-now**, **keep-deferred**, **drop**.
 
+Adopting an item takes the work ON; it does NOT close the item. The item
+stays open until the fix actually lands (a commit with a `Resolves-Event:`
+trailer closes it). Only a drop is terminal.
+
+**Relay the intent suffix.** An item already triaged carries a suffix —
+`— ADOPTED (<age>, by <id>)` or `— DEFERRED x<N>`. Present it **verbatim**
+with the item: it is the memory that the user already said yes to this, or
+already put it off N times. The item is still listed because it is still
+OPEN, not because the earlier decision was forgotten — so do not re-offer it
+as if it were new. An item ADOPTED several sessions ago that still has not
+landed is worth saying so out loud; one DEFERRED 3+ times is worth dropping
+or doing.
+
 ```bash
-# adopt-now: resolve the debt, pull into current work
+# adopt-now: pull into current work — the item stays OPEN until the fix lands
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-adopt \
   --smm-dir <SMM_DIR> --event-id <event-id>
 
@@ -124,7 +137,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_de
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-defer \
   --smm-dir <SMM_DIR> --event-id <event-id>
 
-# drop: resolve and forget
+# drop: close and forget — the item will not be raised again
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-drop \
   --smm-dir <SMM_DIR> --event-id <event-id>
 ```

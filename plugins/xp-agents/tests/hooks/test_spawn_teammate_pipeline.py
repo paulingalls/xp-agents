@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Tests for spawn_teammate.py prompt + stdout pipeline.
 
-Covers _worktree_preamble (stdin prefix) and run_with_tee (stdout
-mirroring + nonzero-exit propagation).
+Covers worktree_preamble (stdin prefix; now owned by spawn_prompt and
+re-exported from spawn_teammate) and run_with_tee (stdout mirroring +
+nonzero-exit propagation).
 
 Why a separate file: test_spawn_teammate.py grew past the project's
 500-line budget after the watchdog split. The preamble + tee tests are
@@ -18,9 +19,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+# Imported for its side effect as well as its symbols: conftest installs the
+# suite-wide backstop that makes launching the real `claude` binary impossible
+# (see test_no_test_can_spawn_a_real_agent.py). Under `unittest discover` — what
+# CI runs — conftest loads ONLY because a test module imports it, and this module
+# drives spawn_teammate.main(), whose tail is the real spawn.
+import conftest  # noqa: F401
+
 
 class TestWorktreePreamble(unittest.TestCase):
-    """_worktree_preamble injects worktree-context guidance ahead of the
+    """worktree_preamble injects worktree-context guidance ahead of the
     teammate prompt body, so the teammate sees the path-rerooting rule
     before any potentially misleading absolute paths the lead embedded.
     """
@@ -29,14 +37,14 @@ class TestWorktreePreamble(unittest.TestCase):
         """The actual worktree path appears verbatim in the preamble."""
         import spawn_teammate
 
-        text = spawn_teammate._worktree_preamble("/some/wt/path")
+        text = spawn_teammate.worktree_preamble("/some/wt/path")
         self.assertIn("/some/wt/path", text)
 
     def test_preamble_instructs_path_rerooting(self):
         """Preamble names the rule (re-root absolute paths to the worktree)."""
         import spawn_teammate
 
-        text = spawn_teammate._worktree_preamble("/some/wt/path")
+        text = spawn_teammate.worktree_preamble("/some/wt/path")
         self.assertIn("worktree", text.lower())
         self.assertIn("RELATIVE", text)
         self.assertIn("Re-root", text)
@@ -45,7 +53,7 @@ class TestWorktreePreamble(unittest.TestCase):
         """Preamble exempts the SMM dir from the re-rooting rule."""
         import spawn_teammate
 
-        text = spawn_teammate._worktree_preamble("/some/wt/path")
+        text = spawn_teammate.worktree_preamble("/some/wt/path")
         self.assertIn("SMM", text)
         self.assertIn("OUTSIDE", text)
 
@@ -54,7 +62,7 @@ class TestWorktreePreamble(unittest.TestCase):
         layout — not hardcoded to any platform-specific prefix."""
         import spawn_teammate
 
-        text = spawn_teammate._worktree_preamble(
+        text = spawn_teammate.worktree_preamble(
             "/some/repo/.claude/worktrees/worktree-story-005"
         )
         # main_repo is wt_path.parent.parent.parent
@@ -100,7 +108,7 @@ class TestWorktreePreamble(unittest.TestCase):
 
         text = captured["stdin_text"]
         # Preamble at position 0, prompt body strictly after.
-        expected_preamble = spawn_teammate._worktree_preamble(wt)
+        expected_preamble = spawn_teammate.worktree_preamble(wt)
         self.assertTrue(
             text.startswith(expected_preamble),
             "stdin must begin with the preamble verbatim",

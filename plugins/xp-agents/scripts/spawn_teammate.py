@@ -32,18 +32,80 @@ from pathlib import Path
 import worktree  # isort: split
 
 import identity
+import in_place_marker
 import sprint_store
 import tier_wire
 
-# The subprocess tee + liveness watchdog live in a sibling leaf module; keep
-# the names importable here so callers (and their tests) still see
-# spawn_teammate.run_with_tee / project_log_dir.
-from teammate_runner import project_log_dir, project_prompt_path, run_with_tee
+# The prompt text (is this prompt ours, and what leads it) and the subprocess tee
+# + liveness watchdog live in sibling leaf modules; keep the names importable here
+# so callers (and their tests) still see spawn_teammate.run_with_tee /
+# project_log_dir.
+from spawn_prompt import load_prompt_for_story, worktree_preamble
+from teammate_runner import (
+    project_log_dir,
+    project_prompt_path,
+    run_with_tee,
+    safe_name,
+)
 
 
-def cleanup_existing(name: str, cwd: str) -> None:
-    """Remove existing worktree and branch if present."""
-    worktree.remove_worktree(name, cwd, force_branch=True)
+def resolve_sprint_id(smm_dir: str | Path) -> str | None:
+    """Return the active sprint id, or None when there is no usable sprint.
+
+    The sprint id namespaces this teammate's prompt and log files (see
+    teammate_runner._project_dir): story ids repeat every sprint, so without it
+    last sprint's story-003 prompt sits where this sprint's story-003 spawns
+    from. Resolved HERE, once, and passed down to every path call — the leaf
+    modules that own those paths (teammate_runner, spawn_prompt) are both
+    documented as importing no SMM modules, and reading the sprint inside either
+    would void that. This module already imports sprint_store.
+
+    The read is advisory (fail-open): spawn_teammate legitimately runs with no
+    sprint at all (free branch, ad-hoc teammate), and a corrupt sprint.json must
+    not brick every spawn — both degrade to the project-only namespace, exactly
+    as before this scoping existed. That is safe because the degraded answer is
+    the SAME for --print-prompt-path and for the spawn (one function, one file),
+    so the lead and the teammate still meet at one path; and because loudness is
+    delegated to a later, stricter step — load_prompt_for_story refuses a prompt
+    that does not name the story's branch, however the path was resolved.
+    """
+    sprint = sprint_store.load_sprint_fail_open(Path(smm_dir))
+    if sprint is None:
+        return None
+    sprint_id = sprint.get("sprint_id")
+    return sprint_id if isinstance(sprint_id, str) and sprint_id else None
+
+
+def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
+    """Clear a stale worktree before (re)creating one at the same path.
+
+    ``owns_branch`` decides whether the worktree's BRANCH dies with it, and it
+    is the difference between an idempotent re-spawn and destroyed work:
+
+    - True (spawn cut the branch itself, in the no-``branch=`` arm where
+      ``worktree add -b <name>`` re-cuts it): force-delete it. A stale ref of
+      the same name would otherwise block the re-add.
+    - False (a branch was HANDED to ``create_worktree``): delete NOTHING. That
+      branch was cut by /xp-assign and is where the teammate has been
+      committing. Force-deleting it — which is what this did unconditionally —
+      destroyed unmerged commits AND then failed the very next
+      ``git worktree add <path> <branch>``, because the ref it was told to
+      check out no longer existed.
+
+    The branch was only HALF the story, and this is the other half. Sparing the
+    branch spares what the teammate COMMITTED; the worktree DIRECTORY still went
+    away under `--force`, taking everything it had not committed yet. A live
+    teammate re-spawned under the same name lost its whole working tree, and the
+    branch it was spared pointed at the last commit before the loss. The in-place
+    path took an exclusive claim to stop exactly this (`claim_in_place_marker`);
+    the worktree path had no check at all. `force=False` hands the decision to
+    git, which refuses to remove a tree with modified or untracked files —
+    covering the live teammate and the crashed-before-commit one alike.
+    """
+    if owns_branch:
+        worktree.remove_worktree(name, cwd, force_branch=True)
+    else:
+        worktree.remove_worktree_dir(name, cwd, force=False)
 
 
 def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
@@ -51,9 +113,10 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
 
     When branch is provided, checks out that existing branch in the
     worktree instead of creating a new branch. Used by /xp-assign
-    to place teammates on story branches.
+    to place teammates on story branches — and spawn does not own that
+    branch, so a stale worktree is cleared without touching it.
     """
-    cleanup_existing(name, cwd)
+    cleanup_existing(name, cwd, owns_branch=branch is None)
 
     wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)
@@ -147,40 +210,6 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     worktree.write_story_assignment(smm_dir, name, story_id)
 
 
-def _worktree_preamble(wt_path: str) -> str:
-    """Return the worktree-context preamble injected before the teammate prompt.
-
-    Names the worktree path explicitly and the main-repo path derived from
-    it, then instructs the teammate to re-root any absolute path under the
-    main repo to the worktree. The preamble lands FIRST in the teammate's
-    stdin so its rule is established before the prompt body's potentially
-    misleading paths.
-
-    Worktree layout (standardized by worktree.worktree_path):
-    `<main_repo>/.claude/worktrees/<name>`.
-    """
-    main_repo = str(Path(wt_path).parent.parent.parent)
-    return (
-        "## Worktree Context (injected by spawn_teammate.py)\n"
-        "\n"
-        f"Your current working directory is the worktree at: `{wt_path}`\n"
-        f"The main repository checkout is at:               `{main_repo}`\n"
-        "\n"
-        "All file paths in the prompt body that follows are intended to be "
-        "RELATIVE to this worktree, even when they appear written as absolute "
-        f"paths starting with `{main_repo}/`. Re-root any such absolute path "
-        "to your worktree before reading or editing files. "
-        f"Example: `{main_repo}/some/sub/path.py` becomes "
-        f"`{wt_path}/some/sub/path.py`.\n"
-        "\n"
-        "The SMM directory (passed via $SMM_DIR) is intentionally OUTSIDE the "
-        "worktree — use it unmodified.\n"
-        "\n"
-        "---\n"
-        "\n"
-    )
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
@@ -240,13 +269,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """Parse args and spawn the teammate."""
     args = parse_args(argv)
-    name = args.name
+    # FIRST, before every path this name is joined into. `--name` is CLI input
+    # authored by /xp-assign, and it lands unescaped in FIVE paths: the prompt
+    # file, the tee log, the worktree directory, `.story-assignment-<name>` and
+    # the in-place marker. The sprint id was already sanitized against traversal
+    # for exactly this reason (teammate_runner._path_token) and the name — right
+    # beside it in the same directory — was not, so a `../` in it walked out of
+    # the namespace and, for the SMM-dir markers, out of the SMM dir. Refusing at
+    # the boundary covers all five with one guard; the two leaf path builders
+    # keep their own (teammate_runner.safe_name) so they cannot be called
+    # unguarded from elsewhere.
+    name = safe_name(args.name)
+
+    # The namespace token for BOTH the prompt and the log. Resolved once, here,
+    # and threaded through every path call below — the queries included, so what
+    # --print-prompt-path hands the lead is the file the spawn actually reads.
+    sprint_id = resolve_sprint_id(args.smm_dir)
 
     # Pure query: print the live forensic-log path the tee will write to, and
     # exit before any worktree/spawn side effect. /xp-assign surfaces this as
     # the mid-flight `tail -f` target.
     if args.print_log_path:
-        print(project_log_dir(args.smm_dir) / f"{name}.log")
+        print(project_log_dir(args.smm_dir, sprint_id=sprint_id) / f"{name}.log")
         return
 
     # Pure query: print the per-project prompt-file path and exit before any
@@ -255,7 +299,7 @@ def main(argv: list[str] | None = None) -> None:
     # nothing else guarantees the dir exists; create it here (best-effort) so
     # the external writer can write regardless of how it writes.
     if args.print_prompt_path:
-        prompt_path = project_prompt_path(args.smm_dir, name)
+        prompt_path = project_prompt_path(args.smm_dir, name, sprint_id=sprint_id)
         # The external writer REQUIRES this dir (unlike the log dir, which
         # run_with_tee degrades around), so a mkdir failure must fail loud here
         # rather than print a path the writer will then fail to write to.
@@ -267,7 +311,19 @@ def main(argv: list[str] | None = None) -> None:
     # the deterministic project_prompt_path (derivable from --name + --smm-dir
     # already in this command) so no queried value has to survive a separate
     # Bash tool call. Used everywhere the prompt is read/preserved/unlinked.
-    prompt_file = args.prompt_file or str(project_prompt_path(args.smm_dir, name))
+    prompt_file = args.prompt_file or str(
+        project_prompt_path(args.smm_dir, name, sprint_id=sprint_id)
+    )
+
+    # FIRST — before the worktree, the marker claim, and the name-keyed story
+    # assignment. Reading the prompt is pure, and refusing here is the only
+    # placement that leaves NOTHING behind: a guard at the point of use (where
+    # the prompt was previously read) would already have created an orphan
+    # worktree, clobbered another teammate's .story-assignment, and claimed the
+    # in-place name — on a spawn we then refuse.
+    prompt_body = load_prompt_for_story(
+        prompt_file, branch=args.branch, story_id=args.story_id
+    )
 
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
@@ -281,15 +337,6 @@ def main(argv: list[str] | None = None) -> None:
     # an explicit --plugin-dir still wins.
     plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
     cmd = build_command(name, args.model, plugin_dir, args.effort)
-
-    # Commit attribution: the teammate's name-keyed .story-assignment file is
-    # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
-    # worktree marker; an in-place child's cwd is the main checkout (no marker),
-    # so commit_handling recovers the name from the exported XP_TEAMMATE_NAME
-    # instead. Write the assignment in BOTH cases so attribution is explicit and
-    # robust even when a second story is concurrently in-progress (rather than
-    # relying on the single-in-progress heuristic).
-    write_story_assignment(Path(args.smm_dir), name, args.story_id)
 
     env = os.environ.copy()
     env["SMM_DIR"] = args.smm_dir
@@ -310,21 +357,48 @@ def main(argv: list[str] | None = None) -> None:
     # one that must keep the marker alive when we die. Recording only ours would
     # let the probe reap a LIVE teammate's marker.
     combined_path: str | None = None
+    # Our removal below proves ownership by CONTENT (the marker's first pid is
+    # ours), which is unforgeable ONLY given that we took the name — a writer can
+    # always forge that proof against itself by overwriting. So the name is CLAIMED
+    # (exclusively linked into place), not written: if a live teammate already
+    # holds it, we refuse to spawn rather than clobber its marker and then delete
+    # it. And we don't even look at the path in the finally unless our claim
+    # landed: what sits there otherwise is some earlier episode's leaked marker —
+    # routinely a live one, since a SIGKILLed supervisor skips its finally while
+    # its child runs on — and its (dead) supervisor's pid can have been recycled
+    # to us.
+    claimed_marker = False
 
     def _record_child_pid(child_pid: int) -> None:
-        worktree.write_in_place_marker(Path(args.smm_dir), name, child_pid)
+        in_place_marker.rewrite_own_in_place_marker(Path(args.smm_dir), name, child_pid)
 
     try:
         if args.in_place:
-            worktree.write_in_place_marker(Path(args.smm_dir), name)
-        preamble = "" if args.in_place else _worktree_preamble(run_cwd)
-        combined = preamble + Path(prompt_file).read_text()
+            in_place_marker.claim_in_place_marker(Path(args.smm_dir), name)
+            claimed_marker = True
+        # Commit attribution: the teammate's name-keyed .story-assignment file is
+        # the authoritative (Tier 1) signal. A worktree child is keyed via its cwd
+        # worktree marker; an in-place child's cwd is the main checkout (no marker),
+        # so commit_handling recovers the name from the exported XP_TEAMMATE_NAME
+        # instead. Write the assignment in BOTH cases so attribution is explicit and
+        # robust even when a second story is concurrently in-progress (rather than
+        # relying on the single-in-progress heuristic).
+        #
+        # AFTER the claim, never before: this file is keyed by NAME, and until the
+        # claim lands the name may still belong to a LIVE teammate. Writing it first
+        # meant a REFUSED spawn had already overwritten that teammate's assignment —
+        # sparing its marker (which then vouches for the name) while redirecting its
+        # commits to the story that failed to spawn. Every name-keyed side effect
+        # belongs on this side of the claim.
+        write_story_assignment(Path(args.smm_dir), name, args.story_id)
+        preamble = "" if args.in_place else worktree_preamble(run_cwd)
+        combined = preamble + prompt_body
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".prompt.txt", delete=False
         ) as tf:
             tf.write(combined)
             combined_path = tf.name
-        log_dir = project_log_dir(args.smm_dir)
+        log_dir = project_log_dir(args.smm_dir, sprint_id=sprint_id)
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -363,8 +437,13 @@ def main(argv: list[str] | None = None) -> None:
         if not filter_incomplete:
             Path(prompt_file).unlink(missing_ok=True)
     finally:
-        if args.in_place:
-            worktree.remove_in_place_marker(Path(args.smm_dir), name)
+        if claimed_marker:
+            # Only if the marker is still OURS: a same-name teammate respawned
+            # while we were running owns the path now, and deleting ITS marker
+            # would demote a live teammate to the lead (see
+            # remove_own_in_place_marker). Failing to delete is the safe
+            # direction — a leaked marker reads dead and the reap collects it.
+            in_place_marker.remove_own_in_place_marker(Path(args.smm_dir), name)
         if combined_path is not None:
             Path(combined_path).unlink(missing_ok=True)
 

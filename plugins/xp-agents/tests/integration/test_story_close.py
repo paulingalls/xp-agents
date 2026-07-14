@@ -82,7 +82,28 @@ class TestStoryCloseVerifyGate(_IntegrationTestCase):
 
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 
+    _SPRINT_BRANCH = "t/sprint-001-g"
+
     def _seed_story(self, verify_command: str, story_id: str = "story-001") -> None:
+        """Seeds the SPRINT BRANCH too, not just sprint.json.
+
+        The gate's base is the story base branch. Seeding a sprint at stage 2
+        whose branch does not exist is the state story-008 taught the resolver
+        to refuse, so the preload now emits no TARGET_BRANCH there and skips
+        the gate entirely. These tests are about the GATE, not about base
+        resolution — so give them a base that resolves. Cut at main's tip, the
+        branch is where the degraded primary used to point, and every gate
+        verdict below is unchanged.
+        """
+        # -f + explicit `main`: the class shares one repo across tests, so the
+        # ref can survive from a prior case, and HEAD may be left on a story
+        # branch. Pin the sprint branch at main's tip either way.
+        subprocess.run(
+            ["git", "branch", "-f", self._SPRINT_BRANCH, "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
         story = {
             "id": story_id,
             "title": "t",
@@ -103,6 +124,7 @@ class TestStoryCloseVerifyGate(_IntegrationTestCase):
                     "goal": "g",
                     "started": "2026-05-21",
                     "milestone": "",
+                    "branch_name": self._SPRINT_BRANCH,
                     "stories": [story],
                 }
             )

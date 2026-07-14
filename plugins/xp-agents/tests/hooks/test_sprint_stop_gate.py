@@ -117,12 +117,12 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-999")
         try:
             result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
             self.assertIsNone(result)
         finally:
-            worktree.remove_in_place_marker(self.smm_dir, "worktree-story-999")
+            worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-999")
 
     def test_in_place_marker_removed_blocks_as_before(self):
         """Once the in-place marker is gone, the accept message fires
@@ -143,7 +143,7 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
 
         (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
         (self.smm_dir / ".accept").write_text("done")
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-999")
         marker = worktree.in_place_marker_path(self.smm_dir, "worktree-story-999")
         marker.write_text(str(dead_pid()))
         result = sprint_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
@@ -156,11 +156,11 @@ class TestSprintStopGateEarlyExits(_HookTestCase):
         import worktree
 
         self.assertFalse(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
-        worktree.write_in_place_marker(self.smm_dir, "worktree-story-999")
+        worktree.claim_in_place_marker(self.smm_dir, "worktree-story-999")
         try:
             self.assertTrue(sprint_stop_gate._deferred(self.smm_dir, "main", ""))
         finally:
-            worktree.remove_in_place_marker(self.smm_dir, "worktree-story-999")
+            worktree.remove_own_in_place_marker(self.smm_dir, "worktree-story-999")
 
     def test_completed_review_cycle_does_not_defer(self):
         """All review flags True means cycle is done — don't defer, block."""

@@ -15,7 +15,7 @@ sys.path.insert(
 )
 
 import triage_preload
-from conftest import _SMMTestCase, make_event
+from conftest import _SMMTestCase, adopt_try_event, make_event, triage_event
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
@@ -119,6 +119,69 @@ class TestRun(_SMMTestCase):
         self.assertIn(f"[id: {d['id']}]", output)
 
 
+class TestTriageIntentAnnotation(_SMMTestCase):
+    """AC3. A triage-adopted item is ANNOTATED as adopted and is STILL OFFERED.
+
+    Annotating rather than filtering is the whole design. Filtering would make
+    the item vanish from the kickoff list, which is indistinguishable from having
+    been fixed — laundering the item exactly the way this story exists to stop.
+    The user needs to see "you already said you'd do this", not silence.
+
+    Fixtures go through the real triage writer, so they cannot encode a shape the
+    writer does not produce.
+    """
+
+    def _triaged_debt(self, action: str, times: int = 1) -> dict:
+        debt = make_event(EVENT_TYPE_DEBT, content="Ship the retry budget")
+        self._write_events([debt])
+        for _ in range(times):
+            triage_event(self.smm_dir, action, debt["id"])
+        return debt
+
+    def test_adopted_debt_is_annotated_and_still_offered(self):
+        debt = self._triaged_debt("triage-adopt")
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Ship the retry budget", output)  # STILL OFFERED
+        self.assertIn(f"[id: {debt['id']}]", output)
+        self.assertIn("ADOPTED", output)
+
+    def test_deferred_debt_is_annotated_and_still_offered(self):
+        debt = self._triaged_debt("triage-defer", times=2)
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Ship the retry budget", output)  # STILL OFFERED
+        self.assertIn(f"[id: {debt['id']}]", output)
+        self.assertIn("DEFERRED", output)
+        self.assertIn("2", output)  # the defer count
+
+    def test_dropped_debt_is_gone_because_a_drop_really_does_close_it(self):
+        """The contrast that makes the other two mean something: a DROP is
+        terminal, so the item leaves the list. Adopt and defer do not."""
+        debt = self._triaged_debt("triage-drop")
+        output = triage_preload.run(self.smm_dir)
+        self.assertNotIn(f"[id: {debt['id']}]", output)
+
+    def test_untriaged_debt_carries_no_annotation(self):
+        debt = make_event(EVENT_TYPE_DEBT, content="Never triaged")
+        self._write_events([debt])
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Never triaged", output)
+        self.assertNotIn("ADOPTED", output)
+        self.assertNotIn("DEFERRED", output)
+
+    def test_a_cited_debt_is_not_annotated_as_adopted(self):
+        """The bag leak, at the surface a human actually reads. A retro Try's
+        adoption references the debt ids the Try's prose CITES. If the triage
+        lane read that bag, this debt would be labelled ADOPTED because some Try
+        mentioned it — a lie told directly to the user.
+        """
+        debt = make_event(EVENT_TYPE_DEBT, content="Merely cited by a Try")
+        self._write_events([debt])
+        adopt_try_event(self.smm_dir, "aa11bb22cc33", cites=[debt["id"]])
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Merely cited by a Try", output)
+        self.assertNotIn("ADOPTED", output)
+
+
 class TestFormatWithOverlap(unittest.TestCase):
     """format_triage_section annotates concerns with commit overlap."""
 
@@ -150,6 +213,70 @@ class TestFormatWithOverlap(unittest.TestCase):
         )
         result = triage_preload.format_triage_section("Open Concerns", [concern], [])
         self.assertNotIn("MAYBE ADDRESSED", result)
+
+
+class TestInjectionStaysFlatAsCapRises(_SMMTestCase):
+    """AC3/AC4. Storage != injection: raising the event write cap (story-013,
+    400 -> 500) must NOT raise the kickoff triage block's size in lockstep.
+    The full causal chain lives in the SMM; the block shows a bounded
+    excerpt plus the event id, so the full text stays one lookup away.
+
+    Built against a SYNTHETIC temp SMM (via _SMMTestCase / _write_events),
+    never the live SMM dir, which moves session to session and would flake.
+
+    The bound below is a REAL number, not a "doesn't grow proportionally"
+    hand-wave, and it is MEASURED at both ends: 20 items at the 500-char cap
+    cost 8,798 bytes with the 400-char excerpt in place, and 10,798 bytes
+    emitted verbatim (pre-fix). MAX_BLOCK_BYTES sits between the two, so this
+    assertion genuinely FAILS against the pre-fix triage_preload.py and only
+    passes once injection excerpts content -- verified by reverting the
+    excerpt and watching it go red, not assumed.
+
+    The excerpt is 400 = the PREVIOUS content cap, so injection cost is pinned
+    at its pre-story value: the storage raise costs zero extra injected bytes
+    and the block loses nothing it used to show. See triage_preload.py.
+    """
+
+    _NUM_ITEMS = 20
+    # Between the excerpted cost (8,798) and the verbatim cost (10,798).
+    _MAX_BLOCK_BYTES = 9500
+
+    def test_block_stays_within_bound_at_new_cap(self):
+        events = [
+            make_event(EVENT_TYPE_CONCERN, content="x" * 500)
+            for _ in range(self._NUM_ITEMS)
+        ]
+        self._write_events(events)
+
+        output = triage_preload.run(self.smm_dir)
+        size = len(output.encode("utf-8"))
+        self.assertLessEqual(
+            size,
+            self._MAX_BLOCK_BYTES,
+            f"triage block is {size} bytes for {self._NUM_ITEMS} items at the "
+            f"500-char cap -- injection must excerpt content, not emit it verbatim",
+        )
+
+    def test_full_content_not_emitted_verbatim(self):
+        event = make_event(EVENT_TYPE_DEBT, content="z" * 500)
+        self._write_events([event])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertNotIn("z" * 500, output)
+
+    def test_event_id_still_present_for_full_text_lookup(self):
+        event = make_event(EVENT_TYPE_CONCERN, content="y" * 500)
+        self._write_events([event])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn(f"[id: {event['id']}]", output)
+
+    def test_short_content_unaffected(self):
+        event = make_event(EVENT_TYPE_DEBT, content="Short debt")
+        self._write_events([event])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("Short debt", output)
 
 
 class TestRunWithOverlap(_SMMTestCase):

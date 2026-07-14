@@ -45,10 +45,13 @@ The lead per-story plans→reviews→assigns one story at a time; each /xp-assig
 run resolves the lowest-id un-spawned story in the batch and exits.
 
 **Parallelism shape:** earlier teammates run asynchronously while the
-lead plans + spawns the next story (the Bash `run_in_background=true`).
-As each teammate's task-notification fires, run `/xp-accept` on THAT
-teammate before its sibling stories pile up unaccepted — accepts and
-spawns interleave; they're not serialized.
+lead plans the next story (the Bash `run_in_background=true`). The
+precedence is **plan → SPAWN → accept**: on a task-notification, spawn
+any story that is already planned, reviewed and un-spawned before
+accepting the teammate that just finished — only accept immediately
+when nothing is left to spawn. Accepts and spawns still interleave
+(they're not serialized), but spawning never waits on an accept, or the
+background sits empty for a whole close cycle.
 
 ## Pre-flight
 
@@ -172,13 +175,23 @@ EXECUTOR_EFFORT=$(echo "$STORY_JSON" | python3 -c "import json,sys; d=json.load(
 `execution_mode=teammate`; xp-assign only creates the branch the teammate
 worktree spawns into. If stage < 1, skip branch creation entirely.
 
+The branch is cut FROM `$BASE`, so `--required` refuses to degrade to the
+release branch. There is no `set -e` here: without the `||` guard an empty
+`$BASE` falls through to `create --base ""`.
+
 ```bash
-BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .)
+BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
+  get-base --cwd . --required) \
+  || { echo "HALT: story base unresolved" >&2; exit 1; }
 git checkout "$BASE"
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
   create --cwd . --story "$TARGET" --slug <title-slug> --base "$BASE"
 git checkout "$BASE"
 ```
+
+**On HALT, stop the assign.** Do not spawn the teammate and do not pick a base
+by hand. Report the stderr reason: re-cut the sprint branch
+(`branching.py create-sprint`) or fix `sprint.json`'s `branch_name`.
 
 ## Step 3: Write the prompt file for THIS story
 
@@ -204,9 +217,25 @@ separate Bash call anyway. The teammate has no prior context. Include:
 - **What to Change** — detailed changes from `PLAN_FILE`
 - **Acceptance Criteria** — derived from the story record
 - **Interface Contracts** — shared boundaries with other stories
-- **Story Branch** — the branch name created in Step 2 (from sprint.json `branch_name`)
+- **Story Branch** — the story branch created in Step 2, **verbatim**: the exact
+  string, the same one you pass to `--branch` in Step 4 (the story's own
+  `branch_name`, NOT the sprint-level one). Copy it; do not shorten it to the
+  story id, re-slug it, or prettify it.
 - **SMM Directory** — `SMM_DIR=<path>`
 - TDD + review cycle instructions
+
+**The branch is a hard gate, not a nicety.** The spawn refuses any prompt that
+does not contain the `--branch` string, and exits non-zero without spawning.
+Story ids repeat every sprint and nothing invalidates a prompt file, so a prompt
+naming only `story-003` is indistinguishable from a stale one written for LAST
+sprint's story-003 — the branch (id + slug) is the only thing that tells them
+apart. A paraphrased branch therefore fails the spawn exactly as a stale prompt
+does; write it exactly.
+
+The solo `--in-place` variant below passes no `--branch`, so the spawn can only
+fall back to checking the story id there — a weaker check, since both sprints'
+prompts carry the same id. Write the branch verbatim anyway: it costs nothing,
+and it is what the check uses wherever it is present.
 
 ## Step 4: Spawn ONE teammate async
 
@@ -280,7 +309,7 @@ The Bash above runs with `run_in_background=true`. You'll receive a `task-notifi
 - **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin — it swallows the stream and emits exactly one summary line at exit, so this file stays ~empty during the run and then holds just that summary: `Report: <path> | Branch: <branch> | Cost: $<n>`. It names the structured **report file path**. For anything mid-flight (progress, a stall), tail the live forensic `.log` at `$LOG_PATH` from Step 4 instead — that is the file the tee writes live.
 - **Then open the report file** for the structured what-shipped narrative — this is what /xp-accept and the eventual retro need; don't skip it.
 - **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
-- **If exit was 0** — run `/xp-accept` for `$TARGET` (verify + close) AS its notification fires; don't accumulate unaccepted teammates. Spawns and accepts interleave: while one teammate runs, the lead plans + spawns the next story; when a notification arrives, the lead pauses planning to accept the one that just finished. Letting many in-flight teammates pile up unaccepted drifts the sprint frontier.
+- **If exit was 0** — apply the pipeline's precedence rule before touching `/xp-accept`: if any story is planned, reviewed and un-spawned, spawn it FIRST, then accept `$TARGET`. If there is nothing left to spawn, accept `$TARGET` immediately — the rule is precedence, not a reason to delay the accept; an exhausted spawn frontier must never stall acceptance. Either way `$TARGET` gets its `/xp-accept` (verify + close) on this notification, before sibling stories pile up unaccepted.
 
 The orchestrator does NOT merge teammate branches. Each story branch stays
 alive on its teammate worktree until its `/xp-story-close` invocation

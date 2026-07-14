@@ -242,6 +242,15 @@ class TestBranchNameField(unittest.TestCase):
         errors = sprint_schema.validate_sprint(sprint)
         self.assertTrue(any("valid git branch name" in e for e in errors))
 
+    def test_branch_name_trailing_newline_rejected(self):
+        """Python's `$` also matches BEFORE a trailing newline, so the pattern
+        anchored with `$` accepted "main\\n". branch_name becomes a `git merge
+        <ref>` argument and is interpolated into the story-close preload's
+        KEY=value contract, where a newline forges a line at column 0."""
+        sprint = _make_sprint(branch_name="t/sprint-001-g\n")
+        errors = sprint_schema.validate_sprint(sprint)
+        self.assertTrue(any("valid git branch name" in e for e in errors))
+
 
 class TestStoryBranchNameField(unittest.TestCase):
     def test_story_without_branch_name_valid(self):

@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import spawn_teammate
+import worktree
 from _branching_fixtures import get_current_branch, make_commit
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
@@ -181,6 +183,171 @@ class TestCreateWorktreeWithBranch(_IntegrationTestCase):
         )
         self.assertIn("teammate-step-1", result.stdout)
         self.assertTrue(Path(wt_path).is_dir())
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
+
+
+class TestRespawnDoesNotDestroyAHandedBranch(_IntegrationTestCase):
+    """Re-spawning over a LIVE teammate worktree must not force-delete the
+    branch the teammate has been committing to.
+
+    ``cleanup_existing`` ran ``git branch -D <the worktree's HEAD>``
+    unconditionally, and ``create_worktree(branch=X)`` calls it FIRST — so a
+    re-spawn of a story whose worktree still exists (the teammate crashed, the
+    watchdog killed it, a close aborted) force-deleted X with its unmerged
+    commits, and then failed to re-add the worktree because the ref it was told
+    to check out no longer existed.
+
+    Spawn only OWNS the branch it cuts itself (the no-``branch=`` arm, where
+    ``worktree add -b <name>`` re-cuts it). A branch HANDED in was cut by
+    /xp-assign and is the teammate's work — spawn deletes nothing.
+    """
+
+    def test_respawn_over_live_worktree_preserves_unmerged_work(self):
+        import spawn_teammate
+
+        branch = "paulingalls/story-009-live"
+        make_commit(str(self.tmpdir), branch, "s9.txt", "s9", "story-009")
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        wt_path = spawn_teammate.create_worktree(
+            "worktree-story-009", str(self.tmpdir), branch=branch
+        )
+        # The teammate commits into its worktree; nothing has merged it back.
+        (Path(wt_path) / "work.txt").write_text("teammate work")
+        subprocess.run(
+            ["git", "add", "work.txt"], cwd=wt_path, capture_output=True, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "teammate work"],
+            cwd=wt_path,
+            capture_output=True,
+            check=True,
+        )
+        tip = subprocess.run(
+            ["git", "rev-parse", branch],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        # The re-spawn. It must succeed AND leave the work exactly where it was.
+        respawned = spawn_teammate.create_worktree(
+            "worktree-story-009", str(self.tmpdir), branch=branch
+        )
+
+        self.assertEqual(get_current_branch(respawned), branch)
+        after = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            after.returncode, 0, "the teammate's branch was force-deleted by a re-spawn"
+        )
+        self.assertEqual(
+            after.stdout.strip(), tip, "the teammate's unmerged commit was destroyed"
+        )
+
+    def tearDown(self):
+        cleanup_test_worktrees(self.tmpdir)
+        super().tearDown()
+
+
+class TestRespawnDoesNotDestroyUncommittedWork(_IntegrationTestCase):
+    """The other half of the same disaster, and the half that was still open.
+
+    Sparing the BRANCH (above) spares what the teammate COMMITTED. The worktree
+    DIRECTORY still went away under `git worktree remove --force`, which deletes
+    modified and untracked files with it — so a re-spawn over a teammate that was
+    still working lost its entire uncommitted tree, and the branch it was spared
+    pointed at the last commit before the loss.
+
+    The in-place path took an exclusive claim to stop exactly this
+    (`claim_in_place_marker` refuses rather than clobbering a live name). The
+    worktree path had no check at all. Git's own non-force refusal is the check:
+    it will not remove a tree that holds modified or untracked files.
+    """
+
+    def _live_worktree_with_uncommitted_work(self, branch: str) -> Path:
+        make_commit(str(self.tmpdir), branch, "base.txt", "base", "story-011")
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        wt_path = Path(
+            spawn_teammate.create_worktree(
+                "worktree-story-011", str(self.tmpdir), branch=branch
+            )
+        )
+        # The teammate is mid-story: edits made, nothing committed yet.
+        (wt_path / "in-flight.txt").write_text("hours of uncommitted teammate work")
+        return wt_path
+
+    def test_respawn_refuses_rather_than_deleting_uncommitted_work(self):
+        branch = "paulingalls/story-011-live"
+        wt_path = self._live_worktree_with_uncommitted_work(branch)
+
+        with self.assertRaises(worktree.WorktreeNotEmpty):
+            spawn_teammate.create_worktree(
+                "worktree-story-011", str(self.tmpdir), branch=branch
+            )
+
+        self.assertTrue(wt_path.is_dir(), "the live teammate's worktree was deleted")
+        self.assertEqual(
+            (wt_path / "in-flight.txt").read_text(),
+            "hours of uncommitted teammate work",
+            "the live teammate's uncommitted work was destroyed by a re-spawn",
+        )
+
+    def test_a_clean_stale_worktree_is_still_cleared(self):
+        """The control. Refusing must not break the ordinary re-spawn: a crashed
+        teammate that committed everything (or wrote nothing) leaves a CLEAN
+        tree, git removes it without --force, and the re-spawn proceeds."""
+        branch = "paulingalls/story-012-clean"
+        make_commit(str(self.tmpdir), branch, "base.txt", "base", "story-012")
+        subprocess.run(
+            ["git", "checkout", "main"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        spawn_teammate.create_worktree(
+            "worktree-story-012", str(self.tmpdir), branch=branch
+        )
+        respawned = spawn_teammate.create_worktree(
+            "worktree-story-012", str(self.tmpdir), branch=branch
+        )
+        self.assertEqual(get_current_branch(respawned), branch)
+
+    def test_post_merge_cleanup_still_forces(self):
+        """The caller that legitimately OWNS the tree keeps its force. After the
+        merge the story is done and whatever is left (build artifacts, editor
+        droppings) is debris — refusing there would wedge every close."""
+        name = "worktree-story-013"
+        wt_dir = self.tmpdir / ".claude" / "worktrees"
+        wt_dir.mkdir(parents=True, exist_ok=True)
+        wt_path = wt_dir / name
+        subprocess.run(
+            ["git", "worktree", "add", "-b", name, str(wt_path), "HEAD"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        (wt_path / "build-artifact.o").write_text("debris")
+
+        worktree.remove_worktree(name, str(self.tmpdir), force_branch=True)
+        self.assertFalse(wt_path.is_dir())
 
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)

@@ -14,11 +14,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _branching_fixtures as _bf
 import branching
+import sprint_store
 
 _init_repo = _bf.init_repo
 _get_current_branch = _bf.get_current_branch
 _write_system_context = _bf.write_system_context
 _make_feature_commit = _bf.append_commit
+
+
+def _make_sprint_branch(td: str, name: str) -> None:
+    """Cut the sprint branch the story base will resolve to.
+
+    Without it, a seeded sprint at stage 2+ whose branch does not exist is the
+    unresolvable state create_story_branch now refuses.
+    """
+    _bf.make_branch(td, name)
 
 
 class TestCreateStoryBranch(unittest.TestCase):
@@ -272,7 +282,10 @@ class TestCreateStoryBranchWithBase(unittest.TestCase):
             _write_system_context(smm_dir, stage=1)
 
             cli = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
-            env = {**_bf.GIT_ENV, "USER": "paul"}
+            # No USER override: identity.user_namespace reads GIT CONFIG, never
+            # $USER, so the subprocess namespace is the fixture repo's ("test").
+            # The branch name is read back from stdout below rather than guessed.
+            env = _bf.GIT_ENV
             result = subprocess.run(
                 [
                     sys.executable,
@@ -308,13 +321,23 @@ class TestCreateStoryBranchWithBase(unittest.TestCase):
 
 
 class TestCreateStoryBranchAutoRecords(unittest.TestCase):
+    """Both tests seed the SPRINT BRANCH, not just sprint.json.
+
+    They used to seed only the sprint record and let the story branch fork off
+    whatever get_story_base_branch degraded to — which was primary. That is the
+    exact dishonest state story-008 now refuses (a sprint exists at stage 2+,
+    but its branch does not), so leaving them as they were would have meant
+    asserting the auto-record behavior from inside the bug. Cutting the sprint
+    branch makes the base resolvable, and the story branch now forks off the
+    sprint branch, which is what production does.
+    """
+
     def test_records_branch_name_in_sprint(self):
         import json
 
-        import sprint_store
-
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
+            _make_sprint_branch(td, "paul/sprint-044-test")
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=1)
             sprint = {
@@ -357,6 +380,7 @@ class TestCreateStoryBranchAutoRecords(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
             _init_repo(td)
+            _make_sprint_branch(td, "paul/sprint-044-test")
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=1)
             sprint = {

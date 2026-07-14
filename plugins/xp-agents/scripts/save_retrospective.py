@@ -21,7 +21,73 @@ import _append_impl
 import _common
 import marker_names
 import retro_schema
-from event_schema import RETRO_ACTION_SESSION_DONE, RETRO_ACTION_SPRINT_DONE
+import retrospective
+from event_schema import (
+    RETRO_ACTION_SESSION_DONE,
+    RETRO_ACTION_SPRINT_DONE,
+    STATUS_ACTION_SPRINT_RETRO_DONE,
+)
+
+_MARKER_WATERMARK_ID = "sprint-retro-marker"
+
+
+def _emit_sprint_retro_marker(smm_dir: Path, agent_id: str) -> str | None:
+    """Emit the STATUS event that says sprint N's retro is done. Returns its
+    sprint_id, or None when no sprint is awaiting a retro.
+
+    This marker is what RELEASES a sprint's commit events from compaction's
+    retention. Two consumers require the same shape — a `status` type carrying a
+    `sprint_id` — and until now nothing produced it. The retrospective event
+    written above already carries the action string `sprint_retro_done`, but on a
+    RETROSPECTIVE type and with no sprint_id, so it missed on BOTH counts: no
+    sprint ever left `pending_retro_sprint_ids`, and every commit in every project
+    stayed pinned forever.
+
+    So this ADDS an event; it does not retype the one above. `event_metadata`
+    declares two constants with the same `sprint_retro_done` value on different
+    types, and retro tooling reads the RETROSPECTIVE event's action to tell a
+    sprint retro from a session retro — retyping it would break that reader.
+
+    The sprint_id comes from the `sprint_end` event in the LOG, via the same
+    `needs_sprint_retro` the retro trigger itself uses, and never from
+    `sprint.json`: by the time a retro runs, sprint.json may already have rolled
+    over to the next sprint, and a wrong id would release the WRONG sprint's
+    commits — silently destroying the metrics of a sprint still awaiting review.
+    Sourcing it from the same function that decided a retro was needed means the
+    marker cannot name a different sprint than the retro was FOR.
+
+    Reading the log AFTER the retrospective event was appended is safe and is
+    what makes this idempotent: `needs_sprint_retro` only treats a STATUS-typed
+    retro_done as the stop condition, so the retrospective event just written
+    cannot self-suppress, while a marker from an earlier run does — a re-run
+    emits nothing rather than a duplicate.
+
+    Returns None when `needs_sprint_retro` finds nothing pending (a re-run, or a
+    retro invoked with no ended sprint). Emitting nothing is right: a marker for a
+    sprint that is not awaiting one would release commits on a false claim, and
+    the age rule releases them regardless once the sprint is old enough.
+    """
+    events = _common.read_events_locked(smm_dir, _MARKER_WATERMARK_ID)
+    sprint_id = retrospective.needs_sprint_retro(events)
+    if sprint_id is None:
+        return None
+
+    _common.append_safe(
+        smm_dir,
+        _common.make_event(
+            _common.STATUS,
+            agent_id,
+            f"Sprint retrospective complete for {sprint_id}.",
+            # Required by the status schema. append_safe logs any schema drop to
+            # stderr + hook_errors.jsonl, so a marker that fails to land says so.
+            working_on=[],
+            metadata={
+                "action": STATUS_ACTION_SPRINT_RETRO_DONE,
+                "sprint_id": sprint_id,
+            },
+        ),
+    )
+    return sprint_id
 
 
 def run(
@@ -105,6 +171,9 @@ def run(
 
     # Write event to events.jsonl (append_safe swallows lock errors)
     _common.append_safe(smm_dir, event)
+
+    if retro_kind == "sprint":
+        _emit_sprint_retro_marker(smm_dir, agent_id)
 
     # Use event timestamp for the file (avoids divergent timestamps)
     ts_str = event["ts"]

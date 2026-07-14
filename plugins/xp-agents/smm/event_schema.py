@@ -173,7 +173,9 @@ def event_category_of(event_type: str) -> EVENT_CATEGORY:
 # Re-exported from event_metadata (split-shim per convention 91fcf9b8744d
 # when this file crossed 500 lines). Definitions live in event_metadata.py;
 # callers keep using `event_schema.STATUS_ACTION_*` / `METADATA_KEY_*` /
-# `DISPOSITION_*` / `RETRO_ACTION_*` / `event_action(...)` unchanged.
+# `DISPOSITION_*` / `RETRO_ACTION_*` / `event_action(...)` / `is_closing(...)`
+# unchanged. EVERY public name in event_metadata belongs in this list — a
+# partial shim is how a caller discovers the split the hard way.
 from event_metadata import (  # noqa: E402, F401
     CONCERN_KIND_CLOSE_CYCLE_BYPASS,
     DISPOSITION_ADOPTED,
@@ -209,12 +211,19 @@ from event_metadata import (  # noqa: E402, F401
     STATUS_ACTION_PLAN_REVIEWED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_QUESTION_CLOSE,
+    STATUS_ACTION_RETRO_TRY_DISPOSITION,
     STATUS_ACTION_SECURITY_COMPLETE,
     STATUS_ACTION_SIMPLIFY_COMPLETE,
     STATUS_ACTION_SPRINT_RETRO_DONE,
     STATUS_ACTION_SUBAGENT_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
+    STATUS_ACTION_TRIAGE_DISPOSITION,
     event_action,
+    event_disposition,
+    intent_disposition,
+    is_closing,
+    is_retro_lane,
+    is_triage_lane,
 )
 
 MAX_JSON_ARG_SIZE = 65536
@@ -225,14 +234,14 @@ MAX_EVENTS_FILE_SIZE = 10_485_760  # 10 MB
 CONTENT_BUDGETS: dict[str, int | None] = {
     EVENT_TYPE_STATUS: 200,
     EVENT_TYPE_COMMIT: None,
-    EVENT_TYPE_DECISION: 400,
+    EVENT_TYPE_DECISION: 500,
     EVENT_TYPE_CONVENTION: 250,
-    EVENT_TYPE_CONCERN: 400,
-    EVENT_TYPE_DEBT: 400,
+    EVENT_TYPE_CONCERN: 500,
+    EVENT_TYPE_DEBT: 500,
     EVENT_TYPE_QUESTION: 450,
     EVENT_TYPE_ANSWER: 350,
     EVENT_TYPE_ASSUMPTION: 400,
-    EVENT_TYPE_DISCOVERY: 400,
+    EVENT_TYPE_DISCOVERY: 500,
     EVENT_TYPE_GOAL: 200,
     EVENT_TYPE_SESSION_STARTED: 50,
     EVENT_TYPE_CUSTOMER_INPUT: None,

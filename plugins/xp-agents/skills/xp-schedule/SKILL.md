@@ -65,10 +65,19 @@ Otherwise, when teammate support is enabled:
 
 ## Step 3: Promote + set mode (+ solo branch)
 
-Read the story base branch:
+Read the story base branch. Solo cuts the branch FROM `$BASE`, so `--required`
+refuses to degrade to the release branch. No `set -e` here: without the `||`
+guard an empty `$BASE` reaches `create --base ""`.
+
 ```bash
-BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} get-base --cwd .)
+BASE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir ${SMM_DIR} \
+  get-base --cwd . --required) \
+  || { echo "HALT: story base unresolved" >&2; exit 1; }
 ```
+
+**On HALT, stop.** Do not promote and do not branch. Report the stderr reason:
+re-cut the sprint branch (`branching.py create-sprint`) or fix `sprint.json`'s
+`branch_name`.
 
 **Solo** — promote the lowest-id frontier story, mark its mode, JIT its branch:
 ```bash

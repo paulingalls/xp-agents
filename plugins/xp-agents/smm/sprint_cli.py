@@ -367,7 +367,12 @@ def main() -> None:
         "--milestone-ref", default="", help="milestone_ref string for the story"
     )
     bc_p.add_argument(
-        "--harness", default="pytest", help="acceptance_execution type (default pytest)"
+        "--harness",
+        default=None,
+        help=(
+            "acceptance_execution type; omit to resolve from the capstone's "
+            "own --surfaces in system_context"
+        ),
     )
 
     edit_p = sub.add_parser("edit-story", help="Edit story fields from stdin JSON")

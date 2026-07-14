@@ -61,7 +61,13 @@ _NON_CODE_NAMES = frozenset(
 
 
 def is_code_file(path: str) -> bool:
-    """Return True if the file is likely code (not docs/config/images)."""
+    """Return True if the file is likely code (not docs/config/images).
+
+    lang-ok: _NON_CODE_SUFFIXES is a DENY list, so the classifier is agnostic by
+    construction — everything is code unless proven otherwise. A .rs, .go or .kt
+    file is never enumerated anywhere and still classifies correctly by falling
+    through. Adding an ALLOW list here would break every language we forgot.
+    """
     suffix = Path(path).suffix.lower()
     if suffix in _NON_CODE_SUFFIXES:
         return False

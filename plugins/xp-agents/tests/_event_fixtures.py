@@ -6,6 +6,7 @@ from this module (also fine).
 
 import json
 import secrets
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -89,6 +90,100 @@ def make_retrospective_with_try(
         content="Session retrospective",
         **{"try": [{"id": try_id, "content": try_content, "event_refs": []}]},
     )
+
+
+_WORK_SELECTION_SCRIPTS = (
+    Path(__file__).parent.parent / "skills" / "xp-work-selection" / "scripts"
+)
+
+
+def _writer_event(smm_dir: Path, **run_kwargs) -> dict:
+    """Append one adopt/defer/drop event by calling the REAL writer, and return
+    the event it wrote.
+
+    Every fixture below goes through `work_selection_decide.run` rather than
+    hand-rolling the event dict, because a hand-rolled fixture encodes the shape
+    its AUTHOR believed the writer produces and then drifts in silence. That is
+    not hypothetical: the retro-lane suite was green for months over a broken
+    reader because its fixtures built a `decision` carrying `metadata.resolves`
+    — a shape no writer has produced since adoption stopped closing its target.
+    Sourcing the shape from the writer means the day the writer changes, these
+    tests either follow it or go red.
+    """
+    if str(_WORK_SELECTION_SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(_WORK_SELECTION_SCRIPTS))
+    import work_selection_decide
+
+    event_id = work_selection_decide.run(smm_dir=smm_dir, **run_kwargs)
+    for line in (smm_dir / "events.jsonl").read_text().splitlines():
+        if line.strip():
+            event = json.loads(line)
+            if event.get("id") == event_id:
+                return event
+    raise AssertionError(f"writer reported {event_id} but wrote no such event")
+
+
+def _refs_suffix(try_id: str, cites: Sequence[str]) -> str:
+    """The `[refs: ...]` suffix the preload renders on a carried Try line.
+
+    `cites` are the debt/concern ids the Try's prose is ABOUT. They ride in the
+    same bag as the Try's own id — which is precisely why a reader may not treat
+    the bag as a list of adoption targets.
+    """
+    return f"[refs: {', '.join([try_id, *cites])}]"
+
+
+def adopt_try_event(
+    smm_dir: Path,
+    try_id: str,
+    *,
+    cites: Sequence[str] = (),
+    topic: str = "retro-try-fixture",
+    content: str = "Adopt the carried Try",
+) -> dict:
+    """Adoption of a retro Try, as `/xp-work-selection adopt` writes it."""
+    return _writer_event(
+        smm_dir,
+        action="adopt",
+        content=f"{content} {_refs_suffix(try_id, cites)}",
+        topic=topic,
+    )
+
+
+def defer_try_event(
+    smm_dir: Path,
+    try_id: str,
+    *,
+    cites: Sequence[str] = (),
+    content: str = "Defer the carried Try",
+) -> dict:
+    """Deferral of a retro Try, as `/xp-work-selection defer` writes it."""
+    return _writer_event(
+        smm_dir,
+        action="defer",
+        content=f"{content} {_refs_suffix(try_id, cites)}",
+    )
+
+
+def drop_try_event(
+    smm_dir: Path,
+    try_id: str,
+    *,
+    cites: Sequence[str] = (),
+    content: str = "Drop the carried Try",
+) -> dict:
+    """Drop of a retro Try, as `/xp-work-selection drop` writes it."""
+    return _writer_event(
+        smm_dir,
+        action="drop",
+        content=f"{content} {_refs_suffix(try_id, cites)}",
+    )
+
+
+def triage_event(smm_dir: Path, action: str, event_id: str) -> dict:
+    """A triage disposition, as `/xp-work-selection triage-{adopt,defer,drop}`
+    writes it. `action` is the full subcommand name."""
+    return _writer_event(smm_dir, action=action, content="", event_id=event_id)
 
 
 def make_session_history_entry(

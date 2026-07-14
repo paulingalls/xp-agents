@@ -29,6 +29,7 @@ from event_schema import (
     STATUS_ACTION_SIMPLIFY_COMPLETE,
     STATUS_ACTION_TEST_RUN_COMPLETE,
     event_action,
+    event_disposition,
 )
 from honesty_signals import build_honesty_signals
 
@@ -177,7 +178,7 @@ def build_resolutions_map(resolutions: dict) -> dict[str, dict]:
                 "resolver_type": resolver.get("type", ""),
                 "resolver_content": resolver.get("content", "")[:_MAX_RESOLVER_CONTENT],
             }
-            disposition = resolver.get("metadata", {}).get(METADATA_KEY_DISPOSITION)
+            disposition = event_disposition(resolver)
             if disposition:
                 entry["disposition"] = disposition
             result[target_id] = entry
