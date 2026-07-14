@@ -512,6 +512,76 @@ class TestTheDoorMutexCanFail(_ClaimTestCase):
         self.assertFalse(self.marker.exists(), "the next Stop reaps what we leaked")
 
 
+class TestTheRecoveryHatch(_ClaimTestCase):
+    """How a human frees a name that is genuinely wedged — and the exact price.
+
+    A wedge is possible (a RECYCLED child pid reads LIVE and refuses its name
+    forever), so there has to be a way out. It is deliberately a human one:
+    nothing in the tree globs `*.lock`, and nothing should start.
+
+    The story this was planned from asserted that rm'ing the holder lock frees a
+    LIVE name. It does NOT, and the difference is load-bearing — so it is pinned
+    here rather than left as prose. With the lock file gone, the name falls back
+    to the LEGACY pid adjudication, which still refuses while the marker's pids
+    read alive. The lock and the marker COVER EACH OTHER; both must go.
+
+    Two things follow, and both are things a future change could quietly undo:
+      - `_legacy_verdict` is NOT a migration shim to delete once pre-lock markers
+        age out. It is the second leg of this coupling. test 2 below fails if it
+        is deleted.
+      - a `*.lock` sweep — a plausible "tidy the SMM dir" chore — would take the
+        lock leg away and hand out live names. test 3 says what that costs.
+    """
+
+    def test_rm_ing_the_holder_lock_alone_does_NOT_free_a_live_name(self):
+        """The correction. The marker's pids still speak for the name."""
+        with live_in_place_holder(self.smm_dir, self.name) as holder:
+            in_place_locks.holder_lock_path(self.smm_dir, self.name).unlink()
+
+            with self.assertRaises(in_place_marker.InPlaceNameHeld):
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+
+            self.assertTrue(holder.proc.poll() is None, "the holder is still alive")
+
+    def test_and_it_is_the_legacy_pid_fallback_that_refuses_it(self):
+        """Names the mechanism, so deleting it breaks a test rather than a user.
+
+        With no lock file, the ONLY thing that knows the name is taken is the
+        marker's supervisor pid, read by the legacy fallback. Strip the marker's
+        pids (leave it unparseable) and the refusal survives only because an
+        unadjudicable marker is never treated as free either — but strip the
+        marker itself and the name goes.
+        """
+        with live_in_place_holder(self.smm_dir, self.name):
+            in_place_locks.holder_lock_path(self.smm_dir, self.name).unlink()
+
+            # Proof it is the PIDS doing the refusing: an unparseable marker is
+            # still refused (unadjudicable ≠ free), but for a different reason.
+            self.marker.write_text("worktree-story-001")
+            with self.assertRaises(in_place_marker.InPlaceNameHeld):
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+
+    def test_rm_ing_BOTH_frees_a_live_name_which_is_the_hatch_and_the_hazard(self):
+        """The hatch, and the hazard, are the same act — so it is pinned, not
+        hidden. Removing both files lets a claimant take a name a LIVE teammate is
+        still running under: two `claude` processes in one checkout. That is the
+        cost of having any way out at all, and it is why this takes a human and
+        why no automated sweep may ever do it.
+        """
+        with live_in_place_holder(self.smm_dir, self.name) as holder:
+            in_place_locks.holder_lock_path(self.smm_dir, self.name).unlink()
+            self.marker.unlink()
+
+            in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+
+            self.assertEqual(self.marker.read_text().split(), [str(os.getpid())])
+            self.assertTrue(
+                holder.proc.poll() is None,
+                "...while the original teammate is STILL RUNNING — this is the "
+                "two-claudes state, reachable only by a human removing both files",
+            )
+
+
 class TestClaimRespawnAfterKill(_ClaimTestCase):
     """AC: the documented recovery flow, with REAL processes rather than
     hand-written pids — a claim that only ever works against synthetic markers
