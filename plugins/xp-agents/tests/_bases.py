@@ -1,17 +1,16 @@
 """Base test cases for xp-agents test suites.
 
-Three base classes with distinct concerns:
+Two base classes live here:
 - `_SMMTestCase` — pure unit-test scaffolding: temp SMM dir per test, env-var
   pin, helper to read/write events. Used by hook tests and engine tests.
 - `_IntegrationTestCase` — temp git repo + initialized SMM, used to drive
   hook scripts as subprocesses.
-- `_TempRepoTestCase` — temp git repo for direct subprocess tests of
-  init.sh / append.sh.
 
-Plus `cleanup_test_worktrees` for tests that create worktrees.
-
-`_PLUGIN_ROOT`, `_SCRIPTS_DIR`, and `_SMM_DIR` are defined here as the
-single source of truth and re-exported from conftest for back-compat.
+`_TempRepoTestCase` and `cleanup_test_worktrees` moved to `_repo_bases`, and the
+path constants to `_paths`, when this file crossed the 500-line ceiling. Both are
+re-exported below BY IDENTITY, so `from _bases import _TempRepoTestCase` /
+`_PLUGIN_ROOT` (and the conftest spellings) resolve to the same objects as before
+— no suite changed, which is what verifies the split.
 """
 
 import json
@@ -25,16 +24,19 @@ from pathlib import Path
 from typing import TypeVar
 from unittest.mock import patch
 
+# Re-exported by identity; see the module docstring.
+from _paths import (  # noqa: F401
+    _CADENCE_CLI_PY,
+    _MARKERS_PY,
+    _PLUGIN_ROOT,
+    _SCRIPTS_DIR,
+    _SMM_DIR,
+    _TEAMMATE_CONFIG_CLI_PY,
+)
+from _repo_bases import _TempRepoTestCase, cleanup_test_worktrees  # noqa: F401
 from _test_typing import _MixinBase
 
 _T = TypeVar("_T")
-
-_PLUGIN_ROOT = Path(__file__).parent.parent
-_SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
-_SMM_DIR = _PLUGIN_ROOT / "smm"
-_MARKERS_PY = _SCRIPTS_DIR / "markers.py"
-_CADENCE_CLI_PY = _SCRIPTS_DIR / "cadence_cli.py"
-_TEAMMATE_CONFIG_CLI_PY = _SCRIPTS_DIR / "teammate_config_cli.py"
 
 
 class _AssertNotNoneMixin(_MixinBase):
@@ -94,6 +96,13 @@ class _SMMTestCase(_AssertNotNoneMixin, unittest.TestCase):
             os.environ.pop("SMM_DIR", None)
         else:
             os.environ["SMM_DIR"] = self._prev_smm_dir
+        # A claim in a test keeps its holder lock for the LIFE OF THE PROCESS: a
+        # real supervisor then exits, a test worker runs thousands more tests.
+        # Imported here, not at module scope: _in_place_helpers imports this
+        # module for its path constants.
+        from _in_place_helpers import release_in_place_holds
+
+        release_in_place_holds(self.smm_dir)
         shutil.rmtree(self.smm_dir)
 
     def _write_events(self, events: list[dict]) -> None:
@@ -256,6 +265,25 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             for f in retro_dir.iterdir():
                 f.unlink()
 
+    def _reset_repo_to_main(self) -> None:
+        """Force the class-shared repo back onto `main` with a clean tree.
+
+        `setUp` scrubs the worktree and the index but NOT the checked-out
+        branch, so a sibling test that checked out a story/free branch leaves
+        HEAD there. Any gate that keys on branch SHAPE — the schedule gate's
+        free-branch exemption, say — then reads the wrong branch and exempts a
+        write it should have blocked, which turns a *block* control into a
+        vacuous pass. Cleanup can regress; this makes the starting branch
+        deterministic regardless.
+
+        Opt-in rather than folded into `setUp`: only suites that move HEAD
+        should pay the two subprocesses.
+        """
+        for args in (["checkout", "-f", "main"], ["reset", "--hard", "HEAD"]):
+            subprocess.run(
+                ["git", *args], cwd=self.tmpdir, capture_output=True, check=False
+            )
+
     def tearDown(self):
         # Prune story worktrees so the class-shared git repo's registry
         # stays clean across tests. Without this, a test that creates a
@@ -274,6 +302,19 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
                 cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
         finally:
+            # Same hold-release as _SMMTestCase.tearDown — and this class does NOT
+            # inherit it (its base is unittest.TestCase, not _SMMTestCase), so it
+            # needs its own call. It needs it MORE, in fact: `smm_dir` here is
+            # CLASS-scoped and reused by every test in the class, while setUp
+            # unlinks the lock FILE. A claim left in the registry therefore keys a
+            # path the NEXT test will reuse, so `holds_name` answers True for a
+            # name this process no longer meaningfully holds — and the next door
+            # that trusts it would unlink a marker owned by someone else. Must run
+            # before setUp removes the lock files: the release derives names from
+            # the locks on disk.
+            from _in_place_helpers import release_in_place_holds
+
+            release_in_place_holds(self.smm_dir)
             super().tearDown()
 
     def _run_preload(
@@ -395,115 +436,3 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             env=self._env_with_plugin_root(),
             cwd=self.tmpdir,
         )
-
-
-class _TempRepoTestCase(unittest.TestCase):
-    """Base class: creates an isolated temp git repo per test class.
-
-    Prevents subprocess tests (init.sh, append.sh) from touching the real SMM.
-    """
-
-    _INIT_SH = _PLUGIN_ROOT / "smm" / "init.sh"
-    _APPEND_SH = _PLUGIN_ROOT / "smm" / "append.sh"
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.tmpdir = Path(tempfile.mkdtemp())
-        cls._plugin_data_dir = Path(tempfile.mkdtemp())
-        cls._test_env = os.environ.copy()
-        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
-        subprocess.run(
-            ["git", "init", "-b", "main"],
-            cwd=cls.tmpdir,
-            capture_output=True,
-            check=True,
-            env=cls._test_env,
-        )
-        subprocess.run(
-            ["git", "config", "user.email", "test@test.com"],
-            cwd=cls.tmpdir,
-            capture_output=True,
-            env=cls._test_env,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Test"],
-            cwd=cls.tmpdir,
-            capture_output=True,
-            env=cls._test_env,
-        )
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
-        shutil.rmtree(cls.tmpdir, ignore_errors=True)
-
-    @classmethod
-    def _run_init(cls, extra_env: dict | None = None) -> subprocess.CompletedProcess:
-        env = cls._test_env.copy()
-        if extra_env:
-            env.update(extra_env)
-        return subprocess.run(
-            [str(cls._INIT_SH)],
-            capture_output=True,
-            text=True,
-            cwd=str(cls.tmpdir),
-            env=env,
-        )
-
-    @classmethod
-    def _get_smm_dir(cls) -> Path:
-        if not hasattr(cls, "_smm_dir_cache"):
-            result = cls._run_init()
-            assert result.returncode == 0, f"init.sh failed: {result.stderr}"
-            cls._smm_dir_cache = Path(result.stdout.strip())
-            # Inject SMM_DIR into the test env so subsequent subprocess calls
-            # skip the init.sh round-trip (init.sh honors $SMM_DIR).
-            cls._test_env["SMM_DIR"] = str(cls._smm_dir_cache)
-        return cls._smm_dir_cache
-
-    @classmethod
-    def _run_append(cls, *args: str) -> subprocess.CompletedProcess:
-        env = cls._test_env.copy()
-        env["CLAUDE_PLUGIN_ROOT"] = str(_PLUGIN_ROOT)
-        return subprocess.run(
-            [str(cls._APPEND_SH), *args],
-            capture_output=True,
-            text=True,
-            env=env,
-            cwd=str(cls.tmpdir),
-        )
-
-    @classmethod
-    def _events_file(cls) -> Path:
-        return cls._get_smm_dir() / "events.jsonl"
-
-    @classmethod
-    def _read_events(cls) -> list[dict]:
-        """Parse events.jsonl as a list of event dicts; skip blank lines."""
-        return [
-            json.loads(line)
-            for line in cls._events_file().read_text().splitlines()
-            if line.strip()
-        ]
-
-    @classmethod
-    def _clear_events(cls) -> None:
-        cls._events_file().write_text("")
-
-
-def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:
-    """Remove all worktrees matching prefix. For test tearDown."""
-    result = subprocess.run(
-        ["git", "worktree", "list", "--porcelain"],
-        cwd=tmpdir,
-        capture_output=True,
-        text=True,
-    )
-    for line in result.stdout.splitlines():
-        if line.startswith("worktree ") and prefix in line:
-            wt = line.split("worktree ", 1)[1]
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", wt],
-                cwd=tmpdir,
-                capture_output=True,
-            )

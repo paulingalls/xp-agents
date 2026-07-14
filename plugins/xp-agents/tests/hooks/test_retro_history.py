@@ -16,6 +16,7 @@ story fixes: it would both hide the Try from work-selection AND declare it
 implemented. `TestAdoptedTryIsNotResolved` pins that they stay separate.
 """
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -39,6 +40,13 @@ from event_schema import (
     EVENT_TYPE_STATUS,
 )
 from retro_metrics import build_resolutions_map
+
+_AGENT_PROSE = Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
+
+
+def _retro_agent_prose() -> str:
+    """The shipped retro-agent prompt. Both prose-contract suites read it."""
+    return _AGENT_PROSE.read_text(encoding="utf-8")
 
 
 class TestAdoptedTryIsNotResolved(_AnnotateTestCase):
@@ -309,9 +317,7 @@ class TestTryStatusProseContract(unittest.TestCase):
         return keys
 
     def test_agent_prose_names_every_field_try_status_emits(self):
-        prose = (
-            Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
-        ).read_text(encoding="utf-8")
+        prose = _retro_agent_prose()
         missing = sorted(k for k in self._emitted_keys() if k not in prose)
         self.assertFalse(
             missing,
@@ -328,9 +334,7 @@ class TestTryStatusProseContract(unittest.TestCase):
         the deleted `disposition: "deferred"` bullet; asserting the bare word
         does not, because the intent bullet mentions it too.
         """
-        prose = (
-            Path(__file__).parent.parent.parent / "agents" / "xp-retrospective.md"
-        ).read_text(encoding="utf-8")
+        prose = _retro_agent_prose()
         # CLOSURE carries every disposition build_resolutions_map passes through
         # from a resolver event; INTENT carries only the non-terminal two.
         pairings = [
@@ -349,6 +353,109 @@ class TestTryStatusProseContract(unittest.TestCase):
                     f"prose never states that pairing — so the agent has no rule "
                     f"for that state and will fall back to reading it as landed.",
                 )
+
+
+class TestPlanScheduleProseContract(_HookTestCase):
+    """The escalation ladder lives in the agent's PROMPT, not in Python.
+
+    Nothing in this codebase computes a debt's age or emits "unresolved xN" — the
+    ladder is prose (`agents/xp-retrospective.md`, "Escalating aging debt
+    urgency") and the MODEL counts the sessions. So the prompt is the only place
+    the "check the plan first" rule can live, which makes it production code with
+    a contract, exactly as `TestTryStatusProseContract` above treats it.
+
+    A green suite otherwise proves NOTHING here: `_build_plan_schedule` can emit a
+    perfect map and the agent will still escalate a scheduled debt, because
+    nothing told it the field exists. That is the entire failure this story
+    exists to fix, and it would survive its own implementation.
+    """
+
+    def _retro_input_keys(self) -> set[str]:
+        """Every top-level field `.retro-input.json` can carry.
+
+        DERIVED, never hardcoded — a hardcoded list is a second copy that drifts
+        in its own right (same reasoning as
+        `TestTryStatusProseContract._emitted_keys`).
+
+        TWO sources, and the second is not optional. Driving the builder finds
+        what `_build_retro_input` returns; it does NOT find a field the caller
+        staples on afterwards — `run()` does exactly that with
+        `retro_input["sizing_analysis"] = sizing`. Deriving from the builder
+        alone would let the next field added that way reach the agent unnamed,
+        which is the very hole this contract exists to close, so also scan the
+        module for `retro_input[...] = ` stores.
+        """
+        import retrospective
+
+        events = [make_event(content=f"work {i}") for i in range(5)]
+        keys = set(retrospective._build_retro_input(events, 0, [], {}, [], None))
+
+        source = Path(retrospective.__file__).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "retro_input"
+                    and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)
+                ):
+                    keys.add(target.slice.value)
+        return keys
+
+    def test_agent_prose_names_every_retro_input_field(self):
+        """Every field the builder hands the agent must be NAMED in the prompt.
+
+        The agent cannot act on an input it was never told about. This is the
+        general form of the bug: `plan_schedule` was the field that did not exist,
+        but the next one added silently would fail the same way.
+        """
+        prose = _retro_agent_prose()
+        missing = sorted(k for k in self._retro_input_keys() if k not in prose)
+        self.assertFalse(
+            missing,
+            "agents/xp-retrospective.md does not name these .retro-input.json "
+            f"fields, so the agent cannot act on them: {missing}",
+        )
+
+    def test_escalation_ladder_itself_consults_the_plan(self):
+        """Naming `plan_schedule` in the input list is NOT enough.
+
+        The rule has to be stated where the escalation decision is made. A field
+        mentioned only in the input inventory is a field the agent reads and then
+        escalates past — which is precisely what happened: the wisdom entry "check
+        the plan's milestones before escalating an aging debt" already existed,
+        and the retro escalated anyway, because the ladder never said to.
+        """
+        prose = _retro_agent_prose()
+        # Anchor on the SECTION, not on the ladder's own sentence: the input-field
+        # inventory forward-references the ladder by name, so a bare find() on
+        # that phrase matches the pointer instead of the thing pointed at.
+        heading = "## Debt in Retrospectives"
+        start = prose.find(heading)
+        self.assertNotEqual(start, -1, "the Debt in Retrospectives section is gone")
+        end = prose.find("\n## ", start + len(heading))
+        ladder = prose[start : end if end != -1 else len(prose)]
+        self.assertIn(
+            "Escalating aging debt urgency",
+            ladder,
+            "the aging-debt escalation ladder is gone",
+        )
+
+        self.assertIn(
+            "plan_schedule",
+            ladder,
+            "the escalation ladder never consults plan_schedule, so the agent "
+            "will still escalate a debt an open milestone already schedules",
+        )
+        self.assertIn(
+            "scheduled in",
+            ladder,
+            "the ladder must tell the agent what to REPORT instead of "
+            '"unresolved xN" — namely "scheduled in M<n>"',
+        )
 
 
 if __name__ == "__main__":

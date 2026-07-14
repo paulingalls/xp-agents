@@ -149,6 +149,11 @@ def _cmd_update_status(args: argparse.Namespace) -> int:
     return 0
 
 
+# A milestone's delivery state is a state machine with one writer,
+# update_milestone_status. These are its fields; edit-milestone patches the rest.
+_DELIVERY_FIELDS = frozenset({"status", "delivered_sprint"})
+
+
 def _cmd_edit_milestone(args: argparse.Namespace) -> int:
     plan = store.load_plan(args.smm_dir)
     if plan is None:
@@ -161,11 +166,42 @@ def _cmd_edit_milestone(args: argparse.Namespace) -> int:
         print(f"No milestone with number {milestone_num}", file=sys.stderr)
         return 1
 
+    # "Never modify a delivered milestone" was prose-only, and prose does not
+    # stop a patch. Delivery is recorded by the sprint reviewer through
+    # update-status; an edit-milestone patch would silently rewrite the shipped
+    # record behind it.
+    if milestone["status"] == "delivered":
+        print(
+            f"Milestone {milestone_num} is delivered — only update-status may "
+            "change it.",
+            file=sys.stderr,
+        )
+        return 1
+
     raw = sys.stdin.read()
     try:
         patch = json.loads(raw)
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(patch, dict):
+        print("Patch must be a JSON object", file=sys.stderr)
+        return 1
+
+    # The other half of the guard above. Refusing to patch a milestone that IS
+    # delivered does not stop a patch from DECLARING one: status+delivered_sprint
+    # together satisfy the schema, so the plan would record a ship that never
+    # happened — and the guard above then makes it permanent. update_milestone_status
+    # owns this transition and enforces its rules (delivered_sprint required for
+    # delivered, cleared on any move away); a patch that writes these fields
+    # bypasses that state machine, so the patch path does not write them at all.
+    forbidden = _DELIVERY_FIELDS & patch.keys()
+    if forbidden:
+        print(
+            f"edit-milestone may not patch {', '.join(sorted(forbidden))} — "
+            "use update-status.",
+            file=sys.stderr,
+        )
         return 1
 
     milestone.update(patch)
@@ -261,7 +297,9 @@ def main() -> None:
     )
 
     edit_p = sub.add_parser(
-        "edit-milestone", help="Edit milestone fields from stdin JSON"
+        "edit-milestone",
+        help="Edit milestone fields from stdin JSON"
+        " (not status/delivered_sprint — use update-status)",
     )
     edit_p.add_argument("milestone_number", type=int, help="Milestone number")
 

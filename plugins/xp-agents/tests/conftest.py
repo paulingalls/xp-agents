@@ -5,9 +5,13 @@ Conftest is the canonical import surface for tests:
     from conftest import _SMMTestCase, make_event, ...
 
 The implementations live in focused sibling modules to keep this file small:
-- `_bases.py` — base test cases + path constants
+- `_paths.py` — tree path constants (the leaf of the tests/ import graph)
+- `_bases.py` — the SMM + integration base test cases
+- `_repo_bases.py` — the temp-git-repo base case + worktree cleanup
 - `_event_fixtures.py` — make_event, write_smm_fixture, signal helpers
 - `_hook_inputs.py` — canonical hook input dict factories
+- `_in_place_helpers.py` — real processes in known liveness states, for the
+  in-place marker suites
 - `_spawn_guard.py` — blocks any test from launching the real `claude` binary
   (installed on import; not optional — see that module for the incident)
 
@@ -19,11 +23,9 @@ unittest discovery, which lets us import from sibling `_*.py` modules.
 """
 
 import atexit
-import contextlib
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -70,6 +72,27 @@ for _leaked_var in (
 _test_plugin_data = tempfile.mkdtemp(prefix="xp-agents-test-plugin-data-")
 os.environ["CLAUDE_PLUGIN_DATA"] = _test_plugin_data
 atexit.register(shutil.rmtree, _test_plugin_data, ignore_errors=True)
+
+# Same redirect, same reason, for the teammate prompt/tee-log namespace. Anything
+# that drives a spawn mkdirs `<root>/<project-id>/<sprint-id>/` for real, and the
+# project id is derived from a throwaway temp SMM dir — so the suite minted a real
+# directory under the real, SHARED /tmp root and nothing removed it (668 stranded
+# dirs; ten suites across three base classes still mint one every run).
+#
+# A redirect, NOT a post-hoc rmtree of the token back out of the shared root: the
+# token is derived from whatever SMM dir a test happens to hold, so one leaked
+# SMM_DIR turns that sweep into `rm -rf` of a LIVE project's teammate logs. Here
+# the writes simply never land in the real root, which is the same containment
+# CLAUDE_PLUGIN_DATA gets above and needs no destructive step to hold.
+#
+# Honors an inherited value so a parent process can aim a child suite at a root it
+# can inspect — test_temp_dir_reaping does exactly that to prove spawns really do
+# mint namespaces here, rather than passing because nothing was created at all.
+_teammate_log_root = os.environ.get("XP_TEAMMATE_LOG_ROOT")
+if not _teammate_log_root:
+    _teammate_log_root = tempfile.mkdtemp(prefix="xp-agents-test-teammate-logs-")
+    atexit.register(shutil.rmtree, _teammate_log_root, ignore_errors=True)
+os.environ["XP_TEAMMATE_LOG_ROOT"] = _teammate_log_root
 
 
 # ---------------------------------------------------------------------------
@@ -177,11 +200,23 @@ from _hook_inputs import (  # noqa: E402, F401
     _make_agent_input,
     _make_bash_failure_input,
     _make_bash_input,
+    _make_plan_mode_input,
     _make_skill_input,
     _make_stop_input,
     _make_task_completed_input,
     _make_teammate_idle_input,
     _make_write_input,
+)
+from _in_place_helpers import (  # noqa: E402, F401
+    CHILD_WAIT_TIMEOUT_S,
+    Holder,
+    dead_in_place_holder,
+    dead_pid,
+    held_door_mutex,
+    live_in_place_holder,
+    live_pid,
+    reap,
+    release_in_place_holds,
 )
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
@@ -208,53 +243,6 @@ _STORY_BASE = {
     "interface_contracts": [],
     "acceptance_criteria": [],
 }
-
-
-# Every wait() on a child in this suite is BOUNDED. A test that blocks forever on
-# a subprocess wedges CI with no output — which is not a hypothetical: a run once
-# sat for 28 minutes waiting on a spawned process that had been killed out from
-# under it. An unbounded wait is a defect even when the child is one we control.
-CHILD_WAIT_TIMEOUT_S = 30
-
-
-def reap(proc: subprocess.Popen, *, timeout: float = CHILD_WAIT_TIMEOUT_S) -> None:
-    """Terminate and reap `proc`, escalating to SIGKILL, never blocking forever."""
-    proc.terminate()
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=timeout)
-
-
-def dead_pid() -> int:
-    """Spawn and reap a child process, returning its now-dead pid.
-
-    Reaping via wait() removes the process table entry, so os.kill(pid, 0)
-    reliably raises ProcessLookupError afterward — no PID-reuse race within
-    a single test's timeframe. Shared by every test that exercises a
-    pid-liveness probe (in-place teammate marker, sprint stop gate).
-    """
-    proc = subprocess.Popen([sys.executable, "-c", "pass"])
-    proc.wait(timeout=CHILD_WAIT_TIMEOUT_S)
-    return proc.pid
-
-
-@contextlib.contextmanager
-def live_pid():
-    """Yield the pid of a real, LIVE child process; terminate + reap on exit.
-
-    The other pole of dead_pid(). A liveness probe needs both to prove it
-    discriminates: a test that only ever records its OWN pid (os.getpid())
-    cannot tell "this pid is alive" from "this pid is me", and so cannot
-    express the case where one recorded process is dead while ANOTHER is
-    still running — the orphaned-teammate case.
-    """
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
-    try:
-        yield proc.pid
-    finally:
-        reap(proc)
 
 
 def _extract_preload_var(stdout: str, name: str) -> str | None:

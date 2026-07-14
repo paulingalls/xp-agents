@@ -63,16 +63,12 @@ from event_builder import REFERENCES_KEY
 from event_metadata import (
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
+    LEGACY_RETRO_TOPIC_PREFIX,
     STATUS_ACTION_RETRO_TRY_DISPOSITION,
     STATUS_ACTION_TRIAGE_DISPOSITION,
     event_action,
     intent_disposition,
 )
-
-# The topic prefix `/xp-work-selection adopt` slugs a retro-Try adoption with.
-# Only used to read events written BEFORE the lane tag existed — a tagged event
-# is identified by its tag, never by its topic.
-_LEGACY_RETRO_TOPIC_PREFIX = "retro-try-"
 
 # A lane's rule for an event carrying no lane tag: the disposition it records,
 # or None. One per lane; see the module docstring for what each can recover.
@@ -204,7 +200,7 @@ def _legacy_retro_disposition(event: dict) -> str | None:
     match event.get("type"):
         case event_schema.EVENT_TYPE_DECISION:
             topic = event.get("topic") or ""
-            if topic.startswith(_LEGACY_RETRO_TOPIC_PREFIX):
+            if topic.startswith(LEGACY_RETRO_TOPIC_PREFIX):
                 return DISPOSITION_ADOPTED
             return None
         case event_schema.EVENT_TYPE_STATUS:

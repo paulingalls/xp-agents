@@ -246,6 +246,61 @@ class TestFileDomainsOverlapDetail(unittest.TestCase):
         # through on this literal-path input.
         self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
 
+    def test_detail_transitive_dependency_through_non_subset_story(self):
+        # The edge serializing 001 and 002 runs THROUGH 003, which is NOT in
+        # the subset. Scoping the dependency graph to the subset truncates the
+        # transitive closure and reports a PHANTOM collision on src/b.py —
+        # 002 can never run beside 001, so by the ratified definition
+        # ("collision = concurrent claim only, no transitive dependency")
+        # sharing the file is legal sequential work, exactly as it is for the
+        # direct edge in test_detail_is_dependency_aware. The subset scopes
+        # WHOSE claims are reported, never which dependencies exist.
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/b.py"]
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py"],
+                    dependencies=["story-003"],
+                ),
+                _make_story(
+                    id="story-003",
+                    status="scheduled",
+                    file_domain=["src/c.py"],
+                    dependencies=["story-001"],
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
+    def test_detail_non_subset_story_never_owns_a_collision(self):
+        # The companion to the above: widening the DEPENDENCY graph to the whole
+        # sprint must not widen whose CLAIMS get reported. 003 is off the subset
+        # and shares src/b.py with both members, but only the named pair may
+        # appear as owners — and that pair is serialized, so: no collision.
+        detail = self._detail(
+            [
+                _make_story(
+                    id="story-001", status="scheduled", file_domain=["src/b.py"]
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    file_domain=["src/b.py"],
+                    dependencies=["story-001"],
+                ),
+                _make_story(
+                    id="story-003", status="scheduled", file_domain=["src/b.py"]
+                ),
+            ],
+            ["story-001", "story-002"],
+        )
+        self.assertEqual(detail, {"collisions": {}, "glob_forced": False})
+
     def test_detail_called_as_sprint_frontier_will_call_it(self):
         # AC#5: sprint_frontier imports these helpers DIRECTLY from
         # sprint_status, never through sprint_store's re-export shim (there is

@@ -43,7 +43,21 @@ def check_and_resolve_lint(
     lint_cwd, file_arg = lint_check.lint_invocation_target(
         config_path, git_root, normalized
     )
-    if lint_check.run_linter(linter_name, file_arg, cwd=lint_cwd) is not None:
+    # config_path and root are threaded through: a checkstyle concern raised by
+    # lint_check.run() with the project's config could NEVER clear here if this
+    # re-run used a different one — and a clang-tidy concern in a project with no
+    # compile database could never clear at all, because 'hdr.h not found' is not
+    # fixable by editing the file the concern is attached to.
+    if (
+        lint_check.run_linter(
+            linter_name,
+            file_arg,
+            cwd=lint_cwd,
+            root=git_root,
+            config_path=config_path,
+        )
+        is not None
+    ):
         return
     concerns.resolve_concerns(
         smm_dir,

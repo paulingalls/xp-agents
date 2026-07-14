@@ -1,12 +1,13 @@
 ---
 name: xp-schedule
 description: >-
-  Decide the next execution unit per ready frontier: auto-solo on a single or
-  overlapping frontier, ask solo/parallel on >=2 disjoint stories, then promote
-  the chosen scheduled stories to in-progress and set each story's
-  execution_mode. Runs before planning so the mode choice sets the planning
-  scope. Solo also creates+checks out the branch; parallel leaves branches to
-  /xp-assign.
+  Decide the next execution unit per ready frontier: auto-solo on a single
+  frontier or one that cannot run concurrently (overlapping domains or a
+  dependency edge), ask solo/parallel on >=2 stories that form a disjoint
+  antichain, then promote the chosen scheduled stories to in-progress and set
+  each story's execution_mode. Runs before planning so the mode choice sets
+  the planning scope. Solo also creates+checks out the branch; parallel leaves
+  branches to /xp-assign.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
@@ -39,10 +40,13 @@ the plan-review gate (`subagent_stop`) and retro analysis.
 ## Step 1: Read the frontier
 
 The preload emits `FRONTIER_IDS` (space-separated), `FRONTIER_COUNT`, and
-`PARALLELIZABLE` (`true` only when the frontier has >=2 stories with disjoint
-file domains). If `FRONTIER_COUNT` is `0`, there is nothing ready to schedule
-(no dep-satisfied scheduled story) — report that and stop.
-`OVERLAP_DETAIL`/`GLOB_FORCED` explain a false PARALLELIZABLE.
+`PARALLELIZABLE` (`true` only when the frontier has >=2 stories that form an
+antichain — no story depends on another, directly or transitively — with
+disjoint file domains). If `FRONTIER_COUNT` is `0`, there is nothing ready to
+schedule (no dep-satisfied scheduled story) — report that and stop.
+`OVERLAP_DETAIL`/`GLOB_FORCED` explain a false PARALLELIZABLE **when set**; a
+false verdict with both empty means these stories cannot run concurrently for
+a different reason — a dependency edge within the frontier.
 
 ## Step 2: Choose the mode (gate)
 
@@ -53,11 +57,13 @@ decision tree below. Proceed directly to Step 3.
 Otherwise, when teammate support is enabled:
 
 - `FRONTIER_COUNT == 1` → **solo**, no question.
-- `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == false` (overlapping domains) →
-  **solo**, no question (teammates would collide) — but
+- `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == false` (these stories cannot
+  run concurrently) → **solo**, no question (teammates would collide or one
+  would be branched without the other's commits) — but
   report why instead of downgrading silently: name `OVERLAP_DETAIL`'s
   colliding stories/path when set; if `GLOB_FORCED`, note a glob domain
-  blocks proving disjointness.
+  blocks proving disjointness; if neither is set, the frontier carries a
+  dependency edge between two of its members.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == true` → ask via `AskUserQuestion`:
   *"Solo (sequential) or CLI teammates (parallel)?"* Present the rationale
   (the disjoint frontier ids). Do not bundle this question with the Step 3

@@ -351,14 +351,20 @@ class TestLintCheck(_LintTmpDirMixin, _HookTestCase):
 
 
 class TestRunRuffContext(_HookTestCase):
-    """run_ruff is the single source of truth for ruff invocation.
+    """run_ruff is the single source of truth for EDIT-time ruff invocation.
 
-    'edit' context drops F401/F811 (defer to staging — they false-positive
-    mid-edit during multi-step replace_all migrations); 'staging' preserves
-    them so the commit gate catches truly-unused imports.
+    It drops F401/F811 (they false-positive mid-edit during multi-step
+    replace_all migrations) and reports the rest as a concern.
+
+    story-005 removed run_ruff's `context` parameter. Its "staging" branch
+    preserved F401/F811 for a commit gate that no longer asks: the gate now
+    classifies by exit code and blocks on ANY finding without reading a single
+    code (a parser is per-language; the plugin ships to every language). Nothing
+    called run_ruff at staging time once that landed, so the branch — and the
+    two tests that pinned it — described a caller that does not exist.
     """
 
-    def test_run_ruff_filters_F401_in_edit_context(self):
+    def test_run_ruff_filters_F401(self):
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
@@ -371,11 +377,11 @@ class TestRunRuffContext(_HookTestCase):
                     "Found 2 errors.\n"
                 ),
             )
-            codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
+            codes, _text = lint_check.run_ruff(Path("app.py"))
         self.assertNotIn("F401", codes)
         self.assertIn("E302", codes)
 
-    def test_run_ruff_filters_F811_in_edit_context(self):
+    def test_run_ruff_filters_F811(self):
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
@@ -386,39 +392,11 @@ class TestRunRuffContext(_HookTestCase):
                     "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
                 ),
             )
-            codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
+            codes, _text = lint_check.run_ruff(Path("app.py"))
         self.assertEqual(codes, [])
 
-    def test_run_ruff_preserves_F401_in_staging_context(self):
-        with (
-            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-            patch("lint_check.subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = _mock_ruff_result(
-                returncode=1,
-                stdout=(
-                    "app.py:1:1: F401 [*] `os` imported but unused\nFound 1 error.\n"
-                ),
-            )
-            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
-        self.assertIn("F401", codes)
-
-    def test_run_ruff_preserves_F811_in_staging_context(self):
-        with (
-            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-            patch("lint_check.subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = _mock_ruff_result(
-                returncode=1,
-                stdout=(
-                    "app.py:5:1: F811 redefinition of unused `foo`\nFound 1 error.\n"
-                ),
-            )
-            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
-        self.assertIn("F811", codes)
-
     def test_run_ruff_filtered_text_excludes_filtered_lines(self):
-        """In 'edit' context, filtered output text should NOT mention F401."""
+        """Filtered output text should NOT mention F401."""
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
@@ -431,7 +409,7 @@ class TestRunRuffContext(_HookTestCase):
                     "Found 2 errors.\n"
                 ),
             )
-            _codes, text = lint_check.run_ruff(Path("app.py"), context="edit")
+            _codes, text = lint_check.run_ruff(Path("app.py"))
         self.assertNotIn("F401", text)
         self.assertIn("E302", text)
 
@@ -441,13 +419,13 @@ class TestRunRuffContext(_HookTestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            codes, text = lint_check.run_ruff(Path("app.py"), context="staging")
+            codes, text = lint_check.run_ruff(Path("app.py"))
         self.assertEqual(codes, [])
         self.assertEqual(text, "")
 
     def test_run_ruff_returns_empty_when_binary_missing(self):
         with patch("lint_check.shutil.which", return_value=None):
-            codes, text = lint_check.run_ruff(Path("app.py"), context="staging")
+            codes, text = lint_check.run_ruff(Path("app.py"))
         self.assertEqual(codes, [])
         self.assertEqual(text, "")
 
@@ -468,7 +446,7 @@ class TestRunRuffContext(_HookTestCase):
                     "Found 3 errors.\n"
                 ),
             )
-            codes, _text = lint_check.run_ruff(Path("app.py"), context="edit")
+            codes, _text = lint_check.run_ruff(Path("app.py"))
         self.assertIn("RUF059", codes)
         self.assertIn("PLR0915", codes)
         self.assertIn("UP007", codes)
@@ -492,7 +470,7 @@ class TestRunRuffContext(_HookTestCase):
                     "Found 3 errors.\n"
                 ),
             )
-            codes, _text = lint_check.run_ruff(Path("app.py"), context="staging")
+            codes, _text = lint_check.run_ruff(Path("app.py"))
         self.assertIn("PERF401", codes)
         self.assertIn("FURB169", codes)
         self.assertIn("ASYNC100", codes)
@@ -565,11 +543,26 @@ class TestLintEditContextFilters(_LintTmpDirMixin, _HookTestCase):
 
 
 class TestRunLinterBatch(_HookTestCase):
-    """run_linter_batch forks the linter ONCE for all paths and returns
-    a {path: codes} dict. Generalizes per-file run_ruff so commit-gate
-    callers can replace per-file forks with one batch invocation. Routes
-    by linter_name like run_linter (ruff today; flake8/eslint/etc later
-    without API change)."""
+    """run_linter_batch forks the linter ONCE over all paths and classifies the
+    run by its EXIT CODE — it never parses what the linter said.
+
+    story-005 rewrote the contract. It used to return ``{path: codes}`` scraped
+    with a ruff-shaped regex (``path:line:col: F401``), pre-populating every
+    path to ``[]`` *before* parsing. eslint/clippy/golangci-lint output matches
+    none of that shape, so zero lines parsed, every path mapped to "clean", and
+    a caller could not tell "we read it and it was clean" from "we could not
+    read it at all" — a silently green commit gate in every language but Python.
+
+    Knowing *that* a linter found something needs only its exit code; knowing
+    *what* it found would need a per-language parser, which the project's
+    cross-language guardrail forbids. So:
+
+      * exit 0                    → CLEAN (nothing to parse is expected here —
+                                    a clean ruff run prints "All checks passed!")
+      * non-zero, with output     → FINDINGS, reported verbatim
+      * non-zero, nothing to say  → UNVERIFIED (a bad read, not a pass)
+      * binary missing / timeout  → UNVERIFIED — callers fail CLOSED
+    """
 
     def test_one_fork_for_multiple_paths(self):
         """Single ruff invocation regardless of how many paths are passed."""
@@ -578,16 +571,26 @@ class TestRunLinterBatch(_HookTestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch(
-                "ruff",
-                ["a.py", "b.py", "c.py"],
-                context="staging",
-                cwd="/tmp",
-            )
+            lint_check.run_linter_batch("ruff", ["a.py", "b.py", "c.py"], cwd="/tmp")
         mock_run.assert_called_once()
 
-    def test_returns_dict_mapping_paths_to_codes(self):
-        """Each path → list of codes; clean files map to []."""
+    def test_exit_zero_is_clean_even_though_nothing_parses(self):
+        """The other half of the false-clean fix, and the one that keeps every
+        green commit green: a CLEAN ruff run prints 'All checks passed!', which
+        matches no finding shape at all. If 'nothing parsed' meant 'unverified',
+        this gate would fail closed on every clean commit in the repo."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=0, stdout="All checks passed!\n"
+            )
+            run = lint_check.run_linter_batch("ruff", ["a.py"], cwd="/tmp")
+        self.assertEqual(run.status, "clean")
+
+    def test_nonzero_exit_reports_output_verbatim(self):
+        """Findings are handed back as the linter's own text, uninterpreted."""
         stdout = (
             "a.py:1:1: F401 [*] `os` imported but unused\n"
             "c.py:5:1: E302 expected 2 blank lines\n"
@@ -598,15 +601,66 @@ class TestRunLinterBatch(_HookTestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result(returncode=1, stdout=stdout)
-            result = lint_check.run_linter_batch(
-                "ruff",
-                ["a.py", "b.py", "c.py"],
-                context="staging",
-                cwd="/tmp",
+            run = lint_check.run_linter_batch("ruff", ["a.py", "c.py"], cwd="/tmp")
+        self.assertEqual(run.status, "findings")
+        self.assertIn("F401", run.output)
+        self.assertIn("E302", run.output)
+
+    def test_findings_in_a_shape_no_python_parser_could_read(self):
+        """THE cross-language pin. golangci-lint says nothing that looks like
+        `path:line:col: CODE` — under the old regex contract this run parsed to
+        zero findings and every path read back as clean. Exit code alone must
+        carry it.
+
+        The vehicle used to be clippy, and clippy was the wrong one to pin this
+        with: it is DEGRADED, so `staged_lint` never hands it to this function at
+        all, and the run being asserted here could not happen. golangci-lint is a
+        row the gate really does BLOCK on, and its output is just as unreadable to
+        a `path:line:col: CODE` regex — so the pin now guards a live path.
+        """
+        stderr = (
+            "src/main.go:1:5: `io` imported and not used (typecheck)\n"
+            "src/main.go:7:2: S1021: should merge variable declaration (gosimple)\n"
+        )
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/golangci-lint"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(returncode=1, stderr=stderr)
+            run = lint_check.run_linter_batch(
+                "golangci-lint", ["src/main.go"], cwd="/tmp"
             )
-        self.assertEqual(result["a.py"], ["F401"])
-        self.assertEqual(result["b.py"], [])  # clean
-        self.assertEqual(result["c.py"], ["E302"])
+        self.assertEqual(run.status, "findings")
+        self.assertIn("imported and not used", run.output)
+
+    def test_a_linter_with_no_per_file_argv_is_unverified_never_clean(self):
+        """clippy has no argv that asks about ONE file (it lints the crate), so
+        `linter_argv` returns None. The batch must read that as a bad read, not as a
+        pass — declining to look is not the same as having nothing to look at.
+
+        Unreachable in production (the row degrades before the batch is called), and
+        pinned anyway: it is the fail-closed floor under the degrade, and a future row
+        that loses its degrade entry must not fall through to CLEAN.
+        """
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/cargo"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            run = lint_check.run_linter_batch("clippy", ["src/main.rs"], cwd="/tmp")
+
+        self.assertEqual(run.status, "unverified")
+        mock_run.assert_not_called()
+
+    def test_nonzero_exit_with_no_output_is_unverified(self):
+        """The linter found something it could not tell us about. That is a bad
+        read, not a pass — the caller must fail closed."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(returncode=2)
+            run = lint_check.run_linter_batch("ruff", ["a.py"], cwd="/tmp")
+        self.assertEqual(run.status, "unverified")
 
     def test_paths_passed_to_subprocess(self):
         """All paths appear after `--` in the ruff command line."""
@@ -615,51 +669,23 @@ class TestRunLinterBatch(_HookTestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch(
-                "ruff",
-                ["a.py", "b.py"],
-                context="staging",
-                cwd="/tmp",
-            )
+            lint_check.run_linter_batch("ruff", ["a.py", "b.py"], cwd="/tmp")
         args, _kwargs = mock_run.call_args
         cmd = args[0]
         self.assertIn("--", cmd)
         sep = cmd.index("--")
         self.assertEqual(cmd[sep + 1 :], ["a.py", "b.py"])
 
-    def test_edit_context_filters_F401_F811(self):
-        """Edit context strips deferred codes per file (mirrors run_ruff)."""
-        stdout = (
-            "a.py:1:1: F401 [*] `os` imported but unused\n"
-            "a.py:5:1: E302 expected 2 blank lines\n"
-            "b.py:1:1: F811 redefinition of unused `foo`\n"
-            "Found 3 errors.\n"
-        )
+    def test_empty_paths_is_clean_no_fork(self):
+        """No path this linter claims → nothing to verify, and nothing to
+        block on. A missing linter is not a finding."""
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = _mock_ruff_result(returncode=1, stdout=stdout)
-            result = lint_check.run_linter_batch(
-                "ruff",
-                ["a.py", "b.py"],
-                context="edit",
-                cwd="/tmp",
-            )
-        self.assertEqual(result["a.py"], ["E302"])  # F401 stripped
-        self.assertEqual(result["b.py"], [])  # F811 stripped
-
-    def test_empty_paths_returns_empty_dict_no_fork(self):
-        """No paths → no fork, empty dict."""
-        with (
-            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-            patch("lint_check.subprocess.run") as mock_run,
-        ):
-            result = lint_check.run_linter_batch(
-                "ruff", [], context="staging", cwd="/tmp"
-            )
+            run = lint_check.run_linter_batch("ruff", [], cwd="/tmp")
         mock_run.assert_not_called()
-        self.assertEqual(result, {})
+        self.assertEqual(run.status, "clean")
 
     def test_skips_files_with_wrong_extension(self):
         """ruff only knows .py/.pyi/.ipynb — non-Python paths skipped, not forked on."""
@@ -668,32 +694,55 @@ class TestRunLinterBatch(_HookTestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            result = lint_check.run_linter_batch(
-                "ruff",
-                ["a.py", "b.json", "c.md"],
-                context="staging",
-                cwd="/tmp",
-            )
-        # Only a.py forwarded to ruff; b.json/c.md absent from result
+            lint_check.run_linter_batch("ruff", ["a.py", "b.json", "c.md"], cwd="/tmp")
         args, _kwargs = mock_run.call_args
         cmd = args[0]
         sep = cmd.index("--")
         self.assertEqual(cmd[sep + 1 :], ["a.py"])
-        self.assertEqual(set(result.keys()), {"a.py"})
 
-    def test_returns_empty_dict_when_binary_missing(self):
-        """No ruff on PATH → no fork, empty dict (matches run_linter)."""
+    def test_flag_shaped_path_is_unverified_not_clean(self):
+        """A path the arg-injection guard REFUSES to pass is a file we declined
+        to check — unverified, so the gate fails closed.
+
+        The two reasons a path gets dropped are not the same reason. An
+        extension the linter does not claim is 'nothing to look at' (clean). A
+        `-foo.py` is 'we would not look at it' — and reporting that as clean is
+        a fail-OPEN: an unlinted file ships. The old contract caught this via
+        its missing-path check; exit-code classification has to say it out loud.
+        """
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            run = lint_check.run_linter_batch("ruff", ["-foo.py"], cwd="/tmp")
+        mock_run.assert_not_called()
+        self.assertEqual(run.status, "unverified")
+        self.assertIn("-foo.py", run.output)
+
+    def test_flag_shaped_path_beside_a_normal_one_still_unverified(self):
+        """The refused path must not be quietly dropped while its neighbours
+        lint clean — that reports a green run over an incomplete set."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            run = lint_check.run_linter_batch("ruff", ["-foo.py", "b.py"], cwd="/tmp")
+        mock_run.assert_not_called()
+        self.assertEqual(run.status, "unverified")
+
+    def test_binary_missing_is_unverified(self):
+        """A configured linter whose binary is absent is a bad read — the gate
+        fails CLOSED. (A missing *config* is what skips; that decision belongs
+        to the caller's detection step, not here.)"""
         with patch("lint_check.shutil.which", return_value=None):
-            result = lint_check.run_linter_batch(
-                "ruff", ["a.py"], context="staging", cwd="/tmp"
-            )
-        self.assertEqual(result, {})
+            run = lint_check.run_linter_batch("ruff", ["a.py"], cwd="/tmp")
+        self.assertEqual(run.status, "unverified")
+        self.assertIn("ruff", run.output)
 
-    def test_timeout_returns_empty_dict_not_per_path_clean(self):
-        """A hung ruff must NOT silently report 'all paths clean' — that
-        would let F401/F811 slip through the commit gate. Return {} on
-        timeout (same shape as binary-missing) so callers can't confuse
-        'we couldn't check' with 'we checked and found nothing'."""
+    def test_timeout_is_unverified(self):
+        """A hung linter must NOT read as 'all clean' — that would let real
+        findings slip through the commit gate."""
         import subprocess as sp
 
         with (
@@ -703,25 +752,20 @@ class TestRunLinterBatch(_HookTestCase):
                 side_effect=sp.TimeoutExpired(cmd="ruff", timeout=10),
             ),
         ):
-            result = lint_check.run_linter_batch(
-                "ruff",
-                ["a.py", "b.py"],
-                context="staging",
-                cwd="/tmp",
-            )
-        self.assertEqual(result, {})
+            run = lint_check.run_linter_batch("ruff", ["a.py", "b.py"], cwd="/tmp")
+        self.assertEqual(run.status, "unverified")
 
     def test_command_pins_concise_output_format(self):
-        """ruff 0.15+ defaults to multi-line 'full' format which the per-line
-        regex cannot parse — the batch must explicitly request 'concise' so
-        F401/F811 codes actually surface. Pinned because a missing flag here
-        silently empties the staging gate."""
+        """ruff 0.15+ defaults to a multi-line 'full' format. The gate no longer
+        parses, so this no longer changes what blocks — but it is what the human
+        reads out of the block message, and multi-line full output buries the
+        codes. Keep it concise."""
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch("ruff", ["a.py"], context="staging", cwd="/tmp")
+            lint_check.run_linter_batch("ruff", ["a.py"], cwd="/tmp")
         args, _kwargs = mock_run.call_args
         cmd = args[0]
         self.assertIn("--output-format=concise", cmd)

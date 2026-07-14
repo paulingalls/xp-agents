@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
+import linters
 from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
@@ -164,13 +165,234 @@ class TestSummarizeLintOutput(unittest.TestCase):
         self.assertIn("3 errors", result)
 
 
+def _write_compile_db(root: str, *files: str) -> None:
+    """A compile DB that actually COVERS `files`.
+
+    An empty `[]` database exists but covers nothing, and coverage is now tested per
+    file — because a database that exists is not a database that can compile the
+    staged file, and the gap between those two is an unfixable block.
+    """
+    import json as _json
+
+    Path(root, "compile_commands.json").write_text(
+        _json.dumps(
+            [
+                {"directory": root, "command": f"cc -c {f}", "file": str(Path(root, f))}
+                for f in files
+            ]
+        )
+    )
+
+
+class TestLinterTableColumns(unittest.TestCase):
+    """The two columns that make "non-zero exit" a sufficient finding signal.
+
+    The gate reads only the exit code (see run_linter_batch). That is sound ONLY
+    if two things hold per linter, and out of the box neither does:
+
+    (a) STRICTNESS — some linters exit 0 even when they found something. eslint
+        exits 0 when only *warnings* fire, and `no-unused-vars` is `warn` in many
+        popular configs — so the headline case of this whole story (a staged .ts
+        with an unused import) would sail straight through the gate. swiftlint
+        and `dart analyze` share the shape.
+
+    (b) FILE SCOPE — some linters cannot lint a single file at all. `cargo clippy
+        -- -D warnings` lints the whole crate and exits non-zero if ANY warning
+        exists anywhere, staged or not. A Rust repo with one pre-existing warning
+        in an untouched file would have every commit blocked, unfixably.
+
+    Both are per-row DATA, not branches: a flag column and a capability column.
+    Note what they are NOT — a map of per-language rule codes
+    ({eslint: no-unused-vars, clippy: unused_imports}). That would be a hardcoded
+    model of each language's rule semantics, the exact leak the guardrail forbids,
+    and test_no_language_leak.py could not see it (it only scans extension
+    predicates). A strictness flag says "be strict"; it does not say what strict
+    means in that language. The linter decides that.
+    """
+
+    def test_eslint_carries_a_strictness_flag(self):
+        """Without --max-warnings=0, eslint exits 0 on a warn-level finding and
+        the gate reads a repo full of unused imports as clean."""
+        self.assertIn("--max-warnings=0", linters.linter_command("eslint"))
+
+    def test_swiftlint_and_dart_carry_strictness_flags(self):
+        self.assertIn("--strict", linters.linter_command("swiftlint"))
+        self.assertIn("--fatal-infos", linters.linter_command("dart-analyze"))
+
+    def test_ruff_needs_no_strictness_flag(self):
+        """ruff already exits non-zero on any finding. A row only carries a flag
+        when its linter would otherwise lie about having found nothing."""
+        self.assertEqual(
+            linters.linter_command("ruff"),
+            ["ruff", "check", "--output-format=concise"],
+        )
+
+    def test_strictness_flag_reaches_the_commit_gate_argv(self):
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run_linter_batch("eslint", ["src/a.ts"], cwd="/tmp")
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("--max-warnings=0", cmd)
+        # ...and before the `--` separator, or eslint reads it as a filename.
+        self.assertLess(cmd.index("--max-warnings=0"), cmd.index("--"))
+
+    def test_strictness_flag_reaches_edit_time_argv(self):
+        """The command table is SHARED with the edit-time run_linter path. The
+        flag applies there too, on purpose: if the gate blocks at commit on a
+        warn-level finding that edit-time never mentioned, the agent gets
+        ambushed by a rule it was never told about."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result()
+            lint_check.run_linter("eslint", "src/a.ts")
+        self.assertIn("--max-warnings=0", mock_run.call_args[0][0])
+
+    def test_edit_time_run_linter_still_reports_findings(self):
+        """Pin against regression: the shared-table change must not disturb
+        edit-time's contract (output on non-zero, None on clean)."""
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/npx"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=1, stdout="  1:10  warning  'foo' is unused  no-unused-vars"
+            )
+            found = lint_check.run_linter("eslint", "src/a.ts")
+            mock_run.return_value = _mock_ruff_result()
+            clean = lint_check.run_linter("eslint", "src/a.ts")
+        assert found is not None
+        self.assertIn("no-unused-vars", found)
+        self.assertIsNone(clean)
+
+    def test_degraded_rows_are_not_gated(self):
+        """The gate must DEGRADE on these, not block. A non-zero exit from them
+        reports something the staged diff neither caused nor can fix, and the first
+        thing anyone does with an unfixable gate is disable it.
+
+        checkstyle is here for a DIFFERENT reason than the rest, which is why the
+        reason is now per-row: it can judge one file perfectly well, but its exit
+        code counts severity=error only — a severity=warning violation prints and
+        exits 0. Measured, not assumed (test_lint_polyglot.py).
+        """
+        with tempfile.TemporaryDirectory() as td:
+            for linter in ("clippy", "checkstyle", "detekt", "credo", "dotnet-format"):
+                self.assertFalse(linters.is_file_scoped(linter, td), msg=linter)
+                self.assertTrue(linters.degrade_reason(linter, td), msg=linter)
+
+    def test_file_scoped_rows_can_judge_one_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            for linter in ("ruff", "flake8", "eslint", "golangci-lint", "rubocop"):
+                self.assertTrue(linters.is_file_scoped(linter, td))
+
+    def test_clang_tidy_takes_its_paths_BEFORE_the_separator(self):
+        """INVERTED. This pin used to assert the bug.
+
+        Its predecessor said a row "whose separator semantics we cannot honor must
+        not be GATED on", and prescribed the fix: "sources BEFORE the separator,
+        trailing `--` for no compiler args, proven against the real binary."
+
+        We proved it against the real binary — and the SECOND half of that
+        prescription is WRONG. A trailing `--` means "no compiler flags" and
+        OVERRIDES compile_commands.json, so it throws away the very database that
+        lets clang-tidy resolve an #include. See test_lint_polyglot.py.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            _write_compile_db(td, "app.c")
+
+            argv = linters.linter_argv("clang-tidy", ["app.c"], root=td)
+
+            assert argv is not None
+            self.assertEqual(argv[-1], "app.c", "the path is the LAST arg")
+            self.assertNotIn("--", argv, "a trailing -- would override the compile DB")
+            self.assertIn("--warnings-as-errors=*", argv, "or a finding exits 0")
+
+    def test_clang_tidy_is_gated_only_where_a_compile_database_exists(self):
+        """The precondition, and the reason it is not just a static row.
+
+        Without a compile DB clang-tidy cannot resolve an #include, so a file whose
+        header lives elsewhere fails to COMPILE: clang-diagnostic-error, non-zero,
+        with output — which the contract reads as FINDINGS. The gate would refuse the
+        commit over a header path nothing in the diff can fix.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            self.assertFalse(
+                linters.is_file_scoped("clang-tidy", td),
+                "no compile DB: must degrade, not block on an unfixable error",
+            )
+            self.assertIsNone(
+                linters.linter_argv("clang-tidy", ["app.c"], root=td),
+                "and it must not even be INVOKED — the edit-time path would raise a "
+                "concern lint_resolution could never clear",
+            )
+
+            _write_compile_db(td, "app.c")
+
+            self.assertTrue(
+                linters.is_file_scoped("clang-tidy", td),
+                "with a compile DB, C/C++ is genuinely gatable",
+            )
+
+    def test_a_config_required_linter_refuses_to_run_configless(self):
+        """checkstyle has no way to find its own config. Running it without `-c`
+        would judge the project by a built-in default — a different project's rules,
+        reading back as either findings or clean. Both are lies, so refuse."""
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(linters.linter_argv("checkstyle", ["Foo.java"], root=td))
+
+            argv = linters.linter_argv(
+                "checkstyle", ["Foo.java"], root=td, config_path="/proj/checkstyle.xml"
+            )
+
+            assert argv is not None
+            self.assertIn("/proj/checkstyle.xml", argv, "the DETECTED config")
+            self.assertNotIn("/google_checks.xml", argv, "not Google's")
+
+    def test_clippy_has_no_per_file_argv_at_all(self):
+        """The OTHER separator bug, and the one the shared builder did NOT fix.
+
+        `cargo clippy -- -D warnings` already ends in a separator: everything after
+        it goes to rustc. Appending the default `-- <path>` therefore builds
+
+            cargo clippy -- -D warnings -- src/main.rs
+
+        and rustc answers `error: multiple input filenames provided` and exits 101.
+        MEASURED against real cargo — not a false-clean but something worse: the
+        edit-time path reads 101 as FINDINGS and raises a lint concern whose text is
+        a cargo argv error, on EVERY .rs file edited. lint_resolution then re-runs the
+        same broken argv to clear it, gets 101 again, and the concern can never be
+        resolved — it is injected into every prompt by prompt_nugget, forever.
+
+        clippy lints the CRATE; there is no argv that asks it about one file. So there
+        is no argv, and the honest answer is None — the same "must not run this here"
+        the precondition rows return. The commit gate already degrades the row.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(
+                linters.linter_argv("clippy", ["src/main.rs"], root=td),
+                "a per-file clippy argv does not exist — do not invent one",
+            )
+
+    def test_every_row_has_a_scope_answer(self):
+        """No silent gap: a new linter row must be classified, not defaulted by
+        accident. The default IS the bug this story fixed — clang-tidy's argv shape
+        defaulted, and the default was wrong."""
+        with tempfile.TemporaryDirectory() as td:
+            for linter in linters.LINTER_COMMANDS:
+                self.assertIsInstance(linters.is_file_scoped(linter, td), bool)
+
+
 class TestRunLinterBatchScaledTimeout(unittest.TestCase):
     """run_linter_batch timeout scales with len(eligible) per story-007.
 
-    Formula: ``min(CAP, BASE + PER_PATH * N)`` — single-file batches stay
-    fast (one base interval), large batches stay bounded by CAP so a hung
-    ruff can't stall the commit gate forever. The empty-on-timeout sentinel
-    contract is pinned by test_lint.TestRunLinterBatch.
+    Formula: ``min(CAP, BATCH_BASE + PER_PATH * N)`` — small batches get one
+    base interval, large batches stay bounded by CAP so a hung linter can't
+    stall the commit gate forever. The empty-on-timeout sentinel contract is
+    pinned by test_lint.TestRunLinterBatch.
     """
 
     def _captured_timeout(self, n_paths: int) -> float:
@@ -180,13 +402,62 @@ class TestRunLinterBatchScaledTimeout(unittest.TestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch("ruff", paths, context="staging", cwd="/tmp")
+            lint_check.run_linter_batch("ruff", paths, cwd="/tmp")
         return float(mock_run.call_args.kwargs["timeout"])
 
     def _expected(self, n: int) -> float:
         return min(
             lint_check.BATCH_TIMEOUT_CAP_S,
-            lint_check.LINTER_BASE_TIMEOUT_S + lint_check.BATCH_TIMEOUT_PER_PATH_S * n,
+            lint_check.BATCH_TIMEOUT_BASE_S + lint_check.BATCH_TIMEOUT_PER_PATH_S * n,
+        )
+
+    def test_batch_budget_is_not_the_edit_time_budget(self):
+        """The batch budget must be materially larger than the edit-time one,
+        because the two have OPPOSITE failure semantics.
+
+        An edit-time timeout returns None: no nudge, nobody blocked. A batch
+        timeout is `unverified`, and the commit gate fails CLOSED on it — it
+        BLOCKS. Sharing one 5s number was safe only while the batch ran ruff and
+        nothing else; the gate now dispatches per the linter table, so the batch
+        runs `npx eslint`, `golangci-lint run`, `dart analyze` — tools whose cold
+        start alone (npx bin resolution, a TS program build, package type-check)
+        routinely exceeds 5s on a real repo.
+
+        A timeout is also the ONE unverified cause the agent cannot act on: it
+        cannot make golangci-lint faster. Too small a budget therefore blocks
+        every commit in that ecosystem, unfixably — the exact failure the
+        project-scoped DEGRADE row exists to avoid, arriving through a different
+        door. Budget for a real linter; the CAP still bounds a hung one.
+        """
+        self.assertGreater(
+            lint_check.BATCH_TIMEOUT_BASE_S,
+            lint_check.LINTER_BASE_TIMEOUT_S,
+            "commit-gate batch budget must not inherit the edit-time per-file one",
+        )
+        self.assertGreaterEqual(
+            self._captured_timeout(1),
+            30.0,
+            "a one-file commit must budget for a real linter's cold start",
+        )
+
+    def test_batch_cap_stays_inside_the_harness_hook_budget(self):
+        """And the budget has a CEILING, for the opposite reason.
+
+        The gate only blocks because the hook exits 2. A hook the HARNESS kills
+        for overrunning its own timeout (60s default; pre_tool_bash registers no
+        override) exits no such thing — so a batch that outlives the harness does
+        not fail closed, it fails OPEN, and the commit sails through unlinted.
+        That is strictly worse than the block the larger budget exists to avoid.
+
+        So the CAP is bounded on BOTH sides, and this is the side you cannot see
+        in a test of the linter alone. Leave headroom for the rest of the hook
+        (tier-1 diff scan, git forks, SMM loads). Raising the CAP past this means
+        raising the hook's registered timeout FIRST.
+        """
+        self.assertLessEqual(
+            lint_check.BATCH_TIMEOUT_CAP_S,
+            45.0,
+            "a batch that outlives the harness hook timeout fails OPEN, not closed",
         )
 
     def test_n1_below_cap(self):
@@ -211,7 +482,7 @@ class TestRunLinterBatchScaledTimeout(unittest.TestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch("ruff", paths, context="staging", cwd="/tmp")
+            lint_check.run_linter_batch("ruff", paths, cwd="/tmp")
         self.assertAlmostEqual(
             float(mock_run.call_args.kwargs["timeout"]),
             self._expected(1),

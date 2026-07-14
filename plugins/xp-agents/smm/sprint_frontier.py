@@ -12,6 +12,7 @@ import cleanly without a cycle when sprint_store re-exports back.
 import sys
 from pathlib import Path
 
+import file_domain_lock
 from sprint_schema import IN_MOTION_STORY_STATUSES
 from sprint_status import file_domains_overlap_detail
 
@@ -110,6 +111,25 @@ def ready_frontier(
     return ready_frontier_data(sprint, treat_as_done=treat_as_done)
 
 
+def _frontier_has_internal_dependency(data: dict, frontier: list[str]) -> bool:
+    """True when some frontier member transitively depends on another.
+
+    A promoted frontier is supposed to be an antichain: every member cut to
+    its own branch off the SAME sprint base, safe to run concurrently. A
+    dependency edge between two frontier members — direct OR transitive,
+    and possibly running through a story that is itself absent from the
+    frontier — breaks that: the dependent would be branched without its
+    dependency's commits regardless of whether their file domains overlap.
+    `file_domain_lock.ancestors` is the existing fixed-point, cycle-safe
+    transitive closure over the full sprint's dependency graph (not just the
+    frontier subset), so a dependency reached through a non-frontier story
+    is still found.
+    """
+    story_ancestors = file_domain_lock.ancestors(data["stories"])
+    members = set(frontier)
+    return any(story_ancestors.get(sid, set()) & (members - {sid}) for sid in frontier)
+
+
 def ready_frontier_report(
     smm_dir: Path, *, treat_as_done: set[str] | None = None
 ) -> dict:
@@ -117,15 +137,21 @@ def ready_frontier_report(
 
     Returns ``{"frontier": [ids...], "parallelizable": bool, "overlap": {...}}``
     for the /xp-schedule preload. Parallelizable means a genuine fan-out: two
-    or more frontier stories with disjoint file domains (a single-story
-    frontier or overlapping domains is solo). ``overlap`` is
-    ``file_domains_overlap_detail``'s dict forwarded verbatim —
-    ``{"collisions": {path: [{"story_id", "origin"}, ...]}, "glob_forced": bool}``.
-    `collisions` and `glob_forced` are DISTINCT signals: a concrete path
-    collision names the clashing stories, while glob_forced means a glob
-    domain makes disjointness unprovable — a different message to the
-    customer. Both are empty/false on a 0- or 1-story frontier, and all
-    three top-level keys are always present, even when no sprint exists.
+    or more frontier stories that form an antichain (no member transitively
+    depends on another, directly or through a story off the frontier) AND
+    have disjoint file domains. A single-story frontier, overlapping domains,
+    or a dependency edge within the frontier all mean solo — and when the
+    frontier degrades to solo for the dependency reason, /xp-schedule's solo
+    path promotes the lowest-id dep-satisfied story first, which is the
+    dependency itself. ``overlap`` is ``file_domains_overlap_detail``'s dict
+    forwarded verbatim — ``{"collisions": {path: [{"story_id", "origin"},
+    ...]}, "glob_forced": bool}`` — and stays exactly that; the dependency
+    reason for a False verdict is deliberately NOT surfaced there. `collisions`
+    and `glob_forced` are DISTINCT signals: a concrete path collision names
+    the clashing stories, while glob_forced means a glob domain makes
+    disjointness unprovable — a different message to the customer. Both are
+    empty/false on a 0- or 1-story frontier, and all three top-level keys are
+    always present, even when no sprint exists.
     """
     from sprint_store import load_sprint
 
@@ -138,8 +164,10 @@ def ready_frontier_report(
         }
     frontier = ready_frontier_data(sprint, treat_as_done=treat_as_done)
     overlap = file_domains_overlap_detail(sprint, frontier)
-    parallelizable = len(frontier) >= 2 and not (
-        overlap["glob_forced"] or overlap["collisions"]
+    parallelizable = (
+        len(frontier) >= 2
+        and not (overlap["glob_forced"] or overlap["collisions"])
+        and not _frontier_has_internal_dependency(sprint, frontier)
     )
     return {"frontier": frontier, "parallelizable": parallelizable, "overlap": overlap}
 

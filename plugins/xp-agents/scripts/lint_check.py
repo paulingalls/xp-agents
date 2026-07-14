@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
@@ -15,207 +15,89 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import identity
+
+# detect_linter_config is re-exported into this namespace on purpose: ~25 tests
+# and lint_resolution reach it as `lint_check.detect_linter_config`, and the
+# patch sites bind to THIS module. The tables live in `linters` — one home for
+# everything language-specific; see that module's docstring.
+import linters
 import marker_names
 import worktree
 from event_schema import STATUS_ACTION_LINT_RESOLVED
-
-_LINTER_CONFIGS = [
-    # (config_pattern, linter_name, check_content)
-    # Python
-    ("ruff.toml", "ruff", None),
-    (".flake8", "flake8", None),
-    ("pyproject.toml", "ruff", "[tool.ruff]"),
-    ("setup.cfg", "flake8", "[flake8]"),
-    # JavaScript/TypeScript
-    (".eslintrc", "eslint", None),
-    (".eslintrc.json", "eslint", None),
-    (".eslintrc.js", "eslint", None),
-    (".eslintrc.yml", "eslint", None),
-    (".eslintrc.yaml", "eslint", None),
-    ("eslint.config.js", "eslint", None),
-    ("eslint.config.mjs", "eslint", None),
-    ("eslint.config.ts", "eslint", None),
-    (".prettierrc", "prettier", None),
-    (".prettierrc.json", "prettier", None),
-    (".prettierrc.js", "prettier", None),
-    # Rust (clippy is built into cargo)
-    ("Cargo.toml", "clippy", None),
-    # Go
-    (".golangci.yml", "golangci-lint", None),
-    (".golangci.yaml", "golangci-lint", None),
-    # Ruby
-    (".rubocop.yml", "rubocop", None),
-    # C/C++
-    (".clang-tidy", "clang-tidy", None),
-    (".clang-format", "clang-format", None),
-    # Java/Kotlin
-    ("checkstyle.xml", "checkstyle", None),
-    ("detekt.yml", "detekt", None),
-    # PHP
-    ("phpcs.xml", "phpcs", None),
-    (".php-cs-fixer.php", "php-cs-fixer", None),
-    # Dart/Flutter
-    ("analysis_options.yaml", "dart-analyze", None),
-    # Elixir
-    (".credo.exs", "credo", None),
-    # C#
-    ("stylecop.json", "dotnet-format", None),
-    # Swift
-    (".swiftlint.yml", "swiftlint", None),
-]
-
-_LINTER_COMMANDS = {
-    # `--output-format=concise` pins ruff to single-line `path:line:col: CODE msg`
-    # shape that the parsers below expect. Without it, ruff 0.15+ defaults to
-    # multi-line "full" format and the parsers extract zero codes — silently
-    # killing the F401/F811 deferral pipeline. Do NOT remove.
-    "ruff": ["ruff", "check", "--output-format=concise"],
-    "flake8": ["flake8"],
-    "eslint": ["npx", "eslint"],
-    "prettier": ["npx", "prettier", "--check"],
-    "clippy": ["cargo", "clippy", "--", "-D", "warnings"],
-    "golangci-lint": ["golangci-lint", "run"],
-    "rubocop": ["rubocop"],
-    "clang-tidy": ["clang-tidy"],
-    "clang-format": ["clang-format", "--dry-run", "-Werror"],
-    "checkstyle": ["checkstyle", "-c", "/google_checks.xml"],
-    "detekt": ["detekt"],
-    "phpcs": ["phpcs"],
-    "php-cs-fixer": ["php-cs-fixer", "fix", "--dry-run"],
-    "dart-analyze": ["dart", "analyze"],
-    "credo": ["mix", "credo"],
-    "dotnet-format": ["dotnet", "format", "--verify-no-changes"],
-    "swiftlint": ["swiftlint"],
-}
-
-_LINTER_EXTENSIONS: dict[str, set[str]] = {
-    "ruff": {".py", ".pyi", ".ipynb"},
-    "flake8": {".py", ".pyi"},
-    "eslint": {".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".vue"},
-    "prettier": {
-        ".js",
-        ".ts",
-        ".jsx",
-        ".tsx",
-        ".css",
-        ".scss",
-        ".json",
-        ".md",
-        ".yaml",
-        ".yml",
-    },
-    "clippy": {".rs"},
-    "golangci-lint": {".go"},
-    "rubocop": {".rb"},
-    "clang-tidy": {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"},
-    "clang-format": {".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"},
-    "checkstyle": {".java"},
-    "detekt": {".kt", ".kts"},
-    "phpcs": {".php"},
-    "php-cs-fixer": {".php"},
-    "dart-analyze": {".dart"},
-    "credo": {".ex", ".exs"},
-    "dotnet-format": {".cs"},
-    "swiftlint": {".swift"},
-}
-
-# Extensions that warrant a "set up a linter" nudge — excludes prettier-only
-# formats (md, json, yaml, css) which don't need a real linter.
-_CODE_EXTENSIONS: frozenset[str] = frozenset(
-    ext
-    for linter, exts in _LINTER_EXTENSIONS.items()
-    if linter != "prettier"
-    for ext in exts
+from linters import (
+    CODE_EXTENSIONS,
+    LINTER_BINARIES,
+    LINTER_EXTENSIONS,
+    detect_linter_config,
 )
 
-_LINTER_BINARIES = {
-    "ruff": "ruff",
-    "flake8": "flake8",
-    "eslint": "npx",
-    "prettier": "npx",
-    "clippy": "cargo",
-    "golangci-lint": "golangci-lint",
-    "rubocop": "rubocop",
-    "clang-tidy": "clang-tidy",
-    "clang-format": "clang-format",
-    "checkstyle": "checkstyle",
-    "detekt": "detekt",
-    "phpcs": "phpcs",
-    "php-cs-fixer": "php-cs-fixer",
-    "dart-analyze": "dart",
-    "credo": "mix",
-    "dotnet-format": "dotnet",
-    "swiftlint": "swiftlint",
-}
-
-
-def detect_linter_config(
-    cwd: str, git_root: str, file_path: str | None = None
-) -> tuple[str, str] | None:
-    """Walk from file dir (or cwd) up to git_root for linter config.
-
-    With file_path, only returns a linter whose extensions match — finds
-    pyproject.toml [tool.ruff] in subdirs, blocks eslint for .py files.
-    Returns (linter_name, config_path) or None.
-
-    lang-ok: the extension test routes a file to the linter that claims it, off
-    the _LINTER_EXTENSIONS table. Supporting one more language is a row in that
-    table, not a branch here; an unclaimed extension simply finds no linter.
-    """
-    file_suffix = Path(file_path).suffix if file_path else None
-
-    if file_path is not None:
-        start_path = Path(cwd, file_path).resolve().parent
-    else:
-        start_path = Path(cwd).resolve()
-    root_path = Path(git_root).resolve()
-
-    current = start_path
-    while True:
-        for config_name, linter, content_check in _LINTER_CONFIGS:
-            if file_suffix is not None:
-                allowed = _LINTER_EXTENSIONS.get(linter)
-                if allowed is not None and file_suffix not in allowed:
-                    continue
-
-            config_path = current / config_name
-            if config_path.exists():
-                if content_check is not None:
-                    try:
-                        text = config_path.read_text(encoding="utf-8")
-                        if content_check not in text:
-                            continue
-                    except (OSError, UnicodeDecodeError):
-                        continue
-                return (linter, str(config_path))
-
-        if current == root_path or current == current.parent:
-            break
-        current = current.parent
-
-    return None
-
-
-# Per-file timeout (run_linter); also the base for run_linter_batch's scaled
-# timeout: min(CAP, BASE + PER_PATH * N). Single source so bumps land in both.
+# Edit-time, per-file (run_linter). Deliberately short: this path is
+# interactive, and its timeout is HARMLESS — it returns None, so a slow linter
+# just means no nudge on that keystroke.
 LINTER_BASE_TIMEOUT_S: float = 5.0
-BATCH_TIMEOUT_PER_PATH_S: float = 0.05
-BATCH_TIMEOUT_CAP_S: float = 10.0
+
+# Commit-time, per batch (run_linter_batch): min(CAP, BASE + PER_PATH * N).
+#
+# NOT the edit-time number, though it once was. The two have opposite failure
+# semantics: an edit-time timeout is silent, while a batch timeout is
+# `unverified` and the commit gate fails CLOSED on it — it BLOCKS. And a timeout
+# is the one `unverified` cause the agent cannot act on: it can install a missing
+# binary, but it cannot make golangci-lint faster. Too small a budget therefore
+# blocks every commit in that ecosystem, unfixably.
+#
+# 5s was safe only while the batch ran ruff and nothing else. The gate now
+# dispatches off the linter table, so the batch runs `npx eslint`,
+# `golangci-lint run`, `dart analyze` — tools whose COLD START alone (npx bin
+# resolution, a TS program build, a package type-check) routinely exceeds 5s on a
+# real repo. Budget for a linter that actually works; the CAP still bounds one
+# that has genuinely hung.
+#
+# CEILING, and it is a hard one: the CAP must stay well inside the HARNESS's own
+# hook timeout (60s default; pre_tool_bash registers no override). A hook the
+# harness kills produces no exit 2 — so overrunning that budget does not fail
+# closed, it fails OPEN, and the commit sails through unlinted. That is strictly
+# worse than the block we are widening this to avoid. 40s leaves ~20s of headroom
+# for the rest of the hook (tier-1 diff scan, git forks, SMM loads). Do NOT raise
+# the CAP past that without raising the hook's registered timeout first.
+#
+# The CAP is a TOTAL, not a per-batch allowance: one commit can run several
+# batches (a polyglot repo routes each file to its own linter), and N batches of
+# CAP each would breach the ceiling N-fold. staged_lint_gate spends this one
+# budget across all of them and passes what is left as `budget_s`; a batch with
+# nothing left is UNVERIFIED, which blocks. Bound per-batch alone and the
+# ceiling above is only true of a single-language repo.
+BATCH_TIMEOUT_BASE_S: float = 30.0
+BATCH_TIMEOUT_PER_PATH_S: float = 0.25
+BATCH_TIMEOUT_CAP_S: float = 40.0
 
 # Codes deferred until staging. F401 (unused import) / F811 (redef of unused)
 # false-positive during multi-Edit migrations — an import added in one Edit and
-# consumed in the next fires F401 mid-stream. pre_tool_bash._staged_ruff_findings
-# (run_linter_batch context="staging") catches the real cases at commit time.
+# consumed in the next fires F401 mid-stream. staged_lint.staged_lint_gate
+# catches the real cases at commit time: it blocks on ANY finding the linter
+# reports, these two included, so nothing deferred here escapes — it is deferred,
+# not excused.
 EDIT_DEFERRED_CODES: frozenset[str] = frozenset({"F401", "F811"})
 
 # pyflakes-family code shape (ruff/pylint/flake8): [A-Z]+ + 3-4 digits. Ruff
 # plugin namespaces keep growing (F, RUF, PERF, ASYNC, ...) so prefix is unbounded.
 _PYFLAKES_CODE_SHAPE = r"[A-Z]+\d{3,4}"
 
-# Per-line code: "path:line:col: F401 [*] message"
+# Per-line code: "path:line:col: F401 [*] message". Used ONLY by run_ruff, the
+# edit-time path, where dropping the deferred codes from a report needs to know
+# which code each line carries. The commit-time gate deliberately parses
+# nothing — see run_linter_batch.
 _RUFF_LINE_CODE = re.compile(rf"^\s*[^:\s]+:\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
-# Same shape + path capture, used by run_linter_batch to bucket per-file findings.
-_RUFF_LINE_PATH_CODE = re.compile(rf"^([^\s:]+):\d+:\d+:\s+({_PYFLAKES_CODE_SHAPE})\b")
+
+
+class LintRun(NamedTuple):
+    """Outcome of one linter invocation, classified by exit code.
+
+    `status` is the whole contract; `output` is the linter's own text, passed
+    through untouched for a human to read. See run_linter_batch.
+    """
+
+    status: Literal["clean", "findings", "unverified"]
+    output: str
 
 
 def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
@@ -225,11 +107,11 @@ def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
     doesn't claim. Shared by run_linter and run_linter_batch — single source
     so the security guard can't drift between callers.
 
-    lang-ok: same _LINTER_EXTENSIONS table as detect_linter_config — a linter
+    lang-ok: same LINTER_EXTENSIONS table as detect_linter_config — a linter
     with no entry claims every path (`allowed is None`), so an unlisted language
     is passed through rather than filtered out.
     """
-    allowed = _LINTER_EXTENSIONS.get(linter_name)
+    allowed = LINTER_EXTENSIONS.get(linter_name)
     return [
         p
         for p in paths
@@ -237,17 +119,41 @@ def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
     ]
 
 
-def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
-    """Run linter on file. Returns error output, or None if clean/unavailable."""
-    binary = _LINTER_BINARIES.get(linter_name)
+def run_linter(
+    linter_name: str,
+    file_path: str,
+    cwd: str | None = None,
+    *,
+    root: str | None = None,
+    config_path: str | None = None,
+) -> str | None:
+    """Run linter on file. Returns error output, or None if clean/unavailable.
+
+    Routes through `linters.linter_argv` — the SAME builder the commit gate uses.
+    They used to place the `--` separately, and that duplication is where clang-tidy's
+    broken invocation hid: the commit path was patched around it by degrading the row,
+    while this path went on building `clang-tidy -- app.c` and linting nothing.
+
+    A None argv means "must not run here" (an unmet precondition — e.g. clang-tidy in
+    a project with no compile database). That is NOT a clean result, but at edit time
+    it is reported the same way, because the alternative is raising a concern that
+    `lint_resolution` can never clear: `'hdr.h' file not found` is not fixable by
+    editing the file the concern is attached to.
+    """
+    binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
 
     if not _eligible_for_linter(linter_name, [file_path]):
         return None
 
-    # "--" separates flags from filename arg
-    cmd = _LINTER_COMMANDS[linter_name] + ["--", file_path]
+    # base=cwd: paths resolve where the linter RUNS, not at root. See linter_invocation.
+    base = cwd or root or "."
+    cmd = linters.linter_argv(
+        linter_name, [file_path], root=root or base, config_path=config_path, base=base
+    )
+    if cmd is None:
+        return None
     try:
         result = subprocess.run(
             cmd,
@@ -267,18 +173,19 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
     return None
 
 
-def run_ruff(
-    file_path: str | Path,
-    *,
-    context: Literal["edit", "staging"],
-    cwd: str | None = None,
-) -> tuple[list[str], str]:
-    """Run ruff once; return (codes, filtered_text).
+def run_ruff(file_path: str | Path, *, cwd: str | None = None) -> tuple[list[str], str]:
+    """Run ruff on one file at EDIT time; return (codes, filtered_text).
 
-    edit context strips EDIT_DEFERRED_CODES (F401/F811) — they belong at
-    staging. staging keeps everything. Returns ([], "") when ruff is
-    unavailable, extension wrong, or exit clean. Single source of truth
-    for ruff invocation (used by lint_check.run() and pre_tool_bash).
+    Strips EDIT_DEFERRED_CODES (F401/F811): mid-edit they false-positive, so
+    they are deferred to the commit-time gate rather than raised as a concern
+    here. Returns ([], "") when ruff is unavailable, the extension is wrong, or
+    the run is clean.
+
+    Edit-time only — this is the one place a ruff *code* is still read out of
+    ruff's text, and it stays here. The commit-time gate (run_linter_batch)
+    classifies by exit code and parses nothing, because it has to work for every
+    language the plugin ships to. Nothing calls this at staging time: a staging
+    variant would have to re-derive the codes the gate deliberately ignores.
     """
     raw = run_linter("ruff", str(file_path), cwd=cwd)
     if raw is None:
@@ -286,7 +193,7 @@ def run_ruff(
 
     kept_lines: list[str] = []
     codes: list[str] = []
-    deferred = EDIT_DEFERRED_CODES if context == "edit" else frozenset()
+    deferred = EDIT_DEFERRED_CODES
     for line in raw.splitlines():
         m = _RUFF_LINE_CODE.match(line)
         code = m.group(1) if m else None
@@ -304,37 +211,101 @@ def run_linter_batch(
     linter_name: str,
     paths: list[str],
     *,
-    context: Literal["edit", "staging"],
     cwd: str | None = None,
-) -> dict[str, list[str]]:
-    """Run linter once over many paths; return {path: codes} per file.
+    budget_s: float | None = None,
+    root: str | None = None,
+    config_path: str | None = None,
+) -> LintRun:
+    """Run a linter once over many paths; classify the run by its EXIT CODE.
 
-    Filtering matches run_ruff: edit strips F401/F811, staging keeps all.
-    Per-line parsing is ruff-specific (_RUFF_LINE_PATH_CODE); routing by
-    linter_name is generic — siblings can join when the parser branches.
+    The commit-time gate needs to know *that* the linter found something, not
+    *what* — so this reports the linter's own output verbatim and never parses
+    it. Reading findings out of the text would take a per-language parser, and
+    the plugin ships to projects in every language.
 
-    Returns {} when binary is missing, no eligible paths, or ruff
-    times out / fails to spawn. Absence of a path means "not verified",
-    NOT "clean" — callers gating on F401/F811 (pre_tool_bash) MUST treat
-    missing paths as fail-closed. Linted-but-clean files map to [] so
-    callers can distinguish "clean" (key present) from "skipped" (absent).
+    That is not a stylistic preference; the parser WAS the bug. This function
+    used to return {path: codes} scraped with a ruff-shaped regex, pre-filling
+    every path with [] before parsing — so a linter whose output that regex
+    could not read (eslint, clippy, golangci-lint: everything but ruff) parsed
+    to zero findings and read back as unanimously clean.
 
-    Timeout: min(10, 5 + 0.05 * N) — single-file batches fail fast,
-    large batches stay bounded so a hung ruff can't stall a 100-file commit.
+    The exit code is the discriminator, in both directions:
+
+      * exit 0                   → CLEAN. A clean ruff run prints "All checks
+        passed!", which parses to nothing — so "nothing to read" MUST mean
+        clean here, or the gate would refuse every green commit.
+      * non-zero, with output    → FINDINGS. Caller blocks and shows `output`.
+      * non-zero, nothing to say → UNVERIFIED. It found something it could not
+        tell us about: a bad read, not a pass.
+      * binary missing / timeout / spawn failure → UNVERIFIED.
+      * a path refused by the arg-injection guard → UNVERIFIED. We declined to
+        look at it, which is not the same as having nothing to look at.
+
+    Callers MUST fail closed on UNVERIFIED (SMM constraint: gates fail CLOSED
+    on a bad read). CLEAN with no eligible paths is not a bad read — there was
+    simply nothing for this linter to look at (no path carried an extension
+    this linter claims).
+
+    Timeout: min(CAP, BATCH_BASE + PER_PATH * N) — sized for a real linter's
+    cold start (this budget BLOCKS when it runs out, unlike the edit-time one),
+    still bounded so a hung linter can't stall a 100-file commit forever.
+
+    `budget_s` narrows that further to the wall clock the CALLER has left. One
+    commit can run several batches (a polyglot repo routes each file to its own
+    linter), and the CAP bounds only ONE of them — so without a shared budget,
+    two hung linters outlive the harness's hook timeout, the harness kills the
+    hook, and a killed hook exits no 2: the commit is not blocked, it is waved
+    through unlinted. A spent budget is UNVERIFIED, not clean; the caller fails
+    closed on it, like any other bad read. See staged_lint.staged_lint_gate.
     """
-    binary = _LINTER_BINARIES.get(linter_name)
+    binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
-        return {}
+        return LintRun("unverified", f"{linter_name}: `{binary}` is not on PATH")
+
+    # A path the arg-injection guard refuses is one we DECLINED to check, which
+    # is not the same as one there was nothing to check in. Silently dropping it
+    # and reporting the rest as clean is a fail-open — an unlinted file ships.
+    refused = [p for p in paths if p.startswith("-")]
+    if refused:
+        return LintRun(
+            "unverified",
+            f"{linter_name}: refused flag-shaped path(s): {', '.join(refused)}",
+        )
 
     eligible = _eligible_for_linter(linter_name, paths)
     if not eligible:
-        return {}
+        return LintRun("clean", "")
 
-    cmd = _LINTER_COMMANDS[linter_name] + ["--"] + eligible
+    # ONE argv builder, shared with the edit-time path. It also places the paths:
+    # clang-tidy takes them BEFORE the separator (everything after `--` is compiler
+    # flags), so the old universal `[*cmd, "--", *paths]` handed it zero sources.
+    # `base=cwd` for the same reason as run_linter: see linter_invocation.
+    base = cwd or root or "."
+    cmd = linters.linter_argv(
+        linter_name, eligible, root=root or base, config_path=config_path, base=base
+    )
+    if cmd is None:
+        # "Must not run here" — an unmet precondition, or a config-required linter
+        # with no config. Not a clean result: we declined to look, and declining to
+        # look is a bad read, which fails CLOSED.
+        return LintRun(
+            "unverified",
+            f"{linter_name}: cannot be invoked in this project "
+            f"(missing compile database or config) — refusing to report it clean",
+        )
     timeout = min(
         BATCH_TIMEOUT_CAP_S,
-        LINTER_BASE_TIMEOUT_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
+        BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
     )
+    if budget_s is not None:
+        timeout = min(timeout, budget_s)
+        if timeout <= 0:
+            return LintRun(
+                "unverified",
+                f"{linter_name}: the commit gate's "
+                f"{BATCH_TIMEOUT_CAP_S:g}s lint budget was spent by earlier "
+                f"linters — this one never ran",
+            )
     try:
         proc = subprocess.run(
             cmd,
@@ -343,27 +314,21 @@ def run_linter_batch(
             timeout=timeout,
             cwd=cwd,
         )
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        # Do NOT normalize to {p: [] for p in eligible} on failure — callers
-        # gating on F401/F811 must distinguish "not verified" (missing key)
-        # from "clean" (key with []), or the gate silently reopens.
-        return {}
+    except subprocess.TimeoutExpired:
+        return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
+    except (OSError, FileNotFoundError) as e:
+        return LintRun("unverified", f"{linter_name}: failed to run ({e})")
 
-    raw = proc.stdout or proc.stderr or ""
-    deferred = EDIT_DEFERRED_CODES if context == "edit" else frozenset()
+    if proc.returncode == 0:
+        return LintRun("clean", "")
 
-    out: dict[str, list[str]] = {p: [] for p in eligible}
-    for line in raw.splitlines():
-        m = _RUFF_LINE_PATH_CODE.match(line)
-        if not m:
-            continue
-        path, code = m.group(1), m.group(2)
-        if code in deferred:
-            continue
-        if path in out and code not in out[path]:
-            out[path].append(code)
-
-    return out
+    output = (proc.stdout or proc.stderr or "").strip()
+    if not output:
+        return LintRun(
+            "unverified",
+            f"{linter_name}: exited {proc.returncode} without saying why",
+        )
+    return LintRun("findings", output)
 
 
 def _summarize_lint_output(lint_output: str) -> str:
@@ -451,10 +416,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     if config is None:
         # Only nudge for code files — non-code (md, json, yml) doesn't need a linter
-        # lang-ok: _CODE_EXTENSIONS spans the languages a linter nudge can help;
+        # lang-ok: CODE_EXTENSIONS spans the languages a linter nudge can help;
         # an unlisted one just gets no nudge, which is a missing suggestion, not
         # a blocked or misjudged write.
-        if Path(normalized).suffix not in _CODE_EXTENSIONS:
+        if Path(normalized).suffix not in CODE_EXTENSIONS:
             return None
         # Nudge once per session — atomic create, no symlink follow
         flag = smm_dir / marker_names.LINT_WARNED
@@ -473,20 +438,30 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     linter_name, config_path = config
 
-    binary = _LINTER_BINARIES.get(linter_name)
+    binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
 
     lint_cwd, file_arg = lint_invocation_target(config_path, git_root, normalized)
 
     # Route ruff through run_ruff so the edit-time filter (F401/F811 deferred to
-    # staging) is single source of truth. Gate on parsed codes — filtered output
-    # may keep ruff's "Found N errors." footer even when every code was filtered.
+    # the commit gate) is single source of truth. Gate on parsed codes — filtered
+    # output may keep ruff's "Found N errors." footer even when every code was
+    # filtered.
     if linter_name == "ruff":
-        codes, lint_output = run_ruff(file_arg, context="edit", cwd=lint_cwd)
+        codes, lint_output = run_ruff(file_arg, cwd=lint_cwd)
         has_errors = bool(codes)
     else:
-        lint_output = run_linter(linter_name, file_arg, cwd=lint_cwd) or ""
+        lint_output = (
+            run_linter(
+                linter_name,
+                file_arg,
+                cwd=lint_cwd,
+                root=git_root,
+                config_path=config_path,
+            )
+            or ""
+        )
         has_errors = bool(lint_output)
     if has_errors:
         if not _has_unresolved_lint_concern(smm_dir, normalized):

@@ -2,6 +2,183 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.8.0 — Gates that fail OPEN
+
+**Seven gates in this plugin could be made to wave work through**, and one of them had never
+fired in production at all. Every one is fixed here — and **most were found by review, not by
+the story that opened the file.** Twice, review disproved a claim the author had already
+written into a commit message.
+
+A gate that fails open is worse than no gate: it reports that it checked.
+
+The sharpest lesson of the sprint is in the two gates that were *added* here. One shipped
+**dead** — its pattern required the CLI name on the same line as the subcommand, but the real
+invocation is wrapped across a line continuation, and every test passed because the test's
+fixture was single-line. A fixture that does not have production's shape is a mirror, not a
+test. The other was built on an invariant that turned out to be **false**: "git refuses to
+delete an unmerged branch" is true only of a branch with no upstream, and this pipeline pushes
+every branch before it merges.
+
+### The schedule gate blocked the wrong writes — and the plan door failed open
+
+The pre-write schedule gate blocked *any* write in the pre-promotion window. It blocked a write to
+a file **outside the repo** — not this project's story code at all — where the only way to satisfy
+it was to promote a story against a customer pause. And it blocked work on a **free branch**, where
+the sprint isn't the frame.
+
+It now exempts both, keying free-ness on branch **shape** (a marker could be `rm`'d to bypass). The
+same gate runs at a second door — `EnterPlanMode` — so on a free branch you could neither write nor
+plan; that door is fixed too.
+
+Putting both doors in one diff is what exposed the real bug: **`pre_tool_plan_mode` failed OPEN on
+an unreadable `sprint.json`.** It died with a traceback, and PreToolUse treats a non-2 exit as
+*non-blocking* — so plan mode opened with every sprint gate blind. Its sibling write door had
+failed closed correctly for months.
+
+And the new exemption itself shipped a third: `resolve_git_root` can return an **empty string**, and
+`Path("").resolve()` is the hook's own cwd — so containment was judged against the wrong tree and an
+in-repo write read as out-of-tree. Caught by review, pinned by a test.
+
+### The Write hot path could be waved through by any unexpected OSError
+
+`resolve_git_root` caught three narrow exception types. Any *other* `OSError` from the git fork
+(`PermissionError`, `EAGAIN`) escaped, killed the hook, and the write landed **un-gated**. A per-cwd
+cache is what hid it: whether it fired depended on whether an earlier call had warmed that cwd — so
+it presented as a **flaky test**, not as red. A flaky test guarding a fail-closed gate *was* the
+gate failing open.
+
+### The commit-time lint gate stops being Python-only
+
+It hardcoded ruff. A TS/Rust/Go repo staged no `.py` files, and the gate silently passed — **zero
+commit-time lint enforcement in any language but Python.**
+
+(It does not reach *every* language. What it does and does not gate is spelled out below — the first
+draft of this note claimed "any language", and the binaries disagreed.)
+
+The gate no longer parses. It classifies by **exit code**: 0 is clean, non-zero with output is
+findings (reported verbatim, never interpreted), non-zero with nothing readable is **unverified →
+blocked**. A new language is a row in a table, never a branch. Two columns the naive design lacked:
+a strictness flag (eslint exits 0 on warnings, and `no-unused-vars` is `warn` in many configs) and a
+file-scoped capability flag (clippy lints the whole crate, so one pre-existing warning would have
+blocked every Rust commit, unfixably).
+
+**Breaking:** the rule is uniform, so **Python is stricter** — E302 and friends now block a commit
+where before only F401/F811 did.
+
+The gate's timeout was calibrated for ruff back when ruff was all it ran. `npx eslint`'s *cold start*
+alone exceeds it — timeout → unverified → block, an unfixable gate for exactly the languages this
+serves. It's now one shared budget across all linters, bounded **above** by the harness's 60s hook
+limit: past that the harness kills the hook, which produces no exit 2 and fails **open**.
+
+### A frontier with a dependency edge could be fanned out in parallel
+
+`ready_frontier_report` could authorize concurrent teammates for stories where one depends on
+another. The fault isn't file overlap — it's the **base branch**: every story branch is cut from the
+same sprint base, so a promoted dependent is cut from a base *without its dependency's commits*,
+wrong even when their file domains are perfectly disjoint. The frontier must be an **antichain**, and
+now it is (transitively — the edge can run *through* a story absent from the frontier).
+
+### The in-place teammate marker: liveness a pid can't fake
+
+Liveness is now a kernel-held `flock` OR'd with a live child pid. The kernel releases the lock on any
+death, SIGKILL included — no pid to recycle, no verdict to mis-adjudicate. The child-pid leg is
+load-bearing: SIGKILL of the supervisor does *not* propagate to the child, and a lock-only verdict
+would reap a **live** teammate's marker, certify a half-written tree, and let a respawn admit a
+second agent into the same checkout.
+
+### The retro stops nagging about work the plan already schedules
+
+A milestone can now declare `schedules: [<event-id>]`, and the retrospective reads it. Previously it
+escalated a debt to HIGH after 7 sessions "unresolved" while a milestone named that debt as its
+deliverable.
+
+Building it exposed a fail-open in the id pattern itself: `EVENT_ID_RE` was anchored with `$`, which
+in Python matches **before a trailing newline** — so `"<id>\n"` validated as an id and then matched
+nothing. It guards `metadata.resolves` too.
+
+### A story could be recorded as shipped when its merge never happened
+
+The close pipeline merged, then marked the story done — and **nothing stood between those two
+steps.** When a merge failed on a transient `.git/index.lock` (a sibling worktree holding the
+index for a moment), the pipeline carried on and recorded work that was not on the branch.
+
+The failure was never silent at the git level; the merge exits non-zero with git's own stderr.
+The silence is that the *caller* is an agent following prose. So mark-done is now gated on
+**proof from git**, not on the agent's word.
+
+Getting the proof right mattered more than it looked. The obvious design — record the merged
+SHA at merge time — is a trap: if the merge succeeds and the state write then fails, re-running
+the merge answers *"Already up to date"*, no SHA can ever be produced, and the story becomes
+**permanently un-markable**. A gate whose only repair path is blocked by itself is worse than
+the bug.
+
+So the proof is derived from git at the instant of mark-done. And the invariant it first rested
+on — *"git refuses to delete an unmerged branch, so the branch's absence proves the merge"* —
+is **false**: `git branch -d` defers to the branch's **upstream**, and story-close pushes every
+branch before merging. Git will delete an unmerged-but-pushed branch and exit 0. The merge proof
+is now *ours*, checked before any delete, rather than something we hoped git enforced.
+
+The transient lock is retried too (bounded, backing off, lock-signature only — a real conflict
+must still fail on the first attempt). But the retry only **narrows** the window. The gate is
+the fix.
+
+There is an escape hatch, because a gate with no recovery path is its own failure mode:
+`--force-unmerged "<reason>"` requires a non-empty reason and records a debt event. The bypass
+is never silent.
+
+### The test suite stopped writing into a shared /tmp root
+
+Tests that drive a teammate spawn were minting real directories under the real, shared
+`/tmp/xp-agents-teammates` — hundreds of them, four more every run.
+
+The obvious fix (have the test base delete the directory it created) was **more dangerous than
+the leak**: the path is derived from the SMM dir, `init.sh` honors an exported `SMM_DIR`
+verbatim, and that is exactly a CLI teammate's environment — so the sweep could resolve to a
+**live project's id** and delete a running teammate's logs.
+
+Redirect, don't sweep. The log root now resolves through `XP_TEAMMATE_LOG_ROOT`, and the test
+suite points it at a sandbox. Nothing is written to the real root, so nothing can delete the
+wrong thing — the class of bug is gone rather than guarded against.
+
+### What is actually gated, and what only advises
+
+The first draft of this note claimed "any language", and when it was written nobody had run the
+binaries. So we ran them, and the claim was too strong. **C/C++ and Java were not gated at all** —
+both were parked as advisory-only, while the release note said otherwise.
+
+**C/C++ is now genuinely gated**, and getting there refuted the fix we had written down for it:
+
+- `clang-tidy`'s synopsis is `clang-tidy [options] <sources> -- [compiler-flags]` — everything
+  *after* the separator is compiler flags. The gate's universal `[cmd, "--", *paths]` handed it
+  **zero sources**.
+- Correcting the argv **alone would have made it worse.** Invoked correctly, clang-tidy finds the
+  violation, prints it, and **exits 0** — which the gate reads as *clean*. It needs
+  `--warnings-as-errors`, and only the real binary could tell us that.
+- Our own recorded fix said "sources before the separator, **trailing `--`**". The trailing `--`
+  means *no compiler flags* and **overrides `compile_commands.json`**, throwing away the database
+  that lets clang-tidy resolve an `#include`. Half our prescription was wrong.
+- So C/C++ is gated **where a compile database covers the staged file** — not merely where one
+  exists. A partial or stale database (a new subtree, generated sources, a DB nobody re-ran) leaves
+  that file no include flags, and clang-tidy then fails to *compile* it — which the gate would read
+  as a finding and refuse the commit over. Uncovered files degrade honestly instead —
+  because without one, a header in another directory fails to *compile*, and the gate would block on
+  an error no diff can fix.
+
+**Java is not gated, and we now know why.** `checkstyle`'s exit code counts `severity=error` only: the
+same violation at `severity=warning` is printed and then exits **0**. Its CLI has no
+warnings-as-errors lever. Its exit code simply cannot express *"I found something"*, and gating it
+would mean parsing its report — and in this gate, the parser *was* the bug. It stays advisory, and
+now says so in its own words.
+
+Every degraded linter now reports **its own reason**. The old advisory told C/C++ users that
+clang-tidy "lints the whole project, not one file" — which is false, and the code knew it was false.
+
+### Known-open
+
+- The lint gate reads the **working tree**, not the staged bytes — it diverges under `git add -p`.
+- Java/Kotlin/Elixir/C# get an advisory, not a gate; each now states its own reason.
+- C/C++ without a `compile_commands.json` advises rather than gates.
+
 ## v4.7.0 — Adoption records intent, not resolution — and compaction stops eating the record
 
 Two of these are silent data loss that shipped in v4.6.1. If you run this plugin, upgrade.

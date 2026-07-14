@@ -243,7 +243,13 @@ def set_story_branch(smm_dir: Path, story_id: str, branch_name: str) -> None:
     save_sprint(smm_dir, sprint, enforce_budget=False)
 
 
+# `id` is immutable outright. `status` is not immutable — it is TRANSITIONED, and a
+# shallow-merge patch is not a transition: it walks around the state machine that owns
+# the field (update_story_status / update_story_status_if) and around the merge gate
+# standing at its `done` edge, so `{"status":"done"}` forges a ship nobody proved. Same
+# hole plan_cli.edit-milestone closes for status/delivered_sprint, same answer.
 _IMMUTABLE_STORY_FIELDS = frozenset({"id"})
+_TRANSITION_ONLY_STORY_FIELDS = frozenset({"status"})
 
 
 def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
@@ -252,12 +258,19 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
     `updates` is typed as `object` (not `dict`) because the CLI caller
     forwards raw `json.loads` output, which can legally be a list,
     scalar, or null. The isinstance check is a real boundary guard.
+    Refuses `status` — see _TRANSITION_ONLY_STORY_FIELDS.
     """
     if not isinstance(updates, dict):
         raise ValueError("updates must be a JSON object")
     protected = _IMMUTABLE_STORY_FIELDS & updates.keys()
     if protected:
         raise ValueError(f"Cannot edit immutable fields: {sorted(protected)}")
+    transitional = _TRANSITION_ONLY_STORY_FIELDS & updates.keys()
+    if transitional:
+        raise ValueError(
+            f"edit-story may not patch {', '.join(sorted(transitional))} — use "
+            "update-story / update-story-if, which the merge gate stands on."
+        )
 
     sprint, story = _load_story(smm_dir, story_id)
     story.update(updates)
@@ -266,8 +279,7 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
     # A file_domain change can reintroduce a collision M1 forbids, and a
     # dependency change can make two shared-path stories concurrent — both are
     # gated here. (collision_report also reads `status` via concurrency, but
-    # status flips route through update_story_status, not edit_story, and that
-    # path is itself ungated by design — so status is out of scope here.) Other
+    # this path can no longer write status at all — see the refusal above.) Other
     # edits (execution_mode, executor_model, context, …) can't affect collisions
     # and skip the sister-expansion cost.
     if updates.keys() & {"file_domain", "dependencies"}:

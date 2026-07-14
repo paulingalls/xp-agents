@@ -32,7 +32,12 @@ from _branching_fixtures import (
     merge_teammate_branch,
     write_system_context,
 )
-from conftest import _extract_preload_var, _IntegrationTestCase
+from conftest import (
+    _extract_preload_var,
+    _IntegrationTestCase,
+    _make_plan_mode_input,
+    _make_write_input,
+)
 from conftest import make_sprint_dict as _make_sprint
 from conftest import make_story_dict as _make_story
 
@@ -48,10 +53,7 @@ class TestScheduleFrontierE2E(_IntegrationTestCase):
         # clean main tree so branching.py create's dirty-tree guard doesn't trip
         # on a sibling method's merge.
         super().setUp()
-        for args in (["checkout", "-f", "main"], ["reset", "--hard", "HEAD"]):
-            subprocess.run(
-                ["git", *args], cwd=self.tmpdir, capture_output=True, check=False
-            )
+        self._reset_repo_to_main()
 
     # -- helpers ----------------------------------------------------------
 
@@ -61,22 +63,14 @@ class TestScheduleFrontierE2E(_IntegrationTestCase):
         )
 
     def _write_input(self) -> dict:
-        return {
-            "session_id": "cap",
-            "tool_name": "Write",
-            "tool_input": {"file_path": "src/app.py", "content": "x = 1"},
-            "agent_id": "main",
-            "cwd": str(self.tmpdir),
-        }
+        return _make_write_input(
+            session_id="cap",
+            tool_input={"file_path": "src/app.py", "content": "x = 1"},
+            cwd=str(self.tmpdir),
+        )
 
     def _plan_input(self) -> dict:
-        return {
-            "session_id": "cap",
-            "tool_name": "EnterPlanMode",
-            "tool_input": {},
-            "agent_id": "main",
-            "cwd": str(self.tmpdir),
-        }
+        return _make_plan_mode_input(session_id="cap", cwd=str(self.tmpdir))
 
     def _reviewer_input(self) -> dict:
         return {
