@@ -67,7 +67,7 @@ class TestProjectDirSprintToken(unittest.TestCase):
             "/data/proj-a/smm", sprint_id="../../etc"
         )
         self.assertIn(
-            teammate_runner._LOG_ROOT / "proj-a",
+            teammate_runner._log_root() / "proj-a",
             escaped.parents,
             f"sprint token escaped the per-project namespace: {escaped}",
         )
