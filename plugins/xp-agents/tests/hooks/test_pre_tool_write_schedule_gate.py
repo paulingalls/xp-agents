@@ -220,6 +220,23 @@ class TestScheduleGateScopeExemption(_ScheduleGateFixture):
             pre_tool_write.run(self._write("/elsewhere/x.py"), smm_dir=self.smm_dir)
         branch_probe.assert_not_called()
 
+    def test_empty_git_root_still_blocks(self):
+        """The other falsy root. `resolve_git_root` is typed `str | None`, but an
+        empty string is falsy too, and it is the dangerous one: `Path("")` resolves
+        to the hook process's OWN cwd, so containment would be judged against the
+        wrong tree and an in-repo write would read as out-of-tree — exempt. Only
+        `is None` is checked and the gate fails OPEN on a value the type says
+        cannot happen. Both falsy roots must block.
+        """
+        with (
+            self._probes(root="", branch=_STORY_BRANCH),
+            self.assertRaises(_common.BlockedError),
+        ):
+            pre_tool_write.run(
+                self._write(str(Path(self._cwd) / "src" / "app.py")),
+                smm_dir=self.smm_dir,
+            )
+
     def test_git_failure_empty_branch_still_blocks(self):
         """`get_current_branch` returns "" when git fails. "" is not a free
         branch, so the gate stands."""

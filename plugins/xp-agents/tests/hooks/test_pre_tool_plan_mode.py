@@ -119,6 +119,34 @@ class TestPreToolPlanModeFreeBranchExemption(_HookTestCase):
             pre_tool_plan_mode.run(_make_plan_mode_input(), smm_dir=self.smm_dir)
         self.assertIn("xp-schedule", str(ctx.exception))
 
+    def test_git_failure_empty_branch_still_blocks(self):
+        """`get_current_branch` reports "" when git fails. "" is not a free
+        branch, so the gate stands.
+
+        The class docstring CLAIMED this and the write door tests it; this door
+        only got it by accident, via a fixture whose cwd (`/tmp`) happens not to
+        be a repo. An invariant the Constraints pillar names outright — "gates
+        must fail CLOSED on a bad read" — should be pinned at the seam, not left
+        to a fixture's incidental geography.
+        """
+        with (
+            patch.object(
+                pre_tool_plan_mode.identity, "get_current_branch", return_value=""
+            ),
+            self.assertRaises(_common.BlockedError),
+        ):
+            pre_tool_plan_mode.run(_make_plan_mode_input(), smm_dir=self.smm_dir)
+
+    def test_detached_head_still_blocks(self):
+        """A detached HEAD reports the literal "HEAD" — not a free branch."""
+        with (
+            patch.object(
+                pre_tool_plan_mode.identity, "get_current_branch", return_value="HEAD"
+            ),
+            self.assertRaises(_common.BlockedError),
+        ):
+            pre_tool_plan_mode.run(_make_plan_mode_input(), smm_dir=self.smm_dir)
+
 
 class TestPreToolPlanModeCorruptSprint(_HookTestCase):
     """A bad read is not "no sprint" — this door fails CLOSED too.

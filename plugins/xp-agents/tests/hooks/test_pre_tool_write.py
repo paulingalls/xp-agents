@@ -175,9 +175,7 @@ class TestPreToolWriteRun(_HookTestCase):
             _make_write_input(tool_input={"file_path": "src/new.ts"}),
             smm_dir=self.smm_dir,
         )
-        if result:
-            self.assertNotIn("smm-delta", result)
-            self.assertNotIn("smm-context", result)
+        self.assertIsNone(result)
 
     def test_read_tool_no_injection(self):
         """Read tool input passed to pre_tool_write returns None."""
@@ -224,9 +222,7 @@ class TestPreToolWriteRun(_HookTestCase):
             _make_write_input(),
             smm_dir=fake_dir,
         )
-        if result:
-            self.assertNotIn("smm-context", result)
-            self.assertNotIn("smm-debt-context", result)
+        self.assertIsNone(result)
 
     def test_bash_input_returns_none(self):
         """Bash input passed to pre_tool_write returns None."""
@@ -250,9 +246,7 @@ class TestPreToolWriteNoDelta(_HookTestCase):
             _make_write_input(tool_input={"file_path": "/tmp/src/new.ts"}),
             smm_dir=self.smm_dir,
         )
-        if result:
-            self.assertNotIn("smm-delta", result)
-            self.assertNotIn("smm-context", result)
+        self.assertIsNone(result)
 
     def test_read_tool_no_injection(self):
         """Read tool does not get SMM context injection."""

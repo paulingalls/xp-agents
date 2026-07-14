@@ -294,7 +294,12 @@ def _is_out_of_story_scope(target_file: str | None, cwd: str) -> bool:
     two-predicate note on the gate in run().
     """
     root = worktree.resolve_git_root(cwd)  # memoized per cwd
-    if root is None:
+    if not root:
+        # `not root`, not `is None`: an EMPTY root would resolve to the hook
+        # process's own cwd (`Path("").resolve()`), against which nearly every
+        # target reads as out-of-tree — i.e. exempt. That is fail-OPEN from a
+        # falsy value the type says cannot happen. worktree.worktree_path already
+        # spells the guard this way; make the invariant total, not probable.
         return False
     if _is_outside_tree(target_file, root, cwd):
         return True
