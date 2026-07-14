@@ -27,6 +27,20 @@ jobs:
         # Install BEFORE tests so the gate can run, not after.
         run: pip install ruff
 
+      - name: Install clang-tidy
+        # tests/hooks/test_lint_polyglot.py proves the C/C++ gate against the REAL
+        # binary, because a hand-written stub would only encode our own model of the
+        # CLI — and the bug being fixed IS that our model was wrong.
+        #
+        # No `|| true`, no `continue-on-error`: a silently-failing install would turn
+        # every one of those tests into a SKIP, and a skipped test is a green test.
+        # The suite would then certify a C/C++ gate nobody had run.
+        #
+        # checkstyle is deliberately NOT installed. Java stays degraded (its exit code
+        # cannot express a finding), so provisioning a JVM here would pay to prove a
+        # negative; its facts are pinned locally and its tests skip.
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy
+
       - name: Run tests
         run: python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v
 

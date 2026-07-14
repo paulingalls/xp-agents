@@ -250,57 +250,96 @@ class TestLinterTableColumns(unittest.TestCase):
         self.assertIn("no-unused-vars", found)
         self.assertIsNone(clean)
 
-    def test_project_scoped_rows_are_not_file_scoped(self):
-        """These lint the whole project and exit non-zero on state that has
-        nothing to do with the staged files. The gate must DEGRADE on them, not
-        block — a pre-existing warning in an untouched file is not something the
-        committing agent can fix by fixing its own diff."""
-        for linter in ("clippy", "checkstyle", "detekt", "credo", "dotnet-format"):
-            self.assertFalse(
-                linters.is_file_scoped(linter),
-                msg=f"{linter} lints the whole project — it cannot judge one file",
-            )
+    def test_degraded_rows_are_not_gated(self):
+        """The gate must DEGRADE on these, not block. A non-zero exit from them
+        reports something the staged diff neither caused nor can fix, and the first
+        thing anyone does with an unfixable gate is disable it.
+
+        checkstyle is here for a DIFFERENT reason than the rest, which is why the
+        reason is now per-row: it can judge one file perfectly well, but its exit
+        code counts severity=error only — a severity=warning violation prints and
+        exits 0. Measured, not assumed (test_lint_polyglot.py).
+        """
+        with tempfile.TemporaryDirectory() as td:
+            for linter in ("clippy", "checkstyle", "detekt", "credo", "dotnet-format"):
+                self.assertFalse(linters.is_file_scoped(linter, td), msg=linter)
+                self.assertTrue(linters.degrade_reason(linter, td), msg=linter)
 
     def test_file_scoped_rows_can_judge_one_file(self):
-        for linter in ("ruff", "flake8", "eslint", "golangci-lint", "rubocop"):
-            self.assertTrue(linters.is_file_scoped(linter))
+        with tempfile.TemporaryDirectory() as td:
+            for linter in ("ruff", "flake8", "eslint", "golangci-lint", "rubocop"):
+                self.assertTrue(linters.is_file_scoped(linter, td))
 
-    def test_no_gated_row_overloads_the_argv_separator(self):
-        """Every gated row must read `-- <paths>` as PATHS.
+    def test_clang_tidy_takes_its_paths_BEFORE_the_separator(self):
+        """INVERTED. This pin used to assert the bug.
 
-        run_linter_batch builds one argv shape for all of them:
-        ``[*linter_command(name), "--", *paths]``. That rests on `--` meaning
-        "end of options, positional args follow" — true for almost every CLI,
-        and NOT true for clang-tidy, whose documented synopsis is
+        Its predecessor said a row "whose separator semantics we cannot honor must
+        not be GATED on", and prescribed the fix: "sources BEFORE the separator,
+        trailing `--` for no compiler args, proven against the real binary."
 
-            clang-tidy [options] <source0> ... <sourceN> -- [compiler-flags]
-
-        There, everything after `--` is COMPILER FLAGS. `clang-tidy -- app.c`
-        therefore lints ZERO sources and hands `app.c` to the compiler driver.
-        The run then either exits 0 having checked nothing — a silent false-clean
-        for every C/C++ repo, which is the precise bug this whole story exists to
-        close, walking back in through the argv — or exits non-zero with "no
-        input files", which reads as FINDINGS and blocks every C/C++ commit with
-        something no one can fix. Both are bad, and which one you get is a detail
-        of a binary we cannot run here.
-
-        So a row whose separator semantics we cannot honor must not be GATED on.
-        It degrades to an advisory, like the other rows we cannot judge one file
-        with. Fixing it properly means giving clang-tidy its real argv (sources
-        BEFORE the separator, trailing `--` for "no compiler args") and proving it
-        against the real binary — debt, not a guess shipped into a gate.
+        We proved it against the real binary — and the SECOND half of that
+        prescription is WRONG. A trailing `--` means "no compiler flags" and
+        OVERRIDES compile_commands.json, so it throws away the very database that
+        lets clang-tidy resolve an #include. See test_lint_polyglot.py.
         """
-        self.assertFalse(
-            linters.is_file_scoped("clang-tidy"),
-            msg="clang-tidy reads `-- <path>` as a compiler flag, not a source: "
-            "gating on it would lint nothing and call it clean",
-        )
+        with tempfile.TemporaryDirectory() as td:
+            Path(td, "compile_commands.json").write_text("[]")
+
+            argv = linters.linter_argv("clang-tidy", ["app.c"], root=td)
+
+            assert argv is not None
+            self.assertEqual(argv[-1], "app.c", "the path is the LAST arg")
+            self.assertNotIn("--", argv, "a trailing -- would override the compile DB")
+            self.assertIn("--warnings-as-errors=*", argv, "or a finding exits 0")
+
+    def test_clang_tidy_is_gated_only_where_a_compile_database_exists(self):
+        """The precondition, and the reason it is not just a static row.
+
+        Without a compile DB clang-tidy cannot resolve an #include, so a file whose
+        header lives elsewhere fails to COMPILE: clang-diagnostic-error, non-zero,
+        with output — which the contract reads as FINDINGS. The gate would refuse the
+        commit over a header path nothing in the diff can fix.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            self.assertFalse(
+                linters.is_file_scoped("clang-tidy", td),
+                "no compile DB: must degrade, not block on an unfixable error",
+            )
+            self.assertIsNone(
+                linters.linter_argv("clang-tidy", ["app.c"], root=td),
+                "and it must not even be INVOKED — the edit-time path would raise a "
+                "concern lint_resolution could never clear",
+            )
+
+            Path(td, "compile_commands.json").write_text("[]")
+
+            self.assertTrue(
+                linters.is_file_scoped("clang-tidy", td),
+                "with a compile DB, C/C++ is genuinely gatable",
+            )
+
+    def test_a_config_required_linter_refuses_to_run_configless(self):
+        """checkstyle has no way to find its own config. Running it without `-c`
+        would judge the project by a built-in default — a different project's rules,
+        reading back as either findings or clean. Both are lies, so refuse."""
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(linters.linter_argv("checkstyle", ["Foo.java"], root=td))
+
+            argv = linters.linter_argv(
+                "checkstyle", ["Foo.java"], root=td, config_path="/proj/checkstyle.xml"
+            )
+
+            assert argv is not None
+            self.assertIn("/proj/checkstyle.xml", argv, "the DETECTED config")
+            self.assertNotIn("/google_checks.xml", argv, "not Google's")
 
     def test_every_row_has_a_scope_answer(self):
         """No silent gap: a new linter row must be classified, not defaulted by
-        accident. is_file_scoped answers for every command row there is."""
-        for linter in linters.LINTER_COMMANDS:
-            self.assertIsInstance(linters.is_file_scoped(linter), bool)
+        accident. The default IS the bug this story fixed — clang-tidy's argv shape
+        defaulted, and the default was wrong."""
+        with tempfile.TemporaryDirectory() as td:
+            for linter in linters.LINTER_COMMANDS:
+                self.assertIsInstance(linters.is_file_scoped(linter, td), bool)
 
 
 class TestRunLinterBatchScaledTimeout(unittest.TestCase):
