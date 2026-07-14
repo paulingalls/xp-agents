@@ -265,6 +265,25 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             for f in retro_dir.iterdir():
                 f.unlink()
 
+    def _reset_repo_to_main(self) -> None:
+        """Force the class-shared repo back onto `main` with a clean tree.
+
+        `setUp` scrubs the worktree and the index but NOT the checked-out
+        branch, so a sibling test that checked out a story/free branch leaves
+        HEAD there. Any gate that keys on branch SHAPE — the schedule gate's
+        free-branch exemption, say — then reads the wrong branch and exempts a
+        write it should have blocked, which turns a *block* control into a
+        vacuous pass. Cleanup can regress; this makes the starting branch
+        deterministic regardless.
+
+        Opt-in rather than folded into `setUp`: only suites that move HEAD
+        should pay the two subprocesses.
+        """
+        for args in (["checkout", "-f", "main"], ["reset", "--hard", "HEAD"]):
+            subprocess.run(
+                ["git", *args], cwd=self.tmpdir, capture_output=True, check=False
+            )
+
     def tearDown(self):
         # Prune story worktrees so the class-shared git repo's registry
         # stays clean across tests. Without this, a test that creates a

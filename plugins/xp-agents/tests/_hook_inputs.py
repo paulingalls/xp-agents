@@ -19,6 +19,24 @@ def _make_write_input(**overrides) -> dict:
     return data
 
 
+def _make_plan_mode_input(**overrides) -> dict:
+    """Build a canonical EnterPlanMode tool hook input dict.
+
+    No `file_path`: plan-mode entry has no target to place inside or outside
+    the working tree, which is why `pre_tool_plan_mode` carries only the
+    free-branch exemption and the Write door carries both.
+    """
+    data = {
+        "session_id": "t",
+        "tool_name": "EnterPlanMode",
+        "tool_input": {},
+        "cwd": "/tmp",
+        "agent_id": "main",
+    }
+    data.update(overrides)
+    return data
+
+
 def _make_bash_input(command: str = "echo hi", stdout: str = "", **overrides) -> dict:
     """Build a canonical Bash tool hook input dict."""
     data = {
