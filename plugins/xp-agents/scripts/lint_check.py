@@ -31,11 +31,37 @@ from linters import (
     linter_command,
 )
 
-# Per-file timeout (run_linter); also the base for run_linter_batch's scaled
-# timeout: min(CAP, BASE + PER_PATH * N). Single source so bumps land in both.
+# Edit-time, per-file (run_linter). Deliberately short: this path is
+# interactive, and its timeout is HARMLESS — it returns None, so a slow linter
+# just means no nudge on that keystroke.
 LINTER_BASE_TIMEOUT_S: float = 5.0
-BATCH_TIMEOUT_PER_PATH_S: float = 0.05
-BATCH_TIMEOUT_CAP_S: float = 10.0
+
+# Commit-time, per batch (run_linter_batch): min(CAP, BASE + PER_PATH * N).
+#
+# NOT the edit-time number, though it once was. The two have opposite failure
+# semantics: an edit-time timeout is silent, while a batch timeout is
+# `unverified` and the commit gate fails CLOSED on it — it BLOCKS. And a timeout
+# is the one `unverified` cause the agent cannot act on: it can install a missing
+# binary, but it cannot make golangci-lint faster. Too small a budget therefore
+# blocks every commit in that ecosystem, unfixably.
+#
+# 5s was safe only while the batch ran ruff and nothing else. The gate now
+# dispatches off the linter table, so the batch runs `npx eslint`,
+# `golangci-lint run`, `dart analyze` — tools whose COLD START alone (npx bin
+# resolution, a TS program build, a package type-check) routinely exceeds 5s on a
+# real repo. Budget for a linter that actually works; the CAP still bounds one
+# that has genuinely hung.
+#
+# CEILING, and it is a hard one: the CAP must stay well inside the HARNESS's own
+# hook timeout (60s default; pre_tool_bash registers no override). A hook the
+# harness kills produces no exit 2 — so overrunning that budget does not fail
+# closed, it fails OPEN, and the commit sails through unlinted. That is strictly
+# worse than the block we are widening this to avoid. 40s leaves ~20s of headroom
+# for the rest of the hook (tier-1 diff scan, git forks, SMM loads). Do NOT raise
+# the CAP past that without raising the hook's registered timeout first.
+BATCH_TIMEOUT_BASE_S: float = 30.0
+BATCH_TIMEOUT_PER_PATH_S: float = 0.25
+BATCH_TIMEOUT_CAP_S: float = 40.0
 
 # Codes deferred until staging. F401 (unused import) / F811 (redef of unused)
 # false-positive during multi-Edit migrations — an import added in one Edit and
@@ -186,8 +212,9 @@ def run_linter_batch(
     simply nothing for this linter to look at (no path carried an extension
     this linter claims).
 
-    Timeout: min(10, 5 + 0.05 * N) — single-file batches fail fast, large
-    batches stay bounded so a hung linter can't stall a 100-file commit.
+    Timeout: min(CAP, BATCH_BASE + PER_PATH * N) — sized for a real linter's
+    cold start (this budget BLOCKS when it runs out, unlike the edit-time one),
+    still bounded so a hung linter can't stall a 100-file commit forever.
     """
     binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
@@ -210,7 +237,7 @@ def run_linter_batch(
     cmd = [*linter_command(linter_name), "--", *eligible]
     timeout = min(
         BATCH_TIMEOUT_CAP_S,
-        LINTER_BASE_TIMEOUT_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
+        BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
     )
     try:
         proc = subprocess.run(

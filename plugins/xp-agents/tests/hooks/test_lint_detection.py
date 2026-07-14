@@ -275,10 +275,10 @@ class TestLinterTableColumns(unittest.TestCase):
 class TestRunLinterBatchScaledTimeout(unittest.TestCase):
     """run_linter_batch timeout scales with len(eligible) per story-007.
 
-    Formula: ``min(CAP, BASE + PER_PATH * N)`` — single-file batches stay
-    fast (one base interval), large batches stay bounded by CAP so a hung
-    ruff can't stall the commit gate forever. The empty-on-timeout sentinel
-    contract is pinned by test_lint.TestRunLinterBatch.
+    Formula: ``min(CAP, BATCH_BASE + PER_PATH * N)`` — small batches get one
+    base interval, large batches stay bounded by CAP so a hung linter can't
+    stall the commit gate forever. The empty-on-timeout sentinel contract is
+    pinned by test_lint.TestRunLinterBatch.
     """
 
     def _captured_timeout(self, n_paths: int) -> float:
@@ -294,7 +294,56 @@ class TestRunLinterBatchScaledTimeout(unittest.TestCase):
     def _expected(self, n: int) -> float:
         return min(
             lint_check.BATCH_TIMEOUT_CAP_S,
-            lint_check.LINTER_BASE_TIMEOUT_S + lint_check.BATCH_TIMEOUT_PER_PATH_S * n,
+            lint_check.BATCH_TIMEOUT_BASE_S + lint_check.BATCH_TIMEOUT_PER_PATH_S * n,
+        )
+
+    def test_batch_budget_is_not_the_edit_time_budget(self):
+        """The batch budget must be materially larger than the edit-time one,
+        because the two have OPPOSITE failure semantics.
+
+        An edit-time timeout returns None: no nudge, nobody blocked. A batch
+        timeout is `unverified`, and the commit gate fails CLOSED on it — it
+        BLOCKS. Sharing one 5s number was safe only while the batch ran ruff and
+        nothing else; the gate now dispatches per the linter table, so the batch
+        runs `npx eslint`, `golangci-lint run`, `dart analyze` — tools whose cold
+        start alone (npx bin resolution, a TS program build, package type-check)
+        routinely exceeds 5s on a real repo.
+
+        A timeout is also the ONE unverified cause the agent cannot act on: it
+        cannot make golangci-lint faster. Too small a budget therefore blocks
+        every commit in that ecosystem, unfixably — the exact failure the
+        project-scoped DEGRADE row exists to avoid, arriving through a different
+        door. Budget for a real linter; the CAP still bounds a hung one.
+        """
+        self.assertGreater(
+            lint_check.BATCH_TIMEOUT_BASE_S,
+            lint_check.LINTER_BASE_TIMEOUT_S,
+            "commit-gate batch budget must not inherit the edit-time per-file one",
+        )
+        self.assertGreaterEqual(
+            self._captured_timeout(1),
+            30.0,
+            "a one-file commit must budget for a real linter's cold start",
+        )
+
+    def test_batch_cap_stays_inside_the_harness_hook_budget(self):
+        """And the budget has a CEILING, for the opposite reason.
+
+        The gate only blocks because the hook exits 2. A hook the HARNESS kills
+        for overrunning its own timeout (60s default; pre_tool_bash registers no
+        override) exits no such thing — so a batch that outlives the harness does
+        not fail closed, it fails OPEN, and the commit sails through unlinted.
+        That is strictly worse than the block the larger budget exists to avoid.
+
+        So the CAP is bounded on BOTH sides, and this is the side you cannot see
+        in a test of the linter alone. Leave headroom for the rest of the hook
+        (tier-1 diff scan, git forks, SMM loads). Raising the CAP past this means
+        raising the hook's registered timeout FIRST.
+        """
+        self.assertLessEqual(
+            lint_check.BATCH_TIMEOUT_CAP_S,
+            45.0,
+            "a batch that outlives the harness hook timeout fails OPEN, not closed",
         )
 
     def test_n1_below_cap(self):

@@ -2,6 +2,7 @@
 """Tests for pre_tool_bash.py: commit security/review gates + helpers."""
 
 import contextlib
+import os
 import shutil
 import sys
 import tempfile
@@ -21,7 +22,12 @@ import lint_check
 import pre_tool_bash
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
 import security_scanner  # noqa: F401 - shim import: fail loudly if module renamed
-from conftest import _HookTestCase, _make_bash_input, make_event
+from conftest import (
+    _HookTestCase,
+    _make_bash_input,
+    _mock_ruff_result,
+    make_event,
+)
 from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_GOAL
 from markers import write_review_cycle
 
@@ -320,6 +326,11 @@ class TestStagedRuffGate(_HookTestCase):
         """
         super().setUp()
         self.repo = Path(tempfile.mkdtemp())
+        # ruff.toml is what makes this repo a PYTHON project as far as the gate
+        # is concerned. The gate detects the linter from the ecosystem's config
+        # file (M4) rather than assuming ruff, so without this the staged .py
+        # files would route to no linter at all and skip.
+        (self.repo / "ruff.toml").touch()
         (self.repo / "src").mkdir()
         (self.repo / "src" / "app.py").write_text("x = 1\n")
         (self.repo / "src" / "a.py").write_text("x = 1\n")
@@ -497,9 +508,16 @@ class TestStagedRuffGate(_HookTestCase):
         self, mock_batch, _files, _diff
     ):
         """git names staged paths relative to the REPO ROOT. Committing from a
-        subdirectory must still lint them: resolve against the root, and run the
-        linter there. Otherwise every path reads as missing from the subdir, the
-        linter errors out non-zero, and the gate blocks a clean commit."""
+        subdirectory must still lint them: resolve against the root, not the
+        subdir. Otherwise every path reads as missing from the subdir, the linter
+        errors out non-zero, and the gate blocks a clean commit.
+
+        The linter runs from the CONFIG file's directory (here: ruff.toml at the
+        repo root), which is the same convention the edit-time path uses so a
+        monorepo's `npx eslint` resolves its local binary and flat config. That
+        dir arrives realpath'd — detect_linter_config resolves it — so compare
+        against the realpath, as test_lint does.
+        """
         subdir = self.repo / "src"
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(cwd=str(subdir)), smm_dir=self.smm_dir)
@@ -507,7 +525,7 @@ class TestStagedRuffGate(_HookTestCase):
         args, kwargs = mock_batch.call_args
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
         self.assertEqual(paths, ["src/app.py"])
-        self.assertEqual(kwargs.get("cwd"), str(self.repo))
+        self.assertEqual(kwargs.get("cwd"), os.path.realpath(str(self.repo)))
 
     # --- fail-closed on a bad read ---
 
@@ -539,6 +557,192 @@ class TestStagedRuffGate(_HookTestCase):
         except _common.BlockedError as e:
             self.fail(f"No-py-paths case must not block; got: {e}")
         mock_batch.assert_not_called()
+
+
+class TestStagedLintGateAnyLanguage(_HookTestCase):
+    """THE STORY. The commit-time lint gate enforces in every language.
+
+    Before this, `_staged_ruff_findings` hardcoded ruff: a TS/Rust/Go repo staged
+    no `.py` files, the findings list came back empty, and the gate silently
+    enforced NOTHING. The old code's `lang-ok` marker was honest that this was a
+    no-op and argued the no-op was harmless — but harmlessness is not coverage.
+    Every other lang-ok marker in the tree says "the other languages still work,
+    via the table." That one said "the other languages get nothing."
+
+    Now: detect the linter from the ecosystem's own config file (already
+    table-driven), run it, block on what it found. A new language is a ROW in
+    linters.py, never a branch here.
+
+    These fixtures are built from scratch rather than reusing _LintTmpDirMixin,
+    which seeds `ruff.toml` unconditionally — a Python config in a repo that is
+    supposed to prove the gate works with NO Python in it would defeat the test.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.repo = Path(tempfile.mkdtemp())
+        self._git_root_patch = patch(
+            "worktree.resolve_git_root", return_value=str(self.repo)
+        )
+        self._git_root_patch.start()
+
+    def tearDown(self):
+        self._git_root_patch.stop()
+        shutil.rmtree(self.repo, ignore_errors=True)
+        super().tearDown()
+
+    def _seed(self, *files: str) -> None:
+        """Create each path (with parents) under the fixture repo."""
+        for f in files:
+            p = self.repo / f
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x\n")
+
+    def _commit_input(self) -> dict:
+        return _make_bash_input(
+            command="git commit -m 'fix\n\nResolves-Event: none'",
+            cwd=str(self.repo),
+        )
+
+    @contextlib.contextmanager
+    def _linter(self, *, returncode: int, output: str = "", on_path: bool = True):
+        """Mock the linter subprocess. Patches lint_check's bindings — that is
+        where subprocess/shutil live, and deliberately stayed."""
+        with (
+            patch(
+                "lint_check.shutil.which",
+                return_value="/usr/bin/tool" if on_path else None,
+            ),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(
+                returncode=returncode, stdout=output
+            )
+            yield mock_run
+
+    def _run(self, staged: list[str]) -> str | None:
+        with (
+            patch("commits.get_staged_diff", return_value="diff --git a/x b/x\n"),
+            patch("commits.get_staged_files", return_value=staged),
+        ):
+            return pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+
+    # --- AC1: a non-Python project's linter blocks the commit ---
+
+    def test_staged_ts_with_unused_import_is_blocked_by_eslint(self):
+        """AC1 + AC2. The headline case. A TS repo, an unused import, no Python
+        anywhere — the commit is BLOCKED, and the human sees eslint's own words.
+
+        AC2 rides along: eslint exits 0 when only warnings fire, and
+        `no-unused-vars` is `warn` in many configs. This mock exits 1 because the
+        strictness column put `--max-warnings=0` on the argv (asserted below) —
+        without it, this exact run would have exited 0 and read as clean.
+        """
+        self._seed("eslint.config.mjs", "src/app.ts")
+        eslint_says = (
+            "/src/app.ts\n"
+            "  1:10  warning  'readFile' is defined but never used  no-unused-vars\n"
+            "\n✖ 1 problem (0 errors, 1 warning)\n"
+        )
+        with (
+            self._linter(returncode=1, output=eslint_says) as mock_run,
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            self._run(["src/app.ts"])
+        msg = str(ctx.exception)
+        self.assertIn("no-unused-vars", msg, "eslint's own output must reach the human")
+        self.assertIn("eslint", msg.lower())
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("eslint", cmd)
+        self.assertIn("--max-warnings=0", cmd)
+        self.assertNotIn("ruff", cmd)
+
+    def test_staged_go_is_blocked_by_its_own_table_row(self):
+        """AC1. Not an eslint special case — Go routes to golangci-lint off the
+        same table. A new language is a row, not a branch."""
+        self._seed(".golangci.yml", "cmd/server.go")
+        go_says = "cmd/server.go:5:2: `io` imported and not used (typecheck)"
+        with (
+            self._linter(returncode=1, output=go_says) as mock_run,
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            self._run(["cmd/server.go"])
+        self.assertIn("imported and not used", str(ctx.exception))
+        self.assertIn("golangci-lint", mock_run.call_args[0][0])
+
+    # --- AC5: a missing CONFIG skips; a missing BINARY fails closed ---
+
+    def test_no_linter_config_for_the_ecosystem_skips(self):
+        """AC5, first half. A Ruby file in a repo with no rubocop config: there
+        is no linter to run, and a missing linter is not a finding. Skip — do not
+        block, do not fork."""
+        self._seed("lib/app.rb")
+        with self._linter(returncode=1, output="should never run") as mock_run:
+            result = self._run(["lib/app.rb"])
+        mock_run.assert_not_called()
+        if result:
+            self.assertNotIn("blocked", result.lower())
+
+    def test_configured_linter_with_missing_binary_fails_closed(self):
+        """AC5, second half, and the distinction that must NOT be folded into
+        "degrade gracefully": the ecosystem's config IS present, so the project
+        declares it lints — the gate simply could not run the tool. That is a bad
+        read, and the SMM constraint says gates fail CLOSED on a bad read."""
+        self._seed("eslint.config.mjs", "src/app.ts")
+        with (
+            self._linter(returncode=0, on_path=False),
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            self._run(["src/app.ts"])
+        msg = str(ctx.exception).lower()
+        self.assertIn("eslint", msg)
+
+    # --- AC3: a project-scoped row degrades, it does not block ---
+
+    def test_project_scoped_clippy_degrades_instead_of_blocking(self):
+        """AC3. `cargo clippy -- -D warnings` compiles the WHOLE crate and exits
+        non-zero for a pre-existing warning in a file the commit never touched.
+        Blocking on that would block every commit in the repo, unfixably — you
+        cannot fix it by fixing your own diff. So the gate degrades: it does not
+        block, and it says why rather than going quiet."""
+        self._seed("Cargo.toml", "src/main.rs")
+        with self._linter(
+            returncode=101, output="warning: unused import in some/other/file.rs"
+        ) as mock_run:
+            try:
+                result = self._run(["src/main.rs"])
+            except _common.BlockedError as e:
+                self.fail(f"A project-scoped linter must not block the commit: {e}")
+        mock_run.assert_not_called()
+        assert result is not None
+        self.assertIn("clippy", result.lower())
+
+    # --- AC6: Python parity, through the same door ---
+
+    def test_python_still_blocks_through_the_generic_path(self):
+        """AC6. Python is no longer special-cased — it is one row among many. It
+        must still block, or the story traded Python's enforcement for everyone
+        else's."""
+        self._seed("ruff.toml", "src/app.py")
+        ruff_says = "src/app.py:3:5: E302 expected 2 blank lines, found 1"
+        with (
+            self._linter(returncode=1, output=ruff_says) as mock_run,
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            self._run(["src/app.py"])
+        self.assertIn("E302", str(ctx.exception))
+        self.assertIn("ruff", mock_run.call_args[0][0])
+
+    def test_a_polyglot_repo_routes_each_file_to_its_own_linter(self):
+        """A monorepo with Python AND TypeScript: each staged file reaches the
+        linter that claims it. One fork per linter, not one per file."""
+        self._seed("ruff.toml", "eslint.config.mjs", "src/app.py", "web/app.ts")
+        with self._linter(returncode=0) as mock_run:
+            self._run(["src/app.py", "web/app.ts"])
+        invoked = [c[0][0][0] for c in mock_run.call_args_list]
+        self.assertIn("ruff", invoked)
+        self.assertIn("npx", invoked)  # eslint runs via npx
+        self.assertEqual(len(invoked), 2, "one fork per linter")
 
 
 def _heredoc_commit(prefix: str, body: str) -> str:
