@@ -616,6 +616,26 @@ class TestCloseReviewerDone(_HookTestCase):
         )
         self.assertFalse((self.smm_dir / ".close-cycle-active").exists())
 
+    def test_close_reviewer_emits_subagent_complete_evidence(self):
+        """Part 1: the handler emits the STANDARD subagent_complete event
+        (agent_type=xp-close-reviewer) BEFORE consuming the marker — so the
+        close-reviewer stops being the one subagent that leaves no completion
+        trace. This is the evidence the gate cross-checks (story-002)."""
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        statuses = events_of_type(events, EVENT_TYPE_STATUS)
+        sc = [e for e in statuses if event_action(e) == STATUS_ACTION_SUBAGENT_COMPLETE]
+        self.assertEqual(len(sc), 1, "exactly one subagent_complete evidence event")
+        self.assertEqual(
+            sc[0].get("metadata", {}).get("agent_type"), "xp-close-reviewer"
+        )
+        # Marker still consumed — evidence emission does not replace teardown.
+        self.assertFalse((self.smm_dir / ".close-cycle-active").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
