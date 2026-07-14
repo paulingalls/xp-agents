@@ -38,6 +38,12 @@ from _test_typing import _MixinBase
 
 _T = TypeVar("_T")
 
+# Taken from the production constant rather than re-typed: a hardcoded "/tmp/..."
+# here would keep reaping the OLD path on the day someone moves the real one, and
+# the leak would come back silently — which is exactly how it survived two fixes.
+sys.path.insert(0, str(_SCRIPTS_DIR))
+from teammate_runner import _LOG_ROOT as _TEAMMATE_LOG_ROOT  # noqa: E402
+
 
 class _AssertNotNoneMixin(_MixinBase):
     """Adds `self._assert_not_none(value)` — a pyright-narrowing variant of
@@ -224,6 +230,30 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
         shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
+        cls._reap_teammate_temp_namespace()
+
+    @classmethod
+    def _reap_teammate_temp_namespace(cls) -> None:
+        """Remove the /tmp namespace a spawn mints for THIS class's project id.
+
+        A spawn writes the teammate's prompt and tee log under
+        `/tmp/xp-agents-teammates/<project-id>/<sprint-id>/`, and `spawn_teammate`
+        mkdirs it. The project id is derived from the SMM dir's parent — which here
+        is a throwaway `mkdtemp` — so every test class that drives a spawn minted a
+        REAL directory under a REAL shared /tmp root, and nothing removed it. 542 had
+        piled up, and a full suite added 4 more every run.
+
+        The reap belongs HERE, in the base that owns the temp SMM dir the token is
+        derived from, and not in each test that happens to trip it: the token is this
+        class's to create and therefore this class's to destroy. Copying a cleanup
+        line into each spawn test is what let the leak come back twice.
+
+        Best-effort by design. This is hygiene, not correctness — a tearDown that
+        raised would turn a stray directory into a failing suite.
+        """
+        project_id = cls.smm_dir.parent.name
+        if project_id:
+            shutil.rmtree(_TEAMMATE_LOG_ROOT / project_id, ignore_errors=True)
 
     def setUp(self):
         # Reset SMM state to the post-init snapshot so each test starts clean.
