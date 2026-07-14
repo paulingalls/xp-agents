@@ -142,6 +142,24 @@ STATUS_ACTION_EDIT_ACCEPTANCE_SURFACE = "edit_acceptance_surface"
 STATUS_ACTION_RETRO_TRY_DISPOSITION = "retro_try_disposition"
 STATUS_ACTION_TRIAGE_DISPOSITION = "triage_disposition"
 
+# The topic prefix an LLM slugs a retro-Try disposition with. LEGACY: it exists
+# only to read events written BEFORE the lane tag above; a tagged event is
+# identified by its tag, never by its topic.
+#
+# It lives here, beside the lane vocabulary, because it is the OTHER half of the
+# same question — `is_retro_lane` deliberately answers only "the tag does not
+# rule this event out", and leaves each caller to supply the legacy rule for an
+# untagged event. This is that rule's vocabulary, and it was spelled out
+# independently at both callers, which is precisely how a shared string drifts.
+#
+# What this is NOT: the full topic `"retro-try-adopted"` that the write-path
+# validator in event_schema compares against. That is a different string with a
+# different owner, and importing this legacy READER's constant into the write
+# path would couple the schema to legacy vocabulary — a regression dressed as a
+# dedup. Its whole consumer set is two legacy readers, in other modules:
+# `intent._legacy_retro_disposition` and `subagent_start._is_retro_adoption`.
+LEGACY_RETRO_TOPIC_PREFIX = "retro-try-"
+
 
 def event_action(event: dict) -> str | None:
     """Return event.metadata.action, or None when absent.
