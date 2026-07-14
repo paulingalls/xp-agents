@@ -61,6 +61,7 @@ from conftest import (
     _IntegrationTestCase,
     _make_plan_mode_input,
     _make_write_input,
+    run_cli,
 )
 from conftest import make_sprint_dict as _make_sprint
 from conftest import make_story_dict as _make_story
@@ -107,9 +108,16 @@ class TestScheduleGateDoors(_IntegrationTestCase):
         )
 
     def _restore_main(self, branch: str) -> None:
-        """Put the shared repo back on `main` and drop `branch`. Fails LOUD:
-        a silently-failed restore corrupts every subsequent test in the class,
-        which is exactly what a quiet cleanup would hide."""
+        """Put the shared repo back on `main` and drop `branch`.
+
+        The `branch -D` fails LOUD (a leaked branch would make the next
+        method's `checkout -b` collide) while the reset leg is quiet by
+        `_reset_repo_to_main`'s contract, which the frontier suite shares. That
+        asymmetry is safe here and not a teardown mask: every method in this
+        class checks out EXPLICITLY, so a leaked HEAD cannot silently rewrite
+        which branch a test runs on, and a cleanup that raises is reported by
+        unittest ALONGSIDE the test's own failure, never instead of it.
+        """
         self._reset_repo_to_main()
         subprocess.run(
             ["git", "branch", "-D", branch],
@@ -138,12 +146,38 @@ class TestScheduleGateDoors(_IntegrationTestCase):
     # -- assertions --------------------------------------------------------
 
     def _assert_allowed(self, result: subprocess.CompletedProcess) -> None:
-        """Exit 0 EXACTLY. Not `!= 2`: a hook that dies with a traceback exits
-        1, and PreToolUse treats a non-2 exit as non-blocking — so production
-        would allow the write, for a catastrophic reason, and `!= 2` would call
-        that a pass."""
+        """The tool call PROCEEDS — asserted against the hook PROTOCOL, not
+        against what these two hooks happen to be implemented with today.
+
+        Exit 0 EXACTLY, not `!= 2`: a hook that dies with a traceback exits 1,
+        and PreToolUse treats a non-2 exit as non-blocking — so production would
+        allow the write, for a catastrophic reason, and `!= 2` would call that a
+        pass.
+
+        And stdout must carry no BLOCK. PreToolUse has TWO block channels: exit
+        2 with a reason on stderr, and exit 0 with a `decision: block` /
+        `permissionDecision: deny` object on stdout. An ALLOW assertion that
+        reads only the exit code calls the second kind of block a pass — the
+        fail-open shape this milestone exists to close, reproduced one level up
+        in the test meant to catch it. Today both doors block by exit 2 and this
+        leg is quiet; the day one is rewritten to the JSON form, these tests must
+        not go green on a denied write.
+
+        `stdout == ""` would be wrong in the other direction: an ALLOW may
+        legitimately carry an `additionalContext` nudge (check_tdd_order's
+        reminder rides this exact channel), and pinning stdout empty would make
+        the allow tests hostage to an unrelated nudge.
+        """
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
+        if result.stdout.strip():
+            payload = json.loads(result.stdout)  # non-JSON on stdout is itself a bug
+            self.assertNotEqual(payload.get("decision"), "block", result.stdout)
+            self.assertNotEqual(
+                payload.get("hookSpecificOutput", {}).get("permissionDecision"),
+                "deny",
+                result.stdout,
+            )
 
     def _assert_blocked(self, result: subprocess.CompletedProcess) -> None:
         """Exit 2 AND the schedule gate's own reason. `pre_tool_write` raises
@@ -278,9 +312,28 @@ class TestFrontierVerdictCLI(_IntegrationTestCase):
     # The done-bridge. story-002 is `done`, which SATISFIES story-004's
     # dependency and puts it on the frontier alongside story-003 — so the
     # frontier is 2 stories that nonetheless carry an edge between them, routed
-    # THROUGH a story that is not itself on the frontier. That is precisely the
-    # transitive case a direct-edge-only check misses. Domains are explicit and
-    # disjoint so a collision cannot be the cause of the verdict.
+    # THROUGH a story that is not itself on the frontier. That is the transitive
+    # case a direct-edge-only check misses. Domains are explicit and disjoint so
+    # a collision cannot be the cause of the verdict.
+    #
+    # BE HONEST ABOUT THE SHAPE THIS REQUIRES. `_deps_satisfied` already gates
+    # frontier membership on every dep being `done`, so a frontier member can
+    # never depend DIRECTLY on another (the dependency would be `scheduled`, and
+    # the dependent would fall off the frontier). A transitive edge therefore
+    # needs a bridge story that is `done` while an ancestor of it is still
+    # `scheduled` — story-002 `done` depending on story-003 `scheduled`, below.
+    # That state contradicts the promotion invariant (story-002 could only have
+    # been promoted with its deps done), so the guard this pins fires ONLY on a
+    # sprint whose dependency graph is already inconsistent: a hand-edited or
+    # corrupted sprint.json, not an ordinary fan-out. Exhaustively checked over
+    # every 4-story acyclic graph x status assignment — the guard fires on 105
+    # of them and NONE satisfies "every done story's deps are done".
+    #
+    # The guard is worth having (a corrupt graph must not fan out teammates onto
+    # branches missing their dependency's commits) and this pins it. What it is
+    # not is protection against a mistake the normal lifecycle can make. Stating
+    # that here so the next reader does not infer a hazard that cannot occur —
+    # and so nobody "simplifies" the guard away on noticing half of it.
     def _stories(self, *, edge: bool) -> list[dict]:
         return [
             _make_story(
@@ -307,18 +360,10 @@ class TestFrontierVerdictCLI(_IntegrationTestCase):
         (self.smm_dir / "sprint.json").write_text(
             json.dumps(_make_sprint(stories=self._stories(edge=edge)))
         )
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(_SPRINT_CLI),
-                "--smm-dir",
-                str(self.smm_dir),
-                "ready-frontier",
-            ],
-            capture_output=True,
-            text=True,
-            env=self._test_env,
-        )
+        # conftest's shared CLI runner, not a hand-rolled subprocess.run: it is
+        # the same invocation every other CLI suite makes, and it carries a
+        # timeout — a hung `ready-frontier` fails instead of wedging the suite.
+        result = run_cli(_SPRINT_CLI, ["ready-frontier"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
