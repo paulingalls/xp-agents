@@ -21,7 +21,180 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _hooks_json import HooksJsonTestCase
-from conftest import _HookTestCase, _make_stop_input
+from conftest import _HookTestCase, _make_stop_input, make_event
+from event_schema import EVENT_TYPE_STATUS
+
+
+def _seed_status(smm_dir, action: str, agent_type: str = "") -> None:
+    """Append a status event carrying metadata.action (+ optional agent_type).
+
+    Templates test_sprint_stop_gate._seed_sprint_end: the close-cycle evidence
+    check reads log-append order, so seeding real events exercises the same
+    path the gate walks.
+    """
+    import _common
+
+    metadata = {"action": action}
+    if agent_type:
+        metadata["agent_type"] = agent_type
+    event = make_event(
+        EVENT_TYPE_STATUS,
+        agent_id="seed",
+        content=f"seed {action}",
+        working_on=[],
+        metadata=metadata,
+    )
+    _common.append_safe(smm_dir, event)
+
+
+class TestCloseCycleEvidenceRelease(_HookTestCase):
+    """story-002 Part 2: reviewer-completion evidence RELEASES a lingering marker.
+
+    The block stays marker-triggered; a subagent_complete event whose
+    agent_type resolves to xp-close-reviewer, appearing AFTER the latest
+    close_started, proves a reviewer ran this cycle and overrides the block.
+    """
+
+    def test_evidence_after_close_started_releases_marker(self):
+        """AC #2: marker present + close_started anchor + close-reviewer
+        subagent_complete after it → gate releases (returns None)."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_evidence_matches_qualified_agent_type(self):
+        """The agent_type resolves via strip_our_namespace, so the
+        xp-agents:-qualified form releases too."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(
+            self.smm_dir,
+            "subagent_complete",
+            agent_type="xp-agents:xp-close-reviewer",
+        )
+
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(result)
+
+    def test_evidence_before_close_started_still_blocks(self):
+        """Ordering matters: a close-reviewer completion from a PRIOR cycle
+        (before the latest close_started) is not this cycle's evidence — the
+        gate still blocks."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        # Prior-cycle reviewer completion, THEN a fresh close_started with no
+        # subsequent reviewer completion.
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+        _seed_status(self.smm_dir, "close_started")
+
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_no_close_started_anchor_still_blocks(self):
+        """A close-reviewer completion with NO close_started anchor cannot be
+        attributed to the current cycle → block (fail toward surfacing)."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_other_agent_completion_does_not_release(self):
+        """A non-reviewer subagent_complete after close_started is not
+        evidence a REVIEWER ran — the gate still blocks."""
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="general-purpose")
+
+        result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_evidence_releases_before_stop_hook_bypass(self):
+        """Placement AC (#5 crash path): evidence + a lingering marker aged
+        past the abandonment timeout, on a stop_hook_active Stop, must RELEASE
+        (return None) WITHOUT recording a false abandonment concern. The
+        release guard runs BEFORE the bypass, so the crash-left lingering
+        marker (Part 1 emits evidence then consumes; a crash between leaves
+        both) never gets mis-recorded as 'reviewer never ran'."""
+        import os
+
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+        marker_path = markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+        backdate = close_cycle_stop_gate._CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC + 60
+        old = marker_path.stat().st_mtime - backdate
+        os.utime(marker_path, (old, old))
+
+        result = close_cycle_stop_gate.run(
+            _make_stop_input(stop_hook_active=True), smm_dir=self.smm_dir
+        )
+        self.assertIsNone(result)
+
+        concerns = [e for e in self._read_events() if e.get("type") == "concern"]
+        self.assertEqual(
+            len(concerns),
+            0,
+            "evidence release must pre-empt the bypass — no false abandonment concern",
+        )
+
+    def test_fail_closed_on_corrupt_read_still_blocks(self):
+        """AC #5: a failed event read is treated as no-evidence → the gate
+        still blocks, never a silent release, never a crash."""
+        from unittest.mock import patch
+
+        import close_cycle_stop_gate
+        import markers
+
+        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE, "1")
+        _seed_status(self.smm_dir, "close_started")
+        _seed_status(self.smm_dir, "subagent_complete", agent_type="xp-close-reviewer")
+
+        with patch(
+            "close_cycle_stop_gate._common.load_events_with_resolutions",
+            side_effect=OSError("corrupt events.jsonl"),
+        ):
+            result = close_cycle_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+        result = self._assert_not_none(result)
+        self.assertIn("xp-close-reviewer", result)
+
+    def test_helper_returns_false_on_bad_read(self):
+        """reviewer_completed_this_cycle itself fails closed (returns False)
+        rather than raising into the Stop hook."""
+        from unittest.mock import patch
+
+        import close_cycle_stop_gate
+
+        with patch(
+            "close_cycle_stop_gate._common.load_events_with_resolutions",
+            side_effect=ValueError("boom"),
+        ):
+            self.assertFalse(
+                close_cycle_stop_gate.reviewer_completed_this_cycle(self.smm_dir)
+            )
 
 
 class TestCloseCycleStopGate(_HookTestCase):
