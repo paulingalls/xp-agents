@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase, make_event
+from conftest import _HookTestCase, make_event, make_milestone_dict, make_plan_dict
 from event_schema import (
     EVENT_TYPE_COMMIT,
     EVENT_TYPE_CONCERN,
@@ -150,6 +150,176 @@ class TestDroppedTryResolution(_HookTestCase):
         self.assertEqual(len(statuses), 1)
         self.assertTrue(statuses[0]["resolved_this_session"])
         self.assertEqual(statuses[0]["disposition"], "dropped")
+
+
+class TestPlanSchedule(_HookTestCase):
+    """`plan_schedule` maps a recorded item's id to the milestone that schedules
+    it, so the retro agent can tell "already scheduled" from "unresolved xN".
+
+    The status filter is the whole story in miniature. Milestone status is one of
+    {planned, in-progress, delivered, deferred}, so the tempting `!= "delivered"`
+    filter ADMITS `deferred` — and a deferred milestone schedules nothing. The
+    retro would report an aging debt as "scheduled in M5" and quietly stop
+    escalating work nobody will do: the same false reassurance, mirrored.
+    Excluding `delivered` kills the other trap — a milestone that already SHIPPED
+    without fixing the debt is not going to fix it. Both fall out of reusing
+    `execution_plan_store.ACTIVE_MILESTONE_STATUSES`, the set `plan_is_complete`
+    already means by "still owes work"; a second hand-written status list here
+    would be free to drift from it.
+
+    Keyed by ID, not by the digest's signal_events: three of the four nags that
+    motivated this arose from the model recalling an id from a previous retro's
+    prose, the event itself long since compacted out of the live log. A map that
+    covered only ids present in the digest would miss exactly those.
+    """
+
+    DEBT_ID = "4ecd48c71327"
+
+    def setUp(self):
+        super().setUp()
+        (self.smm_dir / "retrospectives").mkdir()
+
+    def _run_with_plan(self, plan: dict | None) -> dict:
+        """Run the retro builder over 5 filler events, with *plan* on disk (or
+        no plan at all when None). Returns the parsed .retro-input.json."""
+        import retrospective
+
+        if plan is not None:
+            (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
+        self._write_events([make_event(content=f"work {i}") for i in range(5)])
+        retrospective.run(
+            {"session_id": "test", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            return json.load(f)
+
+    def _plan_with(self, status: str) -> dict:
+        return make_plan_dict(
+            milestones=[
+                make_milestone_dict(
+                    number=4,
+                    name="Close gates honor evidence, not intent",
+                    status=status,
+                    delivered_sprint="sprint-117" if status == "delivered" else None,
+                    schedules=[self.DEBT_ID],
+                )
+            ]
+        )
+
+    def test_planned_milestone_is_mapped(self):
+        data = self._run_with_plan(self._plan_with("planned"))
+        self.assertEqual(
+            data["plan_schedule"],
+            {self.DEBT_ID: "M4: Close gates honor evidence, not intent"},
+        )
+
+    def test_in_progress_milestone_is_mapped(self):
+        data = self._run_with_plan(self._plan_with("in-progress"))
+        self.assertEqual(
+            data["plan_schedule"],
+            {self.DEBT_ID: "M4: Close gates honor evidence, not intent"},
+        )
+
+    def test_delivered_milestone_is_omitted(self):
+        """It already SHIPPED without fixing the debt — so it is not going to.
+        Reporting it as scheduled would stop the escalation forever."""
+        data = self._run_with_plan(self._plan_with("delivered"))
+        self.assertEqual(data["plan_schedule"], {})
+
+    def test_deferred_milestone_is_omitted(self):
+        """A deferred milestone schedules NOTHING. This is the case a
+        `!= "delivered"` filter would wrongly admit."""
+        data = self._run_with_plan(self._plan_with("deferred"))
+        self.assertEqual(data["plan_schedule"], {})
+
+    def test_no_plan_degrades_to_empty_map(self):
+        """load_plan returns None when absent — degrade, never raise."""
+        data = self._run_with_plan(None)
+        self.assertEqual(data["plan_schedule"], {})
+
+    def test_corrupt_plan_degrades_to_empty_map(self):
+        """A broken plan must not take SessionStart down with it.
+
+        `load_plan` is fail-LOUD (ValueError on malformed JSON or a schema-
+        invalid doc), and its other callers rightly let that raise — they are
+        plan tools, and a plan tool on a corrupt plan has nothing to do. This
+        caller is different in kind: `plan_schedule` ANNOTATES a retro the hook
+        has already decided to run, and the retro ran fine before this field
+        existed. Letting the plan's corruption abort the SessionStart hook would
+        newly couple every session start to plan validity — and take out the
+        retro that is the user's best channel for hearing about it.
+
+        Degrading costs exactly the annotation: an empty map means "nothing
+        known to be scheduled", which is the pre-story behaviour (the agent
+        escalates), not a wrong answer. Same rationale, same shape as
+        `intent.load_ledger`, which is fail-QUIET for this reason.
+        """
+        (self.smm_dir / "execution_plan.json").write_text("{ not json")
+        self._write_events([make_event(content=f"work {i}") for i in range(5)])
+
+        import retrospective
+
+        retrospective.run(
+            {"session_id": "test", "source": "startup"}, smm_dir=self.smm_dir
+        )
+        with open(self.smm_dir / ".retro-input.json") as f:
+            self.assertEqual(json.load(f)["plan_schedule"], {})
+
+    def test_milestone_without_schedules_contributes_nothing(self):
+        plan = make_plan_dict(milestones=[make_milestone_dict(status="planned")])
+        self.assertNotIn("schedules", plan["milestones"][0])
+        self.assertEqual(self._run_with_plan(plan)["plan_schedule"], {})
+
+    def test_open_and_closed_milestones_together(self):
+        """The open milestone's ids land; the delivered one's do not — even
+        though both name a still-open debt."""
+        other_id = "4cce3e34eafb"
+        plan = make_plan_dict(
+            milestones=[
+                make_milestone_dict(
+                    number=1,
+                    name="Shipped already",
+                    status="delivered",
+                    delivered_sprint="sprint-110",
+                    schedules=[other_id],
+                ),
+                make_milestone_dict(
+                    number=4,
+                    name="Close gates honor evidence, not intent",
+                    status="in-progress",
+                    schedules=[self.DEBT_ID],
+                ),
+            ]
+        )
+        self.assertEqual(
+            self._run_with_plan(plan)["plan_schedule"],
+            {self.DEBT_ID: "M4: Close gates honor evidence, not intent"},
+        )
+
+    def test_two_active_milestones_naming_one_debt_report_the_earlier(self):
+        """A one-label map has to pick when two live milestones name the same
+        debt. Pick the EARLIER one: it is the one the debt gets fixed by, and
+        "scheduled in M2" is the answer that survives M4 being re-planned."""
+        plan = make_plan_dict(
+            milestones=[
+                make_milestone_dict(
+                    number=2,
+                    name="Earlier",
+                    status="in-progress",
+                    schedules=[self.DEBT_ID],
+                ),
+                make_milestone_dict(
+                    number=4,
+                    name="Later",
+                    status="planned",
+                    schedules=[self.DEBT_ID],
+                ),
+            ]
+        )
+        self.assertEqual(
+            self._run_with_plan(plan)["plan_schedule"],
+            {self.DEBT_ID: "M2: Earlier"},
+        )
 
 
 if __name__ == "__main__":
