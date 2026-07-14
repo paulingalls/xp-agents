@@ -2,6 +2,95 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.8.0 — Gates that fail OPEN
+
+Five gates in this plugin could be made to wave work through. Every one of them is fixed here,
+and **four were found by review, not by the story that opened the file.**
+
+A gate that fails open is worse than no gate: it reports that it checked.
+
+### The schedule gate blocked the wrong writes — and the plan door failed open
+
+The pre-write schedule gate blocked *any* write in the pre-promotion window. It blocked a write to
+a file **outside the repo** — not this project's story code at all — where the only way to satisfy
+it was to promote a story against a customer pause. And it blocked work on a **free branch**, where
+the sprint isn't the frame.
+
+It now exempts both, keying free-ness on branch **shape** (a marker could be `rm`'d to bypass). The
+same gate runs at a second door — `EnterPlanMode` — so on a free branch you could neither write nor
+plan; that door is fixed too.
+
+Putting both doors in one diff is what exposed the real bug: **`pre_tool_plan_mode` failed OPEN on
+an unreadable `sprint.json`.** It died with a traceback, and PreToolUse treats a non-2 exit as
+*non-blocking* — so plan mode opened with every sprint gate blind. Its sibling write door had
+failed closed correctly for months.
+
+And the new exemption itself shipped a third: `resolve_git_root` can return an **empty string**, and
+`Path("").resolve()` is the hook's own cwd — so containment was judged against the wrong tree and an
+in-repo write read as out-of-tree. Caught by review, pinned by a test.
+
+### The Write hot path could be waved through by any unexpected OSError
+
+`resolve_git_root` caught three narrow exception types. Any *other* `OSError` from the git fork
+(`PermissionError`, `EAGAIN`) escaped, killed the hook, and the write landed **un-gated**. A per-cwd
+cache is what hid it: whether it fired depended on whether an earlier call had warmed that cwd — so
+it presented as a **flaky test**, not as red. A flaky test guarding a fail-closed gate *was* the
+gate failing open.
+
+### The commit-time lint gate now enforces in any language
+
+It hardcoded ruff. A TS/Rust/Go repo staged no `.py` files, and the gate silently passed — **zero
+commit-time lint enforcement in any language but Python.**
+
+The gate no longer parses. It classifies by **exit code**: 0 is clean, non-zero with output is
+findings (reported verbatim, never interpreted), non-zero with nothing readable is **unverified →
+blocked**. A new language is a row in a table, never a branch. Two columns the naive design lacked:
+a strictness flag (eslint exits 0 on warnings, and `no-unused-vars` is `warn` in many configs) and a
+file-scoped capability flag (clippy lints the whole crate, so one pre-existing warning would have
+blocked every Rust commit, unfixably).
+
+**Breaking:** the rule is uniform, so **Python is stricter** — E302 and friends now block a commit
+where before only F401/F811 did.
+
+The gate's timeout was calibrated for ruff back when ruff was all it ran. `npx eslint`'s *cold start*
+alone exceeds it — timeout → unverified → block, an unfixable gate for exactly the languages this
+serves. It's now one shared budget across all linters, bounded **above** by the harness's 60s hook
+limit: past that the harness kills the hook, which produces no exit 2 and fails **open**.
+
+### A frontier with a dependency edge could be fanned out in parallel
+
+`ready_frontier_report` could authorize concurrent teammates for stories where one depends on
+another. The fault isn't file overlap — it's the **base branch**: every story branch is cut from the
+same sprint base, so a promoted dependent is cut from a base *without its dependency's commits*,
+wrong even when their file domains are perfectly disjoint. The frontier must be an **antichain**, and
+now it is (transitively — the edge can run *through* a story absent from the frontier).
+
+### The in-place teammate marker: liveness a pid can't fake
+
+Liveness is now a kernel-held `flock` OR'd with a live child pid. The kernel releases the lock on any
+death, SIGKILL included — no pid to recycle, no verdict to mis-adjudicate. The child-pid leg is
+load-bearing: SIGKILL of the supervisor does *not* propagate to the child, and a lock-only verdict
+would reap a **live** teammate's marker, certify a half-written tree, and let a respawn admit a
+second agent into the same checkout.
+
+### The retro stops nagging about work the plan already schedules
+
+A milestone can now declare `schedules: [<event-id>]`, and the retrospective reads it. Previously it
+escalated a debt to HIGH after 7 sessions "unresolved" while a milestone named that debt as its
+deliverable.
+
+Building it exposed a fail-open in the id pattern itself: `EVENT_ID_RE` was anchored with `$`, which
+in Python matches **before a trailing newline** — so `"<id>\n"` validated as an id and then matched
+nothing. It guards `metadata.resolves` too.
+
+### Known-open
+
+- **Milestone 3 is not delivered.** Both its defects shipped and each is proven by its own suite, but
+  the capstone that proves them *together through the real hook* was deferred.
+- The lint gate reads the **working tree**, not the staged bytes — it diverges under `git add -p`.
+- Java/Kotlin/Elixir/C# get an advisory, not a gate (their linters are project-scoped, or their argv
+  shape is unverified against an installed binary).
+
 ## v4.7.0 — Adoption records intent, not resolution — and compaction stops eating the record
 
 Two of these are silent data loss that shipped in v4.6.1. If you run this plugin, upgrade.
