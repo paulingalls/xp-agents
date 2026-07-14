@@ -11,12 +11,63 @@ Cross-call graph (no outbound calls beyond this module):
 - merge_branch          -> _merge_into_target
 """
 
+import re
 import subprocess
 import sys
+import time
+from collections.abc import Callable
+
+# git's own words when another process holds the repo's index. Matched on the
+# SIGNATURE rather than the exit code, because git returns the same 128 for plenty
+# of failures that will never resolve themselves.
+_INDEX_LOCK_RE = re.compile(r"index\.lock", re.IGNORECASE)
+
+_LOCK_RETRY_ATTEMPTS = 3
+_LOCK_RETRY_BASE_S = 0.2
 
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+def _git_retry_on_lock(
+    args: list[str],
+    cwd: str,
+    *,
+    attempts: int = _LOCK_RETRY_ATTEMPTS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> subprocess.CompletedProcess:
+    """Run a git command, retrying ONLY a transient `.git/index.lock` collision.
+
+    A sibling worktree (or a teammate's git process) can hold the index for a
+    moment. That is what bit story-005: the close's merge failed on the lock, and
+    the pipeline carried on and marked the story done unmerged.
+
+    NOT a blanket retry, deliberately. A merge conflict will not resolve itself on
+    the second attempt, and retrying it would turn a clear error into a slow,
+    confusing one — so only the lock signature comes back for another go. Safe to
+    retry because git takes the lock BEFORE it mutates anything: a lock-failed
+    command is a clean no-op, not a half-applied one.
+
+    Bounded, with a growing backoff. The holder may never let go, and an unbounded
+    spin would HANG the close rather than fail it; on exhaustion the caller gets
+    git's own stderr, which is what makes `_merge_into_target` exit non-zero.
+
+    HONEST FRAMING: this narrows the window, it does not close it. The mark-done
+    gate (`story_done_gate`) is the actual fix — it refuses to record a story as
+    shipped when the merge did not land, however the merge came to fail. This just
+    keeps the common case from ever reaching it.
+
+    `sleep` is injected so the tests can assert the retry STRUCTURALLY — that it
+    tried again and backed off — without buying a slow, flaky wall-clock test.
+    """
+    result = _git(args, cwd)
+    for attempt in range(1, attempts):
+        if result.returncode == 0 or not _INDEX_LOCK_RE.search(result.stderr or ""):
+            return result
+        sleep(_LOCK_RETRY_BASE_S * (2 ** (attempt - 1)))
+        result = _git(args, cwd)
+    return result
 
 
 def is_merged_into(cwd: str, branch: str, target: str) -> bool:
@@ -53,11 +104,14 @@ def _fast_forward_if_safe(cwd: str, branch: str, base: str) -> None:
 
 
 def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
-    r = _git(["git", "checkout", target], cwd)
+    # Both legs go through the lock retry: the checkout takes the index too, so a
+    # sibling worktree's git process can lose us the close just as easily there as
+    # at the merge itself.
+    r = _git_retry_on_lock(["git", "checkout", target], cwd)
     if r.returncode != 0:
         print(f"Failed to checkout {target}: {r.stderr}", file=sys.stderr)
         sys.exit(1)
-    r = _git(
+    r = _git_retry_on_lock(
         ["git", "merge", "--no-ff", source_branch, "-m", f"Merge {source_branch}"],
         cwd,
     )

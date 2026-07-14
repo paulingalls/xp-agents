@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -123,6 +124,112 @@ class TestMergeIntoTarget(unittest.TestCase):
                 check=True,
             ).stdout
             self.assertIn("paul/story-007-x", log)
+
+
+class TestIndexLockRetry(unittest.TestCase):
+    """A transient `.git/index.lock` must not fail the merge on first contact.
+
+    This is what bit story-005: a sibling teammate worktree held the lock for a
+    moment, the merge failed, and the close carried on. The retry NARROWS that
+    window -- it does not close it, and it is not the fix. The mark-done gate is
+    the fix. This just stops the common case from ever reaching it.
+
+    Asserted STRUCTURALLY with an injected clock: the retry's value is "it tried
+    again and it backed off", and pinning that to wall-clock time would buy a slow,
+    flaky test for no extra proof.
+    """
+
+    _LOCK_STDERR = (
+        "fatal: Unable to create '/repo/.git/index.lock': File exists.\n\n"
+        "Another git process seems to be running in this repository."
+    )
+
+    def _result(self, rc: int, stderr: str = "") -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=["git"], returncode=rc, stderr=stderr)
+
+    def test_retries_then_succeeds_and_backs_off(self):
+        calls: list[list[str]] = []
+        slept: list[float] = []
+        results = [
+            self._result(128, self._LOCK_STDERR),
+            self._result(128, self._LOCK_STDERR),
+            self._result(0),
+        ]
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return results[len(calls) - 1]
+
+        with patch.object(branch_lifecycle, "_git", fake_git):
+            r = branch_lifecycle._git_retry_on_lock(
+                ["git", "merge"], "/repo", sleep=slept.append
+            )
+
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(len(calls), 3, "it must actually retry, not just wait")
+        self.assertEqual(len(slept), 2, "one backoff between each pair of attempts")
+        self.assertLess(slept[0], slept[1], "the backoff must grow, not hammer")
+
+    def test_a_real_conflict_is_NOT_retried(self):
+        """The control, and the reason this helper is not a blanket git retry.
+
+        Retrying a genuine failure would mask it -- a merge conflict is not going to
+        resolve itself on the second try, and burning the backoff on it would turn a
+        clear error into a slow, confusing one. Only the lock signature retries.
+        """
+        calls: list[list[str]] = []
+        slept: list[float] = []
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return self._result(1, "CONFLICT (content): Merge conflict in app.py")
+
+        with patch.object(branch_lifecycle, "_git", fake_git):
+            r = branch_lifecycle._git_retry_on_lock(
+                ["git", "merge"], "/repo", sleep=slept.append
+            )
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(calls), 1, "a conflict must fail on the FIRST attempt")
+        self.assertEqual(slept, [], "and must not burn the backoff")
+
+    def test_a_lock_that_never_clears_gives_up_and_reports_the_failure(self):
+        """Bounded. The lock holder may never let go, and an unbounded retry would
+        hang the close instead of failing it -- so it gives up and hands the caller
+        git's own stderr, which is what makes _merge_into_target exit non-zero."""
+        calls: list[list[str]] = []
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return self._result(128, self._LOCK_STDERR)
+
+        with patch.object(branch_lifecycle, "_git", fake_git):
+            r = branch_lifecycle._git_retry_on_lock(
+                ["git", "merge"], "/repo", sleep=lambda _s: None
+            )
+
+        self.assertEqual(r.returncode, 128)
+        self.assertIn("index.lock", r.stderr)
+        self.assertEqual(len(calls), 3, "bounded attempts, not an unbounded spin")
+
+    def test_the_merge_path_uses_the_retry(self):
+        """The wiring. A retry helper nothing calls is decoration."""
+        with tempfile.TemporaryDirectory() as td:
+            init_repo(td)
+            main = get_current_branch(td)
+            _checkout_new(td, "paul/story-x")
+            append_commit(td, "f.txt")
+
+            with patch.object(
+                branch_lifecycle,
+                "_git_retry_on_lock",
+                wraps=branch_lifecycle._git_retry_on_lock,
+            ) as spy:
+                branch_lifecycle._merge_into_target(td, "paul/story-x", main)
+
+            self.assertGreaterEqual(
+                spy.call_count, 2, "checkout AND merge both go through it"
+            )
 
 
 class TestMergeBranch(unittest.TestCase):
