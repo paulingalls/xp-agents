@@ -293,16 +293,66 @@ class TestClaimIsExclusive(_ClaimTestCase):
         )
 
 
-class TestGuardedRewrite(_ClaimTestCase):
-    """The second write on the marker (the child's pid, recorded at on_spawn) is
-    a rewrite, and it must prove ownership exactly as the deletes do.
+class TestTheMarkerIsNotTheName(_ClaimTestCase):
+    """rm'ing a marker does not give its name away.
 
-    The claim already stops a respawn appearing under a LIVE supervisor. This
-    covers the case it cannot: the marker being cleared out-of-band (an operator
-    rm'ing a "stuck" marker) and re-claimed by a respawn while the old supervisor
-    is still running. Without the guard the old supervisor's on_spawn overwrites
-    the respawn's marker with its own pids — re-forging the ownership its finally
-    then checks, and deleting a live teammate's marker.
+    This is the residual the old design could not close. The marker was the ONLY
+    record of the name, so an operator rm'ing a "stuck" marker — the documented
+    way to unwedge a name, and therefore a routine act — handed a LIVE teammate's
+    name to the next claimant: two `claude` processes in one checkout, and
+    whichever tore down first deleted the other's marker.
+
+    The name now lives in the LOCK, which the operator has not touched, so it
+    survives its marker being deleted.
+
+    Closed for the CLAIM only, and the difference is worth stating: because the
+    marker is also the INDEX (no marker ⇒ no lock is ever probed), rm'ing a live
+    teammate's marker still BLINDS the Stop gate. The name stays refused; the
+    accept gate simply goes quiet. That is not a regression — today's glob does
+    the same — but it is not closed either.
+    """
+
+    def test_rm_ing_the_marker_does_not_free_a_live_name(self):
+        with live_in_place_holder(self.smm_dir, self.name):
+            self.marker.unlink()  # the operator "unsticks" a live teammate
+
+            with self.assertRaises(in_place_marker.InPlaceNameHeld):
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+
+    def test_and_the_claim_that_was_refused_published_nothing(self):
+        """A refusal that left a marker behind would be the bug wearing a hat: the
+        live holder's name would now index a marker naming the REFUSED claimant."""
+        with live_in_place_holder(self.smm_dir, self.name):
+            self.marker.unlink()
+
+            with self.assertRaises(in_place_marker.InPlaceNameHeld):
+                in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+
+            self.assertFalse(self.marker.exists())
+            self.assertFalse(in_place_locks.holds_name(self.smm_dir, self.name))
+
+    def test_control_the_same_name_is_free_once_the_holder_dies(self):
+        """Positive control: the refusal above tracks the holder's LIFE, not the
+        mere existence of a lock file. Same fixture, same missing marker — but the
+        holder is dead, so the name is claimable and the recovery flow still
+        works."""
+        dead_in_place_holder(self.smm_dir, self.name)
+        self.marker.unlink()
+
+        in_place_marker.claim_in_place_marker(self.smm_dir, self.name)
+
+        self.assertEqual(self.marker.read_text().split(), [str(os.getpid())])
+
+
+class TestGuardedRewrite(_ClaimTestCase):
+    """The second write on the marker (the child's pid, recorded at on_spawn).
+
+    It takes NO lock — the supervisor already holds one for the whole episode —
+    and it is gated on HOLDING the name rather than on the marker's content. That
+    gate is what stops the old disaster: an unconditional rewrite let a supervisor
+    overwrite a marker it did not own and thereby FORGE the content-proof of
+    ownership its own teardown then checked, deleting a live teammate's marker. A
+    hold cannot be forged.
     """
 
     def test_a_rewrite_of_our_own_marker_records_the_child(self):
