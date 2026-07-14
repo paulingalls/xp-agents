@@ -180,7 +180,7 @@ class TestRunLinterBatchScaledTimeout(unittest.TestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch("ruff", paths, context="staging", cwd="/tmp")
+            lint_check.run_linter_batch("ruff", paths, cwd="/tmp")
         return float(mock_run.call_args.kwargs["timeout"])
 
     def _expected(self, n: int) -> float:
@@ -211,7 +211,7 @@ class TestRunLinterBatchScaledTimeout(unittest.TestCase):
             patch("lint_check.subprocess.run") as mock_run,
         ):
             mock_run.return_value = _mock_ruff_result()
-            lint_check.run_linter_batch("ruff", paths, context="staging", cwd="/tmp")
+            lint_check.run_linter_batch("ruff", paths, cwd="/tmp")
         self.assertAlmostEqual(
             float(mock_run.call_args.kwargs["timeout"]),
             self._expected(1),

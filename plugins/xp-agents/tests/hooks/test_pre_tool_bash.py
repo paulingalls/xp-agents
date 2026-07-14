@@ -2,6 +2,7 @@
 """Tests for pre_tool_bash.py: commit security/review gates + helpers."""
 
 import contextlib
+import shutil
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,7 @@ import _common
 import code_files
 import commits
 import git_commits
+import lint_check
 import pre_tool_bash
 import security_patterns  # noqa: F401 - shim import: fail loudly if module renamed
 import security_scanner  # noqa: F401 - shim import: fail loudly if module renamed
@@ -282,12 +284,20 @@ class TestTier1SecurityScan(_HookTestCase):
 
 
 class TestStagedRuffGate(_HookTestCase):
-    """Story-007: ruff F401/F811 enforcement deferred from edit-time to staging.
+    """The commit-time lint gate: unresolved lint blocks the commit.
 
-    pre_tool_bash invokes lint_check.run_linter_batch('ruff', staged_py_files,
-    context='staging') ONCE per commit (story-020 phase 3 — was per-file
-    via run_ruff). A non-empty code list raises BlockedError naming the
-    offending paths/codes — the only place these codes are enforced.
+    story-005 replaced story-007's code-filtered gate. The old gate read a
+    ``{path: codes}`` map out of the linter's text and blocked only on the two
+    deferred codes (F401/F811); everything else at commit time was advisory.
+    The new gate asks the linter one question — did you find anything? — and
+    answers it from the EXIT CODE, then reports the linter's own output
+    verbatim. Deciding *what* a finding means would take a per-language parser,
+    which the cross-language guardrail forbids.
+
+    SUPERSEDES the story-007 pins in this class: E302 (and every other
+    non-deferred code) now blocks too. Customer-approved: "unresolved lint
+    blocks the commit" is the uniform rule across every language, and Python
+    does not get an exemption from the rule it is the template for.
     """
 
     _CLEAN_DIFF = (
@@ -299,24 +309,58 @@ class TestStagedRuffGate(_HookTestCase):
         "+x = 2\n"
     )
 
-    def _commit_input(self) -> dict:
-        return _make_bash_input(command="git commit -m 'fix\n\nResolves-Event: none'")
+    def setUp(self):
+        """Anchor the gate to a REAL directory tree.
+
+        `git diff --cached --name-only` names paths that may no longer be on
+        disk (a staged deletion) and names them relative to the repo ROOT, not
+        to the hook's cwd. Both facts are invisible if the test's staged paths
+        are fictional and the linter is mocked — so the tree is real here, and
+        the staged paths resolve against it.
+        """
+        super().setUp()
+        self.repo = Path(tempfile.mkdtemp())
+        (self.repo / "src").mkdir()
+        (self.repo / "src" / "app.py").write_text("x = 1\n")
+        (self.repo / "src" / "a.py").write_text("x = 1\n")
+        (self.repo / "docs").mkdir()
+        (self.repo / "docs" / "README.md").write_text("# hi\n")
+        (self.repo / "config.yml").write_text("k: v\n")
+        self._git_root_patch = patch(
+            "worktree.resolve_git_root", return_value=str(self.repo)
+        )
+        self._git_root_patch.start()
+
+    def tearDown(self):
+        self._git_root_patch.stop()
+        shutil.rmtree(self.repo, ignore_errors=True)
+        super().tearDown()
+
+    def _commit_input(self, cwd: str | None = None) -> dict:
+        return _make_bash_input(
+            command="git commit -m 'fix\n\nResolves-Event: none'",
+            cwd=cwd or str(self.repo),
+        )
+
+    @staticmethod
+    def _findings(output: str) -> lint_check.LintRun:
+        return lint_check.LintRun("findings", output)
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
     @patch("lint_check.run_linter_batch")
     def test_staged_py_with_F401_blocks_commit(self, mock_batch, _files, _diff):
-        """A staged .py file with unused-import F401 raises BlockedError at commit."""
-        mock_batch.return_value = {"src/app.py": ["F401"]}
+        """A staged .py file with an unused import blocks the commit, and the
+        block shows what ruff actually said."""
+        mock_batch.return_value = self._findings(
+            "src/app.py:1:1: F401 [*] `os` imported but unused"
+        )
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception)
         self.assertIn("F401", msg)
         self.assertIn("src/app.py", msg)
-        # The block must call run_linter_batch with context="staging" (NOT edit)
-        call_kwargs = mock_batch.call_args.kwargs
-        self.assertEqual(call_kwargs.get("context"), "staging")
-        # And it must batch — one fork covers all staged files.
+        # One fork covers all staged files.
         mock_batch.assert_called_once()
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
@@ -324,16 +368,19 @@ class TestStagedRuffGate(_HookTestCase):
     @patch("lint_check.run_linter_batch")
     def test_staged_py_with_F811_blocks_commit(self, mock_batch, _files, _diff):
         """A staged .py file with F811 (redefinition-of-unused) blocks at commit."""
-        mock_batch.return_value = {"src/app.py": ["F811"]}
+        mock_batch.return_value = self._findings(
+            "src/app.py:5:1: F811 redefinition of unused `foo`"
+        )
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         self.assertIn("F811", str(ctx.exception))
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch("lint_check.run_linter_batch", return_value=lint_check.LintRun("clean", ""))
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_linter_batch", return_value={"src/app.py": []})
-    def test_clean_staged_py_does_not_block(self, _batch, _files, _diff):
-        """A staged .py file with no ruff findings does not raise BlockedError."""
+    def test_clean_staged_py_does_not_block(self, _files, _batch, _diff):
+        """A clean linter run does not block. Guards the direction that, got
+        wrong, refuses every green commit in the repo."""
         try:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         except _common.BlockedError as e:
@@ -343,8 +390,12 @@ class TestStagedRuffGate(_HookTestCase):
     @patch("commits.get_staged_files", return_value=["docs/README.md", "config.yml"])
     @patch("lint_check.run_linter_batch")
     def test_non_python_staged_files_skip_ruff(self, mock_batch, _files, _diff):
-        """Non-.py staged files must not invoke ruff (would error on bad input)."""
-        # Other gates may fire — we only assert the batch was not called
+        """Non-.py staged files must not invoke ruff (would error on bad input).
+
+        M4 broadens this: those files will route to THEIR ecosystem's linter
+        instead of being dropped. What stays true either way is that ruff is
+        never handed a path it cannot read.
+        """
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         mock_batch.assert_not_called()
@@ -352,73 +403,137 @@ class TestStagedRuffGate(_HookTestCase):
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
     @patch("lint_check.run_linter_batch")
-    def test_non_deferred_codes_do_not_block_commit(self, mock_batch, _files, _diff):
-        """E302 (non-deferred) at staging time must NOT block — that's outside
-        story-007's deferral scope; non-F401/F811 codes already surface as
-        concerns at edit time."""
-        mock_batch.return_value = {"src/app.py": ["E302"]}
-        try:
+    def test_e302_now_blocks_under_the_uniform_rule(self, mock_batch, _files, _diff):
+        """REVERSES story-007's `test_non_deferred_codes_do_not_block_commit`.
+
+        Under story-007, E302 raised a never-blocking edit-time concern and the
+        commit gate ignored it, so an agent could ship it by declining to act on
+        the advisory. Under the uniform rule the gate blocks on any unresolved
+        lint finding — and a gate that can only recognize F401/F811 is a gate
+        that only works on Python, which is the whole bug this story closes.
+        """
+        mock_batch.return_value = self._findings(
+            "src/app.py:3:5: E302 expected 2 blank lines, found 1"
+        )
+        with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        except _common.BlockedError as e:
-            self.fail(f"Non-deferred code should not block; got: {e}")
+        self.assertIn("E302", str(ctx.exception))
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
     @patch("lint_check.run_linter_batch")
-    def test_mixed_codes_block_only_on_deferred(self, mock_batch, _files, _diff):
-        """When ruff reports F401 alongside E302, the block only names F401."""
-        mock_batch.return_value = {"src/app.py": ["F401", "E302"]}
+    def test_block_reports_every_finding_not_a_filtered_subset(
+        self, mock_batch, _files, _diff
+    ):
+        """REVERSES `test_mixed_codes_block_only_on_deferred`, which pinned the
+        gate to name F401 and hide E302. Filtering the report to a code
+        allowlist is the same per-language interpretation the gate no longer
+        does — the human gets the linter's whole output."""
+        mock_batch.return_value = self._findings(
+            "src/app.py:1:1: F401 [*] `os` imported but unused\n"
+            "src/app.py:3:5: E302 expected 2 blank lines, found 1"
+        )
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception)
         self.assertIn("F401", msg)
-        self.assertNotIn("E302", msg)
+        self.assertIn("E302", msg)
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/a.py", "docs/README.md"])
-    @patch("lint_check.run_linter_batch", return_value={"src/a.py": []})
+    @patch("lint_check.run_linter_batch", return_value=lint_check.LintRun("clean", ""))
     def test_only_py_files_passed_to_ruff(self, mock_batch, _files, _diff):
-        """When mixing .py and non-.py, only the .py paths are batched."""
+        """When mixing .py and non-.py, only the .py paths reach ruff."""
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        # Single batch invocation, .py paths only in the `paths` arg.
         mock_batch.assert_called_once()
         args, kwargs = mock_batch.call_args
-        # args[0] is linter_name, args[1] is paths (or kwargs)
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
         self.assertEqual(paths, ["src/a.py"])
 
-    # --- story-007 caller-side fail-closed ---
+    # --- only paths that are actually THERE reach the linter ---
+
+    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch("commits.get_staged_files", return_value=["src/gone.py"])
+    @patch("lint_check.run_linter_batch")
+    def test_staged_deletion_does_not_block_the_commit(self, mock_batch, _files, _diff):
+        """A commit that DELETES a .py file must not be blocked by the gate.
+
+        `--name-only` still names a deleted path, but the file is gone from
+        disk. Hand that path to a linter and it reports a read error and exits
+        NON-ZERO (ruff: `E902 No such file or directory`) — which the new
+        exit-code contract reads as FINDINGS, blocking the deletion commit with
+        a finding no one can fix (you cannot fix a lint error in a file you are
+        deleting, and 'unstage the file' means never deleting it at all).
+
+        The old parser survived this by accident: it pre-filled every path to
+        [] and E902 was not in the F401/F811 allowlist, so the error was
+        silently dropped. Exit-code classification removes that accident, so
+        the gate must not hand the linter a path that is not there.
+        """
+        with contextlib.suppress(_common.BlockedError):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        mock_batch.assert_not_called()
+
+    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch("commits.get_staged_files", return_value=["src/gone.py", "src/app.py"])
+    @patch("lint_check.run_linter_batch", return_value=lint_check.LintRun("clean", ""))
+    def test_deletion_alongside_a_live_file_still_lints_the_live_one(
+        self, mock_batch, _files, _diff
+    ):
+        """Dropping the deleted path must not drop the surviving one with it —
+        that would be a fail-open on the file the commit actually changes."""
+        with contextlib.suppress(_common.BlockedError):
+            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
+        mock_batch.assert_called_once()
+        args, kwargs = mock_batch.call_args
+        paths = args[1] if len(args) > 1 else kwargs.get("paths")
+        self.assertEqual(paths, ["src/app.py"])
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
-    @patch("lint_check.run_linter_batch", return_value={})
-    def test_empty_batch_with_py_paths_fails_closed(self, _batch, _files, _diff):
-        """Empty batch with non-empty py_paths must block, not silently pass."""
+    @patch("lint_check.run_linter_batch", return_value=lint_check.LintRun("clean", ""))
+    def test_paths_resolve_against_the_repo_root_not_the_hook_cwd(
+        self, mock_batch, _files, _diff
+    ):
+        """git names staged paths relative to the REPO ROOT. Committing from a
+        subdirectory must still lint them: resolve against the root, and run the
+        linter there. Otherwise every path reads as missing from the subdir, the
+        linter errors out non-zero, and the gate blocks a clean commit."""
+        subdir = self.repo / "src"
+        with contextlib.suppress(_common.BlockedError):
+            pre_tool_bash.run(self._commit_input(cwd=str(subdir)), smm_dir=self.smm_dir)
+        mock_batch.assert_called_once()
+        args, kwargs = mock_batch.call_args
+        paths = args[1] if len(args) > 1 else kwargs.get("paths")
+        self.assertEqual(paths, ["src/app.py"])
+        self.assertEqual(kwargs.get("cwd"), str(self.repo))
+
+    # --- fail-closed on a bad read ---
+
+    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
+    @patch("commits.get_staged_files", return_value=["src/app.py"])
+    @patch(
+        "lint_check.run_linter_batch",
+        return_value=lint_check.LintRun("unverified", "ruff: `ruff` not on PATH"),
+    )
+    def test_unverified_run_fails_closed(self, _batch, _files, _diff):
+        """A configured linter the gate could not actually run (binary missing,
+        timeout, or a non-zero exit with nothing to say) must BLOCK. "We could
+        not check" is not "we checked and it was clean" — SMM constraint: gates
+        fail CLOSED on a bad read. Subsumes story-007's empty-batch and
+        partial-coverage pins, which were two spellings of this one state."""
         with self.assertRaises(_common.BlockedError) as ctx:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         msg = str(ctx.exception).lower()
         self.assertIn("ruff", msg)
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
-    @patch(
-        "commits.get_staged_files", return_value=["src/a.py", "src/b.py", "src/c.py"]
-    )
-    @patch("lint_check.run_linter_batch", return_value={"src/a.py": [], "src/b.py": []})
-    def test_partial_batch_coverage_fails_closed(self, _batch, _files, _diff):
-        """Batch returns coverage for 2 of 3 staged .py files — the missing
-        path could harbor F401/F811 the gate never saw. Block, name the
-        missing path so the agent can act."""
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
-        self.assertIn("src/c.py", str(ctx.exception))
-
-    @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["docs/README.md"])
-    @patch("lint_check.run_linter_batch", return_value={})
+    @patch("lint_check.run_linter_batch")
     def test_no_py_paths_does_not_fail_closed(self, mock_batch, _files, _diff):
-        """No .py files staged → no batch call, no fail-closed. The
-        empty-batch sentinel only triggers when py_paths was non-empty."""
+        """No .py files staged → no ruff call, no fail-closed. Nothing to lint
+        is not a bad read."""
         try:
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         except _common.BlockedError as e:
