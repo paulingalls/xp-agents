@@ -217,16 +217,22 @@ def cmd_hook_present(args: argparse.Namespace) -> int:
 
 
 def cmd_diff_command(args: argparse.Namespace) -> int:
-    """Print `gh pr diff <N>` for numeric PR_OUTPUT, else `git diff <target>...HEAD`.
+    """Print `git diff <target>...<source>` — the range the merge actually lands.
 
-    Non-numeric input falls through to git diff so the reviewer never
-    sees a malformed gh invocation when create-pr skipped or emitted prose.
+    Invariant: **the review source is the ref that merges; the PR head is never
+    the review source.** cmd_merge merges a LOCAL ref (`<source>`), while the PR
+    head is only the REMOTE head as of Step 2's push — close-time fixes (Step 4b
+    validate-and-fix, Step 5c "fix now") land on `<source>` AFTER that push and
+    still ship in the merge, so reviewing `gh pr diff <N>` would miss them
+    (live at sprint-118). The PR is still created (Step 3) as the human record
+    and push target; only its role as review INPUT is removed.
+
+    Not `...HEAD`: at story-close this runs from the ORCHESTRATOR checkout,
+    where HEAD is the sprint branch, not the story branch. Naming `<source>` is
+    cwd-independent (worktrees share the object store and refs). Three-dot
+    matches the sizing gate (commits.get_code_files_in_range).
     """
-    pr_output = args.pr_output.strip()
-    if pr_output.isdigit():
-        print(f"gh pr diff {pr_output}")
-    else:
-        print(f"git diff {args.target}...HEAD")
+    print(f"git diff {args.target}...{args.source}")
     return 0
 
 
@@ -423,8 +429,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "diff-command",
         help="print the diff command the close-reviewer should run",
     )
-    p.add_argument("--pr-output", required=True)
     p.add_argument("--target", required=True)
+    p.add_argument(
+        "--source",
+        required=True,
+        help="the ref that merges (the close's <CURRENT_BRANCH>); the review "
+        "range is <target>...<source>, never the PR head",
+    )
     p.set_defaults(func=cmd_diff_command)
 
     p = sub.add_parser(

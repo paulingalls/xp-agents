@@ -515,65 +515,96 @@ class TestCloseReviewGate(unittest.TestCase):
 
 
 class TestDiffCommand(unittest.TestCase):
-    """diff-command picks gh-pr-diff vs git-diff based on PR_OUTPUT shape.
+    """diff-command emits the merged range `git diff <target>...<source>`.
 
-    Each close skill (sprint, plan, free, story) used to inline a 3-line
-    'Pick the diff command' stanza. This subcommand is the single source
-    of truth — SKILL.md captures the printed command into a variable
-    and passes it to the close-reviewer fork.
+    The close-reviewer must review the exact ref the merge lands. cmd_merge
+    merges a LOCAL ref (`<source>`); the PR head is the REMOTE head as of
+    Step 2's push and misses close-time fixes (Step 4b validate-and-fix,
+    Step 5c "fix now") that land AFTER the push and still ship in the merge —
+    live at sprint-118, where the reviewer read the pushed commit while all
+    five of its own defect fixes sat unpushed. So the review INPUT is
+    `<source>`: never the PR head, and never `HEAD` (at story-close the
+    reviewer runs from the ORCHESTRATOR checkout, where HEAD is the sprint
+    branch, not the story branch). Three-dot matches the sizing gate
+    (commits.get_code_files_in_range).
+
+    Subprocess-based: `_run` invokes close_common.py as a script and asserts
+    on `result.stdout.strip()`.
     """
 
-    def test_numeric_pr_output_emits_gh_pr_diff(self):
-        result = _run(["diff-command", "--pr-output", "4242", "--target", "main"])
+    def test_emits_merged_range_even_when_pr_created(self):
+        # AC1: even when create-pr returned a numeric PR number, the review
+        # INPUT is the merged-ref range — never `gh pr diff <N>` (the PR head).
+        result = _run(["diff-command", "--target", "main", "--source", "feature-x"])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "gh pr diff 4242")
+        self.assertEqual(result.stdout.strip(), "git diff main...feature-x")
+        self.assertNotIn("gh pr diff", result.stdout)
 
-    def test_skipped_pr_output_emits_git_diff(self):
-        result = _run(
-            [
-                "diff-command",
-                "--pr-output",
-                "skipped: gh not on PATH",
-                "--target",
-                "main",
-            ]
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
+    def test_never_emits_gh_pr_diff(self):
+        # Pin: no target/source combination ever produces a gh-pr-diff form —
+        # even a source that LOOKS numeric is still a ref, not a PR number.
+        for target, source in (
+            ("main", "feature-x"),
+            ("develop", "story-042"),
+            ("release", "4242"),
+        ):
+            result = _run(["diff-command", "--target", target, "--source", source])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("gh pr diff", result.stdout)
+            self.assertEqual(result.stdout.strip(), f"git diff {target}...{source}")
 
-    def test_empty_pr_output_emits_git_diff(self):
-        result = _run(["diff-command", "--pr-output", "", "--target", "main"])
+    def test_range_names_source_not_head(self):
+        # AC2: the range names <source>, NOT HEAD. At story-close the reviewer
+        # runs from the orchestrator checkout whose HEAD is the sprint branch;
+        # `...HEAD` would review the wrong tree. Naming <source> is cwd-independent
+        # (worktrees share the object store and refs).
+        result = _run(["diff-command", "--target", "main", "--source", "story-042"])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
+        self.assertEqual(result.stdout.strip(), "git diff main...story-042")
+        self.assertNotIn("HEAD", result.stdout)
 
-    def test_target_branch_substituted_correctly(self):
-        result = _run(
-            [
-                "diff-command",
-                "--pr-output",
-                "skipped: no gh",
-                "--target",
-                "develop",
-            ]
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "git diff develop...HEAD")
+    def test_source_is_required(self):
+        # --source is required: without it argparse must fail, so a caller that
+        # forgets to name the merged ref never silently emits a malformed range.
+        result = _run(["diff-command", "--target", "main"])
+        self.assertNotEqual(result.returncode, 0)
 
-    def test_non_numeric_arbitrary_text_treated_as_skipped(self):
-        # Defensive: any non-numeric output (gh failure prose, leading
-        # whitespace, etc.) falls through to git diff so the reviewer
-        # never gets a malformed gh-pr-diff invocation.
-        result = _run(
-            [
-                "diff-command",
-                "--pr-output",
-                "PR #42 created at https://...",
-                "--target",
-                "main",
-            ]
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "git diff main...HEAD")
+    def test_e2e_post_push_fix_appears_in_emitted_diff(self):
+        # AC3/AC5: a fix committed on <source> AFTER the PR push appears in the
+        # generated-AND-executed diff — the falsifiable proof reviewed==merged.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            # The story commit the PR push captured (remote head as of Step 2).
+            _bf.make_commit(td, "feature-x", "orig.txt", "original\n", "story work")
+            # A close-time fix committed AFTER the push, on the source branch —
+            # invisible to `gh pr diff <N>`, visible to the merged range.
+            (Path(td) / "reviewer_fix.txt").write_text("POST_PUSH_FIX\n")
+            subprocess.run(
+                ["git", "add", "reviewer_fix.txt"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "close-time reviewer fix"],
+                cwd=td,
+                capture_output=True,
+                check=True,
+                env=_bf.GIT_ENV,
+            )
+            result = _run(["diff-command", "--target", "main", "--source", "feature-x"])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            emitted = result.stdout.strip()
+            self.assertEqual(emitted, "git diff main...feature-x")
+            executed = subprocess.run(
+                emitted.split(),
+                cwd=td,
+                capture_output=True,
+                text=True,
+                env=_bf.GIT_ENV,
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+            self.assertIn("POST_PUSH_FIX", executed.stdout)
 
 
 class TestHookPresent(unittest.TestCase):

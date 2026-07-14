@@ -146,7 +146,7 @@ Compute the diff command:
 
 ```bash
 DIFF_CMD=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py diff-command \
-  --pr-output "$PR_OUTPUT" --target <TARGET_BRANCH>)
+  --target <TARGET_BRANCH> --source <CURRENT_BRANCH>)
 ```
 
 Substitute the captured value as `<DIFF_CMD>` in the agent prompt below.
