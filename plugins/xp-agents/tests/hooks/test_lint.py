@@ -607,26 +607,49 @@ class TestRunLinterBatch(_HookTestCase):
         self.assertIn("E302", run.output)
 
     def test_findings_in_a_shape_no_python_parser_could_read(self):
-        """THE cross-language pin. clippy says nothing that looks like
+        """THE cross-language pin. golangci-lint says nothing that looks like
         `path:line:col: CODE` — under the old regex contract this run parsed to
         zero findings and every path read back as clean. Exit code alone must
-        carry it."""
+        carry it.
+
+        The vehicle used to be clippy, and clippy was the wrong one to pin this
+        with: it is DEGRADED, so `staged_lint` never hands it to this function at
+        all, and the run being asserted here could not happen. golangci-lint is a
+        row the gate really does BLOCK on, and its output is just as unreadable to
+        a `path:line:col: CODE` regex — so the pin now guards a live path.
+        """
         stderr = (
-            "warning: unused import: `std::io`\n"
-            " --> src/main.rs:1:5\n"
-            "  |\n"
-            "1 | use std::io;\n"
-            "  |     ^^^^^^^\n"
-            'warning: `demo` (bin "demo") generated 1 warning\n'
+            "src/main.go:1:5: `io` imported and not used (typecheck)\n"
+            "src/main.go:7:2: S1021: should merge variable declaration (gosimple)\n"
         )
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/golangci-lint"),
+            patch("lint_check.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = _mock_ruff_result(returncode=1, stderr=stderr)
+            run = lint_check.run_linter_batch(
+                "golangci-lint", ["src/main.go"], cwd="/tmp"
+            )
+        self.assertEqual(run.status, "findings")
+        self.assertIn("imported and not used", run.output)
+
+    def test_a_linter_with_no_per_file_argv_is_unverified_never_clean(self):
+        """clippy has no argv that asks about ONE file (it lints the crate), so
+        `linter_argv` returns None. The batch must read that as a bad read, not as a
+        pass — declining to look is not the same as having nothing to look at.
+
+        Unreachable in production (the row degrades before the batch is called), and
+        pinned anyway: it is the fail-closed floor under the degrade, and a future row
+        that loses its degrade entry must not fall through to CLEAN.
+        """
         with (
             patch("lint_check.shutil.which", return_value="/usr/bin/cargo"),
             patch("lint_check.subprocess.run") as mock_run,
         ):
-            mock_run.return_value = _mock_ruff_result(returncode=101, stderr=stderr)
             run = lint_check.run_linter_batch("clippy", ["src/main.rs"], cwd="/tmp")
-        self.assertEqual(run.status, "findings")
-        self.assertIn("unused import", run.output)
+
+        self.assertEqual(run.status, "unverified")
+        mock_run.assert_not_called()
 
     def test_nonzero_exit_with_no_output_is_unverified(self):
         """The linter found something it could not tell us about. That is a bad

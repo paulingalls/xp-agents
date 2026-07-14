@@ -37,10 +37,13 @@ cache is what hid it: whether it fired depended on whether an earlier call had w
 it presented as a **flaky test**, not as red. A flaky test guarding a fail-closed gate *was* the
 gate failing open.
 
-### The commit-time lint gate now enforces in any language
+### The commit-time lint gate stops being Python-only
 
 It hardcoded ruff. A TS/Rust/Go repo staged no `.py` files, and the gate silently passed — **zero
 commit-time lint enforcement in any language but Python.**
+
+(It does not reach *every* language. What it does and does not gate is spelled out below — the first
+draft of this note claimed "any language", and the binaries disagreed.)
 
 The gate no longer parses. It classifies by **exit code**: 0 is clean, non-zero with output is
 findings (reported verbatim, never interpreted), non-zero with nothing readable is **unverified →
@@ -83,13 +86,41 @@ Building it exposed a fail-open in the id pattern itself: `EVENT_ID_RE` was anch
 in Python matches **before a trailing newline** — so `"<id>\n"` validated as an id and then matched
 nothing. It guards `metadata.resolves` too.
 
+### What is actually gated, and what only advises
+
+The heading above says "any language", and when it was written nobody had run the binaries. So we
+ran them, and the claim was too strong. **C/C++ and Java were not gated at all** — both were parked
+as advisory-only, while the release note said otherwise.
+
+**C/C++ is now genuinely gated**, and getting there refuted the fix we had written down for it:
+
+- `clang-tidy`'s synopsis is `clang-tidy [options] <sources> -- [compiler-flags]` — everything
+  *after* the separator is compiler flags. The gate's universal `[cmd, "--", *paths]` handed it
+  **zero sources**.
+- Correcting the argv **alone would have made it worse.** Invoked correctly, clang-tidy finds the
+  violation, prints it, and **exits 0** — which the gate reads as *clean*. It needs
+  `--warnings-as-errors`, and only the real binary could tell us that.
+- Our own recorded fix said "sources before the separator, **trailing `--`**". The trailing `--`
+  means *no compiler flags* and **overrides `compile_commands.json`**, throwing away the database
+  that lets clang-tidy resolve an `#include`. Half our prescription was wrong.
+- So C/C++ is gated **where a compile database exists**, and degrades honestly where it does not —
+  because without one, a header in another directory fails to *compile*, and the gate would block on
+  an error no diff can fix.
+
+**Java is not gated, and we now know why.** `checkstyle`'s exit code counts `severity=error` only: the
+same violation at `severity=warning` is printed and then exits **0**. Its CLI has no
+warnings-as-errors lever. Its exit code simply cannot express *"I found something"*, and gating it
+would mean parsing its report — and in this gate, the parser *was* the bug. It stays advisory, and
+now says so in its own words.
+
+Every degraded linter now reports **its own reason**. The old advisory told C/C++ users that
+clang-tidy "lints the whole project, not one file" — which is false, and the code knew it was false.
+
 ### Known-open
 
-- **Milestone 3 is not delivered.** Both its defects shipped and each is proven by its own suite, but
-  the capstone that proves them *together through the real hook* was deferred.
 - The lint gate reads the **working tree**, not the staged bytes — it diverges under `git add -p`.
-- Java/Kotlin/Elixir/C# get an advisory, not a gate (their linters are project-scoped, or their argv
-  shape is unverified against an installed binary).
+- Java/Kotlin/Elixir/C# get an advisory, not a gate; each now states its own reason.
+- C/C++ without a `compile_commands.json` advises rather than gates.
 
 ## v4.7.0 — Adoption records intent, not resolution — and compaction stops eating the record
 

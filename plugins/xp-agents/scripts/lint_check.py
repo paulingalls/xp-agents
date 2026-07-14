@@ -15,20 +15,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import concerns
 import identity
-import marker_names
-import worktree
-from event_schema import STATUS_ACTION_LINT_RESOLVED
 
 # detect_linter_config is re-exported into this namespace on purpose: ~25 tests
 # and lint_resolution reach it as `lint_check.detect_linter_config`, and the
 # patch sites bind to THIS module. The tables live in `linters` — one home for
 # everything language-specific; see that module's docstring.
+import linters
+import marker_names
+import worktree
+from event_schema import STATUS_ACTION_LINT_RESOLVED
 from linters import (
     CODE_EXTENSIONS,
     LINTER_BINARIES,
     LINTER_EXTENSIONS,
     detect_linter_config,
-    linter_command,
 )
 
 # Edit-time, per-file (run_linter). Deliberately short: this path is
@@ -119,8 +119,27 @@ def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
     ]
 
 
-def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str | None:
-    """Run linter on file. Returns error output, or None if clean/unavailable."""
+def run_linter(
+    linter_name: str,
+    file_path: str,
+    cwd: str | None = None,
+    *,
+    root: str | None = None,
+    config_path: str | None = None,
+) -> str | None:
+    """Run linter on file. Returns error output, or None if clean/unavailable.
+
+    Routes through `linters.linter_argv` — the SAME builder the commit gate uses.
+    They used to place the `--` separately, and that duplication is where clang-tidy's
+    broken invocation hid: the commit path was patched around it by degrading the row,
+    while this path went on building `clang-tidy -- app.c` and linting nothing.
+
+    A None argv means "must not run here" (an unmet precondition — e.g. clang-tidy in
+    a project with no compile database). That is NOT a clean result, but at edit time
+    it is reported the same way, because the alternative is raising a concern that
+    `lint_resolution` can never clear: `'hdr.h' file not found` is not fixable by
+    editing the file the concern is attached to.
+    """
     binary = LINTER_BINARIES.get(linter_name)
     if not binary or not shutil.which(binary):
         return None
@@ -128,8 +147,11 @@ def run_linter(linter_name: str, file_path: str, cwd: str | None = None) -> str 
     if not _eligible_for_linter(linter_name, [file_path]):
         return None
 
-    # "--" separates flags from filename arg
-    cmd = [*linter_command(linter_name), "--", file_path]
+    cmd = linters.linter_argv(
+        linter_name, [file_path], root=root or cwd or ".", config_path=config_path
+    )
+    if cmd is None:
+        return None
     try:
         result = subprocess.run(
             cmd,
@@ -189,6 +211,8 @@ def run_linter_batch(
     *,
     cwd: str | None = None,
     budget_s: float | None = None,
+    root: str | None = None,
+    config_path: str | None = None,
 ) -> LintRun:
     """Run a linter once over many paths; classify the run by its EXIT CODE.
 
@@ -250,7 +274,21 @@ def run_linter_batch(
     if not eligible:
         return LintRun("clean", "")
 
-    cmd = [*linter_command(linter_name), "--", *eligible]
+    # ONE argv builder, shared with the edit-time path. It also places the paths:
+    # clang-tidy takes them BEFORE the separator (everything after `--` is compiler
+    # flags), so the old universal `[*cmd, "--", *paths]` handed it zero sources.
+    cmd = linters.linter_argv(
+        linter_name, eligible, root=root or cwd or ".", config_path=config_path
+    )
+    if cmd is None:
+        # "Must not run here" — an unmet precondition, or a config-required linter
+        # with no config. Not a clean result: we declined to look, and declining to
+        # look is a bad read, which fails CLOSED.
+        return LintRun(
+            "unverified",
+            f"{linter_name}: cannot be invoked in this project "
+            f"(missing compile database or config) — refusing to report it clean",
+        )
     timeout = min(
         BATCH_TIMEOUT_CAP_S,
         BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
@@ -410,7 +448,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         codes, lint_output = run_ruff(file_arg, cwd=lint_cwd)
         has_errors = bool(codes)
     else:
-        lint_output = run_linter(linter_name, file_arg, cwd=lint_cwd) or ""
+        lint_output = (
+            run_linter(
+                linter_name,
+                file_arg,
+                cwd=lint_cwd,
+                root=git_root,
+                config_path=config_path,
+            )
+            or ""
+        )
         has_errors = bool(lint_output)
     if has_errors:
         if not _has_unresolved_lint_concern(smm_dir, normalized):

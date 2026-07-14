@@ -296,9 +296,13 @@ class TestResolveLintFromConfigDir(_HookTestCase):
 
         captured: dict[str, str | None] = {}
 
-        def fake_run_linter(_linter_name, file_path, cwd=None):
+        def fake_run_linter(_linter_name, file_path, cwd=None, *, root=None, **_kw):
             captured["cwd"] = cwd
             captured["file_path"] = file_path
+            # config_path is threaded now: without it a checkstyle concern raised at
+            # edit time could never be cleared here (a different config would judge
+            # the file by different rules).
+            captured["config_path"] = _kw.get("config_path")
             return None  # clean
 
         with (

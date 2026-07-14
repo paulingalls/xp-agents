@@ -115,12 +115,14 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     for (linter_name, config_path), paths in sorted(
         _group_staged_by_linter(staged_files, root).items()
     ):
-        if not linters.is_file_scoped(linter_name):
+        # The REAL reason, per row — not one blanket sentence for every degraded
+        # linter. The old message told C/C++ users clang-tidy "lints the whole
+        # project, not one file", which is false, and linters.py knew it was false.
+        reason = linters.degrade_reason(linter_name, root, paths)
+        if reason is not None:
             advisories.append(
                 f"Commit-time lint skipped for {len(paths)} staged file(s): "
-                f"{linter_name} lints the whole project, not one file, so a "
-                f"non-zero exit would report state your diff neither caused nor "
-                f"can fix. Run it yourself before pushing."
+                f"{linter_name} — {reason}. Run it yourself before pushing."
             )
             continue
 
@@ -139,7 +141,12 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
         lint_cwd = targets[0][0]  # constant per group: same config, same dir
         args = [file_arg for _, file_arg in targets]
         run = lint_check.run_linter_batch(
-            linter_name, args, cwd=lint_cwd, budget_s=deadline - time.monotonic()
+            linter_name,
+            args,
+            cwd=lint_cwd,
+            budget_s=deadline - time.monotonic(),
+            root=root,
+            config_path=config_path,
         )
         match run.status:
             case "findings":

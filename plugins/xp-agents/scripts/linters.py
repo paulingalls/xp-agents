@@ -84,7 +84,10 @@ LINTER_COMMANDS = {
     "rubocop": ["rubocop"],
     "clang-tidy": ["clang-tidy"],
     "clang-format": ["clang-format", "--dry-run", "-Werror"],
-    "checkstyle": ["checkstyle", "-c", "/google_checks.xml"],
+    # No `-c` here: the config comes from LINTER_CONFIG_FLAGS + the config that
+    # detect_linter_config actually FOUND. Pinning `-c /google_checks.xml` threw that
+    # away and judged every Java project by Google's style instead of its own.
+    "checkstyle": ["checkstyle"],
     "detekt": ["detekt"],
     "phpcs": ["phpcs"],
     "php-cs-fixer": ["php-cs-fixer", "fix", "--dry-run"],
@@ -115,6 +118,74 @@ LINTER_STRICT_FLAGS: dict[str, list[str]] = {
     # `dart analyze` exits 0 on info-severity lints, which is where its unused
     # import rule lands.
     "dart-analyze": ["--fatal-infos"],
+    # MEASURED, not assumed (clang-tidy 22.1.8): invoked correctly, it FINDS the
+    # violation, PRINTS it — and EXITS 0. So correcting its argv without this flag
+    # would have CREATED a true false-clean: the gate would read "clean" on a file it
+    # had just found a violation in. The argv fix alone was a trap, and only the real
+    # binary could say so. See tests/hooks/test_lint_polyglot.py.
+    "clang-tidy": ["--warnings-as-errors=*"],
+}
+
+
+# COLUMN: argv shape. WHERE the paths go relative to `--`. Every linter here took
+# `[*cmd, "--", *paths]` — "options end, paths follow" — and for exactly one CLI that
+# is wrong in a way that silently lints NOTHING.
+#
+# clang-tidy's synopsis is `clang-tidy [options] <source0>...<sourceN> -- [compiler
+# -flags]`: everything AFTER the separator is COMPILER FLAGS. `clang-tidy -- app.c`
+# therefore passes app.c to the compiler, not to the linter.
+#
+# This is a STRUCTURAL column, and the test for that is mechanical: could someone fill
+# this row in correctly by reading the tool's `--help`, without knowing a single rule
+# name of that language? Yes — it is in the synopsis. That is what separates it from a
+# rule-code map (`{eslint: "no-unused-vars"}`), which would need the rule catalog and
+# is precisely the leak the cross-language guardrail forbids. `LINTER_STRICT_FLAGS`
+# above passes the same test, and is the precedent.
+PATHS_BEFORE_SEPARATOR = "paths_before_separator"
+SEPARATOR_BEFORE_PATHS = "separator_before_paths"  # the default
+# ...and the third answer: there is NO per-file argv. Some CLIs take no source path
+# at all — `cargo clippy` lints the CRATE. Handing them one is not a different shape,
+# it is a question they cannot be asked, and the honest argv is None.
+NO_PER_FILE_ARGV = "no_per_file_argv"
+
+LINTER_ARGV_SHAPES: dict[str, str] = {
+    "clang-tidy": PATHS_BEFORE_SEPARATOR,
+    # MEASURED against real cargo. The shipped command ALREADY ends in a separator
+    # (`cargo clippy -- -D warnings`: everything after `--` goes to rustc), so the
+    # default shape appended a SECOND one and built
+    #     cargo clippy -- -D warnings -- src/main.rs
+    # which rustc rejects with `error: multiple input filenames provided`, exit 101.
+    # The commit gate never saw it (the row degrades), but the EDIT-time path read
+    # 101 as FINDINGS and raised a lint concern — whose text was a cargo argv error —
+    # on every .rs file edited, and `lint_resolution` re-ran the same broken argv to
+    # clear it and got 101 again. A concern that can never be resolved, in every Rust
+    # project the plugin ships to.
+    "clippy": NO_PER_FILE_ARGV,
+}
+
+
+# COLUMN: config flag. How this CLI is TOLD which config to use.
+#
+# checkstyle has no convention for finding its own config — it needs `-c`. The shipped
+# command pinned `-c /google_checks.xml`, which threw away the `checkstyle.xml`
+# `detect_linter_config` had just found and judged every Java project by Google's
+# style instead of its own.
+LINTER_CONFIG_FLAGS: dict[str, list[str]] = {
+    "checkstyle": ["-c"],
+}
+
+
+# COLUMN: precondition. A file the PROJECT must have before this linter can be
+# invoked at all — not a property of the linter, a property of the checkout.
+#
+# clang-tidy needs a compile database. Without one it cannot resolve `#include`s, so
+# any file with a header in another directory fails to COMPILE:
+# `clang-diagnostic-error: 'hdr.h' file not found` — non-zero, with output, which the
+# gate's contract reads as FINDINGS. It would refuse the commit over a header path
+# that nothing in the diff can fix, and the first thing anyone does with an unfixable
+# gate is turn it off. So: no compile DB, no gate. Degrade, and say why.
+LINTER_PRECONDITIONS: dict[str, str] = {
+    "clang-tidy": "compile_commands.json",
 }
 
 # COLUMN: file scope. Some linters cannot judge a single file at all — they lint
@@ -136,25 +207,33 @@ LINTER_STRICT_FLAGS: dict[str, list[str]] = {
 # ways to answer no: the linter cannot judge one file (clippy), or the gate
 # cannot invoke it correctly on one (clang-tidy — see below). Both degrade, for
 # the same reason: a gate that cannot be satisfied gets disabled.
-PROJECT_SCOPED_LINTERS: frozenset[str] = frozenset(
-    {
-        "clippy",  # cargo clippy compiles the whole crate
-        "checkstyle",  # config-driven project sweep
-        "detekt",  # --input defaults to the whole source set
-        "credo",  # mix credo walks the project
-        "dotnet-format",  # --verify-no-changes covers the solution
-        # clang-tidy is genuinely FILE-scoped — but `run_linter_batch` invokes
-        # every row as `[*cmd, "--", *paths]`, and clang-tidy is the one CLI
-        # here for which `--` does not mean "options end, paths follow". Its
-        # synopsis is `clang-tidy [options] <source0>...<sourceN> -- [compiler
-        # -flags]`: everything AFTER the separator is compiler flags. So
-        # `clang-tidy -- app.c` lints zero sources — reading back as either a
-        # silent false-clean (the exact bug this gate exists to prevent) or an
-        # unfixable block. Degraded until its real argv (sources before the
-        # separator, trailing `--`) is proven against the actual binary.
-        "clang-tidy",
-    }
-)
+#
+# A REASON, not a bare name. The old set carried only membership, so every degraded
+# row was reported to the user with one blanket sentence — "it lints the whole
+# project, not one file" — which for clang-tidy was simply FALSE, and this module
+# knew it was false. We were lying to the customer in a string. Each row now says
+# what is actually true of it, and `staged_lint` prints that.
+DEGRADED_LINTERS: dict[str, str] = {
+    "clippy": (
+        "cargo clippy compiles the whole crate, so a pre-existing warning in a file "
+        "nobody touched would block every commit in the repo, unfixably"
+    ),
+    "detekt": "--input defaults to the whole source set, not the staged files",
+    "credo": "mix credo walks the whole project, not the staged files",
+    "dotnet-format": "--verify-no-changes covers the whole solution",
+    # MEASURED (checkstyle 13.8.0), and the reason Java is NOT gated:
+    # checkstyle's exit code counts severity=ERROR violations only. The SAME
+    # violation at severity=warning is printed and then exits 0 — which the gate's
+    # contract reads as CLEAN. Its CLI has no warnings-as-errors lever (the options
+    # are -b -c -d -e -E -f -g -G -h -j -J -o -p -s -t -T -V -w -x; `-w` is TAB
+    # WIDTH). So its exit code cannot express "I found something", and the only way
+    # to gate it would be to PARSE its report — and the parser WAS the bug (story-005).
+    # Degraded honestly, rather than gated in name only.
+    "checkstyle": (
+        "its exit code counts severity=error only, so a severity=warning violation "
+        "reports success — the exit code cannot express what it found"
+    ),
+}
 
 LINTER_EXTENSIONS: dict[str, set[str]] = {
     "ruff": {".py", ".pyi", ".ipynb"},
@@ -217,36 +296,6 @@ LINTER_BINARIES = {
 }
 
 
-def linter_command(linter_name: str) -> list[str]:
-    """The argv to invoke `linter_name` with, strictness flags included.
-
-    Single source for both the edit-time (`run_linter`) and commit-time
-    (`run_linter_batch`) paths, so the two cannot disagree about how strict the
-    linter is. That matters: if the commit gate blocked on a warn-level finding
-    that edit-time never surfaced, the agent would be ambushed at commit by a
-    rule nothing had told it about.
-
-    Callers append `["--", *paths]` themselves — the flags must land before that
-    separator or the linter reads them as filenames.
-    """
-    return LINTER_COMMANDS[linter_name] + LINTER_STRICT_FLAGS.get(linter_name, [])
-
-
-def is_file_scoped(linter_name: str) -> bool:
-    """Can this linter judge ONE file, and report only that file's findings?
-
-    False for linters that lint the whole project (see PROJECT_SCOPED_LINTERS).
-    The commit-time gate must not block on a False row: its non-zero exit may be
-    reporting project-wide state the staged diff neither caused nor can fix.
-
-    Unknown rows answer True. A linter nobody classified is far likelier to be a
-    normal file-scoped one than a project sweep, and the cost of being wrong that
-    way is a too-strict block the agent can actually act on — versus the
-    unfixable one that the other default would produce.
-    """
-    return linter_name not in PROJECT_SCOPED_LINTERS
-
-
 def detect_linter_config(
     cwd: str, git_root: str, file_path: str | None = None
 ) -> tuple[str, str] | None:
@@ -292,3 +341,17 @@ def detect_linter_config(
         current = current.parent
 
     return None
+
+
+# Re-exported BY IDENTITY from the invocation module, which is split out to keep this
+# file under the 500-line cap. `linters.linter_argv is linter_invocation.linter_argv`.
+# The import sits at the bottom because that module imports the TABLES above — a
+# top-of-file import would be circular.
+from linter_invocation import (  # noqa: E402, F401
+    _compile_db_covers,
+    degrade_reason,
+    is_file_scoped,
+    linter_argv,
+    linter_command,
+    preconditions_met,
+)
