@@ -426,6 +426,24 @@ class _CloseSkillTextCommonTests(_MixinBase):
         for arg in ("--source", "--target"):
             self.assertIn(arg, self.text, f"merge invocation must pass {arg}")
 
+    def test_diff_command_passes_source_not_pr_output(self):
+        # story-001: the close-reviewer reviews the ref that MERGES, not the PR
+        # head. diff-command emits `git diff <target>...<source>`; <source> is
+        # the merged ref by construction (the same <CURRENT_BRANCH> the SKILL
+        # passes to `merge`). A future edit reintroducing --pr-output would
+        # restore the PR-head blind spot that shipped unreviewed fixes at
+        # sprint-118. Pin the invocation in every close SKILL.md.
+        m = re.search(r"close_common\.py\s+diff-command\b(.*?)\)", self.text, re.DOTALL)
+        assert m is not None, "diff-command invocation not found in SKILL.md"
+        invocation = m.group(1)
+        self.assertIn("--source", invocation, "diff-command must pass --source")
+        self.assertIn("--target", invocation, "diff-command must pass --target")
+        self.assertNotIn(
+            "--pr-output",
+            invocation,
+            "diff-command must NOT pass --pr-output (PR-head review path removed)",
+        )
+
     def test_prompt_template_carries_close_review_fields(self):
         # The Agent prompt template still embeds the four close-review
         # sections inline — that's the close-reviewer's prompt contract,
