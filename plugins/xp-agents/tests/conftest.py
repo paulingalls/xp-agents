@@ -8,6 +8,8 @@ The implementations live in focused sibling modules to keep this file small:
 - `_bases.py` — base test cases + path constants
 - `_event_fixtures.py` — make_event, write_smm_fixture, signal helpers
 - `_hook_inputs.py` — canonical hook input dict factories
+- `_in_place_helpers.py` — real processes in known liveness states, for the
+  in-place marker suites
 - `_spawn_guard.py` — blocks any test from launching the real `claude` binary
   (installed on import; not optional — see that module for the incident)
 
@@ -19,11 +21,9 @@ unittest discovery, which lets us import from sibling `_*.py` modules.
 """
 
 import atexit
-import contextlib
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -183,6 +183,12 @@ from _hook_inputs import (  # noqa: E402, F401
     _make_teammate_idle_input,
     _make_write_input,
 )
+from _in_place_helpers import (  # noqa: E402, F401
+    CHILD_WAIT_TIMEOUT_S,
+    dead_pid,
+    live_pid,
+    reap,
+)
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
 # fails at test collection (NameError) instead of silently changing a
@@ -208,53 +214,6 @@ _STORY_BASE = {
     "interface_contracts": [],
     "acceptance_criteria": [],
 }
-
-
-# Every wait() on a child in this suite is BOUNDED. A test that blocks forever on
-# a subprocess wedges CI with no output — which is not a hypothetical: a run once
-# sat for 28 minutes waiting on a spawned process that had been killed out from
-# under it. An unbounded wait is a defect even when the child is one we control.
-CHILD_WAIT_TIMEOUT_S = 30
-
-
-def reap(proc: subprocess.Popen, *, timeout: float = CHILD_WAIT_TIMEOUT_S) -> None:
-    """Terminate and reap `proc`, escalating to SIGKILL, never blocking forever."""
-    proc.terminate()
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=timeout)
-
-
-def dead_pid() -> int:
-    """Spawn and reap a child process, returning its now-dead pid.
-
-    Reaping via wait() removes the process table entry, so os.kill(pid, 0)
-    reliably raises ProcessLookupError afterward — no PID-reuse race within
-    a single test's timeframe. Shared by every test that exercises a
-    pid-liveness probe (in-place teammate marker, sprint stop gate).
-    """
-    proc = subprocess.Popen([sys.executable, "-c", "pass"])
-    proc.wait(timeout=CHILD_WAIT_TIMEOUT_S)
-    return proc.pid
-
-
-@contextlib.contextmanager
-def live_pid():
-    """Yield the pid of a real, LIVE child process; terminate + reap on exit.
-
-    The other pole of dead_pid(). A liveness probe needs both to prove it
-    discriminates: a test that only ever records its OWN pid (os.getpid())
-    cannot tell "this pid is alive" from "this pid is me", and so cannot
-    express the case where one recorded process is dead while ANOTHER is
-    still running — the orphaned-teammate case.
-    """
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
-    try:
-        yield proc.pid
-    finally:
-        reap(proc)
 
 
 def _extract_preload_var(stdout: str, name: str) -> str | None:
