@@ -11,12 +11,63 @@ Cross-call graph (no outbound calls beyond this module):
 - merge_branch          -> _merge_into_target
 """
 
+import re
 import subprocess
 import sys
+import time
+from collections.abc import Callable
+
+# git's own words when another process holds the repo's index. Matched on the
+# SIGNATURE rather than the exit code, because git returns the same 128 for plenty
+# of failures that will never resolve themselves.
+_INDEX_LOCK_RE = re.compile(r"index\.lock", re.IGNORECASE)
+
+_LOCK_RETRY_ATTEMPTS = 3
+_LOCK_RETRY_BASE_S = 0.2
 
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
+
+
+def _git_retry_on_lock(
+    args: list[str],
+    cwd: str,
+    *,
+    attempts: int = _LOCK_RETRY_ATTEMPTS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> subprocess.CompletedProcess:
+    """Run a git command, retrying ONLY a transient `.git/index.lock` collision.
+
+    A sibling worktree (or a teammate's git process) can hold the index for a
+    moment. That is what bit story-005: the close's merge failed on the lock, and
+    the pipeline carried on and marked the story done unmerged.
+
+    NOT a blanket retry, deliberately. A merge conflict will not resolve itself on
+    the second attempt, and retrying it would turn a clear error into a slow,
+    confusing one — so only the lock signature comes back for another go. Safe to
+    retry because git takes the lock BEFORE it mutates anything: a lock-failed
+    command is a clean no-op, not a half-applied one.
+
+    Bounded, with a growing backoff. The holder may never let go, and an unbounded
+    spin would HANG the close rather than fail it; on exhaustion the caller gets
+    git's own stderr, which is what makes `_merge_into_target` exit non-zero.
+
+    HONEST FRAMING: this narrows the window, it does not close it. The mark-done
+    gate (`story_done_gate`) is the actual fix — it refuses to record a story as
+    shipped when the merge did not land, however the merge came to fail. This just
+    keeps the common case from ever reaching it.
+
+    `sleep` is injected so the tests can assert the retry STRUCTURALLY — that it
+    tried again and backed off — without buying a slow, flaky wall-clock test.
+    """
+    result = _git(args, cwd)
+    for attempt in range(1, attempts):
+        if result.returncode == 0 or not _INDEX_LOCK_RE.search(result.stderr or ""):
+            return result
+        sleep(_LOCK_RETRY_BASE_S * (2 ** (attempt - 1)))
+        result = _git(args, cwd)
+    return result
 
 
 def is_merged_into(cwd: str, branch: str, target: str) -> bool:
@@ -53,11 +104,14 @@ def _fast_forward_if_safe(cwd: str, branch: str, base: str) -> None:
 
 
 def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
-    r = _git(["git", "checkout", target], cwd)
+    # Both legs go through the lock retry: the checkout takes the index too, so a
+    # sibling worktree's git process can lose us the close just as easily there as
+    # at the merge itself.
+    r = _git_retry_on_lock(["git", "checkout", target], cwd)
     if r.returncode != 0:
         print(f"Failed to checkout {target}: {r.stderr}", file=sys.stderr)
         sys.exit(1)
-    r = _git(
+    r = _git_retry_on_lock(
         ["git", "merge", "--no-ff", source_branch, "-m", f"Merge {source_branch}"],
         cwd,
     )
@@ -109,24 +163,34 @@ def survives_delete_of(cwd: str, name: str, target: str) -> bool:
 
 
 def delete_branch(cwd: str, name: str, *, merge_target: str | None = None) -> bool:
-    """Delete a branch; try ``-d`` first, fall back to ``-D`` only when proven safe.
+    """Delete a branch, and never one whose work is not already somewhere else.
 
-    ``git branch -d`` refuses when a branch's tip differs from its
-    upstream tracking ref, even if it is fully merged to the
-    integration target — the case worktree teammates hit every close.
-    When ``merge_target`` is provided AND ``-d`` refuses, fall back to
-    ``-D`` iff the branch is provably an ancestor of ``merge_target`` AND
-    ``merge_target`` is a ref that survives the delete (see
-    ``survives_delete_of`` — the ancestry test alone says "safe" about a target
-    that IS the branch). Without ``merge_target`` the legacy contract holds:
-    False on -d refusal, no force-delete attempted.
+    NEVER TRUST ``git branch -d`` TO BE THE MERGE PROOF. Git's rule is "fully merged
+    in its UPSTREAM branch, or in HEAD if no upstream was set" — and upstream WINS
+    when one exists. Every story branch has one by the time it is deleted:
+    /xp-story-close Step 2 runs ``git push -u origin <branch>``. So on any repo with
+    a remote, `-d` exits 0 on a branch that was merely PUSHED and never merged into
+    its base, printing a warning nobody reads. Verified empirically, not inferred.
+
+    That is why the ancestry check runs FIRST here, against ``merge_target`` (or HEAD,
+    which is what `-d` is universally believed to check). It is not defence in depth:
+    ``story_done_gate`` reads branch ABSENCE as git-enforced proof that the merge
+    landed, so a `-d` that deletes an unmerged branch lets a story whose merge FAILED
+    be marked done — the exact bug that gate exists to stop.
+
+    ``-d`` still runs after the check, for the guards it alone has (refusing to
+    delete the branch you are standing on, say). It legitimately refuses when a
+    branch's tip differs from its upstream tracking ref even though it is fully
+    merged to the target — the case worktree teammates hit every close — so with a
+    ``merge_target`` we fall back to ``-D``, but only once ``survives_delete_of``
+    proves the target is a ref that OUTLIVES the delete (the ancestry test alone says
+    "safe" about a target that IS the branch). Without ``merge_target`` the legacy
+    contract holds: False on -d refusal, no force-delete attempted.
     """
+    if not is_merged_into(cwd, name, merge_target or "HEAD"):
+        return False
     if _git(["git", "branch", "-d", name], cwd).returncode == 0:
         return True
-    if (
-        merge_target
-        and survives_delete_of(cwd, name, merge_target)
-        and is_merged_into(cwd, name, merge_target)
-    ):
+    if merge_target and survives_delete_of(cwd, name, merge_target):
         return _git(["git", "branch", "-D", name], cwd).returncode == 0
     return False
