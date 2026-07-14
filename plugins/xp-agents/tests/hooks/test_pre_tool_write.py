@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for pre_tool_write.py: conflict detection, TDD order, cost invariants."""
+"""Tests for pre_tool_write.py: conflict detection, TDD order, cost invariants.
+
+The is_test_file heuristic has its own suite in test_is_test_file.py — it grows
+with every language it learns, and this file was over the 500-line cap.
+"""
 
 import sys
 import tempfile
@@ -27,114 +31,6 @@ from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_QUESTION, EVENT_TYPE_STA
 # ===========================================================================
 # pre_tool_write.py helper tests
 # ===========================================================================
-
-
-class TestIsTestFile(unittest.TestCase):
-    def test_python_test_prefix(self):
-        self.assertTrue(pre_tool_write.is_test_file("test_foo.py"))
-
-    def test_python_test_suffix(self):
-        self.assertTrue(pre_tool_write.is_test_file("foo_test.py"))
-
-    def test_js_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("app.test.js"))
-
-    def test_ts_spec(self):
-        self.assertTrue(pre_tool_write.is_test_file("app.spec.ts"))
-
-    def test_ts_underscore_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("foo_test.ts"))
-
-    def test_tsx_underscore_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("Button_test.tsx"))
-
-    def test_js_underscore_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("util_test.js"))
-
-    def test_jsx_underscore_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("Card_test.jsx"))
-
-    def test_mts_underscore_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("api_test.mts"))
-
-    def test_cts_underscore_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("legacy_test.cts"))
-
-    def test_ts_impl_with_underscore_not_test(self):
-        # Underscore in the middle (not preceding "_test.") shouldn't fire.
-        self.assertFalse(pre_tool_write.is_test_file("user_service.ts"))
-
-    def test_go_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("handler_test.go"))
-
-    def test_java_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("UserTest.java"))
-
-    def test_ruby_spec(self):
-        self.assertTrue(pre_tool_write.is_test_file("user_spec.rb"))
-
-    def test_tests_directory(self):
-        self.assertTrue(pre_tool_write.is_test_file("tests/conftest.py"))
-
-    def test_dunder_tests_directory(self):
-        self.assertTrue(pre_tool_write.is_test_file("__tests__/Button.tsx"))
-
-    def test_impl_file(self):
-        self.assertFalse(pre_tool_write.is_test_file("src/app.ts"))
-
-    def test_python_impl(self):
-        self.assertFalse(pre_tool_write.is_test_file("models.py"))
-
-    def test_swift_tests_suffix(self):
-        self.assertTrue(pre_tool_write.is_test_file("JaroWinklerTests.swift"))
-
-    def test_xcode_tests_directory(self):
-        self.assertTrue(
-            pre_tool_write.is_test_file("ContactForgeTests/JaroWinklerTests.swift")
-        )
-
-    def test_swift_impl(self):
-        self.assertFalse(pre_tool_write.is_test_file("ContactForge/JaroWinkler.swift"))
-
-    def test_rust_test_suffix(self):
-        self.assertTrue(pre_tool_write.is_test_file("handler_test.rs"))
-
-    def test_rust_impl(self):
-        self.assertFalse(pre_tool_write.is_test_file("src/handler.rs"))
-
-    def test_kotlin_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("UserTest.kt"))
-
-    def test_kotlin_tests(self):
-        self.assertTrue(pre_tool_write.is_test_file("UserTests.kt"))
-
-    def test_csharp_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("UserTest.cs"))
-
-    def test_cpp_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("test_handler.cpp"))
-        self.assertTrue(pre_tool_write.is_test_file("handler_test.cc"))
-
-    def test_cpp_impl(self):
-        self.assertFalse(pre_tool_write.is_test_file("handler.cpp"))
-
-    def test_php_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("UserTest.php"))
-
-    def test_dart_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("widget_test.dart"))
-
-    def test_elixir_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("user_test.exs"))
-
-    def test_maven_test_dir(self):
-        self.assertTrue(pre_tool_write.is_test_file("src/test/java/UserTest.java"))
-
-    def test_spec_dir(self):
-        self.assertTrue(pre_tool_write.is_test_file("spec/user_spec.rb"))
-
-    def test_scala_test(self):
-        self.assertTrue(pre_tool_write.is_test_file("UserTest.scala"))
 
 
 class TestGetTargetFile(unittest.TestCase):
@@ -279,9 +175,7 @@ class TestPreToolWriteRun(_HookTestCase):
             _make_write_input(tool_input={"file_path": "src/new.ts"}),
             smm_dir=self.smm_dir,
         )
-        if result:
-            self.assertNotIn("smm-delta", result)
-            self.assertNotIn("smm-context", result)
+        self.assertIsNone(result)
 
     def test_read_tool_no_injection(self):
         """Read tool input passed to pre_tool_write returns None."""
@@ -328,9 +222,7 @@ class TestPreToolWriteRun(_HookTestCase):
             _make_write_input(),
             smm_dir=fake_dir,
         )
-        if result:
-            self.assertNotIn("smm-context", result)
-            self.assertNotIn("smm-debt-context", result)
+        self.assertIsNone(result)
 
     def test_bash_input_returns_none(self):
         """Bash input passed to pre_tool_write returns None."""
@@ -354,9 +246,7 @@ class TestPreToolWriteNoDelta(_HookTestCase):
             _make_write_input(tool_input={"file_path": "/tmp/src/new.ts"}),
             smm_dir=self.smm_dir,
         )
-        if result:
-            self.assertNotIn("smm-delta", result)
-            self.assertNotIn("smm-context", result)
+        self.assertIsNone(result)
 
     def test_read_tool_no_injection(self):
         """Read tool does not get SMM context injection."""

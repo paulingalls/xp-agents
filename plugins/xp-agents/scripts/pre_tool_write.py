@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import append_validation
+import branch_names
 import code_files
 import coordination
 import identity
@@ -220,22 +221,89 @@ def check_tdd_order(smm_dir: Path, agent_id: str, file_path: str | None) -> str 
 # ---------------------------------------------------------------------------
 
 
-def _is_smm_write(smm_dir: Path | None, target_file: str | None, cwd: str) -> bool:
-    """True if the write targets a file inside the SMM dir.
+def _resolves_under(target_file: str, base: Path | str, cwd: str) -> bool:
+    """True if `target_file` resolves to a path inside `base`.
 
-    SMM mutations are infrastructure, not implementation, so they are exempt
-    from the schedule gate. Resolves relative target paths against cwd.
+    BOTH sides are resolved, and that is the whole point. git reports the
+    PHYSICAL toplevel and $SMM_DIR may itself be a symlink, while a target built
+    from the hook payload's cwd runs through whatever symlinks the caller had (on
+    macOS /tmp is /private/tmp, and mkdtemp hands back /var/folders ->
+    /private/var/folders). Resolve one side only and every contained path reads
+    as outside — for the schedule gate that means failing OPEN for exactly the
+    case it exists to catch.
+
+    Shared by both exemption predicates below. Sharing the path MATH is not
+    unioning the exemptions: they stay two predicates with two justifications
+    (see the gate in run()) and only agree on what "inside a directory" means.
     """
-    if not smm_dir or not target_file:
-        return False
     p = Path(target_file)
     if not p.is_absolute():
         p = Path(cwd) / p
     try:
-        p.resolve().relative_to(smm_dir.resolve())
+        p.resolve().relative_to(Path(base).resolve())
         return True
     except (ValueError, OSError):
         return False
+
+
+def _is_smm_write(smm_dir: Path | None, target_file: str | None, cwd: str) -> bool:
+    """True if the write targets a file inside the SMM dir.
+
+    SMM mutations are infrastructure, not implementation, so they are exempt
+    from the schedule gate — and, because sprint.json lives there, an SMM write
+    is also the repair path when the sprint is unreadable.
+    """
+    if not smm_dir or not target_file:
+        return False
+    return _resolves_under(target_file, smm_dir, cwd)
+
+
+def _is_outside_tree(target_file: str | None, root: str, cwd: str) -> bool:
+    """True if the write targets a path outside the git working tree.
+
+    No target is not evidence of being outside, so the gate stands.
+    """
+    if not target_file:
+        return False
+    return not _resolves_under(target_file, root, cwd)
+
+
+def _is_out_of_story_scope(target_file: str | None, cwd: str) -> bool:
+    """True if the write is outside what the schedule gate governs.
+
+    The gate's claim is "do not write story code before the story is promoted",
+    and two kinds of write are not story code: one that lands OUTSIDE the working
+    tree (a memory file under ~/.claude is not this sprint's implementation — and
+    the only way to satisfy the gate for it was to promote a story against a
+    customer pause), and one made on a FREE branch, where the sprint is not the
+    frame at all and /xp-free-close is the right path.
+
+    Free-branch detection keys on branch SHAPE, never on a marker: a marker can be
+    `rm`'d to bypass the gate, a branch name cannot be forged without being on it.
+
+    Fails closed at every leg. No git root (not a repo, git broken) -> we cannot
+    prove the write is out of scope, so we do not exempt it. `get_current_branch`
+    returns "" on git failure and the literal "HEAD" when detached; neither is a
+    free branch, so both leave the gate standing.
+
+    The out-of-tree leg is deliberately FIRST: it is pure path math, while the
+    branch leg shells out. A write that is already out of tree never pays the
+    subprocess.
+
+    Sibling to `_is_smm_write`, and deliberately NOT merged with it — see the
+    two-predicate note on the gate in run().
+    """
+    root = worktree.resolve_git_root(cwd)  # memoized per cwd
+    if not root:
+        # `not root`, not `is None`: an EMPTY root would resolve to the hook
+        # process's own cwd (`Path("").resolve()`), against which nearly every
+        # target reads as out-of-tree — i.e. exempt. That is fail-OPEN from a
+        # falsy value the type says cannot happen. worktree.worktree_path already
+        # spells the guard this way; make the invariant total, not probable.
+        return False
+    if _is_outside_tree(target_file, root, cwd):
+        return True
+    return branch_names.is_free_branch(identity.get_current_branch(cwd))
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
@@ -333,10 +401,29 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # in lead_gates._LEAD_GATES, with an active_when if anything but its own
         # demanded action can make it moot — never as a fourth hand-rolled `if`
         # here, which inherits neither the teammate exemption nor the hot path.
+        #
+        # TWO PREDICATES, NEVER UNIONED. The two exemptions
+        # overlap in practice but justify themselves differently:
+        # `is_smm_write` earns its keep by REPAIRABILITY (sprint.json lives in
+        # the SMM dir), which is why the corrupt-sprint escape above reads it and
+        # nothing else. Scope — "out of tree", "on a free branch" — says nothing
+        # about repairability, so folding the two into one `is_exempt` would open
+        # the write door on a free branch while every sprint gate is blind. Nor
+        # is one a subset of the other: $SMM_DIR is an env var, so the SMM dir can
+        # sit INSIDE the working tree. TestCorruptSprintKeepsThePredicatesApart
+        # goes red on the union.
+        #
+        # ORDER IS THE MECHANISM. `is_smm_write` is pure path math and stays
+        # EAGER (the corrupt branch needs it first). `_is_out_of_story_scope`
+        # shells out to an uncached `git rev-parse`, so it stays LAZY and LAST:
+        # Python short-circuits left to right, and the gate window is rare, so
+        # the subprocess is paid only when the gate is about to fire.
+        # TestScheduleGateBranchProbeCost goes red if this term moves.
         if (
             sprint_data is not None
             and schedule_gate_active_data(sprint_data)
             and not is_smm_write
+            and not _is_out_of_story_scope(target_file, cwd)
         ):
             raise _common.BlockedError(
                 "Run /xp-schedule to promote the next frontier (scheduled -> "
