@@ -307,6 +307,72 @@ class TestPlanBranchField(unittest.TestCase):
         self.assertTrue(any("branch" in e for e in errors))
 
 
+class TestMilestoneSchedules(unittest.TestCase):
+    """`schedules` — the structural link from a milestone to the recorded items
+    it schedules (a debt/concern id), replacing prose inference.
+
+    It lives on the MILESTONE, not the zone, on purpose: `_validate_zone_entry`
+    is shared by `change_zones` AND `impact_zones`, so a zone-level field would
+    silently land on impact zones too — and an impact-zone ref means "touched",
+    not "scheduled", the exact confusion this field exists to end.
+    """
+
+    def test_milestone_with_schedules_is_valid(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(schedules=["4ecd48c71327"])])
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_milestone_without_schedules_is_valid(self):
+        """Optional — every plan authored before this field must stay valid."""
+        import execution_plan_schema as schema
+
+        milestone = _make_milestone()
+        self.assertNotIn("schedules", milestone)
+        self.assertEqual(schema.validate_plan(_make_plan(milestones=[milestone])), [])
+
+    def test_empty_schedules_is_valid(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(schedules=[])])
+        self.assertEqual(schema.validate_plan(plan), [])
+
+    def test_malformed_id_is_rejected(self):
+        import execution_plan_schema as schema
+
+        # "4ecd48c71327\n" is the one that bites: ids are consumed by exact
+        # string equality, so a newline-suffixed id that VALIDATES then matches
+        # no debt at all — the retro escalates work the plan already schedules.
+        for bad in (
+            "not-an-id",
+            "ABCDEF123456",
+            "4ecd48c7132",
+            "4ecd48c713277",
+            "4ecd48c71327\n",
+        ):
+            with self.subTest(bad=bad):
+                plan = _make_plan(milestones=[_make_milestone(schedules=[bad])])
+                errors = schema.validate_plan(plan)
+                self.assertTrue(
+                    any("schedules[0]" in e for e in errors),
+                    f"{bad!r} is not a 12-hex event id but was accepted",
+                )
+
+    def test_non_string_entry_is_rejected(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(schedules=[123])])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("schedules[0]" in e for e in errors))
+
+    def test_schedules_must_be_a_list(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(schedules="4ecd48c71327")])
+        errors = schema.validate_plan(plan)
+        self.assertTrue(any("schedules" in e for e in errors))
+
+
 class TestEmptyPlan(unittest.TestCase):
     def test_empty_plan_is_valid(self):
         import execution_plan_schema as schema

@@ -12,6 +12,7 @@ import re
 
 from _acceptance_execution import validate_acceptance_execution
 from schema_helpers import budget_error
+from smm_schema import EVENT_ID_RE
 
 PLAN_FILENAME = "execution_plan.json"
 
@@ -96,6 +97,42 @@ def _validate_zone_entry(
             if actual > max_len:
                 errors.append(budget_error(f"{prefix}.note", actual, max_len))
 
+    return errors
+
+
+def _validate_schedules(milestone: dict, m_idx: int) -> list[str]:
+    """Validate a milestone's optional ``schedules``: the recorded event ids
+    (debts, concerns) this milestone is being written to resolve.
+
+    STRUCTURAL, replacing prose inference. Consumers (the retrospective) read it
+    to answer "is this aging debt already scheduled?" — a question they used to
+    answer by substring-matching ids inside LLM-authored zone notes, which gets
+    it backwards whenever a note REFUTES a debt's prescription rather than
+    scheduling it.
+
+    Lives on the MILESTONE, not on a zone entry: `_validate_zone_entry` is shared
+    by `change_zones` and `impact_zones`, and an impact-zone ref would mean
+    "touched", not "scheduled".
+
+    Named `schedules`, NOT `refs` — `refs` already names the `[refs: id]` content
+    suffix that routes to metadata.resolves/references. Ids are validated against
+    smm_schema.EVENT_ID_RE, the one id pattern; this module hand-rolls no second.
+
+    Optional: absent means "this milestone names nothing", which is what every
+    plan authored before this field says.
+    """
+    if "schedules" not in milestone:
+        return []
+
+    errors: list[str] = []
+    prefix = f"milestones[{m_idx}].schedules"
+    value = milestone["schedules"]
+    if not isinstance(value, list):
+        return [f"{prefix} must be a list of event ids"]
+
+    for s_idx, event_id in enumerate(value):
+        if not isinstance(event_id, str) or not EVENT_ID_RE.match(event_id):
+            errors.append(f"{prefix}[{s_idx}] must be a 12-hex event id")
     return errors
 
 
@@ -213,6 +250,8 @@ def _validate_milestone(
         errors.extend(
             validate_acceptance_execution(ae, f"milestones[{idx}].acceptance_execution")
         )
+
+    errors.extend(_validate_schedules(milestone, idx))
 
     if "surfaces_touched" in milestone:
         st = milestone["surfaces_touched"]

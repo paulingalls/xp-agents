@@ -44,7 +44,14 @@ PILLAR_CONTENT_MAX_LENGTH: dict[str, int] = {
 }
 assert set(PILLAR_CONTENT_MAX_LENGTH) == set(PILLARS)
 
-EVENT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+# `\Z`, not `$`: Python's `$` also matches BEFORE a trailing newline, so `$`
+# here accepted "4ecd48c71327\n" as a valid id. Ids are compared by exact string
+# equality everywhere they matter (metadata.resolves closing an event,
+# execution_plan milestone.schedules naming a debt), so a newline-suffixed id
+# validates and then silently matches nothing. No legitimate id — every one is
+# machine-generated 12-hex — ever carries a newline, so this only rejects input
+# that was already broken.
+EVENT_ID_RE = re.compile(r"^[0-9a-f]{12}\Z")
 
 
 def _is_valid_id(value: object) -> bool:
