@@ -46,6 +46,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import linters
+
 
 def _usable(binary: str) -> str | None:
     """The path to `binary`, but ONLY if it actually runs.
@@ -72,12 +74,14 @@ def _usable(binary: str) -> str | None:
 
 _CLANG_TIDY = _usable("clang-tidy")
 _CHECKSTYLE = _usable("checkstyle")
+_CLANG_FORMAT = _usable("clang-format")
 
 # `skipUnless` guards every use at runtime, but pyright cannot see through a class
 # decorator — so narrow to `str` here. The fallback name is never invoked: the class
 # is skipped whenever the probe above came back None.
 CLANG_TIDY: str = _CLANG_TIDY or "clang-tidy"
 CHECKSTYLE: str = _CHECKSTYLE or "checkstyle"
+CLANG_FORMAT: str = _CLANG_FORMAT or "clang-format"
 
 # A check with no compiler-flag dependency, so the finding is about the CODE and not
 # about the build. Braces-around-statements fires on a one-line `if`.
@@ -212,6 +216,146 @@ class TestTheCompileDatabaseDecidesWhetherCppIsGatable(_TmpProject):
 
         self.assertIn("file not found", r.stdout + r.stderr)
         self.assertNotEqual(r.returncode, 0, "it would BLOCK, and no diff fixes it")
+
+
+@unittest.skipUnless(_CLANG_FORMAT, "clang-format not installed")
+class TestClangFormatDoesNotShareClangTidysSeparatorBug(_TmpProject):
+    """The row that is GATED in C/C++ today, and was pinned by NOTHING.
+
+    clang-tidy's separator bug is easy to over-generalise to its sibling: same LLVM
+    release, same `clang-` prefix, adjacent rows in every table here. If clang-format
+    read a trailing `-- app.c` as a compiler flag the way clang-tidy does, the DEFAULT
+    argv shape would lint zero sources in every C/C++ repo that has a `.clang-format`
+    and no `.clang-tidy` — the same false-clean, in a row nobody thought to check.
+
+    It does NOT: clang-format is an ordinary LLVM `cl` binary, not a ClangTool, so `--`
+    means "end of options" and the path after it is a PATH. That is a fact about a
+    binary, so it is asked of the binary. The two rows differ, and the shape column is
+    right to carry only one of them — this is the evidence for the row that ISN'T there.
+    """
+
+    _DIRTY_C = "int main(void){\n  if(1)return 0;\n      return   1;\n}\n"
+    _CLEAN_C = "int main(void) { return 0; }\n"
+
+    def setUp(self):
+        super().setUp()
+        (self.d / ".clang-format").write_text("BasedOnStyle: LLVM\n")
+
+    def _shipped_argv(self, path: str) -> list[str]:
+        """The argv `linter_argv` builds for clang-format: the DEFAULT shape."""
+        return [CLANG_FORMAT, "--dry-run", "-Werror", "--", path]
+
+    def test_the_separator_is_read_as_end_of_options_not_as_compiler_flags(self):
+        (self.d / "app.c").write_text(self._DIRTY_C)
+
+        r = _run(self._shipped_argv("app.c"), self.d)
+
+        self.assertIn("clang-format-violations", r.stderr, "it LINTED the file")
+        self.assertNotIn("no input files", (r.stdout + r.stderr).lower())
+        self.assertNotEqual(r.returncode, 0, "and a finding can block")
+
+    def test_a_clean_file_exits_zero(self):
+        """The control: -Werror must not block everything."""
+        (self.d / "app.c").write_text(self._CLEAN_C)
+
+        r = _run(self._shipped_argv("app.c"), self.d)
+
+        self.assertEqual(r.returncode, 0)
+
+
+@unittest.skipUnless(_CLANG_TIDY, "clang-tidy not installed")
+class TestAPartialCompileDatabaseMustNotBlock(_TmpProject):
+    """A compile DB that EXISTS is not a compile DB that COVERS the staged file.
+
+    Found in review, and it is a block this story ITSELF introduced. The first
+    precondition asked "is compile_commands.json at the git root?" — but gatability
+    needs "can clang-tidy COMPILE this staged file?", and those come apart exactly
+    where it hurts: a partial or stale DB (covers src/, staged file under tests/) has
+    the file's headers nowhere, so clang-tidy cannot compile it:
+
+        tests/t.c:1:10: error: 't.h' file not found [clang-diagnostic-error]
+
+    Non-zero, WITH output — which the contract reads as FINDINGS. The gate refuses the
+    commit, and nothing in the diff fixes it: you have to regenerate the compile
+    database, which is a build step. Partial DBs are the ordinary case (a new file, a
+    test subtree, generated sources, a DB nobody re-ran).
+
+    Before this story clang-tidy was degraded unconditionally, so the block is NEW —
+    the unfixable gate the whole degrade doctrine exists to prevent, reintroduced by
+    the fix for it. Coverage is therefore tested PER FILE, and an uncovered file
+    DEGRADES. Erring toward advisory loses a little coverage; erring the other way
+    hands users a gate they can only escape by turning it off.
+    """
+
+    def setUp(self):
+        super().setUp()
+        (self.d / ".clang-tidy").write_text(_CLANG_TIDY_CONFIG)
+        # TWO include trees. The database's one entry reaches a_inc; nothing tells
+        # clang-tidy about b_inc. That distinction is the whole finding, and I got it
+        # wrong the first time: clang-tidy INFERS a command for an uncovered file from
+        # the database's nearest entry, so an uncovered file whose header those
+        # inferred flags happen to reach lints perfectly well. The block appears only
+        # when the inferred flags do NOT reach it — which is the ordinary shape of a
+        # stale database (a new subtree with its own include path).
+        for d in ("a_inc", "b_inc", "src", "tests"):
+            (self.d / d).mkdir()
+        (self.d / "a_inc" / "a.h").write_text("#define A 1\n")
+        (self.d / "b_inc" / "b.h").write_text("#define B 1\n")
+        (self.d / "src" / "covered.c").write_text(
+            '#include "a.h"\nint main(void){ if (A) return 0; return 1; }\n'
+        )
+        (self.d / "tests" / "t.c").write_text(
+            '#include "b.h"\nint other(void){ if (B) return 0; return 1; }\n'
+        )
+        (self.d / "compile_commands.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "directory": str(self.d),
+                        "command": "cc -Ia_inc -c src/covered.c",
+                        "file": str(self.d / "src" / "covered.c"),
+                    }
+                ]
+            )
+        )
+
+    def test_the_binary_really_does_fail_on_an_uncovered_file(self):
+        """The fact, from the binary — not from our model of it. This is precisely
+        what the gate would have blocked on, and it is why coverage has to be tested
+        rather than assumed from the database's mere existence."""
+        r = _run([CLANG_TIDY, "--warnings-as-errors=*", "tests/t.c"], self.d)
+
+        self.assertIn("file not found", r.stdout + r.stderr)
+        self.assertNotEqual(r.returncode, 0, "non-zero + output reads as FINDINGS")
+
+    def test_an_uncovered_file_degrades_instead_of_blocking(self):
+        """So the gate must not even try. Degrade, and say why."""
+        self.assertFalse(
+            linters.is_file_scoped("clang-tidy", str(self.d), ["tests/t.c"]),
+            "an uncovered file must DEGRADE — a block here is unfixable by any diff",
+        )
+        self.assertIsNone(
+            linters.linter_argv("clang-tidy", ["tests/t.c"], root=str(self.d)),
+            "and it must not be invoked at all",
+        )
+
+    def test_a_covered_file_is_still_gated(self):
+        """The control. Degrading uncovered files must not degrade EVERY file, or the
+        C/C++ gate is back to doing nothing."""
+        self.assertTrue(
+            linters.is_file_scoped("clang-tidy", str(self.d), ["src/covered.c"]),
+            "a file the DB covers is genuinely gatable",
+        )
+
+    def test_a_new_file_beside_a_covered_one_is_still_gated(self):
+        """clang-tidy INFERS a command for a file the DB does not name, from its
+        siblings — so a strict name-match would degrade every newly-added source and
+        quietly hand C/C++ back its old non-gate. Coverage is by DIRECTORY."""
+        (self.d / "src" / "brand_new.c").write_text(_DIRTY_C)
+
+        self.assertTrue(
+            linters.is_file_scoped("clang-tidy", str(self.d), ["src/brand_new.c"]),
+        )
 
 
 @unittest.skipUnless(_CHECKSTYLE, "checkstyle not installed")

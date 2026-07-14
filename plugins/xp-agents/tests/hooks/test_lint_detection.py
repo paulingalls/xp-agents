@@ -165,6 +165,25 @@ class TestSummarizeLintOutput(unittest.TestCase):
         self.assertIn("3 errors", result)
 
 
+def _write_compile_db(root: str, *files: str) -> None:
+    """A compile DB that actually COVERS `files`.
+
+    An empty `[]` database exists but covers nothing, and coverage is now tested per
+    file — because a database that exists is not a database that can compile the
+    staged file, and the gap between those two is an unfixable block.
+    """
+    import json as _json
+
+    Path(root, "compile_commands.json").write_text(
+        _json.dumps(
+            [
+                {"directory": root, "command": f"cc -c {f}", "file": str(Path(root, f))}
+                for f in files
+            ]
+        )
+    )
+
+
 class TestLinterTableColumns(unittest.TestCase):
     """The two columns that make "non-zero exit" a sufficient finding signal.
 
@@ -283,7 +302,7 @@ class TestLinterTableColumns(unittest.TestCase):
         lets clang-tidy resolve an #include. See test_lint_polyglot.py.
         """
         with tempfile.TemporaryDirectory() as td:
-            Path(td, "compile_commands.json").write_text("[]")
+            _write_compile_db(td, "app.c")
 
             argv = linters.linter_argv("clang-tidy", ["app.c"], root=td)
 
@@ -311,7 +330,7 @@ class TestLinterTableColumns(unittest.TestCase):
                 "concern lint_resolution could never clear",
             )
 
-            Path(td, "compile_commands.json").write_text("[]")
+            _write_compile_db(td, "app.c")
 
             self.assertTrue(
                 linters.is_file_scoped("clang-tidy", td),
@@ -332,6 +351,31 @@ class TestLinterTableColumns(unittest.TestCase):
             assert argv is not None
             self.assertIn("/proj/checkstyle.xml", argv, "the DETECTED config")
             self.assertNotIn("/google_checks.xml", argv, "not Google's")
+
+    def test_clippy_has_no_per_file_argv_at_all(self):
+        """The OTHER separator bug, and the one the shared builder did NOT fix.
+
+        `cargo clippy -- -D warnings` already ends in a separator: everything after
+        it goes to rustc. Appending the default `-- <path>` therefore builds
+
+            cargo clippy -- -D warnings -- src/main.rs
+
+        and rustc answers `error: multiple input filenames provided` and exits 101.
+        MEASURED against real cargo — not a false-clean but something worse: the
+        edit-time path reads 101 as FINDINGS and raises a lint concern whose text is
+        a cargo argv error, on EVERY .rs file edited. lint_resolution then re-runs the
+        same broken argv to clear it, gets 101 again, and the concern can never be
+        resolved — it is injected into every prompt by prompt_nugget, forever.
+
+        clippy lints the CRATE; there is no argv that asks it about one file. So there
+        is no argv, and the honest answer is None — the same "must not run this here"
+        the precondition rows return. The commit gate already degrades the row.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(
+                linters.linter_argv("clippy", ["src/main.rs"], root=td),
+                "a per-file clippy argv does not exist — do not invent one",
+            )
 
     def test_every_row_has_a_scope_answer(self):
         """No silent gap: a new linter row must be classified, not defaulted by

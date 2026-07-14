@@ -27,7 +27,7 @@ jobs:
         # Install BEFORE tests so the gate can run, not after.
         run: pip install ruff
 
-      - name: Install clang-tidy
+      - name: Install clang-tidy and clang-format
         # tests/hooks/test_lint_polyglot.py proves the C/C++ gate against the REAL
         # binary, because a hand-written stub would only encode our own model of the
         # CLI — and the bug being fixed IS that our model was wrong.
@@ -36,10 +36,16 @@ jobs:
         # every one of those tests into a SKIP, and a skipped test is a green test.
         # The suite would then certify a C/C++ gate nobody had run.
         #
+        # clang-format is a SEPARATE package, and it is not optional here: it is the
+        # row C/C++ projects actually get GATED on (a repo with a .clang-format and no
+        # .clang-tidy), and its tripwire proves it does NOT share clang-tidy's
+        # separator bug. Leave it out and that tripwire skips — green, and proving
+        # nothing, which is the exact failure this block exists to prevent.
+        #
         # checkstyle is deliberately NOT installed. Java stays degraded (its exit code
         # cannot express a finding), so provisioning a JVM here would pay to prove a
         # negative; its facts are pinned locally and its tests skip.
-        run: sudo apt-get update && sudo apt-get install -y clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy clang-format
 
       - name: Run tests
         run: python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py" -v

@@ -143,9 +143,24 @@ LINTER_STRICT_FLAGS: dict[str, list[str]] = {
 # above passes the same test, and is the precedent.
 PATHS_BEFORE_SEPARATOR = "paths_before_separator"
 SEPARATOR_BEFORE_PATHS = "separator_before_paths"  # the default
+# ...and the third answer: there is NO per-file argv. Some CLIs take no source path
+# at all — `cargo clippy` lints the CRATE. Handing them one is not a different shape,
+# it is a question they cannot be asked, and the honest argv is None.
+NO_PER_FILE_ARGV = "no_per_file_argv"
 
 LINTER_ARGV_SHAPES: dict[str, str] = {
     "clang-tidy": PATHS_BEFORE_SEPARATOR,
+    # MEASURED against real cargo. The shipped command ALREADY ends in a separator
+    # (`cargo clippy -- -D warnings`: everything after `--` goes to rustc), so the
+    # default shape appended a SECOND one and built
+    #     cargo clippy -- -D warnings -- src/main.rs
+    # which rustc rejects with `error: multiple input filenames provided`, exit 101.
+    # The commit gate never saw it (the row degrades), but the EDIT-time path read
+    # 101 as FINDINGS and raised a lint concern — whose text was a cargo argv error —
+    # on every .rs file edited, and `lint_resolution` re-ran the same broken argv to
+    # clear it and got 101 again. A concern that can never be resolved, in every Rust
+    # project the plugin ships to.
+    "clippy": NO_PER_FILE_ARGV,
 }
 
 
@@ -281,118 +296,6 @@ LINTER_BINARIES = {
 }
 
 
-def linter_command(linter_name: str) -> list[str]:
-    """The argv to invoke `linter_name` with, strictness flags included.
-
-    Single source for both the edit-time (`run_linter`) and commit-time
-    (`run_linter_batch`) paths, so the two cannot disagree about how strict the
-    linter is. That matters: if the commit gate blocked on a warn-level finding
-    that edit-time never surfaced, the agent would be ambushed at commit by a
-    rule nothing had told it about.
-
-    Prefer `linter_argv`, which also places the paths. This remains the composition
-    step, and stays public because callers still pin the flags.
-    """
-    return LINTER_COMMANDS[linter_name] + LINTER_STRICT_FLAGS.get(linter_name, [])
-
-
-def preconditions_met(linter_name: str, root: str) -> bool:
-    """Does the PROJECT carry what this linter needs before it can run at all?
-
-    Not a property of the linter — a property of the checkout. See
-    LINTER_PRECONDITIONS. A row with no precondition is always met.
-    """
-    required = LINTER_PRECONDITIONS.get(linter_name)
-    return required is None or (Path(root) / required).exists()
-
-
-def linter_argv(
-    linter_name: str,
-    paths: list[str],
-    *,
-    root: str,
-    config_path: str | None = None,
-) -> list[str] | None:
-    """The FULL argv to run `linter_name` over `paths`, or None if it must not run.
-
-    The single source of argv for BOTH the edit-time (`run_linter`) and commit-time
-    (`run_linter_batch`) paths. It has to be single: the separator used to be placed
-    by each caller separately, and that duplication is exactly where clang-tidy's
-    broken invocation lived — the commit path was patched around it by degrading the
-    row, while the EDIT path went on building `clang-tidy -- app.c` and linting
-    nothing at all.
-
-    Returns None when a precondition is unmet — "we must not run this here" — which
-    is different from "it ran and found nothing". Both callers have to honour it, or
-    the edit-time path raises a concern the resolution path can never clear: without
-    a compile database clang-tidy cannot resolve an `#include`, and a concern that
-    says `'hdr.h' file not found` is not fixable by editing the file it is attached to.
-
-    The trailing separator is the subtle one, and the debt that asked for this fix got
-    it WRONG. `--` means "no compiler flags", which OVERRIDES compile_commands.json —
-    so a fix that always appends it would throw away the very database that makes
-    clang-tidy usable. It is appended only when there is no database to lose (and that
-    case is degraded anyway; the argv is built for the edit-time probe).
-    """
-    if not preconditions_met(linter_name, root):
-        return None
-
-    argv = list(linter_command(linter_name))
-
-    config_flag = LINTER_CONFIG_FLAGS.get(linter_name)
-    if config_flag is not None:
-        if not config_path:
-            # A config-required linter with no config would run against its built-in
-            # default — which is a different project's rules, and reads back as either
-            # findings or clean. Both are lies. Refuse to build the argv.
-            return None
-        argv += [*config_flag, config_path]
-
-    match LINTER_ARGV_SHAPES.get(linter_name, SEPARATOR_BEFORE_PATHS):
-        case _s if _s == PATHS_BEFORE_SEPARATOR:
-            return [*argv, *paths]
-        case _:
-            return [*argv, "--", *paths]
-
-
-def degrade_reason(linter_name: str, root: str) -> str | None:
-    """Why the commit gate must not BLOCK on this linter here, or None if it may.
-
-    Three different answers to one question — "can the gate block on this row?" — and
-    the old code collapsed them into a single set with a single blanket message. They
-    are not the same, and the customer deserves the real one:
-
-      * the linter judges the whole project, not one file (clippy);
-      * its exit code cannot express what it found (checkstyle);
-      * this checkout lacks something it needs (clang-tidy without a compile DB).
-    """
-    static = DEGRADED_LINTERS.get(linter_name)
-    if static is not None:
-        return static
-    required = LINTER_PRECONDITIONS.get(linter_name)
-    if required is not None and not preconditions_met(linter_name, root):
-        return (
-            f"this project has no {required}, so {linter_name} cannot resolve "
-            f"includes — it would fail to COMPILE the file and block on an error "
-            f"your diff cannot fix"
-        )
-    return None
-
-
-def is_file_scoped(linter_name: str, root: str) -> bool:
-    """Can the commit gate BLOCK on this linter, in THIS project?
-
-    False where a non-zero exit would report something the staged diff neither caused
-    nor can fix. A gate that cannot be satisfied is worse than one that stays quiet,
-    because the first thing anyone does with an unfixable gate is disable it.
-
-    Unknown rows answer True: a linter nobody classified is far likelier to be an
-    ordinary file-scoped one than a project sweep, and being wrong that way produces
-    a too-strict block the agent can actually act on.
-    """
-    return degrade_reason(linter_name, root) is None
-
-
 def detect_linter_config(
     cwd: str, git_root: str, file_path: str | None = None
 ) -> tuple[str, str] | None:
@@ -438,3 +341,17 @@ def detect_linter_config(
         current = current.parent
 
     return None
+
+
+# Re-exported BY IDENTITY from the invocation module, which is split out to keep this
+# file under the 500-line cap. `linters.linter_argv is linter_invocation.linter_argv`.
+# The import sits at the bottom because that module imports the TABLES above — a
+# top-of-file import would be circular.
+from linter_invocation import (  # noqa: E402, F401
+    _compile_db_covers,
+    degrade_reason,
+    is_file_scoped,
+    linter_argv,
+    linter_command,
+    preconditions_met,
+)
