@@ -245,9 +245,14 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     if len(subset) < 2:
         return {"collisions": {}, "glob_forced": False}
 
-    # Scoping to `subset` is safe: a frontier member can never depend on
-    # another frontier member (deps must be `done` to be satisfied), so the
-    # dependency-awareness collision_report applies is a no-op within one.
+    # Scoping to `subset` is safe, but NOT because a frontier member can
+    # never depend on another (it can — see sprint_frontier's antichain
+    # guard, which handles exactly that transitively, including through a
+    # story absent from `story_ids`). It's safe because a pair's collision
+    # answer is decided entirely by that pair's own dependency edge, which is
+    # present in the subset either way. What collision_report's "no collision"
+    # does NOT mean is "safe to run concurrently" — a dependency edge can
+    # suppress the collision precisely because it serializes the pair.
     collisions = file_domain_lock.collision_report({"stories": subset})
 
     glob_forced = False
