@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for pre_tool_write.py: schedule gate, plan review gate, question gate,
-accept marker.
+"""Tests for pre_tool_write.py: plan review gate, question gate, accept marker.
 
 Split from test_pre_tool_write.py -- keeps gate-related test classes separate.
 The assign gate and the shared _LEAD_GATES machinery live in test_lead_gates.py:
 the assign gate grew a state-derived `active_when` predicate and its suite with
-it, and this file was already over the 500-line cap.
+it, and this file was already over the 500-line cap. The schedule gate lives in
+test_pre_tool_write_schedule_gate.py: it is its own mechanism, with its own
+trigger window and its own exemption set, and keeping its cases here would push
+this file back over the cap.
 """
 
 import os
@@ -29,76 +31,9 @@ from conftest import (
     SPRINT_IN_PROGRESS,
     SPRINT_READY_ONLY,
     SPRINT_REVIEWING_ONLY,
-    SPRINT_SCHEDULED_ONLY,
     _HookTestCase,
     _make_write_input,
 )
-
-
-class TestPreToolWriteScheduleGate(_HookTestCase):
-    """PreToolUse blocks non-plan/non-SMM writes in the schedule trigger window
-    (scheduled stories exist, none in-progress) — forcing /xp-schedule. State-
-    derived: self-clears the instant a frontier is promoted to in-progress.
-    """
-
-    def test_scheduled_only_blocks_code_write(self):
-        """Scheduled stories, none in-progress -> code write blocked."""
-        (self.smm_dir / "sprint.json").write_text(SPRINT_SCHEDULED_ONLY)
-        with self.assertRaises(_common.BlockedError) as ctx:
-            pre_tool_write.run(
-                _make_write_input(session_id="t", cwd="/tmp"),
-                smm_dir=self.smm_dir,
-            )
-        self.assertIn("xp-schedule", str(ctx.exception))
-
-    def test_in_progress_self_clears_gate(self):
-        """Once a frontier is in-progress, the gate no longer fires."""
-        (self.smm_dir / "sprint.json").write_text(SPRINT_IN_PROGRESS)
-        result = pre_tool_write.run(
-            _make_write_input(session_id="t", cwd="/tmp"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-schedule", result)
-
-    def test_no_sprint_does_not_block(self):
-        """Free mode / no sprint -> gate never fires."""
-        result = pre_tool_write.run(
-            _make_write_input(session_id="t", cwd="/tmp"),
-            smm_dir=self.smm_dir,
-        )
-        if result:
-            self.assertNotIn("xp-schedule", result)
-
-    def test_plan_file_exempt_in_trigger_state(self):
-        """Plan-file writes are exempt even in the trigger window."""
-        (self.smm_dir / "sprint.json").write_text(SPRINT_SCHEDULED_ONLY)
-        plan_input = _make_write_input(
-            session_id="t",
-            cwd="/tmp",
-            tool_input={
-                "file_path": "/Users/x/.claude/plans/my-plan.md",
-                "content": "# Plan",
-            },
-        )
-        result = pre_tool_write.run(plan_input, smm_dir=self.smm_dir)
-        if result:
-            self.assertNotIn("xp-schedule", result)
-
-    def test_smm_write_exempt_in_trigger_state(self):
-        """Writes targeting the SMM dir are exempt even in the trigger window."""
-        (self.smm_dir / "sprint.json").write_text(SPRINT_SCHEDULED_ONLY)
-        smm_input = _make_write_input(
-            session_id="t",
-            cwd="/tmp",
-            tool_input={
-                "file_path": str(self.smm_dir / "scratch.json"),
-                "content": "{}",
-            },
-        )
-        result = pre_tool_write.run(smm_input, smm_dir=self.smm_dir)
-        if result:
-            self.assertNotIn("xp-schedule", result)
 
 
 class TestPreToolWritePlanReviewGate(_HookTestCase):
