@@ -80,7 +80,7 @@ For each milestone:
 - **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Remaining read-only call-sites land here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤500 chars.
 - **Constraints**: Milestone-specific limits or requirements. Budget: ≤150 chars each.
-- **Schedules** (optional): Ids of the recorded items (debt, concern) this milestone is written to FIX — `["<12-hex event id>", ...]`. The retrospective reads it to report "scheduled in M\<n\>" instead of escalating the item as aging debt. List an id only when the milestone *does that work* — not when it merely mentions the item, touches its files, or **refutes** it. A milestone whose design *rejects* a debt's prescription must NOT list it: claiming otherwise silences the escalation forever. Omit when the milestone answers no recorded item.
+- **Schedules** (optional): Ids of the recorded items (debt, concern) this milestone will FIX — `["<12-hex event id>", ...]`. The retrospective reads it to report "scheduled in M\<n\>" instead of escalating the item as aging debt. One test: **when this milestone ships, is the item resolved?** List the id only then — not when the milestone merely mentions it, touches its files, or rejects its *premise*. Judge the DEFECT, not the remedy the item proposed: fixing it a better way than prescribed still resolves it. Omit when the milestone answers nothing recorded.
 - **Acceptance Execution** (optional): How `/xp-sprint-review` verifies the milestone is done. Only include when `system_context.json` has an `acceptance_surfaces` entry with `status: "covered"`. Format: `{"type": "<harness>", "command": "<run command>"}` for one command, or `{"type": "<harness>", "commands": ["<cmd1>", "<cmd2>", ...]}` for multiple (run in order, fail on first non-zero). Optional `setup` and `notes` fields. When a command is present, name the proof test file directly (the path-naming binary form, e.g. `npx playwright test <spec>`) rather than a bare script alias whose proof file is hidden in config.
 
 Guidelines:
@@ -190,7 +190,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
    ```bash
    echo "New overview text" | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> set-overview
    ```
-9. **NEVER modify `delivered` milestones** — only `/xp-sprint-review` does that.
+9. **Never patch `status` or `delivered_sprint`, and never touch a `delivered` milestone** — `/xp-sprint-review` owns delivery via `update-status`. `edit-milestone` refuses all three.
 10. Render and **output the plan as text** for review:
     ```bash
     python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render

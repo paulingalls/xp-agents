@@ -101,7 +101,13 @@ def _build_plan_schedule(smm_dir: Path | None) -> dict[str, str]:
         return {}
 
     schedule: dict[str, str] = {}
-    for milestone in plan["milestones"]:
+    # By NUMBER, not by list order. When two open milestones schedule the same id
+    # the first one wins, and "first" has to mean the one that reaches the debt
+    # sooner — that is the label that stays true if the later milestone is
+    # re-planned. List order is not that order: `number` is validated only as an
+    # int (no ordering, no uniqueness) and `add-milestone` appends, so a
+    # late-authored M3 sits after M6 on disk.
+    for milestone in sorted(plan["milestones"], key=lambda m: m["number"]):
         if milestone["status"] not in execution_plan_store.ACTIVE_MILESTONE_STATUSES:
             continue
         label = f"M{milestone['number']}: {milestone['name']}"

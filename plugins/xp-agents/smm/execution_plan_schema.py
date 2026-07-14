@@ -106,9 +106,14 @@ def _validate_schedules(milestone: dict, m_idx: int) -> list[str]:
 
     STRUCTURAL, replacing prose inference. Consumers (the retrospective) read it
     to answer "is this aging debt already scheduled?" — a question they used to
-    answer by substring-matching ids inside LLM-authored zone notes, which gets
-    it backwards whenever a note REFUTES a debt's prescription rather than
-    scheduling it.
+    answer by substring-matching ids inside LLM-authored zone notes. A note
+    naming an id is not evidence it schedules it: the note may be citing the
+    item, or rejecting it. Only an author can say, and this is where they say it.
+
+    The authoring rule is one question — "when this milestone ships, is the item
+    resolved?" — and it turns on the item's DEFECT, not on the remedy the item
+    proposed. A milestone that fixes the defect a different way than the debt
+    prescribed still resolves it, and still belongs here.
 
     Lives on the MILESTONE, not on a zone entry: `_validate_zone_entry` is shared
     by `change_zones` and `impact_zones`, and an impact-zone ref would mean

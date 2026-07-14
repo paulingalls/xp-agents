@@ -28,7 +28,11 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-end-session": 6440,
     "xp-free-close": 8590,
     "xp-kickoff": 9020,
-    "xp-plan": 10030,
+    # Bumped 10030 -> 10230: the skill gained an authored field (`schedules`)
+    # and the writer path that reaches it (edit-milestone), and step 9 now states
+    # the delivery-field refusal the CLI actually enforces. Re-trimmed first —
+    # the `schedules` bullet is shorter than the one it replaced.
+    "xp-plan": 10230,
     "xp-plan-close": 6140,
     "xp-quality-review": 8190,
     "xp-review-plan": 1020,

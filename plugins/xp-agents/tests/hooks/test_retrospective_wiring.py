@@ -299,19 +299,27 @@ class TestPlanSchedule(_HookTestCase):
     def test_two_active_milestones_naming_one_debt_report_the_earlier(self):
         """A one-label map has to pick when two live milestones name the same
         debt. Pick the EARLIER one: it is the one the debt gets fixed by, and
-        "scheduled in M2" is the answer that survives M4 being re-planned."""
+        "scheduled in M2" is the answer that survives M4 being re-planned.
+
+        "Earlier" means the lower NUMBER, and the fixture lists M4 first on
+        purpose. List order is not number order: `number` is validated only as an
+        int and `add-milestone` appends, so a milestone authored late sits after
+        higher numbers on disk. A first-in-list-order pick passes this test only
+        when the fixture happens to be sorted, which is exactly the accident this
+        ordering pins shut.
+        """
         plan = make_plan_dict(
             milestones=[
-                make_milestone_dict(
-                    number=2,
-                    name="Earlier",
-                    status="in-progress",
-                    schedules=[self.DEBT_ID],
-                ),
                 make_milestone_dict(
                     number=4,
                     name="Later",
                     status="planned",
+                    schedules=[self.DEBT_ID],
+                ),
+                make_milestone_dict(
+                    number=2,
+                    name="Earlier",
+                    status="in-progress",
                     schedules=[self.DEBT_ID],
                 ),
             ]
