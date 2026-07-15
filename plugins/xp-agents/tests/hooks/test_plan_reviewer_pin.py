@@ -293,6 +293,19 @@ class TestPlanReviewerPin(unittest.TestCase):
             "verify path is pinned — that story has no authored proof at all",
         )
 
+    def test_body_flags_malformed_pin(self):
+        # A pin written in the raw cd-relative form (instead of the required
+        # repo-relative post-rebase token) silently no-ops — the exemption
+        # never applies. The reviewer must flag this rather than let it pass
+        # unnoticed (xp-code-reviewer finding on story-005, decision to close
+        # concern 657e9f65db20 via a plan-time fail-loud check).
+        self.assertIn(
+            "malformed pin",
+            self.body_lower,
+            "xp-plan-reviewer body must flag a pin that matches none of the "
+            "story's extracted verify paths as a malformed/stale pin",
+        )
+
     # --- Trace verification reclassification ----------------------------
     #
     # When the agent verifies a trace and finds no real concern, it must
