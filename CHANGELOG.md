@@ -2,6 +2,51 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.10.0 — Planning artifacts keep their record
+
+Milestone 5 finished the plan (M1–M5 all delivered): **the tools stop destroying and
+misreading their own records.** Where a budget truncated rationale, it stops; where a
+create overwrote history, it archives first; and three gates that misjudged a marker
+now read the work itself.
+
+**Planning fields stopped truncating rationale.** A cross-project census of 48 live
+stories showed `context` right-censored at exactly its 600-char cap — the signature of
+authors trimming WHY to fit — and the 500-char milestone `design_details` cap cut the
+rationale on 4 of 4 milestones. Both go to 800. The `xp-sprint-start` prose that states
+the budget moves in lockstep with the schema constant.
+
+**`sprint.json` stops being unrecoverable.** Every `sprint_cli create` overwrote it, so
+past sprints were gone — unlike execution plans, which archive into `plans/`. A new
+`sprint_archive.archive()` (a sibling module, so `sprint_store.py` stays under the
+500-line cap) snapshots the completed sprint into `sprints/` at close, wired through a
+`sprint_cli archive` subcommand exactly as `/xp-plan-close` archives the plan.
+
+**The mark-done deadlock is closed.** The `.accept` marker gates mark-done and was
+consumed only *after* `/xp-accept`'s no-stories exit — so a story already merged with
+nothing left to accept stranded the marker forever, escapable only by a manual `rm`
+(hit live on story-008). The consume now runs on every path the skill reaches.
+
+**The accept-evidence gate reads acceptance, not intent.** A lead's raw `/xp-story-close`
+was refused unless the session-scoped `ACCEPT_IN_FLIGHT` marker was armed — which proved
+accept had *started*, not that this story's acceptance *passed*. It now keys on the
+per-story `closing` state `/xp-accept` sets immediately before dispatch, and it fails
+**closed** on a corrupt/missing sprint (degrading quiet only when the SMM dir itself is
+unresolvable).
+
+**An answered question stops reading OPEN.** Two blocking questions asked before an
+answer clobbered the single-valued question gate, so only the last was ever recorded as
+answered — a plan-reviewer once read the log, saw two unanswered questions, and wrongly
+concluded a plan had faked a customer sign-off. On answer, every still-open blocking
+question resolves.
+
+**verify-touch stops nagging deliberate regression pins.** When a behavior-preserving
+refactor declares an existing suite as its acceptance — its staying green *unchanged* is
+the proof — verify-touch flagged the untouched path and forced a `[verify-deferred]`
+commit that recorded debt every time (5 misfires this sprint). A story may now declare
+`acceptance_execution.pins`: repo-relative paths exempt from the untouched check at the
+single point all four consumers funnel through, with the plan-reviewer flagging an
+all-pinned story (no authored proof) or a malformed pin (matches nothing).
+
 ## v4.9.0 — Gates that see the work they gate
 
 Milestone 4 was one idea, spelled four ways: **a gate that acts on state it cannot see is a gate
