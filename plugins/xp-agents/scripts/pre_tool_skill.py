@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
 import identity
+import markers
 import target_routing
 import worktree
 
@@ -111,6 +112,47 @@ def teammate_block_reason(input_data: dict, smm_dir: Path | None = None) -> str 
     return None
 
 
+_ACCEPT_EVIDENCE_BLOCK = (
+    "Refusing /xp-story-close: run /xp-accept to verify acceptance first — "
+    "/xp-accept drives the close itself once acceptance is confirmed. Driving "
+    "/xp-story-close directly merges before acceptance is ever verified."
+)
+
+
+def accept_evidence_block_reason(
+    input_data: dict, smm_dir: Path | None = None
+) -> str | None:
+    """Block a lead-driven /xp-story-close that has no accept evidence.
+
+    Only /xp-story-close is gated — sprint/plan/free close don't require
+    per-story acceptance. ACCEPT_IN_FLIGHT (armed by /xp-accept's preload,
+    live through the whole per-story close loop) is the evidence signal:
+    present when /xp-accept is driving the close, absent when an agent
+    invokes /xp-story-close directly. Teammates are handled by
+    ``teammate_block_reason`` earlier in ``run()`` — this gate targets the
+    lead invocation only. Degrades quiet (returns None) when the SMM
+    directory can't be resolved; a missing SMM must never block a
+    legitimate close.
+
+    Known residual: ACCEPT_IN_FLIGHT is a SESSION signal, not per-story — a
+    lead manually driving a second raw /xp-story-close mid-accept-loop would
+    pass. Very narrow (teammates can't invoke it; the lead drives accept
+    serially) and out of scope for this story.
+    """
+    if _common.is_xp_agent(input_data):
+        return None
+    skill = input_data.get("tool_input", {}).get("skill", "")
+    bare = target_routing.strip_our_namespace(skill)
+    if bare != "xp-story-close":
+        return None
+    resolved_smm_dir = _common.get_validated_smm_dir(smm_dir)
+    if resolved_smm_dir is None:
+        return None
+    if markers.marker_exists(resolved_smm_dir, markers.ACCEPT_IN_FLIGHT):
+        return None
+    return _ACCEPT_EVIDENCE_BLOCK
+
+
 def run(input_data: dict, **_kwargs) -> str | None:
     """Inject guidance before skills run."""
     if _common.is_xp_agent(input_data):
@@ -131,6 +173,10 @@ if __name__ == "__main__":
     block = teammate_block_reason(input_data)
     if block:
         _common.block_output(block, "Lead-owned skill blocked for CLI teammate.")
+        sys.exit(0)
+    accept_block = accept_evidence_block_reason(input_data)
+    if accept_block:
+        _common.block_output(accept_block, "Story close blocked: no accept evidence.")
         sys.exit(0)
     result = run(input_data)
     if result:
