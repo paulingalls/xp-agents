@@ -126,6 +126,33 @@ class TestValidateInvariantsUnchanged(unittest.TestCase):
         self.assertTrue(any("notes" in e for e in errors), errors)
 
 
+class TestValidatePins(unittest.TestCase):
+    """Story-level acceptance_execution.pins: declared regression-pin paths."""
+
+    def test_absent_pins_is_valid(self):
+        self.assertEqual(_v({"type": "pytest", "command": "pytest tests/"}), [])
+
+    def test_list_of_strings_pins_is_valid(self):
+        ae = {
+            "type": "pytest",
+            "command": "pytest tests/",
+            "pins": ["tests/x_test.py", "tests/y_test.py"],
+        }
+        self.assertEqual(_v(ae), [])
+
+    def test_non_list_pins_rejected(self):
+        errors = _v(
+            {"type": "pytest", "command": "pytest tests/", "pins": "tests/x_test.py"}
+        )
+        self.assertTrue(any("pins" in e for e in errors), errors)
+
+    def test_non_string_entry_in_pins_rejected(self):
+        errors = _v(
+            {"type": "pytest", "command": "pytest tests/", "pins": ["tests/x.py", 1]}
+        )
+        self.assertTrue(any("pins" in e for e in errors), errors)
+
+
 class TestRenderCommands(unittest.TestCase):
     """`render_acceptance_execution` must handle both shapes."""
 

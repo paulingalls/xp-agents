@@ -306,6 +306,14 @@ def extract_verify_paths(story: dict) -> set[str]:
     carrying a command/commands verify block AND the story-level
     acceptance_execution. String ACs and a story with no verify commands
     yield an empty set.
+
+    A story may declare acceptance_execution.pins: a list of repo-relative,
+    post-rebase path tokens (the same form extracted paths already take —
+    a `cd apps/x && pytest tests/y` command yields `apps/x/tests/y`) that
+    are deliberate regression pins: an existing test staying green
+    unchanged IS the proof, so those paths are exempt from the untouched
+    check. Both sides are posixpath-normalized before comparison so a pin
+    written with a trailing slash or redundant `./` still matches.
     """
     paths: set[str] = set()
     for item in story.get("acceptance_criteria", []):
@@ -316,6 +324,10 @@ def extract_verify_paths(story: dict) -> set[str]:
     if ae:
         for cmd in extract_commands(ae):
             paths |= _extract_paths_from_command(cmd)
+    pins = (ae or {}).get("pins", []) or []
+    pinned = {posixpath.normpath(p) for p in pins if isinstance(p, str)}
+    if pinned:
+        paths = {p for p in paths if posixpath.normpath(p) not in pinned}
     return paths
 
 
