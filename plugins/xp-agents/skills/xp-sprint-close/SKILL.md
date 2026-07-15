@@ -14,6 +14,7 @@ allowed-tools:
   - Bash(python3 */scripts/branching.py *)
   - Bash(python3 */scripts/close_common.py *)
   - Bash(python3 */smm/plan_cli.py *)
+  - Bash(python3 */smm/sprint_cli.py *)
   - Bash(git push *)
   - Bash(gh pr *)
 ---
@@ -109,15 +110,18 @@ the preload at the top of this context — see
 `scripts/_close_pipeline_shared.md` for the source. Apply those three
 steps in order after Step 4.5, then continue with Step 7 below.
 
-## Step 7: Merge
+**Sprint-close addendum to Step 6:** if the user aborts at the shared Step 6 prompt, the sprint stays unarchived — Step 7 below only runs on a confirmed merge.
+
+## Step 7: Merge and archive
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
-  --verify-gate acceptance --smm-dir <SMM_DIR>
+  --verify-gate acceptance --smm-dir <SMM_DIR> && \
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> archive
 ```
 
-`--verify-gate acceptance` is a deterministic backstop that refuses the merge on a red verify status; on the Step 0 `--force-close` path also pass `--force-verify`. Any failing step aborts the chain — source intact for retry. Conflicts are never auto-resolved.
+`--verify-gate acceptance` is a deterministic backstop that refuses the merge on a red verify status; on the Step 0 `--force-close` path also pass `--force-verify`. Any failing step aborts the chain — source intact for retry, and a failed archive leaves sprint.json in place. Conflicts are never auto-resolved. The completed sprint is snapshotted under `sprints/` before the next `/xp-sprint-start` overwrites `sprint.json`.
 
 ## Step 8: Plan-close chain (if applicable)
 
@@ -138,4 +142,5 @@ If the gate exits non-zero, skip the chain and report sprint-close complete.
 **Surface the merge's trailer advisory.** The merge step's `close_common.py merge` prints a `Resolves-Event:` trailer advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so if the merge printed that advisory, relay it verbatim — the named commits are still in reach to add trailers.
 
 Tell the user: branch merged into target, PR (if created) merged, local
-branch deleted. Sprint-close is complete.
+branch deleted, sprint.json archived under `<SMM_DIR>/sprints/`.
+Sprint-close is complete.
