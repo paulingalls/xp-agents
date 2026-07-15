@@ -11,10 +11,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import identity
-import markers
+import sprint_status
+import sprint_store
 import target_routing
 import worktree
 
@@ -125,20 +127,27 @@ def accept_evidence_block_reason(
     """Block a lead-driven /xp-story-close that has no accept evidence.
 
     Only /xp-story-close is gated — sprint/plan/free close don't require
-    per-story acceptance. ACCEPT_IN_FLIGHT (armed by /xp-accept's preload,
-    live through the whole per-story close loop) is the evidence signal:
-    present when /xp-accept is driving the close, absent when an agent
-    invokes /xp-story-close directly. Teammates are handled by
-    ``teammate_block_reason``, which ``__main__`` runs (and blocks on)
-    before reaching this gate — so this gate targets the lead invocation
-    only. Degrades quiet (returns None) when the SMM
-    directory can't be resolved; a missing SMM must never block a
-    legitimate close.
+    per-story acceptance. The evidence signal is a story in `closing` state:
+    /xp-accept Step 1.5 CAS-transitions the target story `reviewing → closing`
+    immediately before dispatching /xp-story-close, and `closing` is the
+    singleton in-pipeline lock (exactly one story at a time), so its presence
+    is tight, per-close evidence — present when /xp-accept is driving the
+    close, absent when an agent invokes /xp-story-close directly. Teammates
+    are handled by ``teammate_block_reason``, which ``__main__`` runs (and
+    blocks on) before reaching this gate — so this gate targets the lead
+    invocation only.
 
-    Known residual: ACCEPT_IN_FLIGHT is a SESSION signal, not per-story — a
-    lead manually driving a second raw /xp-story-close mid-accept-loop would
-    pass. Very narrow (teammates can't invoke it; the lead drives accept
-    serially) and out of scope for this story.
+    Fail posture (gate reads fail CLOSED on bad reads):
+    - SMM dir unresolvable -> return None (allow); a missing SMM must never
+      block a legitimate close.
+    - Sprint missing or with no closing story -> BLOCK; no legit close exists.
+    - Sprint present but corrupt/unparseable -> BLOCK (fail closed); the
+      corruption is not swallowed into an allow.
+
+    Known residual: `closing` is a singleton, but a lead manually driving a
+    raw /xp-story-close of a DIFFERENT story while one story is legitimately
+    closing would pass. Bounded by the singleton lock (at most one closing
+    story) and far narrower than the prior session-scoped signal.
     """
     if _common.is_xp_agent(input_data):
         return None
@@ -149,9 +158,11 @@ def accept_evidence_block_reason(
     resolved_smm_dir = _common.get_validated_smm_dir(smm_dir)
     if resolved_smm_dir is None:
         return None
-    if markers.marker_exists(resolved_smm_dir, markers.ACCEPT_IN_FLIGHT):
-        return None
-    return _ACCEPT_EVIDENCE_BLOCK
+    try:
+        has_closing = sprint_status.has_closing_stories(resolved_smm_dir)
+    except (sprint_store.SprintCorruptError, OSError):
+        return _ACCEPT_EVIDENCE_BLOCK
+    return None if has_closing else _ACCEPT_EVIDENCE_BLOCK
 
 
 def run(input_data: dict, **_kwargs) -> str | None:

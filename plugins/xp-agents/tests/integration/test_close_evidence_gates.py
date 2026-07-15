@@ -12,7 +12,9 @@ in the close pipeline:
   close_started); subagent_stop's xp-close-reviewer handler emits that
   evidence and releases the gate.
 - Gate C (story-003) — pre_tool_skill refuses a lead's raw /xp-story-close
-  invocation unless the accept-in-flight marker is armed.
+  invocation unless a story is in `closing` state (the per-story evidence
+  /xp-accept CAS-transitions before dispatch; story-004 moved this off the
+  session-scoped accept-in-flight marker).
 
 The milestone's done-condition is that all three compose on the merged
 sprint tip: closing a story is refused without accept evidence (Gate C),
@@ -37,7 +39,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _branching_fixtures as _bf
 import markers
-from conftest import _MARKERS_PY, _IntegrationTestCase, _make_skill_input, run_cli
+from conftest import (
+    _MARKERS_PY,
+    SPRINT_CLOSING_ONLY,
+    _IntegrationTestCase,
+    _make_skill_input,
+    run_cli,
+)
 from event_schema import EVENT_TYPE_STATUS
 
 
@@ -70,7 +78,11 @@ class TestCloseGatesCompose(_IntegrationTestCase):
 
     def test_gate_c_story_close_refused_without_accept_evidence(self):
         """AC1: /xp-story-close is refused without accept evidence, then
-        allowed once the ACCEPT_IN_FLIGHT marker is armed (Gate C)."""
+        allowed once a story is in `closing` state — accept-driven (Gate C).
+
+        The evidence moved from the session-scoped ACCEPT_IN_FLIGHT marker to
+        the per-story `closing` state /xp-accept CAS-transitions before dispatch;
+        the behavior proven here (accept-driven close allowed) is unchanged."""
         skill_input = _make_skill_input("xp-story-close", cwd="/home/user/project")
 
         result = self._run_script("pre_tool_skill.py", skill_input)
@@ -79,7 +91,7 @@ class TestCloseGatesCompose(_IntegrationTestCase):
         self.assertEqual(parsed["decision"], "block")
         self.assertIn("/xp-accept", parsed["reason"])
 
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
         result = self._run_script("pre_tool_skill.py", skill_input)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "")
