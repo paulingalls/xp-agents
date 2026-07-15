@@ -42,6 +42,7 @@ import _common
 import event_schema
 import identity
 import markers
+import target_routing
 
 # Two distinct timescales, previously sharing one knob:
 #
@@ -116,6 +117,48 @@ def _marker_age_under(smm_dir: Path, threshold_sec: int) -> bool:
     return age < threshold_sec
 
 
+def reviewer_completed_this_cycle(
+    smm_dir: Path, events: list[dict] | None = None
+) -> bool:
+    """True when xp-close-reviewer emitted a subagent_complete event AFTER the
+    latest close_started in the log — evidence a reviewer RAN this cycle.
+
+    The marker (CLOSE_CYCLE_ACTIVE) is written at close START, so its presence
+    proves only that a close started, never that a reviewer ran. This reads the
+    real lifecycle fact instead: subagent_stop._handle_close_reviewer_done emits
+    the standard subagent_complete event when the close-reviewer stops. Ordering
+    is by log/append position (mirroring retro_metrics' close-started scan) — no
+    timestamp math; close_started is the current-cycle anchor.
+
+    Fails CLOSED: a corrupt/failed event read (or any exception) is treated as
+    'no evidence' → the caller keeps blocking. Never raises into the Stop hook.
+    """
+    event_action = event_schema.event_action
+    close_started = event_schema.STATUS_ACTION_CLOSE_STARTED
+    subagent_complete = event_schema.STATUS_ACTION_SUBAGENT_COMPLETE
+    try:
+        if events is None:
+            events, _ = _common.load_events_with_resolutions(smm_dir)
+        last_close_started = -1
+        for i, event in enumerate(events):
+            if event_action(event) == close_started:
+                last_close_started = i
+        if last_close_started < 0:
+            return False
+        for event in events[last_close_started + 1 :]:
+            if event_action(event) != subagent_complete:
+                continue
+            agent_type = (event.get("metadata") or {}).get("agent_type", "")
+            if (
+                target_routing.strip_our_namespace(agent_type)
+                == target_routing.CLOSE_REVIEWER_BARE
+            ):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def _record_bypass(smm_dir: Path, input_data: dict) -> None:
     """Record an abandonment concern and consume the marker — AGED markers only.
 
@@ -161,6 +204,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         return None
 
     marker_active = markers.marker_exists(smm_dir, markers.CLOSE_CYCLE_ACTIVE)
+
+    # Evidence releases a lingering marker. The block stays marker-triggered,
+    # but a reviewer that already ran this cycle (subagent_complete emitted by
+    # subagent_stop._handle_close_reviewer_done, after the latest close_started)
+    # overrides it. Guard BEFORE the stop_hook_active bypass: Part 1 orders
+    # emit-then-consume, so a crash between them can leave evidence + a lingering
+    # marker; if that marker ages out and a stop_hook_active Stop fires,
+    # _record_bypass would record a FALSE "reviewer never ran" concern despite
+    # evidence it did. Releasing here closes that path. A genuine no-evidence
+    # abandonment is untouched — no evidence → no early release → the aged
+    # bypass still fires. Fails closed (bad read → no evidence → keep blocking).
+    if marker_active and reviewer_completed_this_cycle(smm_dir):
+        return None
 
     if input_data.get("stop_hook_active"):
         if marker_active:

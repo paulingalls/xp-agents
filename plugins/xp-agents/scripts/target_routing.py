@@ -10,6 +10,11 @@ namespace strip so future hooks don't drift on the rules.
 
 _OUR_NAMESPACE = "xp-agents"
 
+# The close-reviewer's bare (namespace-stripped) agent type. Shared so the
+# emit site (subagent_stop) and the read site (close_cycle_stop_gate) of the
+# reviewer-completion evidence handshake cannot drift on a rename.
+CLOSE_REVIEWER_BARE = "xp-close-reviewer"
+
 
 def strip_our_namespace(name: str) -> str | None:
     """Return the bare form when `name` is unqualified or in our plugin's

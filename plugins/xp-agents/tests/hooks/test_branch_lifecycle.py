@@ -245,6 +245,52 @@ class TestMergeBranch(unittest.TestCase):
             self.assertEqual(get_current_branch(td), main)
 
 
+class TestPushSourceNoVerify(unittest.TestCase):
+    """The pre-merge re-push warns but NEVER raises — its whole contract is that
+    a failed re-push cannot abort the merge that follows it."""
+
+    def test_spawn_failure_warns_and_returns_instead_of_raising(self):
+        """subprocess.run can raise OSError/FileNotFoundError on a spawn failure.
+        That must be swallowed into a warning, not propagated to abort cmd_merge
+        before merge."""
+
+        def boom(*a, **k):
+            raise FileNotFoundError("git not on PATH")
+
+        with patch.object(branch_lifecycle.subprocess, "run", boom):
+            # Must not raise.
+            branch_lifecycle.push_source_no_verify("/repo", "story-src")
+
+    def test_timeout_warns_and_returns_instead_of_raising(self):
+        """An unreachable/stalled origin must not hang the whole close forever.
+        A bounded wait that TIMES OUT is swallowed into a warning like the
+        spawn-failure and returncode paths — bounded AND never-abort."""
+
+        def stall(*a, **k):
+            raise subprocess.TimeoutExpired(
+                cmd="git push", timeout=branch_lifecycle._PUSH_TIMEOUT_S
+            )
+
+        with patch.object(branch_lifecycle.subprocess, "run", stall):
+            # Must not raise — the merge is the truth and proceeds.
+            branch_lifecycle.push_source_no_verify("/repo", "story-src")
+
+    def test_push_sets_a_timeout_so_an_unreachable_origin_cannot_hang(self):
+        """The re-push must pass a timeout to subprocess.run; without it an
+        unreachable origin blocks cmd_merge indefinitely with no error."""
+        captured: dict = {}
+
+        def fake_run(*a, **k):
+            captured.update(k)
+            return subprocess.CompletedProcess(a[0], 0, "", "")
+
+        with patch.object(branch_lifecycle.subprocess, "run", fake_run):
+            branch_lifecycle.push_source_no_verify("/repo", "story-src")
+
+        self.assertIn("timeout", captured, "re-push must be bounded by a timeout")
+        self.assertIsNotNone(captured["timeout"])
+
+
 class TestDeleteBranch(unittest.TestCase):
     def test_deletes_merged_branch(self):
         with tempfile.TemporaryDirectory() as td:

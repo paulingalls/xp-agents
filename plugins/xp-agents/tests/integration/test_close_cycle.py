@@ -46,13 +46,46 @@ def _security_complete_event(event_id: str) -> dict:
     }
 
 
+def _close_started_event(event_id: str) -> dict:
+    """CLOSE_STARTED anchor — emitted by every close preload alongside the marker."""
+    return {
+        "id": event_id,
+        "type": EVENT_TYPE_STATUS,
+        "ts": "2026-05-05T15:00:00+00:00",
+        "agent": "main",
+        "content": "Close started",
+        "metadata": {"action": "close_started"},
+        "working_on": [],
+    }
+
+
+def _close_reviewer_complete_event(event_id: str) -> dict:
+    """Reviewer-completion evidence — same shape subagent_stop now emits when
+    xp-close-reviewer finishes (story-002 Part 1)."""
+    return {
+        "id": event_id,
+        "type": EVENT_TYPE_STATUS,
+        "ts": "2026-05-05T17:00:00+00:00",
+        "agent": "xp-cr-1",
+        "content": "Subagent complete",
+        "metadata": {"action": "subagent_complete", "agent_type": "xp-close-reviewer"},
+        "working_on": [],
+    }
+
+
 class TestCloseCycleE2E(_IntegrationTestCase):
     """Marker-gated close-cycle pipeline: write → block → consume → release."""
 
     def test_positive_close_cycle_marker_lifecycle(self):
-        """Full positive flow: marker write → block → security event →
-        still block → close-reviewer subagent_stop drives consume →
-        gate released (no stall).
+        """Full positive flow under the evidence rule (story-002):
+        marker write + close_started anchor → block → security event →
+        still block (no reviewer yet) → close-reviewer subagent_stop emits
+        completion evidence AND consumes the marker → gate released.
+
+        Also proves the evidence path directly: even while the marker still
+        lingers, a seeded reviewer-completion event after close_started
+        releases the gate — the block honors evidence, not just marker
+        presence (AC #2, #6).
         """
         import close_cycle_stop_gate
         import markers
@@ -66,10 +99,16 @@ class TestCloseCycleE2E(_IntegrationTestCase):
         # path (close-skill preloads) uses _preload_base.sh:write_marker
         # which calls markers.marker_write directly; both share the
         # underlying primitive but only the CLI path catches argparse /
-        # allowlist regressions.
+        # allowlist regressions. The preload also emits a close_started
+        # event — seed it as the current-cycle anchor.
         cli_result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
         self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE))
+        # _seed_events overwrites events.jsonl, so accumulate the log as the
+        # cycle progresses — the close_started anchor must persist to every
+        # subsequent read.
+        log = [_close_started_event("closestart001")]
+        self._seed_events(log)
 
         block_msg = close_cycle_stop_gate.run(
             {"agent_id": "main", "agent_type": "main"},
@@ -78,16 +117,37 @@ class TestCloseCycleE2E(_IntegrationTestCase):
         block_msg = self._assert_not_none(block_msg)
         self.assertIn("xp-close-reviewer", block_msg)
 
-        # Security event arrives. Gate checks marker presence, not
-        # events, so it must STILL block — close-reviewer hasn't run.
-        self._seed_events([_security_complete_event("sec0000000001")])
+        # Security event arrives. No reviewer-completion evidence yet, so the
+        # gate must STILL block — a close STARTED but no reviewer RAN.
+        log.append(_security_complete_event("sec0000000001"))
+        self._seed_events(log)
         block_after_security = close_cycle_stop_gate.run(
             {"agent_id": "main", "agent_type": "main"},
             self.smm_dir,
         )
         self.assertIsNotNone(block_after_security)
 
-        # close-reviewer subagent completes → consume marker.
+        # Evidence path (AC #2/#6): seed the reviewer-completion event that
+        # subagent_stop now emits. Even with the marker still present, the
+        # gate releases — it honors the evidence a reviewer ran this cycle.
+        log.append(_close_reviewer_complete_event("reviewerdone1"))
+        self._seed_events(log)
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE),
+            "marker still lingers — evidence, not consume, drives this release",
+        )
+        release_on_evidence = close_cycle_stop_gate.run(
+            {"agent_id": "main", "agent_type": "main"},
+            self.smm_dir,
+        )
+        self.assertIsNone(
+            release_on_evidence,
+            "reviewer-completion evidence must release the lingering marker",
+        )
+
+        # Real subagent_stop path: close-reviewer completes → emits its own
+        # completion evidence AND consumes the marker (Part 1). Gate releases
+        # on the marker-absent path too — no stall.
         result = self._run_script(
             "subagent_stop.py",
             {
@@ -103,7 +163,6 @@ class TestCloseCycleE2E(_IntegrationTestCase):
             "subagent_stop should consume CLOSE_CYCLE_ACTIVE on xp-close-reviewer",
         )
 
-        # Sprint AC #2 — "no stall": gate releases.
         pass_through = close_cycle_stop_gate.run(
             {"agent_id": "main", "agent_type": "main"},
             self.smm_dir,

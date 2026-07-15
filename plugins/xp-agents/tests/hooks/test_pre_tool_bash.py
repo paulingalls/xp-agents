@@ -4,6 +4,7 @@
 import contextlib
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,6 +31,17 @@ from conftest import (
 )
 from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_GOAL
 from markers import write_review_cycle
+
+
+def _git_init_and_stage_all(repo: Path) -> None:
+    """Make `repo` a git repo and stage every file in it.
+
+    The staged-lint gate lints the git INDEX, so fixtures must actually stage
+    the paths `get_staged_files` names — a mocked git-root over a fake tmpdir
+    has no index to read.
+    """
+    for argv in (["git", "init", "-q"], ["git", "add", "-A"]):
+        subprocess.run(argv, cwd=str(repo), check=True, capture_output=True)
 
 
 class TestPreToolBashNoDelta(_HookTestCase):
@@ -316,13 +328,13 @@ class TestStagedRuffGate(_HookTestCase):
     )
 
     def setUp(self):
-        """Anchor the gate to a REAL directory tree.
+        """Anchor the gate to a REAL git tree with the fixture files STAGED.
 
-        `git diff --cached --name-only` names paths that may no longer be on
-        disk (a staged deletion) and names them relative to the repo ROOT, not
-        to the hook's cwd. Both facts are invisible if the test's staged paths
-        are fictional and the linter is mocked — so the tree is real here, and
-        the staged paths resolve against it.
+        The gate lints the git INDEX (the bytes the commit carries), not the
+        working tree — so the paths `get_staged_files` names must actually be in
+        the index, and `git diff --cached --name-only` names them relative to the
+        repo ROOT, not the hook's cwd. A fake tmpdir would have no index to read,
+        so the tree is a real repo here and its files are `git add`-ed.
         """
         super().setUp()
         self.repo = Path(tempfile.mkdtemp())
@@ -337,6 +349,7 @@ class TestStagedRuffGate(_HookTestCase):
         (self.repo / "docs").mkdir()
         (self.repo / "docs" / "README.md").write_text("# hi\n")
         (self.repo / "config.yml").write_text("k: v\n")
+        _git_init_and_stage_all(self.repo)
         self._git_root_patch = patch(
             "worktree.resolve_git_root", return_value=str(self.repo)
         )
@@ -454,13 +467,22 @@ class TestStagedRuffGate(_HookTestCase):
     @patch("commits.get_staged_files", return_value=["src/a.py", "docs/README.md"])
     @patch("lint_check.run_linter_batch", return_value=lint_check.LintRun("clean", ""))
     def test_only_py_files_passed_to_ruff(self, mock_batch, _files, _diff):
-        """When mixing .py and non-.py, only the .py paths reach ruff."""
+        """When mixing .py and non-.py, only the .py path reaches ruff.
+
+        The path is the materialized STAGED blob — the EXACT basename `a.py` in a
+        temp subdir under `src/` (src/<tmpXXXX>/a.py), so filename-keyed rules
+        match — so assert the shape, not the literal temp segment.
+        """
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
         mock_batch.assert_called_once()
         args, kwargs = mock_batch.call_args
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
-        self.assertEqual(paths, ["src/a.py"])
+        self.assertEqual(len(paths), 1, "only the one .py file")
+        self.assertTrue(
+            paths[0].startswith("src/") and paths[0].endswith("/a.py"),
+            f"the staged .py blob in its temp subdir, got {paths[0]!r}",
+        )
 
     # --- only paths that are actually THERE reach the linter ---
 
@@ -499,7 +521,13 @@ class TestStagedRuffGate(_HookTestCase):
         mock_batch.assert_called_once()
         args, kwargs = mock_batch.call_args
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
-        self.assertEqual(paths, ["src/app.py"])
+        self.assertEqual(len(paths), 1, "deleted path dropped, live one kept")
+        # The materialized staged blob keeps its EXACT basename in a temp subdir
+        # under src/ (src/<tmpXXXX>/app.py), so filename-keyed linter rules match.
+        self.assertTrue(
+            paths[0].startswith("src/") and paths[0].endswith("/app.py"),
+            f"the surviving file's staged blob, got {paths[0]!r}",
+        )
 
     @patch("commits.get_staged_diff", return_value=_CLEAN_DIFF)
     @patch("commits.get_staged_files", return_value=["src/app.py"])
@@ -524,7 +552,14 @@ class TestStagedRuffGate(_HookTestCase):
         mock_batch.assert_called_once()
         args, kwargs = mock_batch.call_args
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
-        self.assertEqual(paths, ["src/app.py"])
+        # The materialized staged blob, still resolved against the repo root
+        # (src/…), not the subdir the commit ran from. The exact basename app.py
+        # is preserved in a temp subdir (src/<tmpXXXX>/app.py).
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(
+            paths[0].startswith("src/") and paths[0].endswith("/app.py"),
+            f"resolved against the root, got {paths[0]!r}",
+        )
         self.assertEqual(kwargs.get("cwd"), os.path.realpath(str(self.repo)))
 
     # --- fail-closed on a bad read ---
@@ -581,6 +616,9 @@ class TestStagedLintGateAnyLanguage(_HookTestCase):
     def setUp(self):
         super().setUp()
         self.repo = Path(tempfile.mkdtemp())
+        subprocess.run(
+            ["git", "init", "-q"], cwd=str(self.repo), check=True, capture_output=True
+        )
         self._git_root_patch = patch(
             "worktree.resolve_git_root", return_value=str(self.repo)
         )
@@ -592,11 +630,17 @@ class TestStagedLintGateAnyLanguage(_HookTestCase):
         super().tearDown()
 
     def _seed(self, *files: str) -> None:
-        """Create each path (with parents) under the fixture repo."""
+        """Create each path (with parents) under the fixture repo and STAGE it.
+
+        The gate lints the index, so a seeded file only counts if it is staged.
+        """
         for f in files:
             p = self.repo / f
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("x\n")
+        subprocess.run(
+            ["git", "add", "-A"], cwd=str(self.repo), check=True, capture_output=True
+        )
 
     def _commit_input(self) -> dict:
         return _make_bash_input(

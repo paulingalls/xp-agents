@@ -25,6 +25,11 @@ _INDEX_LOCK_RE = re.compile(r"index\.lock", re.IGNORECASE)
 _LOCK_RETRY_ATTEMPTS = 3
 _LOCK_RETRY_BASE_S = 0.2
 
+# A network push is slower than a local git op, so this is well above the `_git`
+# 10s cap. It exists only to bound an unreachable/stalled origin so the close
+# cannot hang forever; a timeout warns and the merge proceeds (never aborts).
+_PUSH_TIMEOUT_S = 30
+
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
@@ -126,6 +131,60 @@ def _merge_into_target(cwd: str, source_branch: str, target: str) -> None:
 
 def merge_branch(cwd: str, branch: str, target: str) -> None:
     _merge_into_target(cwd, branch, target)
+
+
+def push_source_no_verify(cwd: str, source: str) -> None:
+    """Re-push `source` to origin before a close merge; warn — never abort.
+
+    Close-time fixes (the quality-review validate-and-fix and any "fix now" at
+    the findings step) land on `source` AFTER the close's initial Step-2 push,
+    so the PR record — and anything reading the remote head — is stale relative
+    to what the merge is about to ship. Re-push `source` so the PR reflects the
+    merged ref.
+
+    `--no-verify` is deliberate and is NOT skipping verification. At story-close
+    cmd_merge runs from the ORCHESTRATOR checkout (on the sprint base) while
+    `source` is the teammate's STORY branch, so a pre-push hook would test the
+    WRONG tree: it proves nothing, costs minutes, and FAILS on a red base,
+    leaving the PR stale in exactly the case this exists to fix. The identical
+    commits already passed a verified pre-push at Step 2 and are verified again
+    seconds later by cmd_merge's TARGET push (right tree). What is skipped is a
+    redundant wrong-tree run.
+
+    Warn-don't-abort: the merge is the truth; a stale PR is a record problem,
+    not a correctness one. A close-time amend/rebase can make this re-push
+    non-fast-forward — it then warns and the PR stays stale, which is
+    acceptable. A generous timeout (longer than this module's `_git` 10s cap,
+    since a network push is slower than a local git op) bounds the wait so an
+    unreachable/stalled origin cannot HANG the whole close forever — and the
+    TimeoutExpired is caught into the SAME warn-don't-abort path as the OSError
+    and returncode cases, so a timeout still never raises and never aborts.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "push", "--no-verify", "origin", source],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=_PUSH_TIMEOUT_S,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # Honor "never abort" for the spawn-failure and timeout paths too, not
+        # just the returncode path below. An unreachable origin (timeout) or a
+        # spawn failure (OSError/FileNotFoundError) would otherwise abort
+        # cmd_merge BEFORE the merge. Warn and let the merge proceed.
+        sys.stderr.write(
+            f"warn: could not run git to re-push {source} before merge; the PR "
+            f"record may be stale relative to what merged (the merge is the "
+            f"truth and proceeds). {exc}\n"
+        )
+        return
+    if r.returncode != 0:
+        sys.stderr.write(
+            f"warn: failed to re-push {source} before merge; the PR record may "
+            f"be stale relative to what merged (the merge is the truth and "
+            f"proceeds). git said: {r.stderr.strip()}\n"
+        )
 
 
 def survives_delete_of(cwd: str, name: str, target: str) -> bool:

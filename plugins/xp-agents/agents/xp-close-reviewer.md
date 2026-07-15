@@ -22,7 +22,7 @@ Read these five values from your invoking prompt:
 - `## Mode` — one of `sprint`, `plan`, `free`, `story`
 - `## Source Branch` — branch being merged
 - `## Target Branch` — merge target (typically `main`)
-- `## Diff Command` — exact `gh pr diff` or `git diff` invocation to use
+- `## Diff Command` — exact `git diff <target>...<source>` invocation to use (the range that merges)
 - `## Close Cycle ID` — 12-hex CLOSE_CYCLE_ID for this cycle (substitute into Step 4 metadata so the abort-default count-concerns query scopes to this cycle)
 
 If any section is missing, return immediately and say so.
