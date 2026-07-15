@@ -28,6 +28,7 @@ import triage
 # triage, which sprint_cli_mutate must NOT import).
 from sprint_cli_mutate import (
     _cmd_add_story,
+    _cmd_archive,
     _cmd_build_capstone,
     _cmd_create,
     _cmd_edit_story,
@@ -462,6 +463,8 @@ def main() -> None:
         help="Working directory for git operations (default: current dir)",
     )
 
+    sub.add_parser("archive", help="Archive sprint to sprints/ folder")
+
     ftd_p = sub.add_parser(
         "find-transitive-dependents",
         help=(
@@ -500,6 +503,7 @@ def main() -> None:
         "get-story": _cmd_get_story,
         "find-transitive-dependents": _cmd_find_transitive_dependents,
         "validate-domain": _cmd_validate_domain,
+        "archive": _cmd_archive,
     }
 
     sys.exit(dispatch[args.command](args))

@@ -431,3 +431,14 @@ def _cmd_update_story_branch(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _cmd_archive(args: argparse.Namespace) -> int:
+    from sprint_archive import archive
+
+    result = archive(args.smm_dir)
+    if result is None:
+        print("No sprint to archive.", file=sys.stderr)
+        return 1
+    print(f"Archived to: {result}")
+    return 0
