@@ -38,7 +38,6 @@ _WATERMARK_ID = "subagent-stop"
 _HOUSEKEEPER_BARE = "xp-housekeeper"
 _SPRINT_REVIEWER_BARE = "xp-sprint-reviewer"
 _PLAN_REVIEWER_BARE = "xp-plan-reviewer"
-_CLOSE_REVIEWER_BARE = "xp-close-reviewer"
 _PLAN_AGENT_TYPE = "Plan"
 _HOUSEKEEPING_DONE_AGENT_ID = "xp-kickoff-done"
 _SPRINT_REVIEWER_AGENT_ID = "xp-sprint-reviewer"
@@ -200,7 +199,10 @@ def _handle_close_reviewer_done(smm_dir: Path, input_data: dict) -> None:
     abandonment backstop.
     """
     agent_type = input_data.get("agent_type", "")
-    if target_routing.strip_our_namespace(agent_type) != _CLOSE_REVIEWER_BARE:
+    if (
+        target_routing.strip_our_namespace(agent_type)
+        != target_routing.CLOSE_REVIEWER_BARE
+    ):
         return
     _emit_subagent_complete(smm_dir, input_data)
     markers.marker_consume(smm_dir, markers.CLOSE_CYCLE_ACTIVE)

@@ -44,8 +44,6 @@ import identity
 import markers
 import target_routing
 
-_CLOSE_REVIEWER_BARE = "xp-close-reviewer"
-
 # Two distinct timescales, previously sharing one knob:
 #
 #   1. DEFER WINDOW — Step 4b is in flight, suppress the close-reviewer
@@ -151,7 +149,10 @@ def reviewer_completed_this_cycle(
             if event_action(event) != subagent_complete:
                 continue
             agent_type = (event.get("metadata") or {}).get("agent_type", "")
-            if target_routing.strip_our_namespace(agent_type) == _CLOSE_REVIEWER_BARE:
+            if (
+                target_routing.strip_our_namespace(agent_type)
+                == target_routing.CLOSE_REVIEWER_BARE
+            ):
                 return True
         return False
     except Exception:
