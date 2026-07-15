@@ -257,6 +257,42 @@ class TestPlanReviewerPin(unittest.TestCase):
             "acceptance demo as the alternative to a unit-shaped command",
         )
 
+    # --- §10d pin exemption for declared regression pins -----------------
+    #
+    # story-005 (risk 0624fc80abd7): a story may mark an existing declared
+    # verify path as a deliberate regression pin via
+    # `acceptance_execution.pins`. §10d's high-severity "missing plan file
+    # target" concern must NOT fire for a pinned path, but the reviewer
+    # must still flag a story where EVERY declared verify path is pinned
+    # (no authored proof at all).
+
+    def test_body_directs_pin_exemption(self):
+        self.assertIn(
+            "pins",
+            self.body_lower,
+            "xp-plan-reviewer body must reference acceptance_execution.pins "
+            "so the agent knows a declared verify path can be a deliberate "
+            "regression pin",
+        )
+        self.assertTrue(
+            any(
+                phrase in self.body_lower
+                for phrase in ("pin exemption", "exempt from the", "exempt from §10d")
+            ),
+            "xp-plan-reviewer body must direct the agent to exempt a pinned "
+            "path from the §10d high-severity missing-plan-target concern",
+        )
+
+    def test_body_flags_all_paths_pinned(self):
+        self.assertTrue(
+            any(
+                phrase in self.body_lower
+                for phrase in ("every declared verify path", "all declared verify path")
+            ),
+            "xp-plan-reviewer body must flag a story where every declared "
+            "verify path is pinned — that story has no authored proof at all",
+        )
+
     # --- Trace verification reclassification ----------------------------
     #
     # When the agent verifies a trace and finds no real concern, it must
