@@ -1,8 +1,8 @@
 # XP Plugin Developer Notes
 
-Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agents` Claude Code plugin (`/Users/paulingalls/.claude/plugins/cache/xp-agents/xp-agents/<version>/`). Recorded so plugin-developer attention lands on the right surface when they next get to it. None of these block normal solo XP flow — they're failure modes you should know exist.
+Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agents` Claude Code plugin (source under `plugins/xp-agents/`; at runtime it loads from the versioned marketplace cache resolved via `${CLAUDE_PLUGIN_ROOT}`). Recorded so plugin-developer attention lands on the right surface when they next get to it. None of these block normal solo XP flow — they're failure modes you should know exist.
 
-> **Status (2026-05-23): all three items resolved — archived.** Item 1 was already addressed by a close-cycle-gate redesign; Items 2 and 3 were fixed in the `paulingalls/free-2026-05-23-free-branch-fork-base` free session. Per-section resolution notes below.
+> **Status (2026-07-14): items 1–4 resolved, archived.** Item 1 shipped this sprint (Milestone 4, story-002); items 2 and 3 were already fixed on `main` before Milestone 4 started; item 4 shipped in Milestone 1. Items 5 and 6 were out of Milestone 4 scope and remain open. Per-section resolution notes below. (This supersedes an earlier archived copy of this file dated 2026-05-23, which claimed all three items it covered were resolved — its item 1 note in fact described the design that was later replaced by what shipped in story-002; see that note below for detail.)
 
 ## 1. Close-cycle gate bypass via `stop_hook_active` termination
 
@@ -20,11 +20,13 @@ Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agent
 
 **Fix shape**: The marker should be set only after the reviewer has been invoked and returned, not as a hook-entry side effect. Treat marker-presence as evidence of completed review, not in-progress review. Alternative: cross-check the close-cycle event log for a `concern_classify` event before honoring the marker.
 
-> **Resolved — addressed by redesign (no longer matches the code).** `close_cycle_stop_gate.py` now treats `CLOSE_CYCLE_ACTIVE` as "review pending" and *blocks* Stop until `xp-close-reviewer` consumes the marker (`subagent_stop.py`) — it never lets the orchestrator proceed straight to merge. The `stop_hook_active` latch case is handled explicitly (`_record_bypass`): high-severity concern + stderr + age-gated marker consumption (only markers older than 600s, so a genuine in-flight cycle survives an unrelated latch). The fix shape above (treat presence as *completed* review) is the inverse of — and weaker than — what shipped.
+> **Resolved — shipped by story-002 (Milestone 4, 2026-07-14).** `close_cycle_stop_gate.py` now honors reviewer-completion *evidence* rather than either extreme above: it treats the `CLOSE_CYCLE_ACTIVE` marker as "review pending" and blocks Stop by default, but `reviewer_completed_this_cycle` cross-checks the event log for a `subagent_complete` event emitted by `xp-close-reviewer` (written by `subagent_stop.py`) after the marker was set — when that evidence exists, a lingering marker is released instead of blocking. This check is guarded *before* the `stop_hook_active` bypass, so a genuinely completed review is never mistaken for an in-flight one, and the gate still fails closed (blocks) when no such evidence exists. Note this **supersedes** a stale resolution note that had circulated for this item, which claimed the gate was "already addressed by redesign" via an unconditional marker-consuming block. That described the *inverse* of what shipped: it would have blocked Stop until the marker was consumed with no evidence check at all, which is weaker than the evidence-gated release story-002 actually implemented.
 
 ## 2. Accept-gate eager fire on `xp-assign` with zero commits
 
 **Debt id**: `72660c08b680`
+
+**Root cause shared with §4**: both are the same underlying defect — the accept-gate's predicate is `status == in-progress` alone, with no view of work-in-motion. Here that means no commits yet; in §4 it means a live in-place teammate spawn the predicate can't see. Fixing the predicate to account for in-motion work (not just story status) closes both.
 
 **Symptom**: The stop-hook accept-gate (which nags "run /xp-accept before stopping" when a story is in-progress) fires immediately after `/xp-assign` promotes a story to in-progress, even when the story branch has zero commits ahead of base. Running `/xp-accept` at that point verifies nothing — the acceptance command runs against an empty branch and either fails noisily or passes vacuously.
 
@@ -32,7 +34,7 @@ Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agent
 
 **Fix shape**: The accept-gate predicate should check `commits_ahead_of_base > 0` (cheap: `git rev-list --count <base>..HEAD`) before nagging. Story-in-progress alone isn't enough — work-not-yet-done must hold.
 
-> **Resolved.** Added `branching.commits_ahead(cwd, base, head=HEAD)` and refined the in-progress+ACCEPT branch of `sprint_stop_gate._compute_block_message` via `_in_progress_has_work`: it fires only when the story branch has commits ahead of its base. Safe defaults — no cwd, non-dir cwd, or a git failure (`None`) all fire, so a real un-accepted story is never silently skipped; reviewing/closing states keep firing unconditionally.
+> **Resolved, already on `main` before Milestone 4 started.** `sprint_stop_gate` now calls `branching.commits_ahead(cwd, base, head)` and only nags the in-progress+accept branch when the story branch has commits ahead of its base — matching the fix shape above. Out of Milestone 4 scope; noted here for completeness when archiving this file.
 
 ## 3. `branching.py create-free --base` missing
 
@@ -45,7 +47,44 @@ Caveats, gate-bypass risks, and observed-but-unfixed edge cases in the `xp-agent
 
 **Fix shape**: Add an optional `--base` flag mirroring `branching.py create --base` (which already supports it for story branches). Free-branch base should default to the current `paulingalls/plan-*` or `paulingalls/sprint-*` when one is checked out, falling back to `main` only when the orchestrator sits on a protected branch.
 
-> **Resolved.** `create_free_branch` now defaults to forking off `get_merge_target` (the recorded plan branch when one is active, else primary), and gained an explicit keyword-only `base=` threaded through the `create-free --base` CLI flag — mirroring story `create --base`. The motivating "doc cleanup that references recently-shipped plan-branch code" case forks off the plan branch automatically; `--base` is the override escape hatch. Note: the default keys off the *recorded* `execution_plan.branch`, not the currently-checked-out branch, so forking off a *sprint* branch with no recorded plan still needs the explicit `--base`.
+> **Resolved, already on `main` before Milestone 4 started.** `create_free_branch` now defaults to forking off `get_merge_target` (the recorded plan branch when one is active, else primary) and takes an explicit keyword-only `base=`, threaded through the `create-free --base` CLI flag — matching the fix shape above. Out of Milestone 4 scope; noted here for completeness when archiving this file.
+
+## 4. Accept-gate fires while an in-place teammate is mid-flight
+
+**Debt id**: `b566648b8bce`
+
+**Root cause shared with §2**: same underlying defect as §2 — the predicate is `status == in-progress` alone, with no view of work-in-motion. Here the in-motion work is a live in-place teammate spawn the gate cannot see, rather than zero commits.
+
+**Symptom**: The `/xp-accept` stop-gate reads `status == in-progress` but has no visibility into a live in-place teammate spawn, so it fires on exactly the turn the lead is correctly idle-waiting for the task-notification. Accepting there verifies a half-written tree.
+
+**Why it's dangerous, not merely annoying**: Unlike §2 (a no-op nag on an empty branch), this can green-light an incomplete tree — the gate's false positive coincides with real, in-flight, uncommitted work, so acting on it risks accepting a story before its implementation is done.
+
+**Fix shape**: The gate should suppress while a spawn is live (check for a running spawn / `session_init` event for the story) instead of firing on story status alone.
+
+**Live repros (this is now the dominant recurring gate defect)**: `4f046333e738` — story-020, gate demanded `/xp-accept` while the AC5 e2e sweep (m1e3/m1e4) still ran in background (2nd repro). `e52c0f3daa05` — story-021, gate demanded `/xp-accept` while the in-place teammate (pid 13581) was still executing M8, no report written, mockup diff not run (3rd repro). Each was declined and waited on; each would have certified ACs against evidence that did not yet exist. Three live reproductions across three stories is strong signal the predicate fix should be prioritized.
+
+> **Resolved by Milestone 1.** `in_place_marker.py`'s `has_live_in_place_teammate` adds a liveness probe (POSIX `os.kill(pid, 0)`, paired with a holder lock in `in_place_locks.py`) so the accept gate can tell a leaked/stale marker from a genuinely live in-place spawn — a dead teammate no longer suppresses the gate, and a live one does, closing the false-positive window described above.
+
+## 5. `extract_refs_suffix` folds retro Try `[refs:]` into `metadata.resolves`, falsely closing tracked guards
+
+**Risk id**: `f388e70e8053` (recurring — 2nd session observed in plugin 4.4.2)
+
+**Symptom**: `smm/event_builder.py`'s `extract_refs_suffix` (≈ line 82) unconditionally folds a trailing `[refs: <id>, ...]` suffix into the event's `metadata.resolves`. When `/xp-work-selection` adopts a retro Try whose text carries a `[refs: ...]` suffix, the adoption's decision event is written with those ids in `metadata.resolves` — so *promising* to do the work is recorded as having *resolved* the referenced guards/debts. The guard that was supposed to verify the work is closed by the act of scheduling it.
+
+**Why it's dangerous**: This is the root cause behind debt `8d0643180fe8` ("closed 3× without a gate"). A retro Try that references an open debt closes that debt on adoption, before any evidence lands. In practice we now work around it by *deferring* (not adopting) Tries whose refs must stay open, which defeats the point of adoption tracking. A grep this session confirmed the fold is still unconditional in 4.4.2; a prior patch attempt did not persist across the plugin version.
+
+**Fix shape**: `extract_refs_suffix` should distinguish a *resolves* link from a *references* link. A retro Try's `[refs:]` is provenance (`references`), not a resolution claim (`resolves`) — folding it into `metadata.resolves` is only correct for a closing decision/status event. Either (a) route Try-adoption refs to `metadata.references`, or (b) make the fold opt-in via an explicit event-kind check so only genuinely closing events populate `resolves`.
+
+## 6. Pre-write schedule gate fires on writes outside repo code paths
+
+**Debt ids**: `caa97c082ef4` (memory-file misfire), `e2f0e20f90fd` (free-branch misfire)
+
+**Symptom**: The pre-write schedule gate keys on `scheduled > 0 and in-progress == 0` and blocks *any* Write, regardless of target path or branch context. Two distinct misfires observed:
+
+1. **Memory-file write** (`caa97c082ef4`): during `/xp-end-session` it blocked a Write to a MEMORY file *outside the repo* (`~/.claude/projects/.../memory/*.md`). Satisfying the gate would run `/xp-schedule`, promoting a story against an explicit customer pause — to unblock an edit that never touches repo code.
+2. **Free-branch work during an active sprint** (`e2f0e20f90fd`): the gate fires on free-branch commits even though `/xp-free-close` is the correct integration path for that workflow; running `/xp-schedule` to satisfy it would promote the next story and check out its branch, abandoning the free branch.
+
+**Fix shape**: Scope the gate to in-repo code-path Writes on a story/sprint branch. Two independent narrowings, both cheap: (a) exempt targets outside the repo working tree (an absolute path not under the project root — covers the `~/.claude` memory-file case); (b) exempt free branches (key on whether HEAD is a `paulingalls/free-*` branch, not just `scheduled>0 and in-progress==0`). The gate's intent is "don't write story code before the story is promoted", which neither of these cases is.
 
 ## Reporting
 
