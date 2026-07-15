@@ -272,10 +272,16 @@ def append_event(smm_dir: Path, event: dict) -> None:
     # id (question_answered.py consumes+resets the gate). Append mode is atomic
     # per write, so no read-modify-write race replaces the earlier overwrite.
     if event.get("type") == "question" and event.get("priority") == "\U0001f534":
-        with open(
-            smm_dir / marker_names.QUESTION_GATE, "a", encoding="utf-8"
-        ) as gate_f:
-            gate_f.write(event.get("id", "") + "\n")
+        gate_fd = _safe_open_nofollow(
+            smm_dir / marker_names.QUESTION_GATE,
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        )
+        try:
+            with os.fdopen(gate_fd, "a", encoding="utf-8") as gate_f:
+                gate_f.write(event.get("id", "") + "\n")
+        except Exception:
+            os.close(gate_fd)
+            raise
 
 
 def bulk_append(smm_dir: Path, events: list[dict]) -> None:
