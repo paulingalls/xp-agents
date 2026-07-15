@@ -2,6 +2,44 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.9.0 — Gates that see the work they gate
+
+Milestone 4 was one idea, spelled four ways: **a gate that acts on state it cannot see is a gate
+that fails open.** Each fix in this release makes a gate look at what actually ships instead of a
+proxy for it.
+
+**The close pipeline reviewed a different commit than it merged.** The reviewer was handed
+`gh pr diff <N>` — the *remote* head as of the push — while the merge lands the *local* branch. Every
+fix committed during a close (including the close-reviewer's own) shipped unreviewed; the last release
+caught this live, reviewing one commit while five of its own defect fixes sat unpushed. The reviewer
+now reads `git diff <target>...<source>` — the exact range that merges — and the merge re-pushes the
+source first (`--no-verify`, so a stale-PR record can't wave through a wrong-tree pre-push hook) so the
+PR record matches what landed. Not `...HEAD`: at story-close the reviewer runs from the orchestrator
+checkout, where `HEAD` is the sprint branch, not the story.
+
+**The close-cycle gate trusted a marker it set itself.** `CLOSE_CYCLE_ACTIVE` is written by the close
+skill's own preload, so its presence proved only that a close *started*, never that a reviewer *ran*.
+The close-reviewer was the one subagent that emitted no completion event; it now emits the standard
+`subagent_complete` evidence, and the gate cross-checks the event log — reviewer-completion evidence
+releases a lingering marker, and the read fails **closed** on a bad log. The evidence check is placed
+*before* the `stop_hook_active` bypass, so a crash between emit-and-consume can't be mis-recorded as a
+false abandonment.
+
+**`/xp-story-close` could merge before `/xp-accept` ever ran.** The acceptance gate fired at
+mark-done — *after* the merge. The close is now gated at its own door (the Skill hook, not the
+Write-only lead-gate table): a lead `/xp-story-close` is refused unless an accept session is in flight.
+Teammates were already blocked; this closes the lead's bypass.
+
+**The commit lint gate checked the bytes on disk, not the bytes being committed.** It named the
+*staged* paths but ran the linters against the *working tree*, so `git add -p` or an edit-after-add
+let bad staged bytes commit clean — in any language. It now lints the git index: each staged blob is
+materialized (`git show`) to an in-dir temp sibling (same directory + extension, so config and
+`node_modules` resolution are unchanged), the deletion-skip keys on index membership, and an unreadable
+index blob fails **closed**. Language-blind throughout — exit codes and `git show`, no per-linter branch.
+
+A capstone integration test drives all three close gates through their real subprocess entrypoints, and
+Milestone 4's source design docs are retired to `docs/completed`.
+
 ## v4.8.0 — Gates that fail OPEN
 
 **Seven gates in this plugin could be made to wave work through**, and one of them had never
