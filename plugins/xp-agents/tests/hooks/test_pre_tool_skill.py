@@ -13,7 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
 import pre_tool_skill
-from conftest import _HookTestCase, _make_skill_input
+from conftest import (
+    SPRINT_CLOSING_ONLY,
+    SPRINT_REVIEWING_ONLY,
+    _HookTestCase,
+    _make_skill_input,
+)
 
 # A CLI teammate's cwd sits inside a `worktree-story-` worktree; an in-place
 # teammate's cwd is the main checkout, detected instead by XP_TEAMMATE_NAME.
@@ -166,22 +171,51 @@ class TestAcceptEvidenceGate(_HookTestCase):
 
     _LEAD_CWD = "/home/user/project"
 
-    def test_lead_blocked_from_story_close_without_accept_evidence(self):
-        """No ACCEPT_IN_FLIGHT marker -> direct /xp-story-close is refused."""
+    def test_lead_blocked_from_story_close_without_closing_story(self):
+        """No story in `closing` -> direct /xp-story-close is refused."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
         reason = pre_tool_skill.accept_evidence_block_reason(
             _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
             smm_dir=self.smm_dir,
         )
         self._assert_not_none(reason)
 
-    def test_lead_allowed_story_close_with_accept_in_flight(self):
-        """ACCEPT_IN_FLIGHT armed (accept is driving the close) -> not blocked."""
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+    def test_lead_allowed_story_close_with_closing_story(self):
+        """A story in `closing` (accept-driven) -> not blocked."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
         reason = pre_tool_skill.accept_evidence_block_reason(
             _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(reason)
+
+    def test_accept_in_flight_without_closing_story_still_blocked(self):
+        """ACCEPT_IN_FLIGHT is a session signal, not per-story evidence: armed but
+        with NO closing story -> STILL blocked (regression against the old code)."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_REVIEWING_ONLY)
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self._assert_not_none(reason)
+
+    def test_missing_sprint_blocks(self):
+        """No sprint.json -> no closing story -> block (no legit close exists)."""
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self._assert_not_none(reason)
+
+    def test_corrupt_sprint_blocks(self):
+        """Fail CLOSED: an unparseable sprint.json must block, never allow."""
+        (self.smm_dir / "sprint.json").write_text("{ not valid json")
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self._assert_not_none(reason)
 
     def test_teammate_still_blocked_from_story_close(self):
         """Teammate precedence still applies (AC #3) — no regression."""

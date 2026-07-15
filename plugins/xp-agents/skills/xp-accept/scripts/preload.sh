@@ -15,6 +15,14 @@ if ! sprint_exists; then
     exit 0
 fi
 
+# Clear the ACCEPT marker here so update-story done is unblocked; the agent
+# is never asked to run rm. The marker means "run /xp-accept before mark-done"
+# — running the skill AT ALL is the required action, so consume on EVERY path
+# including the empty-frontier NO_STORIES_TO_ACCEPT exit below. Consuming it
+# only in the has-stories branch deadlocks mark-done when the story is already
+# merged and nothing is left to accept (only a manual `rm` would escape).
+consume_marker ACCEPT
+
 # Reviewing-first: teammate self-promote lands stories in `reviewing`;
 # solo work leaves them in `in-progress`. Process finished teammate work
 # before any in-progress fallback when both coexist.
@@ -32,10 +40,6 @@ else
     echo "No reviewing or in-progress stories to accept."
     exit 0
 fi
-
-# Clear the ACCEPT marker here so update-story done is unblocked; the agent
-# is never asked to run rm.
-consume_marker ACCEPT
 
 # Arm ACCEPT_IN_FLIGHT for the whole accept session: Step 1.0 promotes the
 # story to `reviewing` before tests run, so the stop gate would otherwise
