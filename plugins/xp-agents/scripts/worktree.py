@@ -161,7 +161,10 @@ class BranchRemoval(enum.Enum):
     """Not provably merged, force_branch=False -> branch kept (loud, no data loss)."""
 
     FORCE_DROPPED_UNMERGED = "force_dropped_unmerged"
-    """force_branch=True + unmerged -> dropped; caller MUST record it (story-003)."""
+    """force_branch=True + unmerged -> dropped. Reached only by spawn_teammate's
+    re-spawn cleanup, which force-drops a throwaway worktree-name branch (never a
+    story's recorded branch); the outcome is informational and current callers
+    ignore it. See the "one crack" note in story_done_gate."""
 
 
 def remove_worktree(
