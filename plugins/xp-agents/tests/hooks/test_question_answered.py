@@ -103,9 +103,11 @@ class TestQuestionAnswered(_HookTestCase):
         self.assertFalse(gate.exists())
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
 
-    def test_two_open_blocking_questions_both_resolve(self):
-        """Two 🔴 questions before an answer: the second clobbers QUESTION_GATE,
-        but BOTH must resolve — not just the last one recorded in the gate."""
+    def test_two_copending_blocking_questions_both_resolve(self):
+        """Two 🔴 questions raised before one answer must BOTH resolve — the
+        gate accumulates their ids (append, not clobber), so no co-pending
+        question is stranded OPEN. This is the original clobber bug fixed at
+        the source (QUESTION_GATE no longer overwrites)."""
         import _common
         import question_answered
         import resolution
@@ -119,16 +121,47 @@ class TestQuestionAnswered(_HookTestCase):
         )
         _common.append_safe(self.smm_dir, q2)
 
-        gate = self.smm_dir / ".question-gate"
-        gate.write_text(q2["id"])
+        # No manual gate write — append_safe accumulates both ids in the gate.
+        question_answered.run(self._make_ask_input(), smm_dir=self.smm_dir)
+
+        events = self._read_events()
+        answered = resolution.collect_all_resolved_ids(
+            resolution.compute_resolutions(events)
+        )
+        self.assertIn(q1["id"], answered)
+        self.assertIn(q2["id"], answered)
+
+    def test_open_question_not_in_gate_is_not_resolved(self):
+        """An open 🔴 question whose id is NOT in the current gate batch (e.g. a
+        concurrent teammate's, or one already answered in a prior batch) must
+        NOT be resolved by this answer — resolution is bounded to the gate's
+        accumulated ids, never a log-wide sweep that would fabricate a
+        resolution (and copy the wrong answer text) for an unrelated question."""
+        import _common
+        import question_answered
+        import resolution
+
+        q_gated = _common.make_event(
+            _common.QUESTION, "main", "Gated blocker?", priority="\U0001f534"
+        )
+        _common.append_safe(self.smm_dir, q_gated)
+        q_ungated = _common.make_event(
+            _common.QUESTION, "teammate", "Unrelated blocker?", priority="\U0001f534"
+        )
+        _common.append_safe(self.smm_dir, q_ungated)
+
+        # Only q_gated is in the live gate (simulate q_ungated's gate entry
+        # already consumed by a separate answer / a different arming window).
+        (self.smm_dir / ".question-gate").write_text(q_gated["id"] + "\n")
 
         question_answered.run(self._make_ask_input(), smm_dir=self.smm_dir)
 
         events = self._read_events()
-        resolutions = resolution.compute_resolutions(events)
-        answered = resolution.collect_all_resolved_ids(resolutions)
-        self.assertIn(q1["id"], answered)
-        self.assertIn(q2["id"], answered)
+        answered = resolution.collect_all_resolved_ids(
+            resolution.compute_resolutions(events)
+        )
+        self.assertIn(q_gated["id"], answered)
+        self.assertNotIn(q_ungated["id"], answered)
 
     def test_no_open_blocking_questions_logs_customer_input(self):
         """No 🔴 question / no gate: unchanged customer_input behavior."""

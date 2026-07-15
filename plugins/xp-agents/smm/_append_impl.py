@@ -266,9 +266,16 @@ def append_event(smm_dir: Path, event: dict) -> None:
     # Notify on blocking questions — after write succeeds, never fails the write
     _notify_blocking_question(event)
 
-    # Write question gate for 🔴 questions — stores event ID for resolution
+    # Question gate for 🔴 questions — ACCUMULATES ids (newline-separated) so a
+    # second blocking question raised before the answer does not clobber the
+    # first: the answer resolves the whole co-pending batch, not just the last
+    # id (question_answered.py consumes+resets the gate). Append mode is atomic
+    # per write, so no read-modify-write race replaces the earlier overwrite.
     if event.get("type") == "question" and event.get("priority") == "\U0001f534":
-        (smm_dir / marker_names.QUESTION_GATE).write_text(event.get("id", ""))
+        with open(
+            smm_dir / marker_names.QUESTION_GATE, "a", encoding="utf-8"
+        ) as gate_f:
+            gate_f.write(event.get("id", "") + "\n")
 
 
 def bulk_append(smm_dir: Path, events: list[dict]) -> None:

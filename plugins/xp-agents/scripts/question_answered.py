@@ -17,35 +17,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import identity
 import markers
-import materialize
-import resolution
 
 _ANSWER_CONTENT_MAX = 500
 
 
-def _open_blocking_question_ids(smm_dir: Path) -> list[str]:
-    """Every 🔴 question id not yet resolved, in event-log order.
+def _gate_question_ids(consumed: object) -> list[str]:
+    """Parse the consumed QUESTION_GATE into its accumulated 🔴 question ids.
 
-    Every currently-open 🔴 question blocks writes via QUESTION_GATE, so at
-    answer-time each one is a question the user's answer just unblocked —
-    even if a later 🔴 question clobbered the gate's single stored id first.
-    Falls back to an empty list on any parse error so the caller degrades to
-    today's single-question behavior instead of crashing the hook.
+    The gate accumulates one id per line (see _append_impl); consuming it
+    yields the whole co-pending batch raised since the last answer. Resolution
+    is bounded to THIS batch — never a log-wide sweep of every open 🔴, which
+    would fabricate a resolution (and copy the wrong answer text) for an
+    unrelated still-open question (a concurrent teammate's, or a stale one).
+    Known narrow residual: a concurrent agent that arms the gate within the
+    same answer window is still included — inherent to the single shared gate,
+    but far tighter than the removed whole-log sweep.
     """
-    try:
-        events, _ = materialize.parse_events(smm_dir)
-        resolved = resolution.collect_all_resolved_ids(
-            resolution.compute_resolutions(events)
-        )
-        return [
-            e["id"]
-            for e in events
-            if e.get("type") == _common.QUESTION
-            and e.get("priority") == resolution.event_schema.PRIORITY_BLOCKING
-            and e.get("id") not in resolved
-        ]
-    except Exception:
+    if not isinstance(consumed, str):
         return []
+    ids: list[str] = []
+    for line in consumed.split("\n"):
+        qid = line.strip()
+        if qid and qid not in ids:
+            ids.append(qid)
+    return ids
 
 
 def _extract_response_text(input_data: dict) -> str:
@@ -84,14 +79,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     consumed = markers.marker_consume(smm_dir, markers.QUESTION_GATE)
-    gate_id = consumed.strip() if isinstance(consumed, str) else ""
+    refs = _gate_question_ids(consumed)
 
     response_text = _extract_response_text(input_data)
-
-    refs = [gate_id] if gate_id else []
-    for open_id in _open_blocking_question_ids(smm_dir):
-        if open_id not in refs:
-            refs.append(open_id)
 
     if refs:
         event = _common.make_event(

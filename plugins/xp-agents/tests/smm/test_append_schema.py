@@ -349,12 +349,28 @@ class TestQuestionGate(unittest.TestCase):
         self.assertTrue(gate.exists())
 
     def test_gate_contains_event_id(self):
-        """The .question-gate file should contain the question event ID."""
+        """The .question-gate file should contain the question event ID
+        (newline-terminated — the gate accumulates one id per line)."""
         event = self._make_event(EVENT_TYPE_QUESTION, priority="\U0001f534")
         with patch("resolution.subprocess.run"):
             _append_impl.append_event(self.smm_dir, event)
         gate = self.smm_dir / ".question-gate"
-        self.assertEqual(gate.read_text(), "test-question-id")
+        self.assertEqual(gate.read_text(), "test-question-id\n")
+
+    def test_gate_accumulates_multiple_ids(self):
+        """A second 🔴 question APPENDS its id — it must not clobber the first,
+        so a single answer can resolve every co-pending blocking question."""
+        with patch("resolution.subprocess.run"):
+            _append_impl.append_event(
+                self.smm_dir,
+                self._make_event(EVENT_TYPE_QUESTION, priority="\U0001f534", id="q1"),
+            )
+            _append_impl.append_event(
+                self.smm_dir,
+                self._make_event(EVENT_TYPE_QUESTION, priority="\U0001f534", id="q2"),
+            )
+        gate = self.smm_dir / ".question-gate"
+        self.assertEqual(gate.read_text(), "q1\nq2\n")
 
     def test_non_blocking_question_no_gate(self):
         """Non-🔴 question should NOT create .question-gate."""
