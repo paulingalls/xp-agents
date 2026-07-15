@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import markers
 import pre_tool_skill
 from conftest import _HookTestCase, _make_skill_input
 
@@ -158,6 +159,81 @@ class TestTeammateLifecycleGate(_HookTestCase):
         self.assertTrue(
             pre_tool_skill._TEAMMATE_ALLOWED_SKILLS <= pre_tool_skill._OUR_SKILLS
         )
+
+
+class TestAcceptEvidenceGate(_HookTestCase):
+    """PreToolUse:Skill blocks a lead from /xp-story-close without accept evidence."""
+
+    _LEAD_CWD = "/home/user/project"
+
+    def test_lead_blocked_from_story_close_without_accept_evidence(self):
+        """No ACCEPT_IN_FLIGHT marker -> direct /xp-story-close is refused."""
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self._assert_not_none(reason)
+
+    def test_lead_allowed_story_close_with_accept_in_flight(self):
+        """ACCEPT_IN_FLIGHT armed (accept is driving the close) -> not blocked."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(reason)
+
+    def test_teammate_still_blocked_from_story_close(self):
+        """Teammate precedence still applies (AC #3) — no regression."""
+        reason = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-story-close", cwd=_TEAMMATE_CWD)
+        )
+        self._assert_not_none(reason)
+
+    def test_other_close_skills_not_gated_by_accept_evidence(self):
+        """Only xp-story-close is gated — sprint/plan/free close pass through."""
+        for skill in ("xp-sprint-close", "xp-plan-close", "xp-free-close"):
+            reason = pre_tool_skill.accept_evidence_block_reason(
+                _make_skill_input(skill, cwd=self._LEAD_CWD),
+                smm_dir=self.smm_dir,
+            )
+            self.assertIsNone(reason, f"{skill} should not be gated")
+
+    def test_missing_smm_dir_does_not_block(self):
+        """Degrade quiet: an unresolvable SMM dir must never block a legit close."""
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=Path("/nonexistent/smm/dir"),
+        )
+        self.assertIsNone(reason)
+
+    def test_xp_subagent_skips_accept_evidence_gate(self):
+        """Recursion guard: our own xp- subagents are exempt."""
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input(
+                "xp-story-close", cwd=self._LEAD_CWD, agent_type="xp-code-reviewer"
+            ),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(reason)
+
+    def test_lead_passes_teammate_gate_then_blocked_by_accept_gate(self):
+        """Composition (AC #3 precedence): a lead's direct /xp-story-close is
+        allowed by the teammate gate (not a teammate) but refused by the accept
+        gate (no evidence). Asserts the two helpers in isolation; the __main__
+        dispatch that chains them is proven end-to-end by the subprocess test in
+        tests/integration/test_gate_enforcement.py.
+        """
+        block = pre_tool_skill.teammate_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self.assertIsNone(block)
+        reason = pre_tool_skill.accept_evidence_block_reason(
+            _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
+            smm_dir=self.smm_dir,
+        )
+        self._assert_not_none(reason)
 
 
 if __name__ == "__main__":
