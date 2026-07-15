@@ -2,6 +2,35 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.11.0 — Mark-done honesty: branch deletion proves merge
+
+First milestone of a new backlog-paydown plan (M6): **a deleted branch now honestly
+implies it was merged.** The mark-done gate reads branch *absence* as proof a story's
+merge landed — a premise that had cracks. Every branch-delete path now proves the merge,
+and the one path that can still drop unmerged work records it so the gate can tell an
+abandoned branch from a merged one.
+
+**One base-proving delete primitive.** `worktree.remove_worktree` used a raw `git branch
+-d/-D` that trusted git's upstream-based check — so on any remote-backed repo it would
+delete a pushed-but-unmerged branch. It now routes through `branch_lifecycle.delete_branch`
+(which proves `is_merged_into` against the recorded story base first) and returns a
+`BranchRemoval` outcome (`DELETED_MERGED` / `REFUSED_UNMERGED` / `FORCE_DROPPED_UNMERGED` /
+`NO_BRANCH`) so callers know what happened.
+
+**Proof against the base, not HEAD, fail-closed.** `cleanup_teammate` proved merge against
+the current HEAD — misjudging a branch merged into its recorded base but not into HEAD. It
+now proves against the recorded story base via `get_story_base_branch_required` (which
+raises rather than silently degrading to primary), and refuses to delete on an unresolvable
+base.
+
+**Abandoned branches can't slip through as merged.** The sole remaining force-drop (a
+re-spawn's `-D` of a genuinely-unmerged branch) now writes an append-only `debt` record,
+superseded (via `metadata.resolves`) when the re-spawn re-creates the branch. The mark-done
+keystone consults it: a force-dropped-unmerged branch's absence BLOCKS as abandoned (with a
+`--force-unmerged` hatch), while a merged-then-deleted branch still allows — degrading quiet
+only on an unreadable event log. An integration capstone proves the three delete paths and
+the gate compose end-to-end on one shared model.
+
 ## v4.10.0 — Planning artifacts keep their record
 
 Milestone 5 finished the plan (M1–M5 all delivered): **the tools stop destroying and
