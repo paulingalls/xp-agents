@@ -456,6 +456,38 @@ class TestExtractVerifyPaths(unittest.TestCase):
         story.pop("acceptance_execution", None)
         self.assertEqual(verify_paths.extract_verify_paths(story), set())
 
+    def test_pinned_path_excluded_from_extraction(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "pytest tests/x_test.py",
+                "pins": ["tests/x_test.py"],
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), set())
+
+    def test_unpinned_path_still_extracted(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "pytest tests/x_test.py",
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), {"tests/x_test.py"})
+
+    def test_cd_prefixed_pin_matches_rebased_token(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "cd apps/x && pytest tests/y_test.py",
+                "pins": ["apps/x/tests/y_test.py"],
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), set())
+
 
 class _GitRepoCase(_TempRepoTestCase):
     """Adds per-test git-commit helpers atop the shared temp repo."""
