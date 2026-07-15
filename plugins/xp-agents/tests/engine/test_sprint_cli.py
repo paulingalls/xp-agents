@@ -393,5 +393,19 @@ class TestReadyFrontierCommand(_SMMTestCase):
         self.assertEqual(out["frontier"], ["story-002"])
 
 
+class TestArchiveCommand(_SMMTestCase):
+    def test_archive_moves_file(self):
+        (self.smm_dir / "sprint.json").write_text(json.dumps(_make_sprint()))
+        result = run_cli(_CLI, ["archive"], self.smm_dir)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Archived to:", result.stdout)
+        self.assertFalse((self.smm_dir / "sprint.json").exists())
+        self.assertTrue((self.smm_dir / "sprints").is_dir())
+
+    def test_archive_missing_sprint(self):
+        result = run_cli(_CLI, ["archive"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

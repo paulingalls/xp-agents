@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import markers
 from conftest import (
+    SPRINT_CLOSING_ONLY,
     SPRINT_CLOSING_WITH_NEXT_SCHEDULED,
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
@@ -300,7 +300,7 @@ class TestStoryCloseAcceptEvidenceIntegration(_IntegrationTestCase):
         return _make_skill_input("xp-story-close", cwd=self._LEAD_CWD)
 
     def test_direct_story_close_blocked_before_any_step(self):
-        """No ACCEPT_IN_FLIGHT marker -> __main__ emits a decision block."""
+        """No story in `closing` -> __main__ emits a decision block."""
         result = self._run_script("pre_tool_skill.py", self._close_input())
         self.assertEqual(result.returncode, 0, result.stderr)
         parsed = json.loads(result.stdout)
@@ -308,8 +308,8 @@ class TestStoryCloseAcceptEvidenceIntegration(_IntegrationTestCase):
         self.assertIn("/xp-accept", parsed["reason"])
 
     def test_story_close_allowed_with_accept_evidence(self):
-        """Marker armed (accept is driving the close) -> no block, empty stdout."""
-        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        """Story in `closing` (accept driving the close) -> no block, empty stdout."""
+        (self.smm_dir / "sprint.json").write_text(SPRINT_CLOSING_ONLY)
         result = self._run_script("pre_tool_skill.py", self._close_input())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "")

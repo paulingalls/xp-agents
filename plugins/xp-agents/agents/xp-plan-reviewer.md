@@ -158,6 +158,8 @@ When no extracted path intersects the story's `file_domain`, emit a concern nami
 
 Skip when the story's `file_domain` is empty or `acceptance_execution` is absent.
 
+**Declared regression pins.** A path listed in `acceptance_execution.pins` is a deliberate pin: the story asserts that path staying green *unchanged* is itself the proof (a behavior-preserving refactor), so it is exempt from the untouched-path checks downstream — do not treat a pinned path as a mismatch here on that basis alone; it still must intersect `file_domain` like any other extracted path.
+
 ### 10c. NEW-file Path Enumeration
 
 For each story in `SPRINT_FILE`, scan `description` (and `context` if present) for verbs implying a new file or module. Match on **whole-word verb + a NEW-file context token in the same sentence** (one of: `module`, `helper`, `file`, `to its own`, or a path-like token containing `/` or `.py`/`.ts`/etc.). Bare substrings of `extract` or `introduce` MUST NOT trigger on their own — they're false positives.
@@ -178,6 +180,10 @@ Do NOT raise this rejection when the description has none of the new-file verbs.
 For the in-progress story in `SPRINT_FILE`, gather its verify-bearing test paths: extract path tokens from each per-AC `command`/`commands` AND the story-level `acceptance_execution.command`/`commands`, using the same positional-path / whole-tree runner taxonomy as §10b.
 
 For each extracted path, the implementation plan's stated file targets/steps must include that path (the plan must create or modify the test). When a verify-bearing path is absent from the plan's file targets, emit a **high-severity** `concern` naming the story, the AC command, and the missing path — a green acceptance test the plan never writes is a planning gap.
+
+**Pin exemption.** A path listed in `acceptance_execution.pins` is a deliberate regression pin — its staying green *unchanged* is the proof, so the plan is not expected to touch it. ACCEPT a pinned path absent from the plan's file targets; do not raise the high-severity concern for it. But if every declared verify path for the story is pinned, the story has no authored proof at all — emit a concern flagging that (a story cannot rest entirely on pins with no plan-written test backing new behavior).
+
+**Malformed pin.** A pin entry must match one of the paths *extracted* from the story's commands (the repo-relative, cd-rebased post-rebase token — the same form §10b's extraction produces), not the raw cd-relative path as written in the command. Matching is under `posixpath` normalization on **both** sides, so a redundant `./` prefix or a trailing `/` on the pin still matches (`./apps/x/tests/y/` matches the extracted `apps/x/tests/y`); only a genuinely different token (notably the pre-rebase `tests/y` form) fails. A pin that matches no extracted path is a silent no-op — the exemption never applies, and the author likely wrote the pre-rebase form by mistake. Emit a concern naming the stale/malformed pin and the extracted path(s) it was probably meant to match.
 
 **Unit-shape heuristic (soft).** Scan the story-level `acceptance_execution` command for unit-shape indicators (`::test_internal_*`, private-helper `-k` selectors, internal function-name selectors). On a match, emit a **soft** `concern` (medium, not a block) that recommends the acceptance demo assert observable, behavior-shaped outcomes rather than an internal.
 

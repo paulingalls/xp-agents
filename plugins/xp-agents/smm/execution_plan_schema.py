@@ -32,7 +32,7 @@ VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\Z")
 MILESTONE_FIELD_MAXLENGTH: dict[str, int] = {
     "goal": 200,
     "done": 300,
-    "design_details": 500,
+    "design_details": 800,
 }
 
 MILESTONE_ITEM_MAXLENGTH: dict[str, int] = {

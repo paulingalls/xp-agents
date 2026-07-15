@@ -69,6 +69,14 @@ def validate_acceptance_execution(ae: object, prefix: str) -> list[str]:
         errors.append(f"{prefix}.type is required and must be a string")
 
     errors.extend(_validate_command_block(ae, prefix, require_one=True))
+    if "pins" in ae:
+        pins = ae["pins"]
+        if not isinstance(pins, list):
+            errors.append(f"{prefix}.pins must be a list of strings")
+        else:
+            for i, p in enumerate(pins):
+                if not isinstance(p, str):
+                    errors.append(f"{prefix}.pins[{i}] must be a string")
     return errors
 
 

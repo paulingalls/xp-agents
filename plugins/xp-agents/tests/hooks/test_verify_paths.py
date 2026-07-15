@@ -456,6 +456,69 @@ class TestExtractVerifyPaths(unittest.TestCase):
         story.pop("acceptance_execution", None)
         self.assertEqual(verify_paths.extract_verify_paths(story), set())
 
+    def test_pinned_path_excluded_from_extraction(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "pytest tests/x_test.py",
+                "pins": ["tests/x_test.py"],
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), set())
+
+    def test_unpinned_path_still_extracted(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "pytest tests/x_test.py",
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), {"tests/x_test.py"})
+
+    def test_pin_drops_only_exact_match_not_sibling(self):
+        # A pin exempts by exact normalized-set membership, never by prefix:
+        # pinning tests/a.py must not silently drop the sibling tests/b.py.
+        story = make_story_dict(
+            acceptance_criteria=[
+                {"description": "x", "command": "pytest tests/a.py"},
+                {"description": "y", "command": "pytest tests/b.py"},
+            ],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "pytest tests/",
+                "pins": ["tests/a.py"],
+            },
+        )
+        # tests/a.py pinned+dropped; tests/b.py and the tests/ dir survive.
+        self.assertEqual(
+            verify_paths.extract_verify_paths(story),
+            {"tests/b.py", "tests/"},
+        )
+
+    def test_pin_matches_despite_trailing_slash_and_dot_slash(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "pytest tests/x_test.py",
+                "pins": ["./tests/x_test.py/"],
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), set())
+
+    def test_cd_prefixed_pin_matches_rebased_token(self):
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "pytest",
+                "command": "cd apps/x && pytest tests/y_test.py",
+                "pins": ["apps/x/tests/y_test.py"],
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), set())
+
 
 class _GitRepoCase(_TempRepoTestCase):
     """Adds per-test git-commit helpers atop the shared temp repo."""
