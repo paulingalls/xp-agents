@@ -178,6 +178,7 @@ def event_category_of(event_type: str) -> EVENT_CATEGORY:
 # partial shim is how a caller discovers the split the hard way.
 from event_metadata import (  # noqa: E402, F401
     CONCERN_KIND_CLOSE_CYCLE_BYPASS,
+    DEBT_ACTION_BRANCH_FORCE_DROPPED,
     DISPOSITION_ADOPTED,
     DISPOSITION_DEFERRED,
     DISPOSITION_DROPPED,

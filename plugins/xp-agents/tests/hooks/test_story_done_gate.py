@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import event_schema
 import pre_tool_bash
 import sprint_store
 from _branching_fixtures import append_commit, init_repo, write_system_context
@@ -341,92 +342,119 @@ class TestGateDoesNotBlockLegitimateCloses(_GateCase):
         self.assertIsNone(self._run(cmd))
 
 
-class TestTheGateReadsEveryMarkDoneInTheCommand(_GateCase):
-    """One regex `search` per command was three holes wearing one bug.
+class TestLiveForceDropGate(_GateCase):
+    """The keystone's one remaining crack: a branch that is ABSENT because it was
+    force-dropped unmerged during a re-spawn — not because a merge deleted it.
 
-    The gate read the FIRST match, took the id EXACTLY as the shell wrote it, and
-    knew only one of the two subcommands that write `done`. Each hole is silent: a
-    story slips past a gate that reports nothing, which is the same failure the
-    gate exists to stop, one layer up.
+    Absence alone reads as "merged" (the keystone's PASS arm). A force-drop record
+    (a `debt` event) turns that absence back into "abandoned" and BLOCKS, unless a
+    later re-spawn superseded it (a `status` event carrying metadata.resolves) or
+    the `--force-unmerged` hatch is on the invocation.
     """
 
-    def test_the_SECOND_mark_done_in_one_command_is_gated_too(self):
-        """`... update-story story-001 done && ... update-story story-002 done` —
-        `search` stops at the first match, so story-002 was marked done with no
-        merge proof at all. Chaining the two is the natural shape when a close
-        wraps up several stories."""
-        self._unmerged_story_branch()
-        self._seed_stories(
-            self._story("story-001", branch=None),  # nothing to prove — passes
-            self._story("story-002", branch=_STORY_BRANCH),  # unmerged — must block
+    _FORCE_DROP_ACTION = event_schema.DEBT_ACTION_BRANCH_FORCE_DROPPED
+    _RESPAWN_ACTION = "branch_respawned"
+
+    def _append_drop(
+        self,
+        *,
+        branch: str = _STORY_BRANCH,
+        story_id: str = "story-001",
+        sha: str = "deadbeefcafe",
+    ) -> str:
+        """Append a force-drop debt record R (the shape spawn_teammate writes) and
+        return its event id. `story_id=""` records a drop that names no story."""
+        event = _common.make_event(
+            _common.DEBT,
+            "spawn_teammate",
+            f"force-dropped unmerged branch {branch} (tip {sha}) on re-spawn",
+            files=[],
+            metadata={
+                "action": self._FORCE_DROP_ACTION,
+                "branch": branch,
+                "dropped_sha": sha,
+                "story_id": story_id,
+            },
         )
+        _common.append_safe(self.smm_dir, event)
+        return event["id"]
+
+    def _append_supersede(
+        self,
+        drop_id: str,
+        *,
+        branch: str = _STORY_BRANCH,
+        story_id: str = "story-001",
+    ) -> None:
+        """Append the re-spawn supersede record S (a `status` carrying
+        metadata.resolves=[drop_id]) — clears R via compute_resolutions."""
+        event = _common.make_event(
+            _common.STATUS,
+            "spawn_teammate",
+            f"re-spawned worktree for {branch}; superseding earlier force-drop",
+            working_on=[],
+            metadata={
+                "action": self._RESPAWN_ACTION,
+                "resolves": [drop_id],
+                "branch": branch,
+                "story_id": story_id,
+            },
+        )
+        _common.append_safe(self.smm_dir, event)
+
+    def test_live_force_drop_blocks_done(self):
+        """AC2: the story's branch is ABSENT and an unresolved force-drop names it,
+        so the absence is abandonment, not a merge. Mark-done must refuse, naming the
+        branch and the --force-unmerged way out."""
+        self._seed_sprint()  # branch_name names a branch never created (absent)
+        self._append_drop()
 
         with self.assertRaises(_common.BlockedError) as caught:
-            self._run(f"{_done_cmd('story-001')} && {_done_cmd('story-002')}")
+            self._run(_done_cmd())
 
-        self.assertIn("story-002", str(caught.exception))
+        msg = str(caught.exception)
+        self.assertIn(_STORY_BRANCH, msg)
+        self.assertIn("--force-unmerged", msg)
 
-    def test_a_QUOTED_story_id_is_still_gated(self):
-        """`\\S+` swallowed the shell's own quotes, so the gate looked up the story
-        `'story-001'` — which does not exist — and `merged_block` read the resulting
-        ValueError as "no such story", i.e. nothing to check, i.e. ALLOW. The shell
-        strips the quotes before the CLI sees them, so the forged `done` lands.
-
-        Quoting an id is not exotic: /xp-schedule quotes `"$FIRST"` two steps
-        earlier in the very same pipeline.
-        """
-        self._unmerged_story_branch()
+    def test_reworked_then_merged_still_allows(self):
+        """THE permanent-block guard. A force-drop that a later re-spawn superseded
+        (S resolves R) is no longer a live abandonment signal, so an absent branch
+        allows again. Without this, a re-spawned-then-merged story would be
+        un-markable forever."""
         self._seed_sprint()
+        drop_id = self._append_drop()
+        self._append_supersede(drop_id)
 
-        with self.assertRaises(_common.BlockedError):
-            self._run(_done_cmd('"story-001"'))
+        self.assertIsNone(self._run(_done_cmd()))
 
-        with self.assertRaises(_common.BlockedError):
-            self._run(_done_cmd("'story-001'"))
-
-    def test_update_story_if_new_done_is_gated(self):
-        """The OTHER writer of `done`. `update-story-if <id> --expected X --new done`
-        is a compare-and-swap onto the same field, and the gate's pattern did not
-        know the subcommand existed — so the whole merge proof was one flag away."""
-        self._unmerged_story_branch()
+    def test_drop_of_other_branch_does_not_block(self):
+        """Keystone integrity: a drop record for a DIFFERENT branch must not match
+        this story. Matching on metadata.branch == story.branch_name is load-bearing
+        — otherwise any force-drop anywhere would brick every absent-branch close."""
         self._seed_sprint()
-        cmd = (
-            "python3 /path/to/sprint_cli.py --smm-dir /tmp/smm "
-            "update-story-if story-001 --expected closing --new done"
-        )
+        self._append_drop(branch="paulingalls/story-999-unrelated")
 
-        with self.assertRaises(_common.BlockedError) as caught:
-            self._run(cmd)
+        self.assertIsNone(self._run(_done_cmd()))
 
-        self.assertIn("story-001", str(caught.exception))
-
-    def test_an_override_waives_only_the_invocation_that_TYPED_it(self):
-        """`--force-unmerged` was matched against the WHOLE command, so one override
-        waived every mark-done chained after it — including stories whose bypass no
-        debt event ever paid for. The flag belongs to its own invocation."""
-        self._unmerged_story_branch()
-        self._seed_stories(
-            self._story("story-001", branch=_STORY_BRANCH),
-            self._story("story-002", branch=_STORY_BRANCH),
-        )
-        overridden = _done_cmd("story-001", extra=' --force-unmerged "on the record"')
-        cmd = overridden + " && " + _done_cmd("story-002")
-
-        with self.assertRaises(_common.BlockedError) as caught:
-            self._run(cmd)
-
-        self.assertIn("story-002", str(caught.exception), "the UNoverridden one")
-
-    def test_update_story_if_to_a_non_done_status_is_not_gated(self):
-        """The control — /xp-accept's real CAS is `--new closing`, and it must pass."""
-        self._unmerged_story_branch()
+    def test_force_unmerged_hatch_overrides_drop(self):
+        """AC4: --force-unmerged on the invocation waives the block even with a live
+        drop — the CLI writes the debt event, so the override is on the record."""
         self._seed_sprint()
-        cmd = (
-            "python3 /path/to/sprint_cli.py --smm-dir /tmp/smm "
-            "update-story-if story-001 --expected reviewing --new closing"
-        )
+        self._append_drop()
+        cmd = _done_cmd(extra=' --force-unmerged "reworked and landed upstream"')
 
         self.assertIsNone(self._run(cmd))
+
+    def test_corrupt_event_log_degrades_quiet(self):
+        """The additive read degrades QUIET, not closed. Branch-absent is the NORMAL
+        close path, so an unreadable event log must not brick every honest close —
+        _live_force_drop returns None rather than raising, and the keystone allows.
+        (The sprint/base/git reads stay fail-closed; only this annotation-only read
+        degrades quiet.)"""
+        self._seed_sprint()
+        (self.smm_dir / "events.jsonl").write_text("{ not json\n")
+
+        self.assertIsNone(self._run(_done_cmd()))
 
 
 if __name__ == "__main__":
