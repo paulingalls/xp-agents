@@ -34,13 +34,22 @@ import worktree  # isort: split
 import identity
 import in_place_marker
 import sprint_store
-import tier_wire
 
 # The prompt text (is this prompt ours, and what leads it) and the subprocess tee
 # + liveness watchdog live in sibling leaf modules; keep the names importable here
 # so callers (and their tests) still see spawn_teammate.run_with_tee /
-# project_log_dir.
+# project_log_dir. build_command and the re-spawn force-drop recording likewise
+# live in leaf modules (500-line cap) and are re-exported for their call sites
+# and tests (`spawn_teammate.build_command`, `spawn_teammate._RESPAWN_ACTION`).
+from respawn_record import (  # noqa: F401
+    _FORCE_DROP_ACTION,
+    _RESPAWN_ACTION,
+    peek_dropped_ref,
+    record_force_drop,
+    record_respawn_supersede,
+)
 from spawn_prompt import load_prompt_for_story, worktree_preamble
+from teammate_command import _ALLOWED_TOOLS, build_command  # noqa: F401
 from teammate_runner import (
     project_log_dir,
     project_prompt_path,
@@ -76,15 +85,30 @@ def resolve_sprint_id(smm_dir: str | Path) -> str | None:
     return sprint_id if isinstance(sprint_id, str) and sprint_id else None
 
 
-def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
+def cleanup_existing(
+    name: str,
+    cwd: str,
+    *,
+    owns_branch: bool = True,
+    smm_dir: str | Path | None = None,
+    story_id: str | None = None,
+) -> tuple[worktree.BranchRemoval, str | None]:
     """Clear a stale worktree before (re)creating one at the same path.
+
+    Returns ``(BranchRemoval, drop_id)``: ``drop_id`` is the id of the force-drop
+    record when the owns_branch arm force-dropped a genuinely-unmerged branch and
+    ``smm_dir`` was supplied, else None. ``smm_dir``/``story_id`` are optional so
+    existing callers (no recording) keep working.
 
     ``owns_branch`` decides whether the worktree's BRANCH dies with it, and it
     is the difference between an idempotent re-spawn and destroyed work:
 
     - True (spawn cut the branch itself, in the no-``branch=`` arm where
       ``worktree add -b <name>`` re-cuts it): force-delete it. A stale ref of
-      the same name would otherwise block the re-add.
+      the same name would otherwise block the re-add. When that force-delete
+      drops a genuinely-unmerged branch, PEEK its (branch, sha) first (HEAD
+      vanishes with the directory) and RECORD the drop, so the mark-done gate
+      does not misread the resulting absence as a merge.
     - False (a branch was HANDED to ``create_worktree``): delete NOTHING. That
       branch was cut by /xp-assign and is where the teammate has been
       committing. Force-deleting it — which is what this did unconditionally —
@@ -102,21 +126,42 @@ def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
     git, which refuses to remove a tree with modified or untracked files —
     covering the live teammate and the crashed-before-commit one alike.
     """
-    if owns_branch:
-        worktree.remove_worktree(name, cwd, force_branch=True)
-    else:
+    if not owns_branch:
         worktree.remove_worktree_dir(name, cwd, force=False)
+        return worktree.BranchRemoval.NO_BRANCH, None
+
+    branch, sha = peek_dropped_ref(name, cwd)
+    removal = worktree.remove_worktree(name, cwd, force_branch=True)
+    drop_id: str | None = None
+    if removal is worktree.BranchRemoval.FORCE_DROPPED_UNMERGED and smm_dir is not None:
+        drop_id = record_force_drop(smm_dir, story_id, branch, sha)
+    return removal, drop_id
 
 
-def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
+def create_worktree(
+    name: str,
+    cwd: str,
+    *,
+    branch: str | None = None,
+    smm_dir: str | Path | None = None,
+    story_id: str | None = None,
+) -> str:
     """Create a git worktree for a teammate. Returns worktree path.
 
     When branch is provided, checks out that existing branch in the
     worktree instead of creating a new branch. Used by /xp-assign
     to place teammates on story branches — and spawn does not own that
     branch, so a stale worktree is cleared without touching it.
+
+    When cleanup force-dropped an unmerged branch (and ``smm_dir`` was given),
+    the drop was recorded; supersede that record ONLY AFTER the re-add succeeds.
+    If ``git worktree add`` raises, the supersede is never written, so the drop
+    stays live and the mark-done gate blocks — dropped + re-create-failed is
+    abandoned, which is exactly right.
     """
-    cleanup_existing(name, cwd, owns_branch=branch is None)
+    _removal, drop_id = cleanup_existing(
+        name, cwd, owns_branch=branch is None, smm_dir=smm_dir, story_id=story_id
+    )
 
     wt = worktree.worktree_path(name, cwd)
     wt.parent.mkdir(parents=True, exist_ok=True)
@@ -136,71 +181,10 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
         capture_output=True,
         check=True,
     )
+
+    if drop_id is not None and smm_dir is not None:
+        record_respawn_supersede(smm_dir, story_id, name, drop_id)
     return wt_path
-
-
-_ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
-
-
-def build_command(
-    name: str,
-    model: str | None = None,
-    plugin_dir: str | None = None,
-    effort: str | None = None,
-) -> list[str]:
-    """Construct the claude -p command for a teammate.
-
-    Prompt is piped via stdin, not passed as a CLI flag. When *model* is
-    given, a --model flag selects the teammate's tier (e.g. sonnet for a
-    delegated solo teammate); otherwise the claude -p default is inherited.
-
-    When *plugin_dir* is given, a --plugin-dir flag loads that plugin into the
-    headless teammate session. This is REQUIRED for the teammate to get the
-    xp-agents skills, agents, and hooks: a worktree `claude -p` session does
-    not apply the project-scoped marketplace enablement, so without
-    --plugin-dir the plugin (and its full hook lifecycle) never loads.
-
-    When *effort* is given, a --effort flag forwards the reasoning-effort
-    level — but only when the resolved *model* is known to support it
-    (tier_wire.effort_supported). Support is non-uniform across tiers (the
-    cheapest tier rejects effort outright), so an unsupported model+effort
-    pair is dropped with a stderr note rather than erroring the spawn: it
-    fail-safes to the model default. When *model* is None the resolved tier
-    is inherited from the orchestrator and unknown here, so effort is treated
-    as unverifiable and dropped — never forward a param we can't confirm.
-    """
-    cmd = [
-        "claude",
-        "-p",
-        "--name",
-        name,
-        "--dangerously-skip-permissions",
-        "--allowedTools",
-        _ALLOWED_TOOLS,
-        "--output-format",
-        "stream-json",
-        "--include-partial-messages",
-        "--verbose",
-    ]
-    if model is not None:
-        cmd += ["--model", model]
-    if plugin_dir is not None:
-        cmd += ["--plugin-dir", plugin_dir]
-    if effort is not None:
-        if model is None:
-            sys.stderr.write(
-                f"spawn_teammate: model inherited from orchestrator (unknown "
-                f"here) — cannot verify effort {effort!r} support, dropping "
-                f"--effort, using model default\n"
-            )
-        elif not tier_wire.effort_supported(model, effort):
-            sys.stderr.write(
-                f"spawn_teammate: model {model!r} does not support effort "
-                f"{effort!r} — dropping --effort, using model default\n"
-            )
-        else:
-            cmd += ["--effort", effort]
-    return cmd
 
 
 def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> None:
@@ -329,7 +313,17 @@ def main(argv: list[str] | None = None) -> None:
     # In-place (solo delegation): run in the main checkout on the already-
     # checked-out story branch — no worktree to isolate a single unit of work.
     # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>.
-    run_cwd = cwd if args.in_place else create_worktree(name, cwd, branch=args.branch)
+    run_cwd = (
+        cwd
+        if args.in_place
+        else create_worktree(
+            name,
+            cwd,
+            branch=args.branch,
+            smm_dir=Path(args.smm_dir),
+            story_id=args.story_id,
+        )
+    )
     # --plugin-dir is a correctness-critical invariant: without it the headless
     # teammate loads none of the xp-agents skills/agents/hooks (ungated). Self-
     # resolve from CLAUDE_PLUGIN_ROOT when omitted so a caller that forgets the
