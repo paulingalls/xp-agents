@@ -49,16 +49,16 @@ class TestMilestoneFieldBudgets(unittest.TestCase):
     def test_design_details_over_budget_rejected(self):
         import execution_plan_schema as schema
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 501)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
         errors = schema.validate_plan(plan)
         self.assertTrue(
-            any("design_details" in e and "501" in e and "500" in e for e in errors)
+            any("design_details" in e and "801" in e and "800" in e for e in errors)
         )
 
     def test_design_details_at_budget_accepted(self):
         import execution_plan_schema as schema
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 500)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 800)])
         errors = schema.validate_plan(plan)
         self.assertFalse(any("design_details" in e and "budget" in e for e in errors))
 
@@ -139,7 +139,7 @@ class TestBudgetEnforceFlag(unittest.TestCase):
                 _make_milestone(
                     goal="x" * 300,
                     done="x" * 500,
-                    design_details="x" * 700,
+                    design_details="x" * 801,
                     constraints=["x" * 200],
                     change_zones=[{"path": "f.py", "note": "x" * 200}],
                 )
@@ -151,7 +151,7 @@ class TestBudgetEnforceFlag(unittest.TestCase):
     def test_over_budget_rejected_when_enforced(self):
         import execution_plan_schema as schema
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 501)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
         errors = schema.validate_plan(plan, enforce_budget=True)
         self.assertTrue(any("budget" in e for e in errors))
 
@@ -180,16 +180,16 @@ class TestLoadPlanGrandfathersBudget(unittest.TestCase):
 
         import execution_plan_store as store
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         loaded = store.load_plan(self.smm_dir)
         assert loaded is not None
-        self.assertEqual(len(loaded["milestones"][0]["design_details"]), 700)
+        self.assertEqual(len(loaded["milestones"][0]["design_details"]), 801)
 
     def test_save_over_budget_plan_rejected(self):
         import execution_plan_store as store
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
         with self.assertRaises(ValueError) as ctx:
             store.save_plan(self.smm_dir, plan)
         self.assertIn("budget", str(ctx.exception).lower())
@@ -205,7 +205,7 @@ class TestStatusUpdateGrandfathersBudget(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.smm_dir = Path(self._tmp.name)
         plan = _make_plan(
-            milestones=[_make_milestone(design_details="x" * 700, status="planned")]
+            milestones=[_make_milestone(design_details="x" * 801, status="planned")]
         )
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
 
@@ -225,7 +225,7 @@ class TestStatusUpdateGrandfathersBudget(unittest.TestCase):
     def test_save_plan_still_enforces_budget_for_new_content(self):
         import execution_plan_store as store
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
         with self.assertRaises(ValueError) as ctx:
             store.save_plan(self.smm_dir, plan)
         self.assertIn("budget", str(ctx.exception).lower())

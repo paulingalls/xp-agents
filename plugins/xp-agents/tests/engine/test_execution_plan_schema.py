@@ -373,6 +373,24 @@ class TestMilestoneSchedules(unittest.TestCase):
         self.assertTrue(any("schedules" in e for e in errors))
 
 
+class TestDesignDetailsBudget(unittest.TestCase):
+    """Test design_details field budget enforcement at 800 characters."""
+
+    def test_design_details_800_char_validates_clean(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 800)])
+        errors = schema.validate_plan(plan, enforce_budget=True)
+        self.assertEqual(errors, [])
+
+    def test_design_details_801_char_yields_budget_error(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
+        errors = schema.validate_plan(plan, enforce_budget=True)
+        self.assertTrue(any("design_details" in e for e in errors))
+
+
 class TestEmptyPlan(unittest.TestCase):
     def test_empty_plan_is_valid(self):
         import execution_plan_schema as schema
