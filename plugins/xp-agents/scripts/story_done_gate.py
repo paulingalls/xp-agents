@@ -41,9 +41,60 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import _common
 import branch_resolution
 import branching
+import event_schema
 import sprint_store
+
+# The action stamp on the force-drop record `spawn_teammate` writes when a
+# re-spawn `-D`s a genuinely-unmerged branch. Read here to tell a force-dropped
+# (ABANDONED) absent branch apart from a merged-then-deleted (SHIPPED) one. The
+# literal lives in event_metadata so the producer (spawn_teammate) and this
+# consumer share ONE source -- a drifted tag would silently fail the gate open.
+_FORCE_DROP_ACTION = event_schema.DEBT_ACTION_BRANCH_FORCE_DROPPED
+
+
+def _live_force_drop(smm_dir: Path, branch: str, story_id: str) -> dict | None:
+    """The latest UNRESOLVED force-drop record naming `branch`, or None.
+
+    `spawn_teammate` writes a `debt` event (metadata.action == branch_force_dropped)
+    when a re-spawn force-drops an unmerged branch, and a `status` event carrying
+    metadata.resolves clears it once the branch is re-created. This reads the pair
+    back: the latest matching debt whose id is NOT in resolved_debt_ids.
+
+    Matching is exact on `metadata.branch == branch` (a drop of a DIFFERENT branch
+    must not match) and, when the record names a story, on story_id (a record with
+    no story_id matches any).
+
+    Degrades QUIET on an unreadable event log. This check is ADDITIVE over the
+    keystone, and branch-absent is the NORMAL close path, so bricking every honest
+    close on a corrupt log would be worse than missing this defensive signal. The
+    sprint/base/git reads in `merged_block` STAY fail-closed; only this
+    annotation-only read degrades quiet.
+    """
+    try:
+        events, resolutions = _common.load_events_with_resolutions(smm_dir)
+    except Exception:
+        return None
+    resolved = resolutions.get("resolved_debt_ids", set())
+    latest: dict | None = None
+    for event in events:
+        if event.get("type") != _common.DEBT:
+            continue
+        metadata = event.get("metadata") or {}
+        if metadata.get("action") != _FORCE_DROP_ACTION:
+            continue
+        if metadata.get("branch") != branch:
+            continue
+        recorded_story = metadata.get("story_id") or ""
+        if recorded_story and recorded_story != story_id:
+            continue
+        if event.get("id") in resolved:
+            continue
+        latest = event
+    return latest
+
 
 # The one crack in "absence implies merged": spawn_teammate's re-spawn cleanup is
 # the sole `remove_worktree(force_branch=True)`. That path now proves the merge first
@@ -174,6 +225,20 @@ def merged_block(smm_dir: Path, cwd: str, story_id: str) -> str | None:
         # merged (it does NOT delegate that to `git branch -d`, which deletes a
         # merely-pushed branch), so absence IS the proof. This is also the normal
         # close path: the merge deletes the story branch, mark-done runs afterwards.
+        #
+        # The ONE exception: `spawn_teammate`'s re-spawn cleanup force-drops a
+        # genuinely-unmerged branch (`-D`), leaving it absent WITHOUT a merge. That
+        # path records a force-drop; consult it here. A live (unsuperseded) drop of
+        # THIS branch means the absence is abandonment, not a merge -> BLOCK. A
+        # merged-then-deleted branch has no such record, so it still ALLOWS.
+        if _live_force_drop(smm_dir, branch, story_id) is not None:
+            return (
+                f"{branch} was force-dropped while unmerged during a re-spawn and "
+                f"never re-created or merged -- the work was abandoned, not shipped. "
+                f"Marking this story done would record work that did not land. If it "
+                f"truly is complete, say so on the record: "
+                f'update-story {story_id} done --force-unmerged "<reason>".'
+            )
         return None
 
     # The branch is still here, so it must be an ancestor of the base it merges into.

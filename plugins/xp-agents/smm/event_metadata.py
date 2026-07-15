@@ -27,6 +27,14 @@ event_schema — so this module has no circular-import risk with it.
 STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
+# Debt-event metadata.action discriminator. The producer is spawn_teammate's
+# re-spawn cleanup, which writes a `debt` event with this action when it
+# force-drops (`git branch -D`) a genuinely-unmerged branch. The consumer is
+# story_done_gate._live_force_drop, which reads it to keep the mark-done gate
+# BLOCKING on an absent-but-abandoned branch. A single shared constant so the
+# two legs cannot drift into an action-tag asymmetry that fails the gate OPEN.
+DEBT_ACTION_BRANCH_FORCE_DROPPED = "branch_force_dropped"
+
 # Review-cycle lifecycle actions — vocabulary for the deterministic-event
 # doctrine. The sole producer is review_cycle_done.py, which
 # sets metadata.action to one of these values so consumers (retro_metrics,

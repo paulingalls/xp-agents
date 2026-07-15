@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Tests for spawn_teammate.py — CLI teammate launcher.
 
-Covers: build_command flag shape, --name pass-through, worktree cleanup,
-story-assignment env wiring, mechanical promote on clean exit, and the
-no-sys.path.insert guard. CLI argument plumbing (--story-id / --branch /
---model / --plugin-dir parse_args + flow-through) lives in
-test_spawn_teammate_args.py; prompt + stdout pipeline tests live in
-test_spawn_teammate_pipeline.py; liveness watchdog tests live in
-test_spawn_teammate_watchdog.py; the in-place marker lifecycle lives in
-test_spawn_teammate_markers.py.
+Covers: --name pass-through, worktree cleanup, story-assignment env wiring, the
+force-drop record + re-spawn supersede (story-003), and the no-sys.path.insert
+guard. build_command's flag-shape suite lives in test_teammate_command.py
+(co-located with build_command after its move to teammate_command.py); the
+mechanical promote-on-clean-exit suite lives in test_spawn_teammate_promote.py;
+CLI argument plumbing (--story-id / --branch / --model / --plugin-dir parse_args
++ flow-through) lives in test_spawn_teammate_args.py; prompt + stdout pipeline
+tests live in test_spawn_teammate_pipeline.py; the in-place marker lifecycle
+lives in test_spawn_teammate_markers.py.
 """
 
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -20,95 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
+import event_schema
 from conftest import _IntegrationTestCase, _SMMTestCase
-
-
-class TestBuildCommand(unittest.TestCase):
-    """build_command constructs correct claude -p arguments."""
-
-    def test_basic_command_flags(self):
-        """Command includes --name, --dangerously-skip-permissions, --output-format."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1")
-        self.assertIn("claude", cmd[0])
-        self.assertIn("-p", cmd)
-        self.assertIn("--name", cmd)
-        idx = cmd.index("--name")
-        self.assertEqual(cmd[idx + 1], "teammate-step-1")
-        self.assertIn("--dangerously-skip-permissions", cmd)
-        self.assertIn("--output-format", cmd)
-        idx = cmd.index("--output-format")
-        self.assertEqual(cmd[idx + 1], "stream-json")
-        self.assertIn("--verbose", cmd)
-
-    def test_includes_allowed_tools(self):
-        """Command includes --allowedTools with expected tools."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1")
-        self.assertIn("--allowedTools", cmd)
-        idx = cmd.index("--allowedTools")
-        tools = cmd[idx + 1]
-        for tool in ("Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"):
-            self.assertIn(tool, tools)
-
-    def test_omits_plugin_dir_when_not_provided(self):
-        """No --plugin-dir when none is passed."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1")
-        self.assertNotIn("--plugin-dir", cmd)
-
-    def test_includes_plugin_dir_when_provided(self):
-        """--plugin-dir <path> is appended when given, so the headless
-        teammate session loads the xp-agents plugin (and its skills, agents,
-        and hooks). Without it the worktree session loads none of them —
-        project-scoped marketplace enablement is not applied there."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(
-            name="teammate-step-1", plugin_dir="/plugins/xp-agents"
-        )
-        self.assertIn("--plugin-dir", cmd)
-        idx = cmd.index("--plugin-dir")
-        self.assertEqual(cmd[idx + 1], "/plugins/xp-agents")
-
-    def test_no_input_file_flag(self):
-        """Command does not include --input-file (prompt piped via stdin)."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1")
-        self.assertNotIn("--input-file", cmd)
-
-    def test_includes_partial_messages_flag(self):
-        """--include-partial-messages enables per-token streaming so the
-        liveness watchdog sees mtime ticks during real model output;
-        without it, only block-completion events fire (1-4 lines per
-        message) and legitimate text/tool_use generation looks identical
-        to a hang."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1")
-        self.assertIn("--include-partial-messages", cmd)
-
-    def test_omits_model_flag_when_not_provided(self):
-        """No --model flag when model is None — teammate inherits the
-        claude -p default model."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1")
-        self.assertNotIn("--model", cmd)
-
-    def test_includes_model_flag_when_provided(self):
-        """--model <name> is appended when a model is passed, so a delegated
-        teammate can run on a chosen tier (e.g. sonnet)."""
-        import spawn_teammate
-
-        cmd = spawn_teammate.build_command(name="teammate-step-1", model="sonnet")
-        self.assertIn("--model", cmd)
-        idx = cmd.index("--model")
-        self.assertEqual(cmd[idx + 1], "sonnet")
 
 
 class TestStoryAssignmentFile(_IntegrationTestCase):
@@ -233,7 +150,7 @@ class TestNamePassThrough(unittest.TestCase):
 
         captured_name = {}
 
-        def capture_create(name, cwd, *, branch=None):
+        def capture_create(name, cwd, *, branch=None, smm_dir=None, story_id=None):
             captured_name["value"] = name
             return "/tmp/wt"
 
@@ -261,182 +178,6 @@ class TestNamePassThrough(unittest.TestCase):
             self.assertEqual(captured_name["value"], "worktree-story-001")
         finally:
             Path(prompt_path).unlink(missing_ok=True)
-
-
-class TestMechanicalPromote(_SMMTestCase):
-    """Story-004: spawn_teammate.main() promotes the story to `reviewing`
-    after a clean teammate exit (rc=0). On rc!=0 the teammate stays
-    `in-progress` for debug. The promote is mechanical — no LLM
-    judgment, no prompt-template instruction; the wrapper does it.
-
-    Story-002 (sprint-068): the get_story → update_story_status pair
-    was replaced with a single atomic update_story_status_if CAS —
-    these tests assert against the CAS callsite, not the legacy pair.
-    """
-
-    def _make_prompt_file(self, story_id: str | None):
-        """A prompt naming *story_id* — spawn refuses one that does not name the
-        story it is spawning (story-014: prompt files outlive their story and
-        story ids repeat every sprint), so a bare "body" never reaches the
-        promote this class is about."""
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".prompt.txt", delete=False
-        ) as f:
-            f.write(f"body for {story_id}" if story_id else "ad-hoc body")
-            return f.name
-
-    def _run_promote(
-        self,
-        *,
-        story_id: str | None = "story-001",
-        cas_return: bool = True,
-        run_with_tee_side_effect=None,
-        run_with_tee_return: bool = False,
-        report_exists: bool = False,
-    ) -> list[tuple[str, str, str, str]]:
-        """Run spawn_teammate.main with stubbed worktree+subprocess+sprint
-        and return the captured update_story_status_if calls as
-        (smm_dir, story_id, expected, new) tuples.
-
-        story_id=None omits --story-id (ad-hoc teammate).
-        cas_return controls what the patched CAS returns (True=updated,
-        False=expected mismatch — actual already advanced past expected).
-        run_with_tee_side_effect raises if you want rc!=0 simulation.
-        run_with_tee_return is run_with_tee's stdout_broken flag (True means
-        the downstream stdout pipe broke).
-        report_exists pre-writes the teammate report file so a broken stdout is
-        recognised as a benign late pipe-close (the filter wrote its report
-        before exiting) rather than a filter that died before finishing.
-
-        Also records self._prompt_existed_after: whether main() left the prompt
-        file on disk (the in-progress ⇒ prompt-preserved-for-re-spawn invariant).
-        """
-        from unittest.mock import patch
-
-        import spawn_teammate
-        import worktree
-
-        prompt_path = self._make_prompt_file(story_id)
-        captured_calls: list[tuple[str, str, str, str]] = []
-        name = "worktree-story-001" if story_id else "worktree-foo"
-
-        if report_exists:
-            worktree.teammate_report_path(self.smm_dir, name).write_text("done")
-
-        def fake_cas(smm_dir, sid, *, expected, new):
-            captured_calls.append((str(smm_dir), sid, expected, new))
-            return cas_return
-
-        argv = [
-            "--name",
-            name,
-            "--smm-dir",
-            str(self.smm_dir),
-            "--prompt-file",
-            prompt_path,
-        ]
-        if story_id is not None:
-            argv += ["--story-id", story_id]
-
-        try:
-            with (
-                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(
-                    spawn_teammate,
-                    "run_with_tee",
-                    side_effect=run_with_tee_side_effect,
-                    return_value=run_with_tee_return,
-                ),
-                patch.object(
-                    spawn_teammate.sprint_store,
-                    "update_story_status_if",
-                    side_effect=fake_cas,
-                ),
-            ):
-                spawn_teammate.main(argv)
-            self._prompt_existed_after = Path(prompt_path).exists()
-        finally:
-            Path(prompt_path).unlink(missing_ok=True)
-
-        return captured_calls
-
-    def test_promotes_to_reviewing_on_rc_0(self):
-        """Successful teammate (rc=0) triggers a single CAS in-progress→reviewing."""
-        captured = self._run_promote()
-        self.assertEqual(
-            captured,
-            [(str(self.smm_dir), "story-001", "in-progress", "reviewing")],
-            f"expected single CAS call (in-progress→reviewing), got: {captured!r}",
-        )
-
-    def test_cas_returns_false_does_not_raise(self):
-        """When the CAS sees actual!=expected (concurrent advance to
-        done/deferred), spawn_teammate accepts the no-op silently — the
-        caller's job was 'try to promote', not 'demand promotion'.
-        Pins close-reviewer concern 3ba0b6237c65 end-to-end."""
-        captured = self._run_promote(cas_return=False)
-        self.assertEqual(
-            captured,
-            [(str(self.smm_dir), "story-001", "in-progress", "reviewing")],
-            "CAS must still be invoked even when it returns False",
-        )
-
-    def test_does_not_promote_on_rc_nonzero(self):
-        """Failed teammate (rc!=0) leaves story in-progress for debug —
-        the CAS is never invoked because the exception propagates first."""
-        with self.assertRaises(subprocess.CalledProcessError):
-            self._run_promote(
-                run_with_tee_side_effect=subprocess.CalledProcessError(2, ["fake"])
-            )
-
-    def test_does_not_promote_when_filter_died_before_report(self):
-        """Filter death with NO report (stdout_broken=True, report absent) leaves
-        the story in-progress: the filter that owns report/completion/
-        coordination-clear never finished, so a promote to reviewing would hand
-        the lead an unwritten report over stale state. The prompt is preserved
-        for re-spawn."""
-        captured = self._run_promote(run_with_tee_return=True, report_exists=False)
-        self.assertEqual(
-            captured,
-            [],
-            f"CAS must be skipped when the filter died pre-report, got: {captured!r}",
-        )
-        self.assertTrue(
-            self._prompt_existed_after,
-            "prompt must be preserved for re-spawn when the story stays in-progress",
-        )
-
-    def test_promotes_when_stdout_broke_but_report_written(self):
-        """A stdout break AFTER the report was written is a benign late
-        pipe-close (the filter writes its report, then exits and closes the
-        pipe ~0.1s later). The run succeeded, so it must promote — and unlink
-        the now-consumed prompt."""
-        captured = self._run_promote(run_with_tee_return=True, report_exists=True)
-        self.assertEqual(
-            captured,
-            [(str(self.smm_dir), "story-001", "in-progress", "reviewing")],
-            f"a late pipe-close after a written report must promote, got: {captured!r}",
-        )
-        self.assertFalse(
-            self._prompt_existed_after,
-            "prompt must be unlinked when we promote (run succeeded)",
-        )
-
-    def test_unlinks_prompt_on_clean_promote(self):
-        """A clean run (no stdout break) unlinks the consumed prompt file."""
-        self._run_promote()
-        self.assertFalse(
-            self._prompt_existed_after,
-            "prompt must be unlinked after a clean promote",
-        )
-
-    def test_does_not_promote_when_story_id_absent(self):
-        """No --story-id → no CAS attempted (ad-hoc teammates without
-        sprint context just exit cleanly)."""
-        captured = self._run_promote(story_id=None)
-        self.assertEqual(captured, [], f"unexpected CAS without story-id: {captured!r}")
 
 
 class TestNoSysPathInsert(unittest.TestCase):
@@ -482,6 +223,271 @@ class TestNoSysPathInsert(unittest.TestCase):
             f"spawn_teammate.py --help failed (likely an import error):\n"
             f"--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}",
         )
+
+
+class TestForceDropRecording(_SMMTestCase):
+    """story-003: a re-spawn that force-drops a genuinely-unmerged branch must
+    RECORD the drop (a `debt` event), so the mark-done gate can tell an
+    abandoned branch (force-dropped) apart from a shipped one (merged, then
+    deleted). A successful re-create then SUPERSEDES the record (a `status`
+    event carrying metadata.resolves), so the drop no longer signals abandonment.
+
+    Real-git fixtures (like test_worktree_removal.TestRemoveWorktree): the
+    force-drop path is git plumbing, not mockable branch state.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import worktree
+        from _branching_fixtures import init_repo
+
+        worktree._clear_git_root_cache()
+        self.repo = Path(tempfile.mkdtemp())
+        init_repo(str(self.repo))
+        self.addCleanup(self._cleanup_repo)
+
+    def _cleanup_repo(self):
+        import shutil
+
+        import worktree
+        from conftest import cleanup_test_worktrees
+
+        cleanup_test_worktrees(self.repo)
+        shutil.rmtree(self.repo, ignore_errors=True)
+        worktree._clear_git_root_cache()
+
+    # -- fixture helpers ---------------------------------------------------
+
+    def _add_worktree(self, name: str, branch: str | None = None) -> Path:
+        """Add a worktree on a NEW branch (branch defaults to the worktree name,
+        the same-name shape spawn's no-branch arm owns)."""
+        branch = branch or name
+        wt_path = self.repo / ".claude" / "worktrees" / name
+        wt_path.parent.mkdir(parents=True, exist_ok=True)
+        # fmt: off
+        add = [
+            "git", "-C", str(self.repo), "worktree", "add", "-b", branch, str(wt_path),
+        ]
+        # fmt: on
+        result = subprocess.run(add, capture_output=True, text=True)
+        if result.returncode != 0:
+            self.skipTest(f"git worktree add failed: {result.stderr}")
+        return wt_path
+
+    def _commit_in(self, path: Path, filename: str, message: str) -> str:
+        (path / filename).write_text(message)
+        subprocess.run(["git", "add", filename], cwd=str(path), capture_output=True)
+        env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test User",
+            "GIT_AUTHOR_EMAIL": "test@test.com",
+            "GIT_COMMITTER_NAME": "Test User",
+            "GIT_COMMITTER_EMAIL": "test@test.com",
+        }
+        subprocess.run(
+            ["git", "commit", "-m", message],
+            cwd=str(path),
+            capture_output=True,
+            env=env,
+        )
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(path),
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def _merge_into_main(self, branch: str) -> None:
+        subprocess.run(
+            ["git", "merge", "--no-ff", branch, "-m", f"merge {branch}"],
+            cwd=str(self.repo),
+            capture_output=True,
+        )
+
+    def _force_drops(self, events: list[dict]) -> list[dict]:
+        return [
+            e
+            for e in events
+            if e.get("type") == _common.DEBT
+            and (e.get("metadata") or {}).get("action")
+            == event_schema.DEBT_ACTION_BRANCH_FORCE_DROPPED
+        ]
+
+    def _respawns(self, events: list[dict]) -> list[dict]:
+        import spawn_teammate
+
+        return [
+            e
+            for e in events
+            if (e.get("metadata") or {}).get("action") == spawn_teammate._RESPAWN_ACTION
+        ]
+
+    # -- tests -------------------------------------------------------------
+
+    def test_force_drop_writes_debt_record(self):
+        """AC1: force-dropping an unmerged owns_branch worktree writes exactly one
+        force-drop debt record naming the branch, a non-empty tip sha, and the
+        story; the branch is gone."""
+        import spawn_teammate
+        import worktree
+
+        wt = self._add_worktree("worktree-story-003")
+        self._commit_in(wt, "f.txt", "unmerged work")
+
+        removal, drop_id = spawn_teammate.cleanup_existing(
+            "worktree-story-003",
+            str(self.repo),
+            owns_branch=True,
+            smm_dir=self.smm_dir,
+            story_id="story-003",
+        )
+
+        self.assertEqual(removal, worktree.BranchRemoval.FORCE_DROPPED_UNMERGED)
+        self.assertIsNotNone(drop_id)
+        events, _ = _common.load_events_with_resolutions(self.smm_dir)
+        drops = self._force_drops(events)
+        self.assertEqual(len(drops), 1)
+        md = drops[0]["metadata"]
+        self.assertEqual(md["branch"], "worktree-story-003")
+        self.assertTrue(md["dropped_sha"], "dropped_sha must be captured")
+        self.assertEqual(md["story_id"], "story-003")
+        self.assertEqual(drops[0]["id"], drop_id)
+        self.assertNotEqual(
+            0,
+            subprocess.run(
+                ["git", "rev-parse", "--verify", "worktree-story-003"],
+                cwd=str(self.repo),
+                capture_output=True,
+            ).returncode,
+        )
+
+    def test_branch_and_sha_captured_before_removal(self):
+        """The record's branch is the HEAD-derived ref (NOT the worktree dir name
+        when they diverge) and dropped_sha is the pre-drop tip — both peeked before
+        the directory (and its HEAD) vanish."""
+        import spawn_teammate
+
+        wt = self._add_worktree(
+            "worktree-story-003", branch="paulingalls/story-003-slug"
+        )
+        sha = self._commit_in(wt, "f.txt", "unmerged work")
+
+        _removal, _drop_id = spawn_teammate.cleanup_existing(
+            "worktree-story-003",
+            str(self.repo),
+            owns_branch=True,
+            smm_dir=self.smm_dir,
+            story_id="story-003",
+        )
+
+        events, _ = _common.load_events_with_resolutions(self.smm_dir)
+        md = self._force_drops(events)[0]["metadata"]
+        self.assertEqual(md["branch"], "paulingalls/story-003-slug")
+        self.assertEqual(md["dropped_sha"], sha)
+
+    def test_merged_delete_writes_no_record(self):
+        """AC3: a merged stale branch is DELETED_MERGED (proved, not forced), so no
+        force-drop record is written."""
+        import spawn_teammate
+        import worktree
+
+        wt = self._add_worktree("worktree-story-003")
+        self._commit_in(wt, "f.txt", "work")
+        self._merge_into_main("worktree-story-003")
+
+        removal, drop_id = spawn_teammate.cleanup_existing(
+            "worktree-story-003",
+            str(self.repo),
+            owns_branch=True,
+            smm_dir=self.smm_dir,
+            story_id="story-003",
+        )
+
+        self.assertEqual(removal, worktree.BranchRemoval.DELETED_MERGED)
+        self.assertIsNone(drop_id)
+        events, _ = _common.load_events_with_resolutions(self.smm_dir)
+        self.assertEqual(self._force_drops(events), [])
+
+    def test_no_smm_dir_records_nothing(self):
+        """Back-compat: cleanup_existing without smm_dir still force-drops, it just
+        records nothing (existing callers pass no smm_dir)."""
+        import spawn_teammate
+        import worktree
+
+        wt = self._add_worktree("worktree-story-003")
+        self._commit_in(wt, "f.txt", "unmerged work")
+
+        removal, drop_id = spawn_teammate.cleanup_existing(
+            "worktree-story-003", str(self.repo), owns_branch=True
+        )
+
+        self.assertEqual(removal, worktree.BranchRemoval.FORCE_DROPPED_UNMERGED)
+        self.assertIsNone(drop_id)
+        events, _ = _common.load_events_with_resolutions(self.smm_dir)
+        self.assertEqual(self._force_drops(events), [])
+
+    def test_successful_respawn_supersedes(self):
+        """AC (permanent-block guard): create_worktree(branch=None) over a stale
+        unmerged worktree drops it (R) then, once the re-add succeeds, supersedes it
+        (S with resolves=[R.id]) — so R.id lands in resolved_debt_ids."""
+        import spawn_teammate
+
+        wt = self._add_worktree("worktree-story-003")
+        self._commit_in(wt, "f.txt", "unmerged work")
+
+        spawn_teammate.create_worktree(
+            "worktree-story-003",
+            str(self.repo),
+            branch=None,
+            smm_dir=self.smm_dir,
+            story_id="story-003",
+        )
+
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        drops = self._force_drops(events)
+        respawns = self._respawns(events)
+        self.assertEqual(len(drops), 1)
+        self.assertEqual(len(respawns), 1)
+        drop_id = drops[0]["id"]
+        self.assertEqual(respawns[0]["metadata"]["resolves"], [drop_id])
+        self.assertIn(drop_id, resolutions["resolved_debt_ids"])
+
+    def test_recreate_failure_leaves_record_live(self):
+        """A re-add that fails AFTER the drop leaves R live (no S) — dropped +
+        re-create-failed = abandoned, so the gate keeps blocking."""
+        from unittest.mock import patch
+
+        import spawn_teammate
+
+        wt = self._add_worktree("worktree-story-003")
+        self._commit_in(wt, "f.txt", "unmerged work")
+
+        real_run = subprocess.run
+
+        def fail_worktree_add(cmd, **kwargs):
+            if list(cmd[:3]) == ["git", "worktree", "add"]:
+                raise subprocess.CalledProcessError(1, cmd)
+            return real_run(cmd, **kwargs)
+
+        with (
+            patch.object(
+                spawn_teammate.subprocess, "run", side_effect=fail_worktree_add
+            ),
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            spawn_teammate.create_worktree(
+                "worktree-story-003",
+                str(self.repo),
+                branch=None,
+                smm_dir=self.smm_dir,
+                story_id="story-003",
+            )
+
+        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
+        drops = self._force_drops(events)
+        self.assertEqual(len(drops), 1)
+        self.assertEqual(self._respawns(events), [])
+        self.assertNotIn(drops[0]["id"], resolutions["resolved_debt_ids"])
 
 
 if __name__ == "__main__":
