@@ -76,7 +76,7 @@ class TestVerifyMerged(_IntegrationTestCase):
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
-        self.assertTrue(cleanup_teammate.verify_merged(name, str(self.tmpdir)))
+        self.assertTrue(cleanup_teammate.verify_merged(name, str(self.tmpdir), "HEAD"))
 
     def test_returns_false_when_not_merged(self):
         """Branch with unmerged commits returns False."""
@@ -85,14 +85,14 @@ class TestVerifyMerged(_IntegrationTestCase):
         name = "worktree-story-002"
         _create_teammate_worktree(self.tmpdir, name)
 
-        self.assertFalse(cleanup_teammate.verify_merged(name, str(self.tmpdir)))
+        self.assertFalse(cleanup_teammate.verify_merged(name, str(self.tmpdir), "HEAD"))
 
     def test_returns_false_for_nonexistent_branch(self):
         """Non-existent branch returns False."""
         import cleanup_teammate
 
         self.assertFalse(
-            cleanup_teammate.verify_merged("teammate-ghost", str(self.tmpdir))
+            cleanup_teammate.verify_merged("teammate-ghost", str(self.tmpdir), "HEAD")
         )
 
     def tearDown(self):
@@ -229,7 +229,7 @@ class TestCleanup(_IntegrationTestCase):
         wt_path = _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
-        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
 
         self.assertFalse(
             Path(wt_path).is_dir(),
@@ -267,7 +267,7 @@ class TestCleanup(_IntegrationTestCase):
         )
         self.assertTrue(tdd_path.exists())
 
-        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
 
         rc_path = markers.marker_path(self.smm_dir, markers.REVIEW_CYCLE, name)
         self.assertFalse(rc_path.exists(), "Review cycle marker gone")
@@ -285,7 +285,7 @@ class TestCleanup(_IntegrationTestCase):
         report.write_text("Teammate report content")
         self.assertTrue(report.exists())
 
-        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
 
         self.assertFalse(report.exists(), "Report file should be removed")
 
@@ -306,7 +306,7 @@ class TestCleanup(_IntegrationTestCase):
         report.write_text("leftover report")
 
         # Should not raise — cleans up what it can
-        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
 
         self.assertFalse(report.exists())
 
@@ -323,7 +323,7 @@ class TestCleanup(_IntegrationTestCase):
         assignment.write_text("story-001")
         self.assertTrue(assignment.exists())
 
-        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
 
         self.assertFalse(assignment.exists(), "Story assignment file should be removed")
 
@@ -335,7 +335,7 @@ class TestCleanup(_IntegrationTestCase):
         _create_teammate_worktree(self.tmpdir, name)
         _merge_branch(self.tmpdir, name)
 
-        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir)
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
 
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)
