@@ -139,7 +139,7 @@ class TestBudgetEnforceFlag(unittest.TestCase):
                 _make_milestone(
                     goal="x" * 300,
                     done="x" * 500,
-                    design_details="x" * 700,
+                    design_details="x" * 801,
                     constraints=["x" * 200],
                     change_zones=[{"path": "f.py", "note": "x" * 200}],
                 )
@@ -180,11 +180,11 @@ class TestLoadPlanGrandfathersBudget(unittest.TestCase):
 
         import execution_plan_store as store
 
-        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 700)])
+        plan = _make_plan(milestones=[_make_milestone(design_details="x" * 801)])
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
         loaded = store.load_plan(self.smm_dir)
         assert loaded is not None
-        self.assertEqual(len(loaded["milestones"][0]["design_details"]), 700)
+        self.assertEqual(len(loaded["milestones"][0]["design_details"]), 801)
 
     def test_save_over_budget_plan_rejected(self):
         import execution_plan_store as store
@@ -205,7 +205,7 @@ class TestStatusUpdateGrandfathersBudget(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.smm_dir = Path(self._tmp.name)
         plan = _make_plan(
-            milestones=[_make_milestone(design_details="x" * 700, status="planned")]
+            milestones=[_make_milestone(design_details="x" * 801, status="planned")]
         )
         (self.smm_dir / "execution_plan.json").write_text(json.dumps(plan))
 
