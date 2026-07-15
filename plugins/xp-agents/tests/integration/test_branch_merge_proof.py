@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Capstone: absence-proves-merge composes across every delete path.
+"""Capstone: absence-proves-merge composes across the branch-delete paths.
 
-Milestone 1 unified branch-delete proof across three stories:
+Milestone 1 unified branch-delete proof across two shipped stories:
 - story-001: worktree.remove_worktree routes branch deletion through
-  branch_lifecycle.delete_branch (NO_BRANCH / DELETED_MERGED /
-  REFUSED_UNMERGED / FORCE_DROPPED_UNMERGED).
+  branch_lifecycle.delete_branch and reports the outcome via BranchRemoval
+  (NO_BRANCH / DELETED_MERGED / REFUSED_UNMERGED / FORCE_DROPPED_UNMERGED).
 - story-002: cleanup_teammate proves the merge against the recorded story
   base, not HEAD.
-- story-003: a force-drop during re-spawn records a `branch_force_dropped`
-  debt event; story_done_gate.merged_block reads it to tell an abandoned
-  branch apart from a merged-then-deleted one.
 
-Each story has unit tests. Nothing yet proved they COMPOSE end to end,
-through real git and the real gate, on one shared SMM — that's this file.
-Test-only: a broken seam here means STOP and surface it, not a production
-patch.
+Each story has unit tests. This file proves they COMPOSE end to end, through
+real git and the real story_done_gate.merged_block keystone on one shared SMM:
+a merged branch's absence allows mark-done; an unmerged branch is refused (kept)
+and the gate still blocks. Test-only: a broken seam here means STOP and surface
+it, not a production patch.
 """
 
 import json
@@ -27,8 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import _common
-import event_schema
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 # Mirrors _create_teammate_worktree / _write_sprint_with_branch from
@@ -203,52 +199,7 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
         reason = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_id)
         self.assertIsNotNone(reason, "a present, unmerged branch must still block done")
 
-    # -- 3. force-dropped unmerged -> gate blocks as abandoned ------------
-
-    def test_force_dropped_unmerged_then_gate_blocks_abandoned(self):
-        import spawn_teammate
-        import story_done_gate
-        import worktree
-
-        base = "storybase-703"
-        branch = "paulingalls/story-703-thing"
-        wt_name = "worktree-story-703"
-        story_id = "story-703"
-
-        self._create_branch(base)
-        self._create_worktree_tracked(wt_name, branch=branch)
-
-        removal, drop_id = spawn_teammate.cleanup_existing(
-            wt_name,
-            str(self.tmpdir),
-            owns_branch=True,
-            smm_dir=self.smm_dir,
-            story_id=story_id,
-        )
-        self.assertEqual(removal, worktree.BranchRemoval.FORCE_DROPPED_UNMERGED)
-        self.assertIsNotNone(drop_id)
-        self.assertFalse(self._branch_exists(branch))
-
-        events, _ = _common.load_events_with_resolutions(self.smm_dir)
-        drops = [
-            e
-            for e in events
-            if e.get("type") == _common.DEBT
-            and (e.get("metadata") or {}).get("action")
-            == event_schema.DEBT_ACTION_BRANCH_FORCE_DROPPED
-            and (e.get("metadata") or {}).get("branch") == branch
-        ]
-        self.assertEqual(len(drops), 1, "cleanup_existing must record exactly one drop")
-
-        _write_sprint_with_stories(self.smm_dir, base, [_story(story_id, branch)])
-
-        reason = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_id)
-        reason = self._assert_not_none(
-            reason, "a force-dropped-unmerged branch must block as abandoned"
-        )
-        self.assertIn("--force-unmerged", reason)
-
-    # -- 4. cleanup_teammate proves against the recorded base, not HEAD ---
+    # -- 3. cleanup_teammate proves against the recorded base, not HEAD ---
 
     def test_cleanup_teammate_merged_to_base_not_head_allows(self):
         import cleanup_teammate
@@ -296,60 +247,9 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
             reason, "merged-to-recorded-base must allow done even past HEAD"
         )
 
-    # -- 5. force-drop then successful re-create -> permanent-block guard --
+    # -- 4. E2E: two stories, one SMM, discriminated per-branch -----------
 
-    def test_reworked_after_force_drop_allows_done(self):
-        import spawn_teammate
-        import story_done_gate
-
-        # Dir name == branch name: the owns-branch (`branch=None`) convention
-        # create_worktree re-cuts under, so the re-created branch matches the
-        # one force-dropped.
-        name = "worktree-story-705"
-        story_id = "story-705"
-
-        self._create_worktree_tracked(name)
-
-        # One call: cleanup_existing (inside create_worktree) force-drops the
-        # stale unmerged branch (writes R), then the re-add succeeds and
-        # records the supersede (S resolving R).
-        spawn_teammate.create_worktree(
-            name,
-            str(self.tmpdir),
-            branch=None,
-            smm_dir=self.smm_dir,
-            story_id=story_id,
-        )
-
-        events, resolutions = _common.load_events_with_resolutions(self.smm_dir)
-        drops = [
-            e
-            for e in events
-            if e.get("type") == _common.DEBT
-            and (e.get("metadata") or {}).get("action")
-            == event_schema.DEBT_ACTION_BRANCH_FORCE_DROPPED
-        ]
-        self.assertEqual(len(drops), 1)
-        self.assertIn(
-            drops[0]["id"],
-            resolutions["resolved_debt_ids"],
-            "the re-create must supersede the force-drop record",
-        )
-
-        # `main` is both the recorded base and the branch the re-created
-        # worktree forked from with no new commits, so it trivially reads as
-        # merged into it.
-        _write_sprint_with_stories(self.smm_dir, "main", [_story(story_id, name)])
-
-        reason = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_id)
-        self.assertIsNone(
-            reason, "a reworked-and-recreated branch must not stay permanently blocked"
-        )
-
-    # -- 6. E2E: two stories, one SMM, discriminated per-branch -----------
-
-    def test_two_stories_one_smm_merged_and_abandoned_compose(self):
-        import spawn_teammate
+    def test_two_stories_one_smm_merged_and_unmerged_compose(self):
         import story_done_gate
         import worktree
 
@@ -363,21 +263,17 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
 
         self._create_branch(base)
 
+        # story-A: merged into the base, then deleted -> absence proves merge.
         self._create_worktree_tracked(wt_a, branch=branch_a)
         _merge_into(self.tmpdir, branch_a, base)
         result_a = worktree.remove_worktree(wt_a, str(self.tmpdir), merge_target=base)
         self.assertEqual(result_a, worktree.BranchRemoval.DELETED_MERGED)
 
+        # story-B: never merged; remove_worktree refuses to drop it (kept).
         self._create_worktree_tracked(wt_b, branch=branch_b)
-        removal_b, drop_id_b = spawn_teammate.cleanup_existing(
-            wt_b,
-            str(self.tmpdir),
-            owns_branch=True,
-            smm_dir=self.smm_dir,
-            story_id=story_b,
-        )
-        self.assertEqual(removal_b, worktree.BranchRemoval.FORCE_DROPPED_UNMERGED)
-        self.assertIsNotNone(drop_id_b)
+        result_b = worktree.remove_worktree(wt_b, str(self.tmpdir), merge_target=base)
+        self.assertEqual(result_b, worktree.BranchRemoval.REFUSED_UNMERGED)
+        self.assertTrue(self._branch_exists(branch_b), "unmerged branch must survive")
 
         _write_sprint_with_stories(
             self.smm_dir, base, [_story(story_a, branch_a), _story(story_b, branch_b)]
@@ -387,7 +283,7 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
         reason_b = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_b)
         self.assertIsNone(reason_a, "the merged-and-deleted story must allow done")
         self.assertIsNotNone(
-            reason_b, "the abandoned (force-dropped) story must still block done"
+            reason_b, "the unmerged (present, un-ancestor) story must still block done"
         )
 
 

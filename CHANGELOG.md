@@ -6,9 +6,8 @@ History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
 First milestone of a new backlog-paydown plan (M6): **a deleted branch now honestly
 implies it was merged.** The mark-done gate reads branch *absence* as proof a story's
-merge landed — a premise that had cracks. Every branch-delete path now proves the merge,
-and the one path that can still drop unmerged work records it so the gate can tell an
-abandoned branch from a merged one.
+merge landed — a premise that had cracks. Every branch-delete path now proves the merge
+against the recorded story base before deleting.
 
 **One base-proving delete primitive.** `worktree.remove_worktree` used a raw `git branch
 -d/-D` that trusted git's upstream-based check — so on any remote-backed repo it would
@@ -23,13 +22,12 @@ now proves against the recorded story base via `get_story_base_branch_required` 
 raises rather than silently degrading to primary), and refuses to delete on an unresolvable
 base.
 
-**Abandoned branches can't slip through as merged.** The sole remaining force-drop (a
-re-spawn's `-D` of a genuinely-unmerged branch) now writes an append-only `debt` record,
-superseded (via `metadata.resolves`) when the re-spawn re-creates the branch. The mark-done
-keystone consults it: a force-dropped-unmerged branch's absence BLOCKS as abandoned (with a
-`--force-unmerged` hatch), while a merged-then-deleted branch still allows — degrading quiet
-only on an unreadable event log. An integration capstone proves the three delete paths and
-the gate compose end-to-end on one shared model.
+**Proven end-to-end.** An integration capstone exercises the two delete paths and the
+mark-done keystone together on real git worktrees over one shared model: a merged branch's
+absence allows mark-done, and an unmerged branch is refused (kept) so the gate still blocks.
+(The remaining fail-open — a raw `git branch -d/-D` of an unmerged story branch typed
+straight into the shell — is scheduled for M2, guarded there by prevention at the command
+gate.)
 
 ## v4.10.0 — Planning artifacts keep their record
 
