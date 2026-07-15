@@ -41,6 +41,8 @@ import _branching_fixtures as _bf
 import markers
 from conftest import (
     _MARKERS_PY,
+    _PLUGIN_ROOT,
+    SPRINT_ALL_DONE,
     SPRINT_CLOSING_ONLY,
     _IntegrationTestCase,
     _make_skill_input,
@@ -209,6 +211,35 @@ class TestCloseGatesCompose(_IntegrationTestCase):
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
             self.assertIn("POST_PUSH_FIX", executed.stdout)
+
+
+class TestAcceptMarkerConsumedOnEmptyFrontier(_IntegrationTestCase):
+    """Defect A: the mark-done ACCEPT marker must be consumed on EVERY
+    /xp-accept run, including the empty-frontier NO_STORIES_TO_ACCEPT exit.
+
+    The marker means "run /xp-accept before mark-done" — running the skill AT
+    ALL is the required action. When a story is already merged and nothing is
+    left to accept, the preload takes its early exit; if it doesn't consume the
+    marker there, mark-done stays blocked forever (only a manual `rm` escapes).
+    """
+
+    _ACCEPT_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-accept" / "scripts" / "preload.sh"
+
+    def test_accept_marker_consumed_when_no_stories_to_accept(self):
+        # Story already merged: all stories done/deferred — empty accept frontier.
+        (self.smm_dir / "sprint.json").write_text(SPRINT_ALL_DONE)
+        markers.marker_write(self.smm_dir, markers.ACCEPT, "1")
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ACCEPT))
+
+        result = self._run_preload(self._ACCEPT_PRELOAD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("NO_STORIES_TO_ACCEPT", result.stdout)
+
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.ACCEPT),
+            "ACCEPT marker must be consumed on the empty-frontier exit so "
+            "mark-done is unblocked",
+        )
 
 
 if __name__ == "__main__":
