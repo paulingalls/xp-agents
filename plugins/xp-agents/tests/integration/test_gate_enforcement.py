@@ -19,12 +19,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import markers
 from conftest import (
     SPRINT_CLOSING_WITH_NEXT_SCHEDULED,
     SPRINT_COMPLETE_WITH_ID,
     SPRINT_IN_PROGRESS,
     SPRINT_SCHEDULED_ONLY,
     _IntegrationTestCase,
+    _make_skill_input,
     failing_tests_concern,
     passing_tests_status,
 )
@@ -277,6 +279,40 @@ class TestScheduleGateEnforcement(_IntegrationTestCase):
 
         plan_ok = self._run_script("pre_tool_plan_mode.py", self._plan_mode_input())
         self.assertEqual(plan_ok.returncode, 0, plan_ok.stderr)
+
+
+# ---------------------------------------------------------------------------
+# pre_tool_skill.py — PreToolUse:Skill hook (accept-evidence gate)
+# ---------------------------------------------------------------------------
+
+
+class TestStoryCloseAcceptEvidenceIntegration(_IntegrationTestCase):
+    """The __main__ dispatch refuses a lead's raw /xp-story-close (AC #6).
+
+    Proves the wiring the hook-level tests can't: stdin JSON parsing, the
+    teammate-gate-before-accept-gate ordering in __main__, decision-block
+    stdout format, and marker resolution from the resolved SMM dir.
+    """
+
+    _LEAD_CWD = "/home/user/project"
+
+    def _close_input(self) -> dict:
+        return _make_skill_input("xp-story-close", cwd=self._LEAD_CWD)
+
+    def test_direct_story_close_blocked_before_any_step(self):
+        """No ACCEPT_IN_FLIGHT marker -> __main__ emits a decision block."""
+        result = self._run_script("pre_tool_skill.py", self._close_input())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        parsed = json.loads(result.stdout)
+        self.assertEqual(parsed["decision"], "block")
+        self.assertIn("/xp-accept", parsed["reason"])
+
+    def test_story_close_allowed_with_accept_evidence(self):
+        """Marker armed (accept is driving the close) -> no block, empty stdout."""
+        markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
+        result = self._run_script("pre_tool_skill.py", self._close_input())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
 
 
 if __name__ == "__main__":

@@ -129,8 +129,9 @@ def accept_evidence_block_reason(
     live through the whole per-story close loop) is the evidence signal:
     present when /xp-accept is driving the close, absent when an agent
     invokes /xp-story-close directly. Teammates are handled by
-    ``teammate_block_reason`` earlier in ``run()`` — this gate targets the
-    lead invocation only. Degrades quiet (returns None) when the SMM
+    ``teammate_block_reason``, which ``__main__`` runs (and blocks on)
+    before reaching this gate — so this gate targets the lead invocation
+    only. Degrades quiet (returns None) when the SMM
     directory can't be resolved; a missing SMM must never block a
     legitimate close.
 

@@ -217,8 +217,13 @@ class TestAcceptEvidenceGate(_HookTestCase):
         )
         self.assertIsNone(reason)
 
-    def test_e2e_run_blocks_direct_story_close(self):
-        """E2E (AC #6): run() refuses a direct /xp-story-close before any close step."""
+    def test_lead_passes_teammate_gate_then_blocked_by_accept_gate(self):
+        """Composition (AC #3 precedence): a lead's direct /xp-story-close is
+        allowed by the teammate gate (not a teammate) but refused by the accept
+        gate (no evidence). Asserts the two helpers in isolation; the __main__
+        dispatch that chains them is proven end-to-end by the subprocess test in
+        tests/integration/test_gate_enforcement.py.
+        """
         block = pre_tool_skill.teammate_block_reason(
             _make_skill_input("xp-story-close", cwd=self._LEAD_CWD),
             smm_dir=self.smm_dir,
