@@ -301,6 +301,53 @@ class TestMainProvesAgainstStoryBase(_IntegrationTestCase):
         )
         self.assertIn(branch, result.stdout, "Branch must be kept")
 
+    def test_cleanup_fails_closed_on_oserror_base(self):
+        """An OSError from the base read (unreadable/symlinked sprint.json) fails
+        closed with rc 1 — not an uncaught traceback."""
+        from unittest.mock import patch
+
+        import cleanup_teammate
+
+        wt_name = "worktree-story-095"
+        branch = "paulingalls/story-095-oserror-base"
+        wt_path = _create_teammate_worktree(self.tmpdir, wt_name, branch=branch)
+        subprocess.run(
+            ["git", "merge", branch, "--no-ff", "-m", f"Merge {branch}"],
+            cwd=self.tmpdir,
+            capture_output=True,
+            check=True,
+        )
+        _write_sprint_with_branch(self.smm_dir, "storybase-095")
+
+        with patch.object(
+            cleanup_teammate.branch_resolution,
+            "get_story_base_branch_required",
+            side_effect=OSError("Sprint path is a symlink"),
+        ):
+            rc = cleanup_teammate.main(
+                [
+                    "--name",
+                    wt_name,
+                    "--smm-dir",
+                    str(self.smm_dir),
+                    "--cwd",
+                    str(self.tmpdir),
+                ]
+            )
+
+        self.assertEqual(rc, 1, "OSError on base read must fail closed (rc 1)")
+        self.assertTrue(Path(wt_path).is_dir(), "Worktree dir must be kept")
+        self.assertIn(
+            branch,
+            subprocess.run(
+                ["git", "branch", "--list", branch],
+                cwd=self.tmpdir,
+                capture_output=True,
+                text=True,
+            ).stdout,
+            "Branch must be kept",
+        )
+
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir)
         super().tearDown()

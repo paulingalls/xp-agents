@@ -88,7 +88,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         base = branch_resolution.get_story_base_branch_required(Path(args.smm_dir), cwd)
-    except ValueError as e:
+    except (ValueError, OSError) as e:
+        # OSError as well as ValueError: the underlying sprint/system_context reads
+        # (load_sprint, get_branching_stage) raise OSError on an unreadable or
+        # symlinked sprint.json. Catching only ValueError let that crash the close
+        # with a traceback instead of the intended clean refusal (return 1).
         print(str(e), file=sys.stderr)
         return 1
 
