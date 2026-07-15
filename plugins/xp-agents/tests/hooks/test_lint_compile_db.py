@@ -184,6 +184,14 @@ class TestTheCompileDbIsResolvedAgainstTheDirectoryThePathsCameFrom(_TmpProject)
 
     def _write_app(self, body: str) -> None:
         (self.d / "src" / "app.c").write_text(body)
+        # STAGE it: the gate lints the index (the bytes the commit carries), not
+        # the working tree, so an e2e that means "app.c is staged" must add it.
+        subprocess.run(
+            ["git", "add", "src/app.c"],
+            cwd=str(self.d),
+            check=True,
+            capture_output=True,
+        )
 
     _DIRTY = '#include "hdr.h"\nint main(void){ if (ANSWER) return 0; return 1; }\n'
     _CLEAN = (

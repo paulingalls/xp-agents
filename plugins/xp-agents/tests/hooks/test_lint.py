@@ -5,7 +5,9 @@ Split from the original test_post_tool.py.
 """
 
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
+import staged_lint
 from conftest import (
     _HookTestCase,
     _LintTmpDirMixin,
@@ -769,6 +772,204 @@ class TestRunLinterBatch(_HookTestCase):
         args, _kwargs = mock_run.call_args
         cmd = args[0]
         self.assertIn("--output-format=concise", cmd)
+
+
+# ===========================================================================
+# Story-006: the commit lint gate gates the bytes it COMMITS, not the bytes
+# on disk. git names STAGED paths but the linter used to read the WORKING-TREE
+# copy, so under partial-add / edit-after-add the gate failed OPEN. Fix:
+# materialize each staged blob to an in-dir temp sibling and lint THAT.
+# ===========================================================================
+
+
+class _StagedGitRepo(unittest.TestCase):
+    """A real git repo the staged-lint gate can resolve a root + index from."""
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=str(self.repo), check=True, capture_output=True
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name)
+        self._git("init", "-q")
+        self._git("config", "user.email", "t@example.com")
+        self._git("config", "user.name", "Tester")
+        (self.repo / "ruff.toml").touch()
+
+
+class TestGateMaterializesStagedBytes(_StagedGitRepo):
+    """The linter must be handed the STAGED bytes, not the working-tree copy.
+
+    Deterministic proof with the linter mocked: stage content X, overwrite the
+    working tree with content Y, and assert the file the linter is pointed at
+    holds X — and is a real, readable file it would PROCESS, so a future
+    silent-skip (glob / force-exclude) regression trips here too.
+    """
+
+    def test_linter_reads_staged_bytes_not_working_tree(self) -> None:
+        target = self.repo / "app.py"
+        target.write_text("STAGED_CONTENT = 1\n")
+        self._git("add", "app.py")
+        target.write_text("WORKING_TREE_CONTENT = 2\n")
+
+        seen: dict[str, str] = {}
+        # patch("lint_check.subprocess.run") binds `run` on the shared subprocess
+        # module, so it also intercepts staged_lint's git calls — delegate those
+        # to the real runner and only mock the linter invocation.
+        real_run = subprocess.run
+
+        def _capture(cmd, **kwargs):
+            if cmd and cmd[0] == "git":
+                return real_run(cmd, **kwargs)
+            cwd = kwargs.get("cwd", ".")
+            for arg in cmd:
+                if arg.endswith(".py") and not arg.startswith("-"):
+                    p = Path(cwd) / arg
+                    if p.exists():
+                        seen["content"] = p.read_text()
+            return _mock_ruff_result()  # clean
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run", side_effect=_capture),
+        ):
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        self.assertEqual(
+            seen.get("content"),
+            "STAGED_CONTENT = 1\n",
+            "the linter must READ the staged bytes off a real file, not the "
+            "working tree and not a skipped/absent path",
+        )
+
+
+class TestMaterializeIsLanguageBlind(_StagedGitRepo):
+    """AC4: materialization keys on the file's own directory + exact suffix, the
+    same table lookup for every language — no per-language branch."""
+
+    def test_non_python_extension_materializes_identically(self) -> None:
+        (self.repo / "main.go").write_bytes(b"package main\n")
+        self._git("add", "main.go")
+
+        temps, error = staged_lint._materialize_staged(str(self.repo), ["main.go"])
+        try:
+            self.assertIsNone(error)
+            self.assertEqual(len(temps), 1)
+            tmp = Path(temps[0])
+            self.assertEqual(tmp.suffix, ".go", "exact extension preserved")
+            self.assertEqual(
+                tmp.parent,
+                (self.repo / "main.go").parent,
+                "temp is a SIBLING so config/toolchain resolution is unchanged",
+            )
+            self.assertEqual(tmp.read_bytes(), b"package main\n", "staged bytes")
+        finally:
+            staged_lint._cleanup_temps(temps)
+
+
+class TestGateFailsClosedOnBadMaterialize(_StagedGitRepo):
+    """AC/robustness: an in-index file whose staged blob cannot be read is a bad
+    read → unverified → BLOCK. Never a silent skip."""
+
+    def test_unreadable_staged_blob_blocks(self) -> None:
+        target = self.repo / "app.py"
+        target.write_text("import os\n")
+        self._git("add", "app.py")
+
+        with (
+            patch("staged_lint.staged_blob_bytes", return_value=None),
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            self.assertRaises(_common.BlockedError),
+        ):
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+
+class TestStagedDeletionSkipsOnIndexMembership(_StagedGitRepo):
+    """AC3: a staged deletion is skipped via INDEX membership, not `.exists()`.
+
+    The working-tree copy is left present AND dirty, so an `.exists()`-based
+    predicate would lint the dirty working tree and block; only the index check
+    (the blob is gone from `:app.py`) correctly skips it.
+    """
+
+    def test_staged_deletion_with_dirty_worktree_is_skipped(self) -> None:
+        target = self.repo / "app.py"
+        target.write_text("x = 1\n")
+        self._git("add", "app.py")
+        self._git("commit", "-q", "-m", "add app")
+        self._git("rm", "--cached", "app.py")  # stage the deletion, keep the file
+        target.write_text("import os\n")  # dirty, F401-violating working-tree copy
+
+        advisories = staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        self.assertEqual(
+            advisories, [], "a staged deletion must be skipped, not linted or blocked"
+        )
+
+
+@unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
+class TestGateBlocksOnRealStagedBytes(_StagedGitRepo):
+    """End-to-end against the REAL ruff, the whole point of the story."""
+
+    def test_ac1_ac5_staged_violation_fixed_on_disk_still_blocks(self) -> None:
+        """Stage a violation, clean the working tree — the gate blocks on the
+        bytes the commit CARRIES (the partial-add fail-open)."""
+        target = self.repo / "app.py"
+        target.write_text("import os\n")  # F401
+        self._git("add", "app.py")
+        target.write_text("x = 1\n")  # working tree is clean now
+
+        with self.assertRaises(_common.BlockedError):
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+    def test_block_message_names_the_real_file_not_the_temp(self) -> None:
+        """The finding must name `app.py`, not the unlinked temp sibling — the
+        agent is told to fix it, so the path it reads must be one that exists."""
+        target = self.repo / "app.py"
+        target.write_text("import os\n")  # F401
+        self._git("add", "app.py")
+
+        with self.assertRaises(_common.BlockedError) as ctx:
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        message = ctx.exception.args[0]
+        self.assertIn("app.py:", message, "must name the real staged file")
+        # No mkstemp temp sibling (app.<random>.py) leaked into the message.
+        self.assertIsNone(re.search(r"app\.[A-Za-z0-9_]+\.py", message))
+
+    def test_ac2_staged_clean_working_tree_dirty_proceeds(self) -> None:
+        """Stage clean bytes, dirty the working tree — no block: the gate does
+        not judge bytes the commit is not carrying."""
+        target = self.repo / "app.py"
+        target.write_text("x = 1\n")  # clean
+        self._git("add", "app.py")
+        target.write_text("import os\n")  # working-tree violation, NOT staged
+
+        advisories = staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        self.assertEqual(
+            advisories, [], "must not block on unstaged working-tree bytes"
+        )
+
+    def test_no_temp_files_left_behind(self) -> None:
+        """The materialized siblings must not survive the gate — a crash-safe
+        finally cleans them, and a clean run must too."""
+        target = self.repo / "app.py"
+        target.write_text("x = 1\n")
+        self._git("add", "app.py")
+
+        staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        strays = [
+            p.name
+            for p in self.repo.iterdir()
+            if p.name.startswith("app.") and p.name != "app.py"
+        ]
+        self.assertEqual(strays, [], f"temp siblings stranded in the repo: {strays}")
 
 
 if __name__ == "__main__":
