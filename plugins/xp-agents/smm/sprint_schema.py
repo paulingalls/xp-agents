@@ -57,7 +57,7 @@ VALID_EXECUTOR_MODELS = tier_wire.TEAMMATE_MODELS
 VALID_EXECUTOR_EFFORTS = frozenset(tier_wire.TEAMMATE_EFFORTS)
 
 STORY_FIELD_MAXLENGTH: dict[str, int] = {
-    "context": 600,
+    "context": 800,
 }
 
 STORY_ITEM_MAXLENGTH: dict[str, int] = {

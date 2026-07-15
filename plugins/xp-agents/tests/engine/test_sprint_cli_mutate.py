@@ -283,7 +283,7 @@ class TestEditStoryCommand(_SMMTestCase):
             _CLI,
             ["edit-story", "story-001"],
             self.smm_dir,
-            json.dumps({"context": "x" * 601}),
+            json.dumps({"context": "x" * 801}),
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("budget", result.stderr.lower())
