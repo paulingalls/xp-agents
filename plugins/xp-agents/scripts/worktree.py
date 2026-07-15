@@ -6,6 +6,7 @@ and project-relative path normalization. All operations share a cached
 git root resolution to avoid redundant subprocess calls.
 """
 
+import enum
 import os
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import branch_lifecycle
 import identity
 import marker_names
 import sprint_status
@@ -146,24 +148,52 @@ def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | Non
     return branch
 
 
-def remove_worktree(name: str, cwd: str, force_branch: bool = False) -> None:
+class BranchRemoval(enum.Enum):
+    """What remove_worktree did to the worktree's branch."""
+
+    NO_BRANCH = "no_branch"
+    """Nothing to delete (not a git repo / no worktree)."""
+
+    DELETED_MERGED = "deleted_merged"
+    """delete_branch proved merge into merge_target; branch is gone."""
+
+    REFUSED_UNMERGED = "refused_unmerged"
+    """Not provably merged, force_branch=False -> branch kept (loud, no data loss)."""
+
+    FORCE_DROPPED_UNMERGED = "force_dropped_unmerged"
+    """force_branch=True + unmerged -> dropped; caller MUST record it (story-003)."""
+
+
+def remove_worktree(
+    name: str, cwd: str, *, merge_target: str | None = None, force_branch: bool = False
+) -> BranchRemoval:
     """Remove a git worktree directory, prune, AND delete its branch.
 
     For callers that OWN the branch — it was cut for this worktree and dies
     with it. A caller that is merely clearing the directory (so it can re-add a
     worktree onto a branch someone else owns) must call ``remove_worktree_dir``
-    instead: `-D` here force-deletes whatever the worktree had checked out,
-    unmerged commits included.
+    instead: a force-drop here force-deletes whatever the worktree had checked
+    out, unmerged commits included.
+
+    Branch deletion is routed through ``branch_lifecycle.delete_branch``, which
+    proves the branch is merged into ``merge_target`` (or HEAD, when omitted)
+    before deleting — never trusts `git branch -d`'s own upstream-based proof.
+    When the proof fails, an unmerged branch is either refused (kept, loud) or
+    force-dropped, and the caller learns which via the returned ``BranchRemoval``.
     """
     branch_to_delete = remove_worktree_dir(name, cwd)
     if branch_to_delete is None:
-        return
-    flag = "-D" if force_branch else "-d"
+        return BranchRemoval.NO_BRANCH
+    if branch_lifecycle.delete_branch(cwd, branch_to_delete, merge_target=merge_target):
+        return BranchRemoval.DELETED_MERGED
+    if not force_branch:
+        return BranchRemoval.REFUSED_UNMERGED
     subprocess.run(
-        ["git", "branch", flag, branch_to_delete],
+        ["git", "branch", "-D", branch_to_delete],
         cwd=cwd,
         capture_output=True,
     )
+    return BranchRemoval.FORCE_DROPPED_UNMERGED
 
 
 def _iter_live_teammate_worktrees(cwd: str):

@@ -46,9 +46,11 @@ import branching
 import sprint_store
 
 # The one crack in "absence implies merged": spawn_teammate's re-spawn cleanup is
-# the sole `remove_worktree(force_branch=True)` -- a `-D` with no merge proof. It is
-# narrow (a re-spawn moves the story back to in-progress, so it is not then marked
-# done) and recorded as debt rather than papered over here.
+# the sole `remove_worktree(force_branch=True)`. That path now proves the merge first
+# (via branch_lifecycle.delete_branch) and only force-drops (`-D`) a branch that is
+# genuinely unmerged. The crack is that residual force-drop. It is narrow (a re-spawn
+# moves the story back to in-progress, so it is not then marked done) and recorded as
+# debt rather than papered over here.
 
 
 # ---------------------------------------------------------------------------
