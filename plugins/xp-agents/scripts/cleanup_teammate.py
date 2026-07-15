@@ -25,19 +25,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
+import branch_lifecycle
+import branch_resolution
 import identity
 import markers
 import worktree
 
 
-def verify_merged(branch: str, cwd: str) -> bool:
-    """Check if a branch is fully merged into the current branch."""
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", branch, "HEAD"],
-        cwd=cwd,
-        capture_output=True,
-    )
-    return result.returncode == 0
+def verify_merged(branch: str, cwd: str, base: str) -> bool:
+    """Check if a branch is fully merged into `base`."""
+    return branch_lifecycle.is_merged_into(cwd, branch, base)
 
 
 def branch_exists(branch: str, cwd: str) -> bool:
@@ -50,9 +47,9 @@ def branch_exists(branch: str, cwd: str) -> bool:
     return result.returncode == 0
 
 
-def cleanup(name: str, cwd: str, smm_dir: Path) -> None:
+def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> None:
     """Remove worktree, branch, agent markers, and report file."""
-    worktree.remove_worktree(name, cwd)
+    worktree.remove_worktree(name, cwd, merge_target=base)
     markers.cleanup_agent_markers(smm_dir, name)
     report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):
@@ -89,14 +86,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    if not verify_merged(branch, cwd):
+    try:
+        base = branch_resolution.get_story_base_branch_required(Path(args.smm_dir), cwd)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+
+    if not verify_merged(branch, cwd, base):
         print(
             f"Branch {branch} has unmerged commits. Merge before cleanup.",
             file=sys.stderr,
         )
         return 1
 
-    cleanup(args.name, cwd, Path(args.smm_dir))
+    cleanup(args.name, cwd, Path(args.smm_dir), base)
     return 0
 
 
