@@ -2,6 +2,33 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.11.0 — Mark-done honesty: branch deletion proves merge
+
+First milestone of a new backlog-paydown plan (M6): **a deleted branch now honestly
+implies it was merged.** The mark-done gate reads branch *absence* as proof a story's
+merge landed — a premise that had cracks. Every branch-delete path now proves the merge
+against the recorded story base before deleting.
+
+**One base-proving delete primitive.** `worktree.remove_worktree` used a raw `git branch
+-d/-D` that trusted git's upstream-based check — so on any remote-backed repo it would
+delete a pushed-but-unmerged branch. It now routes through `branch_lifecycle.delete_branch`
+(which proves `is_merged_into` against the recorded story base first) and returns a
+`BranchRemoval` outcome (`DELETED_MERGED` / `REFUSED_UNMERGED` / `FORCE_DROPPED_UNMERGED` /
+`NO_BRANCH`) so callers know what happened.
+
+**Proof against the base, not HEAD, fail-closed.** `cleanup_teammate` proved merge against
+the current HEAD — misjudging a branch merged into its recorded base but not into HEAD. It
+now proves against the recorded story base via `get_story_base_branch_required` (which
+raises rather than silently degrading to primary), and refuses to delete on an unresolvable
+base.
+
+**Proven end-to-end.** An integration capstone exercises the two delete paths and the
+mark-done keystone together on real git worktrees over one shared model: a merged branch's
+absence allows mark-done, and an unmerged branch is refused (kept) so the gate still blocks.
+(The remaining fail-open — a raw `git branch -d/-D` of an unmerged story branch typed
+straight into the shell — is scheduled for M2, guarded there by prevention at the command
+gate.)
+
 ## v4.10.0 — Planning artifacts keep their record
 
 Milestone 5 finished the plan (M1–M5 all delivered): **the tools stop destroying and
