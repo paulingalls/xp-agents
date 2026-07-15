@@ -503,5 +503,23 @@ class TestValidateSprintSurfaceFK(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class TestContextBudget(unittest.TestCase):
+    """Test context field budget enforcement at 800 chars.
+
+    AC1: 800-char context validates clean under enforce_budget.
+    AC2: 801-char context yields budget error naming context.
+    """
+
+    def test_context_800_chars_valid(self):
+        sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
+        errors = sprint_schema.validate_sprint(sprint, enforce_budget=True)
+        self.assertEqual(errors, [])
+
+    def test_context_801_chars_rejected(self):
+        sprint = _make_sprint(stories=[_make_story(context="x" * 801)])
+        errors = sprint_schema.validate_sprint(sprint, enforce_budget=True)
+        self.assertTrue(any("context" in e for e in errors), errors)
+
+
 if __name__ == "__main__":
     unittest.main()

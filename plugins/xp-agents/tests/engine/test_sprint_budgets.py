@@ -30,16 +30,16 @@ class TestStoryFieldBudgets(unittest.TestCase):
     def test_context_over_budget_rejected(self):
         import sprint_schema
 
-        sprint = _make_sprint(stories=[_make_story(context="x" * 601)])
+        sprint = _make_sprint(stories=[_make_story(context="x" * 801)])
         errors = sprint_schema.validate_sprint(sprint)
         self.assertTrue(
-            any("context" in e and "601" in e and "600" in e for e in errors)
+            any("context" in e and "801" in e and "800" in e for e in errors)
         )
 
     def test_context_at_budget_accepted(self):
         import sprint_schema
 
-        sprint = _make_sprint(stories=[_make_story(context="x" * 600)])
+        sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
         errors = sprint_schema.validate_sprint(sprint)
         self.assertFalse(any("context" in e and "budget" in e for e in errors))
 
@@ -80,7 +80,7 @@ class TestBudgetEnforceFlag(unittest.TestCase):
     def test_over_budget_rejected_when_enforced(self):
         import sprint_schema
 
-        sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
+        sprint = _make_sprint(stories=[_make_story(context="x" * 801)])
         errors = sprint_schema.validate_sprint(sprint, enforce_budget=True)
         self.assertTrue(any("budget" in e for e in errors))
 
@@ -108,7 +108,7 @@ class TestLoadSprintGrandfathersBudget(_SMMTestCase):
     def test_save_over_budget_sprint_rejected(self):
         import sprint_store
 
-        sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
+        sprint = _make_sprint(stories=[_make_story(context="x" * 801)])
         with self.assertRaises(ValueError) as ctx:
             sprint_store.save_sprint(self.smm_dir, sprint)
         self.assertIn("budget", str(ctx.exception).lower())

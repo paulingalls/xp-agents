@@ -86,7 +86,7 @@ For each story:
 - **Dependencies**: Other story IDs, or "none".
 - **Milestone**: `execution_plan.md §Milestone N`.
 - **Design Sources**: Direct refs to original design docs (from the milestone's Sources field) with section pointers.
-- **Context**: 2+ sentences of what THIS story uniquely does. **Do NOT copy text from milestone design_details or constraints — reference the milestone by number only.** Open: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤600 chars.
+- **Context**: 2+ sentences of what THIS story uniquely does. **Do NOT copy text from milestone design_details or constraints — reference the milestone by number only.** Open: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤800 chars.
 - **File Domain**: Files this story owns while it runs. Two stories may declare the same file only when they can never run at the same time — one transitively depends on the other. Stories with no dependency between them must have disjoint domains, or parallel teammates would step on each other; the sprint write refuses such a collision. A story building on an earlier story's file is normal: declare the dependency and share the path. Always include corresponding test files alongside source files. For investigation/research stories with no expected code changes, use `[]` to mark the story code-free and prevent false pipeline-gap noise.
 - **Interface Contracts**: Shared boundaries. Format: `file:symbol — shared with story-NNN, constraint`. Advisory.
 - **Acceptance Criteria**: 3-5 testable conditions in **Given/When/Then prose** (per `docs/completed/ACCEPTANCE_TESTING_DOCTRINE.md`). Use `And`/`But` to extend. At least one is end-to-end, marked with the canonical `"E2E:"` prefix. Examples:
