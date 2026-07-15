@@ -17,8 +17,35 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import identity
 import markers
+import materialize
+import resolution
 
 _ANSWER_CONTENT_MAX = 500
+
+
+def _open_blocking_question_ids(smm_dir: Path) -> list[str]:
+    """Every 🔴 question id not yet resolved, in event-log order.
+
+    Every currently-open 🔴 question blocks writes via QUESTION_GATE, so at
+    answer-time each one is a question the user's answer just unblocked —
+    even if a later 🔴 question clobbered the gate's single stored id first.
+    Falls back to an empty list on any parse error so the caller degrades to
+    today's single-question behavior instead of crashing the hook.
+    """
+    try:
+        events, _ = materialize.parse_events(smm_dir)
+        resolved = resolution.collect_all_resolved_ids(
+            resolution.compute_resolutions(events)
+        )
+        return [
+            e["id"]
+            for e in events
+            if e.get("type") == _common.QUESTION
+            and e.get("priority") == resolution.event_schema.PRIORITY_BLOCKING
+            and e.get("id") not in resolved
+        ]
+    except Exception:
+        return []
 
 
 def _extract_response_text(input_data: dict) -> str:
@@ -57,16 +84,21 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         return None
 
     consumed = markers.marker_consume(smm_dir, markers.QUESTION_GATE)
-    question_id = consumed.strip() if isinstance(consumed, str) else ""
+    gate_id = consumed.strip() if isinstance(consumed, str) else ""
 
     response_text = _extract_response_text(input_data)
 
-    if question_id:
+    refs = [gate_id] if gate_id else []
+    for open_id in _open_blocking_question_ids(smm_dir):
+        if open_id not in refs:
+            refs.append(open_id)
+
+    if refs:
         event = _common.make_event(
             _common.ANSWER,
             agent_id,
             f"Answer: {_common.truncate(response_text, _ANSWER_CONTENT_MAX)}",
-            references=[question_id],
+            references=refs,
         )
         _common.append_safe(smm_dir, event)
     elif response_text:

@@ -103,6 +103,48 @@ class TestQuestionAnswered(_HookTestCase):
         self.assertFalse(gate.exists())
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ASKING_USER))
 
+    def test_two_open_blocking_questions_both_resolve(self):
+        """Two 🔴 questions before an answer: the second clobbers QUESTION_GATE,
+        but BOTH must resolve — not just the last one recorded in the gate."""
+        import _common
+        import question_answered
+        import resolution
+
+        q1 = _common.make_event(
+            _common.QUESTION, "main", "First blocker?", priority="\U0001f534"
+        )
+        _common.append_safe(self.smm_dir, q1)
+        q2 = _common.make_event(
+            _common.QUESTION, "main", "Second blocker?", priority="\U0001f534"
+        )
+        _common.append_safe(self.smm_dir, q2)
+
+        gate = self.smm_dir / ".question-gate"
+        gate.write_text(q2["id"])
+
+        question_answered.run(self._make_ask_input(), smm_dir=self.smm_dir)
+
+        events = self._read_events()
+        resolutions = resolution.compute_resolutions(events)
+        answered = resolution.collect_all_resolved_ids(resolutions)
+        self.assertIn(q1["id"], answered)
+        self.assertIn(q2["id"], answered)
+
+    def test_no_open_blocking_questions_logs_customer_input(self):
+        """No 🔴 question / no gate: unchanged customer_input behavior."""
+        import question_answered
+
+        question_answered.run(
+            self._make_ask_input("User chose option B"),
+            smm_dir=self.smm_dir,
+        )
+
+        events = self._read_events()
+        answers = events_of_type(events, EVENT_TYPE_ANSWER)
+        self.assertEqual(len(answers), 0)
+        inputs = events_of_type(events, EVENT_TYPE_CUSTOMER_INPUT)
+        self.assertEqual(len(inputs), 1)
+
     def test_xp_agent_skips(self):
         """xp-agent calls must not write markers or events."""
         import markers
