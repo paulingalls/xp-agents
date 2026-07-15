@@ -69,7 +69,7 @@ class TestBudgetEnforceFlag(unittest.TestCase):
         sprint = _make_sprint(
             stories=[
                 _make_story(
-                    context="x" * 800,
+                    context="x" * 801,
                     file_domain=["x" * 300],
                 )
             ]
@@ -99,11 +99,11 @@ class TestLoadSprintGrandfathersBudget(_SMMTestCase):
     def test_load_over_budget_sprint_succeeds(self):
         import sprint_store
 
-        sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
+        sprint = _make_sprint(stories=[_make_story(context="x" * 801)])
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         loaded = sprint_store.load_sprint(self.smm_dir)
         assert loaded is not None
-        self.assertEqual(len(loaded["stories"][0]["context"]), 800)
+        self.assertEqual(len(loaded["stories"][0]["context"]), 801)
 
     def test_save_over_budget_sprint_rejected(self):
         import sprint_store
@@ -120,7 +120,7 @@ class TestStatusUpdateGrandfathersBudget(_SMMTestCase):
     def test_update_story_status_succeeds_with_over_budget_context(self):
         import sprint_store
 
-        sprint = _make_sprint(stories=[_make_story(context="x" * 800)])
+        sprint = _make_sprint(stories=[_make_story(context="x" * 801)])
         (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
         sprint_store.update_story_status(self.smm_dir, "story-001", "done")
         loaded = sprint_store.load_sprint(self.smm_dir)
