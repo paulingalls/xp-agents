@@ -25,6 +25,11 @@ _INDEX_LOCK_RE = re.compile(r"index\.lock", re.IGNORECASE)
 _LOCK_RETRY_ATTEMPTS = 3
 _LOCK_RETRY_BASE_S = 0.2
 
+# A network push is slower than a local git op, so this is well above the `_git`
+# 10s cap. It exists only to bound an unreachable/stalled origin so the close
+# cannot hang forever; a timeout warns and the merge proceeds (never aborts).
+_PUSH_TIMEOUT_S = 30
+
 
 def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
@@ -149,8 +154,11 @@ def push_source_no_verify(cwd: str, source: str) -> None:
     Warn-don't-abort: the merge is the truth; a stale PR is a record problem,
     not a correctness one. A close-time amend/rebase can make this re-push
     non-fast-forward — it then warns and the PR stays stale, which is
-    acceptable. No timeout wrapper (unlike this module's `_git`, whose 10s cap
-    suits local ops): a slow network push must never raise and abort the merge.
+    acceptable. A generous timeout (longer than this module's `_git` 10s cap,
+    since a network push is slower than a local git op) bounds the wait so an
+    unreachable/stalled origin cannot HANG the whole close forever — and the
+    TimeoutExpired is caught into the SAME warn-don't-abort path as the OSError
+    and returncode cases, so a timeout still never raises and never aborts.
     """
     try:
         r = subprocess.run(
@@ -158,12 +166,13 @@ def push_source_no_verify(cwd: str, source: str) -> None:
             cwd=cwd,
             capture_output=True,
             text=True,
+            timeout=_PUSH_TIMEOUT_S,
         )
-    except OSError as exc:
-        # Honor "never abort" for the spawn-failure path too, not just the
-        # returncode path below: no timeout is set (a slow push must not raise),
-        # but subprocess.run can still raise OSError/FileNotFoundError, which
-        # would abort cmd_merge BEFORE the merge. Warn and let the merge proceed.
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # Honor "never abort" for the spawn-failure and timeout paths too, not
+        # just the returncode path below. An unreachable origin (timeout) or a
+        # spawn failure (OSError/FileNotFoundError) would otherwise abort
+        # cmd_merge BEFORE the merge. Warn and let the merge proceed.
         sys.stderr.write(
             f"warn: could not run git to re-push {source} before merge; the PR "
             f"record may be stale relative to what merged (the merge is the "

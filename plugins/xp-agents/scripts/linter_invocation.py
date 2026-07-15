@@ -135,6 +135,7 @@ def linter_argv(
     root: str,
     config_path: str | None = None,
     base: str | None = None,
+    precondition_paths: list[str] | None = None,
 ) -> list[str] | None:
     """The FULL argv to run `linter_name` over `paths`, or None if it must not run.
 
@@ -165,8 +166,16 @@ def linter_argv(
     RUN from. Pass it whenever that differs from `root` (it does whenever the config
     file lives in a subdirectory), or the precondition resolves the paths against the
     wrong directory and refuses to build an argv it should have built.
+
+    `precondition_paths` decouples "what to LINT" from "what the precondition is a
+    property of". The commit gate lints materialized temp copies, but a compile-DB's
+    directory coverage is a fact about the REAL staged file — a temp copy in a subdir
+    of a covered directory is not itself "covered", though the real file is. When
+    given (relative to the same `base`), the precondition is judged on these; the argv
+    still lints `paths`. Defaults to `paths` for callers with no temp indirection.
     """
-    if not preconditions_met(linter_name, root, paths, base=base):
+    check_paths = precondition_paths if precondition_paths is not None else paths
+    if not preconditions_met(linter_name, root, check_paths, base=base):
         return None
 
     shape = LINTER_ARGV_SHAPES.get(linter_name, SEPARATOR_BEFORE_PATHS)

@@ -848,27 +848,71 @@ class TestGateMaterializesStagedBytes(_StagedGitRepo):
 
 
 class TestMaterializeIsLanguageBlind(_StagedGitRepo):
-    """AC4: materialization keys on the file's own directory + exact suffix, the
-    same table lookup for every language — no per-language branch."""
+    """AC4: materialization keys on the file's own directory + exact basename,
+    the same table lookup for every language — no per-language branch."""
 
     def test_non_python_extension_materializes_identically(self) -> None:
         (self.repo / "main.go").write_bytes(b"package main\n")
         self._git("add", "main.go")
 
-        temps, error = staged_lint._materialize_staged(str(self.repo), ["main.go"])
+        temps, created, error = staged_lint._materialize_staged(
+            str(self.repo), ["main.go"]
+        )
         try:
             self.assertIsNone(error)
+            self.assertEqual(created, [])
             self.assertEqual(len(temps), 1)
             tmp = Path(temps[0])
-            self.assertEqual(tmp.suffix, ".go", "exact extension preserved")
             self.assertEqual(
-                tmp.parent,
+                tmp.name,
+                "main.go",
+                "EXACT basename preserved so filename-keyed linter rules match",
+            )
+            self.assertEqual(
+                tmp.parent.parent,
                 (self.repo / "main.go").parent,
-                "temp is a SIBLING so config/toolchain resolution is unchanged",
+                "temp lives in a subdir INSIDE the real parent, so config/"
+                "toolchain walk-up resolves the same config (one extra hop)",
             )
             self.assertEqual(tmp.read_bytes(), b"package main\n", "staged bytes")
         finally:
             staged_lint._cleanup_temps(temps)
+            staged_lint._cleanup_created_dirs(created)
+
+
+class TestMaterializeCreatesMissingParentDir(_StagedGitRepo):
+    """A staged-new file whose parent dir was removed in the working tree (index
+    still carries the blob) must be materialized, not fail closed — the old
+    `mkstemp(dir=<gone parent>)` raised FileNotFoundError and blocked the commit.
+    The recreated dir is removed again so the working tree is left as it was.
+    """
+
+    def test_missing_parent_dir_is_recreated_then_cleaned(self) -> None:
+        import shutil as sh
+
+        sub = self.repo / "newpkg"
+        sub.mkdir()
+        (sub / "mod.go").write_bytes(b"package main\n")
+        self._git("add", "newpkg/mod.go")
+        sh.rmtree(sub)  # index keeps the blob; the working tree loses the dir
+        self.assertFalse(sub.exists())
+
+        temps, created, error = staged_lint._materialize_staged(
+            str(self.repo), ["newpkg/mod.go"]
+        )
+        try:
+            self.assertIsNone(
+                error, "a gone parent dir must be recreated, not fail closed"
+            )
+            self.assertEqual(len(temps), 1)
+            self.assertEqual(Path(temps[0]).name, "mod.go")
+            self.assertEqual(Path(temps[0]).read_bytes(), b"package main\n")
+            self.assertTrue(created, "the recreated dir must be tracked for cleanup")
+        finally:
+            staged_lint._cleanup_temps(temps)
+            staged_lint._cleanup_created_dirs(created)
+
+        self.assertFalse(sub.exists(), "the recreated parent dir must be removed again")
 
 
 class TestGateFailsClosedOnBadMaterialize(_StagedGitRepo):
@@ -970,6 +1014,57 @@ class TestGateBlocksOnRealStagedBytes(_StagedGitRepo):
             if p.name.startswith("app.") and p.name != "app.py"
         ]
         self.assertEqual(strays, [], f"temp siblings stranded in the repo: {strays}")
+
+
+@unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
+class TestGatePreservesFilenameKeyedRules(_StagedGitRepo):
+    """A linter rule keyed on the EXACT basename (ruff `per-file-ignores`,
+    eslint filename globs, `__init__.py`/`conftest.py` special-cases) must still
+    match the materialized file. A random temp NAME defeats those rules and turns
+    a legitimate commit into a FALSE-POSITIVE block — the inverse of the
+    documented fail-open. Materialization preserves the basename, so it matches.
+    """
+
+    def test_per_file_ignore_by_exact_basename_still_applies(self) -> None:
+        (self.repo / "ruff.toml").write_text(
+            '[lint.per-file-ignores]\n"__init__.py" = ["F401"]\n'
+        )
+        pkg = self.repo / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("import os\n")  # F401, ignored for __init__.py
+        self._git("add", "pkg/__init__.py")
+
+        # A random temp name (pkg/__init__.RANDOM.py) escapes the __init__.py
+        # per-file-ignore, ruff flags F401, and the gate blocks a legitimate
+        # commit. Preserving the exact basename keeps the ignore matching.
+        advisories = staged_lint.staged_lint_gate(["pkg/__init__.py"], str(self.repo))
+        self.assertEqual(
+            advisories, [], "filename-keyed per-file-ignore must still apply"
+        )
+
+
+@unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
+class TestGateHandlesMissingParentDir(_StagedGitRepo):
+    """A staged-new file whose parent dir is gone in the working tree (index
+    still carries it) must not fail the gate closed — the old materialize raised
+    on the missing dir and blocked a commit the `.exists()` predicate let through.
+    """
+
+    def test_staged_new_file_whose_parent_dir_is_gone_is_not_blocked(self) -> None:
+        import shutil as sh
+
+        newdir = self.repo / "newdir"
+        newdir.mkdir()
+        (newdir / "foo.py").write_text("x = 1\n")  # clean
+        self._git("add", "newdir/foo.py")
+        sh.rmtree(newdir)  # index keeps the blob; the working tree loses the dir
+        self.assertFalse(newdir.exists())
+
+        advisories = staged_lint.staged_lint_gate(["newdir/foo.py"], str(self.repo))
+        self.assertEqual(advisories, [], "a gone parent dir must not block the commit")
+        self.assertFalse(
+            newdir.exists(), "the recreated parent dir must be cleaned up after"
+        )
 
 
 if __name__ == "__main__":

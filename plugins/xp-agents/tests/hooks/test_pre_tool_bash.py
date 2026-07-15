@@ -469,9 +469,9 @@ class TestStagedRuffGate(_HookTestCase):
     def test_only_py_files_passed_to_ruff(self, mock_batch, _files, _diff):
         """When mixing .py and non-.py, only the .py path reaches ruff.
 
-        The path is the materialized STAGED blob — an in-dir temp sibling of
-        `src/a.py` (same directory, same `.py` extension), not the original
-        name — so assert the shape, not the literal name.
+        The path is the materialized STAGED blob — the EXACT basename `a.py` in a
+        temp subdir under `src/` (src/<tmpXXXX>/a.py), so filename-keyed rules
+        match — so assert the shape, not the literal temp segment.
         """
         with contextlib.suppress(_common.BlockedError):
             pre_tool_bash.run(self._commit_input(), smm_dir=self.smm_dir)
@@ -480,8 +480,8 @@ class TestStagedRuffGate(_HookTestCase):
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
         self.assertEqual(len(paths), 1, "only the one .py file")
         self.assertTrue(
-            paths[0].startswith("src/a.") and paths[0].endswith(".py"),
-            f"the staged .py blob's temp sibling, got {paths[0]!r}",
+            paths[0].startswith("src/") and paths[0].endswith("/a.py"),
+            f"the staged .py blob in its temp subdir, got {paths[0]!r}",
         )
 
     # --- only paths that are actually THERE reach the linter ---
@@ -522,8 +522,10 @@ class TestStagedRuffGate(_HookTestCase):
         args, kwargs = mock_batch.call_args
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
         self.assertEqual(len(paths), 1, "deleted path dropped, live one kept")
+        # The materialized staged blob keeps its EXACT basename in a temp subdir
+        # under src/ (src/<tmpXXXX>/app.py), so filename-keyed linter rules match.
         self.assertTrue(
-            paths[0].startswith("src/app.") and paths[0].endswith(".py"),
+            paths[0].startswith("src/") and paths[0].endswith("/app.py"),
             f"the surviving file's staged blob, got {paths[0]!r}",
         )
 
@@ -551,10 +553,11 @@ class TestStagedRuffGate(_HookTestCase):
         args, kwargs = mock_batch.call_args
         paths = args[1] if len(args) > 1 else kwargs.get("paths")
         # The materialized staged blob, still resolved against the repo root
-        # (src/…), not the subdir the commit ran from.
+        # (src/…), not the subdir the commit ran from. The exact basename app.py
+        # is preserved in a temp subdir (src/<tmpXXXX>/app.py).
         self.assertEqual(len(paths), 1)
         self.assertTrue(
-            paths[0].startswith("src/app.") and paths[0].endswith(".py"),
+            paths[0].startswith("src/") and paths[0].endswith("/app.py"),
             f"resolved against the root, got {paths[0]!r}",
         )
         self.assertEqual(kwargs.get("cwd"), os.path.realpath(str(self.repo)))

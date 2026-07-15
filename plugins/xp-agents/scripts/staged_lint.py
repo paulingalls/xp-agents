@@ -14,6 +14,7 @@ never the linter's words.
 
 import contextlib
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -69,72 +70,122 @@ def staged_blob_bytes(root: str, path: str) -> bytes | None:
 
 
 def _cleanup_temps(temp_paths: list[str]) -> None:
-    """Remove materialized temp siblings; a crash must not strand them in the repo."""
+    """Remove each materialized file's temp SUBDIR; a crash must strand nothing.
+
+    Each staged blob is written to `<uniquetmpdir>/<original_basename>`, so the
+    thing to remove is the whole `<uniquetmpdir>` — a directory mkdtemp created
+    for us and nothing else lives in.
+    """
     for tp in temp_paths:
         with contextlib.suppress(OSError):
-            os.unlink(tp)
+            shutil.rmtree(Path(tp).parent)
 
 
-def _materialize_staged(root: str, paths: list[str]) -> tuple[list[str], str | None]:
-    """Write each staged blob to an in-dir temp sibling; return (temp_paths, error).
+def _cleanup_created_dirs(created_dirs: list[str]) -> None:
+    """Remove parent dirs we had to create to materialize a staged-new file.
 
-    For each in-index path, the staged bytes are written to a temp file in the
-    file's OWN directory, prefixed with its stem and carrying its EXACT
-    extension (`app.py` → `app.tmpXXXX.py`). Same dir + same suffix is required,
-    not cosmetic: detect_linter_config walks up from the file's directory keyed
-    on its suffix, and eslint/ruff resolve their config + node_modules by
-    walking up from cwd — a temp elsewhere would resolve neither.
+    A staged-new `newdir/foo.py` whose `newdir/` is gone from the working tree
+    (the index still carries the blob) is materialized under a freshly-created
+    `newdir/` — which must be removed again so the working tree is left exactly
+    as it was. `rmdir` only removes an EMPTY dir, so this can never delete real
+    content; deepest-first so nested creations unwind cleanly.
+    """
+    for d in sorted(set(created_dirs), key=lambda p: p.count(os.sep), reverse=True):
+        with contextlib.suppress(OSError):
+            os.rmdir(d)
 
-    KNOWN LIMIT (strictly narrower than the fail-open it replaces): the temp has
-    a different NAME than the original, so a linter selecting by exact full
-    filename, or one that `force-exclude`s a non-matching name, could skip it.
-    The stem prefix + exact suffix keep every extension- and stem-glob matching;
-    only an exact-full-name selector (rare) misses. That residual is a missed
-    finding on an unusual config; the bug being fixed was a missed finding on
-    ordinary partial-add, in any language.
+
+def _missing_ancestors(parent: Path) -> list[str]:
+    """The dirs in `parent`'s chain that do not yet exist, deepest-first.
+
+    These are exactly the dirs `os.makedirs(parent)` will create — recorded so
+    cleanup removes only what we created, never a dir that was already there.
+    """
+    missing: list[str] = []
+    p = parent
+    while not p.exists():
+        missing.append(str(p))
+        if p.parent == p:  # reached the filesystem root
+            break
+        p = p.parent
+    return missing
+
+
+def _materialize_staged(
+    root: str, paths: list[str]
+) -> tuple[list[str], list[str], str | None]:
+    """Materialize each staged blob; return (temp_paths, created_dirs, error).
+
+    For each in-index path, the staged bytes are written to a UNIQUE temp SUBDIR
+    inside the file's own directory, under the file's EXACT original basename
+    (`pkg/app.py` → `pkg/tmpXXXX/app.py`). Two properties, both load-bearing:
+
+      * exact basename: a linter rule keyed on the full filename (ruff
+        `per-file-ignores`, eslint filename globs, the `__init__.py` /
+        `conftest.py` special-cases) matches the materialized file, so a
+        legitimate commit is not FALSE-POSITIVE blocked. A random temp name
+        would defeat those rules — the inverse of the fail-open this replaces.
+      * temp is INSIDE the real parent: detect_linter_config and eslint/ruff
+        resolve config + node_modules by walking UP from the file, so the temp
+        subdir walks `<tmpXXXX>/ → <parent>/ → …` and resolves the SAME config,
+        one transparent extra hop. A temp elsewhere would resolve neither.
+
+    A staged-new file whose parent dir is gone from the working tree (index
+    still has the blob) has that dir recreated (`os.makedirs`); the dirs created
+    are returned in created_dirs so the caller removes them again, leaving the
+    working tree as it was. If a path component is a file (makedirs can't
+    resolve), that OSError falls through to the fail-closed block below — the
+    honest outcome for a genuinely broken path.
 
     error is non-None on the FIRST bad read (blob unreadable, or the temp write
-    failed) — the caller fails closed. Partial temps are removed before
-    returning so a failure strands nothing.
+    failed) — the caller fails closed. Partial temps and created dirs are
+    removed before returning so a failure strands nothing.
     """
     temp_paths: list[str] = []
+    created_dirs: list[str] = []
+
+    def _fail(msg: str) -> tuple[list[str], list[str], str]:
+        _cleanup_temps(temp_paths)
+        _cleanup_created_dirs(created_dirs)
+        return [], [], msg
+
     for path in paths:
         blob = staged_blob_bytes(root, path)
         if blob is None:
-            _cleanup_temps(temp_paths)
-            return [], f"could not read staged blob for {path}"
+            return _fail(f"could not read staged blob for {path}")
         abs_path = Path(root) / path
+        parent = abs_path.parent
         try:
-            fd, tmp = tempfile.mkstemp(
-                dir=str(abs_path.parent),
-                prefix=f"{abs_path.stem}.",
-                suffix=abs_path.suffix,
-            )
-            try:
-                os.write(fd, blob)
-            finally:
-                os.close(fd)
+            new_dirs = _missing_ancestors(parent)
+            os.makedirs(parent, exist_ok=True)
+            created_dirs.extend(new_dirs)
+            tmp_dir = tempfile.mkdtemp(dir=str(parent))
+            tmp = str(Path(tmp_dir) / abs_path.name)
+            with open(tmp, "wb") as fh:
+                fh.write(blob)
         except OSError as e:
-            _cleanup_temps(temp_paths)
-            return [], f"could not materialize staged {path} ({e})"
+            return _fail(f"could not materialize staged {path} ({e})")
         temp_paths.append(tmp)
-    return temp_paths, None
+    return temp_paths, created_dirs, None
 
 
-def _relabel_temps(output: str, originals: list[str], temp_paths: list[str]) -> str:
-    """Rewrite the temp siblings' names back to the staged files' real names.
+def _relabel_temps(output: str, temp_paths: list[str]) -> str:
+    """Rewrite the temp-subdir paths back to the staged files' real paths.
 
-    The linter is pointed at a randomly-named temp sibling, so its output names
-    that temp (`app.c3_cjzvr.py:1: ...`) — a path that does not exist and is
-    already unlinked by the time the block message reaches the agent, whom we
-    then tell to "fix the findings". Each temp basename is a unique mkstemp
-    string, so a plain basename substitution restores the real name without
-    touching anything else, in any language and whatever path format (relative
-    or absolute) the linter prints. Any directory prefix the linter emitted is
-    preserved — only the basename is swapped.
+    The linter is pointed at `<parent>/<tmpXXXX>/<basename>`, so its output names
+    a path with a `<tmpXXXX>/` segment that does not exist in the real tree and
+    is already removed by the time the block message reaches the agent, whom we
+    then tell to "fix the findings". The basename is now IDENTICAL to the real
+    file, so only the injected temp-subdir segment must be stripped: each subdir
+    name is a unique mkdtemp string, so dropping `<tmpXXXX>/` collapses the path
+    back to the real one without touching anything else, in any language and
+    whatever path format (relative or absolute) the linter printed.
     """
-    for orig, tmp in zip(originals, temp_paths, strict=True):
-        output = output.replace(Path(tmp).name, Path(orig).name)
+    for tmp in temp_paths:
+        tmp_seg = Path(tmp).parent.name
+        output = output.replace(f"{tmp_seg}/", "")
+        if os.sep != "/":
+            output = output.replace(f"{tmp_seg}{os.sep}", "")
     return output
 
 
@@ -202,13 +253,13 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     (invariant: `test_common_path_at_most_one_name_only_call`).
 
     The bytes checked are the INDEX's, not the working tree's: each staged blob
-    is materialized to an in-dir temp sibling (`_materialize_staged`) and the
-    linter is pointed at THAT, so a partial-add or an edit-after-add is judged on
-    the content the commit actually carries, in both directions. A blob the index
-    says is there but we cannot read fails CLOSED (unverified), never a silent
-    skip. Residual known-limit: a linter selecting by exact full filename could
-    skip the renamed temp — see `_materialize_staged`; strictly narrower than the
-    fail-open it replaced.
+    is materialized under its EXACT basename in a temp subdir of its own
+    directory (`_materialize_staged`) and the linter is pointed at THAT, so a
+    partial-add or an edit-after-add is judged on the content the commit actually
+    carries, in both directions — and a filename-keyed linter rule
+    (per-file-ignores, `__init__.py` special-cases) still matches. A blob the
+    index says is there but we cannot read fails CLOSED (unverified), never a
+    silent skip.
     """
     # git names staged paths relative to the REPO ROOT, so resolve them there —
     # not against the hook's cwd, which is a subdirectory whenever the agent
@@ -247,7 +298,7 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
         # staged blob to an in-dir temp sibling and point the linter at that. A
         # bad materialize on a file the index says is present is a bad read →
         # unverified → block; NEVER a silent skip.
-        temp_paths, error = _materialize_staged(root, paths)
+        temp_paths, created_dirs, error = _materialize_staged(root, paths)
         if error is not None:
             unverified.append(f"{linter_name}: {error} — refusing to report it clean")
             continue
@@ -266,6 +317,18 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
             ]
             lint_cwd = targets[0][0]  # constant per group: same config, same dir
             args = [file_arg for _, file_arg in targets]
+            # The REAL staged paths, relative to the SAME lint_cwd, aligned 1:1
+            # with `args`. A precondition (clang-tidy compile-DB directory
+            # coverage) is a fact about the real file, not its temp copy: the temp
+            # sits in a subdir of the covered directory and would read as
+            # uncovered, degrading a file the DB covers perfectly well. paths and
+            # temp_paths share order (built together in _materialize_staged).
+            precondition_args = [
+                lint_check.lint_invocation_target(
+                    config_path, root, str(Path(root) / p)
+                )[1]
+                for p in paths
+            ]
             run = lint_check.run_linter_batch(
                 linter_name,
                 args,
@@ -273,11 +336,13 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
                 budget_s=deadline - time.monotonic(),
                 root=root,
                 config_path=config_path,
+                precondition_paths=precondition_args,
             )
         finally:
             _cleanup_temps(temp_paths)
-        # The linter named the temp siblings; the agent must see its real files.
-        run_output = _relabel_temps(run.output, paths, temp_paths)
+            _cleanup_created_dirs(created_dirs)
+        # The linter named the temp subdirs; the agent must see its real files.
+        run_output = _relabel_temps(run.output, temp_paths)
         match run.status:
             case "findings":
                 findings.append(f"{linter_name}:\n{run_output}")
