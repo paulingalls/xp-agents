@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import branch_resolution
 import branching
