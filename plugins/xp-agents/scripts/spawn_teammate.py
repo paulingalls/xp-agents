@@ -49,8 +49,16 @@ from teammate_runner import (
 )
 
 # Worktree provisioning lives in a sibling leaf module; keep the name importable
-# here (spawn_teammate.run_bootstrap IS worktree_bootstrap.run_bootstrap) so
-# create_worktree's call and any patch target resolve to one object.
+# here, so `spawn_teammate.run_bootstrap` IS `worktree_bootstrap.run_bootstrap`.
+#
+# That identity holds AT IMPORT and says nothing about patching: these are two
+# separate module globals that happen to hold one object, and patching REBINDS a
+# global rather than mutating the object both point at. So `create_worktree` below
+# reads THIS module's global, and the only name that intercepts it is
+# `spawn_teammate.run_bootstrap`. Patch `worktree_bootstrap.run_bootstrap` and the
+# stub is never called — the project's own declared bootstrap runs for real, under
+# shell=True, which is the exact harm create_worktree's `smm_dir=None` default is
+# there to prevent. Pinned by TestTheBootstrapPatchSeam.
 from worktree_bootstrap import run_bootstrap
 
 

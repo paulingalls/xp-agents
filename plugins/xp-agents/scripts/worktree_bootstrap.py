@@ -33,13 +33,24 @@ _DEFAULT_BOOTSTRAP_TIMEOUT_S = 600
 
 
 def _bootstrap_timeout() -> int:
-    """Bootstrap timeout in seconds; XP_BOOTSTRAP_TIMEOUT_S overrides default."""
+    """Bootstrap timeout in seconds; a POSITIVE XP_BOOTSTRAP_TIMEOUT_S overrides.
+
+    Only positive, and that is not input-hygiene fussiness: `timeout=0` makes
+    subprocess.run raise TimeoutExpired before the command has run at all, so a
+    healthy project's every spawn would die with "timed out after 0s" and leave
+    an unprovisioned worktree — the false-green run_bootstrap exists to prevent,
+    arriving as a knob. Zero and negatives express no runnable budget, so they
+    are not an override; they fall back to the default, exactly as unparseable
+    text does.
+    """
     raw = os.environ.get("XP_BOOTSTRAP_TIMEOUT_S")
     if raw:
         try:
-            return int(raw)
+            seconds = int(raw)
         except ValueError:
-            pass
+            return _DEFAULT_BOOTSTRAP_TIMEOUT_S
+        if seconds > 0:
+            return seconds
     return _DEFAULT_BOOTSTRAP_TIMEOUT_S
 
 
