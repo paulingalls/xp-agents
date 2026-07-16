@@ -233,7 +233,7 @@ class TestNamePassThrough(unittest.TestCase):
 
         captured_name = {}
 
-        def capture_create(name, cwd, *, branch=None):
+        def capture_create(name, cwd, *, branch=None, smm_dir=None):
             captured_name["value"] = name
             return "/tmp/wt"
 
