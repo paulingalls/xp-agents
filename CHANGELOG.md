@@ -17,10 +17,32 @@ workaround they adopted widened two real safety guards.
 **The gate no longer copies a staged file anywhere.** When the index matches the working
 tree — ~99% of commits — it lints the real paths, still batched as one linter process for N
 files. When a file genuinely diverges (partial `git add -p`, edit-after-add) it pipes
-`git show :<path>` to the linter's own `--stdin-filename`, so the linter reads the *staged*
-bytes while resolving as if at the real path. Both properties at once, which is what the
-temp copy was trying and failing to achieve. Linters without a stdin mode (clang-tidy)
-degrade to an advisory rather than block.
+`git show :<path>` to the linter's own stdin mode, so the linter reads the *staged* bytes
+while resolving as if at the real path. Both properties at once, which is what the temp copy
+was trying and failing to achieve. Covered for ruff, eslint, prettier, flake8, rubocop and
+clang-format — each argv verified against the real binary.
+
+**A linter with no stdin mode blocks rather than waving the commit through.** For
+`golangci-lint`, `clang-tidy`, `dart-analyze`, `swiftlint` and `php-cs-fixer` there is
+nowhere to put a divergent file's staged bytes that does not move the file, so the gate says
+so and refuses — naming the remedy, which is to `git add` the path (or unstage it) so the
+index and working tree agree. This is one command, and for the case that produces the state
+it is what you meant to do anyway; that is the line against a project-scoped linter like
+clippy, which stays an *advisory* precisely because a whole-crate failure is genuinely not
+something your staged diff can fix. It only ever fires for a file that diverges — an
+ordinary Go or Swift commit is unaffected.
+
+**Non-ASCII filenames are linted at all.** git C-quotes paths with non-ASCII bytes in its
+default listings, so `café.js` arrived as the literal string `"caf\303\251.js"` — which
+resolved to no blob in the index, dropped out of the gate's file groups, and committed
+unlinted. Silently, because "absent from the index" is also how a legitimate staged deletion
+reads. Every path listing is now read with `-z`, which also keeps a filename containing a
+space in one piece.
+
+Divergence is detected via `git` itself (so your repo's clean/smudge and eol filters are
+applied, not second-guessed), and `git ls-files -v` covers the two bits — `assume-unchanged`
+and `skip-worktree` — that would otherwise tell `git diff` to stop looking at a file and
+report nothing about one whose staged bytes genuinely differ.
 
 This also closes a fail-open the old design existed to fix — staging a violation and then
 fixing it on disk without re-staging still blocks, because that case *is* divergence and
