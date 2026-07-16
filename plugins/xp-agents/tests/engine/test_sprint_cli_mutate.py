@@ -647,5 +647,180 @@ class TestMergeBackstop(_SMMTestCase):
         self.assertEqual(self._status(), "closing", "the CAS must not have written")
 
 
+class TestUpdateStoryIfForceUnmerged(_SMMTestCase):
+    """The recovery hatch on the OTHER writer of `done` -- the CAS used by
+    /xp-accept Step 1.5. Same accountable-override contract as update-story's
+    --force-unmerged (TestForceUnmerged above), routed through the shared
+    _merge_gate helper -- but bad input here exits rc=2, not rc=1, and a lost
+    CAS race (status != --expected) must stay rc=1 and untouched by the force
+    flag entirely."""
+
+    _STORY_BRANCH = "paulingalls/story-001-thing"
+
+    def setUp(self):
+        super().setUp()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = self._tmp.name
+        init_repo(self.repo)
+
+    def _seed_unmerged(self, status: str = "closing") -> None:
+        self._git("checkout", "-b", self._STORY_BRANCH)
+        append_commit(self.repo, "story.txt")
+        self._git("checkout", "main")
+        story = _make_story(
+            id="story-001", status=status, branch_name=self._STORY_BRANCH
+        )
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(_make_sprint(stories=[story]))
+        )
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(["git", *args], cwd=self.repo, capture_output=True, check=True)
+
+    def _status(self) -> str:
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        return loaded["stories"][0]["status"]
+
+    def _debts(self) -> list[dict]:
+        path = self.smm_dir / "events.jsonl"
+        if not path.exists():
+            return []
+        events = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+        return [e for e in events if e["type"] == "debt"]
+
+    def test_forced_cas_to_done_succeeds_and_records_a_debt(self):
+        self._seed_unmerged(status="closing")
+
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "closing",
+                "--new",
+                "done",
+                "--force-unmerged",
+                "merged by hand",
+                "--cwd",
+                self.repo,
+            ],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._status(), "done")
+        debts = self._debts()
+        self.assertEqual(len(debts), 1)
+        self.assertIn("story-001", debts[0]["content"])
+        self.assertIn("merged by hand", debts[0]["content"])
+
+    def test_empty_reason_is_refused_rc2_and_nothing_moves(self):
+        self._seed_unmerged(status="closing")
+
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "closing",
+                "--new",
+                "done",
+                "--force-unmerged",
+                "   ",
+                "--cwd",
+                self.repo,
+            ],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self._status(), "closing")
+        self.assertEqual(self._debts(), [])
+
+    def test_force_unmerged_only_applies_to_done_rc2(self):
+        self._seed_unmerged(status="reviewing")
+
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "reviewing",
+                "--new",
+                "closing",
+                "--force-unmerged",
+                "why",
+                "--cwd",
+                self.repo,
+            ],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self._status(), "reviewing")
+        self.assertEqual(self._debts(), [])
+
+    def test_unrecorded_bypass_refuses_rc2_and_cas_never_runs(self):
+        """The debt record is the price of the bypass, taken BEFORE the CAS
+        write. Make _record_forced_unmerged's write fail -- events.jsonl made
+        read-only, directory itself left writable so a failure there can only
+        be the append, not some other file the CAS also needs -- and the
+        status must stay exactly where it started -- no unrecorded bypass, no
+        CAS started on its behalf."""
+        self._seed_unmerged(status="closing")
+        events_path = self.smm_dir / "events.jsonl"
+        events_path.chmod(0o400)
+        try:
+            result = run_cli(
+                _CLI,
+                [
+                    "update-story-if",
+                    "story-001",
+                    "--expected",
+                    "closing",
+                    "--new",
+                    "done",
+                    "--force-unmerged",
+                    "merged by hand",
+                    "--cwd",
+                    self.repo,
+                ],
+                self.smm_dir,
+            )
+        finally:
+            events_path.chmod(0o600)
+
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(self._status(), "closing")
+
+    def test_lost_cas_race_stays_rc1_even_with_force_flag(self):
+        """Force only bypasses the merge backstop, never the CAS semantics --
+        a stale --expected must still lose the race at rc=1."""
+        self._seed_unmerged(status="done")
+
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "closing",
+                "--new",
+                "done",
+                "--force-unmerged",
+                "merged by hand",
+                "--cwd",
+                self.repo,
+            ],
+            self.smm_dir,
+        )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -227,9 +227,36 @@ def _record_forced_unmerged(smm_dir: Path, story_id: str, reason: str) -> None:
     )
 
 
-def _cmd_update_story(args: argparse.Namespace) -> int:
-    reason = getattr(args, "force_unmerged", None)
+def _merge_gate(
+    smm_dir: Path,
+    cwd: str,
+    story_id: str,
+    target_status: str,
+    reason: str | None,
+    err_rc: int,
+) -> int | None:
+    """Force-unmerged override + done-gated merge backstop, shared by
+    update-story and update-story-if — the two `status` writers that converge
+    on the same mark-done merge proof. `err_rc` is the caller's bad-input/
+    refusal code (1 for update-story throughout; 2 for update-story-if, whose
+    rc=1 is reserved for a lost CAS race). Returns an rc to return early on,
+    or None to proceed to the status write.
 
+    reason not None (--force-unmerged passed): refuse an empty/whitespace
+    reason (a silent bypass in an accountable one's costume) and a
+    target_status other than `done` (the gate fires nowhere else). Otherwise
+    record the debt BEFORE the caller's status write — a bypass nobody can
+    see is exactly the silent mark-done-past-a-failed-merge this gate exists
+    to stop — and if that record fails, refuse outright rather than let an
+    unrecorded bypass through. Once recorded, skip the backstop below: this
+    path already paid for the override.
+
+    reason is None: ordinary backstop, the same git-derived merge proof the
+    Bash pre-commit gate checks, dropped below the shell so a story id
+    resolved from a variable (`update-story "$SID" done`) cannot evade it.
+    Gate ONLY on `done` — merged_block inspects CURRENT merge state, so
+    calling it on an honest non-done move would wrongly block it.
+    """
     if reason is not None:
         if not reason.strip():
             print(
@@ -237,31 +264,34 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
                 "is a silent bypass wearing an accountable one's costume.",
                 file=sys.stderr,
             )
-            return 1
-        if args.status != "done":
+            return err_rc
+        if target_status != "done":
             print(
                 f"Error: --force-unmerged only applies to `done` (got "
-                f"{args.status!r}); the merge gate fires nowhere else.",
+                f"{target_status!r}); the merge gate fires nowhere else.",
                 file=sys.stderr,
             )
-            return 1
+            return err_rc
         try:
-            _record_forced_unmerged(args.smm_dir, args.story_id, reason.strip())
+            _record_forced_unmerged(smm_dir, story_id, reason.strip())
         except (OSError, ValueError) as exc:
             print(f"Error: bypass not recorded ({exc}); refusing.", file=sys.stderr)
-            return 1
+            return err_rc
+        return None
 
-    # The engine-altitude merge backstop: the same git-derived proof the Bash gate
-    # applies, dropped below the shell so an id resolved from a variable
-    # (`update-story "$SID" done`) cannot evade it. Gate ONLY on `done` — merged_block
-    # inspects the story's CURRENT merge state, so calling it on an honest
-    # `in-progress` move would wrongly block it. Skip when the accountable override
-    # already fired (reason is not None): that path recorded its own debt above.
-    if args.status == "done" and reason is None:
-        block = story_done_gate.merged_block(args.smm_dir, str(args.cwd), args.story_id)
+    if target_status == "done":
+        block = story_done_gate.merged_block(smm_dir, cwd, story_id)
         if block is not None:
-            print(f"Refusing to mark {args.story_id} done: {block}", file=sys.stderr)
-            return 1
+            print(f"Refusing to mark {story_id} done: {block}", file=sys.stderr)
+            return err_rc
+    return None
+
+
+def _cmd_update_story(args: argparse.Namespace) -> int:
+    reason = getattr(args, "force_unmerged", None)
+    rc = _merge_gate(args.smm_dir, str(args.cwd), args.story_id, args.status, reason, 1)
+    if rc is not None:
+        return rc
 
     try:
         store.update_story_status(args.smm_dir, args.story_id, args.status)
@@ -276,18 +306,17 @@ def _cmd_update_story_if(args: argparse.Namespace) -> int:
 
     Exits 0 when the on-disk status matched --expected and the write
     succeeded; 1 when the status differed (no-op, file untouched);
-    2 on validation/missing-id/missing-sprint errors. Callers can
-    distinguish "lost the race" (rc=1) from "bad input" (rc=2).
+    2 on validation/missing-id/missing-sprint errors, including a refused
+    --force-unmerged and a genuinely-unmerged branch with no override.
+    Callers can distinguish "lost the race" (rc=1) from "cannot proceed"
+    (rc=2). --force-unmerged only bypasses the merge backstop below — it
+    never bypasses the CAS (--expected/--new) semantics, so a stale
+    --expected still loses the race at rc=1 even when forced.
     """
-    # Same merge backstop as update-story, on the OTHER writer of `done` — a
-    # compare-and-swap onto the same field. Gate only when the target status is
-    # `done`; a refusal is a "cannot proceed" bad-input condition, so it takes the
-    # rc=2 exit, distinct from the rc=1 that means the CAS merely lost its race.
-    if args.new == "done":
-        block = story_done_gate.merged_block(args.smm_dir, str(args.cwd), args.story_id)
-        if block is not None:
-            print(f"Refusing to mark {args.story_id} done: {block}", file=sys.stderr)
-            return 2
+    reason = getattr(args, "force_unmerged", None)
+    rc = _merge_gate(args.smm_dir, str(args.cwd), args.story_id, args.new, reason, 2)
+    if rc is not None:
+        return rc
 
     try:
         ok = store.update_story_status_if(
