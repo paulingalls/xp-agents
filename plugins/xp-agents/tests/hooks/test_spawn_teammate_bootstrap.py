@@ -234,5 +234,57 @@ class TestChildEnvSmmDirIsResolved(_BootstrapTestCase):
         self.assertEqual(Path(seen), self.smm_dir.resolve())
 
 
+class TestMainProvisionsTheWorktree(_BootstrapTestCase):
+    """The production wiring: a real `spawn_teammate` run must bootstrap.
+
+    Every other test here calls create_worktree DIRECTLY, passing smm_dir by
+    hand. main() is the only caller that passes it in production, so nothing
+    pinned that it still does: dropping `smm_dir=` from main()'s call makes
+    the feature inert in production — no bootstrap ever runs — while the
+    whole suite stays green. This drives main() end-to-end and asserts the
+    bootstrap's EFFECT, so the wiring cannot rot silently.
+    """
+
+    def test_spawning_a_teammate_runs_the_declared_bootstrap(self):
+        import contextlib
+        import tempfile
+        from unittest.mock import patch
+
+        import worktree
+
+        self.declare_bootstrap("echo provisioned > generated.txt")
+        name = "worktree-story-bootstrap"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        try:
+            # main() worktrees off os.getcwd(); the fixture repo is tmpdir.
+            with (
+                contextlib.chdir(self.tmpdir),
+                patch.object(spawn_teammate, "run_with_tee"),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        name,
+                        "--smm-dir",
+                        str(self.smm_dir),
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        artifact = worktree.worktree_path(name, str(self.tmpdir)) / "generated.txt"
+        self.assertTrue(
+            artifact.is_file(),
+            "spawn must thread its SMM dir into create_worktree — without it "
+            "no declared bootstrap ever runs and the feature is inert",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
