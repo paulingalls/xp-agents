@@ -65,6 +65,46 @@ def staged_blob_bytes(root: str, path: str) -> bytes | None:
     return proc.stdout
 
 
+def _unstatted(root: str, paths: list[str]) -> set[str]:
+    """Which of `paths` carry an index bit telling git NOT to stat them.
+
+    `assume-unchanged` and `skip-worktree` both mean "stop comparing this file
+    against the working tree", and `git diff` honours them by saying nothing —
+    so a file whose index and disk contents genuinely differ is not NAMED as
+    divergent, and `_divergent_from_index` would call it identical. That is a
+    fail-open exactly where the gate is supposed to be strongest, reached by an
+    ordinary `git update-index` rather than anything exotic.
+
+    `git ls-files -v` reports the bit directly: `H` is an ordinary cached entry;
+    a lowercase tag is assume-unchanged, `S` is skip-worktree. Anything that is
+    not `H` is a file git has been told not to look at, so we look ourselves.
+
+    ONE process for the whole staged set, which is what lets the batched design
+    survive the fix. Read failures name nothing and let `git diff` answer alone:
+    the two guards are independent, and one that cannot run must not veto the
+    other.
+    """
+    if not paths:
+        return set()
+    proc = _git_run(
+        ["git", "ls-files", "-v", "-z", "--", *paths],
+        cwd=root,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        return set()
+    unstatted: set[str] = set()
+    for entry in proc.stdout.decode("utf-8", errors="replace").split("\0"):
+        # `<tag><space><path>` — the tag is one character, and the path may
+        # itself contain spaces, so split ONCE and never strip.
+        if not entry or len(entry) < 2:
+            continue
+        tag, path = entry[0], entry[2:]
+        if tag != "H" and path:
+            unstatted.add(path)
+    return unstatted
+
+
 def _divergent_from_index(root: str, paths: list[str]) -> set[str]:
     """Which of `paths` hold different bytes in the working tree than in the index.
 
@@ -79,6 +119,11 @@ def _divergent_from_index(root: str, paths: list[str]) -> set[str]:
     files as divergent and quietly send every one of them down the slow path. git
     applies the same filters it committed them through; it is the only thing that
     can answer this correctly.
+
+    But git's answer here is STAT-FIRST, and two index bits switch the stat off
+    (`_unstatted`): for those paths git reports nothing and means "you told me not
+    to look", which is not the same claim as "identical". Those are folded in as
+    divergent — the direction that stays correct.
 
     A git read we could not make is answered "divergent" for every path: that is
     the direction that stays CORRECT (the staged bytes are linted either way), it
@@ -98,7 +143,7 @@ def _divergent_from_index(root: str, paths: list[str]) -> set[str]:
     if proc.returncode != 0:
         return set(paths)
     named = proc.stdout.decode("utf-8", errors="replace").split("\0")
-    return {p for p in named if p}
+    return {p for p in named if p} | _unstatted(root, paths)
 
 
 def _record(

@@ -1505,6 +1505,52 @@ class TestStagedDeletionSkipsOnIndexMembership(_StagedGitRepo):
 
 
 @unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
+class TestGateSeesPastTheIndexsDoNotLookBits(_StagedGitRepo):
+    """`git diff` is stat-first, and two index bits switch the stat off.
+
+    `assume-unchanged` and `skip-worktree` both tell git to stop comparing a
+    file against the working tree -- so `git diff --name-only` does not NAME a
+    file whose index and disk contents genuinely differ, and the gate routes it
+    to the in-place branch and lints the wrong bytes. Delegating the question to
+    git is right (only git applies the project's own clean/smudge and eol
+    filters, which raw bytes would read as spurious divergence); trusting a
+    stat-first answer for files git has been told not to stat is not.
+
+    `git ls-files -v` reports those bits directly, for the whole staged set in
+    one process, so the cheap batched design is kept and the hole is closed.
+    """
+
+    def _stage_violation_then_clean_disk_with(self, bit: str) -> None:
+        target = self.repo / "app.py"
+        target.write_text("import os\n")  # F401, the bytes the commit carries
+        self._git("add", "app.py")
+        self._git("update-index", bit, "app.py")
+        target.write_text("x = 1\n")  # disk is clean; git has been told not to look
+
+    def test_assume_unchanged_still_lints_the_staged_bytes(self) -> None:
+        self._stage_violation_then_clean_disk_with("--assume-unchanged")
+
+        with self.assertRaises(_common.BlockedError) as ctx:
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        self.assertIn("F401", str(ctx.exception))
+
+    def test_skip_worktree_still_lints_the_staged_bytes(self) -> None:
+        self._stage_violation_then_clean_disk_with("--skip-worktree")
+
+        with self.assertRaises(_common.BlockedError) as ctx:
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        self.assertIn("F401", str(ctx.exception))
+
+    def test_an_ordinary_clean_file_is_unaffected(self) -> None:
+        """The guard must not sweep every file onto the slow path."""
+        (self.repo / "app.py").write_text("x = 1\n")
+        self._git("add", "app.py")
+
+        self.assertEqual(staged_lint.staged_lint_gate(["app.py"], str(self.repo)), [])
+
+
 class TestGateBlocksOnRealStagedBytes(_StagedGitRepo):
     """End-to-end against the REAL ruff, the whole point of the story."""
 
