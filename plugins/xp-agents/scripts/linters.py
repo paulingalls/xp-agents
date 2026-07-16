@@ -164,6 +164,49 @@ LINTER_ARGV_SHAPES: dict[str, str] = {
 }
 
 
+# COLUMN: stdin shape. HOW this CLI is handed source text on stdin while still being
+# told which PATH that text belongs to — or that it cannot be, which is the default.
+#
+# The commit gate must judge the bytes in the INDEX, and those bytes are not always the
+# bytes on disk. Writing them to a temp copy is what the gate used to do, and every
+# copy breaks something: a temp SIBLING (random basename) defeats filename-keyed rules;
+# a temp SUBDIR keeps the basename but moves the file one level DOWN, so every
+# path-relative resolution the source does — `./util`, `../lib/x` — resolves to a path
+# that does not exist. Both properties hold only at the real path, and stdin is how a
+# linter reads bytes that are not there.
+#
+# A SHAPE, not a bool: the argv forms genuinely differ, so a caller handed `True` could
+# not build the command. ruff wants a trailing positional `-` (its path argument is what
+# selects stdin, and `--stdin-filename` only labels it); eslint wants a `--stdin` flag
+# and NO positional; prettier reads piped stdin implicitly and names the path with a
+# differently-spelled flag of its own.
+#
+# STRUCTURAL, by the same mechanical test as the columns above: could someone fill a
+# row in by reading the tool's `--help`, without knowing one rule name of that language?
+# Yes — each form below is quoted from its own `--help` synopsis (verified against ruff
+# 0.15, eslint v10, prettier 3). A rule-code map is the leak; a flag spelling is not.
+#
+# Absent rows answer NO_STDIN, and that default is the SAFE direction, not an oversight:
+# a linter nobody has filled in is DEGRADED to an advisory rather than invoked with an
+# argv it never agreed to. A forgotten column that silently mis-invokes is the failure
+# this default exists to prevent — the caller loses coverage on that row and says so,
+# instead of reporting a file clean it never read.
+# `--stdin-filename X -` (the trailing `-` is the path arg, and it selects stdin)
+STDIN_FILENAME_TRAILING_DASH = "stdin_filename_trailing_dash"
+# `--stdin --stdin-filename X`, no positional
+STDIN_FLAG_AND_FILENAME = "stdin_flag_and_filename"
+# `--stdin-filepath X`, piped stdin read implicitly
+STDIN_FILEPATH = "stdin_filepath"
+# the default: this CLI reads no source on stdin
+NO_STDIN = "no_stdin"
+
+LINTER_STDIN_SHAPES: dict[str, str] = {
+    "ruff": STDIN_FILENAME_TRAILING_DASH,
+    "eslint": STDIN_FLAG_AND_FILENAME,
+    "prettier": STDIN_FILEPATH,
+}
+
+
 # COLUMN: config flag. How this CLI is TOLD which config to use.
 #
 # checkstyle has no convention for finding its own config — it needs `-c`. The shipped

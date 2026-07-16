@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import lint_check
+import linters
 import staged_lint
 from conftest import (
     _HookTestCase,
@@ -780,6 +781,50 @@ class TestRunLinterBatch(_HookTestCase):
 # copy, so under partial-add / edit-after-add the gate failed OPEN. Fix:
 # materialize each staged blob to an in-dir temp sibling and lint THAT.
 # ===========================================================================
+
+
+class TestLinterStdinShapes(unittest.TestCase):
+    """The stdin column: HOW (and whether) a linter accepts source on stdin.
+
+    A shape, not a bool — the three forms genuinely differ in argv, so a bool
+    could not tell the caller what to build. Absent rows answer NO_STDIN, so a
+    linter nobody filled in degrades (advisory) rather than being mis-invoked.
+    """
+
+    def test_ruff_takes_a_trailing_dash(self):
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("ruff"),
+            linters.STDIN_FILENAME_TRAILING_DASH,
+        )
+
+    def test_eslint_takes_a_stdin_flag_and_no_positional(self):
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("eslint"),
+            linters.STDIN_FLAG_AND_FILENAME,
+        )
+
+    def test_prettier_names_the_path_with_its_own_flag(self):
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("prettier"),
+            linters.STDIN_FILEPATH,
+        )
+
+    def test_absent_row_defaults_to_no_stdin(self):
+        """The default is the SAFE direction: a linter with no row cannot be
+        fed stdin, so the caller degrades to an advisory instead of inventing
+        an argv the tool would reject. A forgotten column must not
+        mis-invoke."""
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("clang-tidy", linters.NO_STDIN),
+            linters.NO_STDIN,
+        )
+        self.assertNotIn("clang-tidy", linters.LINTER_STDIN_SHAPES)
+
+    def test_every_row_names_a_linter_that_exists(self):
+        """A row for a linter the registry cannot invoke is dead data — it
+        would never be reached, and reads as coverage that is not there."""
+        for name in linters.LINTER_STDIN_SHAPES:
+            self.assertIn(name, linters.LINTER_COMMANDS, f"{name} has no command")
 
 
 class _StagedGitRepo(unittest.TestCase):
