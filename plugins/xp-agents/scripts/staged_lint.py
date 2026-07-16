@@ -353,9 +353,17 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
             continue
 
         for path in staged_only:
+            # Labelled with the PATH, which this branch is the only one that can
+            # do — it runs one file per invocation, so it knows. It has to: a
+            # linter told the path on stdin is not obliged to REPEAT it, and one
+            # does not (MEASURED: prettier 3 `--check --stdin-filepath x.js`
+            # prints `(stdin)`). An unlabelled finding is one the agent cannot
+            # locate — the same self-obscuring report the temp copies produced,
+            # arriving by a different door. Labelling is not reading: the
+            # linter's own words still pass through untouched.
             _record(
                 _lint_staged_bytes(linter_name, config_path, root, path, deadline),
-                linter_name,
+                f"{linter_name} ({path}, staged bytes)",
                 findings,
                 unverified,
             )

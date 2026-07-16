@@ -837,6 +837,60 @@ class TestLinterStdinShapes(unittest.TestCase):
             self.assertIn(name, linters.LINTER_COMMANDS, f"{name} has no command")
 
 
+class TestTheColumnsAgreeOnWhoTheLintersAre(unittest.TestCase):
+    """Every linter-keyed column keys the SAME linters — no orphan rows.
+
+    The registry is a sparse matrix: one dict per COLUMN, ~18 linters, most cells
+    empty. That shape is deliberate (a record per linter would force every row to
+    answer every column, and the columns' rationale — why each is structural and
+    not a rule-code map — is what keeps the cross-language guardrail honest). The
+    cost it carries is DESYNC: a typo'd or renamed key is a row that silently
+    never fires, and the gate then reports coverage it does not have.
+
+    So the count of columns is not the risk; an unguarded column is. This pins
+    every one of them at once, and a new column joins by being added to the list.
+    """
+
+    def _columns(self) -> dict[str, dict]:
+        return {
+            name: getattr(linters, name)
+            for name in (
+                "LINTER_STRICT_FLAGS",
+                "LINTER_ARGV_SHAPES",
+                "LINTER_STDIN_SHAPES",
+                "LINTER_CONFIG_FLAGS",
+                "LINTER_PRECONDITIONS",
+                "DEGRADED_LINTERS",
+                "LINTER_EXTENSIONS",
+                "LINTER_BINARIES",
+            )
+        }
+
+    def test_no_column_carries_a_row_for_an_uninvokable_linter(self):
+        for column, table in self._columns().items():
+            with self.subTest(column=column):
+                orphans = set(table) - set(linters.LINTER_COMMANDS)
+                self.assertEqual(
+                    orphans, set(), f"{column} keys linters with no command: {orphans}"
+                )
+
+    def test_every_linter_a_config_can_select_can_be_invoked(self):
+        """detect_linter_config answers off LINTER_CONFIGS; a name it can return
+        that LINTER_COMMANDS does not carry is a KeyError at commit time — in a
+        PreToolUse hook that is exit 1, which the harness reads as NON-blocking:
+        the gate fails OPEN."""
+        selectable = {linter for _, linter, _ in linters.LINTER_CONFIGS}
+        self.assertEqual(selectable - set(linters.LINTER_COMMANDS), set())
+
+    def test_every_invokable_linter_can_be_found_on_path(self):
+        """`LINTER_BINARIES` is what every runner probes with `shutil.which`
+        before running. A command with no binary row probes None and reports
+        `unverified` — a block nobody can fix — for that whole ecosystem."""
+        self.assertEqual(
+            set(linters.LINTER_COMMANDS) - set(linters.LINTER_BINARIES), set()
+        )
+
+
 class _StagedGitRepo(unittest.TestCase):
     """A real git repo the staged-lint gate can resolve a root + index from."""
 
@@ -950,6 +1004,39 @@ class TestBranchBFeedsStagedBytesOnStdin(_LinterCallRecorder):
             calls[0]["kwargs"].get("input"), b"# \xff\xfe not utf-8\nx = 1\n"
         )
 
+    def _run_gate_with_bytes(self, paths: list[str], *, stdout: bytes, code: int):
+        """Branch B runs the linter in BINARY mode, so its stdout is bytes —
+        `_mock_ruff_result` is typed for the text-mode callers."""
+        real_run = subprocess.run
+
+        def _capture(cmd, **kwargs):
+            if cmd and cmd[0] == "git":
+                return real_run(cmd, **kwargs)
+            return type(
+                "R", (), {"returncode": code, "stdout": stdout, "stderr": b""}
+            )()
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run", side_effect=_capture),
+        ):
+            return staged_lint.staged_lint_gate(paths, str(self.repo))
+
+    def test_findings_name_the_file_even_when_the_linter_will_not(self) -> None:
+        """A linter fed stdin may name its input `(stdin)` instead of the path it
+        was told — MEASURED: prettier 3 `--check --stdin-filepath x.js` prints
+        exactly `(stdin)` and exits 1. Branch B is per-file, so the gate KNOWS
+        which file the run was for, and must say so: a finding the agent cannot
+        locate is this story's own scar (a report against a path that is not the
+        file). The gate never reads the linter's words — it only labels them."""
+        self._stage_then_dirty()
+
+        with self.assertRaises(_common.BlockedError) as ctx:
+            self._run_gate_with_bytes(["app.py"], stdout=b"(stdin)\n", code=1)
+
+        self.assertIn("app.py", ctx.exception.args[0])
+        self.assertIn("(stdin)", ctx.exception.args[0], "the linter's own words")
+
     def test_linter_output_is_decoded_leniently(self) -> None:
         """The linter's own bytes are not guaranteed UTF-8 either (it echoes the
         source line it flagged). Findings must survive a bad byte, not raise."""
@@ -980,6 +1067,31 @@ class TestBranchBFeedsStagedBytesOnStdin(_LinterCallRecorder):
             staged_lint.staged_lint_gate(["app.py"], str(self.repo))
 
         self.assertIn("F401", ctx.exception.args[0])
+
+    def test_a_spent_budget_says_what_to_do_about_it(self) -> None:
+        """This branch costs a process per file, so a commit with many divergent
+        files can spend the shared budget — and a spent budget BLOCKS.
+
+        Normally that is the one `unverified` cause nobody can act on: you cannot
+        make a linter faster. Here they can, and the message has to say so. The
+        file is only on this expensive path because its staged bytes differ from
+        the file on disk; re-staging it stops the divergence and routes it back
+        through the shared batch. An unfixable gate gets switched off — which is
+        the one outcome worse than a quiet one.
+        """
+        run = lint_check.run_linter_stdin(
+            "ruff",
+            "app.py",
+            b"x = 1\n",
+            cwd=str(self.repo),
+            budget_s=0,
+            root=str(self.repo),
+        )
+
+        self.assertEqual(run.status, "unverified", "a spent budget is not a pass")
+        self.assertIn(
+            "git add app.py", run.output, "name the remedy, not just the cause"
+        )
 
 
 class TestBranchCDegradesWhenStdinIsNotAnOption(_StagedGitRepo):
@@ -1168,6 +1280,33 @@ class TestIgnoredFileDoesNotBlock(unittest.TestCase):
         argv = linters.linter_argv("ruff", ["app.py"], root="/repo") or []
         self.assertNotIn("--no-warn-ignored", argv)
 
+    def test_the_stdin_branch_carries_it_too(self):
+        """AC4 holds on BOTH branches or it does not hold. The docstring says
+        MEASURED on both, and an ignored file exits 1 via `--stdin-filename`
+        exactly as it does by path — so a divergent ignored file would block
+        unfixably if only the in-place branch were fixed. `_argv_prefix` is
+        shared to make that impossible; this is the test that says so."""
+        argv = (
+            linters.linter_stdin_argv(
+                "eslint",
+                "app.js",
+                root="/repo",
+                config_path="/repo/eslint.config.js",
+            )
+            or []
+        )
+        self.assertIn("--no-warn-ignored", argv)
+        self.assertIn("--max-warnings=0", argv)
+
+    def test_the_stdin_branch_withholds_it_from_eslintrc_too(self):
+        argv = (
+            linters.linter_stdin_argv(
+                "eslint", "app.js", root="/repo", config_path="/repo/.eslintrc.json"
+            )
+            or []
+        )
+        self.assertNotIn("--no-warn-ignored", argv)
+
 
 # TestMaterializeIsLanguageBlind and TestMaterializeCreatesMissingParentDir stood
 # here. Both tested `_materialize_staged` directly, which no longer exists — the
@@ -1240,8 +1379,12 @@ class TestGateBlocksOnRealStagedBytes(_StagedGitRepo):
             staged_lint.staged_lint_gate(["app.py"], str(self.repo))
 
     def test_block_message_names_the_real_file_not_the_temp(self) -> None:
-        """The finding must name `app.py`, not the unlinked temp sibling — the
-        agent is told to fix it, so the path it reads must be one that exists."""
+        """The finding must name `app.py` and no path but `app.py` — the agent is
+        told to fix it, so the path it reads must be one that exists.
+
+        The copy this once guarded against is gone, and the guard stays: it pins
+        the PROPERTY (a block names a real path), not the mechanism. Both prior
+        designs satisfied their own mechanism and broke this."""
         target = self.repo / "app.py"
         target.write_text("import os\n")  # F401
         self._git("add", "app.py")
@@ -1269,8 +1412,12 @@ class TestGateBlocksOnRealStagedBytes(_StagedGitRepo):
         )
 
     def test_no_temp_files_left_behind(self) -> None:
-        """The materialized siblings must not survive the gate — a crash-safe
-        finally cleans them, and a clean run must too."""
+        """The gate must leave the working tree exactly as it found it.
+
+        There is no copy to clean up any more, so this no longer guards a
+        cleanup path — it guards the INVARIANT that replaced it: a gate that
+        writes nothing cannot strand anything. It fails the moment someone
+        reaches for a temp copy again, which is the third time this would be."""
         target = self.repo / "app.py"
         target.write_text("x = 1\n")
         self._git("add", "app.py")
@@ -1288,10 +1435,13 @@ class TestGateBlocksOnRealStagedBytes(_StagedGitRepo):
 @unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
 class TestGatePreservesFilenameKeyedRules(_StagedGitRepo):
     """A linter rule keyed on the EXACT basename (ruff `per-file-ignores`,
-    eslint filename globs, `__init__.py`/`conftest.py` special-cases) must still
-    match the materialized file. A random temp NAME defeats those rules and turns
-    a legitimate commit into a FALSE-POSITIVE block — the inverse of the
-    documented fail-open. Materialization preserves the basename, so it matches.
+    eslint filename globs, `__init__.py`/`conftest.py` special-cases) must match
+    the file the gate lints. A random temp NAME defeats those rules and turns a
+    legitimate commit into a FALSE-POSITIVE block — the inverse of the documented
+    fail-open, and the reason the temp SIBLING design was abandoned.
+
+    The basename is now exact because the path is the real one, on every branch:
+    linted in place, or piped and named with `--stdin-filename`.
     """
 
     def test_per_file_ignore_by_exact_basename_still_applies(self) -> None:

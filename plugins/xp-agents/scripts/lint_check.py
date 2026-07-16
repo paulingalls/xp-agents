@@ -390,10 +390,21 @@ def run_linter_stdin(
     if budget_s is not None:
         timeout = min(timeout, budget_s)
         if timeout <= 0:
+            # Says what to DO about it, because unusually there IS something.
+            # A spent budget normally names a cause the committer cannot act on
+            # (nobody can make golangci-lint faster). This one they can: the file
+            # is only on this per-file path because its staged bytes differ from
+            # the file on disk. Re-stage it and it stops differing, which routes
+            # it back through the batched path — N files, one process. An
+            # unfixable gate gets switched off; a fixable one gets fixed.
             return LintRun(
                 "unverified",
                 f"{linter_name}: the commit gate's {BATCH_TIMEOUT_CAP_S:g}s lint "
-                f"budget was spent by earlier linters — this one never ran",
+                f"budget was already spent when {path} came up — it was never "
+                f"linted. Its staged bytes differ from the working tree, which "
+                f"is why it costs a process of its own; `git add {path}` (if the "
+                f"working-tree copy is what you meant to commit) lets it lint in "
+                f"the shared batch instead",
             )
     try:
         proc = subprocess.run(
