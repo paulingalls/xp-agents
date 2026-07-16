@@ -2,6 +2,62 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.12.0 — The lint gate stops lying about your files; mark-done honesty at engine altitude
+
+**If the commit-lint gate has ever blocked you with an unresolved-import error against a
+file that was provably clean, this is that bug.** The gate copied each staged file into a
+temp subdir of its own directory before linting it — `pkg/app.ts` became
+`pkg/tmpXXXX/app.ts` — which shifted every path-relative resolution down one level. `./util`
+and `../lib/x` resolved to nothing. Worse, it was self-obscuring: the temp segment was
+stripped from the linter's output and the directory deleted, so you saw a finding against a
+real path, naming a module that visibly exists, with no trace of the cause. One user's agent
+burned ~131 turns on it; one of their test files became un-editable by anyone, and the
+workaround they adopted widened two real safety guards.
+
+**The gate no longer copies a staged file anywhere.** When the index matches the working
+tree — ~99% of commits — it lints the real paths, still batched as one linter process for N
+files. When a file genuinely diverges (partial `git add -p`, edit-after-add) it pipes
+`git show :<path>` to the linter's own `--stdin-filename`, so the linter reads the *staged*
+bytes while resolving as if at the real path. Both properties at once, which is what the
+temp copy was trying and failing to achieve. Linters without a stdin mode (clang-tidy)
+degrade to an advisory rather than block.
+
+This also closes a fail-open the old design existed to fix — staging a violation and then
+fixing it on disk without re-staging still blocks, because that case *is* divergence and
+routes to stdin. 120 lines of materialization machinery are gone, along with the
+`precondition_paths` indirection it forced, a `_cleanup_temps` that would `rmtree` a real
+source directory if handed one, and a `_relabel_temps` doing blind global string surgery on
+linter output.
+
+**Ignored files stop blocking.** Now that files are judged at their real path, a project's
+eslint ignore pattern actually matches — and `--max-warnings=0` turned that ignore *warning*
+into a blocking error. `--no-warn-ignored` is keyed on the config **filename**, not the
+linter name: it is flat-config only, and keying it on the name would have made every
+`.eslintrc` project exit 2 on every commit.
+
+**The merge proof moved below the shell.** The Bash gate reads literal command text, so
+`update-story "$SID" done` slipped past every regex — the hook never sees the variable's
+value. `story_done_gate.py` now lives in `smm/` and the same git-derived proof runs in the
+engine handlers, where every writer of `status` converges. Same proof, one layer down.
+
+**A recovery hatch that costs something.** `update-story-if ... --force-unmerged "<reason>"`
+is the only way past the gate, and it records a debt event *before* the status write — a
+bypass nobody can see is the silent mark-done this gate exists to stop. An empty reason is
+refused.
+
+**Raw `git branch -d/-D` of an unmerged story branch is refused.** Branch absence is what
+the mark-done gate reads as proof the merge landed; deleting one by hand would let it read a
+merge that never happened.
+
+**Teammate worktrees can bootstrap themselves.** `git worktree add` materializes only tracked
+files, so everything gitignored — `node_modules`, generated types, `.env` — is absent. That
+doesn't merely fail loudly: on one user's project a bare worktree *falsely passed*, because
+missing generated types made a type augmentation permissive and any string compiled. Set
+`stack.worktree_bootstrap` in `system_context.json` to a script your repo already has, and
+it runs in each new worktree before the teammate's first turn. It is an opaque command by
+design — your script knows which artifacts are shareable and which must be regenerated
+per-checkout; the plugin cannot and should not guess.
+
 ## v4.11.0 — Mark-done honesty: branch deletion proves merge
 
 First milestone of a new backlog-paydown plan (M6): **a deleted branch now honestly
