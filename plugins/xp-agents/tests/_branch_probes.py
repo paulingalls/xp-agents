@@ -15,13 +15,20 @@ every name below by identity.
 import subprocess
 
 
-def get_current_branch(cwd: str) -> str:
-    """Return the current branch name (HEAD short ref)."""
+def get_current_branch(cwd: str, *, check: bool = False) -> str:
+    """Return the current branch name (HEAD short ref) at ``cwd``.
+
+    ``check=False`` (default) degrades to "" when git cannot answer (cwd is
+    not a repo, git broken). ``check=True`` raises instead — use it when a
+    silent "" would make an assertion vacuous rather than fail it. That arm
+    is what :func:`get_current_branch_at` selects.
+    """
     return subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=cwd,
         capture_output=True,
         text=True,
+        check=check,
     ).stdout.strip()
 
 
@@ -61,19 +68,16 @@ def git_log_oneline_at(cwd: str, branch: str) -> str:
 
 
 def get_current_branch_at(cwd) -> str:
-    """Run `git rev-parse --abbrev-ref HEAD` at ``cwd``. Single-source-of-
-    truth for tests that need the orchestrator's (or a worktree's) HEAD
-    branch — replaces inline `_orchestrator_branch` helpers previously
-    duplicated across TestStoryClosePreloadTeammateDetection and
-    TestM2TeammateAcceptFlow.
+    """The fail-loud arm of :func:`get_current_branch`, for tests that need the
+    orchestrator's (or a worktree's) HEAD branch — replaces inline
+    `_orchestrator_branch` helpers previously duplicated across
+    TestStoryClosePreloadTeammateDetection and TestM2TeammateAcceptFlow.
+
+    Kept as a named alias rather than folded into its 18 call sites: the name
+    marks "a silent '' here would be a vacuous pass", which `check=True` at the
+    call site would not.
     """
-    return subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    return get_current_branch(cwd, check=True)
 
 
 def make_branch(cwd: str, name: str) -> None:

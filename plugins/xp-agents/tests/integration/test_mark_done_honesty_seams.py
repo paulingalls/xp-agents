@@ -142,8 +142,13 @@ class TestMarkDoneHonestySeamsCompose(_IntegrationTestCase):
         )
 
         # Route 2 (seam 1, shell altitude): mark done with a literal id.
+        # Pin the merge-gate text, not a bare exit 2: the mark-done path has a
+        # SECOND exit-2 arm (the ACCEPT-marker gate) that fires on this same
+        # command shape and would satisfy a returncode-only assertion while
+        # proving nothing about the merge gate under test.
         literal = self._hook(self._mark_done_cmd(_STORY_ID))
-        self.assertEqual(literal.returncode, 2, literal.stdout)
+        self.assertEqual(literal.returncode, 2, literal.stderr)
+        self.assertIn(_GATE_REFUSAL, literal.stderr)
 
         # Route 3 (seam 1, the evasion): hide the id behind a shell variable.
         # The hook reads literal command text, so it CANNOT resolve $SID and
