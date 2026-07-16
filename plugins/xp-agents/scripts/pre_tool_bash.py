@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import branch_resolution
 import branching
 import commits
 import concerns
@@ -225,6 +226,70 @@ def _verify_touch_nudge(
 
 
 # ---------------------------------------------------------------------------
+# Unmerged story-branch delete refusal
+# ---------------------------------------------------------------------------
+# story_done_gate.merged_block trusts branch ABSENCE as proof of merge; a raw
+# `git branch -D <story-branch>` deletes an unmerged one, flipping that proof.
+# Catch the LITERAL case, NO-OP on anything ambiguous (e.g. a shell var).
+# Reimplemented locally, not imported -- story_done_gate's segment split is
+# private to a module a parallel story is moving.
+
+_BRANCH_DELETE_SEGMENT_RE = re.compile(r"&&|\|\||;|(?<!\\)\n")
+_GIT_BRANCH_CMD_RE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?branch\s+(.*)")
+# `-d`/`-D`/`--delete`, incl. clusters like `-Df` (no other short flag uses d/D).
+_DELETE_FLAG_RE = re.compile(r"^(?:--delete|-[A-Za-z]*[dD][A-Za-z]*)$")
+_SHELL_QUOTE_CHARS = "'\""
+
+
+def _candidate_story_branch_delete_tokens(command: str) -> list[str]:
+    """Story-branch tokens named by a literal `git branch -d/-D/--delete`."""
+    tokens: list[str] = []
+    for segment in _BRANCH_DELETE_SEGMENT_RE.split(command):
+        match = _GIT_BRANCH_CMD_RE.search(segment)
+        if not match:
+            continue
+        args = match.group(1).split()
+        if not any(_DELETE_FLAG_RE.match(arg) for arg in args):
+            continue
+        for arg in args:
+            if not arg.startswith("-"):
+                token = arg.strip(_SHELL_QUOTE_CHARS)
+                if identity.extract_story_id(token):
+                    tokens.append(token)
+    return tokens
+
+
+def _unmerged_story_branch_delete_block(
+    smm_dir: Path, cwd: str, command: str
+) -> str | None:
+    """Reason to refuse a recognized story-branch delete, or None to allow.
+    Fails CLOSED once a delete is recognized and the base is unresolvable."""
+    branches = _candidate_story_branch_delete_tokens(command)
+    if not branches:
+        return None
+    base = branch_resolution.resolve_story_base(smm_dir, cwd)
+    if base is None:
+        return (
+            f"Refusing to delete {', '.join(branches)}: the story base "
+            "branch cannot be honestly resolved, so whether it is merged "
+            "is unknowable. Use `delete_branch` (branching.py) or "
+            "/xp-story-close, which prove the merge before deleting."
+        )
+    for branch in branches:
+        if not branch_resolution.branch_exists(cwd, branch):
+            continue
+        if branching.is_merged_into(cwd, branch, base):
+            continue
+        return (
+            f"Refusing to delete {branch}: it is not merged into {base}. "
+            "Deleting it by hand would let the mark-done gate read its "
+            "absence as proof of a merge that never landed. Use "
+            "`delete_branch` (branching.py) or /xp-story-close instead."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main run function
 # ---------------------------------------------------------------------------
 
@@ -374,6 +439,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     f"Refusing to mark {story_id} done: {block}",
                     "Merge not verified — the story's work is not on its base branch.",
                 )
+
+    if smm_dir is not None:
+        delete_block = _unmerged_story_branch_delete_block(smm_dir, cwd, command)
+        if delete_block:
+            raise _common.BlockedError(
+                delete_block,
+                "Unmerged story-branch delete refused — absence must imply merged.",
+            )
 
     if smm_dir is not None:
         args = _common.parse_append_sh_args(command)
