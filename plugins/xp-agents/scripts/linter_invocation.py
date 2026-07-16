@@ -16,6 +16,10 @@ the same function.
 import json
 from pathlib import Path
 
+# Imported as a MODULE as well as by name, and the alias is load-bearing: a `match`
+# case treats a bare name as a capture pattern (it would bind, and match anything),
+# so every shape constant compared below has to be reached through a dotted name.
+import linters as _linters
 from linters import (
     CONFIG_STYLE_FLAGS,
     DEGRADED_LINTERS,
@@ -23,8 +27,10 @@ from linters import (
     LINTER_COMMANDS,
     LINTER_CONFIG_FLAGS,
     LINTER_PRECONDITIONS,
+    LINTER_STDIN_SHAPES,
     LINTER_STRICT_FLAGS,
     NO_PER_FILE_ARGV,
+    NO_STDIN,
     PATHS_BEFORE_SEPARATOR,
     SEPARATOR_BEFORE_PATHS,
 )
@@ -58,6 +64,32 @@ def _config_style_flags(config_path: str | None) -> list[str]:
     if not config_path:
         return []
     return CONFIG_STYLE_FLAGS.get(Path(config_path).name, [])
+
+
+def _argv_prefix(linter_name: str, config_path: str | None) -> list[str] | None:
+    """Everything before the paths: command, strictness, config, config-style flags.
+
+    Shared by `linter_argv` and `linter_stdin_argv` so the two cannot disagree about
+    how the linter is configured. Only WHERE the source comes from differs between
+    them, and that is the only thing they should decide separately.
+
+    None means "must not run here": a config-required linter with no config would
+    otherwise run against its built-in default — a different project's rules, read
+    back as either findings or clean. Both are lies.
+    """
+    argv = list(linter_command(linter_name))
+
+    config_flag = LINTER_CONFIG_FLAGS.get(linter_name)
+    if config_flag is not None:
+        if not config_path:
+            return None
+        argv += [*config_flag, config_path]
+
+    # Composed HERE, beside the strictness flags, because it only exists to answer
+    # them: `--max-warnings=0` is what turns eslint's ignored-file warning into a
+    # block. Pin strictness in one place and its antidote in another, and a caller
+    # gets the block back. See CONFIG_STYLE_FLAGS.
+    return argv + _config_style_flags(config_path)
 
 
 def _compile_db_covers(root: str, paths: list[str], base: str) -> bool:
@@ -198,26 +230,68 @@ def linter_argv(
     if shape == NO_PER_FILE_ARGV:
         return None
 
-    argv = list(linter_command(linter_name))
-
-    config_flag = LINTER_CONFIG_FLAGS.get(linter_name)
-    if config_flag is not None:
-        if not config_path:
-            # A config-required linter with no config would run against its built-in
-            # default — which is a different project's rules, and reads back as either
-            # findings or clean. Both are lies. Refuse to build the argv.
-            return None
-        argv += [*config_flag, config_path]
-
-    # Composed HERE, beside the strictness flags, because it only exists to answer
-    # them: `--max-warnings=0` is what turns eslint's ignored-file warning into a
-    # block. Pin strictness in one place and its antidote in another, and a caller
-    # gets the block back. See CONFIG_STYLE_FLAGS.
-    argv += _config_style_flags(config_path)
+    argv = _argv_prefix(linter_name, config_path)
+    if argv is None:
+        return None
 
     if shape == PATHS_BEFORE_SEPARATOR:
         return [*argv, *paths]
     return [*argv, "--", *paths]
+
+
+def linter_stdin_argv(
+    linter_name: str,
+    path: str,
+    *,
+    root: str,
+    config_path: str | None = None,
+    base: str | None = None,
+) -> list[str] | None:
+    """The argv to lint bytes arriving on STDIN *as if* they were `path`.
+
+    The commit gate's answer to the case where the index and the working tree
+    disagree: the bytes to judge are not on disk, and every place we could put them
+    is the wrong place. A temp sibling takes a random basename and defeats
+    filename-keyed rules; a temp subdir keeps the basename but sits one level down,
+    so the file's own `./util` and `../lib/x` resolve to paths that do not exist.
+    Both properties hold only at the real path — so hand the linter the bytes and
+    TELL it the path, and no copy exists at all.
+
+    One path, not many: stdin carries one file. The caller pays that cost only for
+    files that actually diverge.
+
+    Returns None for "we must not do this here", which is NOT a clean result:
+
+      * this CLI reads no source on stdin (LINTER_STDIN_SHAPES has no row) — the
+        default, so a linter nobody filled in lands here rather than being handed
+        an argv it never agreed to;
+      * an unmet precondition, or a config-required linter with no config — the
+        same two refusals `linter_argv` makes, for the same reasons.
+
+    See LINTER_STDIN_SHAPES for why the shape is a shape and not a bool.
+    """
+    shape = LINTER_STDIN_SHAPES.get(linter_name, NO_STDIN)
+    if shape == NO_STDIN:
+        return None
+
+    if not preconditions_met(linter_name, root, [path], base=base):
+        return None
+
+    argv = _argv_prefix(linter_name, config_path)
+    if argv is None:
+        return None
+
+    match shape:
+        case _linters.STDIN_FILENAME_TRAILING_DASH:
+            # The trailing `-` is the PATH argument, and it is what selects stdin;
+            # --stdin-filename only labels the bytes. Drop the `-` and ruff lints
+            # the whole directory instead (its path default is `.`).
+            return [*argv, "--stdin-filename", path, "-"]
+        case _linters.STDIN_FLAG_AND_FILENAME:
+            return [*argv, "--stdin", "--stdin-filename", path]
+        case _linters.STDIN_FILEPATH:
+            return [*argv, "--stdin-filepath", path]
+    return None
 
 
 def degrade_reason(

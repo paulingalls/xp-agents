@@ -4,6 +4,7 @@
 Split from the original test_post_tool.py.
 """
 
+import json
 import os
 import re
 import shutil
@@ -846,52 +847,6 @@ class _StagedGitRepo(unittest.TestCase):
         (self.repo / "ruff.toml").touch()
 
 
-class TestGateMaterializesStagedBytes(_StagedGitRepo):
-    """The linter must be handed the STAGED bytes, not the working-tree copy.
-
-    Deterministic proof with the linter mocked: stage content X, overwrite the
-    working tree with content Y, and assert the file the linter is pointed at
-    holds X — and is a real, readable file it would PROCESS, so a future
-    silent-skip (glob / force-exclude) regression trips here too.
-    """
-
-    def test_linter_reads_staged_bytes_not_working_tree(self) -> None:
-        target = self.repo / "app.py"
-        target.write_text("STAGED_CONTENT = 1\n")
-        self._git("add", "app.py")
-        target.write_text("WORKING_TREE_CONTENT = 2\n")
-
-        seen: dict[str, str] = {}
-        # patch("lint_check.subprocess.run") binds `run` on the shared subprocess
-        # module, so it also intercepts staged_lint's git calls — delegate those
-        # to the real runner and only mock the linter invocation.
-        real_run = subprocess.run
-
-        def _capture(cmd, **kwargs):
-            if cmd and cmd[0] == "git":
-                return real_run(cmd, **kwargs)
-            cwd = kwargs.get("cwd", ".")
-            for arg in cmd:
-                if arg.endswith(".py") and not arg.startswith("-"):
-                    p = Path(cwd) / arg
-                    if p.exists():
-                        seen["content"] = p.read_text()
-            return _mock_ruff_result()  # clean
-
-        with (
-            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
-            patch("lint_check.subprocess.run", side_effect=_capture),
-        ):
-            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
-
-        self.assertEqual(
-            seen.get("content"),
-            "STAGED_CONTENT = 1\n",
-            "the linter must READ the staged bytes off a real file, not the "
-            "working tree and not a skipped/absent path",
-        )
-
-
 class _LinterCallRecorder(_StagedGitRepo):
     """Intercept the LINTER while letting the gate's git reads run for real.
 
@@ -916,6 +871,145 @@ class _LinterCallRecorder(_StagedGitRepo):
         ):
             advisories = staged_lint.staged_lint_gate(paths, str(self.repo))
         return advisories, calls
+
+
+class TestBranchBFeedsStagedBytesOnStdin(_LinterCallRecorder):
+    """Where the index and the tree DIVERGE, the bytes to judge are not on disk.
+
+    They are piped to the linter, which is told the path they belong to — so the
+    file is judged at its REAL location without a copy existing anywhere. This is
+    the case materialization was invented for, and it is why the hybrid beats a
+    fast-path-only design: it fixes that case rather than conceding it.
+
+    Per-file rather than batched, which is the honest cost: stdin carries one
+    file. Divergence is rare (a partial add, an edit-after-add), so the cost is
+    bounded by how rare it is, and the ~99% case stays batched.
+    """
+
+    def _stage_then_dirty(self) -> None:
+        target = self.repo / "app.py"
+        target.write_text("STAGED_CONTENT = 1\n")
+        self._git("add", "app.py")
+        target.write_text("WORKING_TREE_CONTENT = 2\n")
+
+    def test_the_staged_bytes_are_piped_not_the_working_tree(self) -> None:
+        self._stage_then_dirty()
+
+        _advisories, calls = self._run_gate(["app.py"])
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            calls[0]["kwargs"].get("input"),
+            b"STAGED_CONTENT = 1\n",
+            "the linter must be fed the bytes the COMMIT carries",
+        )
+
+    def test_the_linter_is_told_the_real_path_those_bytes_belong_to(self) -> None:
+        """The whole point: no temp file, and the path the linter resolves
+        `./util` and filename-keyed rules against is the real one."""
+        self._stage_then_dirty()
+
+        _advisories, calls = self._run_gate(["app.py"])
+
+        cmd = calls[0]["cmd"]
+        self.assertIn("--stdin-filename", cmd)
+        self.assertEqual(cmd[cmd.index("--stdin-filename") + 1], "app.py")
+        for arg in cmd:
+            self.assertNotIn("tmp", arg, f"a temp path leaked into the argv: {arg}")
+
+    def test_the_bytes_are_piped_as_bytes(self) -> None:
+        """A staged blob may not be UTF-8, so `staged_blob_bytes` hands back raw
+        bytes — which cannot be `input=` to a text-mode process. This branch runs
+        binary and decodes the OUTPUT itself; a text-mode run would raise
+        TypeError on the first non-UTF-8 blob and block a commit unfixably."""
+        self._stage_then_dirty()
+
+        _advisories, calls = self._run_gate(["app.py"])
+
+        self.assertIsInstance(calls[0]["kwargs"].get("input"), bytes)
+        self.assertNotEqual(calls[0]["kwargs"].get("text"), True)
+
+    def test_a_non_utf8_staged_blob_does_not_crash_the_gate(self) -> None:
+        target = self.repo / "app.py"
+        target.write_bytes(b"# \xff\xfe not utf-8\nx = 1\n")
+        self._git("add", "app.py")
+        target.write_bytes(b"y = 2\n")
+
+        _advisories, calls = self._run_gate(["app.py"])
+
+        self.assertEqual(
+            calls[0]["kwargs"].get("input"), b"# \xff\xfe not utf-8\nx = 1\n"
+        )
+
+    def test_linter_output_is_decoded_leniently(self) -> None:
+        """The linter's own bytes are not guaranteed UTF-8 either (it echoes the
+        source line it flagged). Findings must survive a bad byte, not raise."""
+        target = self.repo / "app.py"
+        target.write_text("import os\n")
+        self._git("add", "app.py")
+        target.write_text("x = 1\n")
+
+        real_run = subprocess.run
+
+        # Not _mock_ruff_result: this branch runs the linter in BINARY mode, so
+        # its stdout is bytes, and that fixture is typed for the text-mode
+        # callers. Faking bytes here is the point of the test.
+        def _capture(cmd, **kwargs):
+            if cmd and cmd[0] == "git":
+                return real_run(cmd, **kwargs)
+            return type(
+                "R",
+                (),
+                {"returncode": 1, "stdout": b"app.py:1:1: F401 \xff\n", "stderr": b""},
+            )()
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run", side_effect=_capture),
+            self.assertRaises(_common.BlockedError) as ctx,
+        ):
+            staged_lint.staged_lint_gate(["app.py"], str(self.repo))
+
+        self.assertIn("F401", ctx.exception.args[0])
+
+
+class TestBranchCDegradesWhenStdinIsNotAnOption(_StagedGitRepo):
+    """Divergent bytes + a linter that reads no stdin = a coverage loss we OWN.
+
+    clang-tidy takes no source on stdin, so for a divergent file there is
+    nowhere left to put the staged bytes that does not move the file. Blocking
+    would refuse a commit over bytes we simply could not read, and an
+    unsatisfiable gate gets switched off — the doctrine `degrade_reason` already
+    encodes. So: advise, say why, and let the commit through.
+
+    A narrow, honest loss: divergent C/C++ only. Identical C/C++ files still
+    lint in place on branch A, which is ~99% of commits.
+    """
+
+    def test_divergent_file_for_a_stdin_less_linter_advises_not_blocks(self) -> None:
+        (self.repo / ".clang-tidy").touch()
+        (self.repo / "compile_commands.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "directory": str(self.repo),
+                        "file": str(self.repo / "app.c"),
+                        "command": "cc app.c",
+                    }
+                ]
+            )
+        )
+        target = self.repo / "app.c"
+        target.write_text("int main(void) { return 0; }\n")
+        self._git("add", "app.c")
+        target.write_text("int main(void) { return 1; }\n")  # divergent
+
+        with patch("lint_check.shutil.which", return_value="/usr/bin/clang-tidy"):
+            advisories = staged_lint.staged_lint_gate(["app.c"], str(self.repo))
+
+        self.assertEqual(len(advisories), 1, f"expected one advisory: {advisories}")
+        self.assertIn("clang-tidy", advisories[0])
+        self.assertIn("app.c", advisories[0])
 
 
 class TestBranchALintsTheRealPath(_LinterCallRecorder):

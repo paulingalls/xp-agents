@@ -225,6 +225,26 @@ def _relabel_temps(output: str, temp_paths: list[str]) -> str:
     return output
 
 
+def _record(
+    run: lint_check.LintRun,
+    linter_name: str,
+    findings: list[str],
+    unverified: list[str],
+) -> None:
+    """File one run's outcome under what the caller must DO about it.
+
+    Shared by both branches so they cannot drift: a clean run is silence, findings
+    block and show the linter's own words, and an unverified run blocks too — we
+    could not read it, and a bad read is not a pass. Which branch produced the run
+    is not part of that decision.
+    """
+    match run.status:
+        case "findings":
+            findings.append(f"{linter_name}:\n{run.output}")
+        case "unverified":
+            unverified.append(run.output)
+
+
 def _lint_in_place(
     linter_name: str,
     config_path: str,
@@ -254,6 +274,44 @@ def _lint_in_place(
         [file_arg for _, file_arg in targets],
         cwd=lint_cwd,
         budget_s=budget_s,
+        root=root,
+        config_path=config_path,
+    )
+
+
+def _lint_staged_bytes(
+    linter_name: str,
+    config_path: str,
+    root: str,
+    path: str,
+    deadline: float,
+) -> lint_check.LintRun:
+    """Lint the INDEX's bytes for `path`, which are not the bytes on disk.
+
+    `git show :<path>` piped to the linter, which is told the real path they belong
+    to — so the file is judged where it lives without a copy existing anywhere. This
+    is the case the gate needs most (a partial add, an edit-after-add: exactly the
+    fail-open it was built to close) and the case a copy served worst.
+
+    A blob the index says is there but we cannot read is a bad read → unverified →
+    the caller blocks. Never a silent skip.
+    """
+    blob = staged_blob_bytes(root, path)
+    if blob is None:
+        return lint_check.LintRun(
+            "unverified",
+            f"{linter_name}: could not read staged blob for {path} "
+            f"— refusing to report it clean",
+        )
+    lint_cwd, file_arg = lint_check.lint_invocation_target(
+        config_path, root, str(Path(root) / path)
+    )
+    return lint_check.run_linter_stdin(
+        linter_name,
+        file_arg,
+        blob,
+        cwd=lint_cwd,
+        budget_s=deadline - time.monotonic(),
         root=root,
         config_path=config_path,
     )
@@ -373,77 +431,49 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
         # source does resolve exactly as it will at HEAD.
         in_place = [p for p in paths if p not in divergent]
         if in_place:
-            run = _lint_in_place(
+            _record(
+                _lint_in_place(
+                    linter_name,
+                    config_path,
+                    root,
+                    in_place,
+                    deadline - time.monotonic(),
+                ),
                 linter_name,
-                config_path,
-                root,
-                in_place,
-                deadline - time.monotonic(),
+                findings,
+                unverified,
             )
-            match run.status:
-                case "findings":
-                    findings.append(f"{linter_name}:\n{run.output}")
-                case "unverified":
-                    unverified.append(run.output)
 
-        paths = [p for p in paths if p in divergent]
-        if not paths:
+        staged_only = [p for p in paths if p in divergent]
+        if not staged_only:
             continue
 
-        # Lint the STAGED bytes, not the working-tree copy: materialize each
-        # staged blob to an in-dir temp sibling and point the linter at that. A
-        # bad materialize on a file the index says is present is a bad read →
-        # unverified → block; NEVER a silent skip.
-        temp_paths, created_dirs, error = _materialize_staged(root, paths)
-        if error is not None:
-            unverified.append(f"{linter_name}: {error} — refusing to report it clean")
-            continue
-        try:
-            # Run FROM the config file's directory, with paths relative to it: in
-            # a monorepo the binary lives in that subpackage (`npx eslint`
-            # resolves it by walking up from cwd) and eslint v9 resolves its flat
-            # config relative to cwd. lint_invocation_target owns BOTH halves of
-            # that convention, and we take both from it rather than re-deriving
-            # the cwd here: each file arg is a path relative to the cwd THAT call
-            # chose. The temp sits in the same dir with the same extension as its
-            # source, so the config it resolves is the group's config_path.
-            targets = [
-                lint_check.lint_invocation_target(config_path, root, tp)
-                for tp in temp_paths
-            ]
-            lint_cwd = targets[0][0]  # constant per group: same config, same dir
-            args = [file_arg for _, file_arg in targets]
-            # The REAL staged paths, relative to the SAME lint_cwd, aligned 1:1
-            # with `args`. A precondition (clang-tidy compile-DB directory
-            # coverage) is a fact about the real file, not its temp copy: the temp
-            # sits in a subdir of the covered directory and would read as
-            # uncovered, degrading a file the DB covers perfectly well. paths and
-            # temp_paths share order (built together in _materialize_staged).
-            precondition_args = [
-                lint_check.lint_invocation_target(
-                    config_path, root, str(Path(root) / p)
-                )[1]
-                for p in paths
-            ]
-            run = lint_check.run_linter_batch(
-                linter_name,
-                args,
-                cwd=lint_cwd,
-                budget_s=deadline - time.monotonic(),
-                root=root,
-                config_path=config_path,
-                precondition_paths=precondition_args,
+        # The bytes to judge are not on disk, and every place we could put them is
+        # the wrong place — so pipe them, and tell the linter the real path. A CLI
+        # that reads no stdin leaves nowhere to put them at all: DEGRADE rather than
+        # block. We could not read what the commit carries, and refusing a commit
+        # over that is a gate nobody can satisfy — which is the one thing worse than
+        # a quiet one, per this module's own doctrine. A narrow, owned loss:
+        # divergent files only, for a stdin-less linter only.
+        if linters.LINTER_STDIN_SHAPES.get(linter_name, linters.NO_STDIN) == (
+            linters.NO_STDIN
+        ):
+            advisories.append(
+                f"Commit-time lint skipped for {len(staged_only)} staged file(s): "
+                f"{linter_name} — their staged bytes differ from the working tree "
+                f"and {linter_name} reads no source on stdin, so the gate cannot "
+                f"judge what the commit carries without moving the file "
+                f"({', '.join(staged_only)}). Run it yourself before pushing."
             )
-        finally:
-            _cleanup_temps(temp_paths)
-            _cleanup_created_dirs(created_dirs)
-        # The linter named the temp subdirs; the agent must see its real files.
-        run_output = _relabel_temps(run.output, temp_paths)
-        match run.status:
-            case "findings":
-                findings.append(f"{linter_name}:\n{run_output}")
-            case "unverified":
-                unverified.append(run_output)
+            continue
+
+        for path in staged_only:
+            _record(
+                _lint_staged_bytes(linter_name, config_path, root, path, deadline),
+                linter_name,
+                findings,
+                unverified,
+            )
 
     if findings or unverified:
         lines = ["Staged lint check blocked this commit:", ""]

@@ -356,6 +356,91 @@ def run_linter_batch(
     return LintRun("findings", output)
 
 
+def run_linter_stdin(
+    linter_name: str,
+    path: str,
+    blob: bytes,
+    *,
+    cwd: str | None = None,
+    budget_s: float | None = None,
+    root: str | None = None,
+    config_path: str | None = None,
+) -> LintRun:
+    """Lint `blob` as if it were the file at `path`; classify by EXIT CODE.
+
+    The commit gate's slow path, for a file whose staged bytes are not the bytes on
+    disk. Same contract as `run_linter_batch` — that/what, exit code only, output
+    verbatim, callers fail closed on unverified — and it differs in exactly two ways:
+    one file per invocation (stdin carries one), and it runs in BINARY mode.
+
+    Binary is not a detail. `staged_blob_bytes` returns raw bytes on purpose (a blob
+    may not be UTF-8), and bytes cannot be `input=` to a text-mode process — it raises
+    TypeError, which in a PreToolUse hook is an unhandled traceback: exit 1, which the
+    harness reads as NON-blocking, and the commit lands unlinted. So the pipe stays
+    binary and the linter's own output is decoded here, leniently: it echoes the source
+    line it flagged, so its bytes are no more guaranteed to be UTF-8 than the blob's,
+    and a findings report must survive a bad byte rather than raise on it.
+
+    Kept local to this path deliberately. `run_linter_batch` passes no stdin and its
+    ~25 text-mode patch sites all assume str, so switching it would be a wide change
+    bought for nothing.
+    """
+    binary = LINTER_BINARIES.get(linter_name)
+    if not binary or not shutil.which(binary):
+        return LintRun("unverified", f"{linter_name}: `{binary}` is not on PATH")
+
+    # Same arg-injection guard as the batch path: a flag-shaped path is one we
+    # DECLINED to check, which is not one there was nothing to check in.
+    if path.startswith("-"):
+        return LintRun("unverified", f"{linter_name}: refused flag-shaped path: {path}")
+    if not _linter_claims(linter_name, path):
+        return LintRun("clean", "")
+
+    base = cwd or root or "."
+    cmd = linters.linter_stdin_argv(
+        linter_name, path, root=root or base, config_path=config_path, base=base
+    )
+    if cmd is None:
+        return LintRun(
+            "unverified",
+            f"{linter_name}: cannot be fed source on stdin in this project "
+            f"— refusing to report it clean",
+        )
+
+    timeout = min(BATCH_TIMEOUT_CAP_S, BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S)
+    if budget_s is not None:
+        timeout = min(timeout, budget_s)
+        if timeout <= 0:
+            return LintRun(
+                "unverified",
+                f"{linter_name}: the commit gate's {BATCH_TIMEOUT_CAP_S:g}s lint "
+                f"budget was spent by earlier linters — this one never ran",
+            )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            input=blob,
+            timeout=timeout,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired:
+        return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
+    except (OSError, FileNotFoundError) as e:
+        return LintRun("unverified", f"{linter_name}: failed to run ({e})")
+
+    if proc.returncode == 0:
+        return LintRun("clean", "")
+
+    raw = proc.stdout or proc.stderr or b""
+    output = raw.decode("utf-8", errors="replace").strip()
+    if not output:
+        return LintRun(
+            "unverified", f"{linter_name}: exited {proc.returncode} without saying why"
+        )
+    return LintRun("findings", output)
+
+
 def _summarize_lint_output(lint_output: str) -> str:
     """Concise concern summary like "3 errors (F401, I001)".
 

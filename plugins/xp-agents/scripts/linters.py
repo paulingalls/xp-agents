@@ -443,6 +443,7 @@ _REEXPORTED = frozenset(
         "is_file_scoped",
         "linter_argv",
         "linter_command",
+        "linter_stdin_argv",
         "preconditions_met",
     }
 )
