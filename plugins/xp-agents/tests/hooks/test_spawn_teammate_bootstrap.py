@@ -183,5 +183,56 @@ class TestInPlaceSkipsBootstrap(_BootstrapTestCase):
         )
 
 
+class TestChildEnvSmmDirIsResolved(_BootstrapTestCase):
+    """The SECOND leg of the same invariant the bootstrap resolves for.
+
+    run_bootstrap resolves SMM_DIR because the child's cwd is the new
+    worktree, so a relative/unnormalized value would resolve against it.
+    The `claude` teammate spawned moments later runs with that SAME cwd off
+    the SAME --smm-dir, so it needs the same resolution — a bootstrap that
+    saw an absolute SMM_DIR followed by an agent whose every hook resolved a
+    different one is exactly the split-brain the resolve was added to stop.
+    """
+
+    def test_teammate_env_smm_dir_is_absolute_and_normalized(self):
+        import tempfile
+        from unittest.mock import patch
+
+        captured: dict[str, dict[str, str]] = {}
+
+        def capture_run(cmd, *args, **kwargs):
+            captured["env"] = kwargs["env"]
+
+        # Absolute but UNNORMALIZED: what the child resolves must not depend
+        # on its cwd (a relative --smm-dir is the same bug, one os.getcwd()
+        # further away).
+        unresolved = str(self.smm_dir / ".." / self.smm_dir.name)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_run),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-bootstrap",
+                        "--smm-dir",
+                        unresolved,
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        seen = captured["env"]["SMM_DIR"]
+        self.assertEqual(Path(seen), self.smm_dir.resolve())
+
+
 if __name__ == "__main__":
     unittest.main()
