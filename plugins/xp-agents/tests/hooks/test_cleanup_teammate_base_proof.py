@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import seed_sprint_with_stories
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
@@ -60,14 +61,7 @@ def _set_stage_2(smm_dir: Path) -> None:
 
 def _write_sprint_with_branch(smm_dir: Path, branch_name: str) -> None:
     """Write a minimal sprint.json recording `branch_name` as the story base."""
-    sprint = {
-        "sprint_id": "sprint-1",
-        "goal": "test sprint",
-        "started": "2026-01-01T00:00:00Z",
-        "branch_name": branch_name,
-        "stories": [],
-    }
-    (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+    seed_sprint_with_stories(smm_dir, [], base_branch=branch_name)
     _set_stage_2(smm_dir)
 
 
