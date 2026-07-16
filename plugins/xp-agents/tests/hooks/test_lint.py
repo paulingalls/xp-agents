@@ -836,6 +836,35 @@ class TestLinterStdinShapes(unittest.TestCase):
         for name in linters.LINTER_STDIN_SHAPES:
             self.assertIn(name, linters.LINTER_COMMANDS, f"{name} has no command")
 
+    def test_every_shape_the_table_carries_builds_an_argv_naming_the_path(self):
+        """The keys are pinned above; the VALUES are what the caller dispatches
+        on, and they are pinned nowhere else except one test per linter.
+
+        A row naming a shape `linter_stdin_argv` has no `case` for clears the
+        gate's NO_STDIN check (it is not NO_STDIN, so nothing degrades), then
+        falls off the match to None — which `run_linter_stdin` reports as
+        `unverified`, a BLOCK nobody can fix, on every divergent file for that
+        linter. The absent-row default fails safe; a WRONG row does not, and
+        that is the gap between them.
+
+        The path assertion is the story's whole thesis: the bytes go down stdin
+        precisely so the linter can still be TOLD the real path they belong to.
+        A shape that pipes without naming the path silently reintroduces the
+        unlocatable finding the temp copies produced.
+        """
+        for name, shape in linters.LINTER_STDIN_SHAPES.items():
+            with self.subTest(linter=name, shape=shape):
+                self.assertNotEqual(
+                    shape, linters.NO_STDIN, "a row saying NO_STDIN is a row to delete"
+                )
+                argv = linters.linter_stdin_argv(name, "pkg/app.src", root="/repo")
+                self.assertIsNotNone(argv, f"{shape} builds no argv — unfixable block")
+                self.assertIn(
+                    "pkg/app.src",
+                    argv or [],
+                    f"{shape} pipes the bytes without naming the path",
+                )
+
 
 class TestTheColumnsAgreeOnWhoTheLintersAre(unittest.TestCase):
     """Every linter-keyed column keys the SAME linters — no orphan rows.
