@@ -25,13 +25,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _branching_fixtures import seed_sprint_with_stories
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
-# Mirrors _create_teammate_worktree / _write_sprint_with_branch from
-# test_cleanup_teammate_base_proof.py (local copy, not an import — see the
-# consolidation debt filed alongside this story). Extended here with
-# multi-story sprint seeding, since merged_block needs a specific story's
-# `branch_name` rather than just the sprint's recorded base.
+# _create_worktree below still mirrors _create_teammate_worktree from
+# test_cleanup_teammate_base_proof.py (local copy, not an import — the
+# remaining half of consolidation debt 98f1885f1b7b). The two are NOT
+# interchangeable: that copy forks from HEAD, this one from `main`, and the
+# base-vs-HEAD distinction is exactly what these merge-proof tests exist to
+# prove — so consolidating needs a start_point parameter and its own red
+# tests, not a pick-one promotion. The sprint-seeding half is now shared.
 
 
 def _create_worktree(tmpdir: Path, name: str, branch: str | None = None) -> str:
@@ -75,33 +78,22 @@ def _merge_into(tmpdir: Path, branch: str, target: str) -> None:
     )
 
 
-def _story(story_id: str, branch_name: str, status: str = "closing") -> dict:
-    return {
-        "id": story_id,
-        "title": "test story",
-        "status": status,
-        "dependencies": [],
-        "milestone_ref": "",
-        "design_sources": "",
-        "context": "",
-        "file_domain": [],
-        "interface_contracts": [],
-        "acceptance_criteria": [],
-        "branch_name": branch_name,
-    }
-
-
-def _write_sprint_with_stories(smm_dir: Path, base_branch: str, stories: list) -> None:
+def _write_sprint_with_stories(
+    smm_dir: Path, base_branch: str, stories: "list[tuple[str, str, str]]"
+) -> None:
     """Write a stage-2 sprint.json whose branch_name is the base and whose
-    stories[] carry the story/stories under test with their branch_name."""
-    sprint = {
-        "sprint_id": "sprint-1",
-        "goal": "test sprint",
-        "started": "2026-01-01T00:00:00Z",
-        "branch_name": base_branch,
-        "stories": stories,
-    }
-    (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+    stories[] carry the story/stories under test with their branch_name.
+
+    Thin adapter over the shared seeder, taking ``(story_id, status, branch)``
+    triples. The sprint body is no longer built here — see
+    ``_sprint_fixtures.seed_sprint_with_stories``.
+    """
+    seed_sprint_with_stories(
+        smm_dir,
+        [(sid, status) for sid, status, _ in stories],
+        base_branch=base_branch,
+        story_branches={sid: branch for sid, _, branch in stories},
+    )
     (smm_dir / "system_context.json").write_text(
         json.dumps({"branching_strategy": {"stage": 2}})
     )
@@ -168,7 +160,7 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
         self.assertEqual(result, worktree.BranchRemoval.DELETED_MERGED)
         self.assertFalse(self._branch_exists(branch))
 
-        _write_sprint_with_stories(self.smm_dir, base, [_story(story_id, branch)])
+        _write_sprint_with_stories(self.smm_dir, base, [(story_id, "closing", branch)])
 
         reason = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_id)
         self.assertIsNone(reason, "a merged-then-deleted branch must allow done")
@@ -194,7 +186,7 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
         self.assertEqual(result, worktree.BranchRemoval.REFUSED_UNMERGED)
         self.assertTrue(self._branch_exists(branch), "refused branch must survive")
 
-        _write_sprint_with_stories(self.smm_dir, base, [_story(story_id, branch)])
+        _write_sprint_with_stories(self.smm_dir, base, [(story_id, "closing", branch)])
 
         reason = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_id)
         self.assertIsNotNone(reason, "a present, unmerged branch must still block done")
@@ -227,7 +219,7 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
             check=True,
         )
 
-        _write_sprint_with_stories(self.smm_dir, base, [_story(story_id, branch)])
+        _write_sprint_with_stories(self.smm_dir, base, [(story_id, "closing", branch)])
 
         rc = cleanup_teammate.main(
             [
@@ -276,7 +268,9 @@ class TestBranchMergeProofComposes(_IntegrationTestCase):
         self.assertTrue(self._branch_exists(branch_b), "unmerged branch must survive")
 
         _write_sprint_with_stories(
-            self.smm_dir, base, [_story(story_a, branch_a), _story(story_b, branch_b)]
+            self.smm_dir,
+            base,
+            [(story_a, "closing", branch_a), (story_b, "closing", branch_b)],
         )
 
         reason_a = story_done_gate.merged_block(self.smm_dir, str(self.tmpdir), story_a)

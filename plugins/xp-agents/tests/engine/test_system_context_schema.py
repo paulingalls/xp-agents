@@ -83,6 +83,33 @@ class TestValidDocument(unittest.TestCase):
             f"non-string test_command should fail validation; got {errors}",
         )
 
+    def test_worktree_bootstrap_valid_as_optional_string(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["worktree_bootstrap"] = "./scripts/init-worktree.sh"
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
+    def test_worktree_bootstrap_must_be_a_string(self) -> None:
+        # A single command string, not a list: the stack loop enforces
+        # isinstance(str), and multi-step logic belongs in the project's
+        # own script (version-controlled) rather than in the SMM pointer.
+        doc = valid_doc()
+        doc["stack"]["worktree_bootstrap"] = ["npm", "ci"]
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("worktree_bootstrap must be a string" in e for e in errors),
+            f"non-string worktree_bootstrap should fail validation; got {errors}",
+        )
+
+    def test_worktree_bootstrap_over_budget(self) -> None:
+        doc = valid_doc()
+        doc["stack"]["worktree_bootstrap"] = "x" * (STACK_FIELD_MAXLENGTH + 1)
+        errors = validate_system_context(doc)
+        self.assertTrue(
+            any("worktree_bootstrap" in e and "budget" in e for e in errors),
+            f"over-budget worktree_bootstrap should fail validation; got {errors}",
+        )
+
     def test_valid_with_optional_module_fields(self) -> None:
         doc = valid_doc()
         doc["modules"][0]["file_count"] = 42

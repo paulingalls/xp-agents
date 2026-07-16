@@ -93,11 +93,22 @@ _REQUIRED_FIELDS = frozenset(
 # "pytest -n auto", "npm test"). Read by close-skill preloads to gate
 # the story-close + free-close auto-merge override; empty / unset →
 # no auto-merge.
+#
+# `worktree_bootstrap` is a project-declared command run in a freshly
+# created teammate worktree before the agent's first turn (see
+# spawn_teammate.create_worktree). `git worktree add` materializes only
+# tracked files, so gitignored state is absent — and absent state can go
+# FALSELY GREEN rather than failing loud. The command is opaque to the
+# plugin: only the project knows which gitignored state is
+# checkout-invariant (installable) versus checkout-variant (must be
+# regenerated, never copied), so the project's own script encodes that
+# split.
 STACK_OPTIONAL_FIELDS = (
     "runtime",
     "dependencies_policy",
     "package_manager",
     "test_command",
+    "worktree_bootstrap",
 )
 
 _MODULE_REQUIRED = frozenset({"name", "purpose", "path"})

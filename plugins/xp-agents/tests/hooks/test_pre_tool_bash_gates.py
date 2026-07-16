@@ -701,18 +701,23 @@ class TestSubprocessConsolidation(_HookTestCase):
                 _make_bash_input(command=_COMMIT_CMD), smm_dir=self.smm_dir
             )
 
+        # Matched as a PREFIX, not an exact argv: this pinned the full list and
+        # went vacuous the moment `-z` was appended — matching zero calls, which
+        # sails through a `<= 1` assertion while measuring nothing at all.
         name_only_calls = [
             call
             for call in mock_run.call_args_list
             if call.args
-            and list(call.args[0]) == ["git", "diff", "--cached", "--name-only"]
+            and list(call.args[0])[:4] == ["git", "diff", "--cached", "--name-only"]
         ]
         all_calls = [list(c.args[0]) if c.args else [] for c in mock_run.call_args_list]
-        self.assertLessEqual(
+        self.assertEqual(
             len(name_only_calls),
             1,
-            f"Expected ≤1 `git diff --cached --name-only` call, got "
-            f"{len(name_only_calls)}. All subprocess calls: {all_calls}",
+            f"Expected EXACTLY 1 `git diff --cached --name-only` call, got "
+            f"{len(name_only_calls)}. Zero means this invariant has gone blind "
+            f"(the argv changed shape); two means the gate re-shelled for a "
+            f"list the caller already had. All subprocess calls: {all_calls}",
         )
 
 

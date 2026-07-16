@@ -164,6 +164,85 @@ LINTER_ARGV_SHAPES: dict[str, str] = {
 }
 
 
+# COLUMN: stdin shape. HOW this CLI is handed source text on stdin while still being
+# told which PATH that text belongs to — or that it cannot be, which is the default.
+#
+# The commit gate must judge the bytes in the INDEX, and those bytes are not always the
+# bytes on disk. Writing them to a temp copy is what the gate used to do, and every
+# copy breaks something: a temp SIBLING (random basename) defeats filename-keyed rules;
+# a temp SUBDIR keeps the basename but moves the file one level DOWN, so every
+# path-relative resolution the source does — `./util`, `../lib/x` — resolves to a path
+# that does not exist. Both properties hold only at the real path, and stdin is how a
+# linter reads bytes that are not there.
+#
+# A SHAPE, not a bool: the argv forms genuinely differ, so a caller handed `True` could
+# not build the command. ruff wants a trailing positional `-` (its path argument is what
+# selects stdin, and `--stdin-filename` only labels it); eslint wants a `--stdin` flag
+# and NO positional; prettier reads piped stdin implicitly and names the path with a
+# differently-spelled flag of its own. Nor can the shapes collapse into "flag + form":
+# six CLIs spell the same idea six ways, and the spelling IS the data.
+#
+# STRUCTURAL, by the same mechanical test as the columns above: could someone fill a
+# row in by reading the tool's `--help`, without knowing one rule name of that language?
+# Yes — each form below is quoted from its own `--help` synopsis. A rule-code map is the
+# leak; a flag spelling is not.
+#
+# Every row is MEASURED against the real binary, never read off a doc page: ruff 0.15,
+# eslint v10, prettier 3, and (added when the stdin-less default was found to be
+# reopening the gate's own fail-open) flake8 7.3, rubocop 1.81, clang-format 21.
+#
+# Absent rows answer NO_STDIN, and that default is the SAFE direction: a linter nobody
+# has filled in is never invoked with an argv it did not agree to. But it is NOT a free
+# default — the caller can no longer judge a divergent file's staged bytes at all, and
+# fails closed instead (see staged_lint's branch C). That is a real cost, paid by a
+# whole language, so a row belongs here whenever the tool can genuinely take it.
+#
+# What "genuinely" excludes, and why each is a NO_STDIN we chose rather than forgot:
+#   * golangci-lint, clang-tidy, dart-analyze, php-cs-fixer — no stdin source mode.
+#   * swiftlint — HAS `--use-stdin`, but no way to name the path with it: MEASURED,
+#     it reports the file as `<nopath>`. This column's whole contract is bytes on
+#     stdin *while still being told the path*, and a mode that cannot be told the
+#     path would silently defeat the config's own `included`/`excluded` rules and
+#     block a file the project says to skip. Half the contract is not a row.
+#   * phpcs — documents `--stdin-path`, but no PHP toolchain was available to
+#     MEASURE it, and this table does not take a doc page's word for it. Debt.
+# `--stdin-filename X -` (the trailing `-` is the path arg, and it selects stdin)
+STDIN_FILENAME_TRAILING_DASH = "stdin_filename_trailing_dash"
+# `--stdin --stdin-filename X`, no positional
+STDIN_FLAG_AND_FILENAME = "stdin_flag_and_filename"
+# `--stdin-filepath X`, piped stdin read implicitly
+STDIN_FILEPATH = "stdin_filepath"
+# `--stdin-display-name X -` — ruff's idea, flake8's spelling. Same trailing `-` (the
+# path arg is what selects stdin), a different flag name for the label.
+STDIN_DISPLAY_NAME_TRAILING_DASH = "stdin_display_name_trailing_dash"
+# `--stdin X` — the flag itself TAKES the path (`-s, --stdin FILE`), no positional.
+STDIN_FLAG_WITH_FILENAME = "stdin_flag_with_filename"
+# `--assume-filename=X`, piped stdin read implicitly when no path is given.
+STDIN_ASSUME_FILENAME = "stdin_assume_filename"
+# the default: this CLI reads no source on stdin
+NO_STDIN = "no_stdin"
+
+LINTER_STDIN_SHAPES: dict[str, str] = {
+    "ruff": STDIN_FILENAME_TRAILING_DASH,
+    "eslint": STDIN_FLAG_AND_FILENAME,
+    "prettier": STDIN_FILEPATH,
+    # `--stdin-display-name STDIN_DISPLAY_NAME`: "the name used when reporting
+    # warnings and errors ... via stdin". MEASURED (flake8 7.3): a violation on
+    # stdin reports at `pkg/app.py:1:1` and exits 1.
+    "flake8": STDIN_DISPLAY_NAME_TRAILING_DASH,
+    # `-s, --stdin FILE`: "Pipe source from STDIN, using FILE in offense reports".
+    # MEASURED (rubocop 1.81): offenses report at `lib/app.rb:1:5`, exit 1.
+    "rubocop": STDIN_FLAG_WITH_FILENAME,
+    # `--assume-filename=<string>`: "Set filename used to determine the language ...
+    # Only used when reading from stdin." MEASURED (clang-format 21): with the
+    # shipped `--dry-run -Werror`, a violation reports at `src/a.c:1:4` and exits 1;
+    # clean exits 0. Both halves matter — an exit-0-on-findings CLI would need a
+    # LINTER_STRICT_FLAGS row too, and this one already has its strictness in
+    # LINTER_COMMANDS.
+    "clang-format": STDIN_ASSUME_FILENAME,
+}
+
+
 # COLUMN: config flag. How this CLI is TOLD which config to use.
 #
 # checkstyle has no convention for finding its own config — it needs `-c`. The shipped
@@ -172,6 +251,38 @@ LINTER_ARGV_SHAPES: dict[str, str] = {
 # style instead of its own.
 LINTER_CONFIG_FLAGS: dict[str, list[str]] = {
     "checkstyle": ["-c"],
+}
+
+
+# COLUMN: config-style flags. An option a CLI accepts only in ONE of its own config
+# MODES — keyed by the config FILE, because the file is what selects the mode.
+#
+# Not keyed by linter, and that is the whole point of the column. `--no-warn-ignored`
+# is a real eslint option, but only under flat config (added 8.51); under `.eslintrc`
+# it is an UNRECOGNISED option, and eslint answers that with exit 2 and nothing linted.
+# The gate reads non-zero-with-output as FINDINGS, so a linter-keyed row would block
+# EVERY commit in every eslintrc project — an unfixable gate, which is the one failure
+# `DEGRADED_LINTERS` exists to avoid. The mode is not knowable from the linter's name;
+# it is knowable from the config file `detect_linter_config` already found.
+#
+# Why the gate needs it at all: `LINTER_STRICT_FLAGS` ships eslint `--max-warnings=0`
+# so warn-level rules block. eslint reports "File ignored because of a matching ignore
+# pattern" as a WARNING, so once the gate lints files at their REAL paths — where an
+# ignore pattern finally matches — that warning trips the threshold and the gate
+# refuses a file the project's own config says to skip, with nothing to fix. MEASURED
+# against eslint v10: exit 1 by path AND via --stdin-filename; exit 0 with this flag.
+#
+# Structural, by the same test as the columns above: the row is the flag's own `--help`
+# line ("Suppress warnings when the file list includes ignored files") plus which config
+# file enables it. No rule name, in any language. The alternative — reading eslint's
+# message text — is a rule map by another name, and forbidden.
+#
+# An absent row adds nothing, which is why an unknown config style is safe by default:
+# the tool is invoked exactly as it is today.
+CONFIG_STYLE_FLAGS: dict[str, list[str]] = {
+    "eslint.config.js": ["--no-warn-ignored"],
+    "eslint.config.mjs": ["--no-warn-ignored"],
+    "eslint.config.ts": ["--no-warn-ignored"],
 }
 
 
@@ -368,6 +479,7 @@ _REEXPORTED = frozenset(
         "is_file_scoped",
         "linter_argv",
         "linter_command",
+        "linter_stdin_argv",
         "preconditions_met",
     }
 )

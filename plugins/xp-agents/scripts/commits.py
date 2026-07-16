@@ -106,20 +106,44 @@ def _run_git(args: list[str], cwd: str) -> str | None:
     return None
 
 
+def _nul_paths(out: str) -> list[str]:
+    """The paths in a `-z` git listing, in the order git named them.
+
+    One parser for every `--name-only -z` reader below, because the reason for
+    `-z` is a property of git's OUTPUT and does not vary by caller: without it
+    git C-QUOTES any path with non-ASCII or unusual bytes, so `café.js` arrives
+    as the literal 12-character string `"caf\\303\\251.js"` — quotes included.
+    Consumers then test THAT: `is_code_file` sees an extension of `.js"` and
+    drops the file from the review scope, and `staged_lint.path_in_index` probes
+    `git cat-file -e :<path>`, which resolves to nothing and drops the file from
+    the lint groups, so its staged violations commit unlinted. Both losses are
+    silent, because "absent" is also how a legitimate skip reads.
+
+    NUL separation is the second half: a path may contain a space or a newline,
+    and splitting a listing on newlines cannot survive either.
+    """
+    return [f for f in out.split("\0") if f]
+
+
 def get_committed_files(cwd: str) -> list[str]:
     """Get list of files changed in the last commit."""
-    out = _run_git(["git", "diff", "HEAD~1", "--name-only"], cwd)
+    out = _run_git(["git", "diff", "HEAD~1", "--name-only", "-z"], cwd)
     if out is None:
         return []
-    return [f.strip() for f in out.splitlines() if f.strip()]
+    return _nul_paths(out)
 
 
 def get_staged_files(cwd: str) -> list[str]:
-    """Get list of staged file paths via git diff --cached --name-only."""
-    out = _run_git(["git", "diff", "--cached", "--name-only"], cwd)
+    """Get list of staged file paths via `git diff --cached --name-only -z`.
+
+    Sorted, because callers compare and group these. See `_nul_paths` for why
+    `-z` is load-bearing here rather than tidiness — this is the listing the
+    commit-time lint gate routes through, and the one it drops files from.
+    """
+    out = _run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
     if out is None:
         return []
-    return sorted(f.strip() for f in out.splitlines() if f.strip())
+    return sorted(_nul_paths(out))
 
 
 def get_filenames_from_diff(diff_text: str) -> list[str]:
@@ -303,15 +327,15 @@ def get_code_files_for_review(
     if staged_diff is not None:
         all_files.update(get_filenames_from_diff(staged_diff))
     else:
-        out = _run_git(["git", "diff", "--cached", "--name-only"], cwd)
+        out = _run_git(["git", "diff", "--cached", "--name-only", "-z"], cwd)
         if out is None:
             return []
-        all_files.update(f.strip() for f in out.splitlines() if f.strip())
+        all_files.update(_nul_paths(out))
 
     extra_commands: list[list[str]] = []
     if last_review_commit:
         extra_commands.append(
-            ["git", "diff", "--name-only", f"{last_review_commit}..HEAD"]
+            ["git", "diff", "--name-only", "-z", f"{last_review_commit}..HEAD"]
         )
 
     # If the command includes 'git add' or 'git commit -a', also check
@@ -320,13 +344,13 @@ def get_code_files_for_review(
     if re.search(git_commits.GIT_PREFIX + r"add\b", command) or re.search(
         git_commits.GIT_PREFIX + r"commit\s+-a", command
     ):
-        extra_commands.append(["git", "diff", "--name-only"])
+        extra_commands.append(["git", "diff", "--name-only", "-z"])
 
     for cmd in extra_commands:
         out = _run_git(cmd, cwd)
         if out is None:
             return []
-        all_files.update(f.strip() for f in out.splitlines() if f.strip())
+        all_files.update(_nul_paths(out))
 
     return [f for f in sorted(all_files) if code_files.is_code_file(f)]
 
@@ -339,19 +363,20 @@ def get_code_files_in_range(cwd: str, base: str) -> list[str]:
     list on git failure (no base, detached, etc.) so callers fail safe to
     "don't run the expensive review".
     """
-    out = _run_git(["git", "diff", "--name-only", f"{base}...HEAD"], cwd)
+    out = _run_git(["git", "diff", "--name-only", "-z", f"{base}...HEAD"], cwd)
     if out is None:
         return []
-    return [
-        f.strip()
-        for f in out.splitlines()
-        if f.strip() and code_files.is_code_file(f.strip())
-    ]
+    return [f for f in _nul_paths(out) if code_files.is_code_file(f)]
 
 
-_GIT_STAGED = ["git", "diff", "--cached", "--name-only"]
-_GIT_UNSTAGED = ["git", "diff", "--name-only"]
-_GIT_UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard"]
+# `-z` on all three for the reason `get_staged_files` carries it: git C-quotes
+# non-ASCII paths in its default output, and a quoted `"caf\303\251.js"` fails
+# `is_code_file`'s extension test (it ends `.js"`), so the file silently drops out
+# of the review scope these feed. NUL separation also keeps a path with a space
+# in one piece. `ls-files` spells the same flag the same way.
+_GIT_STAGED = ["git", "diff", "--cached", "--name-only", "-z"]
+_GIT_UNSTAGED = ["git", "diff", "--name-only", "-z"]
+_GIT_UNTRACKED = ["git", "ls-files", "--others", "--exclude-standard", "-z"]
 # O(1) repo probe — unlike the scans above it does not walk the worktree, so it
 # still answers when they time out. That asymmetry is the whole point: it tells
 # "no repo to ask about" apart from "this scan failed".
@@ -369,7 +394,7 @@ def _changed_paths(cwd: str, cmds: list[list[str]]) -> set[str] | None:
         out = _run_git(cmd, cwd)
         if out is None:
             return None
-        paths.update(f.strip() for f in out.splitlines() if f.strip())
+        paths.update(_nul_paths(out))
     return paths
 
 

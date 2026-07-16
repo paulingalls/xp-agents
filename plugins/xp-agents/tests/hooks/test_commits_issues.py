@@ -45,9 +45,9 @@ class TestGetCodeFilesForReview(unittest.TestCase):
         def side_effect(cmd, **_kwargs):
             r = SimpleNamespace(returncode=0, stdout="")
             if "--cached" in cmd:
-                r.stdout = "src/a.py\nsrc/b.py\n"
+                r.stdout = "src/a.py\0src/b.py\0"
             elif ".." in cmd[-1]:
-                r.stdout = "src/b.py\nsrc/c.py\n"
+                r.stdout = "src/b.py\0src/c.py\0"
             return r
 
         mock_run.side_effect = side_effect
@@ -58,7 +58,7 @@ class TestGetCodeFilesForReview(unittest.TestCase):
     @patch(_SUBPROCESS)
     def test_filters_non_code_files(self, mock_run):
         mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = "src/app.py\nREADME.md\npackage.json\n"
+        mock_run.return_value.stdout = "src/app.py\0README.md\0package.json\0"
         result = commits.get_code_files_for_review("/tmp", "abc123")
         self.assertEqual(result, ["src/app.py"])
 
@@ -129,7 +129,7 @@ class TestGetUncommittedCodeFiles(unittest.TestCase):
             (),
             {
                 "returncode": 0,
-                "stdout": ("src/app.py\nREADME.md\ntests/test_app.py\n"),
+                "stdout": ("src/app.py\0README.md\0tests/test_app.py\0"),
             },
         )()
         unstaged = type("R", (), {"returncode": 0, "stdout": "src/utils.py\n"})()
@@ -196,7 +196,7 @@ class TestGetUncommittedFiles(unittest.TestCase):
         mock_run.side_effect = [
             _git_out(""),
             _git_out(""),
-            _git_out("tests/test_new.py\nsrc/new_mod.py\n"),
+            _git_out("tests/test_new.py\0src/new_mod.py\0"),
         ]
         self.assertEqual(
             commits.get_uncommitted_files("/tmp"),
@@ -207,7 +207,7 @@ class TestGetUncommittedFiles(unittest.TestCase):
     def test_excludes_non_code_and_dedups(self, mock_run):
         """Docs churn is not broken work; a file in two lists appears once."""
         mock_run.side_effect = [
-            _git_out("src/app.py\nREADME.md\n"),
+            _git_out("src/app.py\0README.md\0"),
             _git_out("src/app.py\n"),
             _git_out(""),
         ]

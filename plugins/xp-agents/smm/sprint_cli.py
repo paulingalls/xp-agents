@@ -411,6 +411,12 @@ def main() -> None:
             "recorded as a debt event, so it can never be silent."
         ),
     )
+    update_p.add_argument(
+        "--cwd",
+        type=Path,
+        default=Path("."),
+        help="Working directory for git operations (default: current dir)",
+    )
 
     usi_p = sub.add_parser(
         "update-story-if",
@@ -425,6 +431,21 @@ def main() -> None:
     usi_p.add_argument("--expected", required=True, help="Required current status")
     usi_p.add_argument(
         "--new", required=True, choices=_STATUS_CHOICES, help="New status"
+    )
+    usi_p.add_argument(
+        "--force-unmerged",
+        metavar="REASON",
+        help=(
+            "Mark `done` despite an unverified merge (the pre-commit Bash gate "
+            "otherwise refuses). REASON is required and non-empty: the bypass is "
+            "recorded as a debt event, so it can never be silent."
+        ),
+    )
+    usi_p.add_argument(
+        "--cwd",
+        type=Path,
+        default=Path("."),
+        help="Working directory for git operations (default: current dir)",
     )
 
     usb_p = sub.add_parser("update-story-branch", help="Set a story's branch name")

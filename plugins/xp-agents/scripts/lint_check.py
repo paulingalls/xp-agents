@@ -100,27 +100,23 @@ class LintRun(NamedTuple):
     output: str
 
 
-def _linter_claims(linter_name: str, path: str) -> bool:
-    """True if `path` clears the arg-injection guard and the linter's extension set.
+def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
+    """Filter paths the linter handles, order-preserving.
+
+    Skips flag-shaped paths (arg-injection guard) and extensions the linter
+    doesn't claim. Shared by every runner — single source so the security guard
+    can't drift between callers.
 
     lang-ok: same LINTER_EXTENSIONS table as detect_linter_config — a linter
     with no entry claims every path (`allowed is None`), so an unlisted language
     is passed through rather than filtered out.
     """
     allowed = LINTER_EXTENSIONS.get(linter_name)
-    if path.startswith("-"):
-        return False
-    return allowed is None or Path(path).suffix in allowed
-
-
-def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
-    """Filter paths the linter handles, order-preserving.
-
-    Skips flag-shaped paths (arg-injection guard) and extensions the linter
-    doesn't claim. Shared by run_linter and run_linter_batch — single source
-    so the security guard can't drift between callers.
-    """
-    return [p for p in paths if _linter_claims(linter_name, p)]
+    return [
+        p
+        for p in paths
+        if not p.startswith("-") and (allowed is None or Path(p).suffix in allowed)
+    ]
 
 
 def run_linter(
@@ -219,7 +215,6 @@ def run_linter_batch(
     budget_s: float | None = None,
     root: str | None = None,
     config_path: str | None = None,
-    precondition_paths: list[str] | None = None,
 ) -> LintRun:
     """Run a linter once over many paths; classify the run by its EXIT CODE.
 
@@ -277,22 +272,7 @@ def run_linter_batch(
             f"{linter_name}: refused flag-shaped path(s): {', '.join(refused)}",
         )
 
-    # `paths` are what we LINT; when the commit gate materializes staged blobs it
-    # hands us temp copies here and passes the REAL staged paths as
-    # `precondition_paths` (aligned 1:1), because a precondition like compile-DB
-    # directory coverage is a fact about the real file, not its temp copy in a
-    # subdir. Filter them in lockstep so the alignment survives the eligibility cut.
-    if precondition_paths is not None:
-        pairs = [
-            (p, pre)
-            for p, pre in zip(paths, precondition_paths, strict=True)
-            if _linter_claims(linter_name, p)
-        ]
-        eligible = [p for p, _ in pairs]
-        eligible_pre: list[str] | None = [pre for _, pre in pairs]
-    else:
-        eligible = _eligible_for_linter(linter_name, paths)
-        eligible_pre = None
+    eligible = _eligible_for_linter(linter_name, paths)
     if not eligible:
         return LintRun("clean", "")
 
@@ -307,7 +287,6 @@ def run_linter_batch(
         root=root or base,
         config_path=config_path,
         base=base,
-        precondition_paths=eligible_pre,
     )
     if cmd is None:
         # "Must not run here" — an unmet precondition, or a config-required linter
@@ -352,6 +331,102 @@ def run_linter_batch(
         return LintRun(
             "unverified",
             f"{linter_name}: exited {proc.returncode} without saying why",
+        )
+    return LintRun("findings", output)
+
+
+def run_linter_stdin(
+    linter_name: str,
+    path: str,
+    blob: bytes,
+    *,
+    cwd: str | None = None,
+    budget_s: float | None = None,
+    root: str | None = None,
+    config_path: str | None = None,
+) -> LintRun:
+    """Lint `blob` as if it were the file at `path`; classify by EXIT CODE.
+
+    The commit gate's slow path, for a file whose staged bytes are not the bytes on
+    disk. Same contract as `run_linter_batch` — that/what, exit code only, output
+    verbatim, callers fail closed on unverified — and it differs in exactly two ways:
+    one file per invocation (stdin carries one), and it runs in BINARY mode.
+
+    Binary is not a detail. `staged_blob_bytes` returns raw bytes on purpose (a blob
+    may not be UTF-8), and bytes cannot be `input=` to a text-mode process — it raises
+    TypeError, which in a PreToolUse hook is an unhandled traceback: exit 1, which the
+    harness reads as NON-blocking, and the commit lands unlinted. So the pipe stays
+    binary and the linter's own output is decoded here, leniently: it echoes the source
+    line it flagged, so its bytes are no more guaranteed to be UTF-8 than the blob's,
+    and a findings report must survive a bad byte rather than raise on it.
+
+    Kept local to this path deliberately. `run_linter_batch` passes no stdin and its
+    ~25 text-mode patch sites all assume str, so switching it would be a wide change
+    bought for nothing.
+    """
+    binary = LINTER_BINARIES.get(linter_name)
+    if not binary or not shutil.which(binary):
+        return LintRun("unverified", f"{linter_name}: `{binary}` is not on PATH")
+
+    # Same arg-injection guard as the batch path: a flag-shaped path is one we
+    # DECLINED to check, which is not one there was nothing to check in.
+    if path.startswith("-"):
+        return LintRun("unverified", f"{linter_name}: refused flag-shaped path: {path}")
+    if not _eligible_for_linter(linter_name, [path]):
+        return LintRun("clean", "")
+
+    base = cwd or root or "."
+    cmd = linters.linter_stdin_argv(
+        linter_name, path, root=root or base, config_path=config_path, base=base
+    )
+    if cmd is None:
+        return LintRun(
+            "unverified",
+            f"{linter_name}: cannot be fed source on stdin in this project "
+            f"— refusing to report it clean",
+        )
+
+    timeout = min(BATCH_TIMEOUT_CAP_S, BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S)
+    if budget_s is not None:
+        timeout = min(timeout, budget_s)
+        if timeout <= 0:
+            # Says what to DO about it, because unusually there IS something.
+            # A spent budget normally names a cause the committer cannot act on
+            # (nobody can make golangci-lint faster). This one they can: the file
+            # is only on this per-file path because its staged bytes differ from
+            # the file on disk. Re-stage it and it stops differing, which routes
+            # it back through the batched path — N files, one process. An
+            # unfixable gate gets switched off; a fixable one gets fixed.
+            return LintRun(
+                "unverified",
+                f"{linter_name}: the commit gate's {BATCH_TIMEOUT_CAP_S:g}s lint "
+                f"budget was already spent when {path} came up — it was never "
+                f"linted. Its staged bytes differ from the working tree, which "
+                f"is why it costs a process of its own; `git add {path}` (if the "
+                f"working-tree copy is what you meant to commit) lets it lint in "
+                f"the shared batch instead",
+            )
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            input=blob,
+            timeout=timeout,
+            cwd=cwd,
+        )
+    except subprocess.TimeoutExpired:
+        return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
+    except (OSError, FileNotFoundError) as e:
+        return LintRun("unverified", f"{linter_name}: failed to run ({e})")
+
+    if proc.returncode == 0:
+        return LintRun("clean", "")
+
+    raw = proc.stdout or proc.stderr or b""
+    output = raw.decode("utf-8", errors="replace").strip()
+    if not output:
+        return LintRun(
+            "unverified", f"{linter_name}: exited {proc.returncode} without saying why"
         )
     return LintRun("findings", output)
 

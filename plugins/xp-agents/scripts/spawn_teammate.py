@@ -48,6 +48,19 @@ from teammate_runner import (
     safe_name,
 )
 
+# Worktree provisioning lives in a sibling leaf module; keep the name importable
+# here, so `spawn_teammate.run_bootstrap` IS `worktree_bootstrap.run_bootstrap`.
+#
+# That identity holds AT IMPORT and says nothing about patching: these are two
+# separate module globals that happen to hold one object, and patching REBINDS a
+# global rather than mutating the object both point at. So `create_worktree` below
+# reads THIS module's global, and the only name that intercepts it is
+# `spawn_teammate.run_bootstrap`. Patch `worktree_bootstrap.run_bootstrap` and the
+# stub is never called — the project's own declared bootstrap runs for real, under
+# shell=True, which is the exact harm create_worktree's `smm_dir=None` default is
+# there to prevent. Pinned by TestTheBootstrapPatchSeam.
+from worktree_bootstrap import run_bootstrap
+
 
 def resolve_sprint_id(smm_dir: str | Path) -> str | None:
     """Return the active sprint id, or None when there is no usable sprint.
@@ -108,13 +121,23 @@ def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
         worktree.remove_worktree_dir(name, cwd, force=False)
 
 
-def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
+def create_worktree(
+    name: str, cwd: str, *, branch: str | None = None, smm_dir: Path | None = None
+) -> str:
     """Create a git worktree for a teammate. Returns worktree path.
 
     When branch is provided, checks out that existing branch in the
     worktree instead of creating a new branch. Used by /xp-assign
     to place teammates on story branches — and spawn does not own that
     branch, so a stale worktree is cleared without touching it.
+
+    When smm_dir is provided, the project's declared bootstrap command (if
+    any) runs in the new worktree before this returns — see run_bootstrap.
+    It is an explicit argument, and must NEVER become an ambient read of the
+    environment or init.sh: ~15 tests and fixtures create throwaway worktrees
+    through this function positionally, and an ambient read would fire the
+    developer's OWN declared bootstrap in every one of them. Default None =
+    no bootstrap, which is exactly what those callers want.
     """
     cleanup_existing(name, cwd, owns_branch=branch is None)
 
@@ -136,6 +159,8 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
         capture_output=True,
         check=True,
     )
+    if smm_dir is not None:
+        run_bootstrap(wt_path, smm_dir)
     return wt_path
 
 
@@ -328,8 +353,16 @@ def main(argv: list[str] | None = None) -> None:
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
     # checked-out story branch — no worktree to isolate a single unit of work.
-    # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>.
-    run_cwd = cwd if args.in_place else create_worktree(name, cwd, branch=args.branch)
+    # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>,
+    # and provision it — a fresh worktree has none of the project's gitignored
+    # state. The bootstrap hangs off create_worktree rather than sitting here
+    # precisely so in-place cannot reach it: there is no worktree to provision,
+    # and this expression is what guarantees that, with no guard to forget.
+    run_cwd = (
+        cwd
+        if args.in_place
+        else create_worktree(name, cwd, branch=args.branch, smm_dir=Path(args.smm_dir))
+    )
     # --plugin-dir is a correctness-critical invariant: without it the headless
     # teammate loads none of the xp-agents skills/agents/hooks (ungated). Self-
     # resolve from CLAUDE_PLUGIN_ROOT when omitted so a caller that forgets the
@@ -339,7 +372,12 @@ def main(argv: list[str] | None = None) -> None:
     cmd = build_command(name, args.model, plugin_dir, args.effort)
 
     env = os.environ.copy()
-    env["SMM_DIR"] = args.smm_dir
+    # RESOLVED, for the same reason run_bootstrap resolves it: this child's cwd
+    # is run_cwd — the new worktree, not ours — so a relative --smm-dir would
+    # resolve against the worktree in every hook the teammate runs, and point at
+    # an SMM that isn't there. The bootstrap that just ran saw the absolute path;
+    # handing the agent behind it a different one is a split brain.
+    env["SMM_DIR"] = str(Path(args.smm_dir).resolve())
     env[identity._XP_TEAMMATE_ENV] = name
 
     # In-place teammates share the main checkout, so their cwd carries no

@@ -157,6 +157,14 @@ Detect the project's full automated-test command and populate `stack.test_comman
 
 **Update mode:** if `test_command` already exists, leave it alone unless detection signals strongly contradict it (e.g., runner switch) — the user may have set it deliberately. The schema treats `test_command` as optional.
 
+### Step 3.75: Worktree Bootstrap Detection
+
+Populate optional `stack.worktree_bootstrap` when — and only when — the repo already contains a script whose stated purpose is to prepare a fresh checkout for work (a documented setup/bootstrap entry point: `./scripts/init-worktree.sh`, a `setup` target, a documented one-liner in README/CONTRIBUTING). Record the command that runs it, as a single string. Teammate worktrees materialize only tracked files, so anything gitignored is absent; this command is what restores it before the teammate's first turn.
+
+**Never invent one, and never assemble one from install steps you inferred.** Gitignored state splits in two, and only the project knows which is which: some is checkout-invariant (installable dependencies), some is checkout-variant (generated artifacts, local config, anything deriving from the checkout's own path — copying or sharing that across checkouts is silently wrong). A command you composed encodes a guess about that split. If no such script exists, omit the field and raise a `concern` naming the gitignored state a fresh checkout would lack, so the user can write the script deliberately.
+
+**Update mode:** if `worktree_bootstrap` already exists, leave it alone — it is a deliberate user declaration.
+
 ### Step 3.8: Test Layout Detection
 
 Populate optional `test_layout` for sister-test discovery. Scan markers top-to-bottom — first match wins (matters in monorepos):
@@ -215,7 +223,8 @@ Before filling each capped list, apply its discriminator test. The test is the *
     "runtime": "<optional, max 100 chars>",
     "dependencies_policy": "<optional, max 100 chars>",
     "package_manager": "<optional, max 100 chars>",
-    "test_command": "<optional, max 100 chars — see Step 3.7>"
+    "test_command": "<optional, max 100 chars — see Step 3.7>",
+    "worktree_bootstrap": "<optional, max 100 chars — see Step 3.75>"
   },
   "modules": [
     {"name": "auth (max 50 chars)", "path": "src/auth (max 200 chars)", "purpose": "<max 100 chars>"}

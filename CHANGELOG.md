@@ -2,6 +2,90 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.12.0 — The lint gate stops lying about your files; mark-done honesty at engine altitude
+
+**If the commit-lint gate has ever blocked you with an unresolved-import error against a
+file that was provably clean, this is that bug.** The gate copied each staged file into a
+temp subdir of its own directory before linting it — `pkg/app.ts` became
+`pkg/tmpXXXX/app.ts` — which shifted every path-relative resolution down one level. `./util`
+and `../lib/x` resolved to nothing. Worse, it was self-obscuring: the temp segment was
+stripped from the linter's output and the directory deleted, so you saw a finding against a
+real path, naming a module that visibly exists, with no trace of the cause. One user's agent
+burned ~131 turns on it; one of their test files became un-editable by anyone, and the
+workaround they adopted widened two real safety guards.
+
+**The gate no longer copies a staged file anywhere.** When the index matches the working
+tree — ~99% of commits — it lints the real paths, still batched as one linter process for N
+files. When a file genuinely diverges (partial `git add -p`, edit-after-add) it pipes
+`git show :<path>` to the linter's own stdin mode, so the linter reads the *staged* bytes
+while resolving as if at the real path. Both properties at once, which is what the temp copy
+was trying and failing to achieve. Covered for ruff, eslint, prettier, flake8, rubocop and
+clang-format — each argv verified against the real binary.
+
+**A linter with no stdin mode blocks rather than waving the commit through.** For
+`golangci-lint`, `clang-tidy`, `dart-analyze`, `swiftlint` and `php-cs-fixer` there is
+nowhere to put a divergent file's staged bytes that does not move the file, so the gate says
+so and refuses — naming the remedy, which is to `git add` the path (or unstage it) so the
+index and working tree agree. This is one command, and for the case that produces the state
+it is what you meant to do anyway; that is the line against a project-scoped linter like
+clippy, which stays an *advisory* precisely because a whole-crate failure is genuinely not
+something your staged diff can fix. It only ever fires for a file that diverges — an
+ordinary Go or Swift commit is unaffected.
+
+**Non-ASCII filenames are linted at all.** git C-quotes paths with non-ASCII bytes in its
+default listings, so `café.js` arrived as the literal string `"caf\303\251.js"` — which
+resolved to no blob in the index, dropped out of the gate's file groups, and committed
+unlinted. Silently, because "absent from the index" is also how a legitimate staged deletion
+reads. Every path listing is now read with `-z`, which also keeps a filename containing a
+space in one piece.
+
+Divergence is detected via `git` itself (so your repo's clean/smudge and eol filters are
+applied, not second-guessed), and `git ls-files -v` covers the two bits — `assume-unchanged`
+and `skip-worktree` — that would otherwise tell `git diff` to stop looking at a file and
+report nothing about one whose staged bytes genuinely differ.
+
+This also closes a fail-open the old design existed to fix — staging a violation and then
+fixing it on disk without re-staging still blocks, because that case *is* divergence and
+routes to stdin. 120 lines of materialization machinery are gone, along with the
+`precondition_paths` indirection it forced, a `_cleanup_temps` that would `rmtree` a real
+source directory if handed one, and a `_relabel_temps` doing blind global string surgery on
+linter output.
+
+**Ignored files stop blocking — on flat config.** Now that files are judged at their real
+path, a project's eslint ignore pattern actually matches, and `--max-warnings=0` turns that
+ignore *warning* into a blocking error. `--no-warn-ignored` suppresses it, and is keyed on
+the config **filename** rather than the linter name: the flag is flat-config only, so keying
+it on the name would have made every `.eslintrc` project exit 2 on every commit.
+
+**Known gap:** eslint's flag has no `.eslintrc` equivalent, so a legacy-config project with
+a *path-keyed* ignore pattern (one that did not match the old temp path but does match the
+real one) can now see a block it could not before. Glob-keyed ignores (`**/*.test.ts`)
+matched the temp path too and are unaffected. If this hits you, the workaround is to move
+the pattern into `eslint.config.js`, or drop `--max-warnings=0` for that project.
+
+**The merge proof moved below the shell.** The Bash gate reads literal command text, so
+`update-story "$SID" done` slipped past every regex — the hook never sees the variable's
+value. `story_done_gate.py` now lives in `smm/` and the same git-derived proof runs in the
+engine handlers, where every writer of `status` converges. Same proof, one layer down.
+
+**A recovery hatch that costs something.** `update-story-if ... --force-unmerged "<reason>"`
+is the only way past the gate, and it records a debt event *before* the status write — a
+bypass nobody can see is the silent mark-done this gate exists to stop. An empty reason is
+refused.
+
+**Raw `git branch -d/-D` of an unmerged story branch is refused.** Branch absence is what
+the mark-done gate reads as proof the merge landed; deleting one by hand would let it read a
+merge that never happened.
+
+**Teammate worktrees can bootstrap themselves.** `git worktree add` materializes only tracked
+files, so everything gitignored — `node_modules`, generated types, `.env` — is absent. That
+doesn't merely fail loudly: on one user's project a bare worktree *falsely passed*, because
+missing generated types made a type augmentation permissive and any string compiled. Set
+`stack.worktree_bootstrap` in `system_context.json` to a script your repo already has, and
+it runs in each new worktree before the teammate's first turn. It is an opaque command by
+design — your script knows which artifacts are shareable and which must be regenerated
+per-checkout; the plugin cannot and should not guess.
+
 ## v4.11.0 — Mark-done honesty: branch deletion proves merge
 
 First milestone of a new backlog-paydown plan (M6): **a deleted branch now honestly
