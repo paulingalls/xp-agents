@@ -64,16 +64,39 @@ def write_system_context(smm_dir: Path, stage: int, **bs_extras: object) -> None
     (smm_dir / "system_context.json").write_text(json.dumps(doc))
 
 
-def seed_sprint_with_stories(smm_dir: Path, stories: "list[tuple[str, str]]") -> None:
+def seed_sprint_with_stories(
+    smm_dir: Path,
+    stories: "list[tuple[str, str]]",
+    *,
+    base_branch: str | None = None,
+    story_branches: "dict[str, str] | None" = None,
+) -> None:
     """Write a minimal sprint.json from ``[(story_id, status), ...]`` pairs.
 
     Single-source-of-truth fixture — replaces three near-identical
     helpers (test_worktree.py, test_branching_cli_detection.py,
     test_story_close.py) that built the same sprint shape with slight
     naming drift (`_write_sprint` vs `_write_sprint_with_stories`).
+
+    The two branch args are what the merge-proof shapes need, and are why a
+    4th local copy kept getting written (debt 98f1885f1b7b):
+
+    * ``base_branch`` — the sprint-level ``branch_name``, i.e. the base a
+      story's merge is proven AGAINST (``resolve_story_base``). Omit it and
+      a stage-2 base resolve returns None, which reads as fail-closed rather
+      than as the refusal under test.
+    * ``story_branches`` — maps story_id to that story's own ``branch_name``.
+      Load-bearing for ``story_done_gate.merged_block``, which fails OPEN
+      ("never branched") when a story carries no ``branch_name`` — so a test
+      that omits it proves nothing and marks done.
+
+    Both are keyword-only and default off, so the existing two-positional
+    callers write exactly the sprint they wrote before.
     """
-    story_dicts = [
-        {
+    story_branches = story_branches or {}
+    story_dicts = []
+    for sid, status in stories:
+        story = {
             "id": sid,
             "title": f"t-{sid}",
             "status": status,
@@ -85,19 +108,19 @@ def seed_sprint_with_stories(smm_dir: Path, stories: "list[tuple[str, str]]") ->
             "interface_contracts": [],
             "acceptance_criteria": [],
         }
-        for sid, status in stories
-    ]
-    (smm_dir / "sprint.json").write_text(
-        json.dumps(
-            {
-                "sprint_id": "sprint-001",
-                "goal": "g",
-                "started": "2026-05-04",
-                "milestone": "",
-                "stories": story_dicts,
-            }
-        )
-    )
+        if sid in story_branches:
+            story["branch_name"] = story_branches[sid]
+        story_dicts.append(story)
+    sprint = {
+        "sprint_id": "sprint-001",
+        "goal": "g",
+        "started": "2026-05-04",
+        "milestone": "",
+        "stories": story_dicts,
+    }
+    if base_branch is not None:
+        sprint["branch_name"] = base_branch
+    (smm_dir / "sprint.json").write_text(json.dumps(sprint))
 
 
 def write_sprint_json(
