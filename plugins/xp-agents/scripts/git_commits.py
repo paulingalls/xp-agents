@@ -18,6 +18,20 @@ import re
 GIT_PREFIX = r"\bgit(?:\s+-\S+(?:\s+\S+)?)*\s+"
 
 
+def strip_heredocs(command: str) -> str:
+    """Remove heredoc bodies (`<<'DELIM'...DELIM` / `<<DELIM...DELIM`).
+
+    Split out of `strip_quoted` so a caller that must keep quoted arguments can
+    still drop heredoc BODIES. A heredoc body is prose the shell passes as data —
+    a commit message, most often — and any scanner that reads it is reading what
+    a command SAYS rather than what it does. `pre_tool_bash`'s branch-delete
+    refusal needs exactly this half: it tokenizes the command with the quotes
+    intact (a quoted branch name is a real argument), so it cannot use
+    `strip_quoted`, but it must not see a message body either.
+    """
+    return re.sub(r"<<-?\s*'?(\w+)'?.*?\n.*?\1", "", command, flags=re.DOTALL)
+
+
 def strip_quoted(command: str) -> str:
     """Remove quoted strings and heredocs to avoid matching inside arguments.
 
@@ -25,13 +39,7 @@ def strip_quoted(command: str) -> str:
     share one pre-stripped scan target with `is_git_commit` instead of
     each re-stripping the command independently.
     """
-    # Strip heredocs first (<<'DELIM'...DELIM or <<DELIM...DELIM)
-    s = re.sub(
-        r"<<-?\s*'?(\w+)'?.*?\n.*?\1",
-        "",
-        command,
-        flags=re.DOTALL,
-    )
+    s = strip_heredocs(command)
     # Remove escaped quotes, then quoted strings
     s = s.replace("\\'", "").replace('\\"', "")
     s = re.sub(r"'[^']*'", "", s)

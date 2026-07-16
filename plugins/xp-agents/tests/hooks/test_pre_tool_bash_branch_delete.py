@@ -172,6 +172,126 @@ class TestUnparseableDeleteIsNoOp(_BranchDeleteGateCase):
         self.assertIsNone(self._run('git branch -D "$BR"'))
 
 
+class TestProseAboutADeleteIsNotADelete(_BranchDeleteGateCase):
+    """A gate that refuses a commit over what its MESSAGE says is how people
+    learn to route around gates -- story_done_gate's _MARK_DONE_RE carries the
+    same scar, and this is the same class arriving by a different door: the
+    branch name inside a quoted argument is TEXT, not an invocation."""
+
+    def _run_unblocked(self, cmd: str) -> None:
+        """`run` must not RAISE. It may still return an advisory string from an
+        unrelated gate (committing on main nudges about branching), so asserting
+        None here would pin a neighbour's behavior instead of this gate's."""
+        try:
+            self._run(cmd)
+        except _common.BlockedError as blocked:
+            self.fail(f"prose about a delete must not block: {blocked}")
+
+    def test_commit_message_naming_a_branch_delete_is_not_blocked(self):
+        self._make_story_branch()
+        self._seed_sprint()
+
+        # The literal shape of this sprint's OWN history: the commit that adds
+        # the refusal documents the command it refuses.
+        self._run_unblocked(
+            f'git commit -m "[story-003] Refuse raw git branch -D {_STORY_BRANCH}"'
+        )
+
+    def test_single_quoted_message_naming_a_delete_is_not_blocked(self):
+        self._make_story_branch()
+        self._seed_sprint()
+
+        self._run_unblocked(
+            f"git commit -m 'chore: stop git branch -D {_STORY_BRANCH}'"
+        )
+
+    def test_heredoc_message_naming_a_delete_is_not_blocked(self):
+        """A heredoc body is data the shell hands the command, not a command."""
+        self._make_story_branch()
+        self._seed_sprint()
+
+        heredoc = (
+            "git commit -F- <<'EOF'\nchore: stop this\n\n"
+            f"git branch -D {_STORY_BRANCH}\nEOF"
+        )
+        self._run_unblocked(heredoc)
+
+    def test_an_echo_describing_the_delete_is_not_blocked(self):
+        self._make_story_branch()
+        self._seed_sprint()
+
+        self.assertIsNone(self._run(f'echo "run git branch -D {_STORY_BRANCH}"'))
+
+    def test_a_quoted_branch_name_on_a_REAL_delete_still_blocks(self):
+        """The inverse guard: dropping quoted text must not drop the argument
+        of an actual delete -- quoting a branch name is ordinary shell."""
+        self._make_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(f'git branch -D "{_STORY_BRANCH}"')
+
+    def test_a_real_delete_chained_after_a_commit_that_mentions_it_blocks(self):
+        """Prose in one segment must not blind the gate to a delete in the next."""
+        self._make_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(
+                f'git commit -m "mentions git branch -D {_STORY_BRANCH}" '
+                f"&& git branch -D {_STORY_BRANCH}"
+            )
+
+
+class TestDeleteIsJudgedInTheTargetedRepo(_BranchDeleteGateCase):
+    """`git -C <dir>` retargets the REPO, so the merge proof must be evaluated
+    there. Recognizing the `-C` form and then evaluating it against the hook's
+    own cwd is worse than not recognizing it: the branch is absent HERE, and
+    absence is exactly what this gate treats as proof of a merge."""
+
+    def setUp(self):
+        super().setUp()
+        # A SECOND clone -- the repo the delete actually targets. self.repo,
+        # where the hook runs, has never heard of its story branch.
+        self._other_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._other_tmp.cleanup)
+        self.other = str(Path(self._other_tmp.name) / "clone")
+        subprocess.run(
+            ["git", "clone", self.repo, self.other], capture_output=True, check=True
+        )
+
+    def _make_other_story_branch(self) -> None:
+        subprocess.run(
+            ["git", "checkout", "-b", _STORY_BRANCH],
+            cwd=self.other,
+            capture_output=True,
+            check=True,
+        )
+        append_commit(self.other, "story.txt")
+        subprocess.run(
+            ["git", "checkout", _BASE], cwd=self.other, capture_output=True, check=True
+        )
+
+    def test_dash_c_delete_of_a_branch_unmerged_THERE_blocks(self):
+        self._make_other_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(f"git -C {self.other} branch -D {_STORY_BRANCH}")
+
+    def test_dash_c_delete_of_a_branch_merged_THERE_passes(self):
+        self._make_other_story_branch()
+        subprocess.run(
+            ["git", "merge", "--no-ff", _STORY_BRANCH, "-m", "Merge"],
+            cwd=self.other,
+            capture_output=True,
+            check=True,
+        )
+        self._seed_sprint()
+
+        self.assertIsNone(self._run(f"git -C {self.other} branch -D {_STORY_BRANCH}"))
+
+
 class TestFailsClosedOnDishonestBase(_BranchDeleteGateCase):
     """AC6: sprint stage >= 2 but the sprint's branch cannot be resolved is
     the one dishonest state `resolve_story_base` reserves for None --
