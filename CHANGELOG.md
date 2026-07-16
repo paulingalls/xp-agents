@@ -29,11 +29,17 @@ routes to stdin. 120 lines of materialization machinery are gone, along with the
 source directory if handed one, and a `_relabel_temps` doing blind global string surgery on
 linter output.
 
-**Ignored files stop blocking.** Now that files are judged at their real path, a project's
-eslint ignore pattern actually matches — and `--max-warnings=0` turned that ignore *warning*
-into a blocking error. `--no-warn-ignored` is keyed on the config **filename**, not the
-linter name: it is flat-config only, and keying it on the name would have made every
-`.eslintrc` project exit 2 on every commit.
+**Ignored files stop blocking — on flat config.** Now that files are judged at their real
+path, a project's eslint ignore pattern actually matches, and `--max-warnings=0` turns that
+ignore *warning* into a blocking error. `--no-warn-ignored` suppresses it, and is keyed on
+the config **filename** rather than the linter name: the flag is flat-config only, so keying
+it on the name would have made every `.eslintrc` project exit 2 on every commit.
+
+**Known gap:** eslint's flag has no `.eslintrc` equivalent, so a legacy-config project with
+a *path-keyed* ignore pattern (one that did not match the old temp path but does match the
+real one) can now see a block it could not before. Glob-keyed ignores (`**/*.test.ts`)
+matched the temp path too and are unaffected. If this hits you, the workaround is to move
+the pattern into `eslint.config.js`, or drop `--max-warnings=0` for that project.
 
 **The merge proof moved below the shell.** The Bash gate reads literal command text, so
 `update-story "$SID" done` slipped past every regex — the hook never sees the variable's
