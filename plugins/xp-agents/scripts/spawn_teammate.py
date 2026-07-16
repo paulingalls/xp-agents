@@ -34,6 +34,7 @@ import worktree  # isort: split
 import identity
 import in_place_marker
 import sprint_store
+import system_context_store
 import tier_wire
 
 # The prompt text (is this prompt ours, and what leads it) and the subprocess tee
@@ -108,13 +109,123 @@ def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
         worktree.remove_worktree_dir(name, cwd, force=False)
 
 
-def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
+# Bootstrap can be a cold dependency install, not the 6.4s warm-cache
+# re-run that was measured — generous by default, tunable per project.
+_DEFAULT_BOOTSTRAP_TIMEOUT_S = 600
+
+
+def _bootstrap_timeout() -> int:
+    """Bootstrap timeout in seconds; XP_BOOTSTRAP_TIMEOUT_S overrides default."""
+    raw = os.environ.get("XP_BOOTSTRAP_TIMEOUT_S")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_BOOTSTRAP_TIMEOUT_S
+
+
+def _declared_bootstrap(smm_dir: Path) -> str | None:
+    """The project's declared worktree bootstrap command, or None.
+
+    Absent-tolerant, corrupt-intolerant: no system_context, or one that
+    declares no command, means "most projects" and returns None. A corrupt
+    system_context raises ValueError out of load_system_context, and that
+    propagates — per the Constraints pillar, a gate read fails CLOSED rather
+    than silently skipping the provisioning step it was supposed to gate.
+    """
+    doc = system_context_store.load_system_context(smm_dir)
+    if doc is None:
+        return None
+    command = doc.get("stack", {}).get("worktree_bootstrap")
+    return command or None
+
+
+def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
+    """Run the project's declared bootstrap command IN the new worktree.
+
+    `git worktree add` materializes only tracked files, so everything
+    gitignored — installed dependencies, generated artifacts, local config —
+    is missing from a fresh worktree. That absence is not reliably loud: a
+    stack whose generated types are missing can fall back to a permissive
+    definition under which anything type-checks, so the teammate's gate goes
+    GREEN over code that is broken. Provisioning is therefore a correctness
+    step, not an ergonomic one.
+
+    The command is OPAQUE to us, and deliberately so. Gitignored state splits
+    into checkout-invariant (installable, shareable) and checkout-variant
+    (generated per checkout, or derived from the checkout's own path — copying
+    it across checkouts is silently wrong). Only the project knows which of
+    its state is which, so the project declares a command that encodes the
+    split, and we never inspect or reimplement what it does. This is what
+    keeps the mechanism agnostic to the project's language.
+
+    Fails LOUD and leaves the worktree standing. A half-provisioned worktree
+    must never host an agent — the false-green above is exactly what a
+    half-provisioned one produces. The worktree is deliberately NOT rolled
+    back: bootstrap has by then written files, so removal would need
+    force=True and would destroy the evidence needed to diagnose the failure.
+    /xp-assign already instructs the operator to delete a partial worktree
+    before re-spawning.
+    """
+    command = _declared_bootstrap(smm_dir)
+    if command is None:
+        return
+
+    timeout = _bootstrap_timeout()
+    try:
+        # shell=True: a project-declared shell string (install pipelines,
+        # `&&` chains, redirects), authored by the project in its own
+        # system_context — trusted local state, the same trust boundary
+        # verify_acceptance's declared AC commands sit behind, not external
+        # input. cwd is the new worktree: provisioning it is the entire point,
+        # and inheriting the process cwd would provision the main checkout
+        # instead. SMM_DIR is resolved because a relative value would
+        # otherwise resolve against that new cwd.
+        proc = subprocess.run(
+            command,
+            shell=True,  # noqa: secret
+            cwd=wt_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={**os.environ, "SMM_DIR": str(smm_dir.resolve())},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"spawn_teammate: worktree bootstrap timed out after {timeout}s: "
+            f"{command}\nWorktree left at {wt_path} for inspection. "
+            f"Tune XP_BOOTSTRAP_TIMEOUT_S if this project legitimately needs "
+            f"longer."
+        ) from exc
+
+    if proc.returncode != 0:
+        output = (proc.stderr or proc.stdout or "").strip()
+        raise SystemExit(
+            f"spawn_teammate: worktree bootstrap failed (exit "
+            f"{proc.returncode}): {command}\n{output}\n"
+            f"No agent was started. Worktree left at {wt_path} for "
+            f"inspection — delete it before re-spawning."
+        )
+
+
+def create_worktree(
+    name: str, cwd: str, *, branch: str | None = None, smm_dir: Path | None = None
+) -> str:
     """Create a git worktree for a teammate. Returns worktree path.
 
     When branch is provided, checks out that existing branch in the
     worktree instead of creating a new branch. Used by /xp-assign
     to place teammates on story branches — and spawn does not own that
     branch, so a stale worktree is cleared without touching it.
+
+    When smm_dir is provided, the project's declared bootstrap command (if
+    any) runs in the new worktree before this returns — see run_bootstrap.
+    It is an explicit argument, and must NEVER become an ambient read of the
+    environment or init.sh: ~15 tests and fixtures create throwaway worktrees
+    through this function positionally, and an ambient read would fire the
+    developer's OWN declared bootstrap in every one of them. Default None =
+    no bootstrap, which is exactly what those callers want.
     """
     cleanup_existing(name, cwd, owns_branch=branch is None)
 
@@ -136,6 +247,8 @@ def create_worktree(name: str, cwd: str, *, branch: str | None = None) -> str:
         capture_output=True,
         check=True,
     )
+    if smm_dir is not None:
+        run_bootstrap(wt_path, smm_dir)
     return wt_path
 
 
@@ -328,8 +441,16 @@ def main(argv: list[str] | None = None) -> None:
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
     # checked-out story branch — no worktree to isolate a single unit of work.
-    # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>.
-    run_cwd = cwd if args.in_place else create_worktree(name, cwd, branch=args.branch)
+    # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>,
+    # and provision it — a fresh worktree has none of the project's gitignored
+    # state. The bootstrap hangs off create_worktree rather than sitting here
+    # precisely so in-place cannot reach it: there is no worktree to provision,
+    # and this expression is what guarantees that, with no guard to forget.
+    run_cwd = (
+        cwd
+        if args.in_place
+        else create_worktree(name, cwd, branch=args.branch, smm_dir=Path(args.smm_dir))
+    )
     # --plugin-dir is a correctness-critical invariant: without it the headless
     # teammate loads none of the xp-agents skills/agents/hooks (ungated). Self-
     # resolve from CLAUDE_PLUGIN_ROOT when omitted so a caller that forgets the
