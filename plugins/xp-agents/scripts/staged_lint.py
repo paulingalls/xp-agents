@@ -12,11 +12,7 @@ answer, and that decision is deliberately language-blind: it reads an exit code,
 never the linter's words.
 """
 
-import contextlib
-import os
-import shutil
 import sys
-import tempfile
 import time
 from pathlib import Path
 from subprocess import run as _git_run
@@ -69,124 +65,132 @@ def staged_blob_bytes(root: str, path: str) -> bytes | None:
     return proc.stdout
 
 
-def _cleanup_temps(temp_paths: list[str]) -> None:
-    """Remove each materialized file's temp SUBDIR; a crash must strand nothing.
+def _divergent_from_index(root: str, paths: list[str]) -> set[str]:
+    """Which of `paths` hold different bytes in the working tree than in the index.
 
-    Each staged blob is written to `<uniquetmpdir>/<original_basename>`, so the
-    thing to remove is the whole `<uniquetmpdir>` — a directory mkdtemp created
-    for us and nothing else lives in.
+    ONE `git diff --name-only` over the whole staged set — git names exactly the
+    divergent files, and a per-path `git diff --quiet` would cost one process per
+    staged file (50 spawns on a 50-file commit), which is the process cost the
+    in-place branch exists to avoid.
+
+    git's answer, never a byte comparison of our own. The index stores the file
+    as git will commit it, and a clean/smudge filter or an eol/CRLF setting makes
+    that legitimately differ from the bytes on disk — raw bytes would read those
+    files as divergent and quietly send every one of them down the slow path. git
+    applies the same filters it committed them through; it is the only thing that
+    can answer this correctly.
+
+    A git read we could not make is answered "divergent" for every path: that is
+    the direction that stays CORRECT (the staged bytes are linted either way), it
+    only costs speed. Answering "identical" on a failed read would lint the
+    working tree on a guess, which is the fail-open this gate exists to close.
     """
-    for tp in temp_paths:
-        with contextlib.suppress(OSError):
-            shutil.rmtree(Path(tp).parent)
+    if not paths:
+        return set()
+    proc = _git_run(
+        # -z: git C-quotes paths with non-ASCII or unusual bytes in its default
+        # output, so a plain --name-only would hand back a QUOTED path that
+        # matches nothing in `paths` — reading an ordinary file as identical.
+        ["git", "diff", "--name-only", "-z", "--", *paths],
+        cwd=root,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        return set(paths)
+    named = proc.stdout.decode("utf-8", errors="replace").split("\0")
+    return {p for p in named if p}
 
 
-def _cleanup_created_dirs(created_dirs: list[str]) -> None:
-    """Remove parent dirs we had to create to materialize a staged-new file.
+def _record(
+    run: lint_check.LintRun,
+    linter_name: str,
+    findings: list[str],
+    unverified: list[str],
+) -> None:
+    """File one run's outcome under what the caller must DO about it.
 
-    A staged-new `newdir/foo.py` whose `newdir/` is gone from the working tree
-    (the index still carries the blob) is materialized under a freshly-created
-    `newdir/` — which must be removed again so the working tree is left exactly
-    as it was. `rmdir` only removes an EMPTY dir, so this can never delete real
-    content; deepest-first so nested creations unwind cleanly.
+    Shared by both branches so they cannot drift: a clean run is silence, findings
+    block and show the linter's own words, and an unverified run blocks too — we
+    could not read it, and a bad read is not a pass. Which branch produced the run
+    is not part of that decision.
     """
-    for d in sorted(set(created_dirs), key=lambda p: p.count(os.sep), reverse=True):
-        with contextlib.suppress(OSError):
-            os.rmdir(d)
+    match run.status:
+        case "findings":
+            findings.append(f"{linter_name}:\n{run.output}")
+        case "unverified":
+            unverified.append(run.output)
 
 
-def _missing_ancestors(parent: Path) -> list[str]:
-    """The dirs in `parent`'s chain that do not yet exist, deepest-first.
+def _lint_in_place(
+    linter_name: str,
+    config_path: str,
+    root: str,
+    paths: list[str],
+    budget_s: float,
+) -> lint_check.LintRun:
+    """Lint `paths` where they LIVE — for files the index and tree agree on.
 
-    These are exactly the dirs `os.makedirs(parent)` will create — recorded so
-    cleanup removes only what we created, never a dir that was already there.
+    Linting the real path IS linting the index when the two are identical, so
+    this trades away nothing: the bytes the linter reads are the bytes the commit
+    carries. What it buys is the two properties no copy can hold at once — the
+    exact basename (filename-keyed rules match) AND the exact depth (`./util`,
+    `../lib/x` resolve to the same files the source meant) — plus the batching: N
+    paths, one process.
+
+    The paths are real, so a precondition (clang-tidy's compile-DB coverage) is
+    judged on the file it is a fact about, with nothing to thread through.
     """
-    missing: list[str] = []
-    p = parent
-    while not p.exists():
-        missing.append(str(p))
-        if p.parent == p:  # reached the filesystem root
-            break
-        p = p.parent
-    return missing
+    targets = [
+        lint_check.lint_invocation_target(config_path, root, str(Path(root) / p))
+        for p in paths
+    ]
+    lint_cwd = targets[0][0]  # constant per group: same config, same dir
+    return lint_check.run_linter_batch(
+        linter_name,
+        [file_arg for _, file_arg in targets],
+        cwd=lint_cwd,
+        budget_s=budget_s,
+        root=root,
+        config_path=config_path,
+    )
 
 
-def _materialize_staged(
-    root: str, paths: list[str]
-) -> tuple[list[str], list[str], str | None]:
-    """Materialize each staged blob; return (temp_paths, created_dirs, error).
+def _lint_staged_bytes(
+    linter_name: str,
+    config_path: str,
+    root: str,
+    path: str,
+    deadline: float,
+) -> lint_check.LintRun:
+    """Lint the INDEX's bytes for `path`, which are not the bytes on disk.
 
-    For each in-index path, the staged bytes are written to a UNIQUE temp SUBDIR
-    inside the file's own directory, under the file's EXACT original basename
-    (`pkg/app.py` → `pkg/tmpXXXX/app.py`). Two properties, both load-bearing:
+    `git show :<path>` piped to the linter, which is told the real path they belong
+    to — so the file is judged where it lives without a copy existing anywhere. This
+    is the case the gate needs most (a partial add, an edit-after-add: exactly the
+    fail-open it was built to close) and the case a copy served worst.
 
-      * exact basename: a linter rule keyed on the full filename (ruff
-        `per-file-ignores`, eslint filename globs, the `__init__.py` /
-        `conftest.py` special-cases) matches the materialized file, so a
-        legitimate commit is not FALSE-POSITIVE blocked. A random temp name
-        would defeat those rules — the inverse of the fail-open this replaces.
-      * temp is INSIDE the real parent: detect_linter_config and eslint/ruff
-        resolve config + node_modules by walking UP from the file, so the temp
-        subdir walks `<tmpXXXX>/ → <parent>/ → …` and resolves the SAME config,
-        one transparent extra hop. A temp elsewhere would resolve neither.
-
-    A staged-new file whose parent dir is gone from the working tree (index
-    still has the blob) has that dir recreated (`os.makedirs`); the dirs created
-    are returned in created_dirs so the caller removes them again, leaving the
-    working tree as it was. If a path component is a file (makedirs can't
-    resolve), that OSError falls through to the fail-closed block below — the
-    honest outcome for a genuinely broken path.
-
-    error is non-None on the FIRST bad read (blob unreadable, or the temp write
-    failed) — the caller fails closed. Partial temps and created dirs are
-    removed before returning so a failure strands nothing.
+    A blob the index says is there but we cannot read is a bad read → unverified →
+    the caller blocks. Never a silent skip.
     """
-    temp_paths: list[str] = []
-    created_dirs: list[str] = []
-
-    def _fail(msg: str) -> tuple[list[str], list[str], str]:
-        _cleanup_temps(temp_paths)
-        _cleanup_created_dirs(created_dirs)
-        return [], [], msg
-
-    for path in paths:
-        blob = staged_blob_bytes(root, path)
-        if blob is None:
-            return _fail(f"could not read staged blob for {path}")
-        abs_path = Path(root) / path
-        parent = abs_path.parent
-        try:
-            new_dirs = _missing_ancestors(parent)
-            os.makedirs(parent, exist_ok=True)
-            created_dirs.extend(new_dirs)
-            tmp_dir = tempfile.mkdtemp(dir=str(parent))
-            tmp = str(Path(tmp_dir) / abs_path.name)
-            with open(tmp, "wb") as fh:
-                fh.write(blob)
-        except OSError as e:
-            return _fail(f"could not materialize staged {path} ({e})")
-        temp_paths.append(tmp)
-    return temp_paths, created_dirs, None
-
-
-def _relabel_temps(output: str, temp_paths: list[str]) -> str:
-    """Rewrite the temp-subdir paths back to the staged files' real paths.
-
-    The linter is pointed at `<parent>/<tmpXXXX>/<basename>`, so its output names
-    a path with a `<tmpXXXX>/` segment that does not exist in the real tree and
-    is already removed by the time the block message reaches the agent, whom we
-    then tell to "fix the findings". The basename is now IDENTICAL to the real
-    file, so only the injected temp-subdir segment must be stripped: each subdir
-    name is a unique mkdtemp string, so dropping `<tmpXXXX>/` collapses the path
-    back to the real one without touching anything else, in any language and
-    whatever path format (relative or absolute) the linter printed.
-    """
-    for tmp in temp_paths:
-        tmp_seg = Path(tmp).parent.name
-        output = output.replace(f"{tmp_seg}/", "")
-        if os.sep != "/":
-            output = output.replace(f"{tmp_seg}{os.sep}", "")
-    return output
+    blob = staged_blob_bytes(root, path)
+    if blob is None:
+        return lint_check.LintRun(
+            "unverified",
+            f"{linter_name}: could not read staged blob for {path} "
+            f"— refusing to report it clean",
+        )
+    lint_cwd, file_arg = lint_check.lint_invocation_target(
+        config_path, root, str(Path(root) / path)
+    )
+    return lint_check.run_linter_stdin(
+        linter_name,
+        file_arg,
+        blob,
+        cwd=lint_cwd,
+        budget_s=deadline - time.monotonic(),
+        root=root,
+        config_path=config_path,
+    )
 
 
 def _group_staged_by_linter(
@@ -252,14 +256,23 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     caller to avoid a second `git diff --cached --name-only` invocation
     (invariant: `test_common_path_at_most_one_name_only_call`).
 
-    The bytes checked are the INDEX's, not the working tree's: each staged blob
-    is materialized under its EXACT basename in a temp subdir of its own
-    directory (`_materialize_staged`) and the linter is pointed at THAT, so a
-    partial-add or an edit-after-add is judged on the content the commit actually
-    carries, in both directions — and a filename-keyed linter rule
-    (per-file-ignores, `__init__.py` special-cases) still matches. A blob the
-    index says is there but we cannot read fails CLOSED (unverified), never a
-    silent skip.
+    The bytes checked are the INDEX's, not the working tree's — so a partial-add
+    or an edit-after-add is judged on what the commit actually carries, in both
+    directions. Nothing is ever COPIED to achieve that, and the copies are what
+    the previous two attempts each broke something on: a linter must see the file
+    at its exact basename (filename-keyed rules: per-file-ignores, `__init__.py`
+    special-cases) AND at its exact depth (`./util`, `../lib/x`, any path-keyed
+    config rule), and no copy holds both. Only the real path does. So:
+
+      * index == working tree (~99% of commits) → lint the real path, batched.
+        Linting the real path IS linting the index when they are identical, and
+        this cannot reintroduce the fail-open, which requires them to differ.
+      * they diverge → pipe `git show :<path>` to the linter and TELL it the real
+        path (`_lint_staged_bytes`). Per-file, but divergence is rare.
+      * they diverge and the linter reads no stdin → DEGRADE, and say why.
+
+    A blob the index says is there but we cannot read fails CLOSED (unverified),
+    never a silent skip.
     """
     # git names staged paths relative to the REPO ROOT, so resolve them there —
     # not against the hook's cwd, which is a subdirectory whenever the agent
@@ -280,6 +293,10 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     # gate failing closed is a property of the whole hook, not of one linter.
     deadline = time.monotonic() + lint_check.BATCH_TIMEOUT_CAP_S
 
+    # ONE git read for the whole commit, before the per-linter loop — asked here
+    # rather than per group so a polyglot commit does not pay for it per linter.
+    divergent = _divergent_from_index(root, staged_files)
+
     for (linter_name, config_path), paths in sorted(
         _group_staged_by_linter(staged_files, root).items()
     ):
@@ -294,60 +311,62 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
             )
             continue
 
-        # Lint the STAGED bytes, not the working-tree copy: materialize each
-        # staged blob to an in-dir temp sibling and point the linter at that. A
-        # bad materialize on a file the index says is present is a bad read →
-        # unverified → block; NEVER a silent skip.
-        temp_paths, created_dirs, error = _materialize_staged(root, paths)
-        if error is not None:
-            unverified.append(f"{linter_name}: {error} — refusing to report it clean")
-            continue
-        try:
-            # Run FROM the config file's directory, with paths relative to it: in
-            # a monorepo the binary lives in that subpackage (`npx eslint`
-            # resolves it by walking up from cwd) and eslint v9 resolves its flat
-            # config relative to cwd. lint_invocation_target owns BOTH halves of
-            # that convention, and we take both from it rather than re-deriving
-            # the cwd here: each file arg is a path relative to the cwd THAT call
-            # chose. The temp sits in the same dir with the same extension as its
-            # source, so the config it resolves is the group's config_path.
-            targets = [
-                lint_check.lint_invocation_target(config_path, root, tp)
-                for tp in temp_paths
-            ]
-            lint_cwd = targets[0][0]  # constant per group: same config, same dir
-            args = [file_arg for _, file_arg in targets]
-            # The REAL staged paths, relative to the SAME lint_cwd, aligned 1:1
-            # with `args`. A precondition (clang-tidy compile-DB directory
-            # coverage) is a fact about the real file, not its temp copy: the temp
-            # sits in a subdir of the covered directory and would read as
-            # uncovered, degrading a file the DB covers perfectly well. paths and
-            # temp_paths share order (built together in _materialize_staged).
-            precondition_args = [
-                lint_check.lint_invocation_target(
-                    config_path, root, str(Path(root) / p)
-                )[1]
-                for p in paths
-            ]
-            run = lint_check.run_linter_batch(
+        # The file on disk IS the staged blob wherever git says the two agree —
+        # so lint it there, batched, and let every path-relative resolution the
+        # source does resolve exactly as it will at HEAD.
+        in_place = [p for p in paths if p not in divergent]
+        if in_place:
+            _record(
+                _lint_in_place(
+                    linter_name,
+                    config_path,
+                    root,
+                    in_place,
+                    deadline - time.monotonic(),
+                ),
                 linter_name,
-                args,
-                cwd=lint_cwd,
-                budget_s=deadline - time.monotonic(),
-                root=root,
-                config_path=config_path,
-                precondition_paths=precondition_args,
+                findings,
+                unverified,
             )
-        finally:
-            _cleanup_temps(temp_paths)
-            _cleanup_created_dirs(created_dirs)
-        # The linter named the temp subdirs; the agent must see its real files.
-        run_output = _relabel_temps(run.output, temp_paths)
-        match run.status:
-            case "findings":
-                findings.append(f"{linter_name}:\n{run_output}")
-            case "unverified":
-                unverified.append(run_output)
+
+        staged_only = [p for p in paths if p in divergent]
+        if not staged_only:
+            continue
+
+        # The bytes to judge are not on disk, and every place we could put them is
+        # the wrong place — so pipe them, and tell the linter the real path. A CLI
+        # that reads no stdin leaves nowhere to put them at all: DEGRADE rather than
+        # block. We could not read what the commit carries, and refusing a commit
+        # over that is a gate nobody can satisfy — which is the one thing worse than
+        # a quiet one, per this module's own doctrine. A narrow, owned loss:
+        # divergent files only, for a stdin-less linter only.
+        if linters.LINTER_STDIN_SHAPES.get(linter_name, linters.NO_STDIN) == (
+            linters.NO_STDIN
+        ):
+            advisories.append(
+                f"Commit-time lint skipped for {len(staged_only)} staged file(s): "
+                f"{linter_name} — their staged bytes differ from the working tree "
+                f"and {linter_name} reads no source on stdin, so the gate cannot "
+                f"judge what the commit carries without moving the file "
+                f"({', '.join(staged_only)}). Run it yourself before pushing."
+            )
+            continue
+
+        for path in staged_only:
+            # Labelled with the PATH, which this branch is the only one that can
+            # do — it runs one file per invocation, so it knows. It has to: a
+            # linter told the path on stdin is not obliged to REPEAT it, and one
+            # does not (MEASURED: prettier 3 `--check --stdin-filepath x.js`
+            # prints `(stdin)`). An unlabelled finding is one the agent cannot
+            # locate — the same self-obscuring report the temp copies produced,
+            # arriving by a different door. Labelling is not reading: the
+            # linter's own words still pass through untouched.
+            _record(
+                _lint_staged_bytes(linter_name, config_path, root, path, deadline),
+                f"{linter_name} ({path}, staged bytes)",
+                findings,
+                unverified,
+            )
 
     if findings or unverified:
         lines = ["Staged lint check blocked this commit:", ""]
