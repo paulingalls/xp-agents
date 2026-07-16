@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # — but only on the path where --harness is omitted; an explicit --harness
 # skips system_context entirely.
 import sprint_store as store
+import story_done_gate
 from _append_impl import append_event
 from event_builder import generate_id
 from event_schema import EVENT_TYPE_DEBT
@@ -250,6 +251,18 @@ def _cmd_update_story(args: argparse.Namespace) -> int:
             print(f"Error: bypass not recorded ({exc}); refusing.", file=sys.stderr)
             return 1
 
+    # The engine-altitude merge backstop: the same git-derived proof the Bash gate
+    # applies, dropped below the shell so an id resolved from a variable
+    # (`update-story "$SID" done`) cannot evade it. Gate ONLY on `done` — merged_block
+    # inspects the story's CURRENT merge state, so calling it on an honest
+    # `in-progress` move would wrongly block it. Skip when the accountable override
+    # already fired (reason is not None): that path recorded its own debt above.
+    if args.status == "done" and reason is None:
+        block = story_done_gate.merged_block(args.smm_dir, str(args.cwd), args.story_id)
+        if block is not None:
+            print(f"Refusing to mark {args.story_id} done: {block}", file=sys.stderr)
+            return 1
+
     try:
         store.update_story_status(args.smm_dir, args.story_id, args.status)
     except ValueError as exc:
@@ -266,6 +279,16 @@ def _cmd_update_story_if(args: argparse.Namespace) -> int:
     2 on validation/missing-id/missing-sprint errors. Callers can
     distinguish "lost the race" (rc=1) from "bad input" (rc=2).
     """
+    # Same merge backstop as update-story, on the OTHER writer of `done` — a
+    # compare-and-swap onto the same field. Gate only when the target status is
+    # `done`; a refusal is a "cannot proceed" bad-input condition, so it takes the
+    # rc=2 exit, distinct from the rc=1 that means the CAS merely lost its race.
+    if args.new == "done":
+        block = story_done_gate.merged_block(args.smm_dir, str(args.cwd), args.story_id)
+        if block is not None:
+            print(f"Refusing to mark {args.story_id} done: {block}", file=sys.stderr)
+            return 2
+
     try:
         ok = store.update_story_status_if(
             args.smm_dir, args.story_id, expected=args.expected, new=args.new
