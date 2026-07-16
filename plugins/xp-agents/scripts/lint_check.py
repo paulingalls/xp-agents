@@ -100,27 +100,23 @@ class LintRun(NamedTuple):
     output: str
 
 
-def _linter_claims(linter_name: str, path: str) -> bool:
-    """True if `path` clears the arg-injection guard and the linter's extension set.
+def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
+    """Filter paths the linter handles, order-preserving.
+
+    Skips flag-shaped paths (arg-injection guard) and extensions the linter
+    doesn't claim. Shared by every runner — single source so the security guard
+    can't drift between callers.
 
     lang-ok: same LINTER_EXTENSIONS table as detect_linter_config — a linter
     with no entry claims every path (`allowed is None`), so an unlisted language
     is passed through rather than filtered out.
     """
     allowed = LINTER_EXTENSIONS.get(linter_name)
-    if path.startswith("-"):
-        return False
-    return allowed is None or Path(path).suffix in allowed
-
-
-def _eligible_for_linter(linter_name: str, paths: list[str]) -> list[str]:
-    """Filter paths the linter handles, order-preserving.
-
-    Skips flag-shaped paths (arg-injection guard) and extensions the linter
-    doesn't claim. Shared by run_linter and run_linter_batch — single source
-    so the security guard can't drift between callers.
-    """
-    return [p for p in paths if _linter_claims(linter_name, p)]
+    return [
+        p
+        for p in paths
+        if not p.startswith("-") and (allowed is None or Path(p).suffix in allowed)
+    ]
 
 
 def run_linter(
@@ -219,7 +215,6 @@ def run_linter_batch(
     budget_s: float | None = None,
     root: str | None = None,
     config_path: str | None = None,
-    precondition_paths: list[str] | None = None,
 ) -> LintRun:
     """Run a linter once over many paths; classify the run by its EXIT CODE.
 
@@ -277,22 +272,7 @@ def run_linter_batch(
             f"{linter_name}: refused flag-shaped path(s): {', '.join(refused)}",
         )
 
-    # `paths` are what we LINT; when the commit gate materializes staged blobs it
-    # hands us temp copies here and passes the REAL staged paths as
-    # `precondition_paths` (aligned 1:1), because a precondition like compile-DB
-    # directory coverage is a fact about the real file, not its temp copy in a
-    # subdir. Filter them in lockstep so the alignment survives the eligibility cut.
-    if precondition_paths is not None:
-        pairs = [
-            (p, pre)
-            for p, pre in zip(paths, precondition_paths, strict=True)
-            if _linter_claims(linter_name, p)
-        ]
-        eligible = [p for p, _ in pairs]
-        eligible_pre: list[str] | None = [pre for _, pre in pairs]
-    else:
-        eligible = _eligible_for_linter(linter_name, paths)
-        eligible_pre = None
+    eligible = _eligible_for_linter(linter_name, paths)
     if not eligible:
         return LintRun("clean", "")
 
@@ -307,7 +287,6 @@ def run_linter_batch(
         root=root or base,
         config_path=config_path,
         base=base,
-        precondition_paths=eligible_pre,
     )
     if cmd is None:
         # "Must not run here" — an unmet precondition, or a config-required linter
@@ -393,7 +372,7 @@ def run_linter_stdin(
     # DECLINED to check, which is not one there was nothing to check in.
     if path.startswith("-"):
         return LintRun("unverified", f"{linter_name}: refused flag-shaped path: {path}")
-    if not _linter_claims(linter_name, path):
+    if not _eligible_for_linter(linter_name, [path]):
         return LintRun("clean", "")
 
     base = cwd or root or "."

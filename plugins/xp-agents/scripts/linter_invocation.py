@@ -183,7 +183,6 @@ def linter_argv(
     root: str,
     config_path: str | None = None,
     base: str | None = None,
-    precondition_paths: list[str] | None = None,
 ) -> list[str] | None:
     """The FULL argv to run `linter_name` over `paths`, or None if it must not run.
 
@@ -215,15 +214,14 @@ def linter_argv(
     file lives in a subdirectory), or the precondition resolves the paths against the
     wrong directory and refuses to build an argv it should have built.
 
-    `precondition_paths` decouples "what to LINT" from "what the precondition is a
-    property of". The commit gate lints materialized temp copies, but a compile-DB's
-    directory coverage is a fact about the REAL staged file — a temp copy in a subdir
-    of a covered directory is not itself "covered", though the real file is. When
-    given (relative to the same `base`), the precondition is judged on these; the argv
-    still lints `paths`. Defaults to `paths` for callers with no temp indirection.
+    A precondition is judged on `paths` themselves, with nothing to thread through:
+    every caller now lints the real file. The commit gate used to lint materialized
+    temp copies, so it had to hand over the REAL staged paths separately — a
+    compile-DB's directory coverage is a fact about the real file, and a temp copy in
+    a subdir of a covered directory reads as uncovered though the real file is not.
+    Nothing copies any more, so the two questions have one answer again.
     """
-    check_paths = precondition_paths if precondition_paths is not None else paths
-    if not preconditions_met(linter_name, root, check_paths, base=base):
+    if not preconditions_met(linter_name, root, paths, base=base):
         return None
 
     shape = LINTER_ARGV_SHAPES.get(linter_name, SEPARATOR_BEFORE_PATHS)

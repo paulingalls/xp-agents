@@ -777,10 +777,19 @@ class TestRunLinterBatch(_HookTestCase):
 
 
 # ===========================================================================
-# Story-006: the commit lint gate gates the bytes it COMMITS, not the bytes
-# on disk. git names STAGED paths but the linter used to read the WORKING-TREE
-# copy, so under partial-add / edit-after-add the gate failed OPEN. Fix:
-# materialize each staged blob to an in-dir temp sibling and lint THAT.
+# Story-006: the commit lint gate gates the bytes it COMMITS, not the bytes on
+# disk — and it judges them at the file's REAL path.
+#
+# The placement has oscillated, and both previous answers were copies. A temp
+# sibling (random basename) defeated filename-keyed rules. A temp subdir kept the
+# basename but sat one level down, so `./util`, `../lib/x` and any path-keyed
+# config rule resolved somewhere else — self-obscuring, since the tmp segment was
+# stripped from the output and the dir deleted before the agent read it.
+#
+# Both properties are only satisfiable at the real path, so nothing is copied:
+# lint in place where git says the index and the tree agree, pipe the staged
+# bytes with --stdin-filename where they diverge, degrade where a linter reads
+# no stdin.
 # ===========================================================================
 
 
@@ -1160,77 +1169,24 @@ class TestIgnoredFileDoesNotBlock(unittest.TestCase):
         self.assertNotIn("--no-warn-ignored", argv)
 
 
-class TestMaterializeIsLanguageBlind(_StagedGitRepo):
-    """AC4: materialization keys on the file's own directory + exact basename,
-    the same table lookup for every language — no per-language branch."""
-
-    def test_non_python_extension_materializes_identically(self) -> None:
-        (self.repo / "main.go").write_bytes(b"package main\n")
-        self._git("add", "main.go")
-
-        temps, created, error = staged_lint._materialize_staged(
-            str(self.repo), ["main.go"]
-        )
-        try:
-            self.assertIsNone(error)
-            self.assertEqual(created, [])
-            self.assertEqual(len(temps), 1)
-            tmp = Path(temps[0])
-            self.assertEqual(
-                tmp.name,
-                "main.go",
-                "EXACT basename preserved so filename-keyed linter rules match",
-            )
-            self.assertEqual(
-                tmp.parent.parent,
-                (self.repo / "main.go").parent,
-                "temp lives in a subdir INSIDE the real parent, so config/"
-                "toolchain walk-up resolves the same config (one extra hop)",
-            )
-            self.assertEqual(tmp.read_bytes(), b"package main\n", "staged bytes")
-        finally:
-            staged_lint._cleanup_temps(temps)
-            staged_lint._cleanup_created_dirs(created)
+# TestMaterializeIsLanguageBlind and TestMaterializeCreatesMissingParentDir stood
+# here. Both tested `_materialize_staged` directly, which no longer exists — the
+# gate lints the real path, so there is no copy to key on a basename and no
+# gone-parent-dir to recreate. Their INTENT survives: language-blindness is pinned
+# by TestBranchALintsTheRealPath.test_the_same_branch_carries_any_language, and the
+# staged-new file whose parent dir is gone is pinned end-to-end by
+# TestGateHandlesMissingParentDir — which needs no dir on disk at all now, because
+# the bytes arrive on stdin.
 
 
-class TestMaterializeCreatesMissingParentDir(_StagedGitRepo):
-    """A staged-new file whose parent dir was removed in the working tree (index
-    still carries the blob) must be materialized, not fail closed — the old
-    `mkstemp(dir=<gone parent>)` raised FileNotFoundError and blocked the commit.
-    The recreated dir is removed again so the working tree is left as it was.
+class TestGateFailsClosedOnAnUnreadableStagedBlob(_StagedGitRepo):
+    """An in-index file whose staged blob cannot be read is a bad read →
+    unverified → BLOCK. Never a silent skip.
+
+    `staged_blob_bytes` survives the death of materialization: it is now the
+    source of the bytes branch B pipes to the linter, so this is still the read
+    that can fail, and it must still fail closed.
     """
-
-    def test_missing_parent_dir_is_recreated_then_cleaned(self) -> None:
-        import shutil as sh
-
-        sub = self.repo / "newpkg"
-        sub.mkdir()
-        (sub / "mod.go").write_bytes(b"package main\n")
-        self._git("add", "newpkg/mod.go")
-        sh.rmtree(sub)  # index keeps the blob; the working tree loses the dir
-        self.assertFalse(sub.exists())
-
-        temps, created, error = staged_lint._materialize_staged(
-            str(self.repo), ["newpkg/mod.go"]
-        )
-        try:
-            self.assertIsNone(
-                error, "a gone parent dir must be recreated, not fail closed"
-            )
-            self.assertEqual(len(temps), 1)
-            self.assertEqual(Path(temps[0]).name, "mod.go")
-            self.assertEqual(Path(temps[0]).read_bytes(), b"package main\n")
-            self.assertTrue(created, "the recreated dir must be tracked for cleanup")
-        finally:
-            staged_lint._cleanup_temps(temps)
-            staged_lint._cleanup_created_dirs(created)
-
-        self.assertFalse(sub.exists(), "the recreated parent dir must be removed again")
-
-
-class TestGateFailsClosedOnBadMaterialize(_StagedGitRepo):
-    """AC/robustness: an in-index file whose staged blob cannot be read is a bad
-    read → unverified → BLOCK. Never a silent skip."""
 
     def test_unreadable_staged_blob_blocks(self) -> None:
         target = self.repo / "app.py"
@@ -1435,8 +1391,13 @@ class TestGateJudgesTheFileAtItsRealDepth(_StagedGitRepo):
 @unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
 class TestGateHandlesMissingParentDir(_StagedGitRepo):
     """A staged-new file whose parent dir is gone in the working tree (index
-    still carries it) must not fail the gate closed — the old materialize raised
-    on the missing dir and blocked a commit the `.exists()` predicate let through.
+    still carries it) must not fail the gate closed.
+
+    Kept, and it gets easier rather than harder: git calls the file divergent, so
+    its bytes arrive on stdin and nothing needs to exist on disk at all. The old
+    materialize had to RECREATE the missing dir to write its copy into, then
+    remove it again to leave the tree as it found it — a whole mechanism for a
+    case that stops existing once nothing is written.
     """
 
     def test_staged_new_file_whose_parent_dir_is_gone_is_not_blocked(self) -> None:

@@ -12,11 +12,7 @@ answer, and that decision is deliberately language-blind: it reads an exit code,
 never the linter's words.
 """
 
-import contextlib
-import os
-import shutil
 import sys
-import tempfile
 import time
 from pathlib import Path
 from subprocess import run as _git_run
@@ -103,126 +99,6 @@ def _divergent_from_index(root: str, paths: list[str]) -> set[str]:
         return set(paths)
     named = proc.stdout.decode("utf-8", errors="replace").split("\0")
     return {p for p in named if p}
-
-
-def _cleanup_temps(temp_paths: list[str]) -> None:
-    """Remove each materialized file's temp SUBDIR; a crash must strand nothing.
-
-    Each staged blob is written to `<uniquetmpdir>/<original_basename>`, so the
-    thing to remove is the whole `<uniquetmpdir>` — a directory mkdtemp created
-    for us and nothing else lives in.
-    """
-    for tp in temp_paths:
-        with contextlib.suppress(OSError):
-            shutil.rmtree(Path(tp).parent)
-
-
-def _cleanup_created_dirs(created_dirs: list[str]) -> None:
-    """Remove parent dirs we had to create to materialize a staged-new file.
-
-    A staged-new `newdir/foo.py` whose `newdir/` is gone from the working tree
-    (the index still carries the blob) is materialized under a freshly-created
-    `newdir/` — which must be removed again so the working tree is left exactly
-    as it was. `rmdir` only removes an EMPTY dir, so this can never delete real
-    content; deepest-first so nested creations unwind cleanly.
-    """
-    for d in sorted(set(created_dirs), key=lambda p: p.count(os.sep), reverse=True):
-        with contextlib.suppress(OSError):
-            os.rmdir(d)
-
-
-def _missing_ancestors(parent: Path) -> list[str]:
-    """The dirs in `parent`'s chain that do not yet exist, deepest-first.
-
-    These are exactly the dirs `os.makedirs(parent)` will create — recorded so
-    cleanup removes only what we created, never a dir that was already there.
-    """
-    missing: list[str] = []
-    p = parent
-    while not p.exists():
-        missing.append(str(p))
-        if p.parent == p:  # reached the filesystem root
-            break
-        p = p.parent
-    return missing
-
-
-def _materialize_staged(
-    root: str, paths: list[str]
-) -> tuple[list[str], list[str], str | None]:
-    """Materialize each staged blob; return (temp_paths, created_dirs, error).
-
-    For each in-index path, the staged bytes are written to a UNIQUE temp SUBDIR
-    inside the file's own directory, under the file's EXACT original basename
-    (`pkg/app.py` → `pkg/tmpXXXX/app.py`). Two properties, both load-bearing:
-
-      * exact basename: a linter rule keyed on the full filename (ruff
-        `per-file-ignores`, eslint filename globs, the `__init__.py` /
-        `conftest.py` special-cases) matches the materialized file, so a
-        legitimate commit is not FALSE-POSITIVE blocked. A random temp name
-        would defeat those rules — the inverse of the fail-open this replaces.
-      * temp is INSIDE the real parent: detect_linter_config and eslint/ruff
-        resolve config + node_modules by walking UP from the file, so the temp
-        subdir walks `<tmpXXXX>/ → <parent>/ → …` and resolves the SAME config,
-        one transparent extra hop. A temp elsewhere would resolve neither.
-
-    A staged-new file whose parent dir is gone from the working tree (index
-    still has the blob) has that dir recreated (`os.makedirs`); the dirs created
-    are returned in created_dirs so the caller removes them again, leaving the
-    working tree as it was. If a path component is a file (makedirs can't
-    resolve), that OSError falls through to the fail-closed block below — the
-    honest outcome for a genuinely broken path.
-
-    error is non-None on the FIRST bad read (blob unreadable, or the temp write
-    failed) — the caller fails closed. Partial temps and created dirs are
-    removed before returning so a failure strands nothing.
-    """
-    temp_paths: list[str] = []
-    created_dirs: list[str] = []
-
-    def _fail(msg: str) -> tuple[list[str], list[str], str]:
-        _cleanup_temps(temp_paths)
-        _cleanup_created_dirs(created_dirs)
-        return [], [], msg
-
-    for path in paths:
-        blob = staged_blob_bytes(root, path)
-        if blob is None:
-            return _fail(f"could not read staged blob for {path}")
-        abs_path = Path(root) / path
-        parent = abs_path.parent
-        try:
-            new_dirs = _missing_ancestors(parent)
-            os.makedirs(parent, exist_ok=True)
-            created_dirs.extend(new_dirs)
-            tmp_dir = tempfile.mkdtemp(dir=str(parent))
-            tmp = str(Path(tmp_dir) / abs_path.name)
-            with open(tmp, "wb") as fh:
-                fh.write(blob)
-        except OSError as e:
-            return _fail(f"could not materialize staged {path} ({e})")
-        temp_paths.append(tmp)
-    return temp_paths, created_dirs, None
-
-
-def _relabel_temps(output: str, temp_paths: list[str]) -> str:
-    """Rewrite the temp-subdir paths back to the staged files' real paths.
-
-    The linter is pointed at `<parent>/<tmpXXXX>/<basename>`, so its output names
-    a path with a `<tmpXXXX>/` segment that does not exist in the real tree and
-    is already removed by the time the block message reaches the agent, whom we
-    then tell to "fix the findings". The basename is now IDENTICAL to the real
-    file, so only the injected temp-subdir segment must be stripped: each subdir
-    name is a unique mkdtemp string, so dropping `<tmpXXXX>/` collapses the path
-    back to the real one without touching anything else, in any language and
-    whatever path format (relative or absolute) the linter printed.
-    """
-    for tmp in temp_paths:
-        tmp_seg = Path(tmp).parent.name
-        output = output.replace(f"{tmp_seg}/", "")
-        if os.sep != "/":
-            output = output.replace(f"{tmp_seg}{os.sep}", "")
-    return output
 
 
 def _record(
@@ -380,14 +256,23 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     caller to avoid a second `git diff --cached --name-only` invocation
     (invariant: `test_common_path_at_most_one_name_only_call`).
 
-    The bytes checked are the INDEX's, not the working tree's: each staged blob
-    is materialized under its EXACT basename in a temp subdir of its own
-    directory (`_materialize_staged`) and the linter is pointed at THAT, so a
-    partial-add or an edit-after-add is judged on the content the commit actually
-    carries, in both directions — and a filename-keyed linter rule
-    (per-file-ignores, `__init__.py` special-cases) still matches. A blob the
-    index says is there but we cannot read fails CLOSED (unverified), never a
-    silent skip.
+    The bytes checked are the INDEX's, not the working tree's — so a partial-add
+    or an edit-after-add is judged on what the commit actually carries, in both
+    directions. Nothing is ever COPIED to achieve that, and the copies are what
+    the previous two attempts each broke something on: a linter must see the file
+    at its exact basename (filename-keyed rules: per-file-ignores, `__init__.py`
+    special-cases) AND at its exact depth (`./util`, `../lib/x`, any path-keyed
+    config rule), and no copy holds both. Only the real path does. So:
+
+      * index == working tree (~99% of commits) → lint the real path, batched.
+        Linting the real path IS linting the index when they are identical, and
+        this cannot reintroduce the fail-open, which requires them to differ.
+      * they diverge → pipe `git show :<path>` to the linter and TELL it the real
+        path (`_lint_staged_bytes`). Per-file, but divergence is rare.
+      * they diverge and the linter reads no stdin → DEGRADE, and say why.
+
+    A blob the index says is there but we cannot read fails CLOSED (unverified),
+    never a silent skip.
     """
     # git names staged paths relative to the REPO ROOT, so resolve them there —
     # not against the hook's cwd, which is a subdirectory whenever the agent
