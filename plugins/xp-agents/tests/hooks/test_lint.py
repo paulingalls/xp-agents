@@ -4,7 +4,6 @@
 Split from the original test_post_tool.py.
 """
 
-import json
 import os
 import re
 import shutil
@@ -830,6 +829,24 @@ class TestLinterStdinShapes(unittest.TestCase):
         )
         self.assertNotIn("clang-tidy", linters.LINTER_STDIN_SHAPES)
 
+    def test_flake8_takes_a_display_name_and_a_trailing_dash(self):
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("flake8"),
+            linters.STDIN_DISPLAY_NAME_TRAILING_DASH,
+        )
+
+    def test_rubocop_names_the_path_as_the_stdin_flags_value(self):
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("rubocop"),
+            linters.STDIN_FLAG_WITH_FILENAME,
+        )
+
+    def test_clang_format_assumes_the_filename(self):
+        self.assertEqual(
+            linters.LINTER_STDIN_SHAPES.get("clang-format"),
+            linters.STDIN_ASSUME_FILENAME,
+        )
+
     def test_every_row_names_a_linter_that_exists(self):
         """A row for a linter the registry cannot invoke is dead data — it
         would never be reached, and reads as coverage that is not there."""
@@ -864,6 +881,49 @@ class TestLinterStdinShapes(unittest.TestCase):
                     argv or [],
                     f"{shape} pipes the bytes without naming the path",
                 )
+
+
+class TestNoActiveLinterSilentlyLosesTheIndex(unittest.TestCase):
+    """The set of linters that cannot judge divergent staged bytes, pinned.
+
+    A linter that is neither degraded nor stdin-capable has no way to read what
+    the commit carries once the index and the tree diverge, so its whole language
+    loses the gate's headline guarantee for those files. That is a real cost, and
+    this test is what stops the set growing by ACCIDENT: it grew silently once
+    already, when materialization was removed and every non-stdin linter quietly
+    became advisory. Adding a name here must be a deliberate act with a reason
+    written next to it in LINTER_STDIN_SHAPES, never a row somebody forgot.
+    """
+
+    # Each verified against the tool itself, not a doc page — see the reasoning
+    # block above LINTER_STDIN_SHAPES for why each one is a NO_STDIN we CHOSE.
+    _EXPECTED_UNCOVERED: frozenset[str] = frozenset(
+        {
+            "golangci-lint",
+            "clang-tidy",
+            "dart-analyze",
+            "swiftlint",
+            "phpcs",
+            "php-cs-fixer",
+        }
+    )
+
+    def test_the_uncovered_set_is_exactly_what_we_have_signed_off(self):
+        uncovered = {
+            name
+            for name in linters.LINTER_COMMANDS
+            if name not in linters.DEGRADED_LINTERS
+            and linters.LINTER_STDIN_SHAPES.get(name, linters.NO_STDIN)
+            == linters.NO_STDIN
+        }
+        self.assertEqual(
+            uncovered,
+            self._EXPECTED_UNCOVERED,
+            "the set of linters that cannot judge a divergent staged file "
+            "changed. Growing it drops commit-time index coverage for a whole "
+            "language — fill in the stdin row, or record why it genuinely has "
+            "none. Shrinking it is good news: update this expectation.",
+        )
 
 
 class TestTheColumnsAgreeOnWhoTheLintersAre(unittest.TestCase):
@@ -1123,43 +1183,95 @@ class TestBranchBFeedsStagedBytesOnStdin(_LinterCallRecorder):
         )
 
 
-class TestBranchCDegradesWhenStdinIsNotAnOption(_StagedGitRepo):
-    """Divergent bytes + a linter that reads no stdin = a coverage loss we OWN.
+class TestBranchCBlocksWhenStdinIsNotAnOption(_StagedGitRepo):
+    """Divergent bytes + a linter that reads no stdin = FAIL CLOSED, and say how.
 
-    clang-tidy takes no source on stdin, so for a divergent file there is
-    nowhere left to put the staged bytes that does not move the file. Blocking
-    would refuse a commit over bytes we simply could not read, and an
-    unsatisfiable gate gets switched off — the doctrine `degrade_reason` already
-    encodes. So: advise, say why, and let the commit through.
+    This branch used to advise and wave the commit through, which reopened the
+    exact edit-after-add fail-open the gate exists to close — for every language
+    whose linter takes no stdin (Go, C/C++, Dart, Swift, PHP). The reasoning that
+    licensed it was that blocking is "a gate nobody can satisfy". That is false,
+    and the falseness is the whole point: `git add <path>` satisfies it in one
+    command, and for the headline case (staged, then edited on disk) re-staging
+    is what the committer MEANT to do anyway. An unreadable file is not a clean
+    one — the gate's own doctrine everywhere else.
 
-    A narrow, honest loss: divergent C/C++ only. Identical C/C++ files still
-    lint in place on branch A, which is ~99% of commits.
+    Narrow by construction: only a divergent file, only for a stdin-less linter.
+    Identical files still lint in place on branch A — ~99% of commits.
     """
 
-    def test_divergent_file_for_a_stdin_less_linter_advises_not_blocks(self) -> None:
-        (self.repo / ".clang-tidy").touch()
-        (self.repo / "compile_commands.json").write_text(
-            json.dumps(
-                [
-                    {
-                        "directory": str(self.repo),
-                        "file": str(self.repo / "app.c"),
-                        "command": "cc app.c",
-                    }
-                ]
-            )
-        )
-        target = self.repo / "app.c"
-        target.write_text("int main(void) { return 0; }\n")
-        self._git("add", "app.c")
-        target.write_text("int main(void) { return 1; }\n")  # divergent
+    def _stage_then_dirty_a_go_file(self) -> None:
+        (self.repo / ".golangci.yml").touch()
+        target = self.repo / "main.go"
+        target.write_text("package main\nfunc main() { var x int }\n")  # violation
+        self._git("add", "main.go")
+        target.write_text("package main\nfunc main() {}\n")  # fixed, NOT re-staged
 
-        with patch("lint_check.shutil.which", return_value="/usr/bin/clang-tidy"):
-            advisories = staged_lint.staged_lint_gate(["app.c"], str(self.repo))
+    def test_divergent_file_for_a_stdin_less_linter_blocks(self) -> None:
+        """The regression this class is named for: on a Go project, the
+        violating STAGED bytes must not reach the commit just because the
+        working tree was cleaned up afterwards."""
+        self._stage_then_dirty_a_go_file()
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/golangci-lint"),
+            self.assertRaises(_common.BlockedError) as caught,
+        ):
+            staged_lint.staged_lint_gate(["main.go"], str(self.repo))
+
+        message = str(caught.exception)
+        self.assertIn("main.go", message, "the block must name the file")
+        self.assertIn("golangci-lint", message, "and the linter that cannot read it")
+
+    def test_the_block_tells_the_committer_how_to_satisfy_it(self) -> None:
+        """A gate that blocks without naming its remedy is the unsatisfiable
+        gate the old advisory was (wrongly) afraid of."""
+        self._stage_then_dirty_a_go_file()
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/golangci-lint"),
+            self.assertRaises(_common.BlockedError) as caught,
+        ):
+            staged_lint.staged_lint_gate(["main.go"], str(self.repo))
+
+        self.assertIn("git add", str(caught.exception))
+
+    def test_an_IDENTICAL_go_file_still_lints_in_place_and_passes(self) -> None:
+        """The loss stays narrow: divergence is the trigger, not the language."""
+        (self.repo / ".golangci.yml").touch()
+        (self.repo / "main.go").write_text("package main\nfunc main() {}\n")
+        self._git("add", "main.go")  # index == working tree
+
+        real_run = subprocess.run
+
+        def _capture(cmd, **kwargs):
+            if cmd and cmd[0] == "git":
+                return real_run(cmd, **kwargs)
+            return _mock_ruff_result(returncode=0, stdout="")
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/golangci-lint"),
+            patch("lint_check.subprocess.run", side_effect=_capture),
+        ):
+            advisories = staged_lint.staged_lint_gate(["main.go"], str(self.repo))
+
+        self.assertEqual(advisories, [])
+
+    def test_a_project_scoped_linter_still_DEGRADES_rather_than_blocking(self) -> None:
+        """The distinction this change must not flatten: clippy exits non-zero
+        over whole-crate state the staged diff neither caused nor can fix, so
+        blocking on it is genuinely unsatisfiable. `degrade_reason` runs first
+        and still wins — divergence never reaches it."""
+        (self.repo / "Cargo.toml").touch()
+        target = self.repo / "main.rs"
+        target.write_text("fn main() { let x = 1; }\n")
+        self._git("add", "main.rs")
+        target.write_text("fn main() {}\n")  # divergent
+
+        with patch("lint_check.shutil.which", return_value="/usr/bin/cargo"):
+            advisories = staged_lint.staged_lint_gate(["main.rs"], str(self.repo))
 
         self.assertEqual(len(advisories), 1, f"expected one advisory: {advisories}")
-        self.assertIn("clang-tidy", advisories[0])
-        self.assertIn("app.c", advisories[0])
+        self.assertIn("clippy", advisories[0])
 
 
 class TestBranchALintsTheRealPath(_LinterCallRecorder):

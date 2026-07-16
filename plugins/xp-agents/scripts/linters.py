@@ -179,24 +179,46 @@ LINTER_ARGV_SHAPES: dict[str, str] = {
 # not build the command. ruff wants a trailing positional `-` (its path argument is what
 # selects stdin, and `--stdin-filename` only labels it); eslint wants a `--stdin` flag
 # and NO positional; prettier reads piped stdin implicitly and names the path with a
-# differently-spelled flag of its own.
+# differently-spelled flag of its own. Nor can the shapes collapse into "flag + form":
+# six CLIs spell the same idea six ways, and the spelling IS the data.
 #
 # STRUCTURAL, by the same mechanical test as the columns above: could someone fill a
 # row in by reading the tool's `--help`, without knowing one rule name of that language?
-# Yes — each form below is quoted from its own `--help` synopsis (verified against ruff
-# 0.15, eslint v10, prettier 3). A rule-code map is the leak; a flag spelling is not.
+# Yes — each form below is quoted from its own `--help` synopsis. A rule-code map is the
+# leak; a flag spelling is not.
 #
-# Absent rows answer NO_STDIN, and that default is the SAFE direction, not an oversight:
-# a linter nobody has filled in is DEGRADED to an advisory rather than invoked with an
-# argv it never agreed to. A forgotten column that silently mis-invokes is the failure
-# this default exists to prevent — the caller loses coverage on that row and says so,
-# instead of reporting a file clean it never read.
+# Every row is MEASURED against the real binary, never read off a doc page: ruff 0.15,
+# eslint v10, prettier 3, and (added when the stdin-less default was found to be
+# reopening the gate's own fail-open) flake8 7.3, rubocop 1.81, clang-format 21.
+#
+# Absent rows answer NO_STDIN, and that default is the SAFE direction: a linter nobody
+# has filled in is never invoked with an argv it did not agree to. But it is NOT a free
+# default — the caller can no longer judge a divergent file's staged bytes at all, and
+# fails closed instead (see staged_lint's branch C). That is a real cost, paid by a
+# whole language, so a row belongs here whenever the tool can genuinely take it.
+#
+# What "genuinely" excludes, and why each is a NO_STDIN we chose rather than forgot:
+#   * golangci-lint, clang-tidy, dart-analyze, php-cs-fixer — no stdin source mode.
+#   * swiftlint — HAS `--use-stdin`, but no way to name the path with it: MEASURED,
+#     it reports the file as `<nopath>`. This column's whole contract is bytes on
+#     stdin *while still being told the path*, and a mode that cannot be told the
+#     path would silently defeat the config's own `included`/`excluded` rules and
+#     block a file the project says to skip. Half the contract is not a row.
+#   * phpcs — documents `--stdin-path`, but no PHP toolchain was available to
+#     MEASURE it, and this table does not take a doc page's word for it. Debt.
 # `--stdin-filename X -` (the trailing `-` is the path arg, and it selects stdin)
 STDIN_FILENAME_TRAILING_DASH = "stdin_filename_trailing_dash"
 # `--stdin --stdin-filename X`, no positional
 STDIN_FLAG_AND_FILENAME = "stdin_flag_and_filename"
 # `--stdin-filepath X`, piped stdin read implicitly
 STDIN_FILEPATH = "stdin_filepath"
+# `--stdin-display-name X -` — ruff's idea, flake8's spelling. Same trailing `-` (the
+# path arg is what selects stdin), a different flag name for the label.
+STDIN_DISPLAY_NAME_TRAILING_DASH = "stdin_display_name_trailing_dash"
+# `--stdin X` — the flag itself TAKES the path (`-s, --stdin FILE`), no positional.
+STDIN_FLAG_WITH_FILENAME = "stdin_flag_with_filename"
+# `--assume-filename=X`, piped stdin read implicitly when no path is given.
+STDIN_ASSUME_FILENAME = "stdin_assume_filename"
 # the default: this CLI reads no source on stdin
 NO_STDIN = "no_stdin"
 
@@ -204,6 +226,20 @@ LINTER_STDIN_SHAPES: dict[str, str] = {
     "ruff": STDIN_FILENAME_TRAILING_DASH,
     "eslint": STDIN_FLAG_AND_FILENAME,
     "prettier": STDIN_FILEPATH,
+    # `--stdin-display-name STDIN_DISPLAY_NAME`: "the name used when reporting
+    # warnings and errors ... via stdin". MEASURED (flake8 7.3): a violation on
+    # stdin reports at `pkg/app.py:1:1` and exits 1.
+    "flake8": STDIN_DISPLAY_NAME_TRAILING_DASH,
+    # `-s, --stdin FILE`: "Pipe source from STDIN, using FILE in offense reports".
+    # MEASURED (rubocop 1.81): offenses report at `lib/app.rb:1:5`, exit 1.
+    "rubocop": STDIN_FLAG_WITH_FILENAME,
+    # `--assume-filename=<string>`: "Set filename used to determine the language ...
+    # Only used when reading from stdin." MEASURED (clang-format 21): with the
+    # shipped `--dry-run -Werror`, a violation reports at `src/a.c:1:4` and exits 1;
+    # clean exits 0. Both halves matter — an exit-0-on-findings CLI would need a
+    # LINTER_STRICT_FLAGS row too, and this one already has its strictness in
+    # LINTER_COMMANDS.
+    "clang-format": STDIN_ASSUME_FILENAME,
 }
 
 

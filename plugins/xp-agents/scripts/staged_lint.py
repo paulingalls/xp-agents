@@ -269,7 +269,9 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
         this cannot reintroduce the fail-open, which requires them to differ.
       * they diverge → pipe `git show :<path>` to the linter and TELL it the real
         path (`_lint_staged_bytes`). Per-file, but divergence is rare.
-      * they diverge and the linter reads no stdin → DEGRADE, and say why.
+      * they diverge and the linter reads no stdin → BLOCK, naming the remedy
+        (`git add` the path). Unreadable is not clean, and this one IS
+        satisfiable — unlike a degraded linter, which is why they differ.
 
     A blob the index says is there but we cannot read fails CLOSED (unverified),
     never a silent skip.
@@ -335,20 +337,28 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
 
         # The bytes to judge are not on disk, and every place we could put them is
         # the wrong place — so pipe them, and tell the linter the real path. A CLI
-        # that reads no stdin leaves nowhere to put them at all: DEGRADE rather than
-        # block. We could not read what the commit carries, and refusing a commit
-        # over that is a gate nobody can satisfy — which is the one thing worse than
-        # a quiet one, per this module's own doctrine. A narrow, owned loss:
-        # divergent files only, for a stdin-less linter only.
+        # that reads no stdin leaves nowhere to put them at all: FAIL CLOSED.
+        #
+        # This branch advised and let the commit through until it was noticed that
+        # doing so reopened the exact edit-after-add fail-open the gate exists to
+        # close — for every language whose linter takes no stdin at once. The
+        # reasoning that licensed it was that blocking here is "a gate nobody can
+        # satisfy". It is not: `git add <path>` satisfies it in one command, and
+        # for the case that actually produces this state (staged, then edited on
+        # disk) re-staging is what the committer meant to do anyway. That is the
+        # line against `degrade_reason` above, which stays an advisory precisely
+        # because it is NOT satisfiable — a whole-crate clippy failure is not
+        # something the staged diff can fix. Unreadable is not clean.
         if linters.LINTER_STDIN_SHAPES.get(linter_name, linters.NO_STDIN) == (
             linters.NO_STDIN
         ):
-            advisories.append(
-                f"Commit-time lint skipped for {len(staged_only)} staged file(s): "
-                f"{linter_name} — their staged bytes differ from the working tree "
-                f"and {linter_name} reads no source on stdin, so the gate cannot "
-                f"judge what the commit carries without moving the file "
-                f"({', '.join(staged_only)}). Run it yourself before pushing."
+            unverified.append(
+                f"{linter_name}: the staged bytes of {', '.join(staged_only)} "
+                f"differ from the working tree, and {linter_name} reads no source "
+                f"on stdin — so what the commit carries cannot be judged without "
+                f"moving the file, and moving it is what this gate refuses to do. "
+                f"`git add` those paths (or unstage them) so the index and the "
+                f"working tree agree, then commit."
             )
             continue
 

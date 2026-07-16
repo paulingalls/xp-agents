@@ -289,6 +289,24 @@ def linter_stdin_argv(
             return [*argv, "--stdin", "--stdin-filename", path]
         case _linters.STDIN_FILEPATH:
             return [*argv, "--stdin-filepath", path]
+        case _linters.STDIN_DISPLAY_NAME_TRAILING_DASH:
+            # ruff's shape, flake8's spelling: the trailing `-` is the PATH
+            # argument and is what selects stdin; the flag only labels the bytes.
+            return [*argv, "--stdin-display-name", path, "-"]
+        case _linters.STDIN_FLAG_WITH_FILENAME:
+            # `-s, --stdin FILE` — the flag TAKES the path. No positional: rubocop
+            # handed both would lint the path off disk instead of the stdin bytes.
+            return [*argv, "--stdin", path]
+        case _linters.STDIN_ASSUME_FILENAME:
+            # Piped stdin is read implicitly, but ONLY when no path is given —
+            # a positional here would make clang-format read the file off disk
+            # and ignore the staged bytes entirely.
+            #
+            # Separated, not `--assume-filename=X`: MEASURED equivalent (LLVM
+            # options take both), and it keeps the path a token of its own, which
+            # is what lets the table-wide "every shape names the path" invariant
+            # actually read it. `=` would fuse it and pass the invariant blind.
+            return [*argv, "--assume-filename", path]
     return None
 
 
