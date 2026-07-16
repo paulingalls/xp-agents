@@ -218,6 +218,38 @@ LINTER_CONFIG_FLAGS: dict[str, list[str]] = {
 }
 
 
+# COLUMN: config-style flags. An option a CLI accepts only in ONE of its own config
+# MODES — keyed by the config FILE, because the file is what selects the mode.
+#
+# Not keyed by linter, and that is the whole point of the column. `--no-warn-ignored`
+# is a real eslint option, but only under flat config (added 8.51); under `.eslintrc`
+# it is an UNRECOGNISED option, and eslint answers that with exit 2 and nothing linted.
+# The gate reads non-zero-with-output as FINDINGS, so a linter-keyed row would block
+# EVERY commit in every eslintrc project — an unfixable gate, which is the one failure
+# `DEGRADED_LINTERS` exists to avoid. The mode is not knowable from the linter's name;
+# it is knowable from the config file `detect_linter_config` already found.
+#
+# Why the gate needs it at all: `LINTER_STRICT_FLAGS` ships eslint `--max-warnings=0`
+# so warn-level rules block. eslint reports "File ignored because of a matching ignore
+# pattern" as a WARNING, so once the gate lints files at their REAL paths — where an
+# ignore pattern finally matches — that warning trips the threshold and the gate
+# refuses a file the project's own config says to skip, with nothing to fix. MEASURED
+# against eslint v10: exit 1 by path AND via --stdin-filename; exit 0 with this flag.
+#
+# Structural, by the same test as the columns above: the row is the flag's own `--help`
+# line ("Suppress warnings when the file list includes ignored files") plus which config
+# file enables it. No rule name, in any language. The alternative — reading eslint's
+# message text — is a rule map by another name, and forbidden.
+#
+# An absent row adds nothing, which is why an unknown config style is safe by default:
+# the tool is invoked exactly as it is today.
+CONFIG_STYLE_FLAGS: dict[str, list[str]] = {
+    "eslint.config.js": ["--no-warn-ignored"],
+    "eslint.config.mjs": ["--no-warn-ignored"],
+    "eslint.config.ts": ["--no-warn-ignored"],
+}
+
+
 # COLUMN: precondition. A file the PROJECT must have before this linter can be
 # invoked at all — not a property of the linter, a property of the checkout.
 #

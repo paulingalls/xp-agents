@@ -997,6 +997,75 @@ class TestBranchALintsTheRealPath(_LinterCallRecorder):
         self.assertEqual(calls, [], "no linter claims .go here — a skip, not a crash")
 
 
+class TestIgnoredFileDoesNotBlock(unittest.TestCase):
+    """A staged file the project's own config says to SKIP must not block it.
+
+    This is a regression the real-path branches CREATE, and it is handled here
+    rather than after the fact. Today the gate lints a temp copy, whose path an
+    exact-path ignore pattern does not match — so an ignored file is linted
+    anyway (a latent bug: the gate lints files the project says to skip). Put
+    the file back at its real path and the ignore finally matches, at which
+    point eslint reports `File ignored because of a matching ignore pattern`
+    as a WARNING — and `--max-warnings=0`, which the strictness column ships to
+    make warn-level rules block, turns that into exit 1. The gate would refuse a
+    file the config says to skip, with nothing the committer could fix.
+
+    MEASURED against eslint v10, both branches: an ignored file passed by path
+    exits 1, and the same file passed via `--stdin-filename` exits 1 too.
+    `--no-warn-ignored` returns both to exit 0.
+
+    The flag is keyed on the CONFIG FILE, not on eslint, and that is
+    load-bearing: it is accepted only in flat-config mode (added 8.51). Under
+    `.eslintrc` — any version — it is an unrecognized option, which exits 2 with
+    nothing linted. The gate reads non-zero-with-output as FINDINGS, so shipping
+    it unconditionally would block EVERY commit in every eslintrc project: far
+    worse than the narrow bug it fixes.
+    """
+
+    def _argv(self, config_name: str) -> list[str]:
+        return (
+            linters.linter_argv(
+                "eslint",
+                ["app.js"],
+                root="/repo",
+                config_path=f"/repo/{config_name}",
+            )
+            or []
+        )
+
+    def test_flat_config_suppresses_the_ignored_file_warning(self):
+        self.assertIn("--no-warn-ignored", self._argv("eslint.config.js"))
+
+    def test_flat_config_variants_all_carry_it(self):
+        for name in ("eslint.config.js", "eslint.config.mjs", "eslint.config.ts"):
+            with self.subTest(config=name):
+                self.assertIn("--no-warn-ignored", self._argv(name))
+
+    def test_eslintrc_does_not_get_a_flag_it_would_reject(self):
+        """Unrecognized option → exit 2, nothing linted, every commit blocked."""
+        for name in (".eslintrc", ".eslintrc.json", ".eslintrc.js"):
+            with self.subTest(config=name):
+                self.assertNotIn("--no-warn-ignored", self._argv(name))
+
+    def test_the_suppression_rides_with_the_strictness_that_needs_it(self):
+        """`--max-warnings=0` is what turns the warning into a block, so the two
+        must be composed by the SAME builder. Split them and a caller can pin
+        strictness without the suppression and reintroduce the block."""
+        argv = self._argv("eslint.config.js")
+        self.assertIn("--max-warnings=0", argv)
+        self.assertIn("--no-warn-ignored", argv)
+
+    def test_no_config_path_stays_conservative(self):
+        """Mode unknown → do not guess. A flag the tool might reject is worse
+        than a warning it might emit."""
+        argv = linters.linter_argv("eslint", ["app.js"], root="/repo") or []
+        self.assertNotIn("--no-warn-ignored", argv)
+
+    def test_a_linter_with_no_config_style_row_is_untouched(self):
+        argv = linters.linter_argv("ruff", ["app.py"], root="/repo") or []
+        self.assertNotIn("--no-warn-ignored", argv)
+
+
 class TestMaterializeIsLanguageBlind(_StagedGitRepo):
     """AC4: materialization keys on the file's own directory + exact basename,
     the same table lookup for every language — no per-language branch."""

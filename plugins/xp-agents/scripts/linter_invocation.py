@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 from linters import (
+    CONFIG_STYLE_FLAGS,
     DEGRADED_LINTERS,
     LINTER_ARGV_SHAPES,
     LINTER_COMMANDS,
@@ -42,6 +43,21 @@ def linter_command(linter_name: str) -> list[str]:
     step, and stays public because callers still pin the flags.
     """
     return LINTER_COMMANDS[linter_name] + LINTER_STRICT_FLAGS.get(linter_name, [])
+
+
+def _config_style_flags(config_path: str | None) -> list[str]:
+    """Flags this CLI accepts only under the config style `config_path` selects.
+
+    Keyed on the config FILE's name — the file is what selects the mode, and the
+    linter's name cannot tell you which mode it is in. See CONFIG_STYLE_FLAGS.
+
+    No config path means the mode is unknown, and unknown answers NOTHING: a flag the
+    tool might reject is worse than the warning it would have suppressed, because a
+    rejected flag exits non-zero with output and the gate reads that as findings.
+    """
+    if not config_path:
+        return []
+    return CONFIG_STYLE_FLAGS.get(Path(config_path).name, [])
 
 
 def _compile_db_covers(root: str, paths: list[str], base: str) -> bool:
@@ -192,6 +208,12 @@ def linter_argv(
             # findings or clean. Both are lies. Refuse to build the argv.
             return None
         argv += [*config_flag, config_path]
+
+    # Composed HERE, beside the strictness flags, because it only exists to answer
+    # them: `--max-warnings=0` is what turns eslint's ignored-file warning into a
+    # block. Pin strictness in one place and its antidote in another, and a caller
+    # gets the block back. See CONFIG_STYLE_FLAGS.
+    argv += _config_style_flags(config_path)
 
     if shape == PATHS_BEFORE_SEPARATOR:
         return [*argv, *paths]
