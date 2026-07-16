@@ -4,6 +4,7 @@
 Issue-matching and file-listing tests live in test_commits_issues.py.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -245,7 +246,7 @@ class TestGetCommittedFiles(unittest.TestCase):
     @patch(_SUBPROCESS)
     def test_returns_file_list(self, mock_run):
         mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = "src/a.py\nsrc/b.py\n"
+        mock_run.return_value.stdout = "src/a.py\0src/b.py\0"
         result = commits.get_committed_files("/tmp")
         self.assertEqual(result, ["src/a.py", "src/b.py"])
 
@@ -269,8 +270,10 @@ class TestGetStagedFiles(unittest.TestCase):
 
     @patch(_SUBPROCESS)
     def test_returns_staged_files(self, mock_run):
+        # NUL-separated and NUL-terminated: what `--name-only -z` emits. The
+        # real-git class below is what keeps this mock honest about that.
         mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = "src/a.py\ntests/test_a.py\nREADME.md\n"
+        mock_run.return_value.stdout = "src/a.py\0tests/test_a.py\0README.md\0"
         result = commits.get_staged_files("/tmp")
         self.assertEqual(result, ["README.md", "src/a.py", "tests/test_a.py"])
 
@@ -288,6 +291,77 @@ class TestGetStagedFiles(unittest.TestCase):
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = ""
         self.assertEqual(commits.get_staged_files("/tmp"), [])
+
+
+class TestGetStagedFilesAgainstRealGit(unittest.TestCase):
+    """The paths git hands BACK, read from git rather than from a mock.
+
+    Every other test in this class mocks stdout, so all of them agree with
+    each other about a format none of them got from git. git C-quotes any
+    path with non-ASCII bytes in its default output -- `café.js` comes back
+    as the 12-character string `"caf\\303\\251.js"`, QUOTES INCLUDED -- and a
+    mock spelling `café.js` can never show that.
+
+    It is not cosmetic. Downstream, `staged_lint.path_in_index` probes
+    `git cat-file -e :<path>` with whatever this returns; the quoted form
+    resolves to nothing, exits non-zero, and the file is dropped from the
+    lint groups entirely. A staged file with violations then commits
+    UNLINTED -- silently, because "not in the index" is indistinguishable
+    from a staged deletion, which is a legitimate skip.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name)
+        for args in (
+            ["init", "-q"],
+            ["config", "user.email", "t@example.com"],
+            ["config", "user.name", "Tester"],
+        ):
+            subprocess.run(
+                ["git", *args], cwd=self.repo, check=True, capture_output=True
+            )
+
+    def _stage(self, name: str) -> None:
+        (self.repo / name).write_text("x = 1\n")
+        subprocess.run(
+            ["git", "add", name], cwd=self.repo, check=True, capture_output=True
+        )
+
+    def test_a_non_ascii_path_comes_back_usable(self):
+        self._stage("café.js")
+
+        self.assertEqual(commits.get_staged_files(str(self.repo)), ["café.js"])
+
+    def test_the_returned_path_actually_resolves_in_the_index(self):
+        """The property that matters downstream, asserted end to end rather
+        than by string shape: whatever comes back must name a real blob."""
+        self._stage("café.js")
+
+        for path in commits.get_staged_files(str(self.repo)):
+            probe = subprocess.run(
+                ["git", "cat-file", "-e", f":{path}"],
+                cwd=self.repo,
+                capture_output=True,
+            )
+            self.assertEqual(
+                probe.returncode, 0, f"{path!r} does not resolve in the index"
+            )
+
+    def test_ordinary_paths_are_unaffected(self):
+        self._stage("plain.py")
+        self._stage("dir_b.py")
+
+        self.assertEqual(
+            commits.get_staged_files(str(self.repo)), ["dir_b.py", "plain.py"]
+        )
+
+    def test_a_path_with_a_space_survives(self):
+        """Spaces are why the separator must be NUL and not whitespace."""
+        self._stage("my file.py")
+
+        self.assertEqual(commits.get_staged_files(str(self.repo)), ["my file.py"])
 
 
 # ---------------------------------------------------------------------------
