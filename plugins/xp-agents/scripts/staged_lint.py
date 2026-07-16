@@ -69,6 +69,42 @@ def staged_blob_bytes(root: str, path: str) -> bytes | None:
     return proc.stdout
 
 
+def _divergent_from_index(root: str, paths: list[str]) -> set[str]:
+    """Which of `paths` hold different bytes in the working tree than in the index.
+
+    ONE `git diff --name-only` over the whole staged set — git names exactly the
+    divergent files, and a per-path `git diff --quiet` would cost one process per
+    staged file (50 spawns on a 50-file commit), which is the process cost the
+    in-place branch exists to avoid.
+
+    git's answer, never a byte comparison of our own. The index stores the file
+    as git will commit it, and a clean/smudge filter or an eol/CRLF setting makes
+    that legitimately differ from the bytes on disk — raw bytes would read those
+    files as divergent and quietly send every one of them down the slow path. git
+    applies the same filters it committed them through; it is the only thing that
+    can answer this correctly.
+
+    A git read we could not make is answered "divergent" for every path: that is
+    the direction that stays CORRECT (the staged bytes are linted either way), it
+    only costs speed. Answering "identical" on a failed read would lint the
+    working tree on a guess, which is the fail-open this gate exists to close.
+    """
+    if not paths:
+        return set()
+    proc = _git_run(
+        # -z: git C-quotes paths with non-ASCII or unusual bytes in its default
+        # output, so a plain --name-only would hand back a QUOTED path that
+        # matches nothing in `paths` — reading an ordinary file as identical.
+        ["git", "diff", "--name-only", "-z", "--", *paths],
+        cwd=root,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        return set(paths)
+    named = proc.stdout.decode("utf-8", errors="replace").split("\0")
+    return {p for p in named if p}
+
+
 def _cleanup_temps(temp_paths: list[str]) -> None:
     """Remove each materialized file's temp SUBDIR; a crash must strand nothing.
 
@@ -189,6 +225,40 @@ def _relabel_temps(output: str, temp_paths: list[str]) -> str:
     return output
 
 
+def _lint_in_place(
+    linter_name: str,
+    config_path: str,
+    root: str,
+    paths: list[str],
+    budget_s: float,
+) -> lint_check.LintRun:
+    """Lint `paths` where they LIVE — for files the index and tree agree on.
+
+    Linting the real path IS linting the index when the two are identical, so
+    this trades away nothing: the bytes the linter reads are the bytes the commit
+    carries. What it buys is the two properties no copy can hold at once — the
+    exact basename (filename-keyed rules match) AND the exact depth (`./util`,
+    `../lib/x` resolve to the same files the source meant) — plus the batching: N
+    paths, one process.
+
+    The paths are real, so a precondition (clang-tidy's compile-DB coverage) is
+    judged on the file it is a fact about, with nothing to thread through.
+    """
+    targets = [
+        lint_check.lint_invocation_target(config_path, root, str(Path(root) / p))
+        for p in paths
+    ]
+    lint_cwd = targets[0][0]  # constant per group: same config, same dir
+    return lint_check.run_linter_batch(
+        linter_name,
+        [file_arg for _, file_arg in targets],
+        cwd=lint_cwd,
+        budget_s=budget_s,
+        root=root,
+        config_path=config_path,
+    )
+
+
 def _group_staged_by_linter(
     staged_files: list[str], root: str
 ) -> dict[tuple[str, str], list[str]]:
@@ -280,6 +350,10 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
     # gate failing closed is a property of the whole hook, not of one linter.
     deadline = time.monotonic() + lint_check.BATCH_TIMEOUT_CAP_S
 
+    # ONE git read for the whole commit, before the per-linter loop — asked here
+    # rather than per group so a polyglot commit does not pay for it per linter.
+    divergent = _divergent_from_index(root, staged_files)
+
     for (linter_name, config_path), paths in sorted(
         _group_staged_by_linter(staged_files, root).items()
     ):
@@ -292,6 +366,28 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
                 f"Commit-time lint skipped for {len(paths)} staged file(s): "
                 f"{linter_name} — {reason}. Run it yourself before pushing."
             )
+            continue
+
+        # The file on disk IS the staged blob wherever git says the two agree —
+        # so lint it there, batched, and let every path-relative resolution the
+        # source does resolve exactly as it will at HEAD.
+        in_place = [p for p in paths if p not in divergent]
+        if in_place:
+            run = _lint_in_place(
+                linter_name,
+                config_path,
+                root,
+                in_place,
+                deadline - time.monotonic(),
+            )
+            match run.status:
+                case "findings":
+                    findings.append(f"{linter_name}:\n{run.output}")
+                case "unverified":
+                    unverified.append(run.output)
+
+        paths = [p for p in paths if p in divergent]
+        if not paths:
             continue
 
         # Lint the STAGED bytes, not the working-tree copy: materialize each

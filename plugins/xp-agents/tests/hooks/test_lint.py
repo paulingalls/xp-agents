@@ -892,6 +892,111 @@ class TestGateMaterializesStagedBytes(_StagedGitRepo):
         )
 
 
+class _LinterCallRecorder(_StagedGitRepo):
+    """Intercept the LINTER while letting the gate's git reads run for real.
+
+    `patch("lint_check.subprocess.run")` binds `run` on the shared subprocess
+    module, so it also intercepts staged_lint's index reads — delegate anything
+    git-shaped to the real runner and record only the linter invocations.
+    """
+
+    def _run_gate(self, paths: list[str], *, exit_code: int = 0, output: str = ""):
+        real_run = subprocess.run
+        calls: list[dict] = []
+
+        def _capture(cmd, **kwargs):
+            if cmd and cmd[0] == "git":
+                return real_run(cmd, **kwargs)
+            calls.append({"cmd": list(cmd), "kwargs": kwargs})
+            return _mock_ruff_result(returncode=exit_code, stdout=output)
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/ruff"),
+            patch("lint_check.subprocess.run", side_effect=_capture),
+        ):
+            advisories = staged_lint.staged_lint_gate(paths, str(self.repo))
+        return advisories, calls
+
+
+class TestBranchALintsTheRealPath(_LinterCallRecorder):
+    """When the index and the working tree AGREE, the file on disk IS the staged
+    blob — so lint it where it lives. No copy, at any depth.
+
+    Every copy breaks something. A temp sibling (random basename) defeats
+    filename-keyed rules; a temp subdir keeps the basename but shifts the file
+    one level down, so `./util` and `../lib/x` resolve to paths that do not
+    exist — and the gate then reports an unresolved import against a real path
+    that is provably clean. Both properties hold only at the real path.
+
+    This cannot reintroduce the partial-add fail-open: that hole requires the
+    index and the tree to DIVERGE, and this branch only fires when they are
+    byte-identical by git's own account.
+    """
+
+    def _stage_two_identical_files(self) -> None:
+        (self.repo / "app.py").write_text("x = 1\n")
+        (self.repo / "util.py").write_text("y = 2\n")
+        self._git("add", "app.py", "util.py")
+
+    def test_the_real_paths_are_linted_not_a_copy(self) -> None:
+        self._stage_two_identical_files()
+
+        _advisories, calls = self._run_gate(["app.py", "util.py"])
+
+        self.assertEqual(len(calls), 1, "one batched invocation")
+        cmd = calls[0]["cmd"]
+        self.assertIn("app.py", cmd)
+        self.assertIn("util.py", cmd)
+
+    def test_no_temp_directory_is_created_anywhere(self) -> None:
+        """The whole story: no copy, so no shifted depth. Assert on the argv,
+        which is what the linter actually resolves paths from."""
+        self._stage_two_identical_files()
+
+        _advisories, calls = self._run_gate(["app.py", "util.py"])
+
+        for arg in calls[0]["cmd"]:
+            self.assertNotIn("tmp", arg, f"a temp segment leaked into the argv: {arg}")
+        strays = [p.name for p in self.repo.iterdir() if p.name.startswith("tmp")]
+        self.assertEqual(strays, [], f"temp dirs created in the repo: {strays}")
+
+    def test_still_one_subprocess_for_many_paths(self) -> None:
+        """Batching is load-bearing, not incidental. A per-file invocation costs
+        one process per staged file — 50 spawns on a 50-file commit, inside a
+        hook the harness will kill. If it is killed there is no exit 2, so the
+        commit lands UNLINTED: the fail-open this gate exists to close."""
+        for i in range(12):
+            (self.repo / f"mod{i}.py").write_text(f"v{i} = {i}\n")
+        self._git("add", ".")
+
+        _advisories, calls = self._run_gate([f"mod{i}.py" for i in range(12)])
+
+        self.assertEqual(len(calls), 1, "12 staged files must cost ONE subprocess")
+
+    def test_no_stdin_is_fed_when_the_index_matches(self) -> None:
+        """The file on disk already holds the staged bytes — piping them would
+        be a per-file invocation bought for nothing."""
+        self._stage_two_identical_files()
+
+        _advisories, calls = self._run_gate(["app.py", "util.py"])
+
+        self.assertIsNone(calls[0]["kwargs"].get("input"))
+
+    def test_the_same_branch_carries_any_language(self) -> None:
+        """Language-blindness, re-expressed after materialization died: routing
+        is the linter TABLE, not a per-language branch, so a .go file takes the
+        identical path. Its linter is unconfigured here, so the observable fact
+        is that it is skipped rather than mishandled — no branch inspects the
+        extension."""
+        (self.repo / "main.go").write_bytes(b"package main\n")
+        self._git("add", "main.go")
+
+        advisories, calls = self._run_gate(["main.go"])
+
+        self.assertEqual(advisories, [])
+        self.assertEqual(calls, [], "no linter claims .go here — a skip, not a crash")
+
+
 class TestMaterializeIsLanguageBlind(_StagedGitRepo):
     """AC4: materialization keys on the file's own directory + exact basename,
     the same table lookup for every language — no per-language branch."""
