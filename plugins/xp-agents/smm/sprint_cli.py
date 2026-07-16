@@ -433,6 +433,15 @@ def main() -> None:
         "--new", required=True, choices=_STATUS_CHOICES, help="New status"
     )
     usi_p.add_argument(
+        "--force-unmerged",
+        metavar="REASON",
+        help=(
+            "Mark `done` despite an unverified merge (the pre-commit Bash gate "
+            "otherwise refuses). REASON is required and non-empty: the bypass is "
+            "recorded as a debt event, so it can never be silent."
+        ),
+    )
+    usi_p.add_argument(
         "--cwd",
         type=Path,
         default=Path("."),

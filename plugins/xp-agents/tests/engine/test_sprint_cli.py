@@ -171,6 +171,37 @@ class TestUpdateStoryAcceptsScheduled(_SMMTestCase):
         self.assertEqual(loaded["stories"][0]["status"], "scheduled")
 
 
+class TestUpdateStoryIfForceUnmergedParser(_SMMTestCase):
+    """Parser pin: update-story-if exposes the same --force-unmerged escape
+    hatch as update-story (story-002). A regression that drops the argparse
+    wiring would surface as 'unrecognized arguments' here, not as a merge-gate
+    behavior change — this test isolates that failure mode."""
+
+    def test_help_advertises_force_unmerged(self):
+        result = run_cli(_CLI, ["update-story-if", "--help"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--force-unmerged", result.stdout)
+
+    def test_accepts_force_unmerged_flag(self):
+        sprint = _make_sprint(stories=[_make_story(id="story-001", status="closing")])
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "closing",
+                "--new",
+                "done",
+                "--force-unmerged",
+                "reason",
+            ],
+            self.smm_dir,
+        )
+        self.assertNotIn("unrecognized arguments", result.stderr)
+
+
 class TestCountStatusAcceptsScheduled(_SMMTestCase):
     def test_count_scheduled(self):
         sprint = _make_sprint(stories=[_make_story(status="scheduled")])
