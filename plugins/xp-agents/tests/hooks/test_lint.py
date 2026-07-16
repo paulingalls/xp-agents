@@ -1357,6 +1357,82 @@ class TestGatePreservesFilenameKeyedRules(_StagedGitRepo):
 
 
 @unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
+class TestGateJudgesTheFileAtItsRealDepth(_StagedGitRepo):
+    """AC1/AC5 end-to-end, through a real linter subprocess: a staged file is
+    judged at the path it really occupies — right basename AND right depth.
+
+    Depth is what the previous fix traded away. Materializing to `pkg/tmpXXXX/
+    app.py` keeps the basename but moves the file one level DOWN, so every
+    path-relative resolution the file does (`./util`, `../lib/x`) and every
+    config rule keyed on a PATH resolves somewhere else. Self-obscuring, too:
+    the tmp segment was stripped from the output and the directory deleted, so
+    the agent saw a finding against a real path that was provably clean.
+
+    A literal `./util` import is NOT the probe here, and that is deliberate:
+    ruff does not resolve imports, so a relative-import test exits 0 whether the
+    file sits at its real depth or one level below it. It would pass against the
+    OLD code too — an inert test, which is this milestone's exact scar. The
+    falsifiable probe is a config rule keyed on the file's PATH, which fails
+    over depth for the same reason and MEASURABLY reddens: at `pkg/app.py` real
+    ruff exits 0; at `pkg/tmpXXXX/app.py` it exits 1 with F401.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Keyed on the PATH, not just the basename: it only matches at the real
+        # depth. A per-file-ignore is ordinary config, in every language's linter.
+        (self.repo / "ruff.toml").write_text(
+            '[lint.per-file-ignores]\n"pkg/app.py" = ["F401"]\n'
+        )
+        self.pkg = self.repo / "pkg"
+        self.pkg.mkdir()
+        (self.pkg / "util.py").write_text("X = 1\n")
+
+    def test_ac1_a_relative_importing_pair_does_not_block(self) -> None:
+        """Both files staged and identical to the tree — branch A, real paths."""
+        (self.pkg / "app.py").write_text("from .util import X\n")
+        self._git("add", "pkg/app.py", "pkg/util.py")
+
+        advisories = staged_lint.staged_lint_gate(
+            ["pkg/app.py", "pkg/util.py"], str(self.repo)
+        )
+
+        self.assertEqual(advisories, [], "a file at its real path must not block")
+
+    def test_ac3_the_same_holds_when_the_staged_bytes_diverge(self) -> None:
+        """Branch B: the bytes go down stdin, but the PATH they are labelled
+        with is still the real one, so the path-keyed rule still matches."""
+        app = self.pkg / "app.py"
+        app.write_text("from .util import X\n")
+        self._git("add", "pkg/app.py", "pkg/util.py")
+        app.write_text("from .util import X\nY = 2\n")  # divergent
+
+        advisories = staged_lint.staged_lint_gate(
+            ["pkg/app.py", "pkg/util.py"], str(self.repo)
+        )
+
+        self.assertEqual(advisories, [])
+
+    def test_ac5_mangling_the_staged_bytes_DOES_block(self) -> None:
+        """The other half of the proof: the gate is reading these bytes, not
+        waved through. Same file, same real path, a violation the path-keyed
+        ignore does not cover — and the working tree left clean, so only the
+        STAGED bytes can be what blocks it."""
+        app = self.pkg / "app.py"
+        app.write_text("from .util import X\nprint(NO_SUCH_NAME)\n")  # F821
+        self._git("add", "pkg/app.py", "pkg/util.py")
+        app.write_text("from .util import X\n")  # working tree is clean
+
+        with self.assertRaises(_common.BlockedError) as ctx:
+            staged_lint.staged_lint_gate(["pkg/app.py", "pkg/util.py"], str(self.repo))
+
+        message = ctx.exception.args[0]
+        self.assertIn("F821", message, "the STAGED bytes are what is judged")
+        self.assertIn("pkg/app.py", message, "and it names the real file")
+        self.assertNotIn("tmp", message, "no temp path may reach the agent")
+
+
+@unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
 class TestGateHandlesMissingParentDir(_StagedGitRepo):
     """A staged-new file whose parent dir is gone in the working tree (index
     still carries it) must not fail the gate closed — the old materialize raised
