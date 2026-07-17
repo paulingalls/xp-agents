@@ -75,13 +75,23 @@ _DEFAULT_CMD_TIMEOUT_S = 600
 
 
 def _cmd_timeout() -> int:
-    """Per-command timeout in seconds; VERIFY_CMD_TIMEOUT_S overrides default."""
+    """Per-command timeout in seconds; a POSITIVE VERIFY_CMD_TIMEOUT_S overrides.
+
+    Only positive, and that is not input-hygiene fussiness: `timeout=0` makes
+    subprocess.run raise TimeoutExpired before the command has run at all, so
+    every acceptance command would die "timed out after 0s" having never
+    executed. Zero and negatives express no runnable budget, so they are not
+    an override; they fall back to the default, exactly as unparseable text
+    does (mirrors worktree_bootstrap._bootstrap_timeout).
+    """
     raw = os.environ.get("VERIFY_CMD_TIMEOUT_S")
     if raw:
         try:
-            return int(raw)
+            seconds = int(raw)
         except ValueError:
-            pass
+            return _DEFAULT_CMD_TIMEOUT_S
+        if seconds > 0:
+            return seconds
     return _DEFAULT_CMD_TIMEOUT_S
 
 

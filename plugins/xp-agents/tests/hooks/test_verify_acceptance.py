@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import sprint_store
+import verify_acceptance
 from conftest import _SMMTestCase, make_sprint_dict, make_story_dict, run_cli
 
 _VERIFY_ACCEPTANCE = (
@@ -132,6 +133,32 @@ class TestVerifyAcceptance(_SMMTestCase):
             result.returncode,
             0,
             f"$SMM_DIR not propagated to AC subprocess; stderr={result.stderr!r}",
+        )
+
+
+class TestCmdTimeout(_SMMTestCase):
+    """timeout=0 makes subprocess.run raise TimeoutExpired BEFORE the command
+    runs at all, so every acceptance command would die "timed out after 0s"
+    having never executed. Only a POSITIVE override is an override; zero,
+    negative, and unparseable values express no runnable budget and fall
+    back to the default (mirrors worktree_bootstrap._bootstrap_timeout)."""
+
+    def _timeout(self, raw: str) -> int:
+        with patch.dict(os.environ, {"VERIFY_CMD_TIMEOUT_S": raw}):
+            return verify_acceptance._cmd_timeout()
+
+    def test_positive_override_is_honoured(self):
+        self.assertEqual(self._timeout("42"), 42)
+
+    def test_zero_falls_back_to_the_default(self):
+        self.assertEqual(self._timeout("0"), verify_acceptance._DEFAULT_CMD_TIMEOUT_S)
+
+    def test_negative_falls_back_to_the_default(self):
+        self.assertEqual(self._timeout("-5"), verify_acceptance._DEFAULT_CMD_TIMEOUT_S)
+
+    def test_unparseable_falls_back_to_the_default(self):
+        self.assertEqual(
+            self._timeout("not-a-number"), verify_acceptance._DEFAULT_CMD_TIMEOUT_S
         )
 
 
