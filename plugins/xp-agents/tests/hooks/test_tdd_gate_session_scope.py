@@ -61,11 +61,11 @@ def filler(n: int) -> list[dict]:
 class _GateTestCase(_HookTestCase):
     """Drives the Stop gate with a mocked working tree."""
 
-    def _stop(self, events: list[dict], *, dirty: bool) -> str | None:
+    def _stop(self, events: list[dict], *, dirty: bool, cwd: str = ".") -> str | None:
         self._write_events(events)
         uncommitted = ["src/app.py"] if dirty else []
         with patch("commits.get_uncommitted_files", return_value=uncommitted) as mock:
-            result = tdd_stop_gate.run(_make_stop_input(), smm_dir=self.smm_dir)
+            result = tdd_stop_gate.run(_make_stop_input(cwd=cwd), smm_dir=self.smm_dir)
         self.tree_was_checked = mock.called
         return result
 
@@ -215,6 +215,63 @@ class TestGateStillBlocks(_GateTestCase):
             self.assertIsNotNone(
                 task_completed.run(_make_task_completed_input(), smm_dir=self.smm_dir)
             )
+
+
+_TEAMMATE_CWD = "/Users/dev/xp-agents/.claude/worktrees/worktree-story-003"
+_LEAD_CWD = "/Users/dev/xp-agents"
+
+
+class TestTeammateReaderWindow(_GateTestCase):
+    """story-003: only the LEAD emits `session_started` (a teammate's
+    session_start.run returns early, appending no anchor). A worktree
+    teammate reading the lead's anchor as its own session boundary means a
+    mid-sprint lead `/clear` — which appends a fresh anchor AFTER the
+    teammate's still-live failure — reclassifies that failure as
+    prior-session. A teammate that already committed its work has a clean
+    tree, so the existing prior-session-plus-clean-tree bound would silently
+    un-gate a genuinely red suite. A worktree teammate lives exactly one
+    session, so its window must always start at 0, independent of any anchor
+    the lead wrote.
+    """
+
+    def test_teammate_live_failure_before_lead_clear_anchor_still_blocks(self):
+        """AC1. The failure predates the lead's mid-sprint /clear anchor, and
+        the teammate's tree is clean (already committed) — the dangerous
+        combination that would un-gate under the lead's anchor-relative
+        window. The teammate has no prior session, so this must still
+        block."""
+        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        self.assertIsNotNone(result)
+        self.assertIn("failing", str(result).lower())
+
+    def test_lead_prior_session_clean_tree_bound_is_preserved(self):
+        """AC2 control: the pre-existing lead-path bound (prior-session
+        failure + clean tree -> un-gated) must be untouched. Detection is
+        cwd-only, so this holds regardless of the suite's own process cwd."""
+        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
+        self.assertIsNone(result)
+
+    def test_teammate_no_anchor_scans_whole_log_not_a_tail_cap(self):
+        """AC3, teammate reader. No anchor exists yet; the teammate window
+        is 0 either way, but must not degrade into a tail cap."""
+        events = [*filler(5), failing_tests_concern(), *filler(300)]
+        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        self.assertIsNotNone(result)
+
+
+class TestTeammateWindowE2E(_HookTestCase):
+    """AC4: drive a real gate end to end with a teammate-worktree cwd."""
+
+    def test_teammate_idle_blocks_on_live_failure_after_lead_clear_anchor(self):
+        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        self._write_events(events)
+        with patch("commits.get_uncommitted_files", return_value=[]):
+            result = teammate_idle.run(
+                _make_teammate_idle_input(cwd=_TEAMMATE_CWD), smm_dir=self.smm_dir
+            )
+        self.assertIsNotNone(result)
 
 
 class TestKickoffOnlySessionE2E(_HookTestCase):
