@@ -292,7 +292,9 @@ def _working_tree_is_test_only(cwd: str) -> bool:
     return all(is_test_file(f) for f in files)
 
 
-def is_tdd_red_step(smm_dir: Path, cwd: str) -> bool:
+def is_tdd_red_step(
+    smm_dir: Path, cwd: str, *, tree_test_only: bool | None = None
+) -> bool:
     """True iff this is a deliberate TDD red step, by either signal:
 
     - the working tree is currently test-only-dirty (the red step BEFORE
@@ -300,10 +302,19 @@ def is_tdd_red_step(smm_dir: Path, cwd: str) -> bool:
     - the most recent commit was test-only (a commit-first red step,
       distinct workflow, preserved as-is).
 
-    Used by bash_post_tool to gate the failed-test regression concern —
-    a deliberate red must not be flagged as a regression.
+    Used by bash_post_tool to TAG the test_run_complete event so a
+    deliberate red is not counted as a regression streak by work_signals.
+    (The failed-test concern itself gates on the working-tree signal
+    ALONE — see bash_post_tool — because a commit-first prior-commit
+    signal stays True through the whole green phase.)
+
+    Pass `tree_test_only` when the caller already computed the working-tree
+    signal for its own use (bash_post_tool needs it for the concern gate),
+    so it is not re-shelled here.
     """
-    return _prior_commit_was_test_only(smm_dir) or _working_tree_is_test_only(cwd)
+    if tree_test_only is None:
+        tree_test_only = _working_tree_is_test_only(cwd)
+    return _prior_commit_was_test_only(smm_dir) or tree_test_only
 
 
 def _prior_commit_was_test_only(smm_dir: Path) -> bool:

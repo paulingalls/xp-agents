@@ -162,7 +162,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # un-arm the stop gate. The working-tree signal correctly clears the
         # moment impl code is in flight, so it is the honest concern gate.
         tree_test_only = _working_tree_is_test_only(cwd)
-        tdd_red = tree_test_only or is_tdd_red_step(smm_dir, cwd)
+        tdd_red = is_tdd_red_step(smm_dir, cwd, tree_test_only=tree_test_only)
         results = parse_test_results(response_text, framework)
         parser_status = results["status"]
         passed = results["passed"]

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for commit_handling.is_tdd_red_step: the honest TDD-red
-signal that gates the failed-test regression concern in bash_post_tool.
+signal that TAGS a test run so work_signals ignores deliberate reds
+(the failed-test concern itself gates on the working tree alone).
 
 Two independent paths feed the OR: a test-only-dirty working tree (the
 red step BEFORE the mandated post-green commit) and a test-only prior
@@ -97,6 +98,36 @@ class TestIsTddRedStepCommitBased(_HookTestCase):
             patch("commits.get_uncommitted_code_files", return_value=[]),
         ):
             self.assertTrue(commit_handling.is_tdd_red_step(self.smm_dir, _CWD))
+
+
+class TestIsTddRedStepPrecomputedTree(_HookTestCase):
+    """bash_post_tool already computes the working-tree signal for its own
+    concern gate; passing it back as `tree_test_only` lets is_tdd_red_step
+    reuse it instead of re-shelling the git scan (concern 3cb5f880e886)."""
+
+    def test_precomputed_true_short_circuits_without_scanning(self):
+        with patch.object(
+            commit_handling,
+            "_working_tree_is_test_only",
+            side_effect=AssertionError("must not re-scan the working tree"),
+        ):
+            self.assertTrue(
+                commit_handling.is_tdd_red_step(self.smm_dir, _CWD, tree_test_only=True)
+            )
+
+    def test_precomputed_false_falls_through_to_commit_signal(self):
+        # Passed-in clean tree + no prior test-only commit -> not a red step,
+        # and still no redundant working-tree scan.
+        with patch.object(
+            commit_handling,
+            "_working_tree_is_test_only",
+            side_effect=AssertionError("must not re-scan the working tree"),
+        ):
+            self.assertFalse(
+                commit_handling.is_tdd_red_step(
+                    self.smm_dir, _CWD, tree_test_only=False
+                )
+            )
 
 
 if __name__ == "__main__":
