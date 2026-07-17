@@ -70,7 +70,7 @@ Analyze through **XP values as lenses**:
 
 ## Stale-Flag Concerns
 
-The SessionStart fresh-start sweep emits NEW concern events with `metadata.flagged_stale=true` and `references=[root_id]` for concerns that outlived their addressable window (4+ `session_started` anchors) without resolution. Surface these in **Fix** so the human can triage — root stays open (cascade closes the flag when the root closes); stale flags accumulating across sessions is itself a Fix-lens signal.
+Surface any concern carrying `metadata.flagged_stale=true` (with `references=[root_id]`) in **Fix** for human triage: the root stays open, and the WEAK cascade closes the flag when the root closes.
 
 ## Work Analysis
 
