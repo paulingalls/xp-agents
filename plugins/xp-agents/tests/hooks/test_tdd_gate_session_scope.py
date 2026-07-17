@@ -239,8 +239,13 @@ class TestTeammateReaderWindow(_GateTestCase):
         the teammate's tree is clean (already committed) — the dangerous
         combination that would un-gate under the lead's anchor-relative
         window. The teammate has no prior session, so this must still
-        block."""
-        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        block. The failure is the teammate's OWN (agent_id == its worktree
+        name); a foreign one is covered in TestTeammateReaderAgentScope."""
+        events = [
+            failing_tests_concern(agent_id="worktree-story-003"),
+            session_anchor(),
+            *filler(3),
+        ]
         result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
         self.assertIn("failing", str(result).lower())
@@ -256,7 +261,49 @@ class TestTeammateReaderWindow(_GateTestCase):
     def test_teammate_no_anchor_scans_whole_log_not_a_tail_cap(self):
         """AC3, teammate reader. No anchor exists yet; the teammate window
         is 0 either way, but must not degrade into a tail cap."""
-        events = [*filler(5), failing_tests_concern(), *filler(300)]
+        events = [
+            *filler(5),
+            failing_tests_concern(agent_id="worktree-story-003"),
+            *filler(300),
+        ]
+        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        self.assertIsNotNone(result)
+
+
+class TestTeammateReaderAgentScope(_GateTestCase):
+    """Regression #2: a worktree teammate shares events.jsonl with the lead
+    and every sibling teammate, and its window is always 0 (it lives one
+    session). Scoping by time alone made it gate on ANY unresolved
+    failing-test concern in the shared log — including one authored by the
+    lead or a sibling, which this teammate cannot see or fix. Its gate must
+    consider only its OWN signals (agent_id == its worktree name). The lead
+    reader keeps its whole-session, un-scoped behaviour."""
+
+    def test_sibling_fail_concern_does_not_block_the_teammate(self):
+        # Authored by a SIBLING teammate; read by worktree-story-003, clean tree.
+        events = [failing_tests_concern(agent_id="worktree-story-007"), *filler(3)]
+        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        self.assertIsNone(result)
+
+    def test_lead_fail_concern_does_not_block_the_teammate(self):
+        events = [failing_tests_concern(agent_id="main"), *filler(3)]
+        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        self.assertIsNone(result)
+
+    def test_own_fail_concern_still_blocks_the_teammate(self):
+        # Control: the teammate's OWN unresolved failure still gates it.
+        events = [failing_tests_concern(agent_id="worktree-story-003"), *filler(3)]
+        result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
+        self.assertIsNotNone(result)
+
+    def test_sibling_pass_does_not_un_gate_the_teammates_own_failure(self):
+        # A sibling's later green run must not short-circuit this teammate's
+        # own earlier unresolved failure.
+        events = [
+            failing_tests_concern(agent_id="worktree-story-003"),
+            passing_tests_status(agent_id="worktree-story-007"),
+            *filler(3),
+        ]
         result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
         self.assertIsNotNone(result)
 
@@ -265,7 +312,11 @@ class TestTeammateWindowE2E(_HookTestCase):
     """AC4: drive a real gate end to end with a teammate-worktree cwd."""
 
     def test_teammate_idle_blocks_on_live_failure_after_lead_clear_anchor(self):
-        events = [failing_tests_concern(), session_anchor(), *filler(3)]
+        events = [
+            failing_tests_concern(agent_id="worktree-story-003"),
+            session_anchor(),
+            *filler(3),
+        ]
         self._write_events(events)
         with patch("commits.get_uncommitted_files", return_value=[]):
             result = teammate_idle.run(

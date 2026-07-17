@@ -27,8 +27,9 @@ TEST_PASS_RE = re.compile(
 TEST_FAIL_RE = concerns.TEST_CONCERN_RE
 
 
-def _session_window_start(events: list[dict], cwd: str) -> int:
-    """Index of the first event in the reader's own session window.
+def _reader_scope(events: list[dict], cwd: str) -> tuple[int, str | None]:
+    """`(window_start, owner)` — the reader's own session window and the
+    agent_id its signals must carry, or None to accept any author.
 
     Only the LEAD emits `session_started` (a teammate's session_start.run
     returns early, appending no anchor of its own) — so a `session_started`
@@ -42,6 +43,15 @@ def _session_window_start(events: list[dict], cwd: str) -> int:
     un-gating a genuinely red suite. For a teammate reader the window is
     therefore always 0: every unresolved failure is "this session."
 
+    But `events.jsonl` is SHARED across the lead and every sibling teammate,
+    so a window of 0 alone would make a teammate gate on any unresolved
+    failing-test concern in the whole log — including one authored by the
+    lead or a sibling, which this teammate can neither see nor fix. A
+    teammate therefore also carries an `owner` (its worktree name, which is
+    the agent_id it stamps on its own events): only its OWN test signals gate
+    it. The lead reads `owner=None` — its session window already scopes it,
+    and it legitimately observes the whole session (its own and subagents').
+
     For any other reader (the lead), the window anchors at the most recent
     `session_started` event, as before.
 
@@ -54,9 +64,9 @@ def _session_window_start(events: list[dict], cwd: str) -> int:
     """
     name = extract_worktree_name(cwd)
     if name and is_teammate_agent_id(name):
-        return 0
+        return 0, name
     anchor = _common._last_index_of_type(events, _common.SESSION_STARTED)
-    return anchor if anchor >= 0 else 0
+    return (anchor if anchor >= 0 else 0), None
 
 
 def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
@@ -84,10 +94,16 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
     answer nothing, and "nothing" must never read as CLEAN — see below.
     """
     resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
-    window_start = _session_window_start(events, cwd)
+    window_start, owner = _reader_scope(events, cwd)
 
     for i in range(len(events) - 1, -1, -1):
         e = events[i]
+        # A worktree teammate shares the log with the lead and siblings; only
+        # its OWN test signals (fail concerns AND the pass that would clear
+        # them) gate it. owner is None for the lead — it observes everything
+        # in its session window, unfiltered.
+        if owner is not None and e.get("agent_id") != owner:
+            continue
         content = e.get("content", "")
         etype = e.get("type", "")
         if (
