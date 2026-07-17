@@ -351,10 +351,15 @@ class TestWorktreeContentionRetry(unittest.TestCase):
                 return checkout_results[len(checkout_calls) - 1]
             return self._result(0)
 
+        # _merge_into_target calls _git_retry_on_lock without a `sleep=` override,
+        # so it uses the def-time-bound `time.sleep` default -- patching
+        # branch_lifecycle.time.sleep would NOT intercept that call. Zero the
+        # backoff base instead (read via the module global at call time) so the
+        # single retry costs no real wall-clock time.
         captured = io.StringIO()
         with (
             patch.object(branch_lifecycle, "_git", fake_git),
-            patch.object(branch_lifecycle.time, "sleep", lambda _s: None),
+            patch.object(branch_lifecycle, "_LOCK_RETRY_BASE_S", 0.0),
             contextlib.redirect_stderr(captured),
         ):
             branch_lifecycle._merge_into_target("/repo", "paul/story-020-x", "main")
