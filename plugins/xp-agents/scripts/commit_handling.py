@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Commit-handling block extracted from bash_post_tool.
 
-Holds the post-commit pipeline (`_handle_commit`) and the TDD-red
-test-only-commit detector (`_prior_commit_was_test_only`). Story
-attribution (`_resolve_story_id`), the QR-linkage advisory
+Holds the post-commit pipeline (`_handle_commit`) and the TDD-red-step
+detector (`is_tdd_red_step`), which ORs two signals: the test-only-commit
+detector (`_prior_commit_was_test_only`, commit-first workflow) and the
+test-only-dirty-tree detector (`_working_tree_is_test_only`, the
+red-green-commit workflow's red step, which happens BEFORE any commit
+exists). Story attribution (`_resolve_story_id`), the QR-linkage advisory
 (`_check_qr_linkage`), the commit-event builder (`make_commit_event`),
 and the concern recorders now live in the sibling `commit_event` module
 (extracted to keep this file under the 500-line cap) and are re-exported
 below so the historical `from commit_handling import ...` paths keep
 working. bash_post_tool imports the entry points it actually calls in
-`run()` — `_handle_commit` and `_prior_commit_was_test_only`.
+`run()` — `_handle_commit` and `is_tdd_red_step`.
 
 The [verify-deferred] marker parsing + verify-path bookkeeping lives in the
 sibling `verify_deferred` module (extracted to keep this file under the
@@ -73,6 +76,8 @@ __all__ = [
     "_record_unconfirmed_commit",
     "_record_unlinkable_trailer",
     "_resolve_story_id",
+    "_working_tree_is_test_only",
+    "is_tdd_red_step",
     "make_commit_event",
 ]
 
@@ -262,6 +267,43 @@ def _handle_commit(
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
     return _check_qr_linkage(events, agent_id, has_code=has_code)
+
+
+def _working_tree_is_test_only(cwd: str) -> bool:
+    """True iff the working tree is dirty with test files ONLY — the
+    canonical TDD red step, BEFORE the post-green commit exists.
+
+    ``get_uncommitted_files`` is the wide "what code is in flight" signal:
+    staged + unstaged + untracked, test files included. Test-only means it
+    is non-empty AND every file in it is a test file — any non-test code
+    file in flight means a failure could be a real regression, not a
+    deliberate red step. It must be measured off this single wide scan:
+    ``get_uncommitted_code_files`` omits untracked files, so a brand-new
+    (never ``git add``ed) production file would slip past it and a genuine
+    green-phase failure would be silently suppressed.
+
+    None or [] from ``get_uncommitted_files`` (git timeout or no repo)
+    returns False — fail safe, same default as
+    ``_prior_commit_was_test_only``.
+    """
+    files = commits.get_uncommitted_files(cwd)
+    if not files:
+        return False
+    return all(is_test_file(f) for f in files)
+
+
+def is_tdd_red_step(smm_dir: Path, cwd: str) -> bool:
+    """True iff this is a deliberate TDD red step, by either signal:
+
+    - the working tree is currently test-only-dirty (the red step BEFORE
+      the mandated red-green-commit lands), or
+    - the most recent commit was test-only (a commit-first red step,
+      distinct workflow, preserved as-is).
+
+    Used by bash_post_tool to gate the failed-test regression concern —
+    a deliberate red must not be flagged as a regression.
+    """
+    return _prior_commit_was_test_only(smm_dir) or _working_tree_is_test_only(cwd)
 
 
 def _prior_commit_was_test_only(smm_dir: Path) -> bool:
