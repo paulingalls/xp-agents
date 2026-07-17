@@ -68,8 +68,8 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
     suite plus uncommitted broken code is still broken, but once the tree is
     clean there is nothing left in the working copy for that failure to be
     about, and it would otherwise gate every future session forever. Nothing
-    else un-gates it: `session_start._sweep_stale_concerns` only emits a
-    flag-concern, it never resolves the original.
+    else un-gates it — a prior-session failure clears only when its concern is
+    resolved or its tree goes clean.
 
     ONE reverse walk, not two. A passing status has no effect on any gate except
     to short-circuit this scan before an older unresolved failure is reached —
