@@ -107,6 +107,15 @@ def _ac_env(smm_dir: Path) -> dict[str, str]:
     return {**os.environ, "SMM_DIR": str(smm_dir.resolve())}
 
 
+def _is_manual(ae: object) -> bool:
+    """True when an acceptance_execution block declares type=="manual".
+
+    A manual block's `commands` are prose for a human to act on, not shell
+    strings — extract_commands + shell=True must never see them.
+    """
+    return isinstance(ae, dict) and ae.get("type") == "manual"
+
+
 def _run_commands(commands: list[str], smm_dir: Path) -> int:
     """Run each command in order; return 0 on all-green, else first non-zero exit."""
     multi = len(commands) > 1
@@ -126,27 +135,37 @@ def _run_commands(commands: list[str], smm_dir: Path) -> int:
     return 0
 
 
-def _gather_sprint_items(sprint: dict) -> list[tuple[str, int | None, str | None, str]]:
+def _gather_sprint_items(
+    sprint: dict,
+) -> list[tuple[str, int | None, str | None, str | None, bool]]:
     """Every verify-bearing command across the sprint.
 
-    Each tuple is (story_id, ac_idx, surface, command). Object-shaped
-    acceptance_criteria items carrying a command/commands block contribute one
-    tuple per command with their declared surface; the story-level
-    acceptance_execution contributes with ac_idx=None and surface from the
-    block (usually absent → grouped under the story bucket). String ACs and
-    stories with no verify commands contribute nothing.
+    Each tuple is (story_id, ac_idx, surface, command, is_manual).
+    Object-shaped acceptance_criteria items carrying a command/commands
+    block contribute one tuple per command with their declared surface
+    (is_manual=False — the object-shaped per-AC path has its own bare-manual
+    shape and is out of scope here). The story-level acceptance_execution
+    contributes with ac_idx=None and surface from the block (usually absent
+    → grouped under the story bucket): a manual-typed block contributes ONE
+    N/A sentinel (command=None, is_manual=True) instead of expanding its
+    prose commands, so the story stays visible in the matrix without ever
+    being shelled. String ACs and stories with no verify commands contribute
+    nothing.
     """
-    items: list[tuple[str, int | None, str | None, str]] = []
+    items: list[tuple[str, int | None, str | None, str | None, bool]] = []
     for story in sprint.get("stories", []):
         sid = story.get("id", "?")
         for idx, ac in enumerate(story.get("acceptance_criteria", [])):
             if isinstance(ac, dict) and ("command" in ac or "commands" in ac):
                 for cmd in extract_commands(ac):
-                    items.append((sid, idx, ac.get("surface"), cmd))
+                    items.append((sid, idx, ac.get("surface"), cmd, False))
         ae = story.get("acceptance_execution")
         if ae:
-            for cmd in extract_commands(ae):
-                items.append((sid, None, ae.get("surface"), cmd))
+            if _is_manual(ae):
+                items.append((sid, None, ae.get("surface"), None, True))
+            else:
+                for cmd in extract_commands(ae):
+                    items.append((sid, None, ae.get("surface"), cmd, False))
     return items
 
 
@@ -158,9 +177,12 @@ def _print_matrix(rows: list[dict]) -> None:
     for surface in sorted(by_surface):
         print(f"Surface: {surface}")
         for r in by_surface[surface]:
+            ac = f"ac{r['ac_idx']}" if r["ac_idx"] is not None else "ae"
+            if r.get("na"):
+                print(f"  [N/A] {r['story']} {ac}  {r['command']}")
+                continue
             rc = r["returncode"]
             mark = "PASS" if rc == 0 else "FAIL"
-            ac = f"ac{r['ac_idx']}" if r["ac_idx"] is not None else "ae"
             print(f"  [{mark}] {r['story']} {ac}  {r['command']}  (exit {rc})")
 
 
@@ -187,7 +209,24 @@ def _run_sprint(smm_dir: Path) -> int:
     timeout = _cmd_timeout()
     env = _ac_env(smm_dir)
     rows: list[dict] = []
-    for sid, ac_idx, surface, cmd in items:
+    for sid, ac_idx, surface, cmd, is_manual in items:
+        if is_manual:
+            # A manual block's commands are prose for a human, not a shell
+            # string — never subprocess.run them, and never count them
+            # toward `failing` (see `_is_manual`).
+            rows.append(
+                {
+                    "story": sid,
+                    "ac_idx": ac_idx,
+                    "surface": surface,
+                    "command": "(manual — not run)",
+                    "na": True,
+                }
+            )
+            continue
+        # A non-manual item always carries a command (see _gather_sprint_items);
+        # only the manual sentinel above uses cmd=None.
+        assert cmd is not None
         # shell=True: AC commands are trusted shell strings declared by the
         # story (see _run_commands). capture_output keeps the matrix clean.
         try:
@@ -217,7 +256,7 @@ def _run_sprint(smm_dir: Path) -> int:
         rows.append(row)
 
     _print_matrix(rows)
-    failing = [r for r in rows if r["returncode"] != 0]
+    failing = [r for r in rows if not r.get("na") and r["returncode"] != 0]
     status = VERIFY_STATUS_RED if failing else VERIFY_STATUS_GREEN
     event = _common.make_event(
         EVENT_TYPE_SPRINT,
@@ -292,6 +331,10 @@ def _run_story(smm_dir: Path, story_id: str) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if _is_manual(ae):
+        print(f"verify_acceptance: story {story_id!r} is N/A (manual) — not run")
+        return _EXIT_OK
 
     return _run_commands(extract_commands(ae), smm_dir)
 

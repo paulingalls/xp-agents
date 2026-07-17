@@ -19,7 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import sprint_store
 import verify_acceptance
-from conftest import _SMMTestCase, make_sprint_dict, make_story_dict, run_cli
+from conftest import (
+    _SMMTestCase,
+    make_sprint_dict,
+    make_story_dict,
+    run_cli,
+    verify_events,
+)
 
 _VERIFY_ACCEPTANCE = (
     Path(__file__).parent.parent.parent / "scripts" / "verify_acceptance.py"
@@ -160,6 +166,71 @@ class TestCmdTimeout(_SMMTestCase):
         self.assertEqual(
             self._timeout("not-a-number"), verify_acceptance._DEFAULT_CMD_TIMEOUT_S
         )
+
+
+class TestManualTypeStoryPath(_SMMTestCase):
+    """A story that encodes a deliberate investigation as
+    {"type": "manual", "commands": ["<prose>"]} must never hand that prose
+    to a shell — verify_acceptance --story reports it N/A, not FAIL."""
+
+    def test_manual_story_is_ok_and_commands_never_run(self):
+        story = make_story_dict(
+            id="story-001",
+            acceptance_execution={
+                "type": "manual",
+                "commands": ["go read the logs and confirm X"],
+            },
+        )
+        sprint = make_sprint_dict(stories=[story])
+        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+
+        # Call _run_story in-process (not via run_cli's subprocess) so the
+        # patched subprocess.run is actually observed.
+        with patch.object(verify_acceptance.subprocess, "run") as mock_run:
+            rc = verify_acceptance._run_story(self.smm_dir, "story-001")
+        self.assertEqual(rc, verify_acceptance._EXIT_OK)
+        mock_run.assert_not_called()
+
+
+class TestManualTypeSprintMatrix(_SMMTestCase):
+    """The sprint-wide matrix expands every story's acceptance_execution via
+    extract_commands and shells each with shell=True. A manual story's prose
+    must never reach that shell — it appears as an N/A row, is excluded from
+    `failing`, and never turns a green sprint red."""
+
+    def _seed(self, stories: list[dict]) -> None:
+        sprint = make_sprint_dict(sprint_id="sprint-012", stories=stories)
+        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+
+    def test_manual_story_is_na_and_sprint_stays_green(self):
+        manual_story = make_story_dict(
+            id="story-manual",
+            acceptance_execution={
+                "type": "manual",
+                "commands": ["go read the logs and confirm X"],
+            },
+        )
+        passing_story = make_story_dict(
+            id="story-passing",
+            acceptance_execution={"type": "bash", "commands": ["true"]},
+        )
+        self._seed([manual_story, passing_story])
+
+        result = run_cli(_VERIFY_ACCEPTANCE, ["--sprint"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("N/A", result.stdout)
+        self.assertNotIn(
+            "go read the logs and confirm X exit",
+            result.stdout,
+            "manual prose must never be shelled out",
+        )
+
+        events = verify_events(self._read_events())
+        self.assertEqual(len(events), 1, events)
+        meta = events[0]["metadata"]
+        self.assertEqual(meta["verify_status"], "green")
+        failing_stories = [f["story"] for f in meta["failing"]]
+        self.assertNotIn("story-manual", failing_stories)
 
 
 if __name__ == "__main__":
