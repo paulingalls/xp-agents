@@ -17,6 +17,7 @@ import _common
 import commits
 import concerns
 import resolution
+from identity import extract_worktree_name, is_teammate_agent_id
 
 # Patterns that indicate test results in status/concern events
 TEST_PASS_RE = re.compile(
@@ -26,8 +27,23 @@ TEST_PASS_RE = re.compile(
 TEST_FAIL_RE = concerns.TEST_CONCERN_RE
 
 
-def _session_window_start(events: list[dict]) -> int:
-    """Index of the first event in the current session.
+def _session_window_start(events: list[dict], cwd: str) -> int:
+    """Index of the first event in the reader's own session window.
+
+    Only the LEAD emits `session_started` (a teammate's session_start.run
+    returns early, appending no anchor of its own) — so a `session_started`
+    anchor marks the LEAD's session boundary, never a teammate's. A worktree
+    teammate lives exactly one session (its worktree is created fresh for one
+    story and cleaned up after), so it has no "prior session" to bound
+    against: reading the lead's anchor as its own window means a mid-sprint
+    lead `/clear` — which appends a fresh anchor AFTER the teammate's
+    still-live failure — reclassifies that failure as prior-session, and a
+    teammate that already committed its work has a clean tree, silently
+    un-gating a genuinely red suite. For a teammate reader the window is
+    therefore always 0: every unresolved failure is "this session."
+
+    For any other reader (the lead), the window anchors at the most recent
+    `session_started` event, as before.
 
     Deliberately NOT `_common.current_session_start_index`: with no anchor that
     helper returns `len(events) - 200`, a TAIL CAP rather than a session
@@ -36,6 +52,9 @@ def _session_window_start(events: list[dict]) -> int:
     no anchor we scan everything instead (precedent: session_start.py's
     prior-backlog slice).
     """
+    name = extract_worktree_name(cwd)
+    if name and is_teammate_agent_id(name):
+        return 0
     anchor = _common._last_index_of_type(events, _common.SESSION_STARTED)
     return anchor if anchor >= 0 else 0
 
@@ -49,8 +68,8 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
     suite plus uncommitted broken code is still broken, but once the tree is
     clean there is nothing left in the working copy for that failure to be
     about, and it would otherwise gate every future session forever. Nothing
-    else un-gates it: `session_start._sweep_stale_concerns` only emits a
-    flag-concern, it never resolves the original.
+    else un-gates it — a prior-session failure clears only when its concern is
+    resolved or its tree goes clean.
 
     ONE reverse walk, not two. A passing status has no effect on any gate except
     to short-circuit this scan before an older unresolved failure is reached —
@@ -65,7 +84,7 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
     answer nothing, and "nothing" must never read as CLEAN — see below.
     """
     resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
-    window_start = _session_window_start(events)
+    window_start = _session_window_start(events, cwd)
 
     for i in range(len(events) - 1, -1, -1):
         e = events[i]
