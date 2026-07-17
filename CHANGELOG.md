@@ -2,6 +2,15 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.13.1 — Doc drift fix
+
+Reworded the retrospective agent's "Stale-Flag Concerns" section, which still
+described the SessionStart stale-flag sweep that v4.13.0 (story-015) deleted —
+a shipped agent doc narrating a removed mechanism. It now states only the live,
+declarative instruction (surface any `flagged_stale` concern in Fix; the WEAK
+`references` cascade closes it when its root closes). Docs-only; no behavior
+change.
+
 ## v4.13.0 — Gate honesty: the plugin stops crying wolf, and stops certifying nothing
 
 **If a gate has ever told you something the code didn't support — a "test failure" reprinted
