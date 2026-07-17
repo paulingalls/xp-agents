@@ -4,8 +4,10 @@
 session_history.py owns load/append/prune for session_history.json — the
 persistent layer that survives across /xp-end-session invocations and
 hands carry_forward items to the next session. Cascade-prune leans on
-resolution.compute_resolutions so resolved events drop their carry_forward
-entries automatically.
+resolution.closed_target_ids (the union of index-derived resolutions and
+raw metadata.resolves claims) so resolved events drop their carry_forward
+entries automatically — even when a closed target has been archived out of
+the log.
 """
 
 import json
