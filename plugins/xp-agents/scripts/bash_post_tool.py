@@ -17,7 +17,7 @@ import concerns
 import git_commits
 import identity
 import test_attribution
-from commit_handling import _handle_commit, _prior_commit_was_test_only
+from commit_handling import _handle_commit, is_tdd_red_step
 from event_schema import (
     METADATA_KEY_TDD_RED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -146,11 +146,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Test run detection
     framework = is_test_run(command)
     if framework:
-        # TDD red-step detection: prior commit added/modified ONLY test
-        # files → next test failures are expected (the canonical RED step
-        # in red-green-refactor). Tag those runs so work_signals doesn't
-        # count them as regressions.
-        tdd_red = _prior_commit_was_test_only(smm_dir)
+        # TDD red-step detection: either the working tree is currently
+        # test-only-dirty (the red step BEFORE the mandated post-green
+        # commit lands) or the prior commit was test-only (commit-first
+        # workflow). Tag those runs so work_signals doesn't count them as
+        # regressions, and gate the failed-test concern below.
+        tdd_red = is_tdd_red_step(smm_dir, cwd)
         results = parse_test_results(response_text, framework)
         parser_status = results["status"]
         passed = results["passed"]
@@ -168,6 +169,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "action": STATUS_ACTION_TEST_RUN_COMPLETE,
             "framework": framework,
             "parser_status": parser_status,
+            "cwd": cwd,
         }
         if tdd_red:
             metadata[METADATA_KEY_TDD_RED] = True
@@ -193,7 +195,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         )
         _common.append_safe(smm_dir, status)
 
-        if failed > 0:
+        if failed > 0 and not tdd_red:
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
