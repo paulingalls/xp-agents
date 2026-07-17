@@ -83,21 +83,31 @@ def append_merge_commit_event(
     files = commits.get_committed_files(cwd)
     body = commits.get_commit_message_body(cwd) or f"Merge {source}"
     code_file_count = code_files.count_code_files(files)
+    # A teammate's per-commit events may never have landed in the shared log
+    # (env-propagation fragility) — this merge HEAD is then the ONLY
+    # surviving commit event for that work. Re-parse the merged-in commits'
+    # own bodies for Resolves-Event trailers so their target concern/debt
+    # still closes; the merge HEAD's own body (the "Merge <source>" subject)
+    # never carries one.
+    resolves, _, has_resolves_trailer = commits.extract_resolves_trailer(
+        commits.merged_range_bodies(cwd, commit_hash)
+    )
     # Degrade gracefully on a corrupt/schema-invalid sprint.json: the merge
     # itself already succeeded on target, and the surrounding push/delete/
     # remote-prune chain must continue. Matches close_verify_gate's
     # established fail-open posture for SMM-state errors here.
     if sprint is _UNSET:
         sprint = sprint_store.load_sprint_fail_open(smm_dir)
-    # is_merge=True excludes this event from resolves_link_rate accounting:
-    # the merge HEAD aggregates already-recorded story commits, each of
-    # which carries its own Resolves trailer. Counting the merge commit
-    # in the denominator would dilute the rate without a meaningful
-    # numerator (merge commit messages don't carry Resolves trailers).
-    # Tag merges whose source is a free branch — honored by retro_metrics
-    # alongside is_merge. (A free→primary merge is both: it carries is_merge
-    # from this code path AND should be flagged as free for any future metric
-    # that wants to bucket free-mode close cycles separately.)
+    # is_merge=True still excludes this event from resolves_link_rate
+    # accounting: the rate rewards the AUTHORING discipline of writing a
+    # trailer, and a merge event's `resolves` is DERIVED (re-parsed from the
+    # merged-in commits, above) rather than authored on this event's own
+    # body. Counting it in the denominator would credit a trailer nobody
+    # wrote at merge time. Tag merges whose source is a free branch —
+    # honored by retro_metrics alongside is_merge. (A free→primary merge is
+    # both: it carries is_merge from this code path AND should be flagged as
+    # free for any future metric that wants to bucket free-mode close cycles
+    # separately.)
     event = commit_handling.make_commit_event(
         "close_common",
         body,
@@ -106,6 +116,8 @@ def append_merge_commit_event(
         code_file_count=code_file_count,
         story_id=identity.extract_story_id(source),
         sprint_id=sprint["sprint_id"] if isinstance(sprint, dict) else None,
+        resolves=resolves,
+        has_resolves_trailer=has_resolves_trailer,
         is_merge=True,
         is_free_session=branching.is_free_branch(source),
     )
