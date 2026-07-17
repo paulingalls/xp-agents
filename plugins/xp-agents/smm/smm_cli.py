@@ -20,18 +20,14 @@ import _common
 import identity
 import marker_names
 import smm_store
-from append_validation import parse_jsonl
 from event_schema import (
     DISPOSITION_WONT_FIX,
-    EVENT_TYPE_CONCERN,
     EVENT_TYPE_QUESTION,
-    METADATA_KEY_CLOSE_CYCLE_ID,
     METADATA_KEY_DISPOSITION,
     METADATA_KEY_RESOLVES,
-    STATUS_ACTION_CONCERN_CLASSIFY,
     STATUS_ACTION_QUESTION_CLOSE,
-    VALID_SEVERITIES,
 )
+from smm_count import _cmd_count_classifications, _cmd_count_concerns, register_parsers
 from smm_schema import PILLAR_RISKS, PILLARS
 
 _PILLAR_TITLES = {
@@ -254,87 +250,6 @@ def _cmd_remove_item(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_count_classifications(args: argparse.Namespace) -> int:
-    """Count concern_classify events matching --route and/or --category,
-    optionally bounded by --since-ts (ISO 8601 timestamp).
-
-    Filters each event by:
-      - metadata.action == "concern_classify"
-      - metadata.route == args.route (when provided)
-      - metadata.category == args.category (when provided)
-      - metadata.close_cycle_id == args.cycle_id (when provided —
-        events without the key never match, so pre-cycle-id events
-        don't leak into a scoped count)
-      - ts >= args.since_ts (lexicographic ISO comparison; safe because
-        all event ts values use the same fixed-width "YYYY-MM-DDTHH:MM:SS+00:00"
-        shape per append.sh)
-
-    Always exits 0 — empty event log returns 0, missing events.jsonl
-    returns 0, malformed lines are skipped. The "absent → 0" semantics
-    let the auto-merge gate's `ASK_COUNT=$(...)` invocation work
-    without exit-code branching, mirroring system_context_cli.py
-    get-stack-field's "absent → empty" pattern.
-
-    Used by story-close + free-close auto-merge override condition 1
-    to verify Step 5c queued zero ask-user items via structured
-    metadata instead of regex over LLM-authored content. The --category
-    filter (per concern 28f5e1b919d6) lets free-close also block
-    auto-merge when any design_decision finding was classified, even
-    if routed to fix.
-    """
-    events_path = Path(args.smm_dir) / "events.jsonl"
-    if not events_path.exists():
-        print(0)
-        return 0
-    # Delegate to the canonical JSONL parser used by all events.jsonl
-    # readers (materialize.py, compact.py, …) — handles blank lines,
-    # malformed JSON, and non-dict values uniformly.
-    events, _skipped = parse_jsonl(events_path.read_text())
-    count = 0
-    for event in events:
-        meta = event.get("metadata", {})
-        if meta.get("action") != STATUS_ACTION_CONCERN_CLASSIFY:
-            continue
-        if args.route and meta.get("route") != args.route:
-            continue
-        if args.category and meta.get("category") != args.category:
-            continue
-        if args.cycle_id and meta.get(METADATA_KEY_CLOSE_CYCLE_ID) != args.cycle_id:
-            continue
-        if args.since_ts and event.get("ts", "") < args.since_ts:
-            continue
-        count += 1
-    print(count)
-    return 0
-
-
-def _cmd_count_concerns(args: argparse.Namespace) -> int:
-    """Count type==concern events filtered by severity, cycle-id, since-ts.
-
-    Always exits 0 (missing file / malformed lines → 0) so callers can
-    `$(...)` capture without exit-code branching.
-    """
-    events_path = Path(args.smm_dir) / "events.jsonl"
-    if not events_path.exists():
-        print(0)
-        return 0
-    events, _skipped = parse_jsonl(events_path.read_text())
-    count = 0
-    for event in events:
-        if event.get("type") != EVENT_TYPE_CONCERN:
-            continue
-        if args.severity and event.get("severity") != args.severity:
-            continue
-        meta = event.get("metadata", {})
-        if args.cycle_id and meta.get(METADATA_KEY_CLOSE_CYCLE_ID) != args.cycle_id:
-            continue
-        if args.since_ts and event.get("ts", "") < args.since_ts:
-            continue
-        count += 1
-    print(count)
-    return 0
-
-
 def _cmd_get_event(args: argparse.Namespace) -> int:
     try:
         _, event = smm_store.lookup_event(args.smm_dir, args.event_id)
@@ -457,58 +372,7 @@ def main() -> None:
     get_p = sub.add_parser("get-event", help="Print event by ID or prefix")
     get_p.add_argument("event_id", help="Event UUID or prefix")
 
-    count_p = sub.add_parser(
-        "count-classifications",
-        help="Count concern_classify events filtered by "
-        "route + category + cycle-id + since-ts",
-    )
-    count_p.add_argument(
-        "--route",
-        choices=["fix", "ask"],
-        default=None,
-        help="Filter by metadata.route (omit to count all routes)",
-    )
-    count_p.add_argument(
-        "--category",
-        default=None,
-        help="Filter by metadata.category (e.g. design_decision); "
-        "omit to count all categories",
-    )
-    count_p.add_argument(
-        "--cycle-id",
-        default=None,
-        help="Filter by metadata.close_cycle_id (12-hex from preload "
-        "CLOSE_CYCLE_ID); strict close-cycle scoping that prevents "
-        "concurrent-close leakage. Events without the key never match.",
-    )
-    count_p.add_argument(
-        "--since-ts",
-        default=None,
-        help="ISO 8601 timestamp; events with ts < this are excluded",
-    )
-
-    cc_p = sub.add_parser(
-        "count-concerns",
-        help="Count concern events filtered by severity + cycle-id + since-ts",
-    )
-    cc_p.add_argument(
-        "--severity",
-        default=None,
-        choices=sorted(VALID_SEVERITIES),
-        help="Filter by severity; omit to count all severities. "
-        "choices= rejects typos so a silent zero never defeats the gate.",
-    )
-    cc_p.add_argument(
-        "--cycle-id",
-        default=None,
-        help="Filter by metadata.close_cycle_id; events without the key "
-        "never match, so concurrent close-cycles do not leak in.",
-    )
-    cc_p.add_argument(
-        "--since-ts",
-        default=None,
-        help="ISO 8601 timestamp; events with ts < this are excluded",
-    )
+    register_parsers(sub)
 
     prm_p = sub.add_parser("promote-event", help="Promote event to SMM")
     prm_p.add_argument("event_id", help="Event UUID or prefix")
