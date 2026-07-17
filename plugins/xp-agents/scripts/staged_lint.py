@@ -213,7 +213,7 @@ def _lint_staged_bytes(
 ) -> lint_check.LintRun:
     """Lint the INDEX's bytes for `path`, which are not the bytes on disk.
 
-    `git show :<path>` piped to the linter, which is told the real path they belong
+    `git show :0:<path>` piped to the linter, which is told the real path they belong
     to — so the file is judged where it lives without a copy existing anywhere. This
     is the case the gate needs most (a partial add, an edit-after-add: exactly the
     fail-open it was built to close) and the case a copy served worst.
@@ -316,7 +316,7 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
       * index == working tree (~99% of commits) → lint the real path, batched.
         Linting the real path IS linting the index when they are identical, and
         this cannot reintroduce the fail-open, which requires them to differ.
-      * they diverge → pipe `git show :<path>` to the linter and TELL it the real
+      * they diverge → pipe `git show :0:<path>` to the linter and TELL it the real
         path (`_lint_staged_bytes`). Per-file, but divergence is rare.
       * they diverge and the linter reads no stdin → BLOCK, naming the remedy
         (`git add` the path). Unreadable is not clean, and this one IS
