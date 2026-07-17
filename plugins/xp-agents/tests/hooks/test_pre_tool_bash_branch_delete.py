@@ -25,7 +25,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import pre_tool_bash
 import sprint_store
-from _branching_fixtures import append_commit, init_repo, write_system_context
+from _branching_fixtures import (
+    GIT_ENV,
+    append_commit,
+    init_repo,
+    write_system_context,
+)
 from conftest import _HookTestCase, _make_bash_input
 
 _BASE = "main"
@@ -256,8 +261,18 @@ class TestDeleteIsJudgedInTheTargetedRepo(_BranchDeleteGateCase):
         self._other_tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._other_tmp.cleanup)
         self.other = str(Path(self._other_tmp.name) / "clone")
+        # `git clone` does NOT copy the source repo's *local* config, so this
+        # clone inherits no committer identity from init_repo. Every git call
+        # here that creates a commit (notably the --no-ff merge below) must
+        # therefore carry GIT_ENV explicitly — auto-detected identity is
+        # rejected on CI runners whose guessed address ends in `.(none)`,
+        # which surfaced as a `git merge` exit-128 that never reproduces on a
+        # dev machine with a valid global git identity.
         subprocess.run(
-            ["git", "clone", self.repo, self.other], capture_output=True, check=True
+            ["git", "clone", self.repo, self.other],
+            capture_output=True,
+            check=True,
+            env=GIT_ENV,
         )
 
     def _make_other_story_branch(self) -> None:
@@ -266,10 +281,15 @@ class TestDeleteIsJudgedInTheTargetedRepo(_BranchDeleteGateCase):
             cwd=self.other,
             capture_output=True,
             check=True,
+            env=GIT_ENV,
         )
         append_commit(self.other, "story.txt")
         subprocess.run(
-            ["git", "checkout", _BASE], cwd=self.other, capture_output=True, check=True
+            ["git", "checkout", _BASE],
+            cwd=self.other,
+            capture_output=True,
+            check=True,
+            env=GIT_ENV,
         )
 
     def test_dash_c_delete_of_a_branch_unmerged_THERE_blocks(self):
@@ -286,6 +306,7 @@ class TestDeleteIsJudgedInTheTargetedRepo(_BranchDeleteGateCase):
             cwd=self.other,
             capture_output=True,
             check=True,
+            env=GIT_ENV,
         )
         self._seed_sprint()
 

@@ -253,13 +253,14 @@ METADATA_KEY_CLOSE_CYCLE_ID = "close_cycle_id"
 # defer past the FORCE-CLOSE gate via --force-defer-with-date; YYYY-MM-DD.
 METADATA_KEY_DEFER_UNTIL = "defer_until"
 
-# Stale-concern sweep (session_start._sweep_stale_concerns) flag-concern keys.
-# Carried on a NEW concern event with references=[orig_id]; the WEAK cascade
-# (resolution.compute_resolutions) closes the flag when orig_id resolves.
-# Producer: the SessionStart fresh-start block (re-homed from session_end in
-# M3, counting session_started anchors). Consumer: the sweep itself
-# (idempotency check) + retro Fix-lens (xp-retrospective surfaces flagged
-# concerns for human triage).
+# Stale-concern flag-concern keys. NO live producer — the SessionStart
+# stale-concern sweep that once emitted these was deleted in story-015
+# (staleness is derived from age at render time, not a new fact). Kept for
+# backward-compat: existing on-disk flag-concerns still carry these keys and
+# still resolve via the WEAK cascade (resolution.compute_resolutions closes
+# the flag when its referenced orig_id resolves). Sole remaining consumer:
+# retro Fix-lens (xp-retrospective surfaces already-flagged concerns for
+# human triage).
 METADATA_KEY_FLAGGED_STALE = "flagged_stale"
 METADATA_KEY_STALE_SESSION_COUNT = "stale_session_count"
 

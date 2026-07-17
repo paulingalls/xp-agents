@@ -22,8 +22,24 @@ from collections.abc import Callable
 # of failures that will never resolve themselves.
 _INDEX_LOCK_RE = re.compile(r"index\.lock", re.IGNORECASE)
 
+# git's own words when `checkout` reads the worktree registry and finds the
+# branch already checked out elsewhere. A concurrent `git worktree add/remove`
+# for a SIBLING teammate can transiently misreport the orchestrator's OWN
+# target branch as used-by-main while that registry write is in flight.
+_WORKTREE_CONTENTION_RE = re.compile(r"already used by worktree", re.IGNORECASE)
+
 _LOCK_RETRY_ATTEMPTS = 3
 _LOCK_RETRY_BASE_S = 0.2
+
+
+def _transient_signature(stderr: str) -> str | None:
+    """Name the retryable signature in `stderr`, or None if it is not one."""
+    if _INDEX_LOCK_RE.search(stderr):
+        return "index.lock"
+    if _WORKTREE_CONTENTION_RE.search(stderr):
+        return "worktree-contention"
+    return None
+
 
 # A network push is slower than a local git op, so this is well above the `_git`
 # 10s cap. It exists only to bound an unreachable/stalled origin so the close
@@ -42,17 +58,26 @@ def _git_retry_on_lock(
     attempts: int = _LOCK_RETRY_ATTEMPTS,
     sleep: Callable[[float], None] = time.sleep,
 ) -> subprocess.CompletedProcess:
-    """Run a git command, retrying ONLY a transient `.git/index.lock` collision.
+    """Run a git command, retrying ONLY two transient signatures: a
+    `.git/index.lock` collision, and a spurious "already used by worktree"
+    checkout-registry misread.
 
     A sibling worktree (or a teammate's git process) can hold the index for a
     moment. That is what bit story-005: the close's merge failed on the lock, and
-    the pipeline carried on and marked the story done unmerged.
+    the pipeline carried on and marked the story done unmerged. Story-020 measured
+    the second signature live: `git checkout <target>` reads the worktree registry
+    to see if the branch is held elsewhere, and while a CONCURRENT teammate
+    worktree is being added/removed that read can transiently misreport the
+    orchestrator's OWN target branch as used-by-main.
 
     NOT a blanket retry, deliberately. A merge conflict will not resolve itself on
     the second attempt, and retrying it would turn a clear error into a slow,
-    confusing one — so only the lock signature comes back for another go. Safe to
-    retry because git takes the lock BEFORE it mutates anything: a lock-failed
-    command is a clean no-op, not a half-applied one.
+    confusing one — so only these two signatures come back for another go. Safe to
+    retry because git takes the lock/registry read BEFORE it mutates anything: a
+    failed attempt is a clean no-op, not a half-applied one. That holds even for a
+    LEGITIMATE "used by worktree" (a live sibling really holds the branch) — it's
+    permanent, but retrying it costs only a few hundred ms before the caller gets
+    the same clear git error back.
 
     Bounded, with a growing backoff. The holder may never let go, and an unbounded
     spin would HANG the close rather than fail it; on exhaustion the caller gets
@@ -68,8 +93,18 @@ def _git_retry_on_lock(
     """
     result = _git(args, cwd)
     for attempt in range(1, attempts):
-        if result.returncode == 0 or not _INDEX_LOCK_RE.search(result.stderr or ""):
+        signature = (
+            None
+            if result.returncode == 0
+            else _transient_signature(result.stderr or "")
+        )
+        if signature is None:
             return result
+        print(
+            f"git-retry: {signature} on {args} "
+            f"(attempt {attempt + 1}/{attempts}), retrying",
+            file=sys.stderr,
+        )
         sleep(_LOCK_RETRY_BASE_S * (2 ** (attempt - 1)))
         result = _git(args, cwd)
     return result

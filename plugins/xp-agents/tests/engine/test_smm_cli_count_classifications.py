@@ -251,10 +251,12 @@ class TestCountClassifications(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "2")
 
-    def test_cycle_id_excludes_events_without_metadata_key(self) -> None:
-        # Pre-cycle-id events (no metadata.close_cycle_id) MUST NOT match
-        # any --cycle-id query — they belong to no cycle and counting them
-        # would defeat the purpose of the scoper.
+    def test_cycle_id_counts_events_without_metadata_key(self) -> None:
+        # An event with NO metadata.close_cycle_id belongs to no cycle and
+        # must still be counted when scoped — only an event tagged with a
+        # DIFFERENT cycle id is excluded. This is what the story/free
+        # auto-merge override actually gates on: an untagged route=ask
+        # classify must not be silently dropped from ASK_COUNT.
         events = [
             _classify_event(route="ask"),  # no close_cycle_id
             _classify_event(route="ask", close_cycle_id="aaaa11111111"),
@@ -266,7 +268,33 @@ class TestCountClassifications(_SMMTestCase):
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "2")
+
+    def test_untagged_ask_classify_counted_when_scoped_to_cycle(self) -> None:
+        # The real merge-past-blocker this story fixes: an untagged
+        # route=ask concern_classify event must be counted, not invisible.
+        events = [_classify_event(route="ask")]
+        write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--route", "ask", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "1")
+
+    def test_differently_tagged_classify_still_excluded(self) -> None:
+        # Isolation guard: a classify event tagged with a DIFFERENT
+        # close_cycle_id must still be excluded from a scoped count.
+        events = [_classify_event(route="ask", close_cycle_id="bbbb22222222")]
+        write_events(self.events_file, events)
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
 
     def test_combined_route_and_since_ts(self) -> None:
         # Realistic auto-merge gate invocation: count just the ask-routed

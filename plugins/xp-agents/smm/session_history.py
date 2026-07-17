@@ -32,7 +32,7 @@ from pathlib import Path
 from _append_impl import write_text_atomic
 from append_validation import parse_jsonl
 from event_schema import EVENT_TYPE_SESSION_STARTED, sessions_since_event
-from resolution import collect_all_resolved_ids
+from resolution import closed_target_ids
 
 SESSION_HISTORY_FILENAME = "session_history.json"
 SCHEMA_VERSION = 1
@@ -330,18 +330,23 @@ def gather_recent_summaries(
     return annotated
 
 
-def prune_resolved(smm_dir: Path, resolutions: dict) -> int:
+def prune_resolved(smm_dir: Path, events: list[dict]) -> int:
     """Drop carry_forward items whose every reference is now resolved.
 
     Walks each entry's carry_forward; an item is dropped iff it has at
     least one reference AND every reference id appears in
-    ``resolution.collect_all_resolved_ids(resolutions)``. Items with no
+    ``resolution.closed_target_ids(events)`` — the union of index-derived
+    resolutions and raw ``metadata.resolves`` claims. The raw half is what
+    lets this catch a carry_forward item whose target event has since been
+    archived out of the log: the index alone can't see a closer naming a
+    target that's no longer present, so a reference to an archived-but-closed
+    target would otherwise never resolve and reprint forever. Items with no
     references are kept (no resolution claim possible). Saves only when
     at least one item was dropped.
 
     Returns the number of carry_forward items pruned.
     """
-    resolved_ids = collect_all_resolved_ids(resolutions)
+    resolved_ids = closed_target_ids(events)
     if not resolved_ids:
         return 0
 

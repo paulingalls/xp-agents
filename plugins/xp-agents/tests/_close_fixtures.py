@@ -496,19 +496,22 @@ class _CloseSkillTextCommonTests(_MixinBase):
         # Critical: xp-close-reviewer's append.sh templates set
         # metadata.close_cycle_id from the prompt's `## Close Cycle ID`
         # section. Without that section in the Agent prompt, every
-        # reviewer-filed Block has no close_cycle_id and is silently
-        # invisible to the shared Step 6 count-concerns query — which
-        # scopes by --cycle-id. This test pins the section so a future
-        # edit can't quietly delete it and re-introduce the same
-        # silent-drop bug the sprint-close reviewer caught at sprint-055.
+        # reviewer-filed Block has no close_cycle_id — an untagged Block is
+        # still counted by the shared Step 6 count-concerns query (an event
+        # without the key is no longer invisible), but it also leaks into
+        # EVERY concurrent close-cycle's scoped count instead of being
+        # isolated to this one. This test pins the section so a future edit
+        # can't quietly delete it and re-introduce the cross-cycle leakage
+        # the sprint-close reviewer caught at sprint-055.
         self.assertIn(
             "## Close Cycle ID",
             self.text,
             f"{self._MODE}-close Agent prompt must include "
             "'## Close Cycle ID\\n<CLOSE_CYCLE_ID>' so xp-close-reviewer "
             "can substitute the cycle id into its append.sh metadata; "
-            "without it, severity=high quality Blocks never reach the "
-            "Step 6 abort-default count-concerns query.",
+            "without it, severity=high quality Blocks leak into every "
+            "concurrent close-cycle's Step 6 abort-default count-concerns "
+            "query instead of being isolated to this one.",
         )
         self.assertIn(
             "<CLOSE_CYCLE_ID>",

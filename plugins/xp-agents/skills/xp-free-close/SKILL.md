@@ -98,7 +98,7 @@ The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by the prelo
      --smm-dir <SMM_DIR> count-classifications \
      --route ask --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
-   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload (captured at close-cycle start). `--cycle-id` is the strict scoper — it prevents concurrent close-cycles in other teammate worktrees from leaking concern_classify events into this count (SMM is shared across worktrees). Test numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
+   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload (captured at close-cycle start). `--cycle-id` excludes concern_classify events tagged with a DIFFERENT close-cycle, so concurrent close-cycles in other teammate worktrees don't leak in (SMM is shared across worktrees). An UNTAGGED event is still counted — the count fails closed rather than silently dropping an ask-route the gate must see — so `--since-ts` is the bound that keeps pre-cycle events out. Test numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
 2. No Block-severity finding survived in Step 4.5's reviewer summary.
 

@@ -21,7 +21,6 @@ from event_helpers import events_of_type
 # fails at test collection (NameError) instead of silently changing a
 # make_event(...) call's behavior.
 from event_schema import (
-    EVENT_TYPE_CONCERN,
     EVENT_TYPE_GOAL,
     EVENT_TYPE_QUESTION,
     EVENT_TYPE_SESSION_END,
@@ -86,17 +85,14 @@ class TestSessionStartIntegration(_IntegrationTestCase):
         self.assertNotIn("Run a retrospective", ctx)
         self.assertNotIn("Action Required", ctx)
 
-    def test_fresh_main_session_start_sweeps_and_resolves(self):
+    def test_fresh_main_session_start_resolves_goal(self):
         """E2E (M3 story-002): a fresh-main session_start.py subprocess with
-        a stale concern and an open prior goal appends a session_started
-        anchor carrying metadata.resolves for the goal AND emits a
-        flagged_stale concern referencing the stale concern."""
+        an open prior goal appends a session_started anchor carrying
+        metadata.resolves for the goal."""
         goal = make_event(EVENT_TYPE_GOAL, content="Open goal", agent_id="xp-kickoff")
-        stale = make_event(EVENT_TYPE_CONCERN, content="Old concern")
         self._seed_events(
             [
                 goal,
-                stale,
                 make_event(EVENT_TYPE_SESSION_STARTED, content="s1"),
                 make_event(EVENT_TYPE_SESSION_STARTED, content="s2"),
                 make_event(EVENT_TYPE_SESSION_STARTED, content="s3"),
@@ -114,14 +110,6 @@ class TestSessionStartIntegration(_IntegrationTestCase):
         new_anchor = anchors[-1]
         resolves = (new_anchor.get("metadata") or {}).get("resolves", [])
         self.assertIn(goal["id"], resolves)
-        flags = [
-            e
-            for e in events
-            if e.get("type") == EVENT_TYPE_CONCERN
-            and (e.get("metadata") or {}).get("flagged_stale") is True
-        ]
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0].get("references"), [stale["id"]])
 
 
 class TestSessionEndIntegration(_IntegrationTestCase):
@@ -177,16 +165,14 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         se = events_of_type(events, EVENT_TYPE_SESSION_END)
         self.assertEqual(len(se), 0)
 
-    def test_main_session_end_has_no_sweep_or_goal_resolution(self):
+    def test_main_session_end_has_no_goal_resolution(self):
         """E2E (M3 story-001): the end-session pipeline on main records a
-        session_end with no goal-resolution metadata and emits no stale-flag
-        concerns — those side-effects re-home to SessionStart in story-002."""
+        session_end with no goal-resolution metadata — that side-effect
+        re-homes to SessionStart in story-002."""
         goal = make_event(EVENT_TYPE_GOAL, content="Open goal", agent_id="xp-kickoff")
-        concern = make_event(EVENT_TYPE_CONCERN, content="Old concern")
         self._seed_events(
             [
                 goal,
-                concern,
                 make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
                 make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
                 make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
@@ -202,13 +188,6 @@ class TestSessionEndIntegration(_IntegrationTestCase):
         # The session_end we just appended is the last one.
         se = events_of_type(events, EVENT_TYPE_SESSION_END)[-1]
         self.assertNotIn("resolves", se.get("metadata") or {})
-        flags = [
-            e
-            for e in events
-            if e.get("type") == EVENT_TYPE_CONCERN
-            and (e.get("metadata") or {}).get("flagged_stale") is True
-        ]
-        self.assertEqual(flags, [])
 
 
 class TestPreCompactIntegration(_IntegrationTestCase):

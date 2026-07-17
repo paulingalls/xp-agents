@@ -2,6 +2,55 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.13.0 — Gate honesty: the plugin stops crying wolf, and stops certifying nothing
+
+**If a gate has ever told you something the code didn't support — a "test failure" reprinted
+at every kickoff for a suite that's green, a deliberate red-green step flagged as a
+regression, an acceptance check that exits 127 on prose it was handed — this release is that
+family of bugs.** A gate everyone knows lies is a gate nobody reads; this closes eight of
+them, most found by *using* the system on real projects.
+
+**The kickoff banner stops reprinting resolved notes forever.** `prune_resolved` could only
+see a carry_forward item's target while that target's own event was still in the live log;
+once routine archiving removed it, the resolved note was immortal and reprinted every
+session in every project. It now uses `closed_target_ids` (the union that reads raw
+`metadata.resolves` claims), so an archived-but-resolved target finally prunes.
+
+**A deliberate TDD red no longer counts as a regression.** The suppressor keyed on the last
+*commit* being test-only — impossible under the mandated red→green→commit workflow, so it
+never fired (measured: 0 of 59 tags). It now also consults the working tree: a test-only-dirty
+tree is the red step, gated on the single wide `get_uncommitted_files` scan so an untracked
+production file can't slip past and silence a real regression. `test_run_complete` now carries
+`cwd` so a scoped run is distinguishable from a full suite.
+
+**The acceptance gate stops inventing failures — and stops certifying commands that can never
+run.** `verify_acceptance` rejected a `VERIFY_CMD_TIMEOUT_S` of 0/negative (which made every
+command die "timed out after 0s" before running) and shelled a `type: manual` story's prose
+straight to a shell (exit 127 → false FAIL that blocked closes). Manual stories now report
+N/A, distinct from PASS/FAIL. Separately, sprint-start now authors each story's acceptance
+command from the project's *declared* `stack.test_command` instead of inventing
+`python3 -m pytest` — which was never importable here and left every gate inert.
+
+**Staleness is now a render-time annotation, not a self-multiplying concern.** The stale-flag
+emitter filed a *new* concern to say an existing one was old; the triage block already shows
+each item's age at render time, so 90 of 101 open items were a concern plus a second saying
+"that one is old." The emitter is deleted.
+
+**The close merge survives a transient worktree-registry race instead of aborting on it.**
+Under concurrent teammates, `git checkout <target>` can briefly misreport the orchestrator's
+own branch as held elsewhere; the merge now retries that signature (bounded, alongside the
+`index.lock` retry) and logs `git-retry:` so the flake stays *measurable*, not hidden.
+
+**The TDD gate's session window is the reader's own, not the lead's.** Only the lead emits
+`session_started`; a mid-sprint lead `/clear` used to reclassify a teammate's live red suite
+as prior-session and un-gate it on a clean tree. A worktree teammate now scans its whole
+session (it has no "prior session"), keyed cwd-only.
+
+**Sprint numbering can no longer regress.** After sprint-close archived `sprint.json`,
+`next_sprint_id` fell back to *counting* sprint-start events in a truncated log — emitting an
+already-used id (git held sprint-120; the counter emitted sprint-002). It now takes the max
+existing id + 1 across the live sprint, archives, and events.
+
 ## v4.12.0 — The lint gate stops lying about your files; mark-done honesty at engine altitude
 
 **If the commit-lint gate has ever blocked you with an unresolved-import error against a

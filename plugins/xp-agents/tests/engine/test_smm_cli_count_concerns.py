@@ -81,9 +81,12 @@ class TestCountConcerns(_SMMTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("invalid choice", result.stderr)
 
-    def test_cycle_id_filters_to_matching_close_cycle_only(self) -> None:
-        # SMM is shared across worktrees — concurrent close-cycles must
-        # not leak in. Events without close_cycle_id never match.
+    def test_cycle_id_excludes_only_differently_tagged_events(self) -> None:
+        # SMM is shared across worktrees — concurrent close-cycles must not
+        # leak in. But an event with NO close_cycle_id belongs to no cycle
+        # and must still be counted when scoped — only an event tagged with
+        # a DIFFERENT cycle id is excluded. A reviewer's untagged concern
+        # must not become invisible to the gate.
         write_events(
             self.events_file,
             [
@@ -99,7 +102,106 @@ class TestCountConcerns(_SMMTestCase):
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "2")
+        self.assertEqual(result.stdout.strip(), "3")
+
+    def test_untagged_high_concern_counted_when_scoped_to_cycle(self) -> None:
+        # A reviewer's severity=high concern filed WITHOUT close_cycle_id
+        # must not be invisible to a scoped count — this is the fail-OPEN
+        # bug the fix closes.
+        write_events(self.events_file, [_concern("high", metadata={})])
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+
+    def test_differently_tagged_concern_still_excluded(self) -> None:
+        # Isolation guard: a concern tagged with a DIFFERENT close_cycle_id
+        # must still be excluded from a scoped count.
+        write_events(
+            self.events_file,
+            [_concern("high", metadata={"close_cycle_id": "bbbb22222222"})],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_resolved_via_metadata_resolves_not_counted(self) -> None:
+        # A severity=high concern closed via metadata.resolves is no longer
+        # open — count-concerns must count OPEN concerns, not concerns filed.
+        concern = _concern("high")
+        closer = make_event(
+            EVENT_TYPE_STATUS,
+            working_on=[],
+            metadata={"action": "qr_complete", "resolves": [concern["id"]]},
+        )
+        write_events(self.events_file, [concern, closer])
+        result = run_cli(_CLI, ["count-concerns", "--severity", "high"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_resolved_via_weak_references_cascade_not_counted(self) -> None:
+        # A concern resolved indirectly via the WEAK references cascade
+        # (its `references` reach an already-resolved event) must also be
+        # excluded — not just direct metadata.resolves closures.
+        root = _concern("high")
+        closer = make_event(
+            EVENT_TYPE_STATUS,
+            working_on=[],
+            metadata={"action": "qr_complete", "resolves": [root["id"]]},
+        )
+        cascaded = _concern("high", references=[root["id"]])
+        write_events(self.events_file, [root, closer, cascaded])
+        result = run_cli(_CLI, ["count-concerns", "--severity", "high"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_untagged_and_resolved_not_counted(self) -> None:
+        # The untagged-fallthrough fix and the resolution filter compose:
+        # an untagged concern that is ALSO resolved must still be excluded.
+        concern = _concern("high", metadata={})
+        closer = make_event(
+            EVENT_TYPE_STATUS,
+            working_on=[],
+            metadata={"action": "qr_complete", "resolves": [concern["id"]]},
+        )
+        write_events(self.events_file, [concern, closer])
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_since_ts_still_bounds_untagged_concerns(self) -> None:
+        # --since-ts remains a real bound on untagged concerns — an old
+        # untagged concern from before this close cycle started must not
+        # leak into a scoped-by-time count.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high", metadata={}, ts="2026-04-01T00:00:00+00:00"
+                ),  # too old
+                _concern(
+                    "high", metadata={}, ts="2026-05-02T00:00:00+00:00"
+                ),  # in window
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--since-ts", "2026-05-01T00:00:00+00:00"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
 
     def test_since_ts_excludes_earlier_events(self) -> None:
         write_events(
