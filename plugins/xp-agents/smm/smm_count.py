@@ -131,9 +131,10 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
         "--cycle-id",
         default=None,
         help="Filter by metadata.close_cycle_id (12-hex from preload "
-        "CLOSE_CYCLE_ID); strict close-cycle scoping that prevents "
-        "concurrent-close leakage. An event without the key is counted; "
-        "only an event tagged with a DIFFERENT cycle id is excluded.",
+        "CLOSE_CYCLE_ID); excludes events tagged with a DIFFERENT cycle id, "
+        "so a concurrent close-cycle's tagged events do not leak in. An "
+        "event WITHOUT the key is counted (fails closed rather than dropping "
+        "it) — pair with --since-ts to bound untagged events.",
     )
     count_p.add_argument(
         "--since-ts",
@@ -155,9 +156,11 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
     cc_p.add_argument(
         "--cycle-id",
         default=None,
-        help="Filter by metadata.close_cycle_id; an event without the key "
-        "is counted; only an event tagged with a DIFFERENT cycle id is "
-        "excluded, so concurrent close-cycles do not leak in.",
+        help="Filter by metadata.close_cycle_id; excludes events tagged "
+        "with a DIFFERENT cycle id, so a concurrent close-cycle's tagged "
+        "events do not leak in. An event WITHOUT the key is counted (fails "
+        "closed rather than dropping it) — pair with --since-ts to bound "
+        "untagged events.",
     )
     cc_p.add_argument(
         "--since-ts",

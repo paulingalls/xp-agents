@@ -101,7 +101,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
 
-`<CLOSE_CYCLE_ID>` comes from `## Close Cycle ID` (substitute the actual 12-hex value). Without it, the abort-default count-concerns query silently drops these blocks.
+`<CLOSE_CYCLE_ID>` comes from `## Close Cycle ID` (substitute the actual 12-hex value). Without it, these blocks still reach this cycle's abort-default count-concerns query (an untagged concern is counted, never dropped), but they also leak into every concurrent close-cycle's count instead of being isolated to this one.
 
 **`--files` discipline:** every concern naming a source path MUST pass those paths via `--files`. The commit-auto-link hook matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omit only for purely cross-cutting concerns with no file pin — default to including.
 
