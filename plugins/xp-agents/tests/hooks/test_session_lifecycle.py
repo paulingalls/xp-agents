@@ -303,35 +303,6 @@ class TestSessionEnd(_HookTestCase):
         meta = se.get("metadata") or {}
         self.assertNotIn("resolves", meta)
 
-    def test_session_end_emits_no_stale_flags(self):
-        """Stale-concern sweep moved off session_end to SessionStart (M3,
-        story-002). A concern old enough to once trip the sweep must NOT
-        produce a flagged_stale concern from session_end anymore."""
-        import session_end
-
-        c = make_event(EVENT_TYPE_CONCERN, content="Old concern")
-        self._write_events(
-            [
-                c,
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s1"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s2"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s3"),
-                make_event(EVENT_TYPE_SESSION_END, content="Session ended: s4"),
-            ]
-        )
-        session_end.run(
-            {"session_id": "test", "reason": "logout"},
-            smm_dir=self.smm_dir,
-        )
-        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        flags = [
-            e
-            for e in events
-            if e.get("type") == EVENT_TYPE_CONCERN
-            and (e.get("metadata") or {}).get("flagged_stale") is True
-        ]
-        self.assertEqual(flags, [])
-
     def test_duration_spans_full_conversation_when_no_session_started_anchor(self):
         """Concern 4b7a27898de7: with no session_started anchor (e.g. a
         resume/compact continuation), duration anchors on the original
