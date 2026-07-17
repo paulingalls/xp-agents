@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import session_history
 from conftest import _SMMTestCase, make_event
 from event_schema import EVENT_TYPE_ANSWER, EVENT_TYPE_QUESTION
-from resolution import compute_resolutions
 
 
 def _entry(ts: str, summary: str, carry_forward: list[dict] | None = None) -> dict:
@@ -150,7 +149,7 @@ class TestPruneResolved(_SMMTestCase):
         answer = make_event(
             EVENT_TYPE_ANSWER, content="2026-05-15", references=[question["id"]]
         )
-        resolutions = compute_resolutions([question, answer])
+        events = [question, answer]
 
         data = {
             "version": 1,
@@ -167,7 +166,7 @@ class TestPruneResolved(_SMMTestCase):
         }
         session_history.save_history(self.smm_dir, data)
 
-        pruned = session_history.prune_resolved(self.smm_dir, resolutions)
+        pruned = session_history.prune_resolved(self.smm_dir, events)
         self.assertEqual(pruned, 1)
 
         result = session_history.load_history(self.smm_dir)
@@ -180,7 +179,7 @@ class TestPruneResolved(_SMMTestCase):
         answer = make_event(
             EVENT_TYPE_ANSWER, content="yes", references=[question["id"]]
         )
-        resolutions = compute_resolutions([question, answer])
+        events = [question, answer]
 
         data = {
             "version": 1,
@@ -197,11 +196,47 @@ class TestPruneResolved(_SMMTestCase):
         }
         session_history.save_history(self.smm_dir, data)
 
-        pruned = session_history.prune_resolved(self.smm_dir, resolutions)
+        pruned = session_history.prune_resolved(self.smm_dir, events)
         self.assertEqual(pruned, 0)
 
         result = session_history.load_history(self.smm_dir)
         self.assertEqual(len(result["entries"][0]["carry_forward"]), 1)
+
+    def test_prune_resolved_drops_item_whose_target_event_is_archived(self):
+        """Resolver LIVE, target event ARCHIVED (absent from events.jsonl).
+
+        The resolver closes via `metadata.resolves` naming the target id —
+        NOT `references` — so this can only be caught by the raw
+        claimed_resolved_ids term inside closed_target_ids. A
+        references-shaped resolver would already pass under the old
+        collect_all_resolved_ids-only implementation and prove nothing.
+        """
+        target_id = "abcdef123456"
+        resolver = make_event(
+            EVENT_TYPE_ANSWER,
+            content="closing an archived item",
+            metadata={"resolves": [target_id]},
+        )
+        # The target's own event is NOT in this list — it was archived.
+        events = [resolver]
+
+        data = {
+            "version": 1,
+            "entries": [
+                _entry(
+                    "2026-05-01T00:00:00+00:00",
+                    "session A",
+                    [_cf("stale note about archived target", [target_id])],
+                ),
+            ],
+        }
+        session_history.save_history(self.smm_dir, data)
+
+        pruned = session_history.prune_resolved(self.smm_dir, events)
+        self.assertEqual(pruned, 1)
+
+        result = session_history.load_history(self.smm_dir)
+        self.assertEqual(result["entries"][0]["carry_forward"], [])
 
 
 class TestFilterSessionAnchorTimestamps(_SMMTestCase):

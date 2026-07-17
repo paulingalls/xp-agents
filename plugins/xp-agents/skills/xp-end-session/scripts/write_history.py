@@ -41,8 +41,8 @@ def run(smm_dir: Path, draft: dict) -> int:
         "carry_forward": draft["carry_forward"],
     }
     session_history.append_entry(smm_dir, entry)
-    _, resolutions = _common.load_events_with_resolutions(smm_dir)
-    return session_history.prune_resolved(smm_dir, resolutions)
+    events, _ = _common.load_events_with_resolutions(smm_dir)
+    return session_history.prune_resolved(smm_dir, events)
 
 
 def main() -> int:
