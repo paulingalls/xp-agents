@@ -1754,5 +1754,52 @@ class TestGateHandlesMissingParentDir(_StagedGitRepo):
         )
 
 
+class TestStagedBlobReadIsUnambiguous(_StagedGitRepo):
+    """A staged path that itself begins `N:` collides with git's `:<stage>:<path>`
+    shorthand: `:0:x.py` parses as stage 0 of `x.py`, not the file literally named
+    `0:x.py`. The index read must address the stage explicitly (`:0:0:x.py`) so a
+    hostile path cannot resolve to a different file's blob.
+    """
+
+    def test_colon_bearing_path_reads_its_own_staged_blob_not_a_collision(
+        self,
+    ) -> None:
+        (self.repo / "0:x.py").write_text("A")
+        (self.repo / "x.py").write_text("B")
+        self._git("add", "0:x.py", "x.py")
+
+        self.assertEqual(staged_lint.staged_blob_bytes(str(self.repo), "0:x.py"), b"A")
+
+    def test_unreadable_blob_still_returns_none(self) -> None:
+        self.assertIsNone(staged_lint.staged_blob_bytes(str(self.repo), "missing.py"))
+
+    def test_ordinary_path_still_reads_its_own_staged_bytes(self) -> None:
+        (self.repo / "app.py").write_text("x = 1\n")
+        self._git("add", "app.py")
+
+        self.assertEqual(
+            staged_lint.staged_blob_bytes(str(self.repo), "app.py"), b"x = 1\n"
+        )
+
+
+@unittest.skipUnless(shutil.which("ruff"), "ruff not installed")
+class TestGateBlocksOnCollisionNamedStagedBlob(_StagedGitRepo):
+    """E2E: a staged file whose name collides under `:<stage>:<path>` parsing,
+    carrying a real lint finding, must BLOCK the commit gate rather than
+    silently linting the decoy and reporting clean."""
+
+    def test_collision_named_file_with_lint_finding_blocks(self) -> None:
+        (self.repo / "0:x.py").write_text("import os\n")  # F401, the staged bytes
+        (self.repo / "x.py").write_text("y = 1\n")  # clean decoy the ambiguous ref
+        # resolves to under the bug
+        self._git("add", "0:x.py", "x.py")
+        # Diverge the worktree copy so the gate takes the stdin branch and must
+        # read the STAGED blob via `staged_blob_bytes` — the path the bug hits.
+        (self.repo / "0:x.py").write_text("y = 2\n")
+
+        with self.assertRaises(_common.BlockedError):
+            staged_lint.staged_lint_gate(["0:x.py", "x.py"], str(self.repo))
+
+
 if __name__ == "__main__":
     unittest.main()
