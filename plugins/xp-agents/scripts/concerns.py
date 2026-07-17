@@ -124,11 +124,10 @@ def filter_by_session_age(
     """Return open concerns whose first appearance is >= min_anchors
     SESSION_STARTED markers ago.
 
-    Used by SessionStart's stale-concern sweep to flag long-lived concerns
-    for human triage at the next /xp-kickoff retro. Resolved concerns
-    (per resolution.compute_resolutions) are excluded. Pass `resolutions`
-    AND/OR `anchor_positions` (the session_started boundary indices) when
-    the caller already computed them to avoid the redundant pass over events.
+    Resolved concerns (per resolution.compute_resolutions) are excluded.
+    Pass `resolutions` AND/OR `anchor_positions` (the session_started
+    boundary indices) when the caller already computed them to avoid the
+    redundant pass over events.
     """
     if resolutions is None:
         resolutions = resolution.compute_resolutions(events)
@@ -241,8 +240,8 @@ def make_concern(
 
     `references` attaches WEAK cascade links.
     `files` records affected file paths for file-overlap resolution.
-    `metadata` carries discriminators (e.g. flagged_stale) consumed by
-    sweepers and retros.
+    `metadata` carries discriminators consumed by conflict detectors and
+    retros.
     """
     extra: dict = {"severity": severity}
     if references:
