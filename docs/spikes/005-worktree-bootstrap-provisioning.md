@@ -25,8 +25,13 @@ The record contradicted itself three ways, and none of the three cited a measure
 | Customer (2026-07-16) | it **false-REDs**; a weak agent gets stuck and never finishes |
 
 The real source is `legacy/scripts/init-worktree.sh:10-22` — a measured rationale dated
-2026-07-16, in a *different repo*, never carried back here. It is also the origin of the
-otherwise-undefined "6.4s" in `worktree_bootstrap.py:29-30`.
+2026-07-16, in a *different repo*, never carried back here.
+
+**UNRESOLVED:** the "6.4s" in `worktree_bootstrap.py:30-31` ("not the 6.4s warm-cache re-run that
+was measured") has no traceable origin. `grep -rn "6\.4"` finds it in no other file in either
+repo, and its likeliest source — `init-worktree.sh:19`, "the whole bootstrap is ~6s warm" — says
+~6s, not 6.4. Someone measured something; the record of what is gone. Left as a question rather
+than repaired by guess: this doc cannot demand citations and then supply one it did not check.
 
 **All three were partly right. Both failure modes are real, from two different files.**
 
@@ -148,7 +153,10 @@ Never read a runner's exit code through a pipe.
 
 **Detect → propose → verify → refuse.**
 
-1. **Detect** per declared command via the differential (primary vs bare worktree).
+1. **Detect** per declared command via the differential (primary vs bare worktree). Expect
+   over-firing: §6's false-positive mode is intrinsic, so a project needing no bootstrap can still
+   show a gap. Step 4 absorbs it — the cost is a spurious ask, not a false green — but the detector
+   cannot be described as a clean signal.
 2. **Propose** a candidate — LLM judgment reading the repo (allowed: language-aware judgment, not
    language-specific implementation).
 3. **Verify** by re-running the differential. Never trust the candidate's exit code (§4.5).
