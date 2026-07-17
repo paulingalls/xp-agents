@@ -10,6 +10,7 @@ test_sprint_status.py and test_sprint_cli.py — the identity check here
 only pins that the bodies were MOVED, not copied.
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -18,11 +19,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import (
+    _SMMTestCase,
+    make_event,
+)
+from conftest import (
     make_sprint_dict as _make_sprint,
 )
 from conftest import (
     make_story_dict as _make_story,
 )
+from event_schema import EVENT_TYPE_SPRINT
 
 
 class TestSprintMetricsModuleAndShim(unittest.TestCase):
@@ -148,6 +154,80 @@ class TestCountByStatus(unittest.TestCase):
         sprint = _make_sprint(stories=[_make_story(status="closing")])
         counts = sprint_store.count_by_status(sprint)
         self.assertEqual(counts.get("closing"), 1)
+
+
+class TestNextSprintId(_SMMTestCase):
+    """next_sprint_id must return MAX EXISTING id + 1 across live sprint,
+    archived sprints/*.json, and sprint-start events — never a count.
+    """
+
+    def _write_archive(self, sprint_id: str, name: str = "sprint_20260101T000000.json"):
+        sprints_dir = self.smm_dir / "sprints"
+        sprints_dir.mkdir(exist_ok=True)
+        (sprints_dir / name).write_text(
+            json.dumps({"sprint_id": sprint_id}), encoding="utf-8"
+        )
+
+    def _write_live_sprint(self, sprint_id: str):
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(_make_sprint(sprint_id=sprint_id)), encoding="utf-8"
+        )
+
+    def _seed_sprint_start_event(self, sprint_id: str):
+        e = make_event(
+            EVENT_TYPE_SPRINT,
+            content=f"start {sprint_id}",
+            metadata={"action": "start", "sprint_id": sprint_id},
+        )
+        with (self.smm_dir / "events.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(e) + "\n")
+
+    def test_archived_only_returns_next_after_max_archive_not_a_count(self):
+        import sprint_store
+
+        self._write_archive("sprint-120")
+        result = sprint_store.next_sprint_id(self.smm_dir)
+        self.assertEqual(result, "sprint-121")
+
+    def test_result_collides_with_no_source(self):
+        import sprint_store
+
+        self._write_live_sprint("sprint-050")
+        self._write_archive("sprint-075")
+        self._seed_sprint_start_event("sprint-030")
+        result = sprint_store.next_sprint_id(self.smm_dir)
+        self.assertEqual(result, "sprint-076")
+
+    def test_no_history_anywhere_returns_sprint_001(self):
+        import sprint_store
+
+        result = sprint_store.next_sprint_id(self.smm_dir)
+        self.assertEqual(result, "sprint-001")
+
+    def test_e2e_real_repo_smm_dir_id_exceeds_all_archived_ids(self):
+        import sprint_store
+
+        real_smm_dir = Path(
+            "/Users/paulingalls/.claude/plugins/data/xp-agents-xp-agents/8e1f07eb0759/smm"
+        )
+        sprints_dir = real_smm_dir / "sprints"
+        if not sprints_dir.is_dir():
+            self.skipTest("real repo SMM dir not present in this environment")
+
+        max_archived = 0
+        for path in sprints_dir.glob("*.json"):
+            try:
+                sid = json.loads(path.read_text(encoding="utf-8")).get("sprint_id", "")
+            except (OSError, json.JSONDecodeError):
+                continue
+            parts = sid.rsplit("-", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                max_archived = max(max_archived, int(parts[1]))
+
+        result = sprint_store.next_sprint_id(real_smm_dir)
+        parts = result.rsplit("-", 1)
+        self.assertEqual(parts[0], "sprint")
+        self.assertGreater(int(parts[1]), max_archived)
 
 
 if __name__ == "__main__":

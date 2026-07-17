@@ -9,6 +9,7 @@ sprint_store re-exports every name defined here so existing call sites
 import cleanly without a cycle when sprint_store re-exports back.
 """
 
+import json
 from pathlib import Path
 
 from sprint_schema import VALID_STORY_STATUSES
@@ -60,42 +61,72 @@ def list_stories(sprint: dict, *, status: str | None = None) -> list[dict]:
 
 
 def next_sprint_id(smm_dir: Path) -> str:
-    """Determine the next sprint ID.
+    """Determine the next sprint ID: MAX EXISTING id + 1 across every
+    surviving source (live sprint, archived sprints/*.json, sprint-start
+    events), so archiving sprint.json can never regress the counter.
 
-    Fast path: increments the number in the current sprint_id.
-    Fallback: counts sprint start events in events.jsonl.
-    Default: 'sprint-001' if no history exists.
+    Default: 'sprint-001' if no history exists anywhere.
     """
     from sprint_store import load_sprint
 
+    ids: set[str] = set()
+
     sprint = load_sprint(smm_dir)
     if sprint is not None and sprint["sprint_id"]:
-        sid = sprint["sprint_id"]
+        ids.add(sprint["sprint_id"])
+    ids.update(_archived_sprint_ids(smm_dir))
+    ids.update(_sprint_start_ids(smm_dir))
+
+    nums = []
+    for sid in ids:
         parts = sid.rsplit("-", 1)
         if len(parts) == 2 and parts[1].isdigit():
-            num = int(parts[1]) + 1
-            return f"{parts[0]}-{num:03d}"
+            nums.append(int(parts[1]))
 
-    # Fallback: count sprint start events in the event log
-    count = _count_sprint_starts(smm_dir)
-    return f"sprint-{count + 1:03d}"
+    if not nums:
+        return "sprint-001"
+    return f"sprint-{max(nums) + 1:03d}"
 
 
-def _count_sprint_starts(smm_dir: Path) -> int:
-    """Count sprint start events in events.jsonl."""
+def _archived_sprint_ids(smm_dir: Path) -> set[str]:
+    """Read sprint_id from every archived sprints/*.json.
+
+    A missing/corrupt/unparseable archive file is skipped, not fatal.
+    """
+    ids: set[str] = set()
+    sprints_dir = smm_dir / "sprints"
+    if not sprints_dir.is_dir():
+        return ids
+    for path in sprints_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        sid = data.get("sprint_id")
+        if sid:
+            ids.add(sid)
+    return ids
+
+
+def _sprint_start_ids(smm_dir: Path) -> set[str]:
+    """Read sprint_id from every sprint-start event in events.jsonl."""
     from append_validation import parse_jsonl
 
     path = smm_dir / "events.jsonl"
     if path.is_symlink():
-        return 0
+        return set()
     try:
         raw = path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        return 0
+        return set()
     events, _ = parse_jsonl(raw)
-    return sum(
-        1
-        for e in events
-        if e.get("type") == "sprint"
-        and (e.get("metadata") or {}).get("action") == "start"
-    )
+    ids: set[str] = set()
+    for e in events:
+        if (
+            e.get("type") == "sprint"
+            and (e.get("metadata") or {}).get("action") == "start"
+        ):
+            sid = (e.get("metadata") or {}).get("sprint_id")
+            if sid:
+                ids.add(sid)
+    return ids
