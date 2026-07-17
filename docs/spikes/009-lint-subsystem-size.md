@@ -23,23 +23,32 @@ No subset of the files sums to 1526; `lint_check.py` was 514 at HEAD~30. The num
 when the question was written, and **triage acted on them for two sessions.** That is the finding
 behind the finding: a question carrying uncounted numbers reads as measured and isn't.
 
-## 3. Claim (a) — `--no-verify` immunity: **REFUTED** on both axes
+## 3. Claim (a) — `--no-verify` immunity: **REFUTED** on size, **partly** on value
 
 **Size.** The claim compares against the `branch -d/-D` refusal, calling it ~10 lines. Measured:
 `pre_tool_bash.py:237-362` = **126 lines** (`_DELETE_FLAG_RE`, `_SHELL_SEPARATORS`,
 `_simple_commands`, `_story_branch_deletes`, `_unmerged_story_branch_delete_block`) — 12.6× the
 claim. Its own docstring records why: *"A tokenizer rather than a regex, and the distinction is the
-whole fix: a regex mistake."* A `--no-verify` refusal needs the same shlex tokenizer, or it refuses
-`git commit -m "don't use --no-verify"`.
+whole fix: a regex searching raw text finds `git branch -D <branch>` inside `git commit -m "... git
+branch -D <branch>"` and refuses a commit over what its MESSAGE says."* A `--no-verify` refusal
+needs the same shlex tokenizer, or it refuses `git commit -m "don't use --no-verify"`.
 
-**Value — the decisive axis.** Refusing `--no-verify` only preserves *whatever the project's own
-hook does*. On a project with **no hook**, it delivers **nothing**. That population is precisely
-claim (b). So **(a) and (b) mutually undercut**: the cheap alternative works only where the
-subsystem is least needed, and is worthless exactly where (b) says the subsystem earns its keep.
-The two claims cannot both support shrinking.
+**Value.** Refusing `--no-verify` only preserves *whatever the project's own hook does*. On a
+project with **no hook** it delivers **nothing** — and that population is precisely claim (b). So
+the cheap alternative is **not a substitute across the whole population**: it is worthless exactly
+where (b) says the subsystem earns its keep.
 
-Confirmed: nothing refuses `--no-verify` today. Every occurrence is our own code passing it
-deliberately (`close_common.py:372`, `branch_lifecycle.py:145`).
+That is the limit of what this refutes, and it is narrower than it first looks. (b) is a *keep*
+reason in the question, not a shrink reason, so there is no contradiction to expose here — only a
+coverage gap in the replacement. And the gap cuts both ways: §4 finds **4/4 sampled repos have a
+hook**, i.e. the (b) population is *empty in-sample*, so on the repos actually measured the ~10-line
+refusal would have covered everyone. What keeps (a) refuted in-sample is the *size* axis (126 lines,
+above) and the fact that it preserves only a hook that §6 shows is itself wrong on direction 1 —
+not this population argument.
+
+Confirmed: nothing refuses `--no-verify` today. All three occurrences are our own code passing it
+deliberately, each with a docstring saying why (`close_common.py:376`, `branch_lifecycle.py:165`,
+`branching.py:94`).
 
 ## 4. Claim (b) — projects with no hook: **UNRESOLVED** (and in-sample it *strengthens* duplication)
 
@@ -98,7 +107,13 @@ worktree = bad.
 
 So the delta is not "we are stricter." It is **we judge exactly what is being committed**: lefthook
 fails *open* on direction 1 (the `cfaacb88` edit-after-add hole) and fails *closed* on direction 2.
-(c) is confirmed and structural.
+
+**(c) is confirmed — but against lefthook's `{staged_files}` pattern, n=1 runner.** The delta is a
+property of *how a given runner feeds its linter*, not of pre-commit hooks as a class: a runner that
+stashes unstaged changes before running (lint-staged is reported to do exactly this) would close
+direction 1 without an index read. So "structural" is not yet earned — what is measured is that the
+*disk-path* pattern has both holes, and that the one runner sampled uses it. Whether the runners our
+users actually run share that pattern is UNMEASURED, and is the same population gap as (b) (§4).
 
 ## 7. What each value actually buys — the decomposition
 
@@ -108,17 +123,25 @@ index delivers (c) just as well. So the verdict must be per-component:
 | Component | Lines | Bought by | Verdict |
 |---|---|---|---|
 | `staged_lint.py` | 441 | **(c)** — measured, both directions | **Keep.** This is why the subsystem exists. |
-| registry + runners (`linters.py`, `linter_invocation.py`) | 858 | (b) + (d) | **Keep — but not on (b)'s evidence.** See below. |
+| registry + runners (`linters.py`, `linter_invocation.py`) | 858 | (b) + (d) | **Keep the coverage** (pillar-bound, not on (b)'s evidence); **footprint unadjudicated.** See below. |
 | `lint_check.py` | 600 | (d), the unlisted edit-time loop | **Keep the function; SPLIT the file** — 600 > the 500 cap. |
 | `lint_resolution.py` | 149 | shared | — |
 
-**The registry is not an optimization question.** `system_context.json` carries
-`plugin-project-agnostic` as a **principle**: *"Shipped plugin code is project-agnostic in
-vocabulary AND language. No single-language impl… The plugin ships to projects in any language."*
-Shrinking 17 linters toward ruff-only is not a size win — it is **superseding a pillar**, and would
-need to be argued as such. So the registry rests on a standing architectural decision, not on
-(b)'s unresolved population claim. Recording that honestly matters: (b) being UNRESOLVED does *not*
-weaken the registry, because the registry was never load-bearing on (b).
+**The registry's *coverage* is not an optimization question.** `system_context.json` carries
+`plugin-project-agnostic` as a **principle** — decision: *"Shipped plugin code is project-agnostic
+in vocabulary AND language. No xp-agents surface names; no single-language impl."*; rationale: *"The
+plugin ships to projects in any language."* Shrinking **17 linters toward ruff-only** is therefore
+not a size win — it is **superseding a pillar**, and would need to be argued as such. So the
+registry's language coverage rests on a standing architectural decision, not on (b)'s unresolved
+population claim: (b) being UNRESOLVED does *not* weaken it, because it was never load-bearing on (b).
+
+**But that argument is narrower than the question asked.** The pillar binds **which languages are
+covered**, not **how many lines express them**. The question was about size. Nothing in the pillar
+defends 858 lines across 11 tables for those 17 linters — the same coverage expressed as one
+row-per-linter record would satisfy the pillar identically. Refuting the ruff-only shrink (which
+nobody proposed) leaves the moderate shrink — *same 17 linters, less code* — untouched and
+uncosted. So the honest registry verdict is **Keep the coverage; the footprint is unadjudicated**,
+which is §10's first caveat, not a Keep on the merits.
 
 ## 8. Debt disposition — the debts do NOT evaporate
 
@@ -130,7 +153,7 @@ shrinks — which §7 says would supersede a pillar:
 | `9804e4fd387a` | `linters.py:225` — phpcs absent from `LINTER_STDIN_SHAPES` | survives |
 | `e74ad685b1ee` | `linters.py:282` vs the 5 `.eslintrc*` rows `:36-40` | survives |
 | `3dd079960446` | `linters.py:151` — `LINTER_ARGV_SHAPES`, 2 rows | survives |
-| `87387a9ac121` | `linters.py:282` ↔ `:33-35`, no enforcing test | survives |
+| `87387a9ac121` | `linters.py:282` ↔ the 3 flat-config rows `:41-43`, no enforcing test | survives |
 | `10c21161278c` | `lint_check.py` at 600 lines | **real and actionable — split the file** |
 
 They are the **maintenance cost of the project-agnostic pillar**, not evidence of bloat. Test
@@ -138,10 +161,12 @@ surface is 2907 lines / 151 tests across 5 files — a 1.42:1 test-to-source rat
 
 ## 9. Verdict
 
-**KEEP.** The question rested on stale numbers (1526→2048, 66→17), a refuted claim (a), and an
-omitted fourth value. Its one sound instinct — that we duplicate a project's own hook — is true in
-4/4 sampled repos, but §6 shows the duplication is not redundancy: on the edit-after-add case the
-project's hook is *wrong* and ours is right.
+**KEEP — on the evidence presented, meaning: nothing here supports shrinking.** Not "the size is
+right"; §10 bounds that. The question rested on stale numbers (1526→2048, 66→17), a refuted claim
+(a), and an omitted fourth value. Its one sound instinct — that we duplicate a project's own hook —
+is true in 4/4 sampled repos, and §6 shows that on the one runner sampled the duplication is not
+redundancy: on the edit-after-add case that hook is *wrong* and ours is right. Against a
+stash-first runner the same test may well come out differently, and that is unmeasured.
 
 The single actionable item is **`lint_check.py` at 600 lines** (debt `10c21161278c`) — a cap
 violation and a split, not a shrink. That is independent of this question and was already tracked.
@@ -156,3 +181,6 @@ violation and a split, not a shrink. That is independent of this question and wa
   That is a different question and needs different evidence.
 - The (d) edit-time loop's **value** was confirmed to exist as a registration, not measured for
   usefulness.
+- **(c)'s uniqueness was measured against one runner** (lefthook, disk paths). A runner that stashes
+  unstaged changes closes direction 1 by itself. Costing a shrink would need (c) re-measured against
+  the runners users actually run — see §6.
