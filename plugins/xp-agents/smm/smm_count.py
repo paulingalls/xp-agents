@@ -14,6 +14,7 @@ from event_schema import (
     STATUS_ACTION_CONCERN_CLASSIFY,
     VALID_SEVERITIES,
 )
+from resolution import compute_resolutions
 
 
 def _cmd_count_classifications(args: argparse.Namespace) -> int:
@@ -24,9 +25,9 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
       - metadata.action == "concern_classify"
       - metadata.route == args.route (when provided)
       - metadata.category == args.category (when provided)
-      - metadata.close_cycle_id == args.cycle_id (when provided —
-        events without the key never match, so pre-cycle-id events
-        don't leak into a scoped count)
+      - metadata.close_cycle_id == args.cycle_id (when provided — an
+        event WITHOUT the key is counted; only an event tagged with a
+        DIFFERENT cycle id is excluded)
       - ts >= args.since_ts (lexicographic ISO comparison; safe because
         all event ts values use the same fixed-width "YYYY-MM-DDTHH:MM:SS+00:00"
         shape per append.sh)
@@ -61,7 +62,8 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
             continue
         if args.category and meta.get("category") != args.category:
             continue
-        if args.cycle_id and meta.get(METADATA_KEY_CLOSE_CYCLE_ID) != args.cycle_id:
+        tag = meta.get(METADATA_KEY_CLOSE_CYCLE_ID)
+        if args.cycle_id and tag is not None and tag != args.cycle_id:
             continue
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
@@ -71,7 +73,12 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
 
 
 def _cmd_count_concerns(args: argparse.Namespace) -> int:
-    """Count type==concern events filtered by severity, cycle-id, since-ts.
+    """Count OPEN type==concern events filtered by severity, cycle-id, since-ts.
+
+    "Open" means not resolved — via metadata.resolves or the WEAK
+    references cascade (see resolution.compute_resolutions). A concern
+    filed and later fixed-and-linked must stop counting, or a resolved
+    finding blocks the close gate forever.
 
     Always exits 0 (missing file / malformed lines → 0) so callers can
     `$(...)` capture without exit-code branching.
@@ -81,6 +88,7 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         print(0)
         return 0
     events, _skipped = parse_jsonl(events_path.read_text())
+    resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
     count = 0
     for event in events:
         if event.get("type") != EVENT_TYPE_CONCERN:
@@ -88,9 +96,12 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         if args.severity and event.get("severity") != args.severity:
             continue
         meta = event.get("metadata", {})
-        if args.cycle_id and meta.get(METADATA_KEY_CLOSE_CYCLE_ID) != args.cycle_id:
+        tag = meta.get(METADATA_KEY_CLOSE_CYCLE_ID)
+        if args.cycle_id and tag is not None and tag != args.cycle_id:
             continue
         if args.since_ts and event.get("ts", "") < args.since_ts:
+            continue
+        if event.get("id", "") in resolved_ids:
             continue
         count += 1
     print(count)
@@ -121,7 +132,8 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
         default=None,
         help="Filter by metadata.close_cycle_id (12-hex from preload "
         "CLOSE_CYCLE_ID); strict close-cycle scoping that prevents "
-        "concurrent-close leakage. Events without the key never match.",
+        "concurrent-close leakage. An event without the key is counted; "
+        "only an event tagged with a DIFFERENT cycle id is excluded.",
     )
     count_p.add_argument(
         "--since-ts",
@@ -131,7 +143,7 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
 
     cc_p = sub.add_parser(
         "count-concerns",
-        help="Count concern events filtered by severity + cycle-id + since-ts",
+        help="Count OPEN concern events filtered by severity + cycle-id + since-ts",
     )
     cc_p.add_argument(
         "--severity",
@@ -143,8 +155,9 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
     cc_p.add_argument(
         "--cycle-id",
         default=None,
-        help="Filter by metadata.close_cycle_id; events without the key "
-        "never match, so concurrent close-cycles do not leak in.",
+        help="Filter by metadata.close_cycle_id; an event without the key "
+        "is counted; only an event tagged with a DIFFERENT cycle id is "
+        "excluded, so concurrent close-cycles do not leak in.",
     )
     cc_p.add_argument(
         "--since-ts",
