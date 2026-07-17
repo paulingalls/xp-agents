@@ -740,6 +740,42 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
         self.assertEqual(metadata.get("cwd"), "/repo/scoped")
         self.assertEqual(metadata.get("test_count"), 4)
 
+    def test_green_phase_failure_after_test_only_commit_still_appends_concern(self):
+        """Code-review #1: a test-only PRIOR COMMIT keeps
+        _prior_commit_was_test_only True through the WHOLE green phase, so
+        gating the concern on the commit leg would suppress a genuine
+        green-phase failure and un-arm the stop gate. The concern gate must
+        read the WORKING TREE — here impl code is in flight (buggy), so the
+        failure is a real regression and MUST be flagged."""
+        self._write_events(
+            [
+                make_event(
+                    EVENT_TYPE_COMMIT,
+                    content="test: add failing spec for retry path",
+                    files=["tests/test_x.py"],
+                )
+            ]
+        )
+        with (
+            patch("commits.get_uncommitted_files", return_value=["src/app.py"]),
+            patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]),
+        ):
+            bash_post_tool.run(
+                _make_bash_input(
+                    command="pytest",
+                    stdout="===== 1 passed, 1 failed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        concerns = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+        self.assertEqual(
+            len(concerns),
+            1,
+            "a green-phase failure after a test-only commit is a real "
+            "regression and must not be suppressed as a deliberate red",
+        )
+        self.assertEqual(concerns[0].get("severity"), "high")
+
 
 class TestBashPostToolPushNoLongerNudges(_HookTestCase):
     """git push must NOT trigger the session-end checklist.

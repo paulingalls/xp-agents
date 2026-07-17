@@ -24,7 +24,6 @@ from _common import (
     DISCOVERY,
     PRIORITY_BLOCKING,
     QUESTION,
-    SESSION_STARTED,
     STATUS,
     bulk_append_safe,
     current_session_start_index,
@@ -112,37 +111,6 @@ def _find_unresolved(
         if e.get("type") == CONCERN
         and e.get("id", "") not in resolved_ids
         and matcher(e.get("content", ""))
-    ]
-
-
-def filter_by_session_age(
-    events: list[dict],
-    min_anchors: int,
-    resolutions: dict | None = None,
-    anchor_positions: list[int] | None = None,
-) -> list[dict]:
-    """Return open concerns whose first appearance is >= min_anchors
-    SESSION_STARTED markers ago.
-
-    Resolved concerns (per resolution.compute_resolutions) are excluded.
-    Pass `resolutions` AND/OR `anchor_positions` (the session_started
-    boundary indices) when the caller already computed them to avoid the
-    redundant pass over events.
-    """
-    if resolutions is None:
-        resolutions = resolution.compute_resolutions(events)
-    resolved_ids = resolutions["resolved_concern_ids"]
-    if anchor_positions is None:
-        anchor_positions = [
-            i for i, e in enumerate(events) if e.get("type") == SESSION_STARTED
-        ]
-    total_anchors = len(anchor_positions)
-    return [
-        e
-        for i, e in enumerate(events)
-        if e.get("type") == CONCERN
-        and e.get("id", "") not in resolved_ids
-        and total_anchors - bisect.bisect_right(anchor_positions, i) >= min_anchors
     ]
 
 

@@ -17,7 +17,11 @@ import concerns
 import git_commits
 import identity
 import test_attribution
-from commit_handling import _handle_commit, is_tdd_red_step
+from commit_handling import (
+    _handle_commit,
+    _working_tree_is_test_only,
+    is_tdd_red_step,
+)
 from event_schema import (
     METADATA_KEY_TDD_RED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -146,12 +150,19 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Test run detection
     framework = is_test_run(command)
     if framework:
-        # TDD red-step detection: either the working tree is currently
-        # test-only-dirty (the red step BEFORE the mandated post-green
-        # commit lands) or the prior commit was test-only (commit-first
-        # workflow). Tag those runs so work_signals doesn't count them as
-        # regressions, and gate the failed-test concern below.
-        tdd_red = is_tdd_red_step(smm_dir, cwd)
+        # TDD red-step detection. `tdd_red` (working-tree test-only-dirty OR
+        # a test-only prior commit) TAGS the event so work_signals doesn't
+        # count deliberate reds as regressions in either workflow.
+        #
+        # The failed-test CONCERN below is gated on `tree_test_only` ONLY,
+        # NOT the full `tdd_red`: `_prior_commit_was_test_only` stays True for
+        # the WHOLE green phase in a commit-first workflow (the last commit is
+        # still the test-only one until impl is committed), so gating the
+        # concern on it would suppress a genuine green-phase failure and
+        # un-arm the stop gate. The working-tree signal correctly clears the
+        # moment impl code is in flight, so it is the honest concern gate.
+        tree_test_only = _working_tree_is_test_only(cwd)
+        tdd_red = tree_test_only or is_tdd_red_step(smm_dir, cwd)
         results = parse_test_results(response_text, framework)
         parser_status = results["status"]
         passed = results["passed"]
@@ -195,7 +206,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         )
         _common.append_safe(smm_dir, status)
 
-        if failed > 0 and not tdd_red:
+        if failed > 0 and not tree_test_only:
             concern = _common.make_event(
                 _common.CONCERN,
                 agent_id,
