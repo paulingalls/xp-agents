@@ -374,7 +374,7 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         )
         _common.append_safe(self.smm_dir, concern)
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
-        with patch("commits._common.load_events_with_resolutions") as mock_read:
+        with patch("commits_issues._common.load_events_with_resolutions") as mock_read:
             result = commits.open_issues_matching_commit(
                 self.smm_dir,
                 ["scripts/auth.py"],
@@ -395,7 +395,7 @@ class TestOpenIssuesMatchingCommit(_SMMTestCase):
         _common.append_safe(self.smm_dir, concern)
         events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
         resolutions = resolution.compute_resolutions(events)
-        with patch("commits.resolution.compute_resolutions") as mock_compute:
+        with patch("commits_issues.resolution.compute_resolutions") as mock_compute:
             result = commits.open_issues_matching_commit(
                 self.smm_dir,
                 ["scripts/auth.py"],
