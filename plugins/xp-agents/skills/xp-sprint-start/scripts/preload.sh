@@ -22,6 +22,13 @@ echo "EXECUTION_PLAN=${SMM_DIR}/execution_plan.json"
 
 check_system_context
 
+# TEST_COMMAND is customer-set free text (system_context.stack.test_command,
+# not a git-constrained ref) — route it through emit_var so a newline in it
+# cannot forge a downstream preload line. Empty value means the project has
+# not declared one; the skill must degrade honestly rather than invent a
+# runner (see xp-story-close's preload.sh for the identical pattern).
+emit_var TEST_COMMAND "$(find_test_command)"
+
 deferred_count=$(sprint_count_status deferred)
 if [ "$deferred_count" -gt 0 ]; then
     echo ""

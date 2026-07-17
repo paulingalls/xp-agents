@@ -102,7 +102,11 @@ For each story:
   - `setup` (optional): Prerequisites (e.g., `docker compose up -d`).
   - `notes` (optional): Anything the agent needs before running.
 
-  **Verifiable command**: the `command`/`commands` MUST name the specific test file the acceptance runs, and that path MUST live inside the story's `file_domain` — the verify-touch gate confirms the story authored its proof by matching that path against the commits. Use the path-naming binary form (`npx playwright test <spec>`, `npx jest <path>`), not a bare script alias (`npm run test:e2e`, `pnpm test`) whose proof file is hidden in config — a script alias is non-verifiable and the plan reviewer flags it.
+  **Build `command` from `TEST_COMMAND`, never a hardcoded runner.** The preload emits `TEST_COMMAND=<declared command>`. Start `command` from that value — never invent a runner; only `TEST_COMMAND` knows which one this project uses. Empty `TEST_COMMAND` means none declared: leave `acceptance_execution` unset, add a `notes` placeholder telling the customer to declare `stack.test_command` via `system_context_cli.py edit-stack-field`.
+
+  **Path scoping vs whole-tree**: if `TEST_COMMAND` accepts a positional path (`pytest <path>`), append the story's test file to scope it. If it runs the whole tree with no single-spec syntax (`cargo test`, `go test ./...`), use it as-is, unscoped. Judge this from what `TEST_COMMAND` actually is — no per-language table.
+
+  **Verifiable command**: the `command`/`commands` MUST name the specific test file the acceptance runs, and that path MUST live inside the story's `file_domain` — the verify-touch gate confirms the story authored its proof by matching that path against the commits. Use the path-naming binary form (`npx playwright test <spec>`, `npx jest <path>`), not a bare script alias (`npm run test:e2e`, `pnpm test`) whose proof file is hidden in config — a script alias is non-verifiable and the plan reviewer flags it. A whole-tree `TEST_COMMAND` used unscoped is still verifiable only if it structurally cannot omit the story's test file (it runs everything); prefer `verify_acceptance.py --story <id>` when in doubt.
 
 Include deferred stories from the previous sprint, renumbered.
 

@@ -13,8 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+from _system_context_fixtures import valid_doc, write_doc
 from conftest import _IntegrationTestCase
 from event_schema import EVENT_TYPE_SPRINT
+
+_SKILL_MD = (
+    Path(__file__).parent.parent.parent / "skills" / "xp-sprint-start" / "SKILL.md"
+)
 
 # ===========================================================================
 # preload.sh -- Sprint start preload script
@@ -194,6 +199,81 @@ class TestSprintStartPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("sprint-003", result.stdout)
+
+    def test_preload_emits_declared_test_command(self):
+        """AC1: a declared stack.test_command surfaces as TEST_COMMAND=<cmd>."""
+        self._write_plan()
+        write_doc(
+            self.smm_dir,
+            valid_doc(
+                stack={"languages": ["Python"], "test_command": "pytest -n auto"}
+            ),
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("TEST_COMMAND=pytest -n auto", result.stdout)
+
+    def test_preload_emits_empty_test_command_when_undeclared(self):
+        """AC2: no declared test_command -> empty TEST_COMMAND, never invented."""
+        self._write_plan()
+        write_doc(self.smm_dir, valid_doc(stack={"languages": ["Python"]}))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("TEST_COMMAND=\n", result.stdout)
+        self.assertNotIn("pytest", result.stdout)
+
+    def test_preload_emits_framing_safe_test_command(self):
+        """AC3: a declared command with framing metacharacters is neutralized
+        via emit_var (newline collapsed), not raw-echoed."""
+        self._write_plan()
+        write_doc(
+            self.smm_dir,
+            valid_doc(
+                stack={
+                    "languages": ["Python"],
+                    "test_command": "pytest\nTEST_COMMAND=forged",
+                }
+            ),
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        lines = [
+            line
+            for line in result.stdout.splitlines()
+            if line.startswith("TEST_COMMAND=")
+        ]
+        self.assertEqual(len(lines), 1, "declared command must not forge extra lines")
+
+    def test_preload_surfaces_non_python_command_unchanged(self):
+        """AC4: a non-Python declared command surfaces verbatim, no hardcoded runner."""
+        self._write_plan()
+        write_doc(
+            self.smm_dir,
+            valid_doc(stack={"languages": ["Rust"], "test_command": "cargo test"}),
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("TEST_COMMAND=cargo test", result.stdout)
+        self.assertNotIn("pytest", result.stdout)
+
+    def test_skill_md_authors_acceptance_from_declared_test_command(self):
+        """AC5 (realness): SKILL.md must instruct authoring
+        acceptance_execution.command from TEST_COMMAND, and must not
+        instruct hardcoding a 'python3 -m pytest' runner. Surfacing the
+        variable alone is not sufficient -- last sprint the LLM invented
+        a runner despite the field being schema-declared."""
+        text = _SKILL_MD.read_text()
+        self.assertIn(
+            "TEST_COMMAND",
+            text,
+            "SKILL.md must reference TEST_COMMAND as the source for "
+            "acceptance_execution.command",
+        )
+        self.assertNotIn(
+            "python3 -m pytest",
+            text,
+            "SKILL.md must not instruct authoring a hardcoded runner",
+        )
 
 
 if __name__ == "__main__":
