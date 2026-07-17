@@ -12,6 +12,8 @@ test_branching_lifecycle.py — duplicating those scenarios here is
 unnecessary because the re-exports prove identity.
 """
 
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
@@ -230,6 +232,135 @@ class TestIndexLockRetry(unittest.TestCase):
             self.assertGreaterEqual(
                 spy.call_count, 2, "checkout AND merge both go through it"
             )
+
+
+class TestWorktreeContentionRetry(unittest.TestCase):
+    """A transient "already used by worktree" must not fail the merge either.
+
+    Measured live this session: `git checkout <target>` reads the worktree
+    registry to see if the branch is held elsewhere, and while a concurrent
+    teammate worktree is being added/removed that read can transiently
+    misreport the orchestrator's OWN target branch as used-by-main -- even
+    though the orchestrator IS the worktree holding it. Provably spurious in
+    `_merge_into_target`, so retrying it is exactly as safe as the
+    `index.lock` case: checkout takes its lock/registry read BEFORE it
+    mutates anything, so a failed attempt is a clean no-op.
+    """
+
+    _WORKTREE_STDERR = "fatal: 'main' is already used by worktree at '/repo'"
+
+    def _result(self, rc: int, stderr: str = "") -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args=["git"], returncode=rc, stderr=stderr)
+
+    def test_retries_then_succeeds(self):
+        """AC1: one spurious worktree-contention failure, then success."""
+        calls: list[list[str]] = []
+        slept: list[float] = []
+        results = [
+            self._result(128, self._WORKTREE_STDERR),
+            self._result(0),
+        ]
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return results[len(calls) - 1]
+
+        with patch.object(branch_lifecycle, "_git", fake_git):
+            r = branch_lifecycle._git_retry_on_lock(
+                ["git", "checkout", "main"], "/repo", sleep=slept.append
+            )
+
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(len(calls), 2, "it must retry the spurious worktree race")
+        self.assertEqual(len(slept), 1)
+
+    def test_exhausts_bounded_attempts_and_reports_failure(self):
+        """AC2: a worktree-contention failure on EVERY attempt gives up bounded,
+        never spins, and hands back git's own failure."""
+        calls: list[list[str]] = []
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return self._result(128, self._WORKTREE_STDERR)
+
+        with patch.object(branch_lifecycle, "_git", fake_git):
+            r = branch_lifecycle._git_retry_on_lock(
+                ["git", "checkout", "main"], "/repo", sleep=lambda _s: None
+            )
+
+        self.assertEqual(r.returncode, 128)
+        self.assertIn("already used by worktree", r.stderr)
+        self.assertEqual(len(calls), 3, "bounded attempts, not an unbounded spin")
+
+    def test_diagnostic_line_emitted_on_retry(self):
+        """AC4: a retry must emit a greppable stderr line so the flake is
+        countable in logs -- measure, don't mask."""
+        results = [
+            self._result(128, self._WORKTREE_STDERR),
+            self._result(0),
+        ]
+        calls: list[list[str]] = []
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return results[len(calls) - 1]
+
+        captured = io.StringIO()
+        with (
+            patch.object(branch_lifecycle, "_git", fake_git),
+            contextlib.redirect_stderr(captured),
+        ):
+            branch_lifecycle._git_retry_on_lock(
+                ["git", "checkout", "main"], "/repo", sleep=lambda _s: None
+            )
+
+        self.assertIn("git-retry:", captured.getvalue())
+
+    def test_a_real_used_by_worktree_still_fails_cleanly_after_retry(self):
+        """A LEGITIMATE 'used by worktree' (a live sibling really holds the
+        branch) is permanent, but retrying it is still safe: checkout is a
+        no-op on failure, so after the bound the caller gets the same clear
+        git error, just a few hundred ms later -- no correctness lost."""
+        calls: list[list[str]] = []
+
+        def fake_git(args, cwd):
+            calls.append(args)
+            return self._result(128, self._WORKTREE_STDERR)
+
+        with patch.object(branch_lifecycle, "_git", fake_git):
+            r = branch_lifecycle._git_retry_on_lock(
+                ["git", "checkout", "main"], "/repo", sleep=lambda _s: None
+            )
+
+        self.assertEqual(r.returncode, 128)
+        self.assertIn("already used by worktree", r.stderr)
+
+    def test_merge_survives_transient_worktree_contention_on_checkout(self):
+        """AC5 (E2E): _merge_into_target's checkout leg hits ONE spurious
+        worktree-contention failure then succeeds -> the merge completes
+        (no sys.exit) and the retry was logged."""
+        checkout_results = [
+            self._result(128, self._WORKTREE_STDERR),
+            self._result(0),
+        ]
+        checkout_calls: list[list[str]] = []
+
+        def fake_git(args, cwd):
+            if args[1] == "checkout":
+                checkout_calls.append(args)
+                return checkout_results[len(checkout_calls) - 1]
+            return self._result(0)
+
+        captured = io.StringIO()
+        with (
+            patch.object(branch_lifecycle, "_git", fake_git),
+            patch.object(branch_lifecycle.time, "sleep", lambda _s: None),
+            contextlib.redirect_stderr(captured),
+        ):
+            branch_lifecycle._merge_into_target("/repo", "paul/story-020-x", "main")
+
+        self.assertEqual(len(checkout_calls), 2, "checkout leg must have retried")
+        self.assertIn("git-retry:", captured.getvalue())
 
 
 class TestMergeBranch(unittest.TestCase):
