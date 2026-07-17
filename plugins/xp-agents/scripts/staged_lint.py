@@ -35,7 +35,7 @@ import worktree
 
 
 def path_in_index(root: str, path: str) -> bool:
-    """True if *path* has a blob staged in the index (`git cat-file -e :<path>`).
+    """True if *path* has a blob staged in the index (`git cat-file -e :0:<path>`).
 
     Index membership — not working-tree existence — is what separates a file we
     must lint (its staged blob is what the commit carries) from a staged
@@ -47,19 +47,23 @@ def path_in_index(root: str, path: str) -> bool:
     invariant (test_common_path_at_most_one_name_only_call).
     """
     proc = _git_run(
-        ["git", "cat-file", "-e", f":{path}"], cwd=root, capture_output=True
+        ["git", "cat-file", "-e", f":0:{path}"], cwd=root, capture_output=True
     )
     return proc.returncode == 0
 
 
 def staged_blob_bytes(root: str, path: str) -> bytes | None:
-    """The staged bytes of *path* (`git show :<path>`), or None on a bad read.
+    """The staged bytes of *path* (`git show :0:<path>`), or None on a bad read.
 
     Raw bytes, no text decode: a blob may be non-UTF-8, and the linter reads it
     off disk as bytes anyway. None means we could not read a blob the index says
     is there — the caller fails closed on that, never silently skips it.
+
+    The stage is spelled out explicitly (`:0:<path>`, not `:<path>`) so a path
+    that itself begins `N:` cannot be mis-parsed as `:N:<rest>` and resolve to a
+    different file's blob.
     """
-    proc = _git_run(["git", "show", f":{path}"], cwd=root, capture_output=True)
+    proc = _git_run(["git", "show", f":0:{path}"], cwd=root, capture_output=True)
     if proc.returncode != 0:
         return None
     return proc.stdout
