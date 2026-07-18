@@ -1,5 +1,14 @@
 # Design: Serial, Main-Repo Acceptance for Teammate Stories
 
+> **SUPERSEDED (2026-07-16) by `docs/spikes/005-worktree-bootstrap-provisioning.md`.**
+> This doc's §"Scope decision" claimed "teammates run their own unit tests fine in
+> the bare worktree" and rejected per-worktree provisioning on that basis.
+> spike-005 measured the opposite on a real bun/Expo monorepo: a bare worktree's
+> typecheck and test run both false-RED (TS2882, exit 2; bare `bun test`, exit 1,
+> a dozen unresolvable modules) — the "Provisioning the worktree is OUT" rejection
+> below no longer holds. The history below is left unedited; only this banner
+> reflects the correction.
+
 > **Status: PROPOSED** (idea — not yet planned or built). Scoped to
 > **teammate mode only**; solo mode already runs acceptance in the
 > provisioned main checkout.
