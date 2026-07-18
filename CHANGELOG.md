@@ -136,9 +136,11 @@ the mark-done gate reads as proof the merge landed; deleting one by hand would l
 merge that never happened.
 
 **Teammate worktrees can bootstrap themselves.** `git worktree add` materializes only tracked
-files, so everything gitignored — `node_modules`, generated types, `.env` — is absent. That
-doesn't merely fail loudly: on one user's project a bare worktree *falsely passed*, because
-missing generated types made a type augmentation permissive and any string compiled. Set
+files, so everything gitignored — `node_modules`, generated types, `.env` — is absent.
+spike-005 measured the DOMINANT effect as a loud false-RED — a bare worktree's typecheck hit
+TS2882 "Cannot find module", exit 2, and bare tests exited 1 over a dozen unresolvable
+modules, stranding a teammate mid-story. A rarer, contrived false-GREEN also exists: missing
+generated types can make a type augmentation permissive so broken code compiles clean. Set
 `stack.worktree_bootstrap` in `system_context.json` to a script your repo already has, and
 it runs in each new worktree before the teammate's first turn. It is an opaque command by
 design — your script knows which artifacts are shareable and which must be regenerated

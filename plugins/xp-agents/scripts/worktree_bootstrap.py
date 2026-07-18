@@ -75,11 +75,15 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
 
     `git worktree add` materializes only tracked files, so everything
     gitignored — installed dependencies, generated artifacts, local config —
-    is missing from a fresh worktree. That absence is not reliably loud: a
-    stack whose generated types are missing can fall back to a permissive
-    definition under which anything type-checks, so the teammate's gate goes
-    GREEN over code that is broken. Provisioning is therefore a correctness
-    step, not an ergonomic one.
+    is missing from a fresh worktree. Measured on a real bun/Expo monorepo,
+    that absence produces two distinct failure modes: the DOMINANT mode is a
+    loud false-RED — a typecheck run hits TS2882 "Cannot find module or type
+    declarations", exit 2, and a bare test run exits 1 over a dozen
+    unresolvable modules, stranding a weak teammate who never finishes. A
+    second, contrived mode is a false-GREEN: missing generated types can make
+    a type augmentation permissive so broken code compiles clean — though in
+    practice the false-RED fires first and masks it. Provisioning is
+    therefore a correctness step, not an ergonomic one.
 
     The command is OPAQUE to us, and deliberately so. Gitignored state splits
     into checkout-invariant (installable, shareable) and checkout-variant
