@@ -97,10 +97,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN in-progress
 ```
 
-### Automated acceptance (type != "manual")
+### Automated acceptance (acceptance_execution carries a command)
 
-When `acceptance_execution` is present and `type` is not `"manual"`, run
-the prepare → run → restore → disposition flow below in order:
+Route on **command presence**, not `type`: when `acceptance_execution` carries
+a `command`/`commands` — **including a `type: "manual"` block** — run the
+prepare → run → restore → disposition flow below via
+`verify_acceptance.py --story <id>` (the single runner; per story-021 it runs a
+manual block's command and N/As a command-less one).
 
 **Present.** Show the story title and acceptance criteria.
 
@@ -114,11 +117,10 @@ RESTORE_REF=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
   --smm-dir <SMM_DIR> accept-env prepare --cwd . --story story-NNN)
 ```
 
-**Run.** Run `acceptance_execution.setup` (if present) AND the command(s)
-**bare in the main-checkout cwd** — no `cd`-into-worktree wrap.
-`command: str` or `commands: list[str]` (fail on first non-zero);
-multi-command prefers `verify_acceptance.py --story <id> --smm-dir
-<SMM_DIR>` (runs in the process cwd = main checkout). Capture the exit code.
+**Run.** Run `acceptance_execution.setup` (if present), then the check via
+`verify_acceptance.py --story <id> --smm-dir <SMM_DIR>` **bare in the
+main-checkout cwd** — no `cd`-into-worktree wrap. It runs `command`/`commands`
+in order (fail on first non-zero). Capture the exit code.
 
 **Restore on every exit path** — pass OR fail, before the disposition
 branch and any `AskUserQuestion` (solo: nothing to restore). The
@@ -163,7 +165,11 @@ cascade the deferral (see "Cascading a deferral").
 
 Do **not** retry automatically. Flaky acceptance is information.
 
-### Manual acceptance (type = "manual" or no acceptance_execution)
+### Manual walkthrough (no runnable command)
+
+Reserved for a block with **no runnable command**: no `acceptance_execution`,
+or a `type: "manual"` block carrying only `steps`/prose (one with a command
+took the automated path).
 
 1. Present the story title and all acceptance criteria.
 2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash; report results.
