@@ -321,17 +321,32 @@ no prose consume step; the SessionStart sweep is the abandonment backstop.
 
 ## Step 7: Sprint Review
 
-**If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate.
+Read the deterministic completeness signal — the sprint is complete only when
+NO story is in an active status (every story `done` or `deferred`). A drained
+teammate batch with in-progress work, or leftover `scheduled`/`ready` stories,
+is NOT complete — so do not eyeball "all done or deferred", read the signal:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> is-complete
+```
+
+Exit 0 = complete → run `/xp-sprint-review` immediately (do not wait for the
+stop gate). Exit 1 = not complete → continue to Step 8.
 
 ## Step 8: Continue to next story
 
-If Step 7 did not fire, run `/xp-schedule` ONCE (single dispatch per
-accept run) — the sole owner of `scheduled → in-progress`. It promotes
-the next frontier, sets each story's execution_mode, and (solo)
-JIT-creates the branch off the merged sprint tip; then follow its handoff
-into the plan cycle (enter plan mode → `/xp-review-plan` → teammate-mode
-`/xp-assign`).
+Reached only when Step 7's `is-complete` returned NOT complete. Run
+`/xp-schedule` ONCE (single dispatch per accept run) — the sole owner of
+`scheduled → in-progress`. It promotes the next frontier, sets each story's
+execution_mode, and (solo) JIT-creates the branch off the merged sprint tip;
+then follow its handoff into the plan cycle (enter plan mode →
+`/xp-review-plan` → teammate-mode `/xp-assign`).
 
-If `/xp-schedule` reports no ready frontier (FRONTIER_COUNT 0 — every
-remaining story blocked, done, or deferred), the sprint is complete: run
-`/xp-sprint-review` (the Step 7 fallthrough).
+If `/xp-schedule` reports no ready frontier (`FRONTIER_COUNT 0`), do **not**
+infer the sprint is complete — Step 7's `is-complete` already ruled that out.
+A 0 frontier here means work remains that is not yet promotable: in-progress/
+reviewing/closing stories still draining, `scheduled` stories blocked on
+unfinished deps, or `ready` stories not yet selected. Report what remains
+(e.g. "N stories in-progress, M ready — continue the in-progress work, or run
+`/xp-work-selection` to pull ready stories") and stop **without** firing
+`/xp-sprint-review`.
