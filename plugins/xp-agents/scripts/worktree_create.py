@@ -11,7 +11,9 @@ Platform input (stdin JSON):
 The hook must:
 1. Generate the worktree path (under .claude/worktrees/)
 2. Create a branch from the current branch (not origin/HEAD)
-3. Print ONLY the worktree path on stdout (no other output)
+3. Run the project's declared worktree_bootstrap command in it, if any
+   (see worktree_bootstrap.run_bootstrap) — SMM-less projects skip this
+4. Print ONLY the worktree path on stdout (no other output)
 """
 
 import json
@@ -21,8 +23,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import _common
 import identity
 import worktree
+import worktree_bootstrap
 
 
 def _get_default_branch(cwd: str) -> str:
@@ -78,6 +82,11 @@ def run(input_data: dict) -> str:
         stderr=subprocess.PIPE,
         check=True,
     )
+
+    smm_dir = _common.resolve_smm_dir()
+    if smm_dir is not None:
+        worktree_bootstrap.run_bootstrap(worktree_path, smm_dir)
+
     return worktree_path
 
 
