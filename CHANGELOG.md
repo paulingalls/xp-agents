@@ -2,6 +2,45 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.0 — Teammate worktrees leave the repo; the auto-merge gate reads the log, not the room
+
+**A deferred-backlog paydown centered on one structural fix and a family of honesty
+repairs.** The headline: teammate worktrees no longer live inside your repository.
+
+**Teammate worktrees move out of the repo.** They now live at
+`${CLAUDE_PLUGIN_DATA}/{project-id}/worktrees/{name}` — a sibling of the SMM dir —
+instead of `{git_root}/.claude/worktrees/`. A worktree inside the repo silently
+resolves some Node modules by walking *up* the tree into the primary checkout's
+`node_modules`, so a teammate could test against a dependency tree it never installed
+(spike-014 measured this). Out of the repo, an un-provisioned module fails honestly with
+`MODULE_NOT_FOUND`. Teammate detection is now location-independent (it keys on the
+`worktree-story-` path segment, not the parent dir), so it keeps firing wherever the
+worktree lives; `worktree_path` derives the new base from the resolved SMM dir with a
+legacy in-repo fallback. Two latent bugs the move exposed were fixed in the same pass:
+the teammate prompt's main-repo path derivation (a 3-level parent walk that broke once
+worktrees left the repo) and the `cd <worktree> && git` advisory's location marker.
+
+**Auto-merge condition 2 reads the event log deterministically.** The "no blocking
+finding" gate that decides whether a close auto-merges was an LLM prose read over a
+reviewer summary (spike-016). It is now a deterministic `count-concerns --severity high`
+read over the close cycle, mirroring condition 1. For the per-story-cadence path, which
+never produced a "Block" verdict, a blocking finding is now recorded as a tagged
+high-severity concern so the gate is real there too. And `count-concerns` /
+`count-classifications` now **fail closed** on an unparseable `events.jsonl` line — a
+corrupt line can no longer silently lower the count and wave a merge through.
+
+**Acceptance and gate honesty.** `verify_acceptance` skips deferred stories under
+`--sprint` and gates manual acceptance on command *presence*, not `type` (021/023); the
+accept preload shows each story's routing (automated/walkthrough), not the bare type.
+`/xp-accept` reads the existing is-complete signal instead of inferring completeness from
+a zero ready-frontier (022). The staged-lint gate reads the staged blob by an unambiguous
+`:0:<path>` ref, closing a fail-open (007); the close-merge event re-parses the merged
+range's `Resolves-Event:` trailers so teammate work links even when per-commit events
+never landed (008). Preload budgets no longer depend on where the repo is checked out
+(013). The milestone-status transition tolerates a deliberate cross-milestone sprint label
+instead of recording a spurious parse concern every save; the worktree-bootstrap failure
+message is caller-neutral now that the platform WorktreeCreate hook reaches it.
+
 ## v4.13.1 — Doc drift fix
 
 Reworded the retrospective agent's "Stale-Flag Concerns" section, which still
