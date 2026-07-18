@@ -9,7 +9,7 @@ Platform input (stdin JSON):
   session_id, transcript_path, cwd, hook_event_name, name
 
 The hook must:
-1. Generate the worktree path (under .claude/worktrees/)
+1. Generate the worktree path (out of the repo, under {project-id}/worktrees/)
 2. Create a branch from the current branch (not origin/HEAD)
 3. Run the project's declared worktree_bootstrap command in it, if any
    (see worktree_bootstrap.run_bootstrap) — SMM-less projects skip this

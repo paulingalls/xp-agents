@@ -69,6 +69,15 @@ class TestWorktreeCreate(unittest.TestCase):
                 "resolve_git_root",
                 return_value="/repo",
             ),
+            # Pin the out-of-repo base to None so worktree_path takes the legacy
+            # in-repo branch these /repo/.claude/worktrees assertions expect
+            # (story-024). _out_of_repo_worktrees_base imports resolve_smm_dir
+            # from _append_impl directly, so mocking _common's is not enough.
+            mock.patch.object(
+                worktree,
+                "_out_of_repo_worktrees_base",
+                return_value=None,
+            ),
             mock.patch("subprocess.run") as mock_run,
             mock.patch("pathlib.Path.mkdir"),
             mock.patch.object(
@@ -271,7 +280,11 @@ class TestWorktreeCreateBootstrapFailsLoud(_ProvisionsTestCase):
         with self.assertRaises(SystemExit):
             self._run(name)
 
-        wt = worktree.worktree_path(name, str(self.tmpdir))
+        # Re-derive the worktree path under the same SMM_DIR the hook used, so
+        # worktree_path resolves the out-of-repo placement it created at rather
+        # than re-deriving via init.sh from the wrong cwd (story-024).
+        with mock.patch.dict(os.environ, {"SMM_DIR": str(self.smm_dir)}):
+            wt = worktree.worktree_path(name, str(self.tmpdir))
         self.assertTrue(wt.is_dir(), "worktree must be left standing for inspection")
         self.assertTrue(
             (wt / "partial.txt").is_file(),

@@ -245,10 +245,10 @@ class TestReviewCycleDone(_HookTestCase):
         inp = _make_skill_input(
             "code-review",
             agent_id="",
-            cwd="/proj/.claude/worktrees/teammate-story-001",
+            cwd="/proj/.claude/worktrees/worktree-story-001",
         )
         review_cycle_done.run(inp, smm_dir=self.smm_dir)
-        cycle = markers.read_review_cycle(self.smm_dir, "teammate-story-001")
+        cycle = markers.read_review_cycle(self.smm_dir, "worktree-story-001")
         self.assertTrue(cycle["simplify_done"])
         main_cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertFalse(main_cycle.get("simplify_done", False))
@@ -499,11 +499,11 @@ class TestSubagentStopReviewFlags(_HookTestCase):
             self._stop_input(
                 "task-1",
                 agent_type="code-review",
-                cwd="/proj/.claude/worktrees/teammate-story-001",
+                cwd="/proj/.claude/worktrees/worktree-story-001",
             ),
             smm_dir=self.smm_dir,
         )
-        cycle = markers.read_review_cycle(self.smm_dir, "teammate-story-001")
+        cycle = markers.read_review_cycle(self.smm_dir, "worktree-story-001")
         self.assertTrue(cycle["simplify_done"])
 
     def test_null_cwd_does_not_raise_and_falls_back_to_main(self):

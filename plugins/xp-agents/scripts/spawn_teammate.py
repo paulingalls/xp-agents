@@ -353,7 +353,8 @@ def main(argv: list[str] | None = None) -> None:
     cwd = os.getcwd()
     # In-place (solo delegation): run in the main checkout on the already-
     # checked-out story branch — no worktree to isolate a single unit of work.
-    # Worktree (parallel): isolate the teammate in .claude/worktrees/<name>,
+    # Worktree (parallel): isolate the teammate in an out-of-repo
+    # `{project-id}/worktrees/<name>` tree (sibling of the SMM dir, story-024),
     # and provision it — a fresh worktree has none of the project's gitignored
     # state. The bootstrap hangs off create_worktree rather than sitting here
     # precisely so in-place cannot reach it: there is no worktree to provision,
@@ -426,7 +427,10 @@ def main(argv: list[str] | None = None) -> None:
         # commits to the story that failed to spawn. Every name-keyed side effect
         # belongs on this side of the claim.
         write_story_assignment(Path(args.smm_dir), name, args.story_id)
-        preamble = "" if args.in_place else worktree_preamble(run_cwd)
+        # run_cwd is the worktree; cwd is the orchestrator's main checkout. Pass
+        # the main checkout explicitly — the out-of-repo worktree (story-024) is
+        # not an ancestor of it, so it can't be derived from run_cwd.
+        preamble = "" if args.in_place else worktree_preamble(run_cwd, cwd)
         combined = preamble + prompt_body
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".prompt.txt", delete=False

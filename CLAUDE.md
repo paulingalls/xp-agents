@@ -113,7 +113,7 @@ Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), 
 - Four-file architecture: events.jsonl + system_context.json + execution_plan.json + sprint.json (all JSON with schema validation and CLI; reversed three-file decision — product_spec was too monolithic for change-request workflows)
 - Intent and Sprint are separate concerns — strategic/persistent vs tactical/ephemeral
 - Interactive skills (sprint-start, plan) inline; review/analysis skills forked
-- Teammates detected by `is_worktree_teammate()` — cwd-based detection via `/.claude/worktrees/worktree-story-` prefix
+- Teammates detected by `is_worktree_teammate()` — cwd-based detection via the `worktree-story-` path segment (location-independent; worktrees live out of the repo, a sibling of the SMM dir)
 - No prep script for xp-assign — domain analysis is LLM judgment
 - Commit-gated review cycle (not stop-gated) — enforced at commit time via PreToolUse:Bash
 - CLI teammates over Agent Teams for sprint-driven parallel execution — each teammate is an independent `claude -p` process in a git worktree with full hook lifecycle, TDD + review cycle + commits

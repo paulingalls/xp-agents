@@ -552,14 +552,14 @@ class TestBashPostToolWorktreeAgentId(_HookTestCase):
 
     def test_commit_resets_worktree_scoped_markers(self):
         """After commit, worktree-scoped markers are reset."""
-        agent_id = "teammate-story-001"
+        agent_id = "worktree-story-001"
         markers.set_review_flag(self.smm_dir, agent_id, "simplify_done")
         markers.set_review_flag(self.smm_dir, agent_id, "quality_review_done")
         inp = _make_bash_input(
             command="git commit -m 'test'",
             stdout="[main abc123] test\n 1 file changed",
             agent_id="",
-            cwd="/proj/.claude/worktrees/teammate-story-001",
+            cwd="/proj/.claude/worktrees/worktree-story-001",
         )
         with (
             patch("commits.get_committed_files", return_value=["a.py"]),

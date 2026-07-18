@@ -24,10 +24,14 @@ def _create_teammate_worktree(
     tmpdir: Path, name: str, branch: str | None = None
 ) -> str:
     """Create a worktree with a commit. Returns worktree path."""
+    import worktree
+
     branch = branch or name
-    wt_dir = tmpdir / ".claude" / "worktrees"
-    wt_dir.mkdir(parents=True, exist_ok=True)
-    wt_path = str(wt_dir / name)
+    # Out-of-repo placement (story-024). worktree_path reads the SMM_DIR the
+    # _IntegrationTestCase setUp pins, matching where the cleanup subprocess looks.
+    wt = worktree.worktree_path(name, str(tmpdir))
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    wt_path = str(wt)
 
     subprocess.run(
         ["git", "worktree", "add", "-b", branch, wt_path, "HEAD"],

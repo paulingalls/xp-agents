@@ -126,19 +126,31 @@ class TestRemoveWorktree(unittest.TestCase):
         worktree._clear_git_root_cache()
         self.tmpdir = Path(tempfile.mkdtemp())
         init_repo(str(self.tmpdir))
+        # Pin SMM_DIR to an out-of-repo temp so worktree_path resolves the
+        # real out-of-repo placement (conftest strips SMM_DIR, which would
+        # otherwise shell init.sh non-deterministically). Create AND remove
+        # then both funnel through the same out-of-repo path — a genuine
+        # round-trip against the new placement (story-024).
+        self.base = Path(tempfile.mkdtemp())
+        self.smm_dir = self.base / "proj" / "smm"
+        self.smm_dir.mkdir(parents=True)
+        self._smm_patch = patch.dict(os.environ, {"SMM_DIR": str(self.smm_dir)})
+        self._smm_patch.start()
 
     def tearDown(self):
         import shutil
 
         from conftest import cleanup_test_worktrees
 
-        cleanup_test_worktrees(self.tmpdir)
+        cleanup_test_worktrees(self.tmpdir, prefix="worktree-story-")
+        self._smm_patch.stop()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+        shutil.rmtree(self.base, ignore_errors=True)
         worktree._clear_git_root_cache()
 
     def _add_worktree(self, name: str, branch: str | None = None) -> Path:
         branch = branch or name
-        wt_path = self.tmpdir / ".claude" / "worktrees" / name
+        wt_path = worktree.worktree_path(name, str(self.tmpdir))
         wt_path.parent.mkdir(parents=True, exist_ok=True)
         result = subprocess.run(
             [
@@ -264,12 +276,19 @@ class TestRemoveWorktree(unittest.TestCase):
         self.assertEqual(result, worktree.BranchRemoval.DELETED_MERGED)
 
     def test_remove_worktree_no_branch_returns_no_branch(self):
-        """No worktree / non-git cwd -> NO_BRANCH."""
+        """Fully degraded (no out-of-repo base AND non-git cwd) -> NO_BRANCH.
+
+        NO_BRANCH is reached only when worktree_path raises RuntimeError, which
+        now requires BOTH the out-of-repo base unresolvable and no git root.
+        With a base resolvable, worktree_path never raises on a non-git cwd
+        (it needs no git root), so pin the base to None to exercise this path.
+        """
         import shutil
 
         non_git = Path(tempfile.mkdtemp())
         try:
-            result = worktree.remove_worktree("worktree-story-none", str(non_git))
+            with patch("worktree._out_of_repo_worktrees_base", return_value=None):
+                result = worktree.remove_worktree("worktree-story-none", str(non_git))
             self.assertEqual(result, worktree.BranchRemoval.NO_BRANCH)
         finally:
             shutil.rmtree(non_git, ignore_errors=True)

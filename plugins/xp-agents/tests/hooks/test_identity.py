@@ -42,6 +42,15 @@ class TestResolveAgentId(unittest.TestCase):
         )
         self.assertEqual(result, "worktree-story-001")
 
+    def test_out_of_repo_worktree_cwd_extracts_name(self):
+        """Detection keys on the `worktree-story-` SEGMENT, so it still fires
+        at the new out-of-repo placement (`{project-id}/worktrees/...`) — no
+        `.claude/worktrees/` parent required (story-024)."""
+        result = identity.resolve_agent_id(
+            {"cwd": "/data/plugin/proj-abc/worktrees/worktree-story-001/src"}
+        )
+        self.assertEqual(result, "worktree-story-001")
+
     def test_non_worktree_cwd_returns_main(self):
         result = identity.resolve_agent_id({"cwd": "/home/user/project/src"})
         self.assertEqual(result, "main")
@@ -104,6 +113,13 @@ class TestIsWorktreeTeammate(unittest.TestCase):
 
     def test_worktree_story_cwd_root(self):
         inp = {"cwd": "/home/user/project/.claude/worktrees/worktree-story-002"}
+        self.assertTrue(identity.is_worktree_teammate(inp))
+
+    def test_out_of_repo_worktree_detected(self):
+        """A teammate at the new out-of-repo placement (sibling of the SMM
+        dir) is still detected — the load-bearing spike-014 interface
+        contract (story-024)."""
+        inp = {"cwd": "/data/plugin/proj-abc/worktrees/worktree-story-001/src"}
         self.assertTrue(identity.is_worktree_teammate(inp))
 
     def test_old_teammate_worktree_not_detected(self):

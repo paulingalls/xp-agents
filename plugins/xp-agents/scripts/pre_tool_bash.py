@@ -39,11 +39,16 @@ from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 # Re-exported so tests can pin the constant; canonical home is identity.
 WORKTREE_PATH_FRAGMENT = identity.WORKTREE_PATH_FRAGMENT
 
-# Single non-greedy `[^\n]*?` — one quantifier, no nesting — avoids
-# catastrophic backtracking when the trailing `git` never appears.
+# Location-independent: key on the teammate worktree SEGMENT
+# (`worktree-story-…`) rather than the legacy `.claude/worktrees/` parent, so the
+# advisory fires for BOTH the in-repo placement and the out-of-repo
+# `{project-id}/worktrees/` one (story-024) — the cwd poisoning it guards is the
+# same wherever the worktree lives. Single non-greedy `[^\n]*?` — one quantifier,
+# no nesting — avoids catastrophic backtracking when the trailing `git` never
+# appears.
 _CD_WORKTREE_GIT_PATTERN = re.compile(
     r"cd\s+\S*"
-    + re.escape(WORKTREE_PATH_FRAGMENT)
+    + re.escape(identity._TEAMMATE_PREFIX)
     + r"\S+"
     + r"[^\n]*?\bgit\s+(?:commit|add|merge|push)\b"
 )

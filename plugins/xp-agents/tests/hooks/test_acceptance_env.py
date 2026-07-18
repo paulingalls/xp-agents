@@ -11,6 +11,7 @@ leak-proof by construction — a tearDown that itself depends on
 the failure modes exercised here.
 """
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -42,9 +43,23 @@ class TestAcceptanceEnv(unittest.TestCase):
         init_repo_with_ignored_worktrees(self.repo)
 
         self._smm_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        self.smm = Path(self._smm_td.name)
+        # Nest the SMM dir one level down so its PARENT is this test's unique
+        # temp — the out-of-repo worktree base is `{smm}.parent/worktrees`
+        # (story-024), and a bare temp-root SMM would pile every test's
+        # worktree-story-042 into a shared `{tmproot}/worktrees` and collide.
+        self.smm = Path(self._smm_td.name) / "smm"
+        self.smm.mkdir()
+        # Pin SMM_DIR so the in-process create_teammate_worktree_with_commit
+        # resolves the same out-of-repo base the assertions below expect,
+        # instead of shelling init.sh to the real project (conftest strips it).
+        self._prev_smm = os.environ.get("SMM_DIR")
+        os.environ["SMM_DIR"] = str(self.smm)
 
     def tearDown(self):
+        if self._prev_smm is None:
+            os.environ.pop("SMM_DIR", None)
+        else:
+            os.environ["SMM_DIR"] = self._prev_smm
         self._repo_td.cleanup()
         self._smm_td.cleanup()
 

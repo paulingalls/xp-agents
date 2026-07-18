@@ -10,6 +10,7 @@ Why a separate file: test_spawn_teammate.py grew past the project's
 a cohesive pipeline subset that splits cleanly along feature lines.
 """
 
+import os
 import subprocess
 import sys
 import unittest
@@ -37,14 +38,14 @@ class TestWorktreePreamble(unittest.TestCase):
         """The actual worktree path appears verbatim in the preamble."""
         import spawn_teammate
 
-        text = spawn_teammate.worktree_preamble("/some/wt/path")
+        text = spawn_teammate.worktree_preamble("/some/wt/path", "/some/repo")
         self.assertIn("/some/wt/path", text)
 
     def test_preamble_instructs_path_rerooting(self):
         """Preamble names the rule (re-root absolute paths to the worktree)."""
         import spawn_teammate
 
-        text = spawn_teammate.worktree_preamble("/some/wt/path")
+        text = spawn_teammate.worktree_preamble("/some/wt/path", "/some/repo")
         self.assertIn("worktree", text.lower())
         self.assertIn("RELATIVE", text)
         self.assertIn("Re-root", text)
@@ -53,20 +54,25 @@ class TestWorktreePreamble(unittest.TestCase):
         """Preamble exempts the SMM dir from the re-rooting rule."""
         import spawn_teammate
 
-        text = spawn_teammate.worktree_preamble("/some/wt/path")
+        text = spawn_teammate.worktree_preamble("/some/wt/path", "/some/repo")
         self.assertIn("SMM", text)
         self.assertIn("OUTSIDE", text)
 
-    def test_preamble_derives_main_repo_from_worktree_layout(self):
-        """main_repo path is derived from wt_path's <repo>/.claude/worktrees/<name>
-        layout — not hardcoded to any platform-specific prefix."""
+    def test_preamble_uses_explicit_main_repo(self):
+        """main_repo is passed explicitly — the orchestrator's checkout. Since
+        the out-of-repo worktree move (story-024) the worktree is no longer an
+        ancestor of the main repo, so it can't be derived from wt_path."""
         import spawn_teammate
 
         text = spawn_teammate.worktree_preamble(
-            "/some/repo/.claude/worktrees/worktree-story-005"
+            "/plugin-data/proj/worktrees/worktree-story-005",
+            main_repo="/some/repo",
         )
-        # main_repo is wt_path.parent.parent.parent
         self.assertIn("/some/repo", text)
+        # The example re-root uses the GIVEN main repo, proving it isn't derived
+        # from the (out-of-repo) worktree's ancestors (which would be the plugin
+        # data dir under the new layout).
+        self.assertIn("`/some/repo/some/sub/path.py` becomes", text)
         # No macOS-specific assumption baked in.
         self.assertNotIn("/Users/", text)
 
@@ -107,8 +113,9 @@ class TestWorktreePreamble(unittest.TestCase):
             Path(prompt_path).unlink(missing_ok=True)
 
         text = captured["stdin_text"]
-        # Preamble at position 0, prompt body strictly after.
-        expected_preamble = spawn_teammate.worktree_preamble(wt)
+        # Preamble at position 0, prompt body strictly after. main() derives the
+        # main-repo arg from os.getcwd() (the orchestrator's checkout).
+        expected_preamble = spawn_teammate.worktree_preamble(wt, os.getcwd())
         self.assertTrue(
             text.startswith(expected_preamble),
             "stdin must begin with the preamble verbatim",
