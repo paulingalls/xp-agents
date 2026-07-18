@@ -55,7 +55,7 @@ Format as a numbered list for the prompt — file, line, the finding summary, an
 
 ## Step 2: Build Reviewer Prompt and Spawn (single unconditional spawn)
 
-Build the `xp-code-reviewer` prompt now and spawn the reviewer **unconditionally**. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch — it self-triages the diff's risk from the change itself and its injected Constraints pillar (Section 1c) and elevates the risky angles on its own, so no external risk hint is needed. In `consume-findings` mode pass the numbered findings list from Step 1.
+Build the `xp-code-reviewer` prompt now and spawn the reviewer **unconditionally**. In `self-find` mode pass `## Code-Review Findings\nNone — self-find correctness` so the reviewer takes its self-find branch — it self-triages the diff's risk from the change itself and its injected Constraints pillar (Section 1c) and elevates the risky angles on its own, so no external risk hint is needed. In `consume-findings` mode pass the numbered findings list from Step 1. When a close cycle id is in scope for this invocation (a close skill supplied one), add a `## Close Cycle ID\n<value>` section to the prompt; absent a close cycle id (per-commit review), omit the section entirely.
 
 **Single-spawn invariant.** Exactly ONE `xp-code-reviewer` spawn per cycle. Do NOT fan-out into multiple parallel spawns. Sprint-103's 3-spawn fan-out had irreducible coordination races (filesystem writes, SMM appends, dedupe-key fragility); a single spawn avoids all of them.
 

@@ -82,6 +82,13 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 For debt (fix too large for this review): use `--type "debt"`, omit `--severity`.
 
+**Close-context rule.** When the prompt carries a `## Close Cycle ID` section, this
+review is part of a close cycle: a blocking correctness finding you cannot fix now
+is recorded as a `severity high` concern with `--metadata` including
+`"close_cycle_id": "<the supplied value>"`, so the close skill's deterministic
+auto-merge gate sees it. When the section is absent (per-commit review), this
+rule does not apply — recording is unchanged from today.
+
 ## Output
 
 Return: (1) findings acted on, (2) concerns recorded, (3) code-review findings validated, (4) clean areas. Be concise.

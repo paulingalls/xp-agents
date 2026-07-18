@@ -5,6 +5,7 @@ Extracted from smm_cli.py to keep that file under the 500-line cap.
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 from append_validation import parse_jsonl
@@ -33,9 +34,10 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         shape per append.sh)
 
     Always exits 0 — empty event log returns 0, missing events.jsonl
-    returns 0, malformed lines are skipped. The "absent → 0" semantics
-    let the auto-merge gate's `ASK_COUNT=$(...)` invocation work
-    without exit-code branching, mirroring system_context_cli.py
+    returns 0. A malformed line is now COUNTED (fail closed), not
+    skipped — only an ABSENT events.jsonl returns 0. The "absent → 0"
+    semantics let the auto-merge gate's `ASK_COUNT=$(...)` invocation
+    work without exit-code branching, mirroring system_context_cli.py
     get-stack-field's "absent → empty" pattern.
 
     Used by story-close + free-close auto-merge override condition 1
@@ -44,6 +46,10 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
     filter (per concern 28f5e1b919d6) lets free-close also block
     auto-merge when any design_decision finding was classified, even
     if routed to fix.
+
+    Sync pointer: story-close/free-close auto-merge conditions 1 & 2
+    (SKILL.md) rely on this fail-closed behavior — a corrupt line must
+    never silently lower the count.
     """
     events_path = Path(args.smm_dir) / "events.jsonl"
     if not events_path.exists():
@@ -52,7 +58,7 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
     # Delegate to the canonical JSONL parser used by all events.jsonl
     # readers (materialize.py, compact.py, …) — handles blank lines,
     # malformed JSON, and non-dict values uniformly.
-    events, _skipped = parse_jsonl(events_path.read_text())
+    events, skipped = parse_jsonl(events_path.read_text())
     count = 0
     for event in events:
         meta = event.get("metadata", {})
@@ -68,6 +74,14 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
         count += 1
+    if skipped:
+        print(
+            f"count-classifications: {skipped} unparseable line(s) in "
+            f"{events_path}; counting each as a potential concern "
+            "(fail closed)",
+            file=sys.stderr,
+        )
+        count += skipped
     print(count)
     return 0
 
@@ -80,14 +94,19 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
     filed and later fixed-and-linked must stop counting, or a resolved
     finding blocks the close gate forever.
 
-    Always exits 0 (missing file / malformed lines → 0) so callers can
-    `$(...)` capture without exit-code branching.
+    Always exits 0 (missing file → 0) so callers can `$(...)` capture
+    without exit-code branching. A malformed line is now COUNTED (fail
+    closed) — only an ABSENT events.jsonl returns 0; a hidden high
+    concern must never silently lower the count.
+
+    Sync pointer: story-close/free-close auto-merge conditions 1 & 2
+    (SKILL.md) rely on this fail-closed behavior.
     """
     events_path = Path(args.smm_dir) / "events.jsonl"
     if not events_path.exists():
         print(0)
         return 0
-    events, _skipped = parse_jsonl(events_path.read_text())
+    events, skipped = parse_jsonl(events_path.read_text())
     resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
     count = 0
     for event in events:
@@ -104,6 +123,13 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         if event.get("id", "") in resolved_ids:
             continue
         count += 1
+    if skipped:
+        print(
+            f"count-concerns: {skipped} unparseable line(s) in {events_path}; "
+            "counting each as a potential concern (fail closed)",
+            file=sys.stderr,
+        )
+        count += skipped
     print(count)
     return 0
 

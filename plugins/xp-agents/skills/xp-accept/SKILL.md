@@ -57,7 +57,7 @@ spawnable work leaves the background empty for the whole close cycle.
 Read the sprint file at `SPRINT_FILE`. For each story in the selected set
 (reviewing or in-progress per `SELECTED_STATUS`), check its
 `acceptance_execution` field (the preload's `### Acceptance Types`
-section shows the type per story for quick reference).
+section shows each story's routing for quick reference).
 
 ### Precondition: heal the main checkout
 
@@ -97,10 +97,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
   update-story story-NNN in-progress
 ```
 
-### Automated acceptance (type != "manual")
+### Automated acceptance (acceptance_execution carries a command)
 
-When `acceptance_execution` is present and `type` is not `"manual"`, run
-the prepare → run → restore → disposition flow below in order:
+Route on **command presence**, not `type`: when `acceptance_execution` carries
+a `command`/`commands` — **including a `type: "manual"` block** — run the
+prepare → run → restore → disposition flow below via
+`verify_acceptance.py --story <id>` (the single runner; per story-021 it runs a
+manual block's command and N/As a command-less one).
 
 **Present.** Show the story title and acceptance criteria.
 
@@ -114,11 +117,10 @@ RESTORE_REF=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
   --smm-dir <SMM_DIR> accept-env prepare --cwd . --story story-NNN)
 ```
 
-**Run.** Run `acceptance_execution.setup` (if present) AND the command(s)
-**bare in the main-checkout cwd** — no `cd`-into-worktree wrap.
-`command: str` or `commands: list[str]` (fail on first non-zero);
-multi-command prefers `verify_acceptance.py --story <id> --smm-dir
-<SMM_DIR>` (runs in the process cwd = main checkout). Capture the exit code.
+**Run.** Run `acceptance_execution.setup` (if present), then the check via
+`verify_acceptance.py --story <id> --smm-dir <SMM_DIR>` **bare in the
+main-checkout cwd** — no `cd`-into-worktree wrap. It runs `command`/`commands`
+in order (fail on first non-zero). Capture the exit code.
 
 **Restore on every exit path** — pass OR fail, before the disposition
 branch and any `AskUserQuestion` (solo: nothing to restore). The
@@ -163,7 +165,11 @@ cascade the deferral (see "Cascading a deferral").
 
 Do **not** retry automatically. Flaky acceptance is information.
 
-### Manual acceptance (type = "manual" or no acceptance_execution)
+### Manual walkthrough (no runnable command)
+
+Reserved for a block with **no runnable command**: no `acceptance_execution`,
+or a `type: "manual"` block carrying only `steps`/prose (one with a command
+took the automated path).
 
 1. Present the story title and all acceptance criteria.
 2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash; report results.
@@ -321,17 +327,32 @@ no prose consume step; the SessionStart sweep is the abandonment backstop.
 
 ## Step 7: Sprint Review
 
-**If all stories are now done or deferred**, the sprint is complete. Run `/xp-sprint-review` immediately — do not wait for the stop gate.
+Read the deterministic completeness signal — the sprint is complete only when
+NO story is in an active status (every story `done` or `deferred`). A drained
+teammate batch with in-progress work, or leftover `scheduled`/`ready` stories,
+is NOT complete — so do not eyeball "all done or deferred", read the signal:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> is-complete
+```
+
+Exit 0 = complete → run `/xp-sprint-review` immediately (do not wait for the
+stop gate). Exit 1 = not complete → continue to Step 8.
 
 ## Step 8: Continue to next story
 
-If Step 7 did not fire, run `/xp-schedule` ONCE (single dispatch per
-accept run) — the sole owner of `scheduled → in-progress`. It promotes
-the next frontier, sets each story's execution_mode, and (solo)
-JIT-creates the branch off the merged sprint tip; then follow its handoff
-into the plan cycle (enter plan mode → `/xp-review-plan` → teammate-mode
-`/xp-assign`).
+Reached only when Step 7's `is-complete` returned NOT complete. Run
+`/xp-schedule` ONCE (single dispatch per accept run) — the sole owner of
+`scheduled → in-progress`. It promotes the next frontier, sets each story's
+execution_mode, and (solo) JIT-creates the branch off the merged sprint tip;
+then follow its handoff into the plan cycle (enter plan mode →
+`/xp-review-plan` → teammate-mode `/xp-assign`).
 
-If `/xp-schedule` reports no ready frontier (FRONTIER_COUNT 0 — every
-remaining story blocked, done, or deferred), the sprint is complete: run
-`/xp-sprint-review` (the Step 7 fallthrough).
+If `/xp-schedule` reports no ready frontier (`FRONTIER_COUNT 0`), do **not**
+infer the sprint is complete — Step 7's `is-complete` already ruled that out.
+A 0 frontier here means work remains that is not yet promotable: in-progress/
+reviewing/closing stories still draining, `scheduled` stories blocked on
+unfinished deps, or `ready` stories not yet selected. Report what remains
+(e.g. "N stories in-progress, M ready — continue the in-progress work, or run
+`/xp-work-selection` to pull ready stories") and stop **without** firing
+`/xp-sprint-review`.

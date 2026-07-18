@@ -100,7 +100,15 @@ The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by the prelo
    ```
    `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload (captured at close-cycle start). `--cycle-id` excludes concern_classify events tagged with a DIFFERENT close-cycle, so concurrent close-cycles in other teammate worktrees don't leak in (SMM is shared across worktrees). An UNTAGGED event is still counted — the count fails closed rather than silently dropping an ask-route the gate must see — so `--since-ts` is the bound that keeps pre-cycle events out. Test numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
-2. No Block-severity finding survived in Step 4.5's reviewer summary.
+2. No open high-severity concern recorded during Step 4.5, verified via the
+   canonical structured filter:
+   ```bash
+   HIGH_CONCERN_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-concerns \
+     --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
+   ```
+   Test numerically: `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to the
+   shared Step 6 prompt.
 
 3. The preload emitted a non-empty `TEST_COMMAND=...` line (sourced from `system_context.stack.test_command`) AND running that command AFTER all Step 5c fixes landed exits 0. Any non-zero exit means tests aren't green — fall through to the shared Step 6 prompt.
 

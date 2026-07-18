@@ -85,18 +85,62 @@ class TestWorktreePath(unittest.TestCase):
     def tearDown(self):
         worktree._clear_git_root_cache()
 
-    def test_returns_path_under_claude_worktrees(self):
-        """worktree_path returns {git_root}/.claude/worktrees/{name}."""
+    def test_places_worktree_out_of_repo_sibling_of_smm(self):
+        """With an SMM dir resolvable, worktree_path returns
+        {base}/{project-id}/worktrees/{name} — a sibling of the SMM dir, and
+        crucially NOT under the primary git root, so no Node walk-up from the
+        worktree can reach the primary's node_modules (story-024, closes the
+        spike-014 dependency leak)."""
+        with (
+            tempfile.TemporaryDirectory() as base,
+            tempfile.TemporaryDirectory() as repo,
+        ):
+            init_repo(repo)
+            smm = Path(base) / "proj-abc" / "smm"
+            smm.mkdir(parents=True)
+            with patch.dict(os.environ, {"SMM_DIR": str(smm)}):
+                result = worktree.worktree_path("worktree-story-001", repo)
+            # .resolve() in the impl follows macOS's /var -> /private/var symlink,
+            # so anchor the expectation on the resolved base too.
+            expected = smm.resolve().parent / "worktrees" / "worktree-story-001"
+            self.assertEqual(result, expected)
+            # The dep-leak proof: the worktree is NOT under the primary checkout.
+            git_root = worktree.resolve_git_root(repo)
+            assert git_root is not None
+            self.assertNotIn(Path(git_root).resolve(), result.parents)
+
+    def test_falls_back_to_in_repo_when_base_unavailable(self):
+        """When the out-of-repo base can't be resolved (CLAUDE_PLUGIN_DATA
+        unavailable), worktree_path degrades to the legacy in-repo placement —
+        AC3, safe degradation, not a crash."""
         with tempfile.TemporaryDirectory() as tmpdir:
             init_repo(tmpdir)
-            result = worktree.worktree_path("teammate-story-001", tmpdir)
+            with patch("worktree._out_of_repo_worktrees_base", return_value=None):
+                result = worktree.worktree_path("worktree-story-001", tmpdir)
+            real = os.path.realpath(tmpdir)
+            expected = Path(real) / ".claude" / "worktrees" / "worktree-story-001"
+            self.assertEqual(result, expected)
+
+    def test_returns_path_under_claude_worktrees(self):
+        """Legacy in-repo fallback returns {git_root}/.claude/worktrees/{name}.
+
+        Pinned to the fallback branch: conftest strips SMM_DIR, so an
+        un-pinned resolve_smm_dir would shell to init.sh non-deterministically.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            init_repo(tmpdir)
+            with patch("worktree._out_of_repo_worktrees_base", return_value=None):
+                result = worktree.worktree_path("teammate-story-001", tmpdir)
             real = os.path.realpath(tmpdir)
             expected = Path(real) / ".claude" / "worktrees" / "teammate-story-001"
             self.assertEqual(result, expected)
 
     def test_raises_for_non_git_repo(self):
-        """worktree_path raises RuntimeError outside a git repo."""
-        with self.assertRaises(RuntimeError):
+        """worktree_path raises RuntimeError outside a git repo (fallback path)."""
+        with (
+            patch("worktree._out_of_repo_worktrees_base", return_value=None),
+            self.assertRaises(RuntimeError),
+        ):
             worktree.worktree_path("teammate-1", "/")
 
 
@@ -261,6 +305,21 @@ class TestHasLiveTeammates(unittest.TestCase):
             self.assertFalse(worktree.has_live_teammates(str(non_git)))
         finally:
             shutil.rmtree(non_git, ignore_errors=True)
+
+    def test_detects_out_of_repo_teammate_worktree(self):
+        """Discovery marks on the `/worktree-story-` segment, so it finds a
+        teammate at the new out-of-repo placement, not just under
+        `.claude/worktrees/` (story-024)."""
+        porcelain = (
+            "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+            "worktree /data/plugin/proj-abc/worktrees/worktree-story-007\n"
+            "HEAD def\nbranch refs/heads/paulingalls/story-007\n\n"
+        )
+        with (
+            patch("worktree.subprocess.check_output", return_value=porcelain),
+            patch.object(Path, "is_dir", return_value=True),
+        ):
+            self.assertTrue(worktree.has_live_teammates(str(self.tmpdir)))
 
 
 class TestBranchHeldByWorktree(unittest.TestCase):

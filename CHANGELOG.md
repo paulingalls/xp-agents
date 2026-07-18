@@ -2,6 +2,50 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.0 — Teammate worktrees leave the repo; the auto-merge gate reads the log, not the room
+
+**A deferred-backlog paydown centered on one structural fix and a family of honesty
+repairs.** The headline: teammate worktrees no longer live inside your repository.
+
+**Teammate worktrees move out of the repo.** They now live at
+`${CLAUDE_PLUGIN_DATA}/{project-id}/worktrees/{name}` — a sibling of the SMM dir —
+instead of `{git_root}/.claude/worktrees/`. A worktree inside the repo silently
+resolves some Node modules by walking *up* the tree into the primary checkout's
+`node_modules`, so a teammate could test against a dependency tree it never installed
+(spike-014 measured this). Out of the repo, an un-provisioned module fails honestly with
+`MODULE_NOT_FOUND`. Teammate detection is now location-independent (it keys on the
+`worktree-story-` path segment, not the parent dir), so it keeps firing wherever the
+worktree lives; `worktree_path` derives the new base from the resolved SMM dir with a
+legacy in-repo fallback. Two latent bugs the move exposed were fixed in the same pass:
+the teammate prompt's main-repo path derivation (a 3-level parent walk that broke once
+worktrees left the repo) and the `cd <worktree> && git` advisory's location marker.
+
+**Auto-merge condition 2 reads the event log deterministically.** The "no blocking
+finding" gate that decides whether a close auto-merges was an LLM prose read over a
+reviewer summary (spike-016). It is now a deterministic `count-concerns --severity high`
+read over the close cycle, mirroring condition 1. For the per-story-cadence path, which
+never produced a "Block" verdict, a blocking finding is now recorded as a tagged
+high-severity concern so the gate is real there too. And `count-concerns` /
+`count-classifications` now **fail closed** on an unparseable `events.jsonl` line — a
+corrupt line can no longer silently lower the count and wave a merge through.
+
+**Acceptance and gate honesty.** `verify_acceptance` skips deferred stories under
+`--sprint` and gates manual acceptance on command *presence*, not `type` (021/023); the
+accept preload shows each story's routing (automated/walkthrough), not the bare type.
+**BREAKING (021):** a `type: manual` block's `command`/`commands` is now *run*, not treated
+as prose. If you previously stashed human/agent narrative in `commands` (e.g.
+`commands: ["go read the logs"]`), it will now be shelled and fail the acceptance gate —
+move that prose into the new optional `steps: list[str]` field (a command-less manual block
+reports N/A). Only genuinely runnable confirmations belong in `command`/`commands`.
+`/xp-accept` reads the existing is-complete signal instead of inferring completeness from
+a zero ready-frontier (022). The staged-lint gate reads the staged blob by an unambiguous
+`:0:<path>` ref, closing a fail-open (007); the close-merge event re-parses the merged
+range's `Resolves-Event:` trailers so teammate work links even when per-commit events
+never landed (008). Preload budgets no longer depend on where the repo is checked out
+(013). The milestone-status transition tolerates a deliberate cross-milestone sprint label
+instead of recording a spurious parse concern every save; the worktree-bootstrap failure
+message is caller-neutral now that the platform WorktreeCreate hook reaches it.
+
 ## v4.13.1 — Doc drift fix
 
 Reworded the retrospective agent's "Stale-Flag Concerns" section, which still
@@ -136,9 +180,11 @@ the mark-done gate reads as proof the merge landed; deleting one by hand would l
 merge that never happened.
 
 **Teammate worktrees can bootstrap themselves.** `git worktree add` materializes only tracked
-files, so everything gitignored — `node_modules`, generated types, `.env` — is absent. That
-doesn't merely fail loudly: on one user's project a bare worktree *falsely passed*, because
-missing generated types made a type augmentation permissive and any string compiled. Set
+files, so everything gitignored — `node_modules`, generated types, `.env` — is absent.
+spike-005 measured the DOMINANT effect as a loud false-RED — a bare worktree's typecheck hit
+TS2882 "Cannot find module", exit 2, and bare tests exited 1 over a dozen unresolvable
+modules, stranding a teammate mid-story. A rarer, contrived false-GREEN also exists: missing
+generated types can make a type augmentation permissive so broken code compiles clean. Set
 `stack.worktree_bootstrap` in `system_context.json` to a script your repo already has, and
 it runs in each new worktree before the teammate's first turn. It is an opaque command by
 design — your script knows which artifacts are shareable and which must be regenerated

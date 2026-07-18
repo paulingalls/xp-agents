@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import worktree
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
 
 
@@ -28,9 +29,12 @@ def _create_teammate_worktree(
     differs from the checked-out branch (e.g. ``paulingalls/story-007-perf``).
     """
     branch = branch or name
-    wt_dir = tmpdir / ".claude" / "worktrees"
-    wt_dir.mkdir(parents=True, exist_ok=True)
-    wt_path = str(wt_dir / name)
+    # Place the worktree where production resolves it (out-of-repo since
+    # story-024). worktree_path reads the SMM_DIR the _IntegrationTestCase
+    # setUp pins, so create and the cleanup subprocess agree on the location.
+    wt = worktree.worktree_path(name, str(tmpdir))
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    wt_path = str(wt)
 
     subprocess.run(
         ["git", "worktree", "add", "-b", branch, wt_path, "HEAD"],

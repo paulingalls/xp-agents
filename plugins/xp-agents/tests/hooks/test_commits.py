@@ -138,6 +138,46 @@ class TestExtractResolvesTrailer(unittest.TestCase):
         self.assertFalse(has)
 
 
+class TestExtractResolvesTrailerBlankLineShapes(unittest.TestCase):
+    """Regression pins for story-008 leg (a).
+
+    The debt (1713b96b9bb7) blamed a blank line separating the
+    `Resolves-Event:` trailer from `Co-Authored-By` for the trailer "falling
+    out of git's final trailer block". That is FALSE for this parser:
+    `extract_resolves_trailer` is a line-anchored regex over the full `%B`
+    body, not git's trailer-block parser, so a blank line anywhere is
+    irrelevant. These all PASS today — they lock the correct behavior
+    against a future accidental switch to a trailer-block parser, not a
+    red->green fix.
+    """
+
+    def test_trailer_separated_from_co_authored_by_a_blank_line(self):
+        body = (
+            "fix: something\n\n"
+            "Resolves-Event: c460a9b512a7\n\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+        )
+        ids, _, has = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["c460a9b512a7"])
+        self.assertTrue(has)
+
+    def test_trailer_followed_by_a_trailing_blank_line(self):
+        body = "fix: something\n\nResolves-Event: c460a9b512a7\n\n"
+        ids, _, has = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["c460a9b512a7"])
+        self.assertTrue(has)
+
+    def test_trailer_as_last_line_after_co_authored_by(self):
+        body = (
+            "fix: something\n\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+            "Resolves-Event: c460a9b512a7"
+        )
+        ids, _, has = commits.extract_resolves_trailer(body)
+        self.assertEqual(ids, ["c460a9b512a7"])
+        self.assertTrue(has)
+
+
 # ---------------------------------------------------------------------------
 # extract_implicit_event_ids
 # ---------------------------------------------------------------------------
@@ -610,6 +650,63 @@ class TestGetCommitMessageBody(unittest.TestCase):
         self.assertIsNone(commits.get_commit_message_body("/tmp"))
 
 
+# ---------------------------------------------------------------------------
+# merged_range_bodies
+# ---------------------------------------------------------------------------
+
+
+class TestMergedRangeBodies(unittest.TestCase):
+    """Story-008 leg (b): the merge-backstop's only path to a merged-in
+    commit's trailer. Real repo, real `--no-ff` merge — this is git plumbing,
+    not something a mock can stand in for without hiding the `^1..^2` shape."""
+
+    def _git(self, *args: str) -> str:
+        proc = subprocess.run(
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True
+        )
+        return proc.stdout.strip()
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name)
+        self._git("init", "-q", "-b", "main")
+        self._git("config", "user.email", "t@example.com")
+        self._git("config", "user.name", "Tester")
+        self._git("config", "commit.gpgsign", "false")
+        (self.repo / "seed.py").write_text("x = 1\n")
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", "seed")
+
+    def _commit(self, name: str, content: str, message: str) -> str:
+        (self.repo / name).write_text(content)
+        self._git("add", "-A")
+        self._git("commit", "-q", "-m", message)
+        return self._git("rev-parse", "HEAD")
+
+    def test_returns_both_merged_commit_bodies(self):
+        self._git("checkout", "-q", "-b", "feature")
+        self._commit("a.py", "a = 1\n", "feat: a\n\nResolves-Event: aaaaaaaaaaaa")
+        self._commit("b.py", "b = 1\n", "feat: b\n\nResolves-Event: bbbbbbbbbbbb")
+        self._git("checkout", "-q", "main")
+        self._git("merge", "-q", "--no-ff", "-m", "Merge feature", "feature")
+        merge_hash = self._git("rev-parse", "HEAD")
+
+        bodies = commits.merged_range_bodies(str(self.repo), merge_hash)
+
+        self.assertIn("aaaaaaaaaaaa", bodies)
+        self.assertIn("bbbbbbbbbbbb", bodies)
+
+    def test_non_merge_commit_returns_empty_string(self):
+        head = self._commit("c.py", "c = 1\n", "feat: c")
+        self.assertEqual(commits.merged_range_bodies(str(self.repo), head), "")
+
+    def test_unknown_hash_returns_empty_string(self):
+        self.assertEqual(
+            commits.merged_range_bodies(str(self.repo), "deadbeefcafe"), ""
+        )
+
+
 class TestExtractCommitMessage(unittest.TestCase):
     def test_double_quoted(self):
         self.assertEqual(
@@ -751,6 +848,18 @@ class TestParseEffectiveCwdScanTarget(unittest.TestCase):
                 commits.parse_effective_cwd(command, fallback="/tmp", scan_target=""),
                 "/tmp",
             )
+
+
+class TestNulPathsDocstring(unittest.TestCase):
+    """The _nul_paths docstring cites the unambiguous :0:<path> index ref."""
+
+    def test_docstring_cites_unambiguous_index_ref(self):
+        # story-007 made the index reads use :0:<path>; this doc leg was missed
+        # (debt 91e962cab643). A future reader debugging index reads must see the
+        # unambiguous ref, not the stage-ambiguous :<path>.
+        doc = commits._nul_paths.__doc__ or ""
+        self.assertIn(":0:<path>", doc)
+        self.assertNotIn("-e :<path>", doc)
 
 
 if __name__ == "__main__":

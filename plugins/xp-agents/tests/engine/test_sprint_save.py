@@ -243,10 +243,11 @@ class TestSaveSprintMilestoneTransition(_SMMTestCase):
         plan = self._load_plan()
         self.assertEqual(plan["milestones"][0]["status"], "in-progress")
 
-    def test_unparseable_milestone_text_records_concern(self):
-        """Unparseable milestone text records concern, no crash."""
+    def test_malformed_numbered_milestone_text_records_concern(self):
+        """A label that names a milestone number but not in the anchored
+        'Milestone N' position (a malformed attempt) still records a concern."""
         self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
-        self._run_save(self._sprint("Free-form milestone name without number"))
+        self._run_save(self._sprint("Carryover of milestone 4 work"))
 
         # Sprint still written.
         self.assertTrue((self.smm_dir / "sprint.json").is_file())
@@ -263,6 +264,48 @@ class TestSaveSprintMilestoneTransition(_SMMTestCase):
         self.assertTrue(
             any("milestone" in e.get("content", "").lower() for e in concerns),
             f"expected a milestone-related concern; got {concerns}",
+        )
+
+    def test_no_space_milestone_typo_records_concern(self):
+        """A no-space 'Milestone3:' typo matches neither anchored parse — so
+        it transitions nothing — but the intent regex (0+ whitespace) still
+        catches it as a malformed attempt and records a concern instead of
+        silently dropping both the transition AND the alert."""
+        self._write_plan([_make_milestone(number=3, name="Payoff")])
+        self._run_save(self._sprint("Milestone3: Payoff"))
+
+        # No milestone status changed (anchored parse didn't match).
+        plan = self._load_plan()
+        self.assertEqual(plan["milestones"][0]["status"], "planned")
+        # Concern event appended (not silently dropped).
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertTrue(
+            any("Could not parse milestone" in e.get("content", "") for e in concerns),
+            f"expected a milestone-parse concern; got {concerns}",
+        )
+
+    def test_cross_milestone_label_records_no_concern(self):
+        """A deliberate cross-milestone carryover label has no single target
+        milestone to transition — it must NOT cry wolf with a parse concern."""
+        self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
+        self._run_save(
+            self._sprint(
+                "Sprint-121 deferred carryover (cross-milestone: adopted debts)"
+            )
+        )
+
+        # Sprint still written; milestone untouched (no single target).
+        self.assertTrue((self.smm_dir / "sprint.json").is_file())
+        self.assertEqual(self._load_plan()["milestones"][0]["status"], "planned")
+        # No could-not-parse concern recorded.
+        self.assertNotIn(
+            "Could not parse milestone",
+            (self.smm_dir / "events.jsonl").read_text(),
         )
 
     def test_missing_execution_plan_records_concern(self):

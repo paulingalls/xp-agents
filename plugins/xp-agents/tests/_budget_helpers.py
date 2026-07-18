@@ -24,14 +24,23 @@ _HISTORICAL_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
 _WORKTREE_SEGMENT_RE = re.compile(r"/\.claude/worktrees/[^/]+")
 
 
-def _measured_len(stdout_bytes: bytes) -> int:
+def _measured_len(stdout_bytes: bytes, normalize_paths: tuple[str, ...] = ()) -> int:
     """Char length of preload/emitter stdout for budget purposes, location-independent.
 
     Collapses the worktree path segment so a run from inside a teammate worktree
     measures the same as one from the main checkout — the budget governs the
     preload's content, not where the checkout happens to live.
+
+    `normalize_paths`, when given, replaces each of those checkout-variable
+    absolute paths with a fixed-width placeholder BEFORE the worktree-segment
+    strip, so the base checkout path length (not just the worktree segment)
+    stops leaking into the measurement. Longest paths first, so a path that
+    is a prefix of another can't leave a dangling tail.
     """
     text = stdout_bytes.decode("utf-8", errors="replace")
+    for path in sorted(normalize_paths, key=len, reverse=True):
+        if path:
+            text = text.replace(path, "<P>")
     return len(_WORKTREE_SEGMENT_RE.sub("", text))
 
 
@@ -321,7 +330,10 @@ def assert_preload_under_budgets(
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
-            actual = _measured_len(stdout_bytes)
+            actual = _measured_len(
+                stdout_bytes,
+                normalize_paths=(str(_PLUGIN_ROOT), str(smm_dir), str(repo)),
+            )
             if actual > budget:
                 offenders.append(f"{name}: {actual} chars (budget {budget})")
     testcase.assertFalse(

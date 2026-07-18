@@ -36,22 +36,22 @@ from conftest import (
 
 # ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
 PRELOAD_BUDGETS: dict[str, int] = {
-    "xp-accept": 200,
-    "xp-assign": 400,
+    "xp-accept": 100,
+    "xp-assign": 300,
     "xp-end-session": 200,
-    "xp-free-close": 7100,
-    "xp-kickoff": 300,
-    "xp-plan": 200,
-    "xp-plan-close": 7100,
+    "xp-free-close": 7800,
+    "xp-kickoff": 200,
+    "xp-plan": 100,
+    "xp-plan-close": 7800,
     "xp-quality-review": 300,
-    "xp-review-plan": 200,
-    "xp-schedule": 300,
-    "xp-sprint-close": 7100,
+    "xp-review-plan": 100,
+    "xp-schedule": 200,
+    "xp-sprint-close": 7800,
     "xp-sprint-review": 100,
-    "xp-sprint-start": 200,
-    "xp-story-close": 7100,
-    "xp-system-context": 200,
-    "xp-work-selection": 200,
+    "xp-sprint-start": 100,
+    "xp-story-close": 7900,
+    "xp-system-context": 100,
+    "xp-work-selection": 100,
 }
 
 _LABEL = "skills/*/scripts/preload.sh"
@@ -77,6 +77,44 @@ class TestPreloadBudgets(unittest.TestCase):
             b"PLUGIN_ROOT=/repo/.claude/worktrees/worktree-story-1/plugins/xp-agents\n"
         )
         self.assertEqual(_measured_len(main), _measured_len(worktree))
+
+    def test_checkout_path_length_does_not_inflate_budget(self):
+        """Location-independence (concern b2e542c120b9): a preload echoes
+        PLUGIN_ROOT/SMM_DIR/cwd as absolute paths, so the measured stdout
+        length includes the checkout path length itself, not just the
+        worktree segment. Passing normalize_paths must make a short and a
+        deep checkout path measure identically."""
+        from _budget_helpers import _measured_len
+
+        short_root = "/p"
+        long_root = (
+            "/Users/someone/src/projects/xp-agents/.claude/worktrees/"
+            "worktree-story-013-preload-budget-checkout-independent"
+        )
+        short_stdout = (
+            f"PLUGIN_ROOT={short_root}\nscripts dir: {short_root}/scripts\n".encode()
+        )
+        long_stdout = (
+            f"PLUGIN_ROOT={long_root}\nscripts dir: {long_root}/scripts\n".encode()
+        )
+        self.assertEqual(
+            _measured_len(short_stdout, normalize_paths=(short_root,)),
+            _measured_len(long_stdout, normalize_paths=(long_root,)),
+        )
+
+    def test_content_overflow_still_fails_with_normalization(self):
+        """AC2: normalization must not disarm the budget check — genuine
+        content overflow (not path length) still trips it."""
+        from _budget_helpers import _measured_len
+
+        root = "/p"
+        short = f"PLUGIN_ROOT={root}\n".encode()
+        bloated = f"PLUGIN_ROOT={root}\n" + ("x" * 500) + "\n"
+        bloated_bytes = bloated.encode()
+        self.assertLess(
+            _measured_len(short, normalize_paths=(root,)),
+            _measured_len(bloated_bytes, normalize_paths=(root,)),
+        )
 
     def test_every_preload_in_skills_dir_has_budget_entry(self):
         """Surface-scan: walk skills/*/scripts/ for preload-emitter scripts; fail

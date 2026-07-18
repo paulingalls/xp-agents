@@ -40,6 +40,31 @@ from _branching_fixtures import (
 _CLOSE_COMMON = _PLUGIN_ROOT / "scripts" / "close_common.py"
 
 
+def _pin_out_of_repo_smm(test: unittest.TestCase, smm_root: str) -> str:
+    """Nest an SMM dir under `smm_root`, pin $SMM_DIR to it, register restore.
+
+    Returns the SMM dir path. The out-of-repo worktree base is
+    `{smm}.parent/worktrees` (story-024), so nesting keeps each test's base
+    unique — teammate worktrees never collide across tests. Pinning makes the
+    in-process create and the close_common subprocess resolve the SAME location
+    (conftest strips $SMM_DIR, so an unpinned in-process read shells init.sh to
+    the real project).
+    """
+    smm_dir = Path(smm_root) / "smm"
+    smm_dir.mkdir()
+    prev = os.environ.get("SMM_DIR")
+    os.environ["SMM_DIR"] = str(smm_dir)
+
+    def _restore() -> None:
+        if prev is None:
+            os.environ.pop("SMM_DIR", None)
+        else:
+            os.environ["SMM_DIR"] = prev
+
+    test.addCleanup(_restore)
+    return str(smm_dir)
+
+
 def _push(cwd: str, branch: str, smm: str | None = None) -> subprocess.CompletedProcess:
     argv = [
         sys.executable,
@@ -116,7 +141,7 @@ class TestCloseCommonPushRelocate(unittest.TestCase):
         self.repo = self._repo_td.name
         init_repo_with_ignored_worktrees(self.repo)
         self._smm_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        self.smm = self._smm_td.name
+        self.smm = _pin_out_of_repo_smm(self, self._smm_td.name)
         add_bare_remote(self.repo)
         # The bare remote and the test's hook marker live inside the repo dir;
         # exclude them so they don't read as an "untracked → dirty" main tree
@@ -279,6 +304,11 @@ class TestCloseCommonMergeRepushWorktree(unittest.TestCase):
         init_repo_with_ignored_worktrees(self.repo)
         add_bare_remote(self.repo)
         (Path(self.repo) / ".git" / "info" / "exclude").write_text("remote.git/\n")
+        # Pin an out-of-repo SMM so the teammate worktree lands at a per-test
+        # unique base and both create + the close_common subprocess agree.
+        self._smm_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        _pin_out_of_repo_smm(self, self._smm_td.name)
+        self.addCleanup(self._smm_td.cleanup)
         # Teammate worktree holds the story branch; the main checkout stays on
         # `main` (the story base) — the orchestrator-at-story-close shape.
         self.wt = create_teammate_worktree_with_commit(self.repo, "story-042", GIT_ENV)

@@ -13,12 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
-import _common
 import code_files
 import git_commits
-import resolution
-import triage
-import worktree
+from commits_issues import find_addressing_commits, open_issues_matching_commit
 from smm_schema import EVENT_ID_RE
 
 REVIEW_CYCLE_THRESHOLD: int = 2
@@ -115,7 +112,7 @@ def _nul_paths(out: str) -> list[str]:
     as the literal 12-character string `"caf\\303\\251.js"` — quotes included.
     Consumers then test THAT: `is_code_file` sees an extension of `.js"` and
     drops the file from the review scope, and `staged_lint.path_in_index` probes
-    `git cat-file -e :<path>`, which resolves to nothing and drops the file from
+    `git cat-file -e :0:<path>`, which resolves to nothing and drops the file from
     the lint groups, so its staged violations commit unlinted. Both losses are
     silent, because "absent" is also how a legitimate skip reads.
 
@@ -201,99 +198,6 @@ def get_staged_diff(cwd: str) -> str | None:
     return _run_git(["git", "diff", "--cached"], cwd)
 
 
-def open_issues_matching_commit(
-    smm_dir: Path,
-    commit_files: list[str],
-    cwd: str,
-    events: list[dict] | None = None,
-    resolutions: dict | None = None,
-) -> list[dict]:
-    """Return open concerns and debts whose files intersect commit_files.
-
-    Used by bash_post_tool to nudge agents to add `Resolves-Event:`
-    trailers on commits that touch files listed in an unresolved
-    concern or debt. Paths are normalized on both sides so
-    `./scripts/foo.py`, `scripts/foo.py`, and an absolute path all match.
-
-    When ``events`` is provided, filters from the given list without reading
-    disk — used by callers that already loaded events.
-    When both ``events`` and ``resolutions`` are provided, skips computing
-    resolutions entirely — avoids redundant work when the caller already has
-    the resolution map (e.g. from ``load_events_with_resolutions``).
-    """
-    if not commit_files:
-        return []
-    if events is None:
-        events, resolutions = _common.load_events_with_resolutions(smm_dir)
-    elif resolutions is None:
-        resolutions = resolution.compute_resolutions(events)
-    resolved = resolutions["resolved_concern_ids"] | resolutions["resolved_debt_ids"]
-
-    commit_set: set[str] = set()
-    for f in commit_files:
-        try:
-            commit_set.add(worktree.normalize_path(f, cwd))
-        except (ValueError, OSError):
-            continue
-
-    def _intersects(event_files: list) -> bool:
-        if not isinstance(event_files, list):
-            return False
-        for f in event_files:
-            if not isinstance(f, str):
-                continue
-            try:
-                if worktree.normalize_path(f, cwd) in commit_set:
-                    return True
-            except (ValueError, OSError):
-                continue
-        return False
-
-    return [
-        e
-        for e in events
-        if e.get("type") in (_common.CONCERN, _common.DEBT)
-        and e.get("id") not in resolved
-        and _intersects(e.get("files") or [])
-    ]
-
-
-def find_addressing_commits(concern: dict, events: list[dict]) -> list[dict]:
-    """Commits that may have addressed ``concern`` — the soft 'MAYBE
-    ADDRESSED' nudge superset. UNION of two signals over commits dated
-    after the concern:
-
-    - file overlap (``triage.find_overlapping_commits``), and
-    - the commit body citing the concern's id without a formal
-      ``Resolves-Event:`` trailer (``extract_implicit_event_ids``).
-
-    File-overlap hits come first (stable with prior behavior); id-citing
-    hits not already present are appended. Neither signal is
-    authoritative — a formal trailer already resolves the concern, so a
-    resolved concern never reaches this nudge; only prose citations on
-    still-open concerns surface here. The id signal also catches commits
-    that fixed the concern in a *different* file than it lists (including
-    fileless concerns, invisible to file overlap).
-    """
-    hits = list(triage.find_overlapping_commits(concern, events))
-    cid = concern.get("id", "")
-    if not cid:
-        return hits
-    seen = {h.get("id") for h in hits}
-    concern_ts = concern.get("ts", "")
-    for e in events:
-        if e.get("type") != _common.COMMIT:
-            continue
-        if e.get("ts", "") <= concern_ts:
-            continue
-        if e.get("id") in seen:
-            continue
-        if extract_implicit_event_ids(e.get("content") or "", {cid}):
-            hits.append(e)
-            seen.add(e.get("id"))
-    return hits
-
-
 def get_commit_message_body(cwd: str) -> str | None:
     """Get full commit message body of HEAD. Returns None on failure."""
     return _run_git(["git", "log", "-1", "--format=%B"], cwd)
@@ -302,6 +206,23 @@ def get_commit_message_body(cwd: str) -> str | None:
 def get_head_commit_hash(cwd: str) -> str | None:
     """Get current HEAD commit hash. Returns None on failure."""
     return _run_git(["git", "rev-parse", "HEAD"], cwd)
+
+
+def merged_range_bodies(cwd: str, merge_hash: str) -> str:
+    """Concatenated `%B` bodies of the commits a `--no-ff` merge brought in.
+
+    A `--no-ff` merge always has two parents: `^1` is the target branch tip
+    (already accounted for), `^2` is the merged-in source tip. Used by the
+    merge-fallback commit-event builder to re-derive `Resolves-Event:`
+    trailers that a teammate's per-commit events never recorded.
+
+    Fails safe: a degenerate ff-merge (no `^2`) or any other git error
+    returns "" rather than raising into the caller.
+    """
+    out = _run_git(
+        ["git", "log", "--format=%B", f"{merge_hash}^1..{merge_hash}^2"], cwd
+    )
+    return out or ""
 
 
 def get_code_files_for_review(
@@ -483,6 +404,7 @@ __all__ = [
     "get_uncommitted_files",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
+    "merged_range_bodies",
     "open_issues_matching_commit",
     "parse_commit_message",
     "parse_effective_cwd",

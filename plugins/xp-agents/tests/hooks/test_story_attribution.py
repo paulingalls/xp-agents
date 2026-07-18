@@ -30,11 +30,11 @@ class TestResolveStoryId(_HookTestCase):
         """Teammate with .story-assignment file returns its story_id."""
         import worktree
 
-        assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
+        assignment = worktree.story_assignment_path(self.smm_dir, "worktree-story-001")
         assignment.write_text("story-001")
         result = commit_handling._resolve_story_id(
             self.smm_dir,
-            "/proj/.claude/worktrees/teammate-step-1",
+            "/proj/.claude/worktrees/worktree-story-001",
             ["src/app.py"],
         )
         self.assertEqual(result, "story-001")
@@ -333,7 +333,7 @@ class TestResolveStoryId(_HookTestCase):
         """Commit event metadata includes story_id when resolved."""
         import worktree
 
-        assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
+        assignment = worktree.story_assignment_path(self.smm_dir, "worktree-story-003")
         assignment.write_text("story-003")
 
         with patch_commits(files=["a.py"], body="Add feature", head_sha="def456"):
@@ -341,7 +341,7 @@ class TestResolveStoryId(_HookTestCase):
                 _make_bash_input(
                     command="git commit -m 'Add feature'",
                     stdout="[main def456] Add feature\n 1 file changed",
-                    cwd="/proj/.claude/worktrees/teammate-step-1",
+                    cwd="/proj/.claude/worktrees/worktree-story-003",
                 ),
                 smm_dir=self.smm_dir,
             )
@@ -419,7 +419,7 @@ class TestResolveStoryId(_HookTestCase):
         """Teammates still use Tier 1 marker (regression guard)."""
         import worktree
 
-        assignment = worktree.story_assignment_path(self.smm_dir, "teammate-step-1")
+        assignment = worktree.story_assignment_path(self.smm_dir, "worktree-story-001")
         assignment.write_text("story-001")
         (self.smm_dir / "sprint.json").write_text(
             _sprint_json(
@@ -441,7 +441,7 @@ class TestResolveStoryId(_HookTestCase):
         )
         result = commit_handling._resolve_story_id(
             self.smm_dir,
-            "/proj/.claude/worktrees/teammate-step-1",
+            "/proj/.claude/worktrees/worktree-story-001",
             ["src/ui.py"],
         )
         self.assertEqual(result, "story-001")

@@ -35,7 +35,7 @@ import worktree
 
 
 def path_in_index(root: str, path: str) -> bool:
-    """True if *path* has a blob staged in the index (`git cat-file -e :<path>`).
+    """True if *path* has a blob staged in the index (`git cat-file -e :0:<path>`).
 
     Index membership — not working-tree existence — is what separates a file we
     must lint (its staged blob is what the commit carries) from a staged
@@ -47,19 +47,23 @@ def path_in_index(root: str, path: str) -> bool:
     invariant (test_common_path_at_most_one_name_only_call).
     """
     proc = _git_run(
-        ["git", "cat-file", "-e", f":{path}"], cwd=root, capture_output=True
+        ["git", "cat-file", "-e", f":0:{path}"], cwd=root, capture_output=True
     )
     return proc.returncode == 0
 
 
 def staged_blob_bytes(root: str, path: str) -> bytes | None:
-    """The staged bytes of *path* (`git show :<path>`), or None on a bad read.
+    """The staged bytes of *path* (`git show :0:<path>`), or None on a bad read.
 
     Raw bytes, no text decode: a blob may be non-UTF-8, and the linter reads it
     off disk as bytes anyway. None means we could not read a blob the index says
     is there — the caller fails closed on that, never silently skips it.
+
+    The stage is spelled out explicitly (`:0:<path>`, not `:<path>`) so a path
+    that itself begins `N:` cannot be mis-parsed as `:N:<rest>` and resolve to a
+    different file's blob.
     """
-    proc = _git_run(["git", "show", f":{path}"], cwd=root, capture_output=True)
+    proc = _git_run(["git", "show", f":0:{path}"], cwd=root, capture_output=True)
     if proc.returncode != 0:
         return None
     return proc.stdout
@@ -209,7 +213,7 @@ def _lint_staged_bytes(
 ) -> lint_check.LintRun:
     """Lint the INDEX's bytes for `path`, which are not the bytes on disk.
 
-    `git show :<path>` piped to the linter, which is told the real path they belong
+    `git show :0:<path>` piped to the linter, which is told the real path they belong
     to — so the file is judged where it lives without a copy existing anywhere. This
     is the case the gate needs most (a partial add, an edit-after-add: exactly the
     fail-open it was built to close) and the case a copy served worst.
@@ -312,7 +316,7 @@ def staged_lint_gate(staged_files: list[str], cwd: str) -> list[str]:
       * index == working tree (~99% of commits) → lint the real path, batched.
         Linting the real path IS linting the index when they are identical, and
         this cannot reintroduce the fail-open, which requires them to differ.
-      * they diverge → pipe `git show :<path>` to the linter and TELL it the real
+      * they diverge → pipe `git show :0:<path>` to the linter and TELL it the real
         path (`_lint_staged_bytes`). Per-file, but divergence is rare.
       * they diverge and the linter reads no stdin → BLOCK, naming the remedy
         (`git add` the path). Unreadable is not clean, and this one IS

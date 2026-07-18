@@ -56,6 +56,20 @@ class TestCdWorktreeGitWarn(_HookTestCase):
             must_contain=("trailer",),
         )
 
+    def test_cd_out_of_repo_worktree_then_commit_warns(self):
+        """Out-of-repo worktree placement (story-024) still triggers the advisory.
+
+        Teammate worktrees now live at `{project-id}/worktrees/worktree-story-NNN`
+        (sibling of the SMM dir, OUT of the repo). The cwd-poisoning the advisory
+        guards is location-independent, so the matcher must key on the
+        `worktree-story-` segment, not the legacy `.claude/worktrees/` fragment.
+        """
+        self._assert_warns(
+            "cd /data/plugins/xp-agents-xp-agents/8e1f/worktrees/worktree-story-001 "
+            "&& git commit -m 'fix'",
+            must_contain=("trailer",),
+        )
+
     def test_cd_worktree_then_add_warns(self):
         self._assert_warns("cd .claude/worktrees/worktree-story-002 && git add foo.py")
 

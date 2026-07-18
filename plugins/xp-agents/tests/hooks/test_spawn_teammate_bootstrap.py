@@ -2,8 +2,9 @@
 """Tests for spawn_teammate's worktree bootstrap runner.
 
 `git worktree add` materializes only tracked files, so every gitignored
-artifact a project needs is absent from a fresh teammate worktree — and the
-absence does not reliably fail loud. A project can declare
+artifact a project needs is absent from a fresh teammate worktree —
+spike-005 measured the dominant effect as a loud false-RED (TS2882, exit 2),
+with a rarer false-GREEN also possible. A project can declare
 `stack.worktree_bootstrap`; spawn runs it in the new worktree before the agent
 takes its first turn.
 
@@ -113,6 +114,18 @@ class TestBootstrapFailure(_BootstrapTestCase):
         self.assertIn("could-not-install", message, "captured output must surface")
         self.assertIn("3", message, "exit code must surface")
         self.assertIn("echo could-not-install", message, "the command must surface")
+
+    def test_bootstrap_failure_message_is_caller_neutral(self):
+        # run_bootstrap is now reachable from the platform WorktreeCreate hook
+        # (no agent spawn), so its failure message must not be spawn-specific.
+        self.declare_bootstrap("echo boom >&2; exit 1")
+
+        with self.assertRaises(SystemExit) as ctx:
+            self.spawn()
+
+        message = str(ctx.exception)
+        self.assertNotIn("spawn_teammate:", message)
+        self.assertNotIn("No agent was started", message)
 
     def test_failed_bootstrap_leaves_the_worktree_for_forensics(self):
         # Auto-rollback would need force=True (bootstrap has already written
@@ -370,6 +383,51 @@ class TestMainProvisionsTheWorktree(_BootstrapTestCase):
             artifact.is_file(),
             "spawn must thread its SMM dir into create_worktree — without it "
             "no declared bootstrap ever runs and the feature is inert",
+        )
+
+
+class TestBootstrapRationaleNamesBothFailureModes(_BootstrapTestCase):
+    """spike-005 measured the false-RED as the DOMINANT, loud mode (TS2882,
+    exit 2; bare tests exit 1) and the false-GREEN as contrived/masked. The
+    docstring and CHANGELOG previously named only the false-GREEN and called
+    the absence "not reliably loud" — self-contradicting SMM risk
+    f9afab74c152, which recorded the gate as failing. This pins the correction
+    so the record cannot silently regress to the half-story."""
+
+    def test_docstring_names_both_modes_and_drops_stale_phrase(self):
+        import worktree_bootstrap
+
+        doc = worktree_bootstrap.run_bootstrap.__doc__ or ""
+
+        self.assertNotIn(
+            "not reliably loud",
+            doc,
+            "the docstring must no longer claim the absence is quiet — "
+            "spike-005 measured a loud false-RED as the dominant mode",
+        )
+        self.assertTrue(
+            "TS2882" in doc or "false-RED" in doc or "exit 2" in doc,
+            "the docstring must name the measured false-RED mode",
+        )
+        self.assertIn(
+            "permissive",
+            doc,
+            "the docstring must still explain the false-GREEN mode",
+        )
+
+    def test_changelog_drops_stale_false_green_only_framing(self):
+        changelog = Path(__file__).parent.parent.parent.parent.parent / "CHANGELOG.md"
+        text = changelog.read_text()
+
+        self.assertNotIn(
+            "not reliably loud",
+            text,
+            "CHANGELOG must not still assert the absence is quiet",
+        )
+        self.assertTrue(
+            "TS2882" in text or "false-RED" in text or "exit 2" in text,
+            "CHANGELOG must name the measured false-RED mode, not frame "
+            "the false-GREEN as the only failure",
         )
 
 

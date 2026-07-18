@@ -226,6 +226,15 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
         shutil.rmtree(cls._plugin_data_dir, ignore_errors=True)
 
     def setUp(self):
+        # Pin os.environ SMM_DIR to this class's sandbox for the whole test.
+        # conftest strips SMM_DIR at import, and `_test_env` only carries it to
+        # SUBPROCESS hooks; IN-PROCESS code (e.g. worktree.worktree_path, which
+        # now derives the out-of-repo worktree base from resolve_smm_dir) would
+        # otherwise shell init.sh from the runner's cwd and resolve the REAL
+        # project's plugin-data dir — a split brain from the subprocess side and
+        # a containment leak. Pinning makes both sides agree on self.smm_dir.
+        self._prev_env_smm = os.environ.get("SMM_DIR")
+        os.environ["SMM_DIR"] = str(self.smm_dir)
         # Reset SMM state to the post-init snapshot so each test starts clean.
         # Remove files/dirs added by previous tests, restore init.sh originals.
         # Also clean tmpdir (git repo) of files created by previous tests.
@@ -298,8 +307,14 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
         # raises (cleanup_test_worktrees swallows git errors today, but
         # a future change shouldn't be able to skip parent teardown).
         try:
-            worktrees_dir = self.tmpdir / ".claude" / "worktrees"
-            if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
+            # Worktrees now live OUT of the repo at {project-id}/worktrees
+            # (sibling of the SMM dir), not under .claude/worktrees. Check the
+            # out-of-repo dir too so the registry-pruning fast path still fires
+            # after the story-024 placement move; keep the legacy in-repo probe
+            # for any test that still pins the fallback.
+            out_of_repo = self.smm_dir.parent / "worktrees"
+            in_repo = self.tmpdir / ".claude" / "worktrees"
+            if any(d.is_dir() and any(d.iterdir()) for d in (out_of_repo, in_repo)):
                 cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
         finally:
             # Same hold-release as _SMMTestCase.tearDown — and this class does NOT
@@ -315,6 +330,12 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
             from _in_place_helpers import release_in_place_holds
 
             release_in_place_holds(self.smm_dir)
+            # Restore the SMM_DIR env the setUp pin overrode so the value never
+            # leaks into a following non-integration test on the same worker.
+            if self._prev_env_smm is None:
+                os.environ.pop("SMM_DIR", None)
+            else:
+                os.environ["SMM_DIR"] = self._prev_env_smm
             super().tearDown()
 
     def _run_preload(

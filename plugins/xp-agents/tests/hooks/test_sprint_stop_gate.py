@@ -359,7 +359,7 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
         (self.smm_dir / ".accept").write_text("done")
         markers.write_review_cycle(
             self.smm_dir,
-            "teammate-story-001",
+            "worktree-story-001",
             {
                 "simplify_done": True,
                 "quality_review_done": False,
@@ -368,7 +368,7 @@ class TestSprintStopGateWorktreeAgentId(_HookTestCase):
         )
         inp = _make_stop_input(
             agent_id="",
-            cwd="/proj/.claude/worktrees/teammate-story-001",
+            cwd="/proj/.claude/worktrees/worktree-story-001",
         )
         result = sprint_stop_gate.run(inp, smm_dir=self.smm_dir)
         self.assertIsNone(result)

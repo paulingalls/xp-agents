@@ -211,7 +211,10 @@ class TestMilestone08Capstone(_IntegrationTestCase):
 
     def test_cd_then_git_warns_and_auto_resolves(self):
         self._run_capstone_shape(
-            wt_name="worktree-cap-cd",
+            # Real teammate worktree name: the cd-then-git advisory keys on the
+            # `worktree-story-` teammate segment (location-independent since
+            # story-024), so the fixture must use that convention.
+            wt_name="worktree-story-cap-cd",
             file_name="feature.txt",
             summary="feat: capstone cd-shape",
             bash_command_template=(
@@ -226,7 +229,7 @@ class TestMilestone08Capstone(_IntegrationTestCase):
 
     def test_git_dash_C_auto_resolves_without_warning(self):
         self._run_capstone_shape(
-            wt_name="worktree-cap-dashC",
+            wt_name="worktree-story-cap-dashC",
             file_name="feature2.txt",
             summary="feat: capstone dash-C",
             bash_command_template=("git -C {wt} commit -m '...Resolves-Event: {cid}'"),

@@ -49,8 +49,8 @@ degraded close. Report the reason the preload printed: re-cut the sprint branch
 re-run `/xp-story-close`.
 
 `TEAMMATE_CWD` is non-empty when closing a teammate story (orchestrator
-sits on the sprint branch; teammate commits live in
-`.claude/worktrees/worktree-<story-id>`). Requires the story in
+sits on the sprint branch; teammate commits live in the teammate's
+`worktree-<story-id>` worktree, out of the repo). Requires the story in
 `closing` state (set by `/xp-accept` Step 1.5) — the worktree lookup
 keys on it. Steps 1 and 3 route `close_common.py` at
 `--cwd ${TEAMMATE_CWD:-.}` (they read the story's diff/PR base). Step 2
@@ -166,11 +166,12 @@ staged diff:
 
 - `/xp-quality-review` — its preload emits `MODE=self-find`, so the independent
   `xp-code-reviewer` self-finds correctness plus quality/drift/debt; fix findings
-  inline (or record as debt with a reason), as in the per-commit flow.
+  inline (or record as debt with a reason), as in the per-commit flow. Supply
+  `<CLOSE_CYCLE_ID>` when spawning it, tagging any blocking finding as a high concern.
 
-Do not fork `xp-close-reviewer` here — the quality review subsumes it; the broad
-multi-agent code review runs at sprint close. Step 6's "no Block in Step 4.5's
-reviewer summary" holds vacuously (no close-reviewer ran).
+Do not fork `xp-close-reviewer` here — the quality review subsumes it; the
+broad multi-agent code review runs at sprint close. A blocking finding is
+tagged as a high concern for condition 2 below to consume.
 
 ## Steps 5–6: Apply shared close-pipeline reference
 
@@ -190,7 +191,13 @@ Step 6 `AskUserQuestion` and proceed to Step 7 when ALL hold:
    `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` come from the preload.
    `--cycle-id` scopes by close-cycle (SMM is shared across worktrees).
    Test `[ "$ASK_COUNT" -gt 0 ]` → fall through to shared Step 6.
-2. No Block-severity finding in Step 4.5's reviewer summary.
+2. No open high-severity concern recorded during Step 4.5:
+   ```bash
+   HIGH_CONCERN_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-concerns \
+     --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
+   ```
+   Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to shared Step 6.
 3. Preload emitted a non-empty `TEST_COMMAND=...` AND running it after
    all Step 5c fixes landed exits 0.
 
@@ -236,8 +243,8 @@ chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Step 7b: Teammate worktree cleanup (if applicable)
 
-If the just-closed story was a teammate's, a worktree exists at
-`.claude/worktrees/worktree-<story-id>`. Solo stories have no worktree
+If the just-closed story was a teammate's, a `worktree-<story-id>`
+worktree exists (out of the repo). Solo stories have no worktree
 to clean up.
 
 ```bash

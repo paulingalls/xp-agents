@@ -62,8 +62,41 @@ def _clear_git_root_cache() -> None:
     _git_root_cache.clear()
 
 
+def _out_of_repo_worktrees_base() -> Path | None:
+    """{base}/{project-id}/worktrees (sibling of the SMM dir) or None.
+
+    resolve_smm_dir() returns `{base}/{project-id}/smm`, the invariant
+    teammate_runner._project_dir already trusts, so `.parent` is the project
+    dir. Returns None when the SMM dir can't be resolved or resolving it raises,
+    signalling worktree_path to fall back to the legacy in-repo placement.
+    """
+    from _append_impl import resolve_smm_dir  # deferred function-level import
+
+    smm = resolve_smm_dir()
+    if smm is None:
+        return None
+    try:
+        return Path(smm).resolve().parent / "worktrees"
+    except OSError:
+        return None
+
+
 def worktree_path(name: str, cwd: str) -> Path:
-    """Return the path to a worktree: {git_root}/{WORKTREE_PATH_FRAGMENT}{name}."""
+    """Return the path to a worktree, out of the repo when possible.
+
+    Placement is `{base}/{project-id}/worktrees/{name}` — a sibling of the SMM
+    dir, OUT of the repo. Outside the primary checkout, a Node module walk-up
+    from the worktree never reaches the primary's node_modules, so an
+    un-provisioned dependency yields an honest MODULE_NOT_FOUND (the measured
+    dependency-resolution leak, story-024). Both create and remove funnel
+    through here, so they stay consistent for free.
+    """
+    base = _out_of_repo_worktrees_base()
+    if base is not None:
+        return base / name
+    # LEGACY IN-REPO FALLBACK: {git_root}/.claude/worktrees/{name}. Fires only
+    # when the out-of-repo base is unresolvable (CLAUDE_PLUGIN_DATA unavailable);
+    # a documented safe degradation, never a crash (AC3).
     root = resolve_git_root(cwd)
     if not root:
         raise RuntimeError(f"Not a git repository: {cwd}")
@@ -221,7 +254,11 @@ def _iter_live_teammate_worktrees(cwd: str):
         )
     except (subprocess.CalledProcessError, OSError, FileNotFoundError):
         return
-    wt_marker = f"/{WORKTREE_PATH_FRAGMENT}{_WORKTREE_PREFIX}story-"
+    # Location-independent: `/worktree-story-` matches both the new out-of-repo
+    # placement and the legacy in-repo one (migration-safe), without a
+    # `.claude/worktrees/` parent (story-024). Single-source the teammate
+    # segment from identity so a naming rename can't drift the two apart.
+    wt_marker = f"/{identity._TEAMMATE_PREFIX}"
     for block in out.split("\n\n"):
         if "prunable" in block:
             continue
