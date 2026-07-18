@@ -9,6 +9,7 @@ FRESH per-test git repo + teammate worktree (HEAD-mutating cases must not leak
 across tests).
 """
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -40,9 +41,22 @@ class TestAcceptEnvCli(unittest.TestCase):
         init_repo_with_ignored_worktrees(self.repo)
 
         self._smm_td = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        self.smm = self._smm_td.name
+        # Nest the SMM dir so its parent is this test's unique temp — the
+        # out-of-repo worktree base is `{smm}.parent/worktrees` (story-024) —
+        # and pin SMM_DIR so the in-process create and the branching subprocess
+        # resolve the SAME location (conftest strips it, so an unpinned in-process
+        # read shells init.sh to the real project and collides across tests).
+        smm_dir = Path(self._smm_td.name) / "smm"
+        smm_dir.mkdir()
+        self.smm = str(smm_dir)
+        self._prev_smm = os.environ.get("SMM_DIR")
+        os.environ["SMM_DIR"] = self.smm
 
     def tearDown(self):
+        if self._prev_smm is None:
+            os.environ.pop("SMM_DIR", None)
+        else:
+            os.environ["SMM_DIR"] = self._prev_smm
         self._repo_td.cleanup()
         self._smm_td.cleanup()
 

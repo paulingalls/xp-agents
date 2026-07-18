@@ -181,10 +181,12 @@ class TestGateStillBlocks(_GateTestCase):
                 with patch(
                     "commits.get_uncommitted_files", return_value=[]
                 ) as mock_tree:
-                    gate.run(
-                        make_input(cwd="/wt/worktree-story-007"), smm_dir=self.smm_dir
-                    )
-                mock_tree.assert_called_once_with("/wt/worktree-story-007")
+                    # A LEAD session cwd (no `worktree-story-` segment) — the
+                    # gates run for the lead and must thread this cwd into the
+                    # tree check. A teammate-shaped cwd would (correctly) skip
+                    # the gate outright, which is a different behavior.
+                    gate.run(make_input(cwd="/wt/lead-session"), smm_dir=self.smm_dir)
+                mock_tree.assert_called_once_with("/wt/lead-session")
 
     def test_teammate_idle_inherits_the_fix(self):
         """AC4. Fixed at the source — the sibling gates need no code change."""

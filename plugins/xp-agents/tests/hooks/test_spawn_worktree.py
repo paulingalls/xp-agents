@@ -33,10 +33,13 @@ class TestCleanupExisting(_IntegrationTestCase):
         """Removes worktree directory and deletes the branch."""
         import spawn_teammate
 
-        name = "teammate-step-1"
-        wt_dir = self.tmpdir / ".claude" / "worktrees"
-        wt_dir.mkdir(parents=True, exist_ok=True)
-        wt_path = str(wt_dir / name)
+        name = "worktree-story-cleanup"
+        # Place the worktree where production resolves it (out-of-repo since
+        # story-024); the setUp SMM_DIR pin makes worktree_path and
+        # cleanup_existing agree on the location.
+        wt = worktree.worktree_path(name, str(self.tmpdir))
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        wt_path = str(wt)
 
         subprocess.run(
             ["git", "worktree", "add", "-b", name, wt_path, "HEAD"],
@@ -335,9 +338,10 @@ class TestRespawnDoesNotDestroyUncommittedWork(_IntegrationTestCase):
         merge the story is done and whatever is left (build artifacts, editor
         droppings) is debris — refusing there would wedge every close."""
         name = "worktree-story-013"
-        wt_dir = self.tmpdir / ".claude" / "worktrees"
-        wt_dir.mkdir(parents=True, exist_ok=True)
-        wt_path = wt_dir / name
+        # Out-of-repo placement (story-024); setUp pins SMM_DIR so worktree_path
+        # and remove_worktree resolve the same location.
+        wt_path = worktree.worktree_path(name, str(self.tmpdir))
+        wt_path.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             ["git", "worktree", "add", "-b", name, str(wt_path), "HEAD"],
             cwd=self.tmpdir,

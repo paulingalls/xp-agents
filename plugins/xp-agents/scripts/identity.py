@@ -10,15 +10,14 @@ import re
 import subprocess
 from pathlib import Path
 
-# Single source of truth for the worktree directory under each project root.
-# Consumed by hooks (pre_tool_bash matcher), worktree path resolution
-# (worktree.py re-exports this), test fixtures (capstone E2E), and the
-# private path-marker derived below. Trailing slash disambiguates
-# `.claude/worktrees/` from any future sibling that starts the same way.
-# Lives in identity.py (not worktree.py) because worktree.py imports
-# identity — putting it in identity avoids a circular dependency.
+# Single source of truth for the LEGACY in-repo worktree directory under each
+# project root. Consumed by hooks (pre_tool_bash matcher), worktree path
+# resolution (worktree.py re-exports it for the out-of-repo fallback), and test
+# fixtures (capstone E2E). Trailing slash disambiguates `.claude/worktrees/`
+# from any future sibling that starts the same way. Lives in identity.py (not
+# worktree.py) because worktree.py imports identity — putting it in identity
+# avoids a circular dependency.
 WORKTREE_PATH_FRAGMENT = ".claude/worktrees/"
-_WORKTREE_PATH_MARKER = f"/{WORKTREE_PATH_FRAGMENT}"
 _TEAMMATE_PREFIX = "worktree-story-"
 _XP_TEAMMATE_ENV = "XP_TEAMMATE_NAME"
 
@@ -64,18 +63,26 @@ def extract_story_id(branch_name: str) -> str | None:
 
 
 def extract_worktree_name(cwd: str | None) -> str | None:
-    """Extract worktree directory name from cwd, or None if not in worktree.
+    """Extract the teammate worktree dir name from cwd, or None if not one.
+
+    Keys on the location-independent `worktree-story-` SEGMENT rather than a
+    `.claude/worktrees/` parent fragment, so detection keeps firing after
+    worktrees move out of the repo to `{project-id}/worktrees/` (story-024) —
+    the load-bearing teammate-detection contract. A path segment must START
+    with the prefix, so the plural parent `worktrees` (no dash) never
+    false-positives.
 
     Tolerates a missing/None cwd (hook payloads may carry an explicit
-    `"cwd": null`); returns None rather than raising on falsy input.
+    `"cwd": null`); returns None rather than raising on falsy input. Non-teammate
+    worktrees (e.g. `explore-abc`) now return None — every real consumer gates on
+    `is_teammate_agent_id` afterward, so this is more correct, not a regression.
     """
     if not cwd:
         return None
-    idx = cwd.find(_WORKTREE_PATH_MARKER)
-    if idx < 0:
-        return None
-    tail = cwd[idx + len(_WORKTREE_PATH_MARKER) :]
-    return tail.split("/")[0]
+    for seg in cwd.split("/"):
+        if seg.startswith(_TEAMMATE_PREFIX):
+            return seg
+    return None
 
 
 def _process_cwd() -> str:
