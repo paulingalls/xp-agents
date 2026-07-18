@@ -321,12 +321,11 @@ class TestCountClassifications(_SMMTestCase):
         # Only the two ask events on/after May 1.
         self.assertEqual(result.stdout.strip(), "2")
 
-    def test_malformed_json_lines_skipped(self) -> None:
+    def test_malformed_json_lines_counted_as_potential_concern(self) -> None:
         # The event log is append-only with atomic writes, but a
-        # truncated write or hand-edit could leave a malformed line.
-        # The CLI must skip those lines rather than raise — otherwise
-        # the auto-merge gate would silently fail closed and never
-        # auto-merge.
+        # truncated write or hand-edit could leave a malformed line. A
+        # corrupt line could be hiding a real ask-routed classification,
+        # so the CLI counts it (fail closed) rather than skipping it.
         good = _classify_event(route="ask")
         self.events_file.write_text(
             json.dumps(good) + "\n" + "{not valid json\n" + json.dumps(good) + "\n"
@@ -335,7 +334,9 @@ class TestCountClassifications(_SMMTestCase):
             _CLI, ["count-classifications", "--route", "ask"], self.smm_dir
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "2")
+        self.assertEqual(result.stdout.strip(), "3")
+        self.assertIn("fail closed", result.stderr)
+        self.assertIn("unparseable", result.stderr)
 
 
 if __name__ == "__main__":

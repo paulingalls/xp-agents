@@ -338,15 +338,18 @@ class TestCountConcerns(_SMMTestCase):
         self.assertEqual(result_a.stdout.strip(), "2")
         self.assertEqual(result_b.stdout.strip(), "3")
 
-    def test_skips_malformed_lines(self) -> None:
-        # parse_jsonl handles bad lines — pin contract at the CLI boundary.
+    def test_malformed_line_counts_as_potential_concern(self) -> None:
+        # A corrupt line could be hiding a high-severity concern — fail
+        # closed by counting it, rather than fail-open by skipping it.
         valid = _concern("high")
         self.events_file.write_text(
             json.dumps(valid) + "\n" + "{not valid json}\n" + "\n"
         )
         result = run_cli(_CLI, ["count-concerns"], self.smm_dir)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "1")
+        self.assertEqual(result.stdout.strip(), "2")
+        self.assertIn("fail closed", result.stderr)
+        self.assertIn("unparseable", result.stderr)
 
 
 if __name__ == "__main__":
