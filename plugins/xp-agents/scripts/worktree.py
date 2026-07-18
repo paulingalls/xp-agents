@@ -256,8 +256,9 @@ def _iter_live_teammate_worktrees(cwd: str):
         return
     # Location-independent: `/worktree-story-` matches both the new out-of-repo
     # placement and the legacy in-repo one (migration-safe), without a
-    # `.claude/worktrees/` parent (story-024).
-    wt_marker = f"/{_WORKTREE_PREFIX}story-"
+    # `.claude/worktrees/` parent (story-024). Single-source the teammate
+    # segment from identity so a naming rename can't drift the two apart.
+    wt_marker = f"/{identity._TEAMMATE_PREFIX}"
     for block in out.split("\n\n"):
         if "prunable" in block:
             continue
