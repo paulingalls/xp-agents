@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Surface acceptance_execution type per in-motion story.
 
-Called by xp-accept preload to show each story's runner type so the
-skill can route between automated execution and manual walkthrough.
+Called by xp-accept preload to show each story's declared runner type as
+an at-a-glance reference. This is informational only: Step 1 routes on
+command PRESENCE, not `type` (a `type: manual` block carrying a command
+takes the automated path — see the SKILL and _acceptance_execution.py).
 
 Usage:
     python3 acceptance_types.py --sprint-file /path/to/sprint.json

@@ -245,6 +245,58 @@ class TestAcceptSkillTextDispatchesToStoryClose(unittest.TestCase):
         )
 
 
+class TestAcceptStep1RoutesOnCommandPresence(unittest.TestCase):
+    """Step 1 acceptance routing must key on command PRESENCE, not `type`
+    (concern 72ac13e4f0c4, symmetric to story-021's verify_acceptance fix).
+
+    Before: the automated path gated on `type != "manual"`, so a manual block
+    carrying a runnable command (e.g. story-016's git ls-files) took the
+    human walkthrough and its command never ran at per-story accept — a
+    gate-honesty gap (the command only ran at sprint `--sprint`). After: any
+    acceptance_execution carrying a command/commands (INCLUDING type=manual)
+    routes to the automated `verify_acceptance.py --story` runner; the
+    walkthrough is reserved for a block with no runnable command.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = _SKILL_MD.read_text()
+
+    def test_automated_path_not_gated_on_type(self):
+        # The buggy `type != "manual"` gate sent manual+command to the
+        # walkthrough. Routing must not key the automated path on type.
+        self.assertNotIn(
+            'type != "manual"',
+            self.text,
+            "Step 1's automated path must gate on command PRESENCE, not "
+            '`type != "manual"` — else a manual block carrying a runnable '
+            "command is never run at per-story accept (concern 72ac13e4f0c4).",
+        )
+
+    def test_walkthrough_not_gated_on_type(self):
+        self.assertNotIn(
+            'type = "manual" or no acceptance_execution',
+            self.text,
+            "The manual walkthrough must be scoped to a block with no "
+            'runnable command, not to `type = "manual"` (a manual block '
+            "carrying a command runs via verify_acceptance).",
+        )
+
+    def test_routing_keys_on_command_presence(self):
+        self.assertIn(
+            "command presence",
+            self.text,
+            "Step 1 must state the routing keys on command presence.",
+        )
+
+    def test_walkthrough_reserved_for_command_less(self):
+        self.assertIn(
+            "no runnable command",
+            self.text,
+            "The walkthrough section must name the command-less case it covers.",
+        )
+
+
 class TestAcceptSkillTextInlinesCascadeDefer(unittest.TestCase):
     """SKILL.md must inline the cascade-defer bash, not just describe it.
 
@@ -294,7 +346,7 @@ class TestAcceptSkillTextInlinesCascadeDefer(unittest.TestCase):
         # Anchor on the literal cross-reference ("Cascading a deferral")
         # so a header rename forces a coordinated update.
         automated = self._slice_section("### Automated acceptance")
-        manual = self._slice_section("### Manual acceptance")
+        manual = self._slice_section("### Manual walkthrough")
         self.assertIn("Cascading a deferral", automated)
         self.assertIn("Cascading a deferral", manual)
         # And the section itself must exist as a header.
