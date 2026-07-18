@@ -32,19 +32,21 @@ from pathlib import Path
 REFUSAL_PREFIX = "REFUSING TO SPAWN"
 
 
-def worktree_preamble(wt_path: str) -> str:
+def worktree_preamble(wt_path: str, main_repo: str) -> str:
     """Return the worktree-context preamble injected before the teammate prompt.
 
-    Names the worktree path explicitly and the main-repo path derived from
-    it, then instructs the teammate to re-root any absolute path under the
-    main repo to the worktree. The preamble lands FIRST in the teammate's
-    stdin so its rule is established before the prompt body's potentially
-    misleading paths.
+    Names the worktree path and the main-repo checkout explicitly, then
+    instructs the teammate to re-root any absolute path under the main repo to
+    the worktree. The preamble lands FIRST in the teammate's stdin so its rule
+    is established before the prompt body's potentially misleading paths.
 
-    Worktree layout (standardized by worktree.worktree_path):
-    `<main_repo>/.claude/worktrees/<name>`.
+    *main_repo* is passed in (the orchestrator's own cwd), NOT derived from
+    *wt_path*: since worktrees moved out of the repo (story-024) to a sibling of
+    the SMM dir, the worktree is no longer an ancestor of the main checkout, so
+    a parent-walk from *wt_path* would name the plugin data dir instead — and the
+    re-rooting rule would key on the wrong prefix, leaving real main-repo
+    absolute paths un-rerooted.
     """
-    main_repo = str(Path(wt_path).parent.parent.parent)
     return (
         "## Worktree Context (injected by spawn_teammate.py)\n"
         "\n"

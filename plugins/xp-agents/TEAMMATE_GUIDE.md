@@ -2,7 +2,7 @@
 
 You implement your assigned story independently with full TDD and review cycle; the lead coordinates the project. You run in one of two contexts — tell them apart by your working directory:
 
-- **Worktree** (parallel): your cwd is under `.claude/worktrees/worktree-<story-id>/`, isolated from the main checkout and sibling teammates; prompt paths are relative to this worktree.
+- **Worktree** (parallel): your cwd is a `worktree-<story-id>/` dir out of the repo (beside the SMM dir), isolated from the main checkout and sibling teammates; prompt paths are relative to this worktree.
 - **In-place** (solo delegation): your cwd IS the main checkout, already on your story branch — there is no worktree, so read/edit files directly and commit on the branch you are on.
 
 ## TDD Workflow

@@ -49,8 +49,8 @@ degraded close. Report the reason the preload printed: re-cut the sprint branch
 re-run `/xp-story-close`.
 
 `TEAMMATE_CWD` is non-empty when closing a teammate story (orchestrator
-sits on the sprint branch; teammate commits live in
-`.claude/worktrees/worktree-<story-id>`). Requires the story in
+sits on the sprint branch; teammate commits live in the teammate's
+`worktree-<story-id>` worktree, out of the repo). Requires the story in
 `closing` state (set by `/xp-accept` Step 1.5) — the worktree lookup
 keys on it. Steps 1 and 3 route `close_common.py` at
 `--cwd ${TEAMMATE_CWD:-.}` (they read the story's diff/PR base). Step 2
@@ -236,8 +236,8 @@ chain — source intact for retry. Conflicts are never auto-resolved.
 
 ## Step 7b: Teammate worktree cleanup (if applicable)
 
-If the just-closed story was a teammate's, a worktree exists at
-`.claude/worktrees/worktree-<story-id>`. Solo stories have no worktree
+If the just-closed story was a teammate's, a `worktree-<story-id>`
+worktree exists (out of the repo). Solo stories have no worktree
 to clean up.
 
 ```bash
