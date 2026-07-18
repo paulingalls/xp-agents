@@ -169,21 +169,21 @@ class TestCmdTimeout(_SMMTestCase):
 
 
 class TestManualTypeStoryPath(_SMMTestCase):
-    """A story that encodes a deliberate investigation as
-    {"type": "manual", "commands": ["<prose>"]} must never hand that prose
-    to a shell — verify_acceptance --story reports it N/A, not FAIL."""
+    """verify_acceptance gates on command PRESENCE, not on type==manual. A
+    manual block with only prose `steps` (no command) is N/A — its prose is
+    never shelled. A manual block that DOES carry a runnable command runs it,
+    and its exit code decides pass/fail (fixes the N/A-green honesty bug)."""
 
-    def test_manual_story_is_ok_and_commands_never_run(self):
-        story = make_story_dict(
-            id="story-001",
-            acceptance_execution={
-                "type": "manual",
-                "commands": ["go read the logs and confirm X"],
-            },
-        )
+    def _save(self, ae: dict) -> None:
+        story = make_story_dict(id="story-001", acceptance_execution=ae)
         sprint = make_sprint_dict(stories=[story])
         sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
 
+    def _verify(self, story_id: str):
+        return run_cli(_VERIFY_ACCEPTANCE, ["--story", story_id], self.smm_dir)
+
+    def test_manual_steps_only_is_na_and_never_shelled(self):
+        self._save({"type": "manual", "steps": ["go read the logs and confirm X"]})
         # Call _run_story in-process (not via run_cli's subprocess) so the
         # patched subprocess.run is actually observed.
         with patch.object(verify_acceptance.subprocess, "run") as mock_run:
@@ -191,23 +191,35 @@ class TestManualTypeStoryPath(_SMMTestCase):
         self.assertEqual(rc, verify_acceptance._EXIT_OK)
         mock_run.assert_not_called()
 
+    def test_manual_with_command_runs_and_passes(self):
+        self._save({"type": "manual", "command": "true"})
+        result = self._verify("story-001")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_manual_with_command_runs_and_exit_decides_failure(self):
+        # The concern: a manual story carrying a real command used to report
+        # green unrun. Now the command runs and its non-zero exit fails.
+        self._save({"type": "manual", "command": "false"})
+        result = self._verify("story-001")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("false", result.stderr)
+
 
 class TestManualTypeSprintMatrix(_SMMTestCase):
-    """The sprint-wide matrix expands every story's acceptance_execution via
-    extract_commands and shells each with shell=True. A manual story's prose
-    must never reach that shell — it appears as an N/A row, is excluded from
-    `failing`, and never turns a green sprint red."""
+    """--sprint gates on command PRESENCE. A manual block with only prose
+    `steps` is an N/A row (never shelled, never reddens the sprint); a manual
+    block carrying a runnable command is executed like any other."""
 
     def _seed(self, stories: list[dict]) -> None:
         sprint = make_sprint_dict(sprint_id="sprint-012", stories=stories)
         sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
 
-    def test_manual_story_is_na_and_sprint_stays_green(self):
+    def test_manual_steps_only_is_na_and_sprint_stays_green(self):
         manual_story = make_story_dict(
             id="story-manual",
             acceptance_execution={
                 "type": "manual",
-                "commands": ["go read the logs and confirm X"],
+                "steps": ["go read the logs and confirm X"],
             },
         )
         passing_story = make_story_dict(
@@ -220,7 +232,7 @@ class TestManualTypeSprintMatrix(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("N/A", result.stdout)
         self.assertNotIn(
-            "go read the logs and confirm X exit",
+            "go read the logs and confirm X",
             result.stdout,
             "manual prose must never be shelled out",
         )
@@ -231,6 +243,26 @@ class TestManualTypeSprintMatrix(_SMMTestCase):
         self.assertEqual(meta["verify_status"], "green")
         failing_stories = [f["story"] for f in meta["failing"]]
         self.assertNotIn("story-manual", failing_stories)
+
+    def test_manual_with_command_runs_in_sprint_and_can_redden(self):
+        # The honesty fix: a manual block carrying a real command is run in the
+        # --sprint matrix (not N/A-green), so a failing one reddens the sprint.
+        manual_cmd_story = make_story_dict(
+            id="story-manual-cmd",
+            acceptance_execution={"type": "manual", "command": "false"},
+        )
+        self._seed([manual_cmd_story])
+
+        result = run_cli(_VERIFY_ACCEPTANCE, ["--sprint"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[FAIL]", result.stdout)
+
+        events = verify_events(self._read_events())
+        self.assertEqual(len(events), 1, events)
+        meta = events[0]["metadata"]
+        self.assertEqual(meta["verify_status"], "red")
+        failing_stories = [f["story"] for f in meta["failing"]]
+        self.assertIn("story-manual-cmd", failing_stories)
 
 
 if __name__ == "__main__":

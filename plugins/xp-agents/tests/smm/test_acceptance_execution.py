@@ -153,6 +153,58 @@ class TestValidatePins(unittest.TestCase):
         self.assertTrue(any("pins" in e for e in errors), errors)
 
 
+class TestManualOptionalCommand(unittest.TestCase):
+    """A type==manual block may omit the command/commands block — its check is
+    human/agent judgment, optionally with a runnable confirmation. Every other
+    type still requires exactly one of command xor commands."""
+
+    def test_manual_without_command_is_valid(self):
+        self.assertEqual(_v({"type": "manual"}), [])
+
+    def test_manual_with_steps_only_is_valid(self):
+        ae = {"type": "manual", "steps": ["Deploy to staging", "Confirm redirect"]}
+        self.assertEqual(_v(ae), [])
+
+    def test_manual_with_command_is_valid(self):
+        # A manual block MAY carry a runnable confirmation command.
+        ae = {"type": "manual", "command": "git ls-files --error-unmatch docs/x.md"}
+        self.assertEqual(_v(ae), [])
+
+    def test_non_manual_without_command_still_rejected(self):
+        errors = _v({"type": "pytest"})
+        self.assertTrue(any("command" in e and "commands" in e for e in errors), errors)
+
+    def test_manual_with_both_command_and_commands_still_rejected(self):
+        # The xor still holds when a manual block DOES carry a command block.
+        ae = {"type": "manual", "command": "true", "commands": ["true"]}
+        errors = _v(ae)
+        self.assertTrue(any("command" in e and "commands" in e for e in errors), errors)
+
+
+class TestValidateSteps(unittest.TestCase):
+    """Optional `steps: list[str]` — structured human/agent steps for a manual
+    check, distinct from runnable `commands`."""
+
+    def test_absent_steps_is_valid(self):
+        self.assertEqual(_v({"type": "manual"}), [])
+
+    def test_list_of_strings_steps_is_valid(self):
+        ae = {"type": "manual", "steps": ["step one", "step two"]}
+        self.assertEqual(_v(ae), [])
+
+    def test_non_list_steps_rejected(self):
+        errors = _v({"type": "manual", "steps": "do the thing"})
+        self.assertTrue(any("steps" in e for e in errors), errors)
+
+    def test_non_string_entry_in_steps_rejected(self):
+        errors = _v({"type": "manual", "steps": ["ok", 42]})
+        self.assertTrue(any("steps" in e for e in errors), errors)
+
+    def test_steps_alongside_command_is_valid(self):
+        ae = {"type": "manual", "command": "true", "steps": ["also confirm by eye"]}
+        self.assertEqual(_v(ae), [])
+
+
 class TestRenderCommands(unittest.TestCase):
     """`render_acceptance_execution` must handle both shapes."""
 
@@ -180,6 +232,37 @@ class TestRenderCommands(unittest.TestCase):
         self.assertIn("**Commands:**", rendered)
         self.assertIn("`grep -q FOO file.txt`", rendered)
         self.assertIn("`pytest tests/`", rendered)
+
+    def test_render_command_less_manual_with_steps_does_not_raise(self):
+        # A manual block with no command must not KeyError in the renderer
+        # (extract_commands used to run unconditionally). Steps are rendered.
+        lines: list[str] = []
+        render_acceptance_execution(
+            {"type": "manual", "steps": ["Deploy to staging", "Confirm redirect"]},
+            lines,
+        )
+        rendered = "\n".join(lines)
+        self.assertIn("**Type:** manual", rendered)
+        self.assertNotIn("**Command:**", rendered)
+        self.assertNotIn("**Commands:**", rendered)
+        self.assertIn("**Steps:**", rendered)
+        self.assertIn("Deploy to staging", rendered)
+        self.assertIn("Confirm redirect", rendered)
+
+    def test_render_manual_with_command_and_steps(self):
+        lines: list[str] = []
+        render_acceptance_execution(
+            {
+                "type": "manual",
+                "command": "git ls-files --error-unmatch docs/x.md",
+                "steps": ["Then eyeball the rendered doc"],
+            },
+            lines,
+        )
+        rendered = "\n".join(lines)
+        self.assertIn("**Command:** `git ls-files --error-unmatch docs/x.md`", rendered)
+        self.assertIn("**Steps:**", rendered)
+        self.assertIn("Then eyeball the rendered doc", rendered)
 
 
 class TestValidatePerAcVerify(unittest.TestCase):
