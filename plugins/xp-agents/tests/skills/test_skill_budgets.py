@@ -42,7 +42,11 @@ SKILL_BUDGETS: dict[str, int] = {
     "xp-sprint-review": 1850,
     "xp-sprint-start": 12560,
     "xp-stage-migration": 2940,
-    "xp-story-close": 12110,
+    # Bumped 12110 -> 12450 (story-025): condition 2 became a deterministic
+    # count-concerns read (mirrors condition 1's count-classifications) and
+    # Step 4.5b gained the close-cycle-id threading clause. Re-trimmed
+    # surrounding prose to the minimum first.
+    "xp-story-close": 12450,
     "xp-system-context": 1250,
     "xp-work-selection": 8820,
 }
