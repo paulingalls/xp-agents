@@ -61,6 +61,7 @@ Everything keys on one constant: `WORKTREE_PATH_FRAGMENT = ".claude/worktrees/"`
 | `worktree_path` — `{git_root}/{fragment}{name}` | `worktree.py:66` | Rebase to an out-of-root base (not `git_root`-relative) |
 | worktree enumeration / prune / cleanup — `worktree-story-` prefix | `worktree.py`, `cleanup_teammate.py` | Follow the fragment change; the `worktree-` name prefix is unaffected |
 | goal/gate scoping — `worktree-story-*` | `session_start.py`, `lead_gates.py` | Key on the name prefix, not the path — unaffected |
+| `cd <worktree> && git` advisory regex — built from `re.escape(WORKTREE_PATH_FRAGMENT)` | `pre_tool_bash.py` | Auto-follows the constant (re-exports `identity.WORKTREE_PATH_FRAGMENT`); no manual edit |
 | `.gitignore` entry `.claude/worktrees/` | repo `.gitignore` | Becomes **moot** (outside the repo → nothing to ignore) |
 
 ## 4. Decision (AC4)
