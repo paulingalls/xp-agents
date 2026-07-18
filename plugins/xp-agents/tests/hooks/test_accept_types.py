@@ -97,6 +97,24 @@ class TestAcceptanceTypes(unittest.TestCase):
         self.assertIn("story-001: pytest", output)
         self.assertIn("story-002: bash", output)
 
+    def test_manual_block_with_command_shows_automated_routing(self):
+        # story-021/023: Step 1 routes on command PRESENCE, not type — a
+        # manual-typed block carrying a command runs the automated path, so
+        # the display must reflect routing, not the bare (misleading) type.
+        story = _make_story(
+            id="story-001",
+            status="in-progress",
+            acceptance_execution={"type": "manual", "command": "pytest tests/x.py"},
+        )
+        output = acceptance_types.format_acceptance_types({"stories": [story]})
+        self.assertIn("story-001: manual (automated)", output)
+
+    def test_command_less_block_shows_walkthrough(self):
+        # No acceptance_execution → a manual walkthrough (command-less).
+        story = _make_story(id="story-001", status="in-progress")
+        output = acceptance_types.format_acceptance_types({"stories": [story]})
+        self.assertIn("story-001: manual (walkthrough)", output)
+
 
 if __name__ == "__main__":
     unittest.main()

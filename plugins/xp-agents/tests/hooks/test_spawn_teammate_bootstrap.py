@@ -115,6 +115,18 @@ class TestBootstrapFailure(_BootstrapTestCase):
         self.assertIn("3", message, "exit code must surface")
         self.assertIn("echo could-not-install", message, "the command must surface")
 
+    def test_bootstrap_failure_message_is_caller_neutral(self):
+        # run_bootstrap is now reachable from the platform WorktreeCreate hook
+        # (no agent spawn), so its failure message must not be spawn-specific.
+        self.declare_bootstrap("echo boom >&2; exit 1")
+
+        with self.assertRaises(SystemExit) as ctx:
+            self.spawn()
+
+        message = str(ctx.exception)
+        self.assertNotIn("spawn_teammate:", message)
+        self.assertNotIn("No agent was started", message)
+
     def test_failed_bootstrap_leaves_the_worktree_for_forensics(self):
         # Auto-rollback would need force=True (bootstrap has already written
         # files), destroying the very evidence needed to debug the failure.

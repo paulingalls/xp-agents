@@ -850,5 +850,17 @@ class TestParseEffectiveCwdScanTarget(unittest.TestCase):
             )
 
 
+class TestNulPathsDocstring(unittest.TestCase):
+    """The _nul_paths docstring cites the unambiguous :0:<path> index ref."""
+
+    def test_docstring_cites_unambiguous_index_ref(self):
+        # story-007 made the index reads use :0:<path>; this doc leg was missed
+        # (debt 91e962cab643). A future reader debugging index reads must see the
+        # unambiguous ref, not the stage-ambiguous :<path>.
+        doc = commits._nul_paths.__doc__ or ""
+        self.assertIn(":0:<path>", doc)
+        self.assertNotIn("-e :<path>", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
