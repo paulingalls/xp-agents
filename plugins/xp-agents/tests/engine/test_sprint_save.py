@@ -266,6 +266,29 @@ class TestSaveSprintMilestoneTransition(_SMMTestCase):
             f"expected a milestone-related concern; got {concerns}",
         )
 
+    def test_no_space_milestone_typo_records_concern(self):
+        """A no-space 'Milestone3:' typo matches neither anchored parse — so
+        it transitions nothing — but the intent regex (0+ whitespace) still
+        catches it as a malformed attempt and records a concern instead of
+        silently dropping both the transition AND the alert."""
+        self._write_plan([_make_milestone(number=3, name="Payoff")])
+        self._run_save(self._sprint("Milestone3: Payoff"))
+
+        # No milestone status changed (anchored parse didn't match).
+        plan = self._load_plan()
+        self.assertEqual(plan["milestones"][0]["status"], "planned")
+        # Concern event appended (not silently dropped).
+        events = [
+            json.loads(line)
+            for line in (self.smm_dir / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertTrue(
+            any("Could not parse milestone" in e.get("content", "") for e in concerns),
+            f"expected a milestone-parse concern; got {concerns}",
+        )
+
     def test_cross_milestone_label_records_no_concern(self):
         """A deliberate cross-milestone carryover label has no single target
         milestone to transition — it must NOT cry wolf with a parse concern."""

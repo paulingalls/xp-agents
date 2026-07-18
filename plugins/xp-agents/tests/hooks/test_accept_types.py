@@ -109,6 +109,21 @@ class TestAcceptanceTypes(unittest.TestCase):
         output = acceptance_types.format_acceptance_types({"stories": [story]})
         self.assertIn("story-001: manual (automated)", output)
 
+    def test_manual_block_with_commands_plural_shows_automated_routing(self):
+        # story-021/026: verify_acceptance routes on presence of `command`
+        # OR `commands` (plural). The display check must mirror that, or a
+        # `commands`-plural manual block is mislabeled as a walkthrough.
+        story = _make_story(
+            id="story-001",
+            status="in-progress",
+            acceptance_execution={
+                "type": "manual",
+                "commands": ["pytest tests/x.py", "pytest tests/y.py"],
+            },
+        )
+        output = acceptance_types.format_acceptance_types({"stories": [story]})
+        self.assertIn("story-001: manual (automated)", output)
+
     def test_command_less_block_shows_walkthrough(self):
         # No acceptance_execution → a manual walkthrough (command-less).
         story = _make_story(id="story-001", status="in-progress")

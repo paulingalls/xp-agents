@@ -58,7 +58,7 @@ _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
 # "Milestone N" position — a malformed attempt worth flagging. A deliberate
 # non-numbered / cross-milestone carryover label matches neither regex: it has
 # no single target milestone, so it transitions nothing and records no concern.
-_MILESTONE_INTENT_RE = re.compile(r"milestone\s+\d", re.IGNORECASE)
+_MILESTONE_INTENT_RE = re.compile(r"milestone\s*\d", re.IGNORECASE)
 
 _SPRINT_REVIEW_NUDGE = (
     "\n**Sprint complete!** All stories are done or deferred. "

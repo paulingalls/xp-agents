@@ -32,6 +32,11 @@ corrupt line can no longer silently lower the count and wave a merge through.
 **Acceptance and gate honesty.** `verify_acceptance` skips deferred stories under
 `--sprint` and gates manual acceptance on command *presence*, not `type` (021/023); the
 accept preload shows each story's routing (automated/walkthrough), not the bare type.
+**BREAKING (021):** a `type: manual` block's `command`/`commands` is now *run*, not treated
+as prose. If you previously stashed human/agent narrative in `commands` (e.g.
+`commands: ["go read the logs"]`), it will now be shelled and fail the acceptance gate —
+move that prose into the new optional `steps: list[str]` field (a command-less manual block
+reports N/A). Only genuinely runnable confirmations belong in `command`/`commands`.
 `/xp-accept` reads the existing is-complete signal instead of inferring completeness from
 a zero ready-frontier (022). The staged-lint gate reads the staged blob by an unambiguous
 `:0:<path>` ref, closing a fail-open (007); the close-merge event re-parses the merged

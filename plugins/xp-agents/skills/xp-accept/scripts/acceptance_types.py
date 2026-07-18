@@ -42,7 +42,7 @@ def format_acceptance_types(sprint: dict) -> str:
         # Display the ROUTING, not the bare type: Step 1 routes on command
         # PRESENCE (a manual-typed block carrying a command runs the automated
         # path), so a command present -> automated, absent -> walkthrough.
-        if ae and ae.get("command"):
+        if ae and (ae.get("command") or ae.get("commands")):
             display = f"{ae['type']} (automated)"
         elif ae:
             display = f"{ae['type']} (walkthrough)"
