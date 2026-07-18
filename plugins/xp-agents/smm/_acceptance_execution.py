@@ -10,9 +10,18 @@ The command/commands verify block takes two shapes:
 - ``commands: list[str]`` — ordered list of commands; verify_acceptance.py
   runs them in order and stops at the first non-zero exit.
 
-The story/milestone acceptance_execution block requires exactly one of
-them; a per-AC verify object may carry neither (a structured manual
-check).
+The story/milestone acceptance_execution block requires exactly one of them
+for every ``type`` EXCEPT ``manual``: a manual check is verified by human/agent
+judgment, so its command block is optional. When a manual block DOES carry a
+command it is a runnable confirmation (verify_acceptance runs it); when it does
+not, the check is prose. Human/agent steps live in an optional
+``steps: list[str]`` (distinct from runnable ``commands``). A per-AC verify
+object may carry neither command block (a structured manual check).
+
+Gate on command PRESENCE, not on ``type``: whatever runs a command runs it
+regardless of type, and a manual block with no command is N/A. (Historically a
+manual block's ``commands`` were treated as prose and never run — that prose now
+belongs in ``steps``; a manual ``command``/``commands`` is runnable.)
 """
 
 
@@ -53,6 +62,14 @@ def _validate_command_block(
         errors.append(f"{prefix}.setup must be a string")
     if "notes" in block and not isinstance(block["notes"], str):
         errors.append(f"{prefix}.notes must be a string")
+    if "steps" in block:
+        steps = block["steps"]
+        if not isinstance(steps, list):
+            errors.append(f"{prefix}.steps must be a list of strings")
+        else:
+            for i, s in enumerate(steps):
+                if not isinstance(s, str):
+                    errors.append(f"{prefix}.steps[{i}] must be a string")
     return errors
 
 
@@ -68,7 +85,11 @@ def validate_acceptance_execution(ae: object, prefix: str) -> list[str]:
     if not isinstance(ae.get("type"), str):
         errors.append(f"{prefix}.type is required and must be a string")
 
-    errors.extend(_validate_command_block(ae, prefix, require_one=True))
+    # The command block is optional for a manual check (its verification is
+    # human/agent judgment, optionally with a runnable confirmation); every
+    # other type must still carry exactly one of command xor commands.
+    require_one = ae.get("type") != "manual"
+    errors.extend(_validate_command_block(ae, prefix, require_one=require_one))
     if "pins" in ae:
         pins = ae["pins"]
         if not isinstance(pins, list):
@@ -133,13 +154,20 @@ def render_acceptance_execution(ae: dict, lines: list[str]) -> None:
     """Append acceptance_execution markdown to lines list."""
     lines.append("**Acceptance Execution:**")
     lines.append(f"- **Type:** {ae['type']}")
-    cmds = extract_commands(ae)
-    if "commands" in ae:
-        lines.append("- **Commands:**")
-        for i, c in enumerate(cmds, 1):
-            lines.append(f"  {i}. `{c}`")
-    else:
-        lines.append(f"- **Command:** `{cmds[0]}`")
+    # A manual block may carry no command (extract_commands would KeyError);
+    # render Command/Commands only when a runnable block is present.
+    if "command" in ae or "commands" in ae:
+        cmds = extract_commands(ae)
+        if "commands" in ae:
+            lines.append("- **Commands:**")
+            for i, c in enumerate(cmds, 1):
+                lines.append(f"  {i}. `{c}`")
+        else:
+            lines.append(f"- **Command:** `{cmds[0]}`")
+    if ae.get("steps"):
+        lines.append("- **Steps:**")
+        for i, s in enumerate(ae["steps"], 1):
+            lines.append(f"  {i}. {s}")
     if ae.get("setup"):
         lines.append(f"- **Setup:** `{ae['setup']}`")
     if ae.get("notes"):
