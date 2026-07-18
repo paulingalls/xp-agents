@@ -65,6 +65,22 @@ class TestIsCompleteCommand(_SMMTestCase):
         result = run_cli(_CLI, ["is-complete"], self.smm_dir)
         self.assertEqual(result.returncode, 1)
 
+    def test_not_complete_with_drained_batch_in_progress(self):
+        # Concern 643125fd5010: a teammate batch promoted up front then drained
+        # leaves 0 scheduled but in-progress work remaining. is-complete must read
+        # NOT-complete (exit 1) here — the signal /xp-accept Step 8 now gates on
+        # instead of the buggy FRONTIER_COUNT==0 inference (which read this as
+        # complete and prematurely fired /xp-sprint-review).
+        sprint = _make_sprint(
+            stories=[
+                _make_story(id="story-001", status="done"),
+                _make_story(id="story-002", status="in-progress"),
+            ]
+        )
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+        result = run_cli(_CLI, ["is-complete"], self.smm_dir)
+        self.assertEqual(result.returncode, 1, result.stderr)
+
 
 class TestCountCommand(_SMMTestCase):
     def test_count_output(self):
