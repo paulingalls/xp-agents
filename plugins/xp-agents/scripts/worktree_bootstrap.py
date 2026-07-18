@@ -126,7 +126,7 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
         )
     except subprocess.TimeoutExpired as exc:
         raise SystemExit(
-            f"spawn_teammate: worktree bootstrap timed out after {timeout}s: "
+            f"worktree bootstrap timed out after {timeout}s: "
             f"{command}\nWorktree left at {wt_path} for inspection. "
             f"Tune XP_BOOTSTRAP_TIMEOUT_S if this project legitimately needs "
             f"longer."
@@ -135,8 +135,8 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
     if proc.returncode != 0:
         output = (proc.stderr or proc.stdout or "").strip()
         raise SystemExit(
-            f"spawn_teammate: worktree bootstrap failed (exit "
+            f"worktree bootstrap failed (exit "
             f"{proc.returncode}): {command}\n{output}\n"
-            f"No agent was started. Worktree left at {wt_path} for "
-            f"inspection — delete it before re-spawning."
+            f"Worktree left at {wt_path} for inspection — delete it "
+            f"before retrying."
         )

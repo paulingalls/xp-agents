@@ -57,7 +57,7 @@ spawnable work leaves the background empty for the whole close cycle.
 Read the sprint file at `SPRINT_FILE`. For each story in the selected set
 (reviewing or in-progress per `SELECTED_STATUS`), check its
 `acceptance_execution` field (the preload's `### Acceptance Types`
-section shows the type per story for quick reference).
+section shows each story's routing for quick reference).
 
 ### Precondition: heal the main checkout
 

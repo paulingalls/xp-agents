@@ -112,7 +112,7 @@ def _nul_paths(out: str) -> list[str]:
     as the literal 12-character string `"caf\\303\\251.js"` — quotes included.
     Consumers then test THAT: `is_code_file` sees an extension of `.js"` and
     drops the file from the review scope, and `staged_lint.path_in_index` probes
-    `git cat-file -e :<path>`, which resolves to nothing and drops the file from
+    `git cat-file -e :0:<path>`, which resolves to nothing and drops the file from
     the lint groups, so its staged violations commit unlinted. Both losses are
     silent, because "absent" is also how a legitimate skip reads.
 

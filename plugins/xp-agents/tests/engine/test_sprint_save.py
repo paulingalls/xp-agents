@@ -243,10 +243,11 @@ class TestSaveSprintMilestoneTransition(_SMMTestCase):
         plan = self._load_plan()
         self.assertEqual(plan["milestones"][0]["status"], "in-progress")
 
-    def test_unparseable_milestone_text_records_concern(self):
-        """Unparseable milestone text records concern, no crash."""
+    def test_malformed_numbered_milestone_text_records_concern(self):
+        """A label that names a milestone number but not in the anchored
+        'Milestone N' position (a malformed attempt) still records a concern."""
         self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
-        self._run_save(self._sprint("Free-form milestone name without number"))
+        self._run_save(self._sprint("Carryover of milestone 4 work"))
 
         # Sprint still written.
         self.assertTrue((self.smm_dir / "sprint.json").is_file())
@@ -263,6 +264,25 @@ class TestSaveSprintMilestoneTransition(_SMMTestCase):
         self.assertTrue(
             any("milestone" in e.get("content", "").lower() for e in concerns),
             f"expected a milestone-related concern; got {concerns}",
+        )
+
+    def test_cross_milestone_label_records_no_concern(self):
+        """A deliberate cross-milestone carryover label has no single target
+        milestone to transition — it must NOT cry wolf with a parse concern."""
+        self._write_plan([_make_milestone(number=1, name="Kickoff migration")])
+        self._run_save(
+            self._sprint(
+                "Sprint-121 deferred carryover (cross-milestone: adopted debts)"
+            )
+        )
+
+        # Sprint still written; milestone untouched (no single target).
+        self.assertTrue((self.smm_dir / "sprint.json").is_file())
+        self.assertEqual(self._load_plan()["milestones"][0]["status"], "planned")
+        # No could-not-parse concern recorded.
+        self.assertNotIn(
+            "Could not parse milestone",
+            (self.smm_dir / "events.jsonl").read_text(),
         )
 
     def test_missing_execution_plan_records_concern(self):

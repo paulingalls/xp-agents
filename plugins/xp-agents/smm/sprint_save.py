@@ -54,6 +54,12 @@ from event_schema import (  # noqa: E402
 # Matches "Milestone N: <anything>" or "Milestone N — <anything>"
 _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
 
+# A label that names a milestone number somewhere but not in the anchored
+# "Milestone N" position — a malformed attempt worth flagging. A deliberate
+# non-numbered / cross-milestone carryover label matches neither regex: it has
+# no single target milestone, so it transitions nothing and records no concern.
+_MILESTONE_INTENT_RE = re.compile(r"milestone\s+\d", re.IGNORECASE)
+
 _SPRINT_REVIEW_NUDGE = (
     "\n**Sprint complete!** All stories are done or deferred. "
     "Run `/xp-sprint-review` to review the sprint."
@@ -82,12 +88,16 @@ def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
     milestone_text = data.get("milestone", "") or ""
     match = _MILESTONE_NUMBER_RE.match(milestone_text)
     if not match:
-        _record_concern(
-            smm_dir,
-            f"Could not parse milestone number from sprint.milestone text "
-            f"{milestone_text!r}. Expected 'Milestone N: <name>'. Execution "
-            f"plan status not updated.",
-        )
+        # A deliberate non-numbered / cross-milestone label has no single target
+        # milestone to transition — return silently. Only a label that plausibly
+        # INTENDED a number (names one out of anchored position) is malformed.
+        if _MILESTONE_INTENT_RE.search(milestone_text):
+            _record_concern(
+                smm_dir,
+                f"Could not parse milestone number from sprint.milestone text "
+                f"{milestone_text!r}. Expected 'Milestone N: <name>'. Execution "
+                f"plan status not updated.",
+            )
         return
     target_num = int(match.group(1))
 

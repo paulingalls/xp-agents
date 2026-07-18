@@ -22,7 +22,12 @@ from sprint_status import select_in_motion_stories  # noqa: E402
 
 
 def format_acceptance_types(sprint: dict) -> str:
-    """Format acceptance types for in-motion stories.
+    """Format each in-motion story's acceptance ROUTING for quick reference.
+
+    Shows `<type> (automated)` when a command is present and `(walkthrough)`
+    when it is absent — the same command-presence signal Step 1 routes on —
+    rather than the bare `type`, which reads as walkthrough even for a
+    command-bearing manual block. Informational only; routing is presence-based.
 
     Shares select_in_motion_stories with concern_triage so both preload
     helpers stay in lockstep on the dispatch contract.
@@ -34,8 +39,16 @@ def format_acceptance_types(sprint: dict) -> str:
     lines = ["### Acceptance Types"]
     for story in in_motion:
         ae = story.get("acceptance_execution")
-        ae_type = ae["type"] if ae else "manual"
-        lines.append(f"{story['id']}: {ae_type}")
+        # Display the ROUTING, not the bare type: Step 1 routes on command
+        # PRESENCE (a manual-typed block carrying a command runs the automated
+        # path), so a command present -> automated, absent -> walkthrough.
+        if ae and ae.get("command"):
+            display = f"{ae['type']} (automated)"
+        elif ae:
+            display = f"{ae['type']} (walkthrough)"
+        else:
+            display = "manual (walkthrough)"
+        lines.append(f"{story['id']}: {display}")
     return "\n".join(lines)
 
 
