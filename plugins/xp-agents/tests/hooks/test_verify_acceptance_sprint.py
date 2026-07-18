@@ -36,11 +36,17 @@ _VERIFY_ACCEPTANCE = (
 )
 
 
-def _story(story_id: str, *, acceptance_criteria, acceptance_execution=None) -> dict:
+def _story(
+    story_id: str,
+    *,
+    acceptance_criteria,
+    acceptance_execution=None,
+    status: str = "done",
+) -> dict:
     story = {
         "id": story_id,
         "title": f"Story {story_id}",
-        "status": "done",
+        "status": status,
         "dependencies": [],
         "milestone_ref": "",
         "design_sources": "",
@@ -219,6 +225,60 @@ class TestMixedRedEventAndQuery(_SprintCLITestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("red", result.stdout)
         self.assertIn("false", result.stdout)
+
+
+class TestDeferredStorySkipped(_SprintCLITestCase):
+    """A deferred story's deliverable is intentionally absent, so running its
+    acceptance produces a false RED that blocks the close of legitimately
+    shipped work (hit live closing sprint-121). --sprint must skip deferred
+    stories entirely — not gather, not run, not report them."""
+
+    def test_deferred_story_not_gathered_and_no_red(self):
+        self._seed(
+            [
+                _story(
+                    "story-deferred",
+                    status="deferred",
+                    acceptance_criteria=["prose"],
+                    acceptance_execution={"type": "pytest", "command": "false"},
+                ),
+                _story(
+                    "story-shipped",
+                    acceptance_criteria=["prose"],
+                    acceptance_execution={"type": "pytest", "command": "true"},
+                ),
+            ]
+        )
+        result = self._run("--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The deferred story's failing command must never run — sprint stays green.
+        self.assertNotIn("story-deferred", result.stdout)
+        events = self._verify_events()
+        self.assertEqual(len(events), 1, events)
+        meta = events[0]["metadata"]
+        self.assertEqual(
+            meta["verify_status"],
+            "green",
+            f"deferred story leaked in; failing={meta.get('failing')!r}",
+        )
+
+    def test_deferred_per_ac_verify_also_skipped(self):
+        # Object-shaped per-AC verify items on a deferred story must be skipped too.
+        self._seed(
+            [
+                _story(
+                    "story-deferred",
+                    status="deferred",
+                    acceptance_criteria=[
+                        {"description": "bad", "surface": "cli", "command": "false"},
+                    ],
+                ),
+            ]
+        )
+        result = self._run("--sprint")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # No verify-bearing item remains → no event emitted at all.
+        self.assertEqual(self._verify_events(), [])
 
 
 class TestCommandTimeout(_SprintCLITestCase):

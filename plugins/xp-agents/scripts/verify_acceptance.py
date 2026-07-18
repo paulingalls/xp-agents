@@ -49,6 +49,12 @@ _EXIT_ERROR = 2
 # Story-level acceptance_execution carries no surface; bucket it here.
 _STORY_SURFACE = "(story)"
 
+# A deferred story's deliverable is intentionally not built, so its acceptance
+# commands would go RED on the expected-missing artifact and block the close of
+# legitimately-shipped work (hit live closing sprint-121). --sprint skips only
+# deferred — `done` stories must still verify, so this is NOT the terminal set.
+_DEFERRED_STATUS = "deferred"
+
 _AGENT_ID = "verify-acceptance"
 
 # Tail of a failing command's output carried in the event so the close gate
@@ -154,6 +160,10 @@ def _gather_sprint_items(
     """
     items: list[tuple[str, int | None, str | None, str | None, bool]] = []
     for story in sprint.get("stories", []):
+        if story.get("status") == _DEFERRED_STATUS:
+            # Skip deferred stories: their deliverable is intentionally absent,
+            # so verifying them yields a false RED that blocks the close.
+            continue
         sid = story.get("id", "?")
         for idx, ac in enumerate(story.get("acceptance_criteria", [])):
             if isinstance(ac, dict) and ("command" in ac or "commands" in ac):
