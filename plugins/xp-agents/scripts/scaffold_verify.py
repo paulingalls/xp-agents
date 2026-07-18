@@ -20,11 +20,7 @@ brief reason summary. Timeouts: 300s install, 60s verify, 30s identity-verify.
 import re
 import shlex
 import subprocess
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 if TYPE_CHECKING:
     from scaffold_apply import ApplySnapshot
