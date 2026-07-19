@@ -2,6 +2,29 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.3 — The 4 clean-fan-out concern fixes
+
+**Closing the concern-pool loop.** After assessing the remaining open concerns
+(a subagent fan-out verified each against current code — most stale, a few
+genuinely mechanical, the rest deferred to a new milestone), these four cleanly
+fixable ones landed. Each TDD red→green, full suite green.
+
+- **Exit-code-gating hole (high):** the test-observation hook no longer silently
+  clears a red test-failure concern when a **compound** command captured the
+  runner's output — e.g. `OUT=$(pytest); echo $?` exits 0 from the `echo`, but
+  the pytest result was captured away. The clear path now corroborates a compound
+  command (requires a *parsed* result) before resolving concerns, mirroring the
+  failure path. The simple-command exit-0 concession (for genuinely-unparseable
+  frameworks) is preserved.
+- **Whole-project linters:** `detekt`, `credo`, and `dotnet-format` join `clippy`
+  in `NO_PER_FILE_ARGV` — they lint the whole project, so appending a per-file
+  path asked a question their CLI can't answer.
+- **Lint-config drift guard:** a new test pins that `LINTER_CONFIGS`' flat-config
+  filenames stay a subset of `CONFIG_STYLE_FLAGS` keys.
+- **Reslice branch preservation:** `create_story_branch` now resumes the recorded
+  branch (mirroring the sprint leg), so a reslice that retitles a scheduled story
+  no longer strands an orphan branch.
+
 ## v4.14.2 — Signal-from-noise: 13 low-severity concern fixes
 
 **A backlog-hygiene sweep turned into real fixes.** After trimming the open-concern
