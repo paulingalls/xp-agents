@@ -31,10 +31,30 @@ from conftest import _IntegrationTestCase, cleanup_test_worktrees
 # _create_worktree below still mirrors _create_teammate_worktree from
 # test_cleanup_teammate_base_proof.py (local copy, not an import — the
 # remaining half of consolidation debt 98f1885f1b7b). The two are NOT
-# interchangeable: that copy forks from HEAD, this one from `main`, and the
-# base-vs-HEAD distinction is exactly what these merge-proof tests exist to
-# prove — so consolidating needs a start_point parameter and its own red
-# tests, not a pick-one promotion. The sprint-seeding half is now shared.
+# interchangeable, and it's two differences deep, not one:
+# 1. Fork point: that copy forks from HEAD, this one from `main` — the
+#    base-vs-HEAD distinction is exactly what these merge-proof tests exist
+#    to prove. `_worktree_fixtures.make_teammate_worktree` now takes a
+#    `start_point` param (default "HEAD") so this half IS consolidatable.
+# 2. Placement: both copies place the worktree via
+#    `worktree.worktree_path()`, which — under this file's
+#    `_IntegrationTestCase` (SMM_DIR pinned in os.environ by setUp) —
+#    resolves OUT of the repo (sibling of the SMM dir), matching where
+#    `cleanup_teammate.py` / `worktree.remove_worktree` look it up in
+#    production. `make_teammate_worktree` instead hardcodes an IN-repo
+#    `.claude/worktrees/...` path, unconditionally — by design, since two of
+#    its other callers are standalone `unittest.TestCase`s that do NOT pin
+#    SMM_DIR in os.environ; routing them through `worktree.worktree_path()`
+#    would fall back to running init.sh against the *live* process cwd and
+#    leak into the real project's plugin-data dir (see the "containment
+#    leak" note in `_bases.py`'s `_IntegrationTestCase.setUp`). Confirmed by
+#    direct comparison: the two path constructions diverge whenever SMM_DIR
+#    is pinned. So swapping this file's `_create_worktree` for
+#    `make_teammate_worktree` would silently create the worktree at the
+#    wrong path and break the very cleanup-lookup parity these tests prove.
+# Net: the sprint-seeding half is shared, and fork point is now
+# parametrizable, but full consolidation is still blocked on placement —
+# not a pick-one promotion.
 
 
 def _create_worktree(tmpdir: Path, name: str, branch: str | None = None) -> str:

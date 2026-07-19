@@ -84,7 +84,14 @@ def run(input_data: dict) -> str:
     )
 
     smm_dir = _common.resolve_smm_dir()
-    if smm_dir is not None:
+    # Gate on the teammate naming convention, not "any platform worktree":
+    # this hook fires for EVERY platform worktree create — teammate spawns,
+    # Explore, and ad-hoc /worktree alike — but only teammate worktrees are
+    # named with identity's `worktree-story-...` prefix. An Explore/ad-hoc
+    # worktree (e.g. a hash-named "abc123") would otherwise pay the full
+    # project-declared bootstrap cost (up to 600s, SystemExit on failure) for
+    # a throwaway checkout that never runs the project's own tooling.
+    if smm_dir is not None and name.startswith(identity._TEAMMATE_PREFIX):
         worktree_bootstrap.run_bootstrap(worktree_path, smm_dir)
 
     return worktree_path

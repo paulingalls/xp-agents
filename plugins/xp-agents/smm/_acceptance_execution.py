@@ -73,8 +73,19 @@ def _validate_command_block(
     return errors
 
 
-def validate_acceptance_execution(ae: object, prefix: str) -> list[str]:
+def validate_acceptance_execution(
+    ae: object, prefix: str, *, allow_pins: bool = True
+) -> list[str]:
     """Validate an acceptance_execution block.
+
+    ``allow_pins`` gates the optional ``pins`` field. It defaults to True
+    for the story-level caller (sprint_schema.py), the only scope
+    ``pins`` is ever consumed at: scripts/verify_paths.extract_verify_paths
+    is only ever called with a story dict (close_verify_gate.py,
+    verify_deferred.py) — no milestone-scoped verify gate reads it.
+    execution_plan_schema.py (milestone-level) passes allow_pins=False so a
+    milestone-level `pins` fails validation loudly instead of silently
+    doing nothing.
 
     Returns a list of error strings — empty means valid.
     """
@@ -91,13 +102,20 @@ def validate_acceptance_execution(ae: object, prefix: str) -> list[str]:
     require_one = ae.get("type") != "manual"
     errors.extend(_validate_command_block(ae, prefix, require_one=require_one))
     if "pins" in ae:
-        pins = ae["pins"]
-        if not isinstance(pins, list):
-            errors.append(f"{prefix}.pins must be a list of strings")
+        if not allow_pins:
+            errors.append(
+                f"{prefix}.pins is story-scoped (a verify-gate exemption "
+                "consumed only at story close) and is not valid on a "
+                "milestone; move it to the story's acceptance_execution"
+            )
         else:
-            for i, p in enumerate(pins):
-                if not isinstance(p, str):
-                    errors.append(f"{prefix}.pins[{i}] must be a string")
+            pins = ae["pins"]
+            if not isinstance(pins, list):
+                errors.append(f"{prefix}.pins must be a list of strings")
+            else:
+                for i, p in enumerate(pins):
+                    if not isinstance(p, str):
+                        errors.append(f"{prefix}.pins[{i}] must be a string")
     return errors
 
 

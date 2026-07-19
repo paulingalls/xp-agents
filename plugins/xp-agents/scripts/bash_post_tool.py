@@ -180,7 +180,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             "action": STATUS_ACTION_TEST_RUN_COMPLETE,
             "framework": framework,
             "parser_status": parser_status,
-            "cwd": cwd,
         }
         if tdd_red:
             metadata[METADATA_KEY_TDD_RED] = True

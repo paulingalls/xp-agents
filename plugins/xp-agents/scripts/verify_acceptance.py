@@ -19,7 +19,6 @@ Back-compat: a single ``command: str`` is treated as a one-element list.
 """
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import _subprocess_env
 import sprint_store
 from _acceptance_execution import extract_commands
 from _append_impl import resolve_smm_dir
@@ -88,35 +88,19 @@ def _cmd_timeout() -> int:
     every acceptance command would die "timed out after 0s" having never
     executed. Zero and negatives express no runnable budget, so they are not
     an override; they fall back to the default, exactly as unparseable text
-    does (mirrors worktree_bootstrap._bootstrap_timeout).
+    does.
+
+    Delegates to _subprocess_env._env_int, shared with
+    worktree_bootstrap._bootstrap_timeout — kept as a named wrapper (not
+    inlined at the call sites) because tests patch/call this name directly.
     """
-    raw = os.environ.get("VERIFY_CMD_TIMEOUT_S")
-    if raw:
-        try:
-            seconds = int(raw)
-        except ValueError:
-            return _DEFAULT_CMD_TIMEOUT_S
-        if seconds > 0:
-            return seconds
-    return _DEFAULT_CMD_TIMEOUT_S
-
-
-def _ac_env(smm_dir: Path) -> dict[str, str]:
-    """Child env for AC subprocesses — inject SMM_DIR so $SMM_DIR-using ACs work.
-
-    The injected value is the resolved ABSOLUTE path. AC commands often shell
-    a `cd <dir> &&` prefix before referencing `$SMM_DIR`; a relative SMM_DIR
-    (--smm-dir ./smm at the CLI, or any caller passing a relative Path) would
-    then resolve against the child's cwd, not the parent's, and the AC's
-    `grep $SMM_DIR/events.jsonl` would silently miss.
-    """
-    return {**os.environ, "SMM_DIR": str(smm_dir.resolve())}
+    return _subprocess_env._env_int("VERIFY_CMD_TIMEOUT_S", _DEFAULT_CMD_TIMEOUT_S)
 
 
 def _run_commands(commands: list[str], smm_dir: Path) -> int:
     """Run each command in order; return 0 on all-green, else first non-zero exit."""
     multi = len(commands) > 1
-    env = _ac_env(smm_dir)
+    env = _subprocess_env.smm_child_env(smm_dir)
     for i, cmd in enumerate(commands):
         # shell=True: AC commands are shell strings (pytest, grep, bash
         # one-liners with pipes/redirects). Stories declare them; the SMM
@@ -209,7 +193,7 @@ def _run_sprint(smm_dir: Path) -> int:
         return _EXIT_OK
 
     timeout = _cmd_timeout()
-    env = _ac_env(smm_dir)
+    env = _subprocess_env.smm_child_env(smm_dir)
     rows: list[dict] = []
     for sid, ac_idx, surface, cmd, na in items:
         if na:

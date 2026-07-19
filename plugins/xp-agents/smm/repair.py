@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import archive
 from _append_impl import (
     LockTimeoutError,
+    read_with_lock,
     replace_events_file,
     resolve_smm_dir,
 )
@@ -48,7 +49,7 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     if not events_file.exists():
         return dict(_EMPTY_RESULT)
 
-    raw = events_file.read_text(encoding="utf-8")
+    raw = read_with_lock(events_file, max_size=None)
     if not raw.strip():
         return dict(_EMPTY_RESULT)
 

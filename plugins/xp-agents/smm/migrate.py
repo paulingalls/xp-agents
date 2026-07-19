@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _append_impl import (
     LockTimeoutError,
     event_ids,
+    read_with_lock,
     replace_events_file,
     resolve_smm_dir,
 )
@@ -86,7 +87,7 @@ def migrate_file(smm_dir: Path) -> dict:
     if not events_file.exists():
         return {"migrated": 0, "unchanged": 0}
 
-    raw = events_file.read_text(encoding="utf-8")
+    raw = read_with_lock(events_file, max_size=None)
     if not raw.strip():
         return {"migrated": 0, "unchanged": 0}
 
