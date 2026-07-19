@@ -665,7 +665,7 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
     gated on tdd_red — a deliberate red step (test-only-dirty working
     tree) must not be flagged as a regression, but an honest failure with
     no test-layer edits pending still is. test_run_complete also carries
-    cwd + suite size so a scoped run is distinguishable from a full run."""
+    suite size so a scoped run is distinguishable from a full run."""
 
     def test_deliberate_red_step_suppresses_regression_concern(self):
         """AC1: uncommitted test file, no impl code in flight, failed>0."""
@@ -720,7 +720,7 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
         self.assertFalse(metadata.get("test_passed"))
         self.assertTrue(metadata.get("tdd_red"))
 
-    def test_test_run_complete_carries_cwd_and_suite_size(self):
+    def test_test_run_complete_carries_suite_size(self):
         """AC4: a 1-test scoped run is distinguishable from a full-suite run."""
         with (
             patch("commits.get_uncommitted_files", return_value=[]),
@@ -730,14 +730,12 @@ class TestBashPostToolTddRedConcernGate(_HookTestCase):
                 _make_bash_input(
                     command="pytest",
                     stdout="===== 3 passed, 1 failed in 0.3s =====",
-                    cwd="/repo/scoped",
                 ),
                 smm_dir=self.smm_dir,
             )
         statuses = events_of_type(self._read_events(), EVENT_TYPE_STATUS)
         self.assertEqual(len(statuses), 1)
         metadata = statuses[0].get("metadata") or {}
-        self.assertEqual(metadata.get("cwd"), "/repo/scoped")
         self.assertEqual(metadata.get("test_count"), 4)
 
     def test_green_phase_failure_after_test_only_commit_still_appends_concern(self):

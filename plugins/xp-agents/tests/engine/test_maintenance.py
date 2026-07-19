@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+import _append_impl
 from conftest import _SMMTestCase, make_event
 from event_schema import EVENT_TYPE_DECISION, EVENT_TYPE_STATUS
 
@@ -247,6 +248,27 @@ class TestRepair(_SMMTestCase):
         self.assertEqual(result["invalid"], 1)
         self.assertEqual(result["retained"], 1)
 
+    def test_reads_events_under_lock(self):
+        """repair() uses read_with_lock, not unlocked read_text."""
+        import repair
+
+        self._write_events([make_event()])
+
+        called = {"count": 0}
+        original_rwl = _append_impl.read_with_lock
+
+        def tracking_rwl(path):
+            called["count"] += 1
+            return original_rwl(path)
+
+        repair.read_with_lock = tracking_rwl
+        try:
+            repair.repair(self.smm_dir)
+        finally:
+            repair.read_with_lock = original_rwl
+
+        self.assertEqual(called["count"], 1, "read_with_lock should be called once")
+
 
 # ===========================================================================
 # Migrate (Milestone 8)
@@ -348,6 +370,27 @@ class TestMigrate(_SMMTestCase):
         event = make_event(ts="2026-03-12T10:30:00-05:00")
         result = migrate.migrate_event(event)
         self.assertEqual(result["ts"], "2026-03-12T10:30:00-05:00")
+
+    def test_reads_events_under_lock(self):
+        """migrate_file() uses read_with_lock, not unlocked read_text."""
+        import migrate
+
+        self._write_events([make_event(ts="2026-03-12T00:00:00")])
+
+        called = {"count": 0}
+        original_rwl = _append_impl.read_with_lock
+
+        def tracking_rwl(path):
+            called["count"] += 1
+            return original_rwl(path)
+
+        migrate.read_with_lock = tracking_rwl
+        try:
+            migrate.migrate_file(self.smm_dir)
+        finally:
+            migrate.read_with_lock = original_rwl
+
+        self.assertEqual(called["count"], 1, "read_with_lock should be called once")
 
 
 if __name__ == "__main__":

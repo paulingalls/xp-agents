@@ -280,12 +280,17 @@ def held_door_mutex(smm_dir: Path, *, budget: int = 1) -> Iterator[None]:
     `budget` IS IN-PROCESS ONLY, and the asymmetry is worth stating because it is
     invisible at the call site: it patches `_append_impl.LOCK_TIMEOUT_SECONDS`,
     which a SUBPROCESS door does not read — that one re-imports the module and
-    sits out the FULL real budget (10s, measured) before its SIGALRM fires and
-    `door_mutex` yields False. So an in-process door under this fixture fails fast
-    and a subprocess door costs ~10s. That is the price of a REAL cross-process
-    contention rather than a patched one, and it is why the subprocess mutex test
-    is the slowest in the suite. `_MUTEX_HOLD_TIMEOUT_S` must stay comfortably
-    above that real budget — see below for what happens if it does not.
+    sits out its own timeout budget before its SIGALRM fires and `door_mutex`
+    yields False. A subprocess door that wants a REAL but SHORT cross-process
+    timeout must set the `XP_LOCK_TIMEOUT_SECONDS` env var on that subprocess
+    (see `_effective_lock_timeout_seconds` in `_append_impl.py`) rather than
+    relying on `budget` here — `_run_script_with_env` is the harness for that.
+    Left unset, a subprocess door sits out the full real default budget (10s,
+    measured), which is what made the subprocess mutex test the slowest in the
+    suite before it started passing `XP_LOCK_TIMEOUT_SECONDS`. `_MUTEX_HOLD_TIMEOUT_S`
+    must stay comfortably above whichever real budget (patched or default) the
+    subprocess under test is actually using — see below for what happens if it
+    does not.
     """
     from unittest import mock
 

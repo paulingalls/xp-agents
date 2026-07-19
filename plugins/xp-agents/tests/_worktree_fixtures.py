@@ -40,18 +40,24 @@ class _NormalizePathIdentityMixin(_MixinBase):
         self.addCleanup(patcher.stop)
 
 
-def make_teammate_worktree(repo: Path, story_id: str, branch: str) -> Path:
+def make_teammate_worktree(
+    repo: Path, story_id: str, branch: str, start_point: str = "HEAD"
+) -> Path:
     """Create `.claude/worktrees/worktree-<story_id>` git worktree at `repo`.
 
     Pass `story_id` with the canonical `story-NNN` prefix so the resulting
     directory name matches `identity._TEAMMATE_PREFIX` (`worktree-story-`).
+    `start_point` is the fork point for the new branch (default `HEAD`,
+    preserving prior behavior); pass e.g. `"main"` when the test needs the
+    worktree to fork from a named ref instead of wherever `repo` currently
+    has checked out.
     Returns the absolute realpath as a Path so callers can both .exists()
     and str() it without knowing whether macOS resolved a symlink en route.
     """
     path = repo / ".claude" / "worktrees" / f"worktree-{story_id}"
     path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["git", "worktree", "add", "-b", branch, str(path), "HEAD"],
+        ["git", "worktree", "add", "-b", branch, str(path), start_point],
         cwd=str(repo),
         capture_output=True,
         check=True,

@@ -74,9 +74,16 @@ class TestStopGateInPlace(_IntegrationTestCase):
                 check=True,
             )
 
-    def _run_gate(self, cwd: str | None = None) -> subprocess.CompletedProcess:
+    def _run_gate(
+        self, cwd: str | None = None, env_overrides: dict | None = None
+    ) -> subprocess.CompletedProcess:
         overrides = {"cwd": cwd} if cwd is not None else {}
-        return self._run_script("sprint_stop_gate.py", _make_stop_input(**overrides))
+        input_data = _make_stop_input(**overrides)
+        if env_overrides is None:
+            return self._run_script("sprint_stop_gate.py", input_data)
+        return self._run_script_with_env(
+            "sprint_stop_gate.py", input_data, env_overrides
+        )
 
     def _assert_quiet(self, result: subprocess.CompletedProcess) -> None:
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -273,7 +280,16 @@ class TestStopGateInPlace(_IntegrationTestCase):
 
         with live_in_place_holder(self.smm_dir, _MARKER_NAME):
             with held_door_mutex(self.smm_dir):
-                result = self._run_gate()
+                # The gate is a SUBPROCESS, so the in-process
+                # `held_door_mutex` budget patch (LOCK_TIMEOUT_SECONDS) is
+                # invisible to it — it re-imports _append_impl and would
+                # otherwise sit out the full real 10s SIGALRM budget before
+                # concluding the mutex is unavailable. XP_LOCK_TIMEOUT_SECONDS
+                # is the env-var escape hatch _append_impl.flock_with_timeout
+                # reads for exactly this: a REAL cross-process timeout, just a
+                # short one, so this still proves genuine contention rather
+                # than a patched one.
+                result = self._run_gate(env_overrides={"XP_LOCK_TIMEOUT_SECONDS": "1"})
 
             self._assert_quiet(result)
             self.assertTrue(marker.exists(), "nothing may be reaped without the mutex")

@@ -134,10 +134,34 @@ class LockTimeoutError(Exception):
 
 LOCK_TIMEOUT_SECONDS = 10
 
+# Env override for the flock timeout, read fresh on every acquire. Exists so a
+# gate that runs in a SUBPROCESS — which re-imports this module and never sees
+# an in-process `mock.patch.object(LOCK_TIMEOUT_SECONDS)` — can still be made
+# to time out fast in a test that needs a REAL cross-process contention
+# (e.g. tests/integration/test_stop_gate_in_place.py's door-mutex test).
+# Env vars are trusted in this codebase, so no further validation is needed
+# beyond "parses as a positive int" — anything else (unset, empty, garbage,
+# <= 0) falls back to LOCK_TIMEOUT_SECONDS, keeping production behavior
+# unchanged when the var is absent.
+_LOCK_TIMEOUT_ENV_VAR = "XP_LOCK_TIMEOUT_SECONDS"
+
+
+def _effective_lock_timeout_seconds() -> int:
+    """``LOCK_TIMEOUT_SECONDS``, overridable via ``XP_LOCK_TIMEOUT_SECONDS``."""
+    raw = os.environ.get(_LOCK_TIMEOUT_ENV_VAR, "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        if value > 0:
+            return value
+    return LOCK_TIMEOUT_SECONDS
+
 
 def _on_alarm(signum: int, frame: object) -> None:
     raise LockTimeoutError(
-        f"Could not acquire lock within {LOCK_TIMEOUT_SECONDS} seconds"
+        f"Could not acquire lock within {_effective_lock_timeout_seconds()} seconds"
     )
 
 
@@ -146,11 +170,13 @@ def flock_with_timeout(lock_path: Path, mode: int = fcntl.LOCK_EX) -> Iterator[N
     """Acquire ``flock(mode)`` on ``lock_path`` under a SIGALRM timeout.
 
     Opens ``lock_path`` with ``O_NOFOLLOW`` (rejecting symlinks) and
-    permission ``0o600``, arms ``SIGALRM`` for ``LOCK_TIMEOUT_SECONDS``,
-    takes the flock, yields, then on exit releases the lock and closes
-    the fd. ``LOCK_UN`` is wrapped in ``contextlib.suppress(OSError)``
-    so a flaky release never masks an in-flight exception or blocks
-    ``close``. Restores any prior ``SIGALRM`` handler.
+    permission ``0o600``, arms ``SIGALRM`` for ``LOCK_TIMEOUT_SECONDS``
+    seconds (overridable per-process via the ``XP_LOCK_TIMEOUT_SECONDS``
+    env var — see ``_effective_lock_timeout_seconds``), takes the flock,
+    yields, then on exit releases the lock and closes the fd. ``LOCK_UN``
+    is wrapped in ``contextlib.suppress(OSError)`` so a flaky release
+    never masks an in-flight exception or blocks ``close``. Restores any
+    prior ``SIGALRM`` handler.
 
     Raises ``LockTimeoutError`` if the lock cannot be acquired within
     the budget; raises ``OSError`` if ``lock_path`` is a symlink.
@@ -168,7 +194,7 @@ def flock_with_timeout(lock_path: Path, mode: int = fcntl.LOCK_EX) -> Iterator[N
     try:
         old_handler = signal.signal(signal.SIGALRM, _on_alarm)
         try:
-            signal.alarm(LOCK_TIMEOUT_SECONDS)
+            signal.alarm(_effective_lock_timeout_seconds())
             fcntl.flock(lock_fd, mode)
             signal.alarm(0)
         finally:

@@ -18,7 +18,6 @@ Usage:
 import argparse
 import contextlib
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -35,16 +34,6 @@ import worktree
 def verify_merged(branch: str, cwd: str, base: str) -> bool:
     """Check if a branch is fully merged into `base`."""
     return branch_lifecycle.is_merged_into(cwd, branch, base)
-
-
-def branch_exists(branch: str, cwd: str) -> bool:
-    """Return True if the given ref resolves locally."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"],
-        cwd=cwd,
-        capture_output=True,
-    )
-    return result.returncode == 0
 
 
 def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> None:
@@ -76,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     derived = identity.get_current_branch(str(wt_path))
     branch = derived or args.name
 
-    if not branch_exists(branch, cwd):
+    if not branch_resolution.branch_exists(cwd, branch):
         # Fallback to --name hit a non-existent ref. Distinguish from
         # "exists but unmerged" so the operator knows the right next step.
         suffix = "" if derived else " (worktree gone — fell back to --name)"
