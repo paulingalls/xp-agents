@@ -2,6 +2,31 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.1 — 500-line cap paydown: every over-cap production module split
+
+**A behavior-preserving maintainability sprint.** All ten production modules that
+had grown past the project's 500-line file cap were split into cohesive sibling
+modules — no behavior change, verified by the unchanged test suite (7101 passing
+throughout).
+
+Each split lifts a cohesive group of definitions into a new sibling module and
+re-exports it **by identity** (`parent.X IS child.X`), so every importer and
+every `mock.patch("pkg.mod.X")` site keeps resolving unchanged — which is why the
+existing tests are the verification and needed no edits.
+
+- **scripts:** `worktree.py` → `worktree_discovery.py`; `spawn_teammate.py` →
+  `spawn_command.py`; `pre_tool_bash.py` → `pre_tool_bash_branch_delete.py`;
+  `scaffold_apply.py` → `scaffold_verify.py`; `concerns.py` → `concern_conflicts.py`;
+  `lint_check.py` → `lint_runners.py`; `_common.py` → `hook_io.py`.
+- **smm:** `sprint_cli.py` → `sprint_cli_query.py`; `event_schema.py` →
+  `event_categories.py`; `_append_impl.py` → `_append_lock.py`.
+
+Three mock-call-graph seams were handled explicitly so patched symbols keep
+intercepting after the move: `_common` keeps `_MAX_STDIN_SIZE` with a call-time
+lookup, `_append_impl` keeps `LOCK_TIMEOUT_SECONDS`/`flock_with_timeout`
+co-located, and `lint_runners.run_ruff` resolves `run_linter` through
+`lint_check`'s namespace.
+
 ## v4.14.0 — Teammate worktrees leave the repo; the auto-merge gate reads the log, not the room
 
 **A deferred-backlog paydown centered on one structural fix and a family of honesty
