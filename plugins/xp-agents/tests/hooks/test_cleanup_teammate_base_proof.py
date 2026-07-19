@@ -6,7 +6,6 @@ covers verify_merged/main() proving against the recorded story base branch
 rather than HEAD, and failing closed when that base is unresolvable.
 """
 
-import json
 import subprocess
 import sys
 import unittest
@@ -16,57 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from _branching_fixtures import seed_sprint_with_stories
+from _repo_bases import _create_teammate_worktree, _write_sprint_with_branch
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
-
-
-def _create_teammate_worktree(
-    tmpdir: Path, name: str, branch: str | None = None
-) -> str:
-    """Create a worktree with a commit. Returns worktree path."""
-    import worktree
-
-    branch = branch or name
-    # Out-of-repo placement (story-024). worktree_path reads the SMM_DIR the
-    # _IntegrationTestCase setUp pins, matching where the cleanup subprocess looks.
-    wt = worktree.worktree_path(name, str(tmpdir))
-    wt.parent.mkdir(parents=True, exist_ok=True)
-    wt_path = str(wt)
-
-    subprocess.run(
-        ["git", "worktree", "add", "-b", branch, wt_path, "HEAD"],
-        cwd=tmpdir,
-        capture_output=True,
-        check=True,
-    )
-
-    (Path(wt_path) / f"{name}.txt").write_text(f"work by {name}")
-    subprocess.run(
-        ["git", "add", f"{name}.txt"],
-        cwd=wt_path,
-        capture_output=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", f"Work by {name}"],
-        cwd=wt_path,
-        capture_output=True,
-        check=True,
-    )
-    return wt_path
-
-
-def _set_stage_2(smm_dir: Path) -> None:
-    """Write system_context.json recording branching stage 2 (sprints active)."""
-    (smm_dir / "system_context.json").write_text(
-        json.dumps({"branching_strategy": {"stage": 2}})
-    )
-
-
-def _write_sprint_with_branch(smm_dir: Path, branch_name: str) -> None:
-    """Write a minimal sprint.json recording `branch_name` as the story base."""
-    seed_sprint_with_stories(smm_dir, [], base_branch=branch_name)
-    _set_stage_2(smm_dir)
 
 
 class TestVerifyMergedAgainstBase(_IntegrationTestCase):

@@ -5,6 +5,10 @@ files under the 500-line cap.
 story_done_gate.merged_block trusts branch ABSENCE as proof of merge; a raw
 `git branch -D <story-branch>` deletes an unmerged one, flipping that proof.
 Catch the LITERAL case, NO-OP on anything ambiguous (e.g. a shell var).
+
+`git branch -m/-M <story-branch> <new-name>` (and the current-branch form
+`-m/-M <new-name>` when HEAD is on the story branch) makes the branch vanish
+just as surely as a delete, so it is judged by the same merge check below.
 """
 
 import re
@@ -23,6 +27,9 @@ import identity
 
 # `-d`/`-D`/`--delete`, incl. clusters like `-Df` (no other short flag uses d/D).
 _DELETE_FLAG_RE = re.compile(r"^(?:--delete|-[A-Za-z]*[dD][A-Za-z]*)$")
+# `-m`/`-M`/`--move`. Unlike `-d`/`-D`, not clustered: `-m`/`-M` take a
+# required argument, so git users never combine them with other short flags.
+_RENAME_FLAG_RE = re.compile(r"^(?:--move|-[mM])$")
 # Tokens that END one simple command. `punctuation_chars=True` hands these back as
 # tokens of their own, so a chain splits without a regex that cannot see quoting.
 _SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&", "\n", "(", ")"})
@@ -68,6 +75,31 @@ def _simple_commands(command: str) -> list[list[str]]:
     return [c for c in commands if c]
 
 
+def _branch_invocation(tokens: list[str]) -> tuple[str | None, list[str]] | None:
+    """`(git -C directory or None, args after the `branch` subcommand)` if
+    `tokens` invoke `git branch`, else None.
+
+    Shared by the delete and rename detectors below so the walk over git's
+    GLOBAL options (`-C <dir>` is the one worth keeping) is written once.
+    """
+    if tokens[0] != "git":
+        return None
+
+    directory: str | None = None
+    i = 1
+    while i < len(tokens) and tokens[i].startswith("-"):
+        if tokens[i] == "-C" and i + 1 < len(tokens):
+            directory = tokens[i + 1]
+            i += 2
+        elif tokens[i] == "-c" and i + 1 < len(tokens):
+            i += 2
+        else:
+            i += 1
+    if i >= len(tokens) or tokens[i] != "branch":
+        return None
+    return directory, tokens[i + 1 :]
+
+
 def _story_branch_deletes(command: str) -> list[tuple[str | None, str]]:
     """`(git -C directory or None, branch)` per literal story-branch delete.
 
@@ -79,25 +111,11 @@ def _story_branch_deletes(command: str) -> list[tuple[str | None, str]]:
     """
     deletes: list[tuple[str | None, str]] = []
     for tokens in _simple_commands(command):
-        if tokens[0] != "git":
+        invocation = _branch_invocation(tokens)
+        if invocation is None:
             continue
+        directory, args = invocation
 
-        # Walk git's GLOBAL options to find the subcommand: `-C <dir>` is the one
-        # we must keep, and the rest only have to be stepped over correctly.
-        directory: str | None = None
-        i = 1
-        while i < len(tokens) and tokens[i].startswith("-"):
-            if tokens[i] == "-C" and i + 1 < len(tokens):
-                directory = tokens[i + 1]
-                i += 2
-            elif tokens[i] == "-c" and i + 1 < len(tokens):
-                i += 2
-            else:
-                i += 1
-        if i >= len(tokens) or tokens[i] != "branch":
-            continue
-
-        args = tokens[i + 1 :]
         if not any(_DELETE_FLAG_RE.match(arg) for arg in args):
             continue
         for arg in args:
@@ -106,13 +124,44 @@ def _story_branch_deletes(command: str) -> list[tuple[str | None, str]]:
     return deletes
 
 
+def _story_branch_rename_tokens(command: str) -> list[tuple[str | None, str | None]]:
+    """`(git -C directory or None, old_branch)` per `git branch -m/-M`
+    invocation. `old_branch` is the literal source name for the two-arg form
+    (`-m OLD NEW`), or None for the current-branch form (`-m NEW`) -- this
+    function only tokenizes, it does not resolve HEAD; the caller does that
+    once it knows which repo to resolve it in.
+
+    Unlike `_story_branch_deletes`, this does NOT filter by story id itself:
+    the current-branch form's name isn't known until resolved, so the filter
+    has to happen after the caller resolves it.
+    """
+    renames: list[tuple[str | None, str | None]] = []
+    for tokens in _simple_commands(command):
+        invocation = _branch_invocation(tokens)
+        if invocation is None:
+            continue
+        directory, args = invocation
+
+        if not any(_RENAME_FLAG_RE.match(arg) for arg in args):
+            continue
+        positionals = [arg for arg in args if not arg.startswith("-")]
+        if len(positionals) >= 2:
+            renames.append((directory, positionals[0]))
+        elif len(positionals) == 1:
+            renames.append((directory, None))
+        # Zero positionals (a bare `-m` with nothing to rename) is a git
+        # usage error, not a rename -- nothing to recognize.
+    return renames
+
+
 def _unmerged_story_branch_delete_block(
     smm_dir: Path, cwd: str, command: str
 ) -> str | None:
     """Reason to refuse a recognized story-branch delete, or None to allow.
     Fails CLOSED once a delete is recognized and the base is unresolvable."""
     deletes = _story_branch_deletes(command)
-    if not deletes:
+    rename_tokens = _story_branch_rename_tokens(command)
+    if not deletes and not rename_tokens:
         return None
 
     def _repo_of(directory: str | None) -> str:
@@ -125,6 +174,19 @@ def _unmerged_story_branch_delete_block(
         if not path.is_absolute():
             path = Path(cwd) / path
         return str(path)
+
+    # A rename AWAY from a story-branch name makes that branch vanish just as
+    # surely as a delete -- resolve each one down to the (directory, branch)
+    # shape the delete path already understands, so both share one merge
+    # check below. The current-branch form (`old is None`) is only resolved
+    # HERE, against the repo it actually targets.
+    for directory, old in rename_tokens:
+        if old is None:
+            old = identity.get_current_branch(_repo_of(directory))
+        if old and identity.extract_story_id(old):
+            deletes.append((directory, old))
+    if not deletes:
+        return None
 
     base = branch_resolution.resolve_story_base(smm_dir, cwd)
     if base is None:

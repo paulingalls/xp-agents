@@ -132,3 +132,71 @@ def cleanup_test_worktrees(tmpdir: Path, prefix: str = "teammate-") -> None:
                 cwd=tmpdir,
                 capture_output=True,
             )
+
+
+def _create_teammate_worktree(
+    tmpdir: Path, name: str, branch: str | None = None
+) -> str:
+    """Create a worktree with a commit. Returns worktree path.
+
+    `name` is the worktree directory name. `branch` defaults to `name`
+    (matching the legacy assumption); pass a different value to model the
+    real-world case where the worktree dir name (e.g. ``worktree-story-007``)
+    differs from the checked-out branch (e.g. ``paulingalls/story-007-perf``).
+
+    Imports `worktree` lazily: this module is pulled in by `_bases` before
+    conftest inserts scripts/ onto sys.path (see conftest.py's import order),
+    so a module-level `import worktree` here would fail at conftest load.
+    """
+    import worktree
+
+    branch = branch or name
+    # Place the worktree where production resolves it (out-of-repo since
+    # story-024). worktree_path reads the SMM_DIR the _IntegrationTestCase
+    # setUp pins, so create and the cleanup subprocess agree on the location.
+    wt = worktree.worktree_path(name, str(tmpdir))
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    wt_path = str(wt)
+
+    subprocess.run(
+        ["git", "worktree", "add", "-b", branch, wt_path, "HEAD"],
+        cwd=tmpdir,
+        capture_output=True,
+        check=True,
+    )
+
+    (Path(wt_path) / f"{name}.txt").write_text(f"work by {name}")
+    subprocess.run(
+        ["git", "add", f"{name}.txt"],
+        cwd=wt_path,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", f"Work by {name}"],
+        cwd=wt_path,
+        capture_output=True,
+        check=True,
+    )
+    return wt_path
+
+
+def _set_stage_2(smm_dir: Path) -> None:
+    """Write system_context.json recording branching stage 2 (sprints active)."""
+    (smm_dir / "system_context.json").write_text(
+        json.dumps({"branching_strategy": {"stage": 2}})
+    )
+
+
+def _write_sprint_with_branch(smm_dir: Path, branch_name: str) -> None:
+    """Write a minimal sprint.json recording `branch_name` as the story base.
+
+    Imports `seed_sprint_with_stories` lazily for the same sys.path-ordering
+    reason `_create_teammate_worktree` imports `worktree` lazily above:
+    `_branching_fixtures` pulls in scripts/smm modules that aren't on
+    sys.path yet when this module is first loaded via `_bases`/conftest.
+    """
+    from _branching_fixtures import seed_sprint_with_stories
+
+    seed_sprint_with_stories(smm_dir, [], base_branch=branch_name)
+    _set_stage_2(smm_dir)

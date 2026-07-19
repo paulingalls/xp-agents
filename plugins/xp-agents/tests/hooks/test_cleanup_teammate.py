@@ -14,49 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import worktree
+from _repo_bases import _create_teammate_worktree
 from conftest import _IntegrationTestCase, cleanup_test_worktrees
-
-
-def _create_teammate_worktree(
-    tmpdir: Path, name: str, branch: str | None = None
-) -> str:
-    """Create a worktree with a commit. Returns worktree path.
-
-    `name` is the worktree directory name. `branch` defaults to `name`
-    (matching the legacy assumption); pass a different value to model the
-    real-world case where the worktree dir name (e.g. ``worktree-story-007``)
-    differs from the checked-out branch (e.g. ``paulingalls/story-007-perf``).
-    """
-    branch = branch or name
-    # Place the worktree where production resolves it (out-of-repo since
-    # story-024). worktree_path reads the SMM_DIR the _IntegrationTestCase
-    # setUp pins, so create and the cleanup subprocess agree on the location.
-    wt = worktree.worktree_path(name, str(tmpdir))
-    wt.parent.mkdir(parents=True, exist_ok=True)
-    wt_path = str(wt)
-
-    subprocess.run(
-        ["git", "worktree", "add", "-b", branch, wt_path, "HEAD"],
-        cwd=tmpdir,
-        capture_output=True,
-        check=True,
-    )
-
-    (Path(wt_path) / f"{name}.txt").write_text(f"work by {name}")
-    subprocess.run(
-        ["git", "add", f"{name}.txt"],
-        cwd=wt_path,
-        capture_output=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", f"Work by {name}"],
-        cwd=wt_path,
-        capture_output=True,
-        check=True,
-    )
-    return wt_path
 
 
 def _merge_branch(tmpdir: Path, name: str) -> None:
