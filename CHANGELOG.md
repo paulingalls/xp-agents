@@ -2,6 +2,26 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.3 — Clean-fan-out concern fixes
+
+**Closing the concern-pool loop.** After assessing the remaining open concerns
+(a subagent fan-out verified each against current code — most stale, a few
+genuinely mechanical, the rest deferred to a new milestone), these landed. Each
+TDD red→green, full suite green. (A fourth candidate — the exit-code-gating
+hole — was attempted but the whole-range review found its fix reintroduced a
+gate deadlock; it's deferred to the gate-hardening milestone, where the correct
+fix must distinguish output *capture* from a merely-compound command.)
+
+- **Whole-project linters:** `detekt`, `credo`, and `dotnet-format` join `clippy`
+  in `NO_PER_FILE_ARGV` — they lint the whole project, so appending a per-file
+  path asked a question their CLI can't answer.
+- **Lint-config drift guard:** a new test pins that `LINTER_CONFIGS`' flat-config
+  filenames stay a subset of `CONFIG_STYLE_FLAGS` keys.
+- **Reslice branch preservation:** `create_story_branch` now resumes the recorded
+  branch (mirroring the sprint leg, via the shared `_verified_local`), so a
+  reslice that retitles a scheduled story no longer strands an orphan branch —
+  and the `create` CLI now reports such a resume as `resumed:`, not `created:`.
+
 ## v4.14.2 — Signal-from-noise: 13 low-severity concern fixes
 
 **A backlog-hygiene sweep turned into real fixes.** After trimming the open-concern

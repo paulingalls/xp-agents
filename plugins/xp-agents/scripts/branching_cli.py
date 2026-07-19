@@ -60,6 +60,13 @@ def _cmd_create(args: argparse.Namespace) -> int:
         return 1
     user_ns = branching.identity.user_namespace(args.cwd)
     name = branching.branch_name(user_ns, args.story, args.slug)
+    # Mirror create_story_branch's recorded-branch resolution (same stage
+    # guard) so a reslice-retitle that RESUMES the recorded branch is reported
+    # as resumed:, not created: — parity with _cmd_create_sprint, which
+    # resolves via resolve_sprint_branch_name for exactly this reason.
+    smm_dir = Path(args.smm_dir)
+    if branching.get_branching_stage(smm_dir) >= branching.BRANCH_MIN_STAGE["story"]:
+        name = branching._recorded_story_branch(args.cwd, smm_dir, args.story) or name
     existed = branching.branch_exists(args.cwd, name)
     try:
         result = branching.create_story_branch(

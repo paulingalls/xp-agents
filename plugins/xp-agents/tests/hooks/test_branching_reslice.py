@@ -302,5 +302,86 @@ class TestResliceCLIReportsResumed(unittest.TestCase):
             )
 
 
+class TestStoryResliceCLIReportsResumed(unittest.TestCase):
+    """The STORY create CLI must not call a RESUMED branch `created:` either.
+
+    Parity with TestResliceCLIReportsResumed (the sprint leg): _cmd_create
+    derived created/resumed from the slug-built name, so once create_story_branch
+    resumes the recorded branch on a reslice-retitle, the CLI printed
+    `created:` for a branch it did not cut — output that contradicts git state
+    and misroutes any consumer keyed on the token.
+    """
+
+    def _cli(self, args: list[str], smm_dir: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, _SCRIPT, "--smm-dir", str(smm_dir), *args],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_story_reslice_prints_resumed_not_created(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            _init_repo(td)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=td,
+                capture_output=True,
+            )
+            # Base sprint branch + the story branch already cut under the
+            # story's ORIGINAL title, recorded in sprint.json.
+            for br in ("test/sprint-050-x", "test/story-001-original-title"):
+                subprocess.run(
+                    ["git", "branch", br], cwd=td, capture_output=True, check=True
+                )
+            smm_dir = Path(smm)
+            _write_system_context(smm_dir, stage=2)
+            sprint = {
+                "sprint_id": "sprint-050",
+                "goal": "x",
+                "started": "2026-04-29",
+                "branch_name": "test/sprint-050-x",
+                "stories": [
+                    {
+                        "id": "story-001",
+                        "title": "Retitled",
+                        "status": "scheduled",
+                        "dependencies": [],
+                        "milestone_ref": "",
+                        "design_sources": "",
+                        "context": "",
+                        "file_domain": [],
+                        "interface_contracts": [],
+                        "acceptance_criteria": [],
+                        "branch_name": "test/story-001-original-title",
+                    }
+                ],
+            }
+            (smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+            # Reslice hands a NEW title slug for the same story_id.
+            res = self._cli(
+                [
+                    "create",
+                    "--cwd",
+                    td,
+                    "--story",
+                    "story-001",
+                    "--slug",
+                    "retitled",
+                    "--base",
+                    "test/sprint-050-x",
+                ],
+                smm_dir,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(
+                res.stdout.strip(),
+                "resumed: test/story-001-original-title",
+                "a resumed story branch must report `resumed:`, not `created:`",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

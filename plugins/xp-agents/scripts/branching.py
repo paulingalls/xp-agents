@@ -55,6 +55,7 @@ from branch_resolution import (  # noqa: F401
     _maybe_auto_promote,
     _recorded_plan_branch,
     _recorded_sprint_branch,
+    _verified_local,
     branch_exists,
     get_branching_stage,
     get_merge_target,
@@ -210,6 +211,27 @@ BRANCH_MIN_STAGE: dict[str, int] = {
 }
 
 
+def _recorded_story_branch(cwd: str, smm_dir: Path, story_id: str) -> str | None:
+    """The branch already recorded for THIS story_id, if it still exists locally.
+
+    Mirrors ``_recorded_sprint_branch`` (branch_resolution.py) — the story-branch
+    leg of the same reslice-preserve. Without this,
+    create_story_branch always rebuilt the name from the caller's slug, and
+    /xp-schedule + /xp-assign always pass a TITLE-derived slug (SKILL.md's
+    ``--slug <title-slug>``): a reslice that RETITLES a scheduled/ready story
+    would cut a second, empty branch from the new slug and strand the branch
+    already carried forward as an orphan.
+
+    ``sprint_store.get_story_branch_name`` returns the raw recorded value with
+    no existence check of its own, so it is verified via the shared
+    ``_verified_local`` (the same helper ``_recorded_sprint_branch`` calls) —
+    a recorded-but-vanished branch is stale, and the slug-built name is the
+    better guess. Sharing the helper keeps the two reslice-preserve legs from
+    diverging if the verification rule ever changes.
+    """
+    return _verified_local(cwd, sprint_store.get_story_branch_name(smm_dir, story_id))
+
+
 def create_story_branch(
     cwd: str, story_id: str, slug: str, smm_dir: Path, *, base: str | None = None
 ) -> str | None:
@@ -224,6 +246,13 @@ def create_story_branch(
     The base=None arm is NOT dead code even though both SKILLs always pass
     --base: `branching.py create` without --base still reaches it (argparse
     defaults to None).
+
+    Prefers the branch already RECORDED for this story_id over one rebuilt
+    from ``slug`` — see ``_recorded_story_branch``. Below the story min stage
+    this lookup is skipped entirely (not merely ignored): no branch is cut at
+    all down there (_create_or_resume_branch skips), so touching the sprint
+    file to resolve a name would be moot work, and doing it unconditionally
+    would break stage-0 inertness on a sprint.json that happens to be corrupt.
     """
     user_ns = identity.user_namespace(cwd)
     name = branch_name(user_ns, story_id, slug)
@@ -231,6 +260,7 @@ def create_story_branch(
         # Below the floor no branch is cut at all (_create_or_resume_branch
         # skips), so an unusable base is moot — and refusing one there would
         # break stage-0 inertness, where the plugin must not touch git.
+        name = _recorded_story_branch(cwd, smm_dir, story_id) or name
         base = trusted_story_base(cwd, smm_dir, base)
     result = _create_or_resume_branch(
         cwd, name, smm_dir, min_stage=BRANCH_MIN_STAGE["story"], base=base
