@@ -352,15 +352,48 @@ class TestUnmergedStoryBranchRenameAwayRefused(_BranchDeleteGateCase):
         with self.assertRaises(_common.BlockedError):
             self._run(f"git branch --move {_STORY_BRANCH} {_STORY_BRANCH}-renamed")
 
-    def test_current_branch_rename_form_blocks(self):
-        """`git branch -m <new>` with no source arg renames HEAD -- only a
-        story branch if HEAD is actually sitting on one."""
+
+class TestCurrentBranchRenameShorthandIsAnAcceptedGap(_BranchDeleteGateCase):
+    """`git branch -m <new>` (one positional) names no source branch, so
+    recognizing it would need live HEAD resolved at PreToolUse -- before the
+    command runs. A chained `git checkout <story> && git branch -m <new>` would
+    then resolve the BASE, not the story, and fail open silently. Rather than
+    ship a leg reliable only when un-chained, this gate no-ops on the shorthand
+    (documented, accepted gap) -- it never FALSELY blocks it either."""
+
+    def _run_unblocked(self, cmd: str) -> None:
+        try:
+            self._run(cmd)
+        except _common.BlockedError as blocked:
+            self.fail(f"current-branch rename shorthand must not block: {blocked}")
+
+    def test_current_branch_rename_shorthand_is_not_gated(self):
         self._make_story_branch()
         self._git("checkout", _STORY_BRANCH)
         self._seed_sprint()
 
-        with self.assertRaises(_common.BlockedError):
-            self._run("git branch -m renamed-away")
+        self._run_unblocked("git branch -m renamed-away")
+
+    def test_chained_checkout_then_shorthand_rename_is_not_falsely_blocked(self):
+        """The fail-open the removed leg pretended to close: PreToolUse fires
+        before the command runs, so the in-command checkout is not yet in
+        effect. Honestly a no-op, not a false block."""
+        self._make_story_branch()
+        self._seed_sprint()
+
+        self._run_unblocked(
+            f"git checkout {_STORY_BRANCH} && git branch -m renamed-away"
+        )
+
+    def test_malformed_three_positional_rename_is_not_caught(self):
+        """`git branch -m OLD NEW EXTRA` is a git usage error (too many args).
+        The gate must not take the first positional as OLD and misdirect the
+        user with a delete refusal -- let git report its own usage error."""
+        self._make_story_branch()
+        self._git("checkout", _STORY_BRANCH)
+        self._seed_sprint()
+
+        self._run_unblocked(f"git branch -m {_STORY_BRANCH} foo bar")
 
 
 class TestMergedStoryBranchRenameAwayAllowed(_BranchDeleteGateCase):

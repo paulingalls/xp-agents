@@ -31,12 +31,8 @@ import staged_lint
 import story_done_gate
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
-# Re-exported so tests can pin/patch these; canonical home is
-# pre_tool_bash_branch_delete (moved to keep this module under the 500-line cap).
-_DELETE_FLAG_RE = pre_tool_bash_branch_delete._DELETE_FLAG_RE
-_SHELL_SEPARATORS = pre_tool_bash_branch_delete._SHELL_SEPARATORS
-_simple_commands = pre_tool_bash_branch_delete._simple_commands
-_story_branch_deletes = pre_tool_bash_branch_delete._story_branch_deletes
+# The gate entry point; canonical home is pre_tool_bash_branch_delete (moved
+# there to keep this module under the 500-line cap).
 _unmerged_story_branch_delete_block = (
     pre_tool_bash_branch_delete._unmerged_story_branch_delete_block
 )

@@ -10,11 +10,16 @@ stale/accepted, the rest routed to a milestone), the four cleanly-mechanical one
 landed here. Each TDD red→green, full suite green (7129 passed).
 
 - **Rename-away branch-absence hole:** the story-branch delete gate now also
-  refuses `git branch -m/-M/--move <story-branch> <new>` (and the current-branch
-  `-m <new>` form when HEAD is on a story branch). A rename makes the branch
-  vanish just as a delete does, breaking the same "absence implies merged"
-  invariant `story_done_gate` relies on. Delete behavior is byte-identical (the
-  shared git-branch invocation walk was extracted, not rewritten).
+  refuses the literal `git branch -m/-M/--move <story-branch> <new>` rename,
+  which makes the branch vanish just as a delete does, breaking the same
+  "absence implies merged" invariant `story_done_gate` relies on. Delete and
+  rename detection now share a single command-tokenization pass. The
+  current-branch shorthand (`git branch -m <new>`, no source arg) is a
+  documented, accepted gap: its target depends on live HEAD, which a
+  PreToolUse gate resolves *before* the command runs, so a chained
+  `checkout <story> && branch -m` could defeat it — the gate's "catch the
+  literal case, no-op on anything ambiguous" doctrine no-ops on it rather than
+  offering false assurance. Delete behavior is byte-identical.
 - **Dead-code removal:** the unused `is_file_scoped()` wrapper and its re-export
   are gone; its test assertions migrated to the equivalent over `degrade_reason`.
 - **Facade discipline:** `pre_tool_skill` now reads sprint state through the
