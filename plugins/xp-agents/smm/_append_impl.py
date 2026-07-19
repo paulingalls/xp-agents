@@ -10,80 +10,23 @@ import fcntl
 import json
 import os
 import signal
-import subprocess
+
+# Not used directly below — kept so `mock.patch("_append_impl.subprocess.…")`
+# in tests/hooks/test_common.py and tests/smm/test_append_safety.py still
+# resolves. `subprocess` is a singleton in sys.modules, so this binds the
+# SAME module object `smm_dir_resolve._derive_smm_dir` calls through;
+# patching via either name patches the one real module.
+import subprocess  # noqa: F401
 import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
-
-
-def now_iso() -> str:
-    """Current UTC time as an ISO 8601 string.
-
-    Canonical source for the ``datetime.now(timezone.utc).isoformat()``
-    pattern. ``event_builder.build_event`` keeps its own inline call:
-    ``_append_impl`` imports ``event_builder`` at module top level (see
-    the ``from event_builder import ...`` block below), so adding a
-    top-level ``from _append_impl import now_iso`` in ``event_builder``
-    would close the cycle. When a caller imports ``event_builder``
-    first (e.g. ``smm_store``, ``session_end``, ``duplicate_debt_probe``),
-    Python would re-enter ``_append_impl`` mid-init and raise
-    ``ImportError: cannot import name 'build_event' from partially
-    initialized module``. All other call sites route through
-    ``now_iso``, so a future timestamp policy change is a near-one-line
-    edit.
-    """
-    return datetime.now(timezone.utc).isoformat()
-
-
-# ---------------------------------------------------------------------------
-# SMM path resolution
-# ---------------------------------------------------------------------------
-
-
-_INIT_SH = Path(__file__).parent / "init.sh"
-
-
-def resolve_smm_dir() -> Path | None:
-    """Return the SMM directory, or None if it can't be resolved.
-
-    Honors $SMM_DIR env var as the single canonical handle — lets teammate
-    spawners propagate the lead's SMM across process boundaries. When unset,
-    delegates to ``_derive_smm_dir`` which runs init.sh.
-
-    The env-var read happens on every call (cheap), so test isolation that
-    pins SMM_DIR per test takes effect immediately. ``_derive_smm_dir`` is
-    not cached: caching across calls in a single process is unsafe when the
-    derivation depends on cwd/env that tests may mutate, and in production
-    each hook is a fresh `python3` invocation so a process-local cache
-    never had a hit anyway.
-    """
-    env_smm = os.environ.get("SMM_DIR", "").strip()
-    if env_smm:
-        return Path(env_smm)
-    return _derive_smm_dir()
-
-
-def _derive_smm_dir() -> Path | None:
-    """Run init.sh to derive SMM dir from project state."""
-    try:
-        out = subprocess.check_output(
-            ["bash", str(_INIT_SH)],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
-    return Path(out) if out else None
-
 
 # ---------------------------------------------------------------------------
 # Event schema (re-exported from event_schema.py)
 # ---------------------------------------------------------------------------
-
-import marker_names  # noqa: E402
+import marker_names
 
 # Low-level atomic-write primitives (moved out to keep this file under the
 # line-count cap; re-exported here BY IDENTITY so every existing
@@ -91,7 +34,7 @@ import marker_names  # noqa: E402
 # `_append_impl.write_text_atomic` reference resolves unchanged).
 # LOCK_TIMEOUT_SECONDS/flock_with_timeout/read_with_lock stay below rather
 # than moving too — see _append_lock.py's module docstring for why.
-from _append_lock import (  # noqa: E402
+from _append_lock import (
     _ANSI_RE,
     _safe_open_nofollow,
     _strip_ansi,
@@ -99,13 +42,13 @@ from _append_lock import (  # noqa: E402
     write_text_atomic,  # noqa: F401
     write_watermark,  # noqa: F401
 )
-from append_validation import validate_agent_id, validate_smm_dir  # noqa: E402
-from event_builder import (  # noqa: E402
+from append_validation import validate_agent_id, validate_smm_dir
+from event_builder import (
     build_event,
     build_parser,
     parse_json_arg,  # noqa: F401
 )
-from event_schema import (  # noqa: E402
+from event_schema import (
     MAX_EVENT_BYTES,
     MAX_EVENTS_FILE_SIZE,
     PRIORITY_ASSUMED,  # noqa: F401
@@ -115,10 +58,23 @@ from event_schema import (  # noqa: E402
 )
 
 # Notifications: see resolution.py
-from resolution import (  # noqa: F401, E402
+from resolution import (  # noqa: F401
     _detect_platform,
     _notify_blocking_question,
     _sanitize_notification,
+)
+
+# ---------------------------------------------------------------------------
+# SMM path resolution (moved out to keep this file under the line-count cap;
+# re-exported here BY IDENTITY so every existing
+# `from _append_impl import resolve_smm_dir` / `_append_impl.resolve_smm_dir`
+# reference — including `mock.patch` sites — resolves unchanged).
+# ---------------------------------------------------------------------------
+from smm_dir_resolve import (  # noqa: F401
+    _INIT_SH,
+    _derive_smm_dir,
+    now_iso,
+    resolve_smm_dir,
 )
 
 # ---------------------------------------------------------------------------
