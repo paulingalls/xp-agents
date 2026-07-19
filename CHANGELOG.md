@@ -2,6 +2,39 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.2 — Signal-from-noise: 13 low-severity concern fixes
+
+**A backlog-hygiene sweep turned into real fixes.** After trimming the open-concern
+pool, a fan-out of subagents independently re-judged the dropped low-severity
+concerns against current code — ~45% were genuine signal, and the cheap ones got
+fixed here (each TDD red→green, full suite green throughout).
+
+Correctness:
+- `tdd_check` now anchors an **in-place (solo) teammate** to its own TDD window
+  via the env+marker leg — previously it fell through to the lead's window,
+  reading the wrong red/green state.
+- `migrate.py`/`repair.py` read `events.jsonl` under the same lock `compact`
+  uses (were unlocked → possible torn-read miscounts).
+- `event_schema` re-exports the 10 `STATUS_ACTION_RETIRE_*`/`EDIT_*` names that
+  previously raised `ImportError` when imported from it.
+- Milestone-level `acceptance_execution.pins` is now **rejected at schema**
+  (story-scoped only) instead of silently no-op'ing.
+- `xp-assign` preload emits `SOLO_TARGET` even when a teammate batch is fully
+  spawned (was zeroed by the mere presence of a batch).
+- The `WorktreeCreate` bootstrap now runs **only for teammate-named worktrees**,
+  so an Explore/ad-hoc worktree no longer pays the (up to 600s) project bootstrap.
+- `smm_count` excludes a corrupt log line from a scoped count only on positive
+  evidence (an embedded timestamp older than the window); the fail-closed floor
+  is preserved for genuinely unscopable corruption.
+
+Speed & cleanup:
+- The slowest test (`~10.2s`, ~78% of the suite's parallel wall-clock) now runs
+  in `~1.4s` via a fail-safe `XP_LOCK_TIMEOUT_SECONDS` override for the gate
+  subprocess — same assertions.
+- Removed inert `test_run_complete` `cwd` metadata (no consumer), duplicate
+  budget test classes, and a duplicate `branch_exists`; DRY'd subprocess
+  timeout/env helpers into `_subprocess_env.py`.
+
 ## v4.14.1 — 500-line cap paydown: every over-cap production module split
 
 **A behavior-preserving maintainability sprint.** All ten production modules that
