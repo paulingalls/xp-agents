@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import identity
-import sprint_status
+import sprint_state
 import sprint_store
 import target_routing
 import worktree
@@ -159,7 +159,7 @@ def accept_evidence_block_reason(
     if resolved_smm_dir is None:
         return None
     try:
-        has_closing = sprint_status.has_closing_stories(resolved_smm_dir)
+        has_closing = sprint_state.has_closing_stories(resolved_smm_dir)
     except (sprint_store.SprintCorruptError, OSError):
         return _ACCEPT_EVIDENCE_BLOCK
     return None if has_closing else _ACCEPT_EVIDENCE_BLOCK

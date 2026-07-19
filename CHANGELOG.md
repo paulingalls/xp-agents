@@ -2,6 +2,33 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.4 — Clean-fan-out debt fixes
+
+**Closing the debt-pool loop.** Mirroring the concern sweep: after assessing the
+open debts (a subagent fan-out re-judged each against current code — ~46% were
+stale/accepted, the rest routed to a milestone), the four cleanly-mechanical ones
+landed here. Each TDD red→green, full suite green (7129 passed).
+
+- **Rename-away branch-absence hole:** the story-branch delete gate now also
+  refuses the literal `git branch -m/-M/--move <story-branch> <new>` rename,
+  which makes the branch vanish just as a delete does, breaking the same
+  "absence implies merged" invariant `story_done_gate` relies on. Delete and
+  rename detection now share a single command-tokenization pass. The
+  current-branch shorthand (`git branch -m <new>`, no source arg) is a
+  documented, accepted gap: its target depends on live HEAD, which a
+  PreToolUse gate resolves *before* the command runs, so a chained
+  `checkout <story> && branch -m` could defeat it — the gate's "catch the
+  literal case, no-op on anything ambiguous" doctrine no-ops on it rather than
+  offering false assurance. Delete behavior is byte-identical.
+- **Dead-code removal:** the unused `is_file_scoped()` wrapper and its re-export
+  are gone; its test assertions migrated to the equivalent over `degrade_reason`.
+- **Facade discipline:** `pre_tool_skill` now reads sprint state through the
+  `sprint_state` facade like the rest of the scripts layer, instead of importing
+  from `smm/` directly — with fail-closed-on-corrupt behavior preserved (the
+  facade chain re-raises rather than normalizing a corrupt sprint to "no sprint").
+- **Test-helper consolidation:** the duplicated git-worktree test helpers are
+  promoted into shared `tests/_repo_bases.py`.
+
 ## v4.14.3 — Clean-fan-out concern fixes
 
 **Closing the concern-pool loop.** After assessing the remaining open concerns

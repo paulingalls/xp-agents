@@ -486,7 +486,6 @@ _REEXPORTED = frozenset(
     {
         "_compile_db_covers",
         "degrade_reason",
-        "is_file_scoped",
         "linter_argv",
         "linter_command",
         "linter_stdin_argv",

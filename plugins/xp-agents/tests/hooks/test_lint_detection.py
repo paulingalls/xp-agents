@@ -281,13 +281,12 @@ class TestLinterTableColumns(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as td:
             for linter in ("clippy", "checkstyle", "detekt", "credo", "dotnet-format"):
-                self.assertFalse(linters.is_file_scoped(linter, td), msg=linter)
-                self.assertTrue(linters.degrade_reason(linter, td), msg=linter)
+                self.assertIsNotNone(linters.degrade_reason(linter, td), msg=linter)
 
     def test_file_scoped_rows_can_judge_one_file(self):
         with tempfile.TemporaryDirectory() as td:
             for linter in ("ruff", "flake8", "eslint", "golangci-lint", "rubocop"):
-                self.assertTrue(linters.is_file_scoped(linter, td))
+                self.assertIsNone(linters.degrade_reason(linter, td))
 
     def test_clang_tidy_takes_its_paths_BEFORE_the_separator(self):
         """INVERTED. This pin used to assert the bug.
@@ -320,8 +319,8 @@ class TestLinterTableColumns(unittest.TestCase):
         commit over a header path nothing in the diff can fix.
         """
         with tempfile.TemporaryDirectory() as td:
-            self.assertFalse(
-                linters.is_file_scoped("clang-tidy", td),
+            self.assertIsNotNone(
+                linters.degrade_reason("clang-tidy", td),
                 "no compile DB: must degrade, not block on an unfixable error",
             )
             self.assertIsNone(
@@ -332,8 +331,8 @@ class TestLinterTableColumns(unittest.TestCase):
 
             _write_compile_db(td, "app.c")
 
-            self.assertTrue(
-                linters.is_file_scoped("clang-tidy", td),
+            self.assertIsNone(
+                linters.degrade_reason("clang-tidy", td),
                 "with a compile DB, C/C++ is genuinely gatable",
             )
 
@@ -404,7 +403,9 @@ class TestLinterTableColumns(unittest.TestCase):
         defaulted, and the default was wrong."""
         with tempfile.TemporaryDirectory() as td:
             for linter in linters.LINTER_COMMANDS:
-                self.assertIsInstance(linters.is_file_scoped(linter, td), bool)
+                self.assertIsInstance(
+                    linters.degrade_reason(linter, td), (str, type(None))
+                )
 
 
 class TestConfigStyleFlagsAgreesWithLinterConfigs(unittest.TestCase):

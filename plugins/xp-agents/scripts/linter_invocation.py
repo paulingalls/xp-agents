@@ -343,23 +343,3 @@ def degrade_reason(
             f"your diff cannot fix"
         )
     return None
-
-
-def is_file_scoped(
-    linter_name: str,
-    root: str,
-    paths: list[str] | None = None,
-    *,
-    base: str | None = None,
-) -> bool:
-    """Can the commit gate BLOCK on this linter, in THIS project?
-
-    False where a non-zero exit would report something the staged diff neither caused
-    nor can fix. A gate that cannot be satisfied is worse than one that stays quiet,
-    because the first thing anyone does with an unfixable gate is disable it.
-
-    Unknown rows answer True: a linter nobody classified is far likelier to be an
-    ordinary file-scoped one than a project sweep, and being wrong that way produces
-    a too-strict block the agent can actually act on.
-    """
-    return degrade_reason(linter_name, root, paths, base=base) is None

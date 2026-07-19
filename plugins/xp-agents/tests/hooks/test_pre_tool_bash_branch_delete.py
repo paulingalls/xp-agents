@@ -326,6 +326,113 @@ class TestFailsClosedOnDishonestBase(_BranchDeleteGateCase):
             self._run(f"git branch -D {_STORY_BRANCH}")
 
 
+class TestUnmergedStoryBranchRenameAwayRefused(_BranchDeleteGateCase):
+    """`git branch -m/-M` renaming a story branch AWAY from its name makes
+    it vanish exactly like a delete -- the mark-done gate must not read
+    that absence as proof of a merge that never happened."""
+
+    def test_two_arg_rename_away_with_dash_m_blocks(self):
+        self._make_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(f"git branch -m {_STORY_BRANCH} {_STORY_BRANCH}-renamed")
+
+    def test_two_arg_rename_away_with_dash_M_blocks(self):
+        self._make_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(f"git branch -M {_STORY_BRANCH} {_STORY_BRANCH}-renamed")
+
+    def test_long_form_move_flag_is_recognized(self):
+        self._make_story_branch()
+        self._seed_sprint()
+
+        with self.assertRaises(_common.BlockedError):
+            self._run(f"git branch --move {_STORY_BRANCH} {_STORY_BRANCH}-renamed")
+
+
+class TestCurrentBranchRenameShorthandIsAnAcceptedGap(_BranchDeleteGateCase):
+    """`git branch -m <new>` (one positional) names no source branch, so
+    recognizing it would need live HEAD resolved at PreToolUse -- before the
+    command runs. A chained `git checkout <story> && git branch -m <new>` would
+    then resolve the BASE, not the story, and fail open silently. Rather than
+    ship a leg reliable only when un-chained, this gate no-ops on the shorthand
+    (documented, accepted gap) -- it never FALSELY blocks it either."""
+
+    def _run_unblocked(self, cmd: str) -> None:
+        try:
+            self._run(cmd)
+        except _common.BlockedError as blocked:
+            self.fail(f"current-branch rename shorthand must not block: {blocked}")
+
+    def test_current_branch_rename_shorthand_is_not_gated(self):
+        self._make_story_branch()
+        self._git("checkout", _STORY_BRANCH)
+        self._seed_sprint()
+
+        self._run_unblocked("git branch -m renamed-away")
+
+    def test_chained_checkout_then_shorthand_rename_is_not_falsely_blocked(self):
+        """The fail-open the removed leg pretended to close: PreToolUse fires
+        before the command runs, so the in-command checkout is not yet in
+        effect. Honestly a no-op, not a false block."""
+        self._make_story_branch()
+        self._seed_sprint()
+
+        self._run_unblocked(
+            f"git checkout {_STORY_BRANCH} && git branch -m renamed-away"
+        )
+
+    def test_malformed_three_positional_rename_is_not_caught(self):
+        """`git branch -m OLD NEW EXTRA` is a git usage error (too many args).
+        The gate must not take the first positional as OLD and misdirect the
+        user with a delete refusal -- let git report its own usage error."""
+        self._make_story_branch()
+        self._git("checkout", _STORY_BRANCH)
+        self._seed_sprint()
+
+        self._run_unblocked(f"git branch -m {_STORY_BRANCH} foo bar")
+
+
+class TestMergedStoryBranchRenameAwayAllowed(_BranchDeleteGateCase):
+    """A rename of a branch already merged into its base passes untouched,
+    matching the delete path's merged-branch allowance."""
+
+    def test_merged_branch_rename_away_passes(self):
+        self._make_story_branch()
+        self._git("merge", "--no-ff", _STORY_BRANCH, "-m", "Merge")
+        self._seed_sprint()
+
+        self.assertIsNone(
+            self._run(f"git branch -m {_STORY_BRANCH} {_STORY_BRANCH}-renamed")
+        )
+
+
+class TestNonStoryBranchRenameAllowed(_BranchDeleteGateCase):
+    """Renaming a non-story branch, or renaming INTO a story-shaped name,
+    is never this gate's concern -- only the OLD name vanishing matters."""
+
+    def test_free_branch_rename_passes(self):
+        self._git("checkout", "-b", "some-feature")
+        append_commit(self.repo, "feature.txt")
+        self._git("checkout", _BASE)
+        # Deliberately do NOT seed a sprint -- same reasoning as the delete
+        # path's non-story-branch case.
+
+        self.assertIsNone(self._run("git branch -m some-feature some-feature-v2"))
+
+    def test_rename_into_a_story_shaped_name_passes(self):
+        """The NEW name matching the story pattern must not trip the gate --
+        only the branch that VANISHES (the OLD name) is this gate's concern."""
+        self._git("checkout", "-b", "some-feature")
+        append_commit(self.repo, "feature.txt")
+        self._git("checkout", _BASE)
+
+        self.assertIsNone(self._run(f"git branch -m some-feature {_STORY_BRANCH}"))
+
+
 class TestXpAgentBypass(_BranchDeleteGateCase):
     """AC7: xp-agents are never gated -- `run` returns before this check for
     any agent_type starting with `xp-` (close-path delete_branch calls prove

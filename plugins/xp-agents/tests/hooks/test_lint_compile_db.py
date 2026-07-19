@@ -110,8 +110,8 @@ class TestAPartialCompileDatabaseMustNotBlock(_TmpProject):
 
     def test_an_uncovered_file_degrades_instead_of_blocking(self):
         """So the gate must not even try. Degrade, and say why."""
-        self.assertFalse(
-            linters.is_file_scoped("clang-tidy", str(self.d), ["tests/t.c"]),
+        self.assertIsNotNone(
+            linters.degrade_reason("clang-tidy", str(self.d), ["tests/t.c"]),
             "an uncovered file must DEGRADE — a block here is unfixable by any diff",
         )
         self.assertIsNone(
@@ -122,8 +122,8 @@ class TestAPartialCompileDatabaseMustNotBlock(_TmpProject):
     def test_a_covered_file_is_still_gated(self):
         """The control. Degrading uncovered files must not degrade EVERY file, or the
         C/C++ gate is back to doing nothing."""
-        self.assertTrue(
-            linters.is_file_scoped("clang-tidy", str(self.d), ["src/covered.c"]),
+        self.assertIsNone(
+            linters.degrade_reason("clang-tidy", str(self.d), ["src/covered.c"]),
             "a file the DB covers is genuinely gatable",
         )
 
@@ -133,8 +133,8 @@ class TestAPartialCompileDatabaseMustNotBlock(_TmpProject):
         quietly hand C/C++ back its old non-gate. Coverage is by DIRECTORY."""
         (self.d / "src" / "brand_new.c").write_text(_DIRTY_C)
 
-        self.assertTrue(
-            linters.is_file_scoped("clang-tidy", str(self.d), ["src/brand_new.c"]),
+        self.assertIsNone(
+            linters.degrade_reason("clang-tidy", str(self.d), ["src/brand_new.c"]),
         )
 
 
@@ -207,8 +207,8 @@ class TestTheCompileDbIsResolvedAgainstTheDirectoryThePathsCameFrom(_TmpProject)
     def test_a_covered_file_under_a_subdir_config_is_not_degraded(self):
         self._write_app(self._DIRTY)
 
-        self.assertTrue(
-            linters.is_file_scoped("clang-tidy", str(self.d), ["src/app.c"]),
+        self.assertIsNone(
+            linters.degrade_reason("clang-tidy", str(self.d), ["src/app.c"]),
             "the DB covers src/ — this file is genuinely gatable",
         )
 
