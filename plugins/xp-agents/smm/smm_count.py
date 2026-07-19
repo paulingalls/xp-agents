@@ -5,6 +5,8 @@ Extracted from smm_cli.py to keep that file under the 500-line cap.
 """
 
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -16,6 +18,78 @@ from event_schema import (
     VALID_SEVERITIES,
 )
 from resolution import compute_resolutions
+
+# Best-effort recovery for concern a11e9132e5bc / debt 7e8219afe702: an
+# unparseable line has no reliable ts to scope by, so it must stay on
+# the fail-closed floor (counted) by default — but ONE ancient corrupt
+# line should not permanently force every future --since-ts-scoped
+# close to count non-zero. If a "ts" substring can still be recovered
+# from the raw (unparseable) line and it lexicographically precedes
+# --since-ts, the line is PROVABLY out of the scoped window and is
+# excluded. This only ever narrows the floor for lines with positive
+# evidence of being out of scope; a line with no extractable ts, or an
+# extracted ts inside the window, still counts (floor unchanged).
+_EMBEDDED_TS_RE = re.compile(
+    r'"ts"\s*:\s*"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})"'
+)
+
+
+def _skipped_lines(raw: str) -> list[str]:
+    """Re-walk raw JSONL text to recover the exact lines parse_jsonl
+    counted as unparseable (malformed JSON or a non-dict value), so
+    their raw text is available for best-effort ts extraction.
+
+    Mirrors parse_jsonl's skip criteria exactly (blank lines are not
+    unparseable; only malformed JSON or non-dict values are) so
+    len(_skipped_lines(raw)) always equals parse_jsonl's skipped count.
+    Duplicated here rather than changing parse_jsonl's return shape,
+    since every other events.jsonl reader (materialize.py, compact.py,
+    …) only needs the count, not the raw text.
+    """
+    bad: list[str] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if not isinstance(obj, dict):
+                bad.append(line)
+        except json.JSONDecodeError:
+            bad.append(line)
+    return bad
+
+
+def _provably_out_of_window(line: str, since_ts: str | None) -> bool:
+    """True only when *line* is an unparseable JSONL line with a
+    recoverable "ts" substring that lexicographically precedes
+    *since_ts* — i.e. positive evidence the line predates the scoped
+    window, safe to exclude from the fail-closed floor.
+
+    Requires the line to still start with '{' (looks like an attempted
+    JSON object) before trusting the extraction — the dominant
+    real-world corruption mode is a truncated atomic write of an
+    otherwise well-formed event, not adversarial garbage, so a
+    recognizable "ts" field on an otherwise-object-shaped line is a
+    trustworthy signal. Returns False (never excludes) whenever
+    since_ts is unset or no ts can be extracted, so genuinely
+    unscopable corruption stays on the fail-closed floor.
+    """
+    if not since_ts or not line.startswith("{"):
+        return False
+    match = _EMBEDDED_TS_RE.search(line)
+    if not match:
+        return False
+    return match.group(1) < since_ts
+
+
+def _floor_count(bad_lines: list[str], since_ts: str | None) -> tuple[int, int]:
+    """Split unparseable lines into (still-counted, provably-excluded).
+
+    Returns (in_scope, excluded) where in_scope + excluded == len(bad_lines).
+    """
+    excluded = sum(1 for line in bad_lines if _provably_out_of_window(line, since_ts))
+    return len(bad_lines) - excluded, excluded
 
 
 def _cmd_count_classifications(args: argparse.Namespace) -> int:
@@ -34,8 +108,11 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         shape per append.sh)
 
     Always exits 0 — empty event log returns 0, missing events.jsonl
-    returns 0. A malformed line is now COUNTED (fail closed), not
-    skipped — only an ABSENT events.jsonl returns 0. The "absent → 0"
+    returns 0. A malformed line is COUNTED (fail closed), not skipped
+    — only an ABSENT events.jsonl returns 0 — UNLESS a ts substring can
+    be recovered from the raw line and it provably precedes
+    --since-ts, in which case it is excluded (see
+    _provably_out_of_window; concern a11e9132e5bc). The "absent → 0"
     semantics let the auto-merge gate's `ASK_COUNT=$(...)` invocation
     work without exit-code branching, mirroring system_context_cli.py
     get-stack-field's "absent → empty" pattern.
@@ -58,7 +135,8 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
     # Delegate to the canonical JSONL parser used by all events.jsonl
     # readers (materialize.py, compact.py, …) — handles blank lines,
     # malformed JSON, and non-dict values uniformly.
-    events, skipped = parse_jsonl(events_path.read_text())
+    raw_text = events_path.read_text()
+    events, _ = parse_jsonl(raw_text)
     count = 0
     for event in events:
         meta = event.get("metadata", {})
@@ -74,14 +152,23 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
         count += 1
-    if skipped:
+    bad_lines = _skipped_lines(raw_text)
+    in_scope, excluded = _floor_count(bad_lines, args.since_ts)
+    if excluded:
         print(
-            f"count-classifications: {skipped} unparseable line(s) in "
+            f"count-classifications: excluded {excluded} unparseable line(s) "
+            f"in {events_path} with an embedded ts older than --since-ts "
+            f"{args.since_ts} (provably out of scope)",
+            file=sys.stderr,
+        )
+    if in_scope:
+        print(
+            f"count-classifications: {in_scope} unparseable line(s) in "
             f"{events_path}; counting each as a potential concern "
             "(fail closed)",
             file=sys.stderr,
         )
-        count += skipped
+        count += in_scope
     print(count)
     return 0
 
@@ -95,9 +182,12 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
     finding blocks the close gate forever.
 
     Always exits 0 (missing file → 0) so callers can `$(...)` capture
-    without exit-code branching. A malformed line is now COUNTED (fail
+    without exit-code branching. A malformed line is COUNTED (fail
     closed) — only an ABSENT events.jsonl returns 0; a hidden high
-    concern must never silently lower the count.
+    concern must never silently lower the count — UNLESS a ts
+    substring can be recovered from the raw line and it provably
+    precedes --since-ts, in which case it is excluded (see
+    _provably_out_of_window; concern a11e9132e5bc).
 
     Sync pointer: story-close/free-close auto-merge conditions 1 & 2
     (SKILL.md) rely on this fail-closed behavior.
@@ -106,7 +196,8 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
     if not events_path.exists():
         print(0)
         return 0
-    events, skipped = parse_jsonl(events_path.read_text())
+    raw_text = events_path.read_text()
+    events, _ = parse_jsonl(raw_text)
     resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
     count = 0
     for event in events:
@@ -123,13 +214,22 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         if event.get("id", "") in resolved_ids:
             continue
         count += 1
-    if skipped:
+    bad_lines = _skipped_lines(raw_text)
+    in_scope, excluded = _floor_count(bad_lines, args.since_ts)
+    if excluded:
         print(
-            f"count-concerns: {skipped} unparseable line(s) in {events_path}; "
+            f"count-concerns: excluded {excluded} unparseable line(s) in "
+            f"{events_path} with an embedded ts older than --since-ts "
+            f"{args.since_ts} (provably out of scope)",
+            file=sys.stderr,
+        )
+    if in_scope:
+        print(
+            f"count-concerns: {in_scope} unparseable line(s) in {events_path}; "
             "counting each as a potential concern (fail closed)",
             file=sys.stderr,
         )
-        count += skipped
+        count += in_scope
     print(count)
     return 0
 

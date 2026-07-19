@@ -6,6 +6,7 @@ TaskCompleted hooks (M13). All three hooks need the same logic:
 scan events in reverse, skip resolved concerns, return pass/fail/None.
 """
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -17,7 +18,8 @@ import _common
 import commits
 import concerns
 import resolution
-from identity import extract_worktree_name, is_teammate_agent_id
+import worktree
+from identity import extract_worktree_name, is_teammate_agent_id, teammate_name_from_env
 
 # Patterns that indicate test results in status/concern events
 TEST_PASS_RE = re.compile(
@@ -27,7 +29,9 @@ TEST_PASS_RE = re.compile(
 TEST_FAIL_RE = concerns.TEST_CONCERN_RE
 
 
-def _reader_scope(events: list[dict], cwd: str) -> tuple[int, str | None]:
+def _reader_scope(
+    events: list[dict], cwd: str, smm_dir: Path | None = None
+) -> tuple[int, str | None]:
     """`(window_start, owner)` — the reader's own session window and the
     agent_id its signals must carry, or None to accept any author.
 
@@ -52,6 +56,33 @@ def _reader_scope(events: list[dict], cwd: str) -> tuple[int, str | None]:
     it. The lead reads `owner=None` — its session window already scopes it,
     and it legitimately observes the whole session (its own and subagents').
 
+    A WORKTREE teammate is caught by `extract_worktree_name(cwd)` above — its
+    hook process runs INSIDE the worktree, so cwd carries the
+    `worktree-story-` marker. An IN-PLACE teammate (the solo behavior-table
+    branch of xp-assign; `spawn_teammate --in-place`) runs in the MAIN
+    checkout instead, so its cwd carries no such marker and it would
+    otherwise fall through to the lead branch below — misreading the lead's
+    anchor as its own window, the exact hazard this function exists to
+    prevent. It is caught by a second leg: `XP_TEAMMATE_NAME` (which
+    spawn_teammate exports for the in-place child) guarded by a LIVE
+    in-place marker under `smm_dir` — mirroring
+    `identity.is_worktree_teammate`'s own env leg. Deliberately NOT that
+    function wholesale: it also falls back to the process cwd
+    (`os.getcwd()`) for its cwd leg, a documented leak this reader already
+    avoids by using only the hook-supplied `cwd`. A leaked env var with no
+    live marker is not trusted either (same guard identity uses) — it falls
+    through to the lead branch rather than being silently treated as a
+    teammate, which would hide the lead's own in-session signals behind an
+    owner filter for a name that never claimed one.
+
+    `smm_dir` locates the marker; when None it resolves from the `SMM_DIR`
+    env spawn_teammate sets for the in-place child (mirrors
+    `identity.is_worktree_teammate`'s own fallback). With neither a param
+    nor the env, the in-place leg is unverifiable and fails closed (lead
+    branch) — never CLOSED in the disarming sense, since the lead branch's
+    own unfiltered whole-session scan still catches a same-process failure;
+    it only loses the tighter teammate-shaped window.
+
     For any other reader (the lead), the window anchors at the most recent
     `session_started` event, as before.
 
@@ -65,12 +96,33 @@ def _reader_scope(events: list[dict], cwd: str) -> tuple[int, str | None]:
     name = extract_worktree_name(cwd)
     if name and is_teammate_agent_id(name):
         return 0, name
+
+    env_name = teammate_name_from_env()
+    if env_name and is_teammate_agent_id(env_name):
+        resolved_smm_dir = smm_dir
+        if resolved_smm_dir is None:
+            env_dir = os.environ.get("SMM_DIR", "")
+            resolved_smm_dir = Path(env_dir) if env_dir else None
+        if resolved_smm_dir is not None and worktree.in_place_teammate_from_env(
+            resolved_smm_dir, env_name
+        ):
+            return 0, env_name
+
     anchor = _common._last_index_of_type(events, _common.SESSION_STARTED)
     return (anchor if anchor >= 0 else 0), None
 
 
-def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
+def find_last_test_signal(
+    events: list[dict], cwd: str = ".", smm_dir: Path | None = None
+) -> str | None:
     """Scan events from the end. Return 'pass', 'fail', or None.
+
+    `smm_dir`, when the caller already has one validated, locates the
+    in-place-teammate marker for `_reader_scope`'s env leg; omit it and that
+    leg falls back to the `SMM_DIR` env var (see `_reader_scope`). None of
+    the current callers thread it — each already has a validated smm_dir in
+    scope at the call site — but the fallback covers them because
+    spawn_teammate exports `SMM_DIR` into the in-place child's environment.
 
     Skips resolved concerns — a resolved test failure should not block.
 
@@ -94,7 +146,7 @@ def find_last_test_signal(events: list[dict], cwd: str = ".") -> str | None:
     answer nothing, and "nothing" must never read as CLEAN — see below.
     """
     resolved_ids = resolution.compute_resolutions(events)["resolved_concern_ids"]
-    window_start, owner = _reader_scope(events, cwd)
+    window_start, owner = _reader_scope(events, cwd, smm_dir)
 
     for i in range(len(events) - 1, -1, -1):
         e = events[i]

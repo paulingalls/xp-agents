@@ -253,7 +253,11 @@ def _validate_milestone(
     ae = milestone.get("acceptance_execution")
     if ae is not None:
         errors.extend(
-            validate_acceptance_execution(ae, f"milestones[{idx}].acceptance_execution")
+            validate_acceptance_execution(
+                ae,
+                f"milestones[{idx}].acceptance_execution",
+                allow_pins=False,
+            )
         )
 
     errors.extend(_validate_schedules(milestone, idx))

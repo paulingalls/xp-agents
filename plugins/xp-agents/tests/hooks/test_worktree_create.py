@@ -204,6 +204,62 @@ class TestWorktreeCreate(unittest.TestCase):
         )
 
 
+class TestWorktreeCreateBootstrapGate(unittest.TestCase):
+    """AC: run_bootstrap fires ONLY for a teammate-named worktree.
+
+    concern 66437b4b013f — the WorktreeCreate hook fires on EVERY platform
+    worktree (teammate spawn, Explore, ad-hoc /worktree), so a throwaway
+    Explore worktree paid the full (up to 600s) bootstrap cost in any project
+    that declares stack.worktree_bootstrap. Teammate worktrees are named with
+    identity._TEAMMATE_PREFIX (`worktree-story-...`); non-teammate platform
+    worktrees (Explore, ad-hoc) are not, so the name is the gate signal.
+    """
+
+    def setUp(self):
+        import importlib
+
+        import worktree_create
+
+        importlib.reload(worktree_create)
+        self.worktree_create = worktree_create
+
+    def _run_with_name(self, name: str) -> mock.MagicMock:
+        """Run the hook with subprocess/SMM mocked; return the run_bootstrap mock."""
+        data = {**_INPUT, "name": name}
+        with (
+            mock.patch.object(identity, "get_current_branch", return_value="main"),
+            mock.patch.object(
+                self.worktree_create, "_get_default_branch", return_value="main"
+            ),
+            mock.patch.object(worktree, "resolve_git_root", return_value="/repo"),
+            mock.patch.object(
+                worktree, "_out_of_repo_worktrees_base", return_value=None
+            ),
+            mock.patch("subprocess.run"),
+            mock.patch("pathlib.Path.mkdir"),
+            mock.patch.object(
+                self.worktree_create._common,
+                "resolve_smm_dir",
+                return_value=Path("/fake/smm"),
+            ),
+            mock.patch.object(
+                self.worktree_create.worktree_bootstrap, "run_bootstrap"
+            ) as mock_bootstrap,
+        ):
+            self.worktree_create.run(data)
+        return mock_bootstrap
+
+    def test_bootstrap_runs_for_teammate_named_worktree(self):
+        """A `worktree-story-...` name (identity._TEAMMATE_PREFIX) triggers it."""
+        mock_bootstrap = self._run_with_name("worktree-story-042")
+        mock_bootstrap.assert_called_once()
+
+    def test_bootstrap_skipped_for_non_teammate_worktree(self):
+        """A non-teammate name (e.g. an Explore/ad-hoc worktree) skips it."""
+        mock_bootstrap = self._run_with_name("explore-abc123")
+        mock_bootstrap.assert_not_called()
+
+
 class _ProvisionsTestCase(_IntegrationTestCase):
     """Shared setup: a real git repo + real SMM dir the hook can bootstrap from."""
 

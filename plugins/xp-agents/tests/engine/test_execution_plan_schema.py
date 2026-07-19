@@ -373,6 +373,56 @@ class TestMilestoneSchedules(unittest.TestCase):
         self.assertTrue(any("schedules" in e for e in errors))
 
 
+class TestMilestoneAcceptanceExecutionPins(unittest.TestCase):
+    """`acceptance_execution.pins` is a story-scoped verify-gate exemption:
+    scripts/verify_paths.extract_verify_paths(story) is the only consumer,
+    and it is only ever called with a STORY dict (close_verify_gate.py,
+    verify_deferred.py) — never a milestone. A milestone-level `pins` list
+    used to pass schema validation and then silently do nothing (no
+    milestone-scoped verify gate exists to read it), which is a trap for a
+    plan author who reasonably expects it to work like the story-level
+    field. The schema now rejects it outright so the author learns at
+    plan-validate time instead of never.
+    """
+
+    def test_milestone_acceptance_execution_with_pins_is_rejected(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(
+                    acceptance_execution={
+                        "type": "automated",
+                        "command": "pytest tests/",
+                        "pins": ["tests/regression_test.py"],
+                    }
+                )
+            ]
+        )
+        errors = schema.validate_plan(plan)
+        self.assertTrue(
+            any(
+                "acceptance_execution.pins" in e and "story-scoped" in e for e in errors
+            ),
+            f"expected a story-scoped pins rejection, got {errors}",
+        )
+
+    def test_milestone_acceptance_execution_without_pins_is_valid(self):
+        import execution_plan_schema as schema
+
+        plan = _make_plan(
+            milestones=[
+                _make_milestone(
+                    acceptance_execution={
+                        "type": "automated",
+                        "command": "pytest tests/",
+                    }
+                )
+            ]
+        )
+        self.assertEqual(schema.validate_plan(plan), [])
+
+
 class TestEmptyPlan(unittest.TestCase):
     def test_empty_plan_is_valid(self):
         import execution_plan_schema as schema

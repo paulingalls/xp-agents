@@ -338,6 +338,52 @@ class TestCountClassifications(_SMMTestCase):
         self.assertIn("fail closed", result.stderr)
         self.assertIn("unparseable", result.stderr)
 
+    def test_corrupt_line_with_old_embedded_ts_excluded_when_scoped(self) -> None:
+        # Concern a11e9132e5bc / debt 7e8219afe702: one ancient corrupt
+        # line must not permanently force every future --since-ts-scoped
+        # count non-zero. A raw "ts" substring recoverable from the
+        # unparseable line and provably older than --since-ts is
+        # positive evidence it's out of scope, so it's excluded.
+        good = _classify_event(route="ask", ts="2026-05-02T00:00:00+00:00")
+        # truncated write — object-shaped, embeds an old ts
+        corrupt_old = '{"ts": "2026-01-01T00:00:00+00:00", "type": "status", "metad'
+        self.events_file.write_text(json.dumps(good) + "\n" + corrupt_old + "\n")
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--since-ts", "2026-05-01T00:00:00+00:00"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+        self.assertIn("provably out of scope", result.stderr)
+
+    def test_corrupt_line_with_no_extractable_ts_still_counted(self) -> None:
+        # Floor preserved: no ts substring is recoverable, so the line
+        # must still count even though --since-ts is provided.
+        self.events_file.write_text("{completely garbled, no ts field}\n")
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--since-ts", "2026-05-01T00:00:00+00:00"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+        self.assertIn("fail closed", result.stderr)
+
+    def test_corrupt_line_with_recent_embedded_ts_still_counted(self) -> None:
+        # A corrupt line whose embedded ts falls WITHIN the scoped
+        # window must still count.
+        corrupt_recent = '{"ts": "2026-05-02T00:00:00+00:00", "type": "stat'
+        self.events_file.write_text(corrupt_recent + "\n")
+        result = run_cli(
+            _CLI,
+            ["count-classifications", "--since-ts", "2026-05-01T00:00:00+00:00"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+        self.assertIn("fail closed", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

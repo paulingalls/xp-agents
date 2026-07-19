@@ -12,7 +12,6 @@ spawning. spawn_teammate re-exports `run_bootstrap` by identity so existing
 callers and their patch targets keep working.
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +25,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import system_context_store
+
+# Same explicit-statement reasoning as the smm/ insert above, applied to this
+# module's own directory: _subprocess_env is a scripts/-local sibling, and a
+# bare `import _subprocess_env` only resolves once scripts/ is on sys.path.
+# Callers that reached this module via worktree.py's side-effect import
+# already added it, but a direct `python3 worktree_bootstrap.py` or an
+# import order that skips worktree.py must not depend on that accident.
+sys.path.insert(0, str(Path(__file__).parent))
+
+import _subprocess_env
 
 # Bootstrap can be a cold dependency install, not the 6.4s warm-cache
 # re-run that was measured — generous by default, tunable per project.
@@ -42,16 +51,14 @@ def _bootstrap_timeout() -> int:
     arriving as a knob. Zero and negatives express no runnable budget, so they
     are not an override; they fall back to the default, exactly as unparseable
     text does.
+
+    Delegates to _subprocess_env._env_int, shared with
+    verify_acceptance._cmd_timeout — kept as a named wrapper (not inlined at
+    the call site) because tests patch/call this name directly.
     """
-    raw = os.environ.get("XP_BOOTSTRAP_TIMEOUT_S")
-    if raw:
-        try:
-            seconds = int(raw)
-        except ValueError:
-            return _DEFAULT_BOOTSTRAP_TIMEOUT_S
-        if seconds > 0:
-            return seconds
-    return _DEFAULT_BOOTSTRAP_TIMEOUT_S
+    return _subprocess_env._env_int(
+        "XP_BOOTSTRAP_TIMEOUT_S", _DEFAULT_BOOTSTRAP_TIMEOUT_S
+    )
 
 
 def _declared_bootstrap(smm_dir: Path) -> str | None:
@@ -122,7 +129,7 @@ def run_bootstrap(wt_path: str, smm_dir: Path) -> None:
             capture_output=True,
             text=True,
             timeout=timeout,
-            env={**os.environ, "SMM_DIR": str(smm_dir.resolve())},
+            env=_subprocess_env.smm_child_env(smm_dir),
         )
     except subprocess.TimeoutExpired as exc:
         raise SystemExit(
