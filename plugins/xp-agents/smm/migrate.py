@@ -87,7 +87,7 @@ def migrate_file(smm_dir: Path) -> dict:
     if not events_file.exists():
         return {"migrated": 0, "unchanged": 0}
 
-    raw = read_with_lock(events_file)
+    raw = read_with_lock(events_file, max_size=None)
     if not raw.strip():
         return {"migrated": 0, "unchanged": 0}
 

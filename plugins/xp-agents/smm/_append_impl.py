@@ -206,15 +206,21 @@ def flock_with_timeout(lock_path: Path, mode: int = fcntl.LOCK_EX) -> Iterator[N
         lock_fd.close()
 
 
-def read_with_lock(path: Path) -> str:
+def read_with_lock(path: Path, *, max_size: int | None = MAX_EVENTS_FILE_SIZE) -> str:
     """Read file contents under shared flock.
+
+    ``max_size`` caps the read: a file larger than it returns ``""`` (the
+    default guards the hot append/compact path against a pathological log).
+    Pass ``max_size=None`` to read the whole file regardless of size — repair
+    and migrate MUST process the oversized/corrupt logs they exist to fix, for
+    which the cap would silently no-op.
 
     Raises LockTimeoutError if the lock cannot be acquired within the
     flock budget. Raises OSError if the lock file is a symlink.
     """
     with flock_with_timeout(path.parent / "events.lock", fcntl.LOCK_SH):
         try:
-            if path.stat().st_size > MAX_EVENTS_FILE_SIZE:
+            if max_size is not None and path.stat().st_size > max_size:
                 return ""
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:

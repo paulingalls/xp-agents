@@ -49,7 +49,7 @@ def repair(smm_dir: Path, dry_run: bool = False) -> dict:
     if not events_file.exists():
         return dict(_EMPTY_RESULT)
 
-    raw = read_with_lock(events_file)
+    raw = read_with_lock(events_file, max_size=None)
     if not raw.strip():
         return dict(_EMPTY_RESULT)
 

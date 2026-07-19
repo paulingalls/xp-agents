@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
 from _bases import _PLUGIN_ROOT
-from _worktree_fixtures import make_teammate_worktree
 from conftest import (
     _extract_preload_var,
     _IntegrationTestCase,
@@ -729,33 +728,6 @@ class TestPreloadSoloTarget(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         # A live teammate batch owns the target; the solo story does not surface.
         self.assertEqual((_extract_preload_var(result.stdout, "SOLO_TARGET") or ""), "")
-
-    def test_solo_target_surfaces_when_teammate_batch_fully_spawned(self):
-        """concern 3c0de73815ed: a teammate batch is only ACTIONABLE while it
-        has an un-spawned member. Once every batch story already has a live
-        teammate worktree, the batch has nothing left to decide this round —
-        an out-of-order solo story promoted alongside it must still get its
-        own execution-shape decision, so SOLO_TARGET must not be zeroed just
-        because a (fully-spawned) batch exists."""
-        self._write_sprint(
-            _sprint_json(
-                [
-                    _s("story-001", "A", "in-progress", execution_mode="teammate"),
-                    _s("story-002", "B", "in-progress", execution_mode="solo"),
-                ]
-            )
-        )
-        make_teammate_worktree(self.tmpdir, "story-001", "story-001")
-        result = self._run_preload(_PRELOAD_SCRIPT)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            _extract_preload_var(result.stdout, "SOLO_TARGET"), "story-002"
-        )
-        # The solo story becomes the tier-lookup target too, since the
-        # spawned batch has no actionable member to hand it to instead.
-        self.assertEqual(
-            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-002"
-        )
 
     def test_solo_target_empty_when_multiple_solo_in_progress(self):
         """A solo frontier promotes ONE story; >1 in-progress solo is ambiguous

@@ -136,7 +136,7 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
     # readers (materialize.py, compact.py, …) — handles blank lines,
     # malformed JSON, and non-dict values uniformly.
     raw_text = events_path.read_text()
-    events, _ = parse_jsonl(raw_text)
+    events, skipped = parse_jsonl(raw_text)
     count = 0
     for event in events:
         meta = event.get("metadata", {})
@@ -152,7 +152,10 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
         if args.since_ts and event.get("ts", "") < args.since_ts:
             continue
         count += 1
-    bad_lines = _skipped_lines(raw_text)
+    # Only re-walk the raw text to recover the exact unparseable lines when
+    # parse_jsonl actually skipped some — the healthy case (skipped == 0) must
+    # not pay a second full parse of the whole log.
+    bad_lines = _skipped_lines(raw_text) if skipped else []
     in_scope, excluded = _floor_count(bad_lines, args.since_ts)
     if excluded:
         print(
@@ -197,7 +200,7 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         print(0)
         return 0
     raw_text = events_path.read_text()
-    events, _ = parse_jsonl(raw_text)
+    events, skipped = parse_jsonl(raw_text)
     resolved_ids = compute_resolutions(events)["resolved_concern_ids"]
     count = 0
     for event in events:
@@ -214,7 +217,10 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         if event.get("id", "") in resolved_ids:
             continue
         count += 1
-    bad_lines = _skipped_lines(raw_text)
+    # Only re-walk the raw text to recover the exact unparseable lines when
+    # parse_jsonl actually skipped some — the healthy case (skipped == 0) must
+    # not pay a second full parse of the whole log.
+    bad_lines = _skipped_lines(raw_text) if skipped else []
     in_scope, excluded = _floor_count(bad_lines, args.since_ts)
     if excluded:
         print(

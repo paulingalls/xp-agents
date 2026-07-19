@@ -257,9 +257,9 @@ class TestRepair(_SMMTestCase):
         called = {"count": 0}
         original_rwl = _append_impl.read_with_lock
 
-        def tracking_rwl(path):
+        def tracking_rwl(path, **kwargs):
             called["count"] += 1
-            return original_rwl(path)
+            return original_rwl(path, **kwargs)
 
         repair.read_with_lock = tracking_rwl
         try:
@@ -380,9 +380,9 @@ class TestMigrate(_SMMTestCase):
         called = {"count": 0}
         original_rwl = _append_impl.read_with_lock
 
-        def tracking_rwl(path):
+        def tracking_rwl(path, **kwargs):
             called["count"] += 1
-            return original_rwl(path)
+            return original_rwl(path, **kwargs)
 
         migrate.read_with_lock = tracking_rwl
         try:
@@ -391,6 +391,24 @@ class TestMigrate(_SMMTestCase):
             migrate.read_with_lock = original_rwl
 
         self.assertEqual(called["count"], 1, "read_with_lock should be called once")
+
+
+class TestReadWithLockMaxSize(_SMMTestCase):
+    """read_with_lock's size cap must be opt-out so repair/migrate can read the
+    oversized logs they exist to fix (regression: the cap silently no-op'd)."""
+
+    def test_default_cap_returns_empty_over_limit(self):
+        events_file = self.smm_dir / "events.jsonl"
+        events_file.write_text("x" * 100)
+        # A tiny explicit cap stands in for MAX_EVENTS_FILE_SIZE without a 10MB file.
+        self.assertEqual(_append_impl.read_with_lock(events_file, max_size=10), "")
+
+    def test_max_size_none_reads_beyond_the_cap(self):
+        events_file = self.smm_dir / "events.jsonl"
+        body = "x" * 100
+        events_file.write_text(body)
+        # max_size=None (repair/migrate) reads the full file regardless of size.
+        self.assertEqual(_append_impl.read_with_lock(events_file, max_size=None), body)
 
 
 if __name__ == "__main__":

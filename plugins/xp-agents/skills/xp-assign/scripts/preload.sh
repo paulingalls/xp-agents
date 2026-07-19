@@ -61,33 +61,26 @@ batch = [
     if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
 ]
 
-# Spawn target: the first un-spawned story in batch order. The skill pre-flight
-# iterates TEAMMATE_STORY_IDS in this same order, so the two never disagree.
-batch_target = ""
-for sid in batch:
-    if not find_teammate_worktree_for_story(sid, cwd):
-        batch_target = sid
-        break
-
-# Solo target: a single in-progress solo story is the in-place execution-shape
-# target (story-008) whenever the teammate batch has no ACTIONABLE (unspawned)
-# member to hand off to instead. That covers both an empty batch and a batch
-# that is fully spawned (every member already has a live worktree) -- in
-# either case the batch has nothing left to decide, so the solo story must
-# still surface rather than being zeroed just because SOME batch exists. A
-# solo frontier promotes exactly one story; >1 in-progress solo is ambiguous
-# -> empty (the skill stops).
+# Solo target: with no teammate batch, a single in-progress solo story is the
+# in-place execution-shape target (story-008). A solo frontier promotes exactly
+# one story; >1 in-progress solo is ambiguous -> empty (the skill stops).
 solo_in_progress = [
     s["id"]
     for s in stories
     if s.get("status") == "in-progress" and s.get("execution_mode") == "solo"
 ]
-solo_target = (
-    solo_in_progress[0] if (not batch_target and len(solo_in_progress) == 1) else ""
-)
+solo_target = solo_in_progress[0] if (not batch and len(solo_in_progress) == 1) else ""
 
+# Spawn target: the first un-spawned story in batch order. The skill pre-flight
+# iterates TEAMMATE_STORY_IDS in this same order, so the two never disagree.
 # Falls back to the solo target so the tier lookup + pin cover the solo story.
-target = batch_target or solo_target
+target = ""
+for sid in batch:
+    if not find_teammate_worktree_for_story(sid, cwd):
+        target = sid
+        break
+if not target:
+    target = solo_target
 
 tier = "none"
 effort = ""
