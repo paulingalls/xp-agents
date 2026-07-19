@@ -27,7 +27,6 @@ from event_schema import (
     STATUS_ACTION_TEST_RUN_COMPLETE,
 )
 from test_parsing import (
-    PARSER_STATUS_FAILED,
     PARSER_STATUS_PARSED,
     PARSER_STATUS_ZERO,
     is_test_run,
@@ -215,22 +214,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
             )
             _common.append_safe(smm_dir, concern)
         elif failed == 0 and _observed_a_green_run(command):
-            # Mirror the FAILURE side's corroboration (test_attribution.
-            # attribute_failure): a compound command's exit code doesn't
-            # belong to any one segment, so an unparseable result is no
-            # evidence the test run itself was clean — its output may simply
-            # have been captured/redirected away (`OUT=$(pytest); echo $?`).
-            # Require the parser to have actually read a result (PARSED or
-            # ZERO) before clearing on a compound command. Simple commands
-            # keep the existing exit-0 concession, which exists so a
-            # framework the parser can never read doesn't deadlock the gate.
-            corroborated = not (
-                test_attribution.is_compound(command)
-                and parser_status == PARSER_STATUS_FAILED
-            )
-            had_failures = (
-                _resolve_test_concerns(smm_dir, agent_id) if corroborated else False
-            )
+            had_failures = _resolve_test_concerns(smm_dir, agent_id)
 
             # Nudge: commit after green if there are uncommitted code files
             if passed > 0:

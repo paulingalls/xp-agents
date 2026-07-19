@@ -55,6 +55,7 @@ from branch_resolution import (  # noqa: F401
     _maybe_auto_promote,
     _recorded_plan_branch,
     _recorded_sprint_branch,
+    _verified_local,
     branch_exists,
     get_branching_stage,
     get_merge_target,
@@ -222,13 +223,13 @@ def _recorded_story_branch(cwd: str, smm_dir: Path, story_id: str) -> str | None
     already carried forward as an orphan.
 
     ``sprint_store.get_story_branch_name`` returns the raw recorded value with
-    no existence check of its own, so it is verified against git here before
-    being trusted — same posture as ``_recorded_sprint_branch``'s
-    ``_verified_local``: a recorded-but-vanished branch is stale, and the
-    slug-built name is the better guess.
+    no existence check of its own, so it is verified via the shared
+    ``_verified_local`` (the same helper ``_recorded_sprint_branch`` calls) —
+    a recorded-but-vanished branch is stale, and the slug-built name is the
+    better guess. Sharing the helper keeps the two reslice-preserve legs from
+    diverging if the verification rule ever changes.
     """
-    recorded = sprint_store.get_story_branch_name(smm_dir, story_id)
-    return recorded if recorded and branch_exists(cwd, recorded) else None
+    return _verified_local(cwd, sprint_store.get_story_branch_name(smm_dir, story_id))
 
 
 def create_story_branch(
