@@ -161,6 +161,16 @@ LINTER_ARGV_SHAPES: dict[str, str] = {
     # clear it and got 101 again. A concern that can never be resolved, in every Rust
     # project the plugin ships to.
     "clippy": NO_PER_FILE_ARGV,
+    # The same shape, on the three other rows DEGRADED_LINTERS already says lint
+    # the WHOLE PROJECT (not just clippy's crate): detekt's `--input` defaults to
+    # the whole source set, `mix credo` walks the whole project, and
+    # `dotnet format --verify-no-changes` covers the whole solution. Each was
+    # still building an edit-time argv of `[*cmd, "--", <one file>]` — a question
+    # none of those CLIs can answer about a single file — which is the identical
+    # trap clippy's row was added to close, just not yet closed here.
+    "detekt": NO_PER_FILE_ARGV,
+    "credo": NO_PER_FILE_ARGV,
+    "dotnet-format": NO_PER_FILE_ARGV,
 }
 
 

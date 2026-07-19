@@ -120,6 +120,71 @@ class TestAutoResolveTestConcerns(_HookTestCase):
         ]
         self.assertEqual(len(new_resolutions), 0)
 
+    def test_compound_captured_output_no_auto_resolve(self):
+        """Concern 5331a47bf19f: `OUT=$(pytest tests/); echo $?` is compound —
+        the outer command's exit 0 is echo's, not pytest's — and the tool's
+        visible stdout is just the echoed exit code, so parse_test_results
+        can't extract counts (PARSER_FAILED). A genuine red test-failure
+        concern must NOT be cleared by a run whose result was never actually
+        observed."""
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        self._write_events([concern])
+        self._run_bash(
+            "OUT=$(pytest tests/); echo $?",
+            stdout="0",
+        )
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(
+            resolutions,
+            [],
+            "compound command with unparseable (captured) test output must "
+            "not clear an open test-failure concern",
+        )
+
+    def test_simple_unparseable_exit_zero_still_resolves(self):
+        """Concession preserved: a SIMPLE (non-compound) command that ran a
+        recognized runner but whose output the parser can't read still
+        clears on exit 0 — this is the documented anti-deadlock behavior for
+        frameworks the parser cannot read at all."""
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        self._write_events([concern])
+        self._run_bash(
+            "pytest tests/",
+            stdout="some framework-specific output the parser can't read",
+        )
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+        self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
+
+    def test_compound_with_parsed_green_output_still_resolves(self):
+        """A compound command whose test output IS visible and parses green
+        (`pytest tests/ && echo done`) is real corroborated evidence, and
+        must still clear the concern."""
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="Test failures detected: 2 failed (pytest)",
+            severity="high",
+        )
+        self._write_events([concern])
+        self._run_bash(
+            "pytest tests/ && echo done",
+            stdout="5 passed in 0.12s",
+        )
+        events = self._read_events()
+        resolutions = [e for e in events if e.get("metadata", {}).get("resolves")]
+        self.assertEqual(len(resolutions), 1)
+        self.assertIn(concern["id"], resolutions[0]["metadata"]["resolves"])
+
     def test_failing_tests_no_auto_resolve(self):
         """Still-failing tests should not resolve anything."""
         concern = make_event(

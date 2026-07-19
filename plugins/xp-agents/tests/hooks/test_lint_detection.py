@@ -377,6 +377,27 @@ class TestLinterTableColumns(unittest.TestCase):
                 "a per-file clippy argv does not exist — do not invent one",
             )
 
+    def test_detekt_credo_dotnet_format_have_no_per_file_argv_at_all(self):
+        """The SAME separator-shape bug as clippy, on three more rows.
+
+        DEGRADED_LINTERS already asserts each of these lints the WHOLE PROJECT:
+        detekt's `--input` defaults to the whole source set, credo walks the
+        whole project, and dotnet-format's `--verify-no-changes` covers the
+        whole solution. A per-file path is a question none of those CLIs can
+        answer — the same shape clippy's row exists to fix — so the honest
+        argv is None, not `[*cmd, "--", <path>]`.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            for linter, path in (
+                ("detekt", "Foo.kt"),
+                ("credo", "lib/x.ex"),
+                ("dotnet-format", "A.cs"),
+            ):
+                self.assertIsNone(
+                    linters.linter_argv(linter, [path], root=td),
+                    f"a per-file {linter} argv does not exist — do not invent one",
+                )
+
     def test_every_row_has_a_scope_answer(self):
         """No silent gap: a new linter row must be classified, not defaulted by
         accident. The default IS the bug this story fixed — clang-tidy's argv shape
@@ -384,6 +405,48 @@ class TestLinterTableColumns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             for linter in linters.LINTER_COMMANDS:
                 self.assertIsInstance(linters.is_file_scoped(linter, td), bool)
+
+
+class TestConfigStyleFlagsAgreesWithLinterConfigs(unittest.TestCase):
+    """Guards the two eslint-flat-config tables against drifting apart.
+
+    CONFIG_STYLE_FLAGS is keyed by config FILENAME (not by linter name) because
+    the flag it answers — `--no-warn-ignored` — is only valid under flat
+    config, and the config file is what selects the mode; see the column's own
+    docstring in linters.py. LINTER_CONFIGS is a separate table naming which
+    filenames `detect_linter_config` recognizes as flat config for eslint
+    (`eslint.config.js` / `.mjs` / `.ts`).
+
+    Today both tables list the same three filenames, so nothing is broken yet.
+    But nothing enforces that they stay in sync: add a fourth flat-config
+    filename to LINTER_CONFIGS (say, eslint.config.cjs, which real eslint
+    supports) without a matching CONFIG_STYLE_FLAGS row, and the ignored-file
+    warning this column exists to suppress comes back for every project using
+    that filename — silently, because both tables still type-check and no
+    other test reads them together. This test is that missing link.
+    """
+
+    def test_flat_config_filenames_in_linter_configs_have_a_config_style_flags_row(
+        self,
+    ):
+        flat_config_filenames = {
+            config_name
+            for config_name, linter, _content_check in linters.LINTER_CONFIGS
+            if linter == "eslint" and config_name.startswith("eslint.config.")
+        }
+        # Vacuity guard: if eslint's flat-config rows ever get renamed or
+        # removed from LINTER_CONFIGS, this test must not pass by finding an
+        # empty set to be trivially "a subset of" anything.
+        self.assertTrue(flat_config_filenames, "no flat-config rows found to check")
+
+        missing = flat_config_filenames - linters.CONFIG_STYLE_FLAGS.keys()
+        self.assertFalse(
+            missing,
+            f"{sorted(missing)} appear as flat-config rows in LINTER_CONFIGS but "
+            "have no CONFIG_STYLE_FLAGS entry — eslint would run under flat "
+            "config without --no-warn-ignored, and the gate would refuse a file "
+            "the project's own config says to skip",
+        )
 
 
 class TestRunLinterBatchScaledTimeout(unittest.TestCase):
