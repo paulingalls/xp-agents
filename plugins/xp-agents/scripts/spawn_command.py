@@ -2,13 +2,17 @@
 """The teammate command line: what flags build_command emits, and why.
 
 Extracted from spawn_teammate.py (which owns worktree/marker lifecycle, prompt
-resolution, and the story promote) to keep both files under the size cap. Self-
-contained — pure argv construction, no SMM/plugin imports and no I/O — so it
-needs no sys.path bootstrap (same property spawn_prompt and teammate_runner
-hold, for the same reason).
+resolution, and the story promote) to keep both files under the size cap. Pure
+argv construction and no I/O, but it consults the smm/ sibling ``tier_wire`` for
+effort-support gating, so it adds smm/ to sys.path itself (mirroring markers.py
+and retrospective.py) — this keeps it importable standalone rather than relying
+on the importer's bootstrap.
 """
 
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import tier_wire
 
