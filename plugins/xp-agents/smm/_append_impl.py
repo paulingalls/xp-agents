@@ -9,7 +9,6 @@ import contextlib
 import fcntl
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -85,6 +84,21 @@ def _derive_smm_dir() -> Path | None:
 # ---------------------------------------------------------------------------
 
 import marker_names  # noqa: E402
+
+# Low-level atomic-write primitives (moved out to keep this file under the
+# line-count cap; re-exported here BY IDENTITY so every existing
+# `from _append_impl import write_text_atomic` etc. and every
+# `_append_impl.write_text_atomic` reference resolves unchanged).
+# LOCK_TIMEOUT_SECONDS/flock_with_timeout/read_with_lock stay below rather
+# than moving too — see _append_lock.py's module docstring for why.
+from _append_lock import (  # noqa: E402
+    _ANSI_RE,
+    _safe_open_nofollow,
+    _strip_ansi,
+    write_json_atomic,  # noqa: F401
+    write_text_atomic,  # noqa: F401
+    write_watermark,  # noqa: F401
+)
 from append_validation import validate_agent_id, validate_smm_dir  # noqa: E402
 from event_builder import (  # noqa: E402
     build_event,
@@ -125,11 +139,6 @@ def _on_alarm(signum: int, frame: object) -> None:
     raise LockTimeoutError(
         f"Could not acquire lock within {LOCK_TIMEOUT_SECONDS} seconds"
     )
-
-
-def _safe_open_nofollow(path: Path, flags: int) -> int:
-    """Open a file with O_NOFOLLOW to reject symlinks."""
-    return os.open(str(path), flags | os.O_NOFOLLOW, 0o600)
 
 
 @contextmanager
@@ -184,53 +193,6 @@ def read_with_lock(path: Path) -> str:
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""
-
-
-def write_watermark(smm_dir: Path, agent_id: str, line_count: int) -> None:
-    """Atomic write of watermark via temp + rename. Validates agent_id.
-
-    Rejects symlinks at the target path to prevent write-through attacks.
-    """
-    validate_agent_id(agent_id)
-    wm_file = smm_dir / f".watermark-{agent_id}"
-
-    # Reject existing symlink at target path
-    if wm_file.is_symlink():
-        raise OSError(f"Watermark path is a symlink: {wm_file}")
-
-    write_text_atomic(wm_file, str(line_count))
-
-
-def write_text_atomic(path: Path, content: str, *, encoding: str = "utf-8") -> None:
-    """Atomic write of text content via tempfile + rename.
-
-    Creates tempfile in same directory as target, writes content,
-    sets permissions to 0o600, then atomically renames.
-    """
-    target_dir = path.parent
-    fd, tmp = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding=encoding) as f:
-            f.write(content)
-        os.chmod(tmp, 0o600)
-        os.rename(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
-
-
-def write_json_atomic(path: Path, data: dict) -> None:
-    """Atomic write of JSON data via tempfile + rename."""
-    write_text_atomic(path, json.dumps(data))
-
-
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-
-
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape codes from text."""
-    return _ANSI_RE.sub("", text)
 
 
 def append_event(smm_dir: Path, event: dict) -> None:
