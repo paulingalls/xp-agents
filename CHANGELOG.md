@@ -2,6 +2,32 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.6 — Hotfix: close Step 4b runs /code-review via the Workflow tool
+
+**Every sprint/plan/free-close was breaking at Step 4b.** `/code-review` can no
+longer be launched via the Skill tool (`disable-model-invocation`) — it runs via
+the **Workflow tool** (async). The shared close pipeline said
+`Skill(skill: "code-review")`, which now hard-errors for all plugin users. Fixed
+the whole Step 4b flow at once (three coupled issues, one code region):
+
+- **Skill → Workflow.** Step 4b now launches
+  `Workflow({name: "code-review", args: "high <TARGET>...HEAD"})` and waits for its
+  task-notification findings.
+- **Arm the review-cycle marker.** A Workflow completion does not fire the
+  `PostToolUse:Skill|Agent` review-cycle hook, so `simplify_done` was never set —
+  the close Stop gate never deferred during the async window (spamming
+  "mid-flight") and `xp-quality-review` never entered `consume-findings` mode. Step
+  4b now arms the marker up front via the new `review_flag_cli.py`, keyed on the
+  cwd-resolved agent_id the readers already use.
+- **Order the close-reviewer after fixes.** The close-reviewer (Step 4.5) now runs
+  only after the workflow findings are consumed and fixed, so it reviews the
+  post-fix diff.
+
+The close-cycle Stop gate's guidance text now names the Workflow tool; its defer
+logic already anticipated the async flow and needed no change. `xp-quality-review`
+reads consume-findings from the Workflow task-notification result. Full suite green
+(7134 passed).
+
 ## v4.14.5 — Milestone 3 complete: 500-line cap paydown
 
 **The entire Python census is now under the 500-line file cap.** Sprint-124
