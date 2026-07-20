@@ -436,11 +436,15 @@ class TestStoryCloseSkillText(_CloseSkillTextCommonTests, unittest.TestCase):
             "close_common.py push must pass --smm-dir so the relocate can "
             "resolve the story base ref.",
         )
-        # Inverse pin for merge: must NOT route at TEAMMATE_CWD (always
-        # orchestrator cwd because merge checks out target).
-        self.assertNotRegex(
+        # Positive pin for merge: its own invocation routes at orchestrator cwd
+        # (--cwd . on the line after the subcommand), NOT TEAMMATE_CWD, because
+        # git merge checks out the target branch held by the orchestrator
+        # worktree. (Scoped to the merge command's own line — a document-wide
+        # "no ${TEAMMATE_CWD:-.} after merge" negative false-matches unrelated
+        # downstream steps like the Step 4b review-marker cwd.)
+        self.assertRegex(
             self.text,
-            r"(?s)close_common\.py\s+merge[\s\S]*?\$\{TEAMMATE_CWD:-\.\}",
+            r"close_common\.py\s+merge[^\n]*\n\s*--cwd\s+\.",
             "close_common.py merge must run at orchestrator cwd (--cwd .); "
             "git merge checks out target branch held by orchestrator worktree.",
         )
