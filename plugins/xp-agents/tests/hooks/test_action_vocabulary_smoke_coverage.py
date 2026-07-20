@@ -6,7 +6,7 @@ Split from test_action_vocabulary_smoke.py (was 513 lines) when it crossed
 the 500-line cap. This half asserts that every ``STATUS_ACTION_*`` constant
 declared in ``event_schema.py`` is accounted for by ``_PRODUCER_CASES``,
 ``_DOCTRINE_GAPS``, or ``_NON_HOOK_PRODUCERS`` (all defined in
-_test_action_vocabulary_smoke_helpers.py). Per-constant emission checks
+_action_vocabulary_smoke_helpers.py). Per-constant emission checks
 (does each driver actually emit the right event?) live in
 test_action_vocabulary_smoke_emission.py.
 
@@ -36,7 +36,7 @@ sys.path.insert(
     ),
 )
 
-from _test_action_vocabulary_smoke_helpers import (
+from _action_vocabulary_smoke_helpers import (
     _DOCTRINE_GAPS,
     _NON_HOOK_PRODUCERS,
     _PRODUCER_CASES,

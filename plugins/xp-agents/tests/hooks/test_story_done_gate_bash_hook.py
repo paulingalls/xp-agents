@@ -23,7 +23,7 @@ Bash-hook layer. The engine-altitude backstop -- the same proof driven
 straight through `sprint_cli.py`, below the shell -- lives in
 test_story_done_gate_engine_backstop.py. Shared fixtures (`_GateCase`,
 `_done_cmd`, `_BASE`, `_STORY_BRANCH`) live in
-_test_story_done_gate_helpers.py.
+_story_done_gate_helpers.py.
 """
 
 import sys
@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import pre_tool_bash
 import sprint_store
-from _test_story_done_gate_helpers import _BASE, _STORY_BRANCH, _done_cmd, _GateCase
+from _story_done_gate_helpers import _BASE, _STORY_BRANCH, _done_cmd, _GateCase
 from conftest import _make_bash_input
 
 

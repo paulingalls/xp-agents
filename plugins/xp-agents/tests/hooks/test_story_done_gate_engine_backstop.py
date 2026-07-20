@@ -5,7 +5,7 @@ Split from test_story_done_gate.py (was 539 lines) when it crossed the
 500-line cap. The Bash-hook-level gate (the regex-driven `pre_tool_bash`
 half of this doctrine) lives in test_story_done_gate_bash_hook.py. Shared
 fixtures (`_GateCase`, `_done_cmd`, `_BASE`, `_STORY_BRANCH`) live in
-_test_story_done_gate_helpers.py.
+_story_done_gate_helpers.py.
 
 The proof is derived from GIT, never from a recorded token: branch ABSENCE
 proves the merge, because no delete path deletes an unmerged branch --
@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import sprint_store
-from _test_story_done_gate_helpers import _BASE, _CLI, _STORY_BRANCH, _GateCase
+from _story_done_gate_helpers import _BASE, _CLI, _STORY_BRANCH, _GateCase
 from conftest import run_cli
 
 

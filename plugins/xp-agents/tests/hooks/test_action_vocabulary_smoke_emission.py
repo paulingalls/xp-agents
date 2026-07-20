@@ -4,7 +4,7 @@ per-constant emission checks.
 
 Split from test_action_vocabulary_smoke.py (was 513 lines) when it crossed
 the 500-line cap. This half runs each driver in ``_PRODUCER_CASES`` (defined
-in _test_action_vocabulary_smoke_helpers.py) against a fresh SMM and
+in _action_vocabulary_smoke_helpers.py) against a fresh SMM and
 confirms at least one emitted event carries ``metadata.action`` set to the
 constant's value, plus a hand-pinned check for the
 ``STATUS_ACTION_SPRINT_RETRO_DONE`` / ``RETRO_ACTION_SPRINT_DONE`` pair the
@@ -33,7 +33,7 @@ sys.path.insert(
 )
 
 import event_schema
-from _test_action_vocabulary_smoke_helpers import (
+from _action_vocabulary_smoke_helpers import (
     _PRODUCER_CASES,
     _drive_sprint_retro_done,
 )
