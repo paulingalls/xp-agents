@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
 import event_schema
@@ -40,15 +41,14 @@ import markers
 
 # The flags this CLI can set, each paired with the lifecycle event
 # review_cycle_done emits for the equivalent completed review. Keys double as
-# the argparse `choices` (the valid review-cycle flags this CLI sets).
+# the argparse `choices` (the valid review-cycle flags this CLI sets). Only
+# simplify_done is needed: it is the sole leg the async-Workflow Step 4b must
+# substitute for. /xp-quality-review still launches via the Skill tool, so
+# review_cycle_done sets quality_review_done itself — no CLI leg for it.
 _FLAG_LIFECYCLE: dict[str, tuple[str, str]] = {
     "simplify_done": (
         event_schema.STATUS_ACTION_SIMPLIFY_COMPLETE,
         "Code review complete",
-    ),
-    "quality_review_done": (
-        event_schema.STATUS_ACTION_QR_COMPLETE,
-        "Quality review complete",
     ),
 }
 
