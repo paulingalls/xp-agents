@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Close-pipeline auto-merge gate, TEST_COMMAND wiring, and Step 6 count-concerns.
+"""Close-pipeline SKILL.md auto-merge override section (Commit 4).
 
-Three cohesive classes cover the story-/free-close auto-merge
-decision: TEST_COMMAND preload emission (story+free preloads surface
-`system_context.stack.test_command`), the SKILL.md auto-merge override
-section itself (story+free carry it, sprint+plan do not), and the
-deterministic Step 6 count-concerns CLI scoped by `--cycle-id` (the
-abort-default that isolates concurrent close cycles).
+Split out of the original test_close_merge_gate.py (which grew past
+the 500-line cap). This file keeps the auto-merge override assertions
+— the SKILL.md section itself (story+free carry it, sprint+plan do
+not) and its gate conditions (tests green, TEST_COMMAND var, discovery
+hint, count-classifications usage, design_decision guard, cycle-id
+scoping).
+
+TEST_COMMAND preload emission tests live in
+test_close_merge_gate_test_command.py. The deterministic Step 6
+count-concerns CLI realistic E2E tests live in
+test_close_merge_gate_count_concerns_e2e.py.
 
 Per-mode shared-content preload emission tests live in
 test_close_preloads_emit_shared.py.
 """
 
-import json
-import os
-import re
-import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -25,17 +25,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from _bases import _PLUGIN_ROOT
-from _close_fixtures import _record_quality_block, _record_security_block
-from conftest import _IntegrationTestCase, run_cli
-from event_helpers import events_of_type
-from event_schema import EVENT_TYPE_CONCERN
-
-_SMM_CLI = _PLUGIN_ROOT / "smm" / "smm_cli.py"
-
-_TEST_COMMAND_PRELOADS = {
-    "story": _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh",
-    "free": _PLUGIN_ROOT / "skills" / "xp-free-close" / "scripts" / "preload.sh",
-}
 
 # Commit 4: auto-merge override lives in mode-specific SKILL.md files,
 # NOT in the shared file (per plan-reviewer concern fdcf62462321 —
@@ -49,132 +38,6 @@ _NO_AUTO_MERGE_SKILL_MDS = {
     "sprint": _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "SKILL.md",
     "plan": _PLUGIN_ROOT / "skills" / "xp-plan-close" / "SKILL.md",
 }
-
-# Realistic close-cycle ids — distinct 12-hex values so cross-cycle
-# leakage is visually obvious if a query mis-scopes.
-_CYCLE_A = "aaaa11112222"
-_CYCLE_B = "bbbb33334444"
-
-
-class TestStoryFreePreloadEmitsTestCommand(unittest.TestCase):
-    """Story-close + free-close preloads emit a `TEST_COMMAND=...` line
-    sourced from `system_context.stack.test_command`. The auto-merge
-    override (Step 6) reads this to decide whether the deterministic
-    test gate can fire — empty TEST_COMMAND means fall through to the
-    confirm prompt.
-
-    Tests use _IntegrationTestCase fixtures (fresh tmp SMM per test)
-    to control whether system_context.json exists and what it contains.
-    """
-
-    def _run_preload(self, preload_path: Path, smm_dir: Path) -> str:
-        env = dict(os.environ)
-        env["CLAUDE_PLUGIN_DATA"] = str(smm_dir.parent.parent)
-        env["SMM_DIR"] = str(smm_dir)
-        result = subprocess.run(
-            ["bash", str(preload_path)],
-            cwd=smm_dir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        return result.stdout
-
-    def _make_smm(self, sc_data: dict | None) -> Path:
-        # Mirror _IntegrationTestCase's SMM-dir convention: deep nested
-        # path under a tmp root so init.sh resolves it cleanly.
-        tmp = Path(tempfile.mkdtemp())
-        smm_dir = tmp / "data" / "proj" / "smm"
-        smm_dir.mkdir(parents=True)
-        (smm_dir / "events.jsonl").write_text("")
-        if sc_data is not None:
-            (smm_dir / "system_context.json").write_text(json.dumps(sc_data))
-        return smm_dir
-
-    def test_emits_test_command_when_set(self):
-        # When system_context.stack.test_command is set, the preload
-        # surfaces it verbatim so the auto-merge override can run it.
-        sc = {
-            "product": "x",
-            "architecture_overview": "x",
-            "stack": {"languages": ["Python"], "test_command": "pytest -n auto"},
-            "modules": [],
-            "conventions": [],
-            "principles": [],
-            "project_specific": [],
-        }
-        for mode, preload in _TEST_COMMAND_PRELOADS.items():
-            with self.subTest(mode=mode):
-                smm = self._make_smm(sc)
-                stdout = self._run_preload(preload, smm)
-                self.assertIn(
-                    "TEST_COMMAND=pytest -n auto",
-                    stdout,
-                    f"{mode}-close preload must emit TEST_COMMAND=<stack.test_command>",
-                )
-
-    def test_emits_empty_test_command_when_unset(self):
-        # When stack.test_command is absent, TEST_COMMAND= is empty.
-        # The auto-merge override falls through to confirm prompt on
-        # empty — never guesses pytest/npm/cargo.
-        sc = {
-            "product": "x",
-            "architecture_overview": "x",
-            "stack": {"languages": ["Python"]},
-            "modules": [],
-            "conventions": [],
-            "principles": [],
-            "project_specific": [],
-        }
-        for mode, preload in _TEST_COMMAND_PRELOADS.items():
-            with self.subTest(mode=mode):
-                smm = self._make_smm(sc)
-                stdout = self._run_preload(preload, smm)
-                self.assertIn(
-                    "TEST_COMMAND=\n",
-                    stdout,
-                    f"{mode}-close preload must emit empty TEST_COMMAND= "
-                    f"when stack.test_command is unset",
-                )
-
-    def test_emits_empty_test_command_when_no_system_context(self):
-        # Graceful: missing system_context.json → empty TEST_COMMAND.
-        # Plugins ship to repos that may not have run /xp-system-context
-        # yet; preload must not fail, just emit empty.
-        for mode, preload in _TEST_COMMAND_PRELOADS.items():
-            with self.subTest(mode=mode):
-                smm = self._make_smm(sc_data=None)
-                stdout = self._run_preload(preload, smm)
-                self.assertIn(
-                    "TEST_COMMAND=\n",
-                    stdout,
-                    f"{mode}-close preload must emit empty TEST_COMMAND= "
-                    f"when system_context.json is missing",
-                )
-
-    def test_emits_close_start_ts_iso_timestamp(self):
-        # The auto-merge override's count-classifications invocation
-        # bounds events by --since-ts <CLOSE_START_TS>. Pin that the
-        # preload emits a CLOSE_START_TS line with an ISO 8601-shaped
-        # value (YYYY-MM-DDTHH:MM:SS...) so lexicographic comparison
-        # against event ts values works. Format match doesn't need to
-        # be exact: assert leading 4-digit year, T separator, and a
-        # +00:00 / Z trailer.
-        iso_pattern = re.compile(
-            r"^CLOSE_START_TS=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*(\+00:00|Z)$",
-            re.MULTILINE,
-        )
-        for mode, preload in _TEST_COMMAND_PRELOADS.items():
-            with self.subTest(mode=mode):
-                smm = self._make_smm(sc_data=None)
-                stdout = self._run_preload(preload, smm)
-                self.assertRegex(
-                    stdout,
-                    iso_pattern,
-                    f"{mode}-close preload must emit CLOSE_START_TS=<ISO 8601 "
-                    f"UTC timestamp> for the auto-merge gate's --since-ts "
-                    f"bound",
-                )
 
 
 class TestStoryFreeAutoMergeOverride(unittest.TestCase):
@@ -398,131 +261,6 @@ class TestStoryFreeAutoMergeOverride(unittest.TestCase):
             "story-close auto-merge must NOT carry the design_decision "
             "guard — that's free-close-only (merges to primary)",
         )
-
-
-class TestStep6CountConcernsRealisticE2E(_IntegrationTestCase):
-    """End-to-end: synthesize a real close cycle by writing concerns
-    through `append.sh` (no mocks, no JSON forgery), then drive
-    `smm_cli count-concerns` through the same CLI surface the shared
-    Step 6 abort-default invokes. The combined contract — append.sh
-    metadata shape ⇄ count-concerns filter — is what regressed at
-    sprint-055 (concern 0825da9526de): the close-reviewer wrote
-    quality blocks lacking `close_cycle_id`, so Step 6's count-concerns
-    --cycle-id query silently dropped them.
-
-    Realistic event shapes (xp-close-reviewer quality blocks: full
-    metadata block per agents/xp-close-reviewer.md; security blocks:
-    metadata.kind=security per scripts/_close_pipeline_shared.md
-    Step 4.5) are written via real append.sh subprocess calls — the
-    only way to catch a future drift between what the appender accepts
-    and what the counter filters on.
-    """
-
-    def _count_high_concerns_for(self, cycle_id: str) -> int:
-        result = run_cli(
-            _SMM_CLI,
-            ["count-concerns", "--severity", "high", "--cycle-id", cycle_id],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return int(result.stdout.strip())
-
-    def test_high_concern_count_scopes_to_cycle_a_excluding_cycle_b(self) -> None:
-        # Cycle A: two reviewer Blocks + one security Block — three high
-        # severity concerns total under cycle id A.
-        for content, path in [
-            ("Block: foo helper duplicates bar helper", "scripts/foo.py"),
-            ("Block: missing test for edge case", "scripts/bar.py"),
-        ]:
-            r = _record_quality_block(self, _CYCLE_A, content, path)
-            self.assertEqual(r.returncode, 0, r.stderr)
-        r = _record_security_block(
-            self,
-            _CYCLE_A,
-            "Security Block: hardcoded credential in fixture",
-            "scripts/sec.py",
-        )
-        self.assertEqual(r.returncode, 0, r.stderr)
-
-        # Cycle B noise: a medium-severity quality concern (wrong severity
-        # for the count) and a status event (wrong type for the count). No
-        # high-severity concern under B, so the cycle-B count is zero.
-        r = _record_quality_block(
-            self,
-            _CYCLE_B,
-            "Concern: noise from a parallel close",
-            "scripts/noise.py",
-            severity="medium",
-            source_branch="other-branch",
-        )
-        self.assertEqual(r.returncode, 0, r.stderr)
-        r = self._run_append(
-            "--type", "status",
-            "--agent", "xp-sprint-close",
-            "--content", "preload: gathered context",
-            "--working-on", "[]",
-            "--metadata", json.dumps({"close_cycle_id": _CYCLE_B}),
-        )  # fmt: skip
-        self.assertEqual(r.returncode, 0, r.stderr)
-
-        # Sanity: the four concern writes landed as concern events with
-        # the metadata we synthesized — guards against a silent append.sh
-        # contract change masking a real bug.
-        events = self._read_events()
-        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
-        self.assertEqual(
-            len(concerns), 4, f"expected 4 concern events; got {len(concerns)}"
-        )
-        a_high_concerns = [
-            e
-            for e in concerns
-            if e.get("severity") == "high"
-            and e.get("metadata", {}).get("close_cycle_id") == _CYCLE_A
-        ]
-        self.assertEqual(len(a_high_concerns), 3)
-        kinds = sorted(c.get("metadata", {}).get("kind", "") for c in a_high_concerns)
-        self.assertEqual(
-            kinds,
-            ["", "", "security"],
-            "cycle A's three high concerns must include exactly one "
-            "kind=security (Step 4.5) and two un-kinded quality blocks "
-            "(xp-close-reviewer Step 4)",
-        )
-
-        # The load-bearing assertion: the deterministic Step 6
-        # abort-default count must equal 3 for cycle A and 0 for cycle B,
-        # via the same `smm_cli count-concerns` CLI the shared template
-        # invokes — no in-process shortcuts.
-        self.assertEqual(self._count_high_concerns_for(_CYCLE_A), 3)
-        self.assertEqual(self._count_high_concerns_for(_CYCLE_B), 0)
-
-    def test_concurrent_high_concerns_in_two_cycles_stay_isolated(self) -> None:
-        # Both cycles file high-severity concerns. The cycle-id filter
-        # must isolate them — a leak here is exactly the sprint-055
-        # regression class (concern 0825da9526de).
-        for content, path in [
-            ("Block: cycle A first", "scripts/a1.py"),
-            ("Block: cycle A second", "scripts/a2.py"),
-        ]:
-            r = _record_quality_block(self, _CYCLE_A, content, path)
-            self.assertEqual(r.returncode, 0, r.stderr)
-        for content, path in [
-            ("Block: cycle B first", "scripts/b1.py"),
-            ("Block: cycle B second", "scripts/b2.py"),
-            ("Block: cycle B third", "scripts/b3.py"),
-        ]:
-            r = _record_quality_block(self, _CYCLE_B, content, path)
-            self.assertEqual(r.returncode, 0, r.stderr)
-        r = _record_security_block(
-            self,
-            _CYCLE_B,
-            "Security Block: cycle B hardcoded secret",
-            "scripts/b_sec.py",
-        )
-        self.assertEqual(r.returncode, 0, r.stderr)
-
-        self.assertEqual(self._count_high_concerns_for(_CYCLE_A), 2)
-        self.assertEqual(self._count_high_concerns_for(_CYCLE_B), 4)
 
 
 if __name__ == "__main__":
