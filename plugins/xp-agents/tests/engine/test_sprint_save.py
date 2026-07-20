@@ -4,7 +4,7 @@
 Relocated from tests/hooks/test_sprint_start.py in sprint-108 M1 when the
 sprint-mutation pipeline (run/save) moved from the xp-sprint-start skill into
 the engine module smm/sprint_save.py. Sister-test auto-inclusion lives in
-test_sprint_save_sisters.py.
+test_sprint_save_sisters_autoinclude.py / test_sprint_save_sisters_layout.py.
 
 sprint_save is a LIBRARY — it has no CLI entrypoint, so these tests drive
 run()/save() in-process. The collision-as-clean-error invariant is pinned

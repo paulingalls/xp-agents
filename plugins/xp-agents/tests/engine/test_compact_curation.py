@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests for curation-watermark-based compaction: basic operations.
 
-Sprint lifecycle and team safety tests in test_compact_curation_sprint.py.
+Sprint lifecycle and team safety tests in
+test_compact_curation_sprint_lifecycle.py / test_compact_curation_sprint_commits.py.
 """
 
 import json
