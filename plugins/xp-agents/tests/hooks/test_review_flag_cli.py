@@ -19,9 +19,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import _common
 import markers
 import review_flag_cli
 from conftest import _HookTestCase
+from event_schema import STATUS_ACTION_SIMPLIFY_COMPLETE, event_action
+
+_WATERMARK = "test-review-flag-cli"
 
 
 class TestReviewFlagCli(_HookTestCase):
@@ -33,6 +37,17 @@ class TestReviewFlagCli(_HookTestCase):
         )
         cycle = markers.read_review_cycle(self.smm_dir, "main")
         self.assertTrue(cycle["simplify_done"])
+
+    def test_emits_lifecycle_event_for_retro_metrics(self):
+        # The async-workflow /code-review can't fire review_cycle_done, so the
+        # CLI must emit the same SIMPLIFY_COMPLETE action event retro_metrics
+        # counts — else the close-time review is invisible in the retro.
+        review_flag_cli.main(
+            ["--smm-dir", str(self.smm_dir), "--cwd", ".", "simplify_done"]
+        )
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK)
+        actions = [event_action(e) for e in events]
+        self.assertIn(STATUS_ACTION_SIMPLIFY_COMPLETE, actions)
 
     def test_flag_makes_close_gate_defer_mid_cycle(self):
         self.assertFalse(markers.review_mid_cycle(self.smm_dir, "main"))
