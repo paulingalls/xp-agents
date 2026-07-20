@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _branching_fixtures as _bf
 import branching
+import branching_core
 from _bases import _AssertNotNoneMixin
 
 _init_repo = _bf.init_repo
@@ -178,20 +179,24 @@ class TestCreatePushSkipsVerify(_BasePushTest):
         )
 
     def _capture_push_argv(self, call) -> list[list[str]]:
+        # The push itself happens inside _push_branch_if_remote, which lives
+        # in branching_core.py (extracted to keep branching.py under the
+        # file-size cap) — spy on that module's `_git` binding, not
+        # branching's, or the reassignment never reaches the real call.
         pushes: list[list[str]] = []
-        real_git = branching._git
+        real_git = branching_core._git
 
         def _spy(args, cwd):
             if len(args) > 1 and args[1] == "push":
                 pushes.append(list(args))
             return real_git(args, cwd)
 
-        orig = branching._git
-        branching._git = _spy
+        orig = branching_core._git
+        branching_core._git = _spy
         try:
             call()
         finally:
-            branching._git = orig
+            branching_core._git = orig
         return pushes
 
     def test_sprint_create_push_uses_no_verify(self):
@@ -218,19 +223,22 @@ class TestCreatePushSkipsVerify(_BasePushTest):
         import subprocess as _sp
 
         td, smm = self._setup_repo()
-        real_git = branching._git
+        # As in _capture_push_argv: the push happens inside
+        # _push_branch_if_remote, which lives in branching_core.py — patch
+        # that module's `_git` binding so the timeout actually reaches it.
+        real_git = branching_core._git
 
         def _git_timeout(args, cwd):
             if len(args) > 1 and args[1] == "push":
                 raise _sp.TimeoutExpired(cmd=args, timeout=10)
             return real_git(args, cwd)
 
-        orig = branching._git
-        branching._git = _git_timeout
+        orig = branching_core._git
+        branching_core._git = _git_timeout
         try:
             name = branching.create_sprint_branch(td, "sprint-001", "demo", smm)
         finally:
-            branching._git = orig
+            branching_core._git = orig
         self.assertIsNotNone(name, "create crashed on a push timeout")
 
 

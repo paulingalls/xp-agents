@@ -535,9 +535,14 @@ class TestAutoPromote(_SMMTestCase):
         fake_proc = MagicMock(returncode=0, stdout="", stderr="")
         with (
             patch("branching.identity.user_namespace", return_value="paul"),
-            patch("branching.branch_exists", return_value=False),
-            patch("branching.is_worktree_clean", return_value=True),
-            patch("branching._git", return_value=fake_proc),
+            # branch_exists/is_worktree_clean/_git are read inside
+            # _create_or_resume_branch, which lives in branching_core.py
+            # (extracted to keep branching.py under the file-size cap) — patch
+            # where that caller lives, per this module's "patch where the
+            # caller lives" convention.
+            patch("branching_core.branch_exists", return_value=False),
+            patch("branching_core.is_worktree_clean", return_value=True),
+            patch("branching_core._git", return_value=fake_proc),
         ):
             result = branching.create_sprint_branch(
                 cwd=str(self.smm_dir),
@@ -567,9 +572,14 @@ class TestAutoPromote(_SMMTestCase):
         fake_proc = MagicMock(returncode=0, stdout="", stderr="")
         with (
             patch("branching.identity.user_namespace", return_value="paul"),
-            patch("branching.branch_exists", return_value=False),
-            patch("branching.is_worktree_clean", return_value=True),
-            patch("branching._git", return_value=fake_proc),
+            # branch_exists/is_worktree_clean/_git are read inside
+            # _create_or_resume_branch, which lives in branching_core.py
+            # (extracted to keep branching.py under the file-size cap) — patch
+            # where that caller lives, per this module's "patch where the
+            # caller lives" convention.
+            patch("branching_core.branch_exists", return_value=False),
+            patch("branching_core.is_worktree_clean", return_value=True),
+            patch("branching_core._git", return_value=fake_proc),
             # create_story_branch now VERIFIES the base it is handed against git
             # (trusted_story_base -> ref_exists). cwd here is the SMM temp dir,
             # not a repo, and that check crosses into branch_resolution — where
