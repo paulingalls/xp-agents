@@ -2,6 +2,32 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.14.5 — Milestone 3 complete: 500-line cap paydown
+
+**The entire Python census is now under the 500-line file cap.** Sprint-124
+finished Milestone 3 with four behavior-preserving pure-move stories, fanned out
+per file across sonnet subagents. No user-facing behavior change — every split
+flows imports downward and re-exports by identity, so unchanged tests are the
+verification (full suite green, 7131 passed, throughout).
+
+- **story-001 — production + shared fixtures (blast radius):** `branching.py`
+  (508→367, primitives to `branching_core.py`), `branching_cli.py` (506→441,
+  worktree subcommands out), `linters.py` (502→167, data tables + cross-language
+  guardrail comments to `linter_tables.py`), and the `_close_fixtures.py` test
+  fixture (778→480). Mocks retargeted by call graph.
+- **story-002 — mega test files (820+):** the 10 largest test files
+  (`test_lint.py` 1805, `test_work_selection_decide.py` 1740, …) split by
+  thing-tested into same-directory siblings.
+- **story-003 — 600-785 band + collision families:** 21 files including the
+  branching / system_context / common families, each split by a single subagent
+  so a split can never regenerate an existing sibling's name.
+- **story-004 — test tail (500-599):** the final 13 barely-over files.
+
+Every split keeps tests `unittest discover`-importable (CI runs unittest); shared
+cross-sibling helpers live in non-`test_`-prefixed modules so pytest never
+double-collects them. Test-method multiset verified identical before/after on
+every story (zero tests lost).
+
 ## v4.14.4 — Clean-fan-out debt fixes
 
 **Closing the debt-pool loop.** Mirroring the concern sweep: after assessing the

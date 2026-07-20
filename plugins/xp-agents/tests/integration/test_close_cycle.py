@@ -256,7 +256,8 @@ class TestCloseCycleE2E(_IntegrationTestCase):
         in place. The workflow-completion notification re-wakes the agent and
         the close finishes; the SessionStart sweep is the backstop if a young
         cycle is genuinely abandoned. Only an AGED marker records the loud
-        bypass concern — unit coverage in tests/hooks/test_close_cycle_stop_gate.py.
+        bypass concern — unit coverage in
+        tests/hooks/test_close_cycle_stop_gate_core.py.
         """
         import event_schema
         import markers

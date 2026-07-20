@@ -11,7 +11,7 @@ a collision is refused, but an unrelated-field edit on a legacy sprint that alre
 holds a pre-existing collision still succeeds (the pre-existing collision is not this
 write's fault). Mirrors the fixture + assertion style of
 TestCreateRefusesCollidingSprintE2E and TestAddStoryNotBlockedByPreexistingCollision
-in test_sprint_save_sisters.py.
+in test_sprint_save_sisters_autoinclude.py.
 """
 
 import json

@@ -2,8 +2,8 @@
 """Compaction folds adoption memory into the ledger before it destroys it.
 
 Split from test_compact.py (which was at 488/500 before this suite) alongside
-its siblings test_compact_curation.py / test_compact_curation_sprint.py — one
-file per compaction concern.
+its siblings test_compact_curation.py / test_compact_curation_sprint_lifecycle.py /
+test_compact_curation_sprint_commits.py — one file per compaction concern.
 
 **Every test here runs a REAL compaction and asserts the adopting event is
 GENUINELY GONE from events.jsonl before asserting the intent survives.** That
