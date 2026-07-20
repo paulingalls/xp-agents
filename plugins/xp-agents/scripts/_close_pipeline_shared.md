@@ -44,18 +44,23 @@ to the Step 6 count. Do NOT pass them to xp-close-reviewer in Step
 
 Run only when the preload emitted `RUN_FULL_CODE_REVIEW=true` (cumulative close
 diff ≥ `REVIEW_CYCLE_THRESHOLD` code files); skip otherwise — story-close and
-below-threshold closes never set it. This is the one broad multi-agent
-correctness pass over the whole close diff. Run:
+below-threshold closes never set it. The one broad multi-agent correctness pass.
 
-```
-Skill(skill: "code-review", args: "high <TARGET_BRANCH>...HEAD")
-Skill(skill: "xp-quality-review")
-```
+`/code-review` runs via the **Workflow tool** (async) — it CANNOT be launched
+with `Skill`, and a Workflow completion does not arm the review-cycle marker. So:
 
-`/code-review` identifies (fixes nothing); the `/xp-quality-review` that follows
-sees `MODE=consume-findings` and spawns xp-code-reviewer to validate & fix, plus
-quality/drift/debt. Fix inline or record as debt. Like Step 4, handled here —
-not Step 5c.
+1. **Arm the marker** (defers the close Stop gate during the async window; makes
+   `/xp-quality-review` read `MODE=consume-findings`), cwd `${TEAMMATE_CWD:-.}`:
+   `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_flag_cli.py --smm-dir <SMM_DIR> --cwd <cwd> simplify_done`
+2. Launch `Workflow({ name: "code-review", args: "high <TARGET_BRANCH>...HEAD" })`
+   (background; findings arrive as a task-notification).
+3. **Wait** for the notification; read its `findings` array.
+4. `Skill(skill: "xp-quality-review")` — preload emits `consume-findings`; pass
+   the findings to the xp-code-reviewer it spawns to validate & fix (+ quality/
+   drift/debt). Fix inline or record as debt. Handled here, not Step 5c.
+
+Do NOT run Step 4.5 (the close-reviewer) until these fixes land — it must review
+the **post-fix** diff.
 
 ### Step 5: Present findings
 

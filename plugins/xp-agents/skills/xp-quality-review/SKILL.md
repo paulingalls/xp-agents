@@ -45,7 +45,7 @@ The reviewer cannot infer which existing concerns or debts the diff might close;
 
 ### Gather Code-Review Findings (consume-findings mode only)
 
-When `MODE=consume-findings`: read the JSON findings array `/code-review` returned (each entry: `file`, `line`, `summary`, `failure_scenario`); all are unaddressed. Pass them to the subagent to validate and fix. If the array is empty, say so in the prompt.
+When `MODE=consume-findings`: read the JSON findings array `/code-review` produced. `/code-review` runs via the Workflow tool, so its verified findings arrive in the **task-notification result** (a `findings` array; each entry: `file`, `line`, `summary`, `failure_scenario`) — read them from there, not from a Skill result. All are unaddressed; pass them to the subagent to validate and fix. If the array is empty, say so in the prompt.
 
 Format as a numbered list for the prompt — file, line, the finding summary, and its `failure_scenario`:
 ```
