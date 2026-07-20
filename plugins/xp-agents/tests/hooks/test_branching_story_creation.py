@@ -212,8 +212,12 @@ class TestCreateStoryBranch(unittest.TestCase):
 
             with (
                 patch("branching.identity.user_namespace", return_value="paul"),
-                patch("branching.branch_exists", return_value=True),
-                patch("branching._git", return_value=fail_result),
+                # branch_exists/_git are read inside _create_or_resume_branch,
+                # which lives in branching_core.py (extracted to keep
+                # branching.py under the file-size cap) — patch where that
+                # caller lives.
+                patch("branching_core.branch_exists", return_value=True),
+                patch("branching_core._git", return_value=fail_result),
                 self.assertRaises(SystemExit),
             ):
                 branching.create_story_branch(td, "story-001", "conflict", smm_dir)
