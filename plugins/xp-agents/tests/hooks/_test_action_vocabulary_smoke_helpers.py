@@ -1,31 +1,22 @@
 #!/usr/bin/env python3
-"""Capstone smoke test for the deterministic-event-emission doctrine (M3).
+"""Producer drivers for the deterministic-event-emission doctrine (M3).
 
-For every ``STATUS_ACTION_*`` constant declared in ``event_schema.py``,
-this module asserts that a producer driver exists, runs it against a
-fresh SMM, and confirms at least one emitted event carries
-``metadata.action`` set to the constant's value.
+Split from test_action_vocabulary_smoke.py (was 513 lines) when it crossed
+the 500-line cap. For every ``STATUS_ACTION_*`` constant declared in
+``event_schema.py``, ``_PRODUCER_CASES`` maps the constant *name* to a
+driver callable that runs the real producer hook against a fresh SMM.
 
-Two assertions, no escape hatch:
+``_DOCTRINE_GAPS`` and ``_NON_HOOK_PRODUCERS`` track the constants that have
+no Python-hook driver (debt-tracked or intentionally non-hook), so the
+missing-coverage canary in test_action_vocabulary_smoke_coverage.py can
+assert every constant is accounted for by one of the three.
 
-1. **Missing-coverage canary** — every ``STATUS_ACTION_*`` constant must
-   appear in ``_PRODUCER_CASES`` (driven) or ``_DOCTRINE_GAPS`` (debt
-   event filed). A constant absent from both fails this test loud, so a
-   future hook that adds a constant without a producer cannot land
-   silently.
-
-2. **Per-constant emission** — each driver runs and at least one event
-   carries the expected ``metadata.action``. Stubs returning ``[]`` fail
-   this assertion until the producer is wired.
-
-Doctrine gaps (constants with no producer) are tracked via debt events
-referenced by ID in ``_DOCTRINE_GAPS``. This makes the gap legible and
-auditable; silent exclusions are not allowed.
+Used by both siblings:
+  * test_action_vocabulary_smoke_coverage.py — the missing-coverage canary
+  * test_action_vocabulary_smoke_emission.py — per-constant emission checks
 """
 
-import shutil
 import sys
-import unittest
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
@@ -55,7 +46,6 @@ import work_selection_decide
 from _commit_helpers import patch_commits
 from concerns import LINT_CONCERN_PREFIX
 from conftest import (
-    _HookTestCase,
     _make_bash_failure_input,
     _make_bash_input,
     _make_skill_input,
@@ -75,7 +65,6 @@ from event_schema import (
     EVENT_TYPE_SPRINT,
     SPRINT_ACTION_END,
     SPRINT_ACTION_START,
-    event_action,
 )
 
 Driver = Callable[[Path], list[dict]]
@@ -397,117 +386,3 @@ _NON_HOOK_PRODUCERS: set[str] = {
     "STATUS_ACTION_EDIT_PROJECT_SPECIFIC",
     "STATUS_ACTION_EDIT_ACCEPTANCE_SURFACE",
 }
-
-
-class TestActionVocabularySmoke(_HookTestCase):
-    """Capstone: every STATUS_ACTION_* must be exercised by a driver."""
-
-    def test_missing_coverage_canary(self):
-        """Every constant must be in _PRODUCER_CASES or _DOCTRINE_GAPS.
-
-        Keyed on constant *name* — a future constant whose value collides
-        with an existing one cannot be silently considered covered.
-        """
-        constant_names = set(_all_status_action_values())
-        covered = set(_PRODUCER_CASES) | set(_DOCTRINE_GAPS) | _NON_HOOK_PRODUCERS
-        missing = sorted(constant_names - covered)
-        self.assertEqual(
-            missing,
-            [],
-            "STATUS_ACTION_* constants without a producer driver or "
-            f"doctrine-gap debt entry: {missing}. Add a driver to "
-            "_PRODUCER_CASES or file a debt event and add to _DOCTRINE_GAPS.",
-        )
-
-    def _reset_smm(self) -> None:
-        """Wipe smm_dir back to the setUp baseline (events.jsonl + lock).
-
-        Per-subTest reset prevents marker leakage across drivers — e.g.
-        ``_drive_iteration_complete`` writes ``.accept`` and review-cycle
-        drivers write a review flag. Without this reset, a later driver's
-        behavior would depend on dict-iteration order of ``_PRODUCER_CASES``.
-        """
-        for child in self.smm_dir.iterdir():
-            if child.name == "events.lock":
-                continue
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-        self.events_file.touch()
-
-    def test_per_constant_action_emitted(self):
-        """Each driver emits at least one event with metadata.action = value."""
-        for name, driver in _PRODUCER_CASES.items():
-            with self.subTest(action=name):
-                action_value = getattr(event_schema, name)
-                self._reset_smm()
-                events = driver(self.smm_dir)
-                actions = [event_action(e) for e in events]
-                self.assertIn(
-                    action_value,
-                    actions,
-                    f"driver for {name} emitted no event with "
-                    f"metadata.action={action_value!r}; actions seen: {actions!r}",
-                )
-
-    def test_sprint_retro_done_is_a_status_event_carrying_its_sprint_id(self):
-        """The canary above CANNOT see this one, so it is pinned by hand.
-
-        `event_schema` declares TWO constants with the identical value
-        `sprint_retro_done` on DIFFERENT event types — STATUS_ACTION_SPRINT_RETRO_DONE
-        (status) and RETRO_ACTION_SPRINT_DONE (retrospective). The canary matches on
-        `metadata.action` alone, so the long-standing retrospective-type event
-        satisfies it VACUOUSLY: the driver goes green whether or not the status
-        producer exists at all. It did exactly that before this test was written.
-
-        What the consumers actually require is the pair — type `status` AND a
-        `sprint_id` — because that is what releases a sprint's commit events from
-        compaction's retention (`compact_retention._compute_pending_retro_sprint_ids`)
-        and what stops `needs_sprint_retro` re-firing. Emitting the action on the
-        wrong type, or on the right type with no sprint_id, misses on either count
-        and pins the sprint's commits forever. That was debt ef03cbc32f1e.
-
-        The retrospective-type event must SURVIVE: retro tooling reads its action to
-        tell a sprint retro from a session retro. This is an ADDED event, not a
-        retyped one.
-        """
-        self._reset_smm()
-        events = _drive_sprint_retro_done(self.smm_dir)
-
-        markers = [
-            e
-            for e in events
-            if e.get("type") == event_schema.EVENT_TYPE_STATUS
-            and event_action(e) == event_schema.STATUS_ACTION_SPRINT_RETRO_DONE
-        ]
-        self.assertEqual(
-            len(markers),
-            1,
-            "exactly one status-type sprint_retro_done marker must be emitted; "
-            f"saw {len(markers)}",
-        )
-        self.assertEqual(
-            markers[0]["metadata"].get("sprint_id"),
-            "sprint-001",
-            "the marker must name the sprint from the sprint_end event in the LOG "
-            "— sprint.json may already have rolled over, and a wrong id would "
-            "release the WRONG sprint's commits",
-        )
-
-        retros = [
-            e
-            for e in events
-            if e.get("type") == event_schema.EVENT_TYPE_RETROSPECTIVE
-            and event_action(e) == event_schema.RETRO_ACTION_SPRINT_DONE
-        ]
-        self.assertEqual(
-            len(retros),
-            1,
-            "the retrospective-type event must still be written — retro tooling "
-            "reads its action to tell a sprint retro from a session retro",
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()
