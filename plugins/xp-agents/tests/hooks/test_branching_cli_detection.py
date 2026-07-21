@@ -17,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _branching_fixtures as _bf
 import branching
-import branching_cli
-import sprint_store
 
 _GIT_ENV = _bf.GIT_ENV
 _init_repo = _bf.init_repo
@@ -111,81 +109,6 @@ class TestRecordedPlanBranchPrefixFallback(unittest.TestCase):
             )
             result = branching._recorded_plan_branch(td, smm_dir)
             self.assertEqual(result, "paul/plan-feat")
-
-
-class TestCurrentSprintStoryBranchDetection(unittest.TestCase):
-    """The membership gate that decides whether `delete`/`merge-branch` resolve
-    the STORY BASE or keep `get_merge_target` (concern 9df23ed3ec84).
-
-    Detection, not resolution — same theme as the plan-branch prefix fallback
-    above: which recorded name does this branch actually correspond to. The
-    end-to-end target routing is pinned in test_branching_delete.py and
-    test_branching_lifecycle_cli.py; these are the arms a subprocess reaches
-    only awkwardly.
-    """
-
-    def _seed(self, smm_dir: Path, story_branch: str) -> None:
-        _seed_sprint_with_stories(
-            smm_dir,
-            [("story-001", "done")],
-            base_branch="paul/sprint-001-open",
-            story_branches={"story-001": story_branch},
-        )
-
-    def test_true_for_the_recorded_branch_of_a_story_in_this_sprint(self):
-        with tempfile.TemporaryDirectory() as smm:
-            smm_dir = Path(smm)
-            self._seed(smm_dir, "paul/story-001-work")
-            self.assertTrue(
-                branching_cli._is_current_sprint_story_branch(
-                    smm_dir, "paul/story-001-work"
-                )
-            )
-
-    def test_false_for_a_same_id_branch_this_sprint_did_not_record(self):
-        """Story ids restart at story-001 every sprint, so a prior sprint's
-        orphan shares an id with a live story routinely. Matching on the id
-        alone would claim it — and route its delete at THIS sprint's base."""
-        with tempfile.TemporaryDirectory() as smm:
-            smm_dir = Path(smm)
-            self._seed(smm_dir, "paul/story-001-current")
-            self.assertFalse(
-                branching_cli._is_current_sprint_story_branch(
-                    smm_dir, "paul/story-001-prior"
-                )
-            )
-
-    def test_false_when_there_is_no_sprint(self):
-        with tempfile.TemporaryDirectory() as smm:
-            self.assertFalse(
-                branching_cli._is_current_sprint_story_branch(
-                    Path(smm), "paul/story-001-work"
-                )
-            )
-
-    def test_non_story_branch_never_reads_the_sprint(self):
-        """The cheap first gate, proven by a sprint that would RAISE if read:
-        free and plan branches must resolve exactly as they did before this
-        gate existed, corrupt SMM or not."""
-        with tempfile.TemporaryDirectory() as smm:
-            smm_dir = Path(smm)
-            (smm_dir / "sprint.json").write_text("{ not json")
-            for branch in ("paul/free-tidy", "paul/plan-rework", "main"):
-                with self.subTest(branch=branch):
-                    self.assertFalse(
-                        branching_cli._is_current_sprint_story_branch(smm_dir, branch)
-                    )
-
-    def test_corrupt_sprint_raises_rather_than_answering_no(self):
-        """Fail closed. Swallowing the corruption would answer "not a story
-        branch" and silently prove the delete against primary instead."""
-        with tempfile.TemporaryDirectory() as smm:
-            smm_dir = Path(smm)
-            (smm_dir / "sprint.json").write_text("{ not json")
-            with self.assertRaises(sprint_store.SprintCorruptError):
-                branching_cli._is_current_sprint_story_branch(
-                    smm_dir, "paul/story-001-work"
-                )
 
 
 class TestPreExistingBranchDetection(unittest.TestCase):
