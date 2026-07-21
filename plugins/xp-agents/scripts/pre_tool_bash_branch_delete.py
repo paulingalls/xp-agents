@@ -19,7 +19,6 @@ ambiguous.
 """
 
 import re
-import shlex
 import sys
 from pathlib import Path
 
@@ -29,82 +28,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import branch_resolution
 import branching
 import commits
-import git_commits
 import identity
+import shell_commands
 
 # `-d`/`-D`/`--delete`, incl. clusters like `-Df` (no other short flag uses d/D).
 _DELETE_FLAG_RE = re.compile(r"^(?:--delete|-[A-Za-z]*[dD][A-Za-z]*)$")
 # `-m`/`-M`/`--move`. Unlike `-d`/`-D`, not clustered: `-m`/`-M` take a
 # required argument, so git users never combine them with other short flags.
 _RENAME_FLAG_RE = re.compile(r"^(?:--move|-[mM])$")
-# Tokens that END one simple command. `punctuation_chars=True` hands these back as
-# tokens of their own, so a chain splits without a regex that cannot see quoting.
-_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&", "\n", "(", ")"})
-
-
-def _simple_commands(command: str) -> list[list[str]]:
-    """`command` tokenized as the SHELL would, split into simple commands.
-
-    A tokenizer rather than a regex, and the distinction is the whole fix: a regex
-    searching raw text finds `git branch -D <branch>` inside `git commit -m "...
-    git branch -D <branch>"` and refuses a commit over what its MESSAGE says --
-    the same scar `story_done_gate._MARK_DONE_RE` carries, arriving by a different
-    door. To the shell that message is ONE token, so a tokenizer cannot make the
-    mistake. Stripping quotes instead (`git_commits.strip_quoted`) would trade the
-    bug for its inverse: `git branch -D "<branch>"` would lose its argument and the
-    delete would sail through, which is the fail-open this gate exists to close.
-
-    This module's docstring warns that a shlex-based detector was unsound, and it
-    was -- it tried to decide which FILES an arbitrary command writes, which is not
-    decidable. This decides nothing about effects: it reads back literal tokens and
-    the caller no-ops on everything else (`$BR` stays the text `$BR`, matches no
-    story id, and yields no delete). Unparseable text (an unbalanced quote) yields
-    no commands at all -- the same documented no-op, never a block.
-
-    Heredoc bodies are dropped first: the shell passes them as DATA, so a commit
-    message written as a heredoc is prose by the argument above.
-    """
-    lexer = shlex.shlex(
-        git_commits.strip_heredocs(command), posix=True, punctuation_chars=True
-    )
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        return []
-
-    commands: list[list[str]] = [[]]
-    for token in tokens:
-        if token in _SHELL_SEPARATORS:
-            commands.append([])
-        else:
-            commands[-1].append(token)
-    return [c for c in commands if c]
-
-
-def _branch_invocation(tokens: list[str]) -> tuple[str | None, list[str]] | None:
-    """`(git -C directory or None, args after the `branch` subcommand)` if
-    `tokens` invoke `git branch`, else None.
-
-    Shared by the delete and rename detectors below so the walk over git's
-    GLOBAL options (`-C <dir>` is the one worth keeping) is written once.
-    """
-    if tokens[0] != "git":
-        return None
-
-    directory: str | None = None
-    i = 1
-    while i < len(tokens) and tokens[i].startswith("-"):
-        if tokens[i] == "-C" and i + 1 < len(tokens):
-            directory = tokens[i + 1]
-            i += 2
-        elif tokens[i] == "-c" and i + 1 < len(tokens):
-            i += 2
-        else:
-            i += 1
-    if i >= len(tokens) or tokens[i] != "branch":
-        return None
-    return directory, tokens[i + 1 :]
 
 
 def _story_branch_vanishings(command: str) -> list[tuple[str | None, str]]:
@@ -126,11 +57,13 @@ def _story_branch_vanishings(command: str) -> list[tuple[str | None, str]]:
     report rather than misdirected as a delete refusal.
     """
     vanishings: list[tuple[str | None, str]] = []
-    for tokens in _simple_commands(command):
-        invocation = _branch_invocation(tokens)
+    for tokens in shell_commands.simple_commands(command):
+        invocation = shell_commands.git_invocation(tokens)
         if invocation is None:
             continue
-        directory, args = invocation
+        directory, subcommand, args = invocation
+        if subcommand != "branch":
+            continue
 
         if any(_DELETE_FLAG_RE.match(arg) for arg in args):
             for arg in args:
