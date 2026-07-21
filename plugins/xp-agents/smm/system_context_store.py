@@ -16,6 +16,7 @@ import marker_names
 from _append_impl import write_text_atomic
 from system_context_schema import (
     SYSTEM_CONTEXT_FILENAME,
+    integration_branch_error,
     validate_system_context,
 )
 
@@ -128,9 +129,17 @@ def _is_grandfathered_branch(path: Path, data: dict) -> bool:
     changes the stage, and saves — the document differs, the field does not.
     NEW bad input is still rejected; only re-writing a value the project
     already had is allowed through.
+
+    False whenever the incoming value already satisfies the rule: there is
+    nothing to grandfather, so the strict flag stays UP. That matters because
+    ``enforce_ref_format`` is document-wide — anything that starts consulting
+    it must not be silently disabled by an integration_branch that happens to
+    match disk — and it keeps the common save off the extra disk read.
     """
     bs = data.get("branching_strategy")
     if not isinstance(bs, dict) or "integration_branch" not in bs:
+        return False
+    if integration_branch_error(bs) is None:
         return False
     return bs["integration_branch"] == _stored_integration_branch(path)
 

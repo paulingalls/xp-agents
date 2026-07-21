@@ -179,6 +179,15 @@ class TestIntegrationBranchHealedAtUse(_ResolverTestCase):
             self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")
         log.assert_not_called()
 
+    def test_empty_value_falls_back_quietly(self) -> None:
+        """Empty string is "never configured", not a substitution — the same
+        falsy set the renderer hides and the pre-check `or` fell through on.
+        Logging it would fire on every read for the life of the repo."""
+        self._seed("")
+        with patch("branch_resolution._common.log_hook_error") as log:
+            self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")
+        log.assert_not_called()
+
     def test_below_stage_3_is_unaffected(self) -> None:
         _bf.write_system_context(self.smm_dir, stage=2, integration_branch="-f")
         self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")

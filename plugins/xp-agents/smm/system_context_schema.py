@@ -270,9 +270,10 @@ def integration_branch_error(bs: object) -> str | None:
     if usable_git_ref_name(value):
         return None
     return (
-        "branching_strategy.integration_branch must be a branch name usable as a"
-        f" git ref (got {value!r}) — it becomes a `git checkout` / `git merge`"
-        " argument, so a leading dash would reach git as a FLAG"
+        "branching_strategy.integration_branch must be a branch name usable as"
+        f" a git ref (got {value!r}): slash-separated [A-Za-z0-9._-], no leading"
+        " dash (it would reach `git checkout` / `git merge` as a FLAG); use null"
+        " to leave it unset"
     )
 
 

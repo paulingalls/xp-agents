@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import branch_resolution
+import system_context_store as store_module
 from _system_context_fixtures import valid_doc
 from execution_plan_schema import VALID_BRANCH_NAME_RE, usable_git_ref_name
 from system_context_renderer import _render_branching_strategy
@@ -240,6 +241,14 @@ class TestSaveGrandfatherIsNarrow(_StoreTestCase):
         doc["branching_strategy"]["stage"] = 2
         save_system_context(self.smm_dir, doc)
         self.assertEqual(self._stored_branch(), "-f")
+
+    def test_a_conforming_value_never_lowers_the_strict_flag(self) -> None:
+        """The grandfather fires ONLY for a value that actually violates the
+        rule. ``enforce_ref_format`` is document-wide, so a conforming
+        integration_branch that happens to match disk must not switch it off
+        for whatever else starts consulting it."""
+        doc = self._grandfather("develop")
+        self.assertFalse(store_module._is_grandfathered_branch(self.path, doc))
 
     def test_missing_on_disk_doc_yields_rejection_not_a_bypass(self) -> None:
         """THE fail-closed pin. A grandfather that fails open is not a

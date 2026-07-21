@@ -128,13 +128,18 @@ def get_primary_branch(smm_dir: Path) -> str:
         return _DEFAULT_PRIMARY
     bs = _load_branching_strategy(smm_dir)
     healed = healed_integration_branch(bs)
-    if healed is None and bs.get("integration_branch") is not None:
+    stored = bs.get("integration_branch")
+    # Null AND empty both mean "never configured" — the same falsy set the
+    # renderer hides and the pre-check `or _DEFAULT_PRIMARY` fell through on.
+    # Logging those would fire on every read of a stage-3 repo that never set
+    # the field; anything else IS a configured value we are overriding.
+    if healed is None and stored not in (None, ""):
         _common.log_hook_error(
-            f"branching_strategy.integration_branch "
-            f"{bs['integration_branch']!r} is not usable as a git ref; "
-            f"resolving the primary branch as {_DEFAULT_PRIMARY!r} instead",
+            f"branching_strategy.integration_branch {stored!r} is not usable "
+            f"as a git ref; resolving the primary branch as "
+            f"{_DEFAULT_PRIMARY!r} instead",
             error_class="ValueError",
-            integration_branch=bs["integration_branch"],
+            integration_branch=stored,
             substituted=_DEFAULT_PRIMARY,
         )
     return healed or _DEFAULT_PRIMARY
