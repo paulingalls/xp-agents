@@ -30,6 +30,17 @@ _init_repo = _bf.init_repo
 _get_current_branch = _bf.get_current_branch
 _write_system_context = _bf.write_system_context
 _make_feature_commit = _bf.append_commit
+_SCRIPT = str(Path(__file__).parent.parent.parent / "scripts" / "branching.py")
+
+
+def _run_branching(smm_dir: Path, *args: str) -> subprocess.CompletedProcess:
+    """Drive the CLI the way a SKILL does — one subprocess, real argv."""
+    return subprocess.run(
+        [sys.executable, _SCRIPT, "--smm-dir", str(smm_dir), *args],
+        capture_output=True,
+        text=True,
+        env=_GIT_ENV,
+    )
 
 
 class TestCLI(unittest.TestCase):
@@ -43,27 +54,11 @@ class TestCLI(unittest.TestCase):
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=1)
 
-            script = str(
-                Path(__file__).parent.parent.parent / "scripts" / "branching.py"
-            )
-
             # Create story branch
-            r = subprocess.run(
-                [
-                    sys.executable,
-                    script,
-                    "--smm-dir",
-                    str(smm_dir),
-                    "create",
-                    "--cwd",
-                    td,
-                    "--story",
-                    "story-001",
-                    "--slug",
-                    "lifecycle-test",
-                ],
-                capture_output=True,
-                text=True,
+            r = _run_branching(
+                smm_dir,
+                *["create", "--cwd", td],
+                *["--story", "story-001", "--slug", "lifecycle-test"],
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("test/story-001-lifecycle-test", r.stdout)
@@ -71,40 +66,19 @@ class TestCLI(unittest.TestCase):
             _make_feature_commit(td)
 
             # Merge story branch
-            r = subprocess.run(
-                [
-                    sys.executable,
-                    script,
-                    "--smm-dir",
-                    str(smm_dir),
-                    "merge-branch",
-                    "--cwd",
-                    td,
-                    "--branch",
-                    "test/story-001-lifecycle-test",
-                    "--target",
-                    main_branch,
-                ],
-                capture_output=True,
-                text=True,
+            r = _run_branching(
+                smm_dir,
+                *["merge-branch", "--cwd", td],
+                *["--branch", "test/story-001-lifecycle-test"],
+                *["--target", main_branch],
             )
             self.assertEqual(r.returncode, 0, r.stderr)
 
             # Delete story branch
-            r = subprocess.run(
-                [
-                    sys.executable,
-                    script,
-                    "--smm-dir",
-                    str(smm_dir),
-                    "delete",
-                    "--cwd",
-                    td,
-                    "--branch",
-                    "test/story-001-lifecycle-test",
-                ],
-                capture_output=True,
-                text=True,
+            r = _run_branching(
+                smm_dir,
+                *["delete", "--cwd", td],
+                *["--branch", "test/story-001-lifecycle-test"],
             )
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -127,14 +101,7 @@ class TestCLI(unittest.TestCase):
             smm_dir = Path(smm)
             _write_system_context(smm_dir, stage=2)
 
-            script = str(
-                Path(__file__).parent.parent.parent / "scripts" / "branching.py"
-            )
-            r = subprocess.run(
-                [sys.executable, script, "--smm-dir", str(smm_dir), "stage"],
-                capture_output=True,
-                text=True,
-            )
+            r = _run_branching(smm_dir, "stage")
             self.assertEqual(r.returncode, 0)
             self.assertIn("2", r.stdout)
 
@@ -213,30 +180,111 @@ class TestRequireExplicitMergeTarget(unittest.TestCase):
             )
             _make_feature_commit(td, "sprint-feat.txt")
 
-            script = str(
-                Path(__file__).parent.parent.parent / "scripts" / "branching.py"
-            )
             # Invoke merge-branch WITHOUT --target. Must route through
             # get_merge_target which returns the recorded plan branch.
-            r = subprocess.run(
-                [
-                    sys.executable,
-                    script,
-                    "--smm-dir",
-                    str(smm_dir),
-                    "merge-branch",
-                    "--cwd",
-                    td,
-                    "--branch",
-                    "paul/sprint-099-x",
-                ],
-                capture_output=True,
-                text=True,
+            r = _run_branching(
+                smm_dir, *["merge-branch", "--cwd", td, "--branch", "paul/sprint-099-x"]
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             # HEAD should now be on the plan branch, not on primary.
             self.assertEqual(_get_current_branch(td), "paul/plan-feat")
             self.assertNotEqual(_get_current_branch(td), primary)
+
+
+class TestMergeBranchStoryBaseRouting(unittest.TestCase):
+    """Concern 9df23ed3ec84, merge leg. kickoff's orphan story-branch triage
+    runs `merge-branch --branch <name>` with NO --target, and merge_branch
+    performs no ancestry proof and has no fallback — whatever target it is
+    handed, it WRITES a merge commit into.
+
+    A story branch's base is its sprint branch, so the old primary default
+    dumped unfinished sprint work onto the release branch. Routing it to the
+    story base fixes that, but only for THIS sprint's stories: a prior sprint's
+    orphan must keep going to get_merge_target, because merging it into the
+    current sprint branch fuses old work in silently — and the follow-up delete
+    then succeeds (it IS an ancestor now), so nothing ever reports it.
+    """
+
+    _SPRINT = "paul/sprint-001-open"
+    _STORY = "paul/story-001-work"
+
+    def _seed(self, smm_dir: Path, *, base_branch: str, story_branch: str) -> None:
+        _write_system_context(smm_dir, stage=2)
+        _bf.seed_sprint_with_stories(
+            smm_dir,
+            [("story-001", "done")],
+            base_branch=base_branch,
+            story_branches={"story-001": story_branch},
+        )
+
+    def _repo_with_story_off_sprint(self, td: str) -> None:
+        """main -> sprint branch (one commit) -> story branch (one commit)."""
+        _init_repo(td)
+        _bf.make_commit(td, self._SPRINT, "sprint.txt", "s", "sprint base")
+        _bf.make_commit(td, self._STORY, "story.txt", "x", "story work")
+        _bf.checkout_main(td)
+
+    def test_current_sprint_story_merges_into_its_sprint_base(self):
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            self._repo_with_story_off_sprint(td)
+            smm_dir = Path(smm)
+            self._seed(smm_dir, base_branch=self._SPRINT, story_branch=self._STORY)
+
+            r = _run_branching(
+                smm_dir, *["merge-branch", "--cwd", td, "--branch", self._STORY]
+            )
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(_get_current_branch(td), self._SPRINT)
+            self.assertTrue(branching.is_merged_into(td, self._STORY, self._SPRINT))
+            self.assertFalse(
+                branching.is_merged_into(td, self._STORY, "main"),
+                "story work must not reach the release branch",
+            )
+
+    def test_refuses_when_the_sprint_base_cannot_be_resolved(self):
+        """The _required sibling, and the reason the two legs do not share a
+        resolver: delete may degrade to primary because it only refuses, but a
+        silent primary HERE merges the story into the release branch."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            self._repo_with_story_off_sprint(td)
+            smm_dir = Path(smm)
+            gone = "paul/sprint-001-vanished"
+            self._seed(smm_dir, base_branch=gone, story_branch=self._STORY)
+
+            r = _run_branching(
+                smm_dir, *["merge-branch", "--cwd", td, "--branch", self._STORY]
+            )
+
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn(gone, r.stderr)
+            self.assertFalse(
+                branching.is_merged_into(td, self._STORY, "main"),
+                "refusing means NOTHING was merged, least of all into primary",
+            )
+
+    def test_prior_sprint_orphan_still_routes_to_the_merge_target(self):
+        """Ids restart every sprint, so this orphan shares story-001 with a live
+        story. It must land on primary, NOT on the current sprint branch."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            prior = "paul/story-001-prior"
+            self._repo_with_story_off_sprint(td)
+            _bf.make_commit(td, prior, "p.txt", "x", "last sprint's work")
+            _bf.checkout_main(td)
+            smm_dir = Path(smm)
+            self._seed(smm_dir, base_branch=self._SPRINT, story_branch=self._STORY)
+
+            r = _run_branching(
+                smm_dir, *["merge-branch", "--cwd", td, "--branch", prior]
+            )
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(_get_current_branch(td), "main")
+            self.assertTrue(branching.is_merged_into(td, prior, "main"))
+            self.assertFalse(
+                branching.is_merged_into(td, prior, self._SPRINT),
+                "a prior sprint's work must not be fused onto this sprint branch",
+            )
 
 
 class TestMergeFailureMessage(unittest.TestCase):

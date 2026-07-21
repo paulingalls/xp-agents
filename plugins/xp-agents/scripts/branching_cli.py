@@ -15,7 +15,17 @@ import branch_queries
 import branching
 import branching_cli_accept
 import identity
-import worktree
+
+# Re-exported by identity for code split out of this module, mirroring
+# branching.py's back-compat blocks: `branching_cli.<name>` still resolves for
+# the SKILLs' dispatch table and for tests that reach for the privates.
+from branching_cli_target import (  # noqa: F401
+    _cmd_delete,
+    _cmd_merge_branch,
+    _delete_refusal,
+    _is_current_sprint_story_branch,
+    _resolve_target,
+)
 from branching_cli_worktree import (
     _cmd_find_closing_teammate_worktree,
     _cmd_find_teammate_worktree,
@@ -89,80 +99,6 @@ def _cmd_create(args: argparse.Namespace) -> int:
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
 
-def _resolve_target(args: argparse.Namespace) -> str:
-    return args.target or branching.get_merge_target(Path(args.smm_dir), args.cwd)
-
-
-def _delete_refusal(cwd: str, branch: str, target: str) -> str:
-    """Why the delete was refused — reporting only what we actually CHECKED.
-
-    Every arm re-derives its fact from git rather than asserting one. A single
-    hardcoded "it is not merged into <target>" is a LIE in three reachable
-    states: the branch does not exist, the target does not resolve (so no
-    ancestry was proven either way), and the target resolved to the branch
-    itself. Sending a user to `git merge` over a branch that was never there is
-    worse than the silence it replaced — silence at least misleads no one.
-
-    A branch checked out in a worktree cannot be deleted no matter how merged it
-    is, and that is a different fix (free the worktree) from an unmerged branch
-    (merge it). Do NOT borrow close_common's escape hatch of returning 0 there:
-    that leans on close-specific knowledge — cleanup_teammate will remove the
-    branch later — which kickoff does not have.
-    """
-    if not branching.branch_exists(cwd, branch):
-        return f"there is no local branch '{branch}'."
-    if worktree.branch_held_by_worktree(cwd, branch):
-        return (
-            f"'{branch}' is checked out in a worktree — a checked-out branch "
-            f"cannot be deleted. Switch that worktree to another branch (or "
-            f"remove the worktree), then delete."
-        )
-    if not branching.survives_delete_of(cwd, branch, target):
-        return (
-            f"cannot prove '{branch}' is safe to delete: its merge target "
-            f"resolved to '{target}', which is not a ref that would survive the "
-            f"delete (it is the branch itself, or not a ref at all). Pass "
-            f"--target <the branch it was merged into>."
-        )
-    if not branching.is_merged_into(cwd, branch, target):
-        return (
-            f"refusing to delete '{branch}': it is not merged into '{target}' "
-            f"(it has commits '{target}' does not). Merge it first, or delete it "
-            f"by hand if the work is meant to be discarded."
-        )
-    return f"git refused to delete '{branch}'. Run `git branch -d {branch}` to see why."
-
-
-def _cmd_delete(args: argparse.Namespace) -> int:
-    """Delete a branch, telling delete_branch what it was merged INTO.
-
-    Without a merge_target, delete_branch's ancestry-proven ``-D`` fallback can
-    never engage — so from the CLI it was unreachable, and `git branch -d`
-    refuses whenever a branch's tip differs from its upstream tracking ref even
-    though it is fully merged: the case worktree teammates hit at every close.
-    xp-kickoff says "merge ... then delete", and did exactly that — merged, then
-    called delete without saying what the target was. The user answered "merge",
-    got the merge, and then a silent exit 1.
-
-    Defaulting the target is safe because ``delete_branch`` owns BOTH halves of
-    the ``-D`` proof (ancestry AND a surviving ref — read it there, it is not
-    re-derived here). The ancestry half is also exactly kickoff's own rule ("do
-    not auto-delete branches with commits ahead"), now enforced by construction
-    rather than by remembering. The default itself comes from ``_resolve_target``,
-    the same resolver kickoff's merge-branch uses, so the merge leg and the
-    ancestry proof cannot disagree — but note it can answer with the recorded
-    PLAN branch, which is why the surviving-ref half exists.
-
-    On refusal: exit 1 WITH a reason we verified. The silence was half the bug;
-    a confidently wrong reason would be the other half back again.
-    """
-    target = _resolve_target(args)
-    if branching.delete_branch(args.cwd, args.branch, merge_target=target):
-        return 0
-    sys.stderr.write(f"delete: {_delete_refusal(args.cwd, args.branch, target)}\n")
-    return 1
-
-
 def _cmd_create_sprint(args: argparse.Namespace) -> int:
     smm_dir = Path(args.smm_dir)
     # Ask the resolver, not the slug: on a re-slice create_sprint_branch resumes
@@ -234,11 +170,6 @@ def _cmd_extract_story_id(args: argparse.Namespace) -> int:
     to distinguish error vs no-match exit codes.
     """
     print(identity.extract_story_id(args.branch) or "")
-    return 0
-
-
-def _cmd_merge_branch(args: argparse.Namespace) -> int:
-    branching.merge_branch(args.cwd, args.branch, _resolve_target(args))
     return 0
 
 
@@ -318,7 +249,8 @@ def main() -> int:
         "--target",
         default=None,
         help=(
-            "The branch it was merged into. Defaults to the merge target. "
+            "The branch it was merged into. Defaults to this sprint's story "
+            "base for a branch the sprint records, else to the merge target. "
             "Enables the ancestry-proven force-delete for a branch that is "
             "fully merged but has drifted from its upstream tracking ref."
         ),
@@ -361,7 +293,15 @@ def main() -> int:
     )
     p_merge_branch.add_argument("--cwd", required=True)
     p_merge_branch.add_argument("--branch", required=True)
-    p_merge_branch.add_argument("--target", default=None)
+    p_merge_branch.add_argument(
+        "--target",
+        default=None,
+        help=(
+            "The branch to merge into. Defaults to this sprint's story base "
+            "for a branch the sprint records, else to the merge target; "
+            "refuses rather than guess when that base cannot be resolved."
+        ),
+    )
     p_merge_branch.set_defaults(func=_cmd_merge_branch)
 
     p_create_plan = sub.add_parser("create-plan", help="Create or resume a plan branch")
