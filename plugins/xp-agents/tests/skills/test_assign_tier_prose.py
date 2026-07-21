@@ -116,7 +116,9 @@ class TestAssignTierProse(unittest.TestCase):
     def test_solo_frontier_reaches_decision(self):
         """The pre-flight no longer hard-stops a solo frontier — the prior
         'a solo frontier never reaches xp-assign' contradiction is gone, and a
-        SOLO_TARGET is the decision target when there is no teammate batch."""
+        SOLO_TARGET is the decision target. Selection is solo-first, so it is
+        the target whether or not a teammate batch is live; the ordering itself
+        is pinned in test_assign_prompt_prose.TestAssignPreflightModeProse."""
         self.assertNotIn("never reaches xp-assign", self.body)
         self.assertIn("SOLO_TARGET", self.body)
 

@@ -15,6 +15,7 @@ allowed-tools:
   - Bash(python3 */smm/sprint_cli.py *)
   - Bash(*/smm/append.sh *)
   - Bash(git checkout *)
+  - Bash(git branch --merged *)
   - AskUserQuestion
   - Read
 ---
@@ -58,7 +59,9 @@ background sits empty for a whole close cycle.
 1. If no `PLAN_FILE` — output "No plan file found. Enter plan mode for the next un-spawned story first." Stop.
 2. Read the plan at `PLAN_FILE` — this is the most-recent per-story plan, written by `/xp-review-plan`.
 3. If `SPRINT_FILE` provided, read it for story context (optional — status tracking only).
-4. **Mode + target.** If `TEAMMATE_STORY_IDS` is non-empty → teammate batch (`MODE=teammate`); resolve `TARGET` via step 5. Else if `SOLO_TARGET` is non-empty → solo frontier (`MODE=solo`); set `TARGET=$SOLO_TARGET` and skip step 5 (no worktree to look up). Else nothing to assign — stop.
+4. **Mode + target — solo-first.** If `SOLO_TARGET` is non-empty → solo frontier (`MODE=solo`); set `TARGET=$SOLO_TARGET` and skip step 5 (no worktree to look up). Else if `TEAMMATE_STORY_IDS` is non-empty → teammate batch (`MODE=teammate`); resolve `TARGET` via step 5. Else nothing to assign — stop.
+
+   **A live solo story drains: there is no fall-through to the batch.** While it is in-progress every invocation targets it, and the batch resumes only once it is accepted — a teammate spawn checks out the base branch (step 2) in the main checkout an in-place solo teammate is concurrently committing in. It is the one place the **plan → SPAWN → accept** precedence yields: re-invoking while its spawn runs only earns that spawn's refusal, so its accept comes first.
 5. **Target lookup (teammate batch only).** When `MODE=teammate`, find the lowest-id story in `TEAMMATE_STORY_IDS` whose teammate worktree is NOT yet live:
    ```bash
    TARGET=""
@@ -75,7 +78,7 @@ background sits empty for a whole close cycle.
 
    The auto-detect assumes the lead plans stories in id order. If you need to spawn out-of-order, plan + /xp-review-plan + /xp-assign one story at a time — never plan multiple stories then call /xp-assign repeatedly, or the wrong plan will be paired with the wrong story.
 
-   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE distinct cases: (a) story is genuinely un-spawned (correct target), (b) earlier spawn crashed before worktree-create (story still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`, not still in-progress). For the chosen `TARGET`, check sprint.json: if the story is already in-progress AND no `session_init` event references it, the prior spawn likely crashed. **Ask the user**: re-spawn fresh, defer the story, or investigate first — don't silently re-target.
+   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE distinct cases: (a) story is genuinely un-spawned (correct target), (b) earlier spawn crashed before worktree-create (story still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`, not still in-progress). Cases (a) and (b) are both "spawn it"; only (c) has to be ruled out, and `git branch --merged "$BASE"` (Step 2's base) is the check: if it lists the story's branch, that story is finished but left in-progress — **ask the user** whether to close it or re-spawn; don't silently re-target. A live duplicate cannot hide behind the empty result: a live worktree teammate HAS a worktree, so this lookup finds it and never targets that story, and an in-place teammate — which never has one — is refused by the spawn's exclusive per-name claim (non-zero exit, never a second agent in one checkout).
 
 ## Step 0: Execution-shape decision (the behavior table)
 
