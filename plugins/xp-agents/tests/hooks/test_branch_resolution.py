@@ -9,6 +9,7 @@ test_branching.py and test_branching_plan.py are both already over the
 500-line cap; new resolver coverage lands here, not there.
 """
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -205,6 +206,35 @@ class TestIntegrationBranchHealedAtUse(_ResolverTestCase):
             branch_resolution.get_protected_branches(self.smm_dir, 3),
             {"main", "master", "develop"},
         )
+
+
+class TestStageAutoPromoteSurvivesAGrandfatheredValue(_ResolverTestCase):
+    """E2E for the load → mutate → save round-trip, and THE pin for the
+    decision that readers never rewrite what is on disk.
+
+    `get_branching_stage` on a stage-1 project fires `_maybe_auto_promote`,
+    which loads the context, bumps the stage, and saves it. A project whose
+    stored `integration_branch` predates the ref-format check therefore drives
+    a full round-trip through both the loader and the saver on an ordinary
+    session — so this is where a strict loader would hard-fail a session, and
+    where a healing loader would silently persist the substitute over the
+    branch the user configured. Neither may happen.
+    """
+
+    def _stored_branch(self) -> object:
+        raw = json.loads((self.smm_dir / "system_context.json").read_text())
+        return raw["branching_strategy"]["integration_branch"]
+
+    def setUp(self) -> None:
+        super().setUp()
+        _bf.write_system_context(self.smm_dir, stage=1, integration_branch="-f")
+
+    def test_auto_promote_does_not_raise_and_still_promotes(self) -> None:
+        self.assertEqual(branch_resolution.get_branching_stage(self.smm_dir), 2)
+
+    def test_the_stored_value_is_untouched_afterwards(self) -> None:
+        branch_resolution.get_branching_stage(self.smm_dir)
+        self.assertEqual(self._stored_branch(), "-f")
 
 
 class TestResolveStoryBaseLegitimateDegradation(_ResolverTestCase):
