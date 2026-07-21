@@ -2,7 +2,8 @@
 """PostToolUse command hook for Bash: parse git commits and test results.
 
 Records commit status events, checks commit size, and records test
-pass/fail status. Nudges /code-review after commits with 3+ code files.
+pass/fail status. Nudges to commit and run /xp-quality-review when a
+green test run leaves code files uncommitted.
 """
 
 import sys
@@ -262,10 +263,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     parts.append("All prior test failures resolved — tests are green.")
                 uncommitted = commits.get_uncommitted_code_files(cwd)
                 if uncommitted:
-                    parts.append(
-                        "Commit now to trigger the review cycle "
-                        "(/code-review, /xp-quality-review)."
-                    )
+                    parts.append("Commit now to trigger /xp-quality-review.")
                 if parts:
                     return " ".join(parts)
         elif failed == 0 and ran_a_runner:

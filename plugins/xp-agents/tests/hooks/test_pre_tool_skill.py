@@ -56,6 +56,27 @@ class TestCodeReviewNudge(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_courage_nudge_names_workflow_tool_not_skill(self):
+        """story-011: /code-review runs via the Workflow tool, not Skill.
+        Even though this branch is provably unreachable in practice
+        (code-review is absent from the Skill listing, so the model can't
+        dispatch Skill(code-review) in the first place — see discovery
+        6e088a55f0dc), the message should redirect to the Workflow tool
+        rather than staying silent on how to actually launch it."""
+        result = pre_tool_skill.run(_make_skill_input("code-review"))
+        result = self._assert_not_none(result)
+        self.assertIn("Workflow", result)
+        self.assertIn("Skill", result)
+
+    def test_courage_nudge_does_not_imply_per_commit_cadence(self):
+        """/code-review runs once at sprint/plan/free-close, never per commit
+        (per-commit is /xp-quality-review only), so the nudge must not tell
+        the agent to run it on every change."""
+        result = pre_tool_skill.run(_make_skill_input("code-review"))
+        result = self._assert_not_none(result)
+        self.assertNotIn("every change", result)
+        self.assertNotIn("every commit", result)
+
 
 class TestTeammateLifecycleGate(_HookTestCase):
     """PreToolUse:Skill blocks teammates from lead-owned lifecycle skills."""

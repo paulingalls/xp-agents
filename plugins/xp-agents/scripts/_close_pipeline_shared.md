@@ -46,8 +46,8 @@ Run only when the preload emitted `RUN_FULL_CODE_REVIEW=true` (cumulative close
 diff ≥ `REVIEW_CYCLE_THRESHOLD` code files); skip otherwise — story-close and
 below-threshold closes never set it. The one broad multi-agent correctness pass.
 
-`/code-review` runs via the **Workflow tool** (async) — it CANNOT be launched
-with `Skill`, and a Workflow completion does not arm the review-cycle marker. So:
+`/code-review` runs via the **Workflow tool** (async), not the `Skill` tool —
+and a Workflow completion does not arm the review-cycle marker. So:
 
 1. **Arm the marker** (defers the close Stop gate during the async window; makes
    `/xp-quality-review` read `MODE=consume-findings`), cwd `${TEAMMATE_CWD:-.}`:

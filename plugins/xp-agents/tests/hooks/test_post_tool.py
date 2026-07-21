@@ -9,14 +9,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import bash_post_tool
 import post_tool_use
-from conftest import _HookTestCase, _make_write_input, make_event
+from conftest import _HookTestCase, _make_bash_input, _make_write_input, make_event
 from event_helpers import events_of_type
 
 # Explicit `from event_schema import EVENT_TYPE_*` so a future constant rename
@@ -384,6 +386,31 @@ class TestPostToolExitPlan(_HookTestCase):
         )
         content = markers.marker_read(self.smm_dir, markers.PLAN_AWAITING_REVIEW)
         self.assertEqual(content, "main")
+
+
+class TestBashPostToolCodeReviewMentionsAreCadenceHonest(_HookTestCase):
+    """story-011: bash_post_tool's commit-time nudge and docstring must not
+    name /code-review or imply it runs on a per-commit cadence — only
+    /xp-quality-review runs per commit; /code-review runs once at
+    sprint/plan/free-close."""
+
+    def test_docstring_has_no_stale_threshold_or_code_review_mention(self):
+        doc = bash_post_tool.__doc__ or ""
+        self.assertNotIn("3+ code files", doc)
+        self.assertNotIn("/code-review", doc)
+
+    def test_green_commit_nudge_names_only_quality_review(self):
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        result = self._assert_not_none(result)
+        self.assertIn("/xp-quality-review", result)
+        self.assertNotIn("/code-review", result)
 
 
 if __name__ == "__main__":
