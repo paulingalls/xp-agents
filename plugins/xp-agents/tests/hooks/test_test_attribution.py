@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from test_attribution import (
     attribute_failure,
+    exit_status_proves_runner_passed,
     is_compound,
     parsed_failed_count,
     runs_test_binary,
@@ -281,6 +282,115 @@ class TestAttributeFailure(unittest.TestCase):
                 framework = is_test_run(command)
                 self.assertIsNotNone(framework, "fixture must be a known runner")
                 self.assertEqual(attribute_failure(command, BARE_EXIT), framework)
+
+
+class TestExitStatusProvesRunnerPassed(unittest.TestCase):
+    """The CLEAR direction: when does an overall exit 0 actually prove it?
+
+    The premise this predicate replaces — "exit 0 means every segment of a
+    compound ran, so no corroboration is needed" — is false for `;`, `|` and
+    `||`, and for a runner whose status is CAPTURED. The live evidence:
+    `OUT=$(pytest tests/); echo $?` exited 0 while the pytest inside exited 1,
+    and the hook announced every prior test failure resolved over a red suite.
+
+    The rule: exit 0 proves the runner passed iff every operator between the
+    runner and the end of the command propagates failure. Both directions
+    matter — over-refusing DEADLOCKS the gate (the `is_compound` shape, which
+    never clears again for anyone who prefixes a `cd`), and under-refusing
+    disarms it.
+    """
+
+    def test_uncaptured_runner_still_proves_it(self):
+        """Anti-deadlock pins. Every one of these must keep clearing, and each
+        is a compound the naive `is_compound` refusal would have deadlocked."""
+        for command in (
+            "pytest",
+            "python3 -m pytest tests/ -x",
+            "cd app && pytest",
+            "pytest && echo ok",
+            "cd app && npx jest",
+            # A substitution that OPENS AND CLOSES before the runner leaves the
+            # runner in plain executable position — a flat "a `$(` appeared"
+            # scan deadlocks this very common repo-root shape.
+            "cd $(git rev-parse --show-toplevel) && pytest",
+            "cd `git rev-parse --show-toplevel` && pytest",
+            # ...and a substitution AFTER the runner cannot swallow an exit
+            # that has already propagated through `&&`.
+            "pytest && echo $(date)",
+            # Arguments produced by a substitution are still just arguments.
+            "pytest $(ls tests)",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(exit_status_proves_runner_passed(command))
+
+    def test_captured_runner_does_not_prove_it(self):
+        """The live-evidence shape and its siblings: the runner's exit status
+        never reaches the overall exit."""
+        for command in (
+            # Verbatim live evidence — assignment capture, then `echo $?`
+            # reports the substitution's status as the command's.
+            "OUT=$(pytest tests/); echo $?",
+            # Pure capture: no operator FOLLOWS the runner, so an
+            # operator-only rule reads this as safe. It is not.
+            "echo $(pytest)",
+            "echo `pytest`",
+            "RESULT=$(npx jest --ci)",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(exit_status_proves_runner_passed(command))
+
+    def test_discarded_exit_does_not_prove_it(self):
+        """Operators that do not propagate the runner's failure."""
+        for command in (
+            "pytest ; echo done",
+            "pytest || true",
+            "pytest | tee out.log",
+            "pytest -n auto | tail -20",
+            "pytest\necho done",
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(exit_status_proves_runner_passed(command))
+
+    def test_quoted_operator_is_data_not_structure(self):
+        """`pytest -k "a; b"` is ONE command — the `;` is a selector, not a
+        segment break — so it must still clear."""
+        self.assertTrue(exit_status_proves_runner_passed('pytest -k "a; b"'))
+        self.assertTrue(exit_status_proves_runner_passed("pytest -k 'a | b'"))
+
+    def test_shell_c_body_is_judged_as_code(self):
+        """A `sh -c` body is code, so its operators count. The wrapper must not
+        launder a discarded exit — nor refuse a clean one."""
+        self.assertFalse(exit_status_proves_runner_passed('sh -c "pytest ; echo hi"'))
+        self.assertFalse(exit_status_proves_runner_passed('bash -c "pytest | tail -5"'))
+        self.assertTrue(exit_status_proves_runner_passed('sh -c "pytest"'))
+        self.assertTrue(exit_status_proves_runner_passed('bash -c "cd app && pytest"'))
+
+    def test_commands_that_run_no_runner_are_vacuously_true(self):
+        """There is no runner whose exit could have been swallowed, so this
+        predicate has nothing to refuse — the executable-position check in
+        `executed_framework` is what keeps `grep -rn pytest` from clearing."""
+        for command in (
+            "ls -la",
+            "grep -rn pytest plugins/",
+            "cat pytest.ini | head -5",
+            "echo $(cat pytest.ini)",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(exit_status_proves_runner_passed(command))
+
+    def test_first_runner_of_several_must_also_propagate(self):
+        """`executed_framework` names the FIRST runner and the clear resolves
+        EVERY open test concern, so one swallowed exit is enough to refuse."""
+        self.assertFalse(
+            exit_status_proves_runner_passed("pytest tests/a; pytest tests/b")
+        )
+
+    def test_predicate_is_structural_not_per_language(self):
+        """Identical shell shape, every language: the verdict is the shape's."""
+        for runner in ("pytest", "npx jest", "go test ./...", "cargo test", "mix test"):
+            with self.subTest(runner=runner):
+                self.assertTrue(exit_status_proves_runner_passed(f"cd app && {runner}"))
+                self.assertFalse(exit_status_proves_runner_passed(f"OUT=$({runner})"))
 
 
 class TestParsedFailedCount(unittest.TestCase):

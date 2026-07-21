@@ -386,5 +386,105 @@ class TestPostToolExitPlan(_HookTestCase):
         self.assertEqual(content, "main")
 
 
+import bash_post_tool  # noqa: E402
+import tdd_check  # noqa: E402
+from _commit_helpers import patch_commits  # noqa: E402
+from concerns import TEST_FAILURES_PREFIX  # noqa: E402
+from conftest import _make_bash_input  # noqa: E402
+
+
+class TestCapturedRunnerStatusEmission(_HookTestCase):
+    """The SECOND way a green run un-gates a red one: the STATUS event itself.
+
+    Resolving concerns is not the only leg. `tdd_check.find_last_test_signal`
+    walks the log backwards and returns "pass" the moment it meets a status
+    matching its pass pattern — short-circuiting before it ever reaches the
+    open failure concern, with no resolution event anywhere. That append sits
+    in the is-a-test-run branch, OUTSIDE the clear branch's guard, so gating
+    only the clear leaves a PASS-shaped digest to un-gate the suite anyway.
+
+    `pytest | tee out.log` is the shape that makes this concrete rather than
+    hypothetical: the pipe hands tee the runner's output verbatim (so the
+    counts really do parse as green) while handing the shell only TEE's exit
+    status — the runner may have been red the whole time.
+    """
+
+    CAPTURED = "python3 -m pytest tests/ | tee out.log"
+    GREEN_OUTPUT = "5 passed in 1.20s"
+
+    def _statuses(self) -> list[dict]:
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        return events_of_type(events, EVENT_TYPE_STATUS)
+
+    def _run(self, command: str, stdout: str) -> str | None:
+        with patch_commits(files=[], body=""):
+            return bash_post_tool.run(
+                _make_bash_input(command=command, stdout=stdout),
+                smm_dir=self.smm_dir,
+            )
+
+    def _open_failure(self) -> None:
+        _common.append_safe(
+            self.smm_dir,
+            make_event(
+                EVENT_TYPE_CONCERN,
+                content=f"{TEST_FAILURES_PREFIX}: 3 failed (pytest)",
+                severity="high",
+            ),
+        )
+
+    def test_captured_runner_emits_no_pass_shaped_status(self):
+        """The digest must not read as a pass the gate would trust."""
+        self._run(self.CAPTURED, self.GREEN_OUTPUT)
+        statuses = self._statuses()
+        self.assertEqual(len(statuses), 1, "the run is still recorded, just honestly")
+        self.assertIsNone(
+            tdd_check.TEST_PASS_RE.search(statuses[0]["content"]),
+            f"un-gating status content: {statuses[0]['content']!r}",
+        )
+
+    def test_captured_runner_does_not_un_gate_tdd_check(self):
+        """End to end through the consumer that the shape actually fools."""
+        self._open_failure()
+        self._run(self.CAPTURED, self.GREEN_OUTPUT)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        self.assertEqual(tdd_check.find_last_test_signal(events), "fail")
+
+    def test_uncaptured_green_run_still_emits_a_pass(self):
+        """Anti-deadlock control: the honest green path is untouched, or
+        nothing would ever un-gate a red run again."""
+        self._open_failure()
+        self._run("python3 -m pytest tests/", self.GREEN_OUTPUT)
+        statuses = self._statuses()
+        self.assertIsNotNone(tdd_check.TEST_PASS_RE.search(statuses[0]["content"]))
+
+    def test_refusal_is_explained_and_names_capture(self):
+        """A silent refusal is an armed gate with no way out: the agent sees
+        no reason and no hint that a plain re-run clears it. The reason must
+        point at the captured exit status, not at being compound — plenty of
+        compounds still clear."""
+        advisory = self._run(self.CAPTURED, self.GREEN_OUTPUT)
+        advisory = self._assert_not_none(advisory)
+        self.assertIn("exit status", advisory.lower())
+        self.assertNotIn("compound", advisory.lower())
+
+    def test_live_evidence_does_not_report_failures_resolved(self):
+        """AC #5, verbatim: the command that announced a red suite green.
+
+        `OUT=$(pytest ...)` captures the runner's exit into a string and
+        `echo $?` reports the SUBSTITUTION's status, so the shell sees 0 over
+        a suite that exited 1.
+
+        The gate assertion carries the weight here. Suppressing the message
+        alone would be cosmetic — the disarm is the resolution event it
+        announces, and `find_last_test_signal` is what the stop gate reads.
+        """
+        self._open_failure()
+        advisory = self._run("OUT=$(python3 -m pytest tests/); echo $?", "1\n")
+        self.assertNotIn("All prior test failures resolved", advisory or "")
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        self.assertEqual(tdd_check.find_last_test_signal(events), "fail")
+
+
 if __name__ == "__main__":
     unittest.main()

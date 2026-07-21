@@ -33,6 +33,15 @@ from test_parsing import (
     parse_test_results,
 )
 
+CAPTURED_EXIT_ADVISORY = (
+    "Test-failure gate left armed: this command's exit status is not the "
+    "runner's. A command substitution, pipe, `;`, newline or `||` captured or "
+    "discarded it, so a 0 here proves nothing about the suite. Re-run the "
+    "runner where its own exit status becomes the command's — a leading `cd x "
+    "&&` or a trailing `&& next` still counts — to clear open test-failure "
+    "concerns."
+)
+
 MID_CHAIN_NUDGE = (
     "Multiple stories in-progress. If this commit completed the current "
     "story's acceptance criteria, run /xp-accept to mark it done and "
@@ -74,25 +83,33 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
 
 
 def _observed_a_green_run(command: str) -> bool:
-    """True when this succeeding command actually EXECUTED a test runner.
+    """True when this succeeding command actually EXECUTED a test runner AND
+    its exit status is what we just saw succeed.
 
-    The mirror of `bash_failure`'s attribution problem, and the more dangerous
-    half: `is_test_run` matches a runner name anywhere in the command, so a
-    SUCCEEDING `grep -rn pytest src/` (grep exits 0 when it matches) reached the
-    clear branch below and resolved every open test-failure concern — a red
-    suite silently un-gated by grepping for the word. Attributing too little on
-    the write side files a false concern; clearing on a run that never happened
-    DISARMS the gate.
+    Two independent ways a 0 lies, and clearing on either DISARMS the gate —
+    the far worse direction, since attributing too little merely files a false
+    concern.
 
-    Gated on the runner occupying the EXECUTABLE POSITION, NOT on the parser
-    having extracted counts. That distinction is what keeps the gate from
-    deadlocking: for a framework whose output the parser cannot read, a failing
-    run writes an exit-code concern and the later passing run is equally
-    unparseable, so a parser-status gate would never clear it. Exit 0 also means
-    every segment of a compound ran, so — unlike the failure path — no
-    corroboration is needed here.
+    The runner never ran. `is_test_run` matches a runner NAME anywhere in the
+    command, so a succeeding `grep -rn pytest src/` (grep exits 0 when it
+    matches) resolved every open test-failure concern — a red suite un-gated by
+    grepping for the word. `executed_framework` answers this by requiring the
+    EXECUTABLE POSITION, deliberately not "the parser extracted counts": for a
+    framework whose output the parser cannot read, the failing run writes an
+    exit-code concern and the later passing run is equally unparseable, so a
+    parser-status gate would deadlock.
+
+    The runner ran, but the 0 is not its own. This one survived review behind a
+    false premise — "exit 0 means every segment of a compound ran, so no
+    corroboration is needed here". Every segment does run; only `&&` carries a
+    segment's FAILURE out to the overall exit. Live evidence:
+    `OUT=$(pytest tests/); echo $?` exited 0 with a pytest that exited 1, and
+    this hook announced every prior failure resolved over a red suite.
+    `exit_status_proves_runner_passed` answers this one — by shell structure, so
+    the answer is the same in every language.
     """
-    return test_attribution.executed_framework(command) is not None
+    ran_a_runner = test_attribution.executed_framework(command) is not None
+    return ran_a_runner and test_attribution.exit_status_proves_runner_passed(command)
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +200,23 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         }
         if tdd_red:
             metadata[METADATA_KEY_TDD_RED] = True
-        if parser_status == PARSER_STATUS_PARSED:
+        # There are TWO ways a green run un-gates a red one — the resolution
+        # below and this status — so both consult the same predicate.
+        ran_a_runner = test_attribution.executed_framework(command) is not None
+        exit_proves_pass = test_attribution.exit_status_proves_runner_passed(command)
+        if failed == 0 and not exit_proves_pass:
+            # The status leg is the one easy to miss, because it un-gates with
+            # no resolution event at all: `tdd_check.find_last_test_signal`
+            # walks the log backwards and returns "pass" on the first
+            # pass-shaped STATUS it meets, short-circuiting before it ever
+            # reaches the open failure concern. This append sits OUTSIDE the
+            # clear branch below, so gating only the clear leaves the digest
+            # free to un-gate the suite on its own. A 0 we cannot attribute to
+            # the runner is not a pass, and `test_passed` is dropped for the
+            # same reason producers omit counts they do not have.
+            content = f"Tests ran ({framework}) — runner exit status not observed"
+            metadata["exit_status_captured"] = True
+        elif parser_status == PARSER_STATUS_PARSED:
             content = f"Tests: {passed} passed, {failed} failed ({framework})"
             metadata["test_passed"] = failed == 0
             metadata["test_count"] = passed + failed
@@ -229,6 +262,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     )
                 if parts:
                     return " ".join(parts)
+        elif failed == 0 and ran_a_runner:
+            # A runner ran and reported nothing failing, but its exit status
+            # never reached the shell — the only way to land here, since
+            # `_observed_a_green_run` differs from `ran_a_runner` in exactly
+            # that one term. Refusing silently is an armed gate with no visible
+            # way out: the agent sees neither the reason nor the fact that a
+            # plain re-run clears it.
+            return CAPTURED_EXIT_ADVISORY
 
         return None
 

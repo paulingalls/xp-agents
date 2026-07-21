@@ -16,9 +16,11 @@ to report "Tests are failing" for a session in which no test ever ran:
   * A compound command can short-circuit BEFORE the runner. `validator && pytest`
     exiting 1 is the validator's exit code, not pytest's.
 
-Note the asymmetry with `is_test_run`, which is deliberately left alone: on the
-SUCCESS path "the command contains a runner" is sound, because exit 0 means
-every segment ran. It is only the FAILURE path that needs this module.
+The SUCCESS path needs this module too, and for a while it was believed not to:
+"exit 0 means every segment ran, so the runner passed" is false. Every segment
+does run, but only `&&` carries a segment's FAILURE out to the overall exit —
+`OUT=$(pytest); echo $?` exits 0 over a red suite. `exit_status_proves_runner_passed`
+is that direction; the two are mirrors, not an asymmetry.
 
 Pure — stdlib only, no SMM dependencies.
 """
@@ -31,7 +33,29 @@ from test_parsing import PARSER_STATUS_PARSED, is_test_run, parse_test_results
 # Shell operators that introduce a second executable segment. Command
 # substitution (`$(`/backtick) is included: its exit status can surface as the
 # whole command's, so the runner is not unambiguously to blame.
-_SEGMENT_BREAK_RE = re.compile(r"&&|\|\||;|\||\n|\$\(|`")
+#
+# ONE alternation, three uses, deliberately. The group is CAPTURING so `.split`
+# interleaves the operators with the segments — which of them matched is the
+# whole question `exit_status_proves_runner_passed` asks, and a second regex
+# spelling the same vocabulary beside this one would drift. Drift here does not
+# raise an error; it silently un-arms the gate.
+#   * `.search`  — is there a break at all (`is_compound`)
+#   * `.split`[::2] — the segments (`_segments`)
+#   * `.split`[1::2] — the operator after each segment, in order
+_SEGMENT_BREAK_RE = re.compile(r"(&&|\|\||;|\||\n|\$\(|`)")
+
+# The only operator that carries a preceding failure through to the overall
+# exit status: `&&` short-circuits, so the runner's non-zero IS the command's.
+# `;` and `\n` discard it, `||` masks it by design, and a pipeline reports its
+# LAST stage (no `pipefail` assumed — the conservative reading).
+_FAILURE_PROPAGATING_OPERATOR = "&&"
+
+# Operators that OPEN a command substitution. A runner inside one has its exit
+# status captured into a string, so the enclosing command's exit says nothing
+# about it. The backtick both opens and closes; `$(` is closed by a `)` glued
+# to some later token, which is why depth is tracked rather than flat-scanned.
+_SUBSTITUTION_OPEN = "$("
+_SUBSTITUTION_BACKTICK = "`"
 
 # Tokens that wrap another executable without being the thing under test, mapped
 # to the options each one takes a SEPARATE VALUE for. Peeled so `time grep pytest
@@ -133,8 +157,14 @@ def is_compound(command: str) -> bool:
 
 
 def _segments(command: str) -> list[str]:
-    """Split into executable segments, ignoring operators inside quotes."""
-    parts = _SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))
+    """Split into executable segments, ignoring operators inside quotes.
+
+    `[::2]` drops the captured operators the split interleaves; this function
+    answers "what ran", and the ordering of `sh -c` bodies APPENDED after the
+    outer segments is why it cannot also answer "did the runner's exit survive"
+    (see `exit_status_proves_runner_passed`).
+    """
+    parts = _SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))[::2]
     segments = [p.strip() for p in parts if p.strip()]
     for body in _shell_c_bodies(command):
         segments.extend(_segments(body))
@@ -182,13 +212,21 @@ def _head_token(segment: str) -> str:
     return ""
 
 
+def _segment_framework(segment: str) -> str | None:
+    """The framework this ONE segment plausibly EXECUTES, or None. A segment
+    headed by an argument-consuming command merely names the runner."""
+    framework = is_test_run(segment)
+    if framework and _head_token(segment) not in _ARGUMENT_CONSUMING_HEADS:
+        return framework
+    return None
+
+
 def _executing_frameworks(command: str):
     """Yield the framework of each segment that plausibly EXECUTES a runner,
-    in command order. A segment headed by an argument-consuming command merely
-    names the runner, so it yields nothing."""
+    in command order."""
     for segment in _segments(command):
-        framework = is_test_run(segment)
-        if framework and _head_token(segment) not in _ARGUMENT_CONSUMING_HEADS:
+        framework = _segment_framework(segment)
+        if framework:
             yield framework
 
 
@@ -208,6 +246,107 @@ def executed_framework(command: str) -> str | None:
     the failure of the one that did.
     """
     return next(_executing_frameworks(command), None)
+
+
+def _closed_substitutions(segment: str) -> int:
+    """How many enclosing command substitutions this segment CLOSES.
+
+    The closing `)` is glued to a token instead of being a segment break, and
+    it is not always the last character — `$(git rev-parse --show-toplevel)/app`
+    closes mid-token — so closers are counted rather than tested for at the end.
+    Parentheses opened AND closed inside the segment (a subshell) balance out
+    and close nothing.
+    """
+    local = closers = 0
+    for char in segment:
+        if char == "(":
+            local += 1
+        elif char == ")":
+            if local:
+                local -= 1
+            else:
+                closers += 1
+    return closers
+
+
+def _outer_exit_proves_runner_passed(command: str) -> bool:
+    """`exit_status_proves_runner_passed` for one command's own segments,
+    without descending into `sh -c` bodies."""
+    parts = _SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))
+    segments, operators = parts[::2], parts[1::2]
+    open_substitutions: list[str] = []
+    runner_seen = False
+
+    for i, segment in enumerate(segments):
+        if _segment_framework(segment.strip()):
+            if open_substitutions:
+                return False  # captured — the exit went into a string
+            runner_seen = True
+        # Checked AFTER the runner, because a capture's `)` rides on the last
+        # token of the very segment that runs it: `echo $(pytest)`.
+        for _ in range(_closed_substitutions(segment)):
+            if open_substitutions and open_substitutions[-1] == _SUBSTITUTION_OPEN:
+                open_substitutions.pop()
+        if i >= len(operators):
+            break
+        operator = operators[i]
+        if operator == _SUBSTITUTION_OPEN:
+            open_substitutions.append(operator)
+        elif operator == _SUBSTITUTION_BACKTICK:
+            # One backtick both opens and closes; which it is depends only on
+            # whether one is already open.
+            if open_substitutions and open_substitutions[-1] == _SUBSTITUTION_BACKTICK:
+                open_substitutions.pop()
+            else:
+                open_substitutions.append(operator)
+        elif (
+            runner_seen
+            and not open_substitutions
+            and operator != _FAILURE_PROPAGATING_OPERATOR
+        ):
+            return False  # discarded — `;`, `\n`, `||` or a pipe swallowed it
+    return True
+
+
+def exit_status_proves_runner_passed(command: str) -> bool:
+    """True when an overall exit 0 genuinely proves the executed runner passed.
+
+    The mirror of `attribute_failure`, and the premise it corrects is the one
+    the note at the top of this module states for the SUCCESS path: "exit 0
+    means every segment ran". Every segment does run — but only `&&` carries a
+    segment's FAILURE out to the overall exit. `;` and `\\n` discard it, `||`
+    masks it, a pipeline reports its last stage, and a command substitution
+    captures it into a string. Live evidence: `OUT=$(pytest tests/); echo $?`
+    exited 0 with a red pytest inside, and every open test-failure concern was
+    resolved on the strength of that 0.
+
+    So: exit 0 proves it iff every operator between the runner and the end of
+    the command propagates failure, and the runner is not inside a capture.
+    Refusing on `is_compound` instead would DEADLOCK the gate — `cd app &&
+    pytest` is compound and perfectly honest, and would never clear again.
+
+    Capture is tracked as depth, not as a flat "a `$(` appeared", which is wrong
+    in both directions: `cd $(git rev-parse --show-toplevel) && pytest` closes
+    its substitution BEFORE the runner (safe, and a flat scan deadlocks it),
+    while `echo $(pytest)` has no operator after the runner at all (unsafe, and
+    an operator-only scan clears it).
+
+    A `sh -c` body is code, so it is judged by the same rule and the wrapper
+    cannot launder a discarded exit. It gets its own recursion rather than
+    reusing `_segments`, which flattens bodies in with the outer segments and
+    discards operator position — the two things this predicate needs.
+
+    Conservative by construction, since a wrong True disarms the gate: no
+    `set -o pipefail` awareness, and a runner reached through a closing token
+    (`$(npm bin)/jest`) reads as captured. A command that executes no runner is
+    vacuously True — there is no exit status here to have been swallowed, and
+    `executed_framework` is what keeps `grep -rn pytest` from clearing.
+    """
+    if not _outer_exit_proves_runner_passed(command):
+        return False
+    return all(
+        exit_status_proves_runner_passed(body) for body in _shell_c_bodies(command)
+    )
 
 
 def parsed_failed_count(error: str, framework: str) -> int | None:
