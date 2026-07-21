@@ -126,6 +126,87 @@ class _ResolverTestCase(unittest.TestCase):
         return branch_resolution.get_story_base_branch_required(self.smm_dir, self.cwd)
 
 
+class TestIntegrationBranchHealedAtUse(_ResolverTestCase):
+    """THE BUG. `integration_branch` was type-checked only, and
+    `get_primary_branch` returns it straight to callers that hand it to `git
+    checkout` / `git merge` as argv. A stored `-f` therefore becomes `git
+    checkout -f`, which DISCARDS LOCAL CHANGES.
+
+    Healing happens HERE, at the use site, not in the loader: the loader feeds
+    `_maybe_auto_promote`'s load → mutate → save, so a healing loader would
+    persist the substitute over the branch a user configured.
+    """
+
+    def _seed(self, integration_branch: object) -> None:
+        _bf.write_system_context(
+            self.smm_dir, stage=3, integration_branch=integration_branch
+        )
+
+    def test_leading_dash_value_resolves_to_primary_not_to_git(self) -> None:
+        self._seed("-f")
+        self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")
+
+    def test_pattern_violating_value_resolves_to_primary(self) -> None:
+        self._seed("feature branch")
+        self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")
+
+    def test_substitution_is_logged_not_silent(self) -> None:
+        """A configured value WAS present and we are targeting something else
+        — that changes a merge/checkout target, so it must not be silent."""
+        self._seed("-f")
+        with patch("branch_resolution._common.log_hook_error") as log:
+            branch_resolution.get_primary_branch(self.smm_dir)
+        self.assertEqual(log.call_count, 1)
+        logged = repr(log.call_args)
+        self.assertIn("-f", logged)
+        self.assertIn("main", logged)
+
+    def test_usable_value_is_returned_unhealed_and_unlogged(self) -> None:
+        self._seed("develop")
+        with patch("branch_resolution._common.log_hook_error") as log:
+            self.assertEqual(
+                branch_resolution.get_primary_branch(self.smm_dir), "develop"
+            )
+        log.assert_not_called()
+
+    def test_null_value_falls_back_quietly(self) -> None:
+        """Null is not a substitution — nothing was configured, so primary IS
+        the answer. Logging here would fire on every stage-3 repo that never
+        set the field."""
+        self._seed(None)
+        with patch("branch_resolution._common.log_hook_error") as log:
+            self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")
+        log.assert_not_called()
+
+    def test_below_stage_3_is_unaffected(self) -> None:
+        _bf.write_system_context(self.smm_dir, stage=2, integration_branch="-f")
+        self.assertEqual(branch_resolution.get_primary_branch(self.smm_dir), "main")
+
+    def test_protected_branches_drops_an_unusable_value(self) -> None:
+        """Same helper, one answer — the raw-JSON reader and the validated
+        loader cannot disagree about what this value resolves to."""
+        self._seed("-f")
+        self.assertEqual(
+            branch_resolution.get_protected_branches(self.smm_dir, 3),
+            {"main", "master"},
+        )
+
+    def test_protected_branches_does_not_log(self) -> None:
+        """No log on this path: a dropped protected entry is the lesser event,
+        and this runs on every Bash PreToolUse."""
+        self._seed("-f")
+        with patch("branch_resolution._common.log_hook_error") as log:
+            branch_resolution.get_protected_branches(self.smm_dir, 3)
+        log.assert_not_called()
+
+    def test_protected_branches_keeps_a_usable_value(self) -> None:
+        self._seed("develop")
+        self.assertEqual(
+            branch_resolution.get_protected_branches(self.smm_dir, 3),
+            {"main", "master", "develop"},
+        )
+
+
 class TestResolveStoryBaseLegitimateDegradation(_ResolverTestCase):
     """The two states where primary is the TRUE answer, not a fallback.
 
