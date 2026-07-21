@@ -36,6 +36,7 @@ import identity
 import sprint_store
 import system_context_store
 from branch_names import branch_name, sprint_branch_name
+from system_context_schema import healed_integration_branch
 
 _DEFAULT_PRIMARY = "main"
 
@@ -111,14 +112,37 @@ def get_primary_branch(smm_dir: Path) -> str:
     """Return the repo's primary integration branch.
 
     Stage 0-2: 'main'. Stage 3: branching_strategy.integration_branch,
-    defaulting to 'main' when missing/null. Routes through
-    ``get_branching_stage`` so primary-branch reads also fire the
-    Stage 1 -> 2 auto-promote — single chokepoint for progression.
+    defaulting to 'main' when missing/null OR when the stored value cannot
+    serve as a git ref. Routes through ``get_branching_stage`` so
+    primary-branch reads also fire the Stage 1 -> 2 auto-promote — single
+    chokepoint for progression.
+
+    The answer is handed to `git checkout` / `git merge` as argv, so a stored
+    value that predates the ref-format check is healed HERE rather than
+    trusted: `-f` matches the branch-name pattern and would reach git as a
+    FLAG. Falling back to primary mirrors what this function already does for
+    a null value, and keeps every hook path non-raising. A substitution IS
+    logged — it changes a merge/checkout target, which must not be silent.
     """
     if get_branching_stage(smm_dir) < 3:
         return _DEFAULT_PRIMARY
     bs = _load_branching_strategy(smm_dir)
-    return bs.get("integration_branch") or _DEFAULT_PRIMARY
+    healed = healed_integration_branch(bs)
+    stored = bs.get("integration_branch")
+    # Null AND empty both mean "never configured" — the same falsy set the
+    # renderer hides and the pre-check `or _DEFAULT_PRIMARY` fell through on.
+    # Logging those would fire on every read of a stage-3 repo that never set
+    # the field; anything else IS a configured value we are overriding.
+    if healed is None and stored not in (None, ""):
+        _common.log_hook_error(
+            f"branching_strategy.integration_branch {stored!r} is not usable "
+            f"as a git ref; resolving the primary branch as "
+            f"{_DEFAULT_PRIMARY!r} instead",
+            error_class="ValueError",
+            integration_branch=stored,
+            substituted=_DEFAULT_PRIMARY,
+        )
+    return healed or _DEFAULT_PRIMARY
 
 
 def get_protected_branches(smm_dir: Path, stage: int) -> set[str]:
@@ -133,6 +157,13 @@ def get_protected_branches(smm_dir: Path, stage: int) -> set[str]:
     ``stage`` is supplied by callers (rather than re-read here) so the
     stage 1→2 auto-promote side effect in ``get_branching_stage`` fires
     once per hook chain instead of doubling on every protection check.
+
+    Routes the integration branch through the SAME heal helper as
+    ``get_primary_branch``, so the raw-JSON reader and the validated loader
+    cannot disagree about what the value resolves to. Unlike there, a dropped
+    entry is NOT logged: it is the lesser event (one fewer branch treated as
+    protected, not a redirected merge), and this runs on every Bash
+    PreToolUse.
     """
     if stage < 1:
         return set()
@@ -141,7 +172,7 @@ def get_protected_branches(smm_dir: Path, stage: int) -> set[str]:
     declared = bs.get("protected_branches") or []
     result.update(declared)
     if stage >= 3:
-        integration = bs.get("integration_branch")
+        integration = healed_integration_branch(bs)
         if integration:
             result.add(integration)
     return result

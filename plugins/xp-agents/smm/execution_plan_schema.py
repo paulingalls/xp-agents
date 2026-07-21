@@ -9,6 +9,7 @@ no external jsonschema dependency, stdlib-only.
 """
 
 import re
+from typing import TypeGuard
 
 from _acceptance_execution import validate_acceptance_execution
 from schema_helpers import budget_error
@@ -28,6 +29,27 @@ VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 # trailing newline is never part of a legitimate branch name, so this only
 # rejects input that was already broken.
 VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\Z")
+
+
+def usable_git_ref_name(value: object) -> TypeGuard[str]:
+    """True when value is safe to hand git as a ref argument.
+
+    The pattern alone is not enough: `-` is inside its character class, so
+    `-f` and `--force` match it and would reach argv as FLAGS. `git checkout
+    -f` discards local changes — the exact outcome the pattern above exists
+    to prevent, reached through the one input shape it lets past.
+
+    Lives here, beside the pattern, because every value the pattern guards
+    (plan.branch, sprint.branch_name, system_context's integration_branch)
+    has the same argv exposure and must answer the same question the same
+    way.
+    """
+    return (
+        isinstance(value, str)
+        and VALID_BRANCH_NAME_RE.match(value) is not None
+        and not value.startswith("-")
+    )
+
 
 MILESTONE_FIELD_MAXLENGTH: dict[str, int] = {
     "goal": 200,

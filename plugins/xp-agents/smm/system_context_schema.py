@@ -8,6 +8,7 @@ Follows the same pattern as execution_plan_schema.py: hand-rolled validator,
 no external jsonschema dependency, stdlib-only.
 """
 
+from execution_plan_schema import usable_git_ref_name
 from schema_helpers import budget_error
 from smm_schema import EVENT_ID_RE, is_iso8601
 
@@ -255,8 +256,43 @@ def _validate_principle(
     return errors
 
 
+def integration_branch_error(bs: object) -> str | None:
+    """Message when branching_strategy.integration_branch cannot serve as a
+    git ref, else None. Null/missing is fine — callers fall back to primary.
+
+    Same class of value as sprint.branch_name and plan.branch, and now held
+    to the same rule: ``get_primary_branch`` hands this straight to `git
+    checkout` / `git merge` as argv.
+    """
+    if not isinstance(bs, dict) or bs.get("integration_branch") is None:
+        return None
+    value = bs["integration_branch"]
+    if usable_git_ref_name(value):
+        return None
+    return (
+        "branching_strategy.integration_branch must be a branch name usable as"
+        f" a git ref (got {value!r}): slash-separated [A-Za-z0-9._-], no leading"
+        " dash (it would reach `git checkout` / `git merge` as a FLAG); use null"
+        " to leave it unset"
+    )
+
+
+def healed_integration_branch(bs: object) -> str | None:
+    """The stored value when usable as a ref, else None (fall back to primary).
+
+    The SINGLE heal helper, applied where the value is USED rather than where
+    it is loaded. Loaders preserve the stored bytes: `branch_resolution`'s
+    stage auto-promote does load → mutate → save, so healing inside a loader
+    would silently persist the substitute over the branch a user configured.
+    """
+    if not isinstance(bs, dict):
+        return None
+    value = bs.get("integration_branch")
+    return value if usable_git_ref_name(value) else None
+
+
 def _validate_branching_strategy(
-    bs: object, *, enforce_budget: bool = True
+    bs: object, *, enforce_budget: bool = True, enforce_ref_format: bool = True
 ) -> list[str]:
     errors: list[str] = []
     if not isinstance(bs, dict):
@@ -303,6 +339,10 @@ def _validate_branching_strategy(
             errors.append(
                 "branching_strategy.integration_branch must be a string or null"
             )
+        elif enforce_ref_format:
+            ref_error = integration_branch_error(bs)
+            if ref_error is not None:
+                errors.append(ref_error)
 
     if "rationale" in bs:
         if not isinstance(bs["rationale"], str):
@@ -344,12 +384,18 @@ def _validate_branching_strategy(
     return errors
 
 
-def validate_system_context(data: object, *, enforce_budget: bool = True) -> list[str]:
+def validate_system_context(
+    data: object, *, enforce_budget: bool = True, enforce_ref_format: bool = True
+) -> list[str]:
     """Validate a system context document.
 
     Returns a list of error strings — empty list means valid.
     When enforce_budget is False, field-length budgets are skipped
     (read-path grandfathering, matching execution_plan_schema precedent).
+    When enforce_ref_format is False, branching_strategy.integration_branch
+    is type-checked but not held to the git-ref rule — the read path, so a
+    stored value that predates the rule still LOADS. Leniency about format is
+    not leniency about shape: a non-string is rejected either way.
     """
     errors: list[str] = []
 
@@ -417,7 +463,9 @@ def validate_system_context(data: object, *, enforce_budget: bool = True) -> lis
     if "branching_strategy" in data:
         errors.extend(
             _validate_branching_strategy(
-                data["branching_strategy"], enforce_budget=enforce_budget
+                data["branching_strategy"],
+                enforce_budget=enforce_budget,
+                enforce_ref_format=enforce_ref_format,
             )
         )
 
