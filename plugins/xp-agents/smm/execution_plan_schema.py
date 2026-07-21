@@ -9,6 +9,7 @@ no external jsonschema dependency, stdlib-only.
 """
 
 import re
+from typing import TypeGuard
 
 from _acceptance_execution import validate_acceptance_execution
 from schema_helpers import budget_error
@@ -30,7 +31,7 @@ VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\Z")
 
 
-def usable_git_ref_name(value: object) -> bool:
+def usable_git_ref_name(value: object) -> TypeGuard[str]:
     """True when value is safe to hand git as a ref argument.
 
     The pattern alone is not enough: `-` is inside its character class, so
