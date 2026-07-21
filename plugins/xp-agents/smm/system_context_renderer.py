@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from execution_plan_schema import usable_git_ref_name
 from system_context_schema import STACK_OPTIONAL_FIELDS
 
 _SECTION_HEADINGS: dict[str, str] = {
@@ -228,7 +229,20 @@ def _render_branching_strategy(lines: list[str], bs: dict) -> None:
         branches = ", ".join(f"`{b}`" for b in bs["protected_branches"])
         lines.append(f"- **Protected Branches:** {branches}")
     if bs.get("integration_branch"):
-        lines.append(f"- **Integration Branch:** `{bs['integration_branch']}`")
+        # Shown even when unusable — it IS what is on disk, and hiding it
+        # would make the config unfixable — but marked, so the SMM never
+        # claims merges target a value that branch resolution rejects. The
+        # fallback named here is branch_resolution._DEFAULT_PRIMARY; it is
+        # spelled out rather than imported (smm/ must not depend on
+        # scripts/), and kept in sync by a pin in
+        # tests/smm/test_system_context_schema_fields.py.
+        value = bs["integration_branch"]
+        mark = (
+            ""
+            if usable_git_ref_name(value)
+            else " — ⚠️ NOT USABLE as a git ref; branch operations fall back to `main`"
+        )
+        lines.append(f"- **Integration Branch:** `{value}`{mark}")
     if bs.get("rationale"):
         lines.append(f"- **Rationale:** {bs['rationale']}")
     lines.append("")

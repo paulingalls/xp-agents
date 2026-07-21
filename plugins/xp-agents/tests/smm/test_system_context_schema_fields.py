@@ -20,9 +20,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
+import branch_resolution
 from _system_context_fixtures import valid_doc
 from execution_plan_schema import VALID_BRANCH_NAME_RE, usable_git_ref_name
+from system_context_renderer import _render_branching_strategy
 from system_context_schema import (
     SYSTEM_CONTEXT_FILENAME,
     healed_integration_branch,
@@ -125,6 +128,35 @@ class TestEnforceRefFormatFlag(unittest.TestCase):
         self.assertTrue(
             any("branching_strategy.integration_branch" in e for e in errors), errors
         )
+
+
+class TestRendererMarksARejectedValue(unittest.TestCase):
+    """The SMM must not tell the agent merges target `-f` while behavior
+    targets `main` — that split-brain is the thing the SMM exists to prevent.
+    The stored value keeps being shown (it is what is on disk, and hiding it
+    would make the config unfixable), but it is marked as not in force.
+    """
+
+    def _render(self, value: object) -> str:
+        lines: list[str] = []
+        _render_branching_strategy(lines, {"stage": 3, "integration_branch": value})
+        return "\n".join(lines)
+
+    def test_unusable_value_is_shown_and_marked(self) -> None:
+        rendered = self._render("-f")
+        self.assertIn("-f", rendered, "the stored value must still be visible")
+        self.assertRegex(rendered.lower(), r"not usable|unusable")
+
+    def test_the_marked_fallback_names_what_resolution_actually_returns(self) -> None:
+        """SYNC PIN. The renderer spells the fallback branch out rather than
+        importing it (smm/ must not depend on scripts/), so this is what keeps
+        the two from drifting into a second split-brain."""
+        self.assertIn(branch_resolution._DEFAULT_PRIMARY, self._render("-f"))
+
+    def test_usable_value_is_rendered_plainly(self) -> None:
+        rendered = self._render("develop")
+        self.assertIn("develop", rendered)
+        self.assertNotRegex(rendered.lower(), r"not usable|unusable")
 
 
 class _StoreTestCase(unittest.TestCase):
