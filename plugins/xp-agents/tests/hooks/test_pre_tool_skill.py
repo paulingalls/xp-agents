@@ -56,6 +56,18 @@ class TestCodeReviewNudge(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_courage_nudge_names_workflow_tool_not_skill(self):
+        """story-011: /code-review runs via the Workflow tool, not Skill.
+        Even though this branch is provably unreachable in practice
+        (code-review is absent from the Skill listing, so the model can't
+        dispatch Skill(code-review) in the first place — see discovery
+        6e088a55f0dc), the message should redirect to the Workflow tool
+        rather than staying silent on how to actually launch it."""
+        result = pre_tool_skill.run(_make_skill_input("code-review"))
+        result = self._assert_not_none(result)
+        self.assertIn("Workflow", result)
+        self.assertIn("Skill", result)
+
 
 class TestTeammateLifecycleGate(_HookTestCase):
     """PreToolUse:Skill blocks teammates from lead-owned lifecycle skills."""

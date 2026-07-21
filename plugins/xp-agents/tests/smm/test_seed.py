@@ -235,6 +235,33 @@ class TestGenerateSMM(unittest.TestCase):
         joined = " ".join(contents)
         self.assertIn("Commit after every green", joined)
 
+    def test_commit_after_green_wisdom_names_only_quality_review(self):
+        """story-011: only /xp-quality-review runs per commit; pairing
+        /code-review in this per-commit wisdom entry implied it does too."""
+        smm = seed_smm.generate_smm(self.tmpdir)
+        entry = next(
+            e for e in smm["wisdom"] if "Commit after every green" in e["content"]
+        )
+        self.assertIn("/xp-quality-review", entry["content"])
+        self.assertNotIn("/code-review", entry["content"])
+
+    def test_review_cadence_wisdom_names_workflow_tool_not_percommit(self):
+        """story-011: the cadence entry claimed /code-review runs 'before
+        each commit' in commit cadence — contradicts the per-commit cadence
+        (xp-quality-review only; /code-review once at sprint/plan/free-close).
+        It must instead name the Workflow tool for /code-review's real cadence."""
+        smm = seed_smm.generate_smm(self.tmpdir)
+        entry = next(
+            (e for e in smm["wisdom"] if "cadence" in e["content"].lower()),
+            None,
+        )
+        self.assertIsNotNone(entry, "no cadence-aware review-cycle wisdom")
+        assert entry is not None  # narrow for the type-checker
+        text = entry["content"]
+        self.assertNotIn("(/code-review, /xp-quality-review)", text)
+        self.assertNotIn("/code-review → /xp-quality-review before each commit", text)
+        self.assertIn("Workflow tool", text)
+
     def test_deterministic_ids(self):
         """Seeded ids are stable across calls (uuid5 from content)."""
         smm1 = seed_smm.generate_smm(self.tmpdir)

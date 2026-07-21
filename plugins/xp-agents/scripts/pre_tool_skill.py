@@ -26,7 +26,8 @@ _CODE_REVIEW_COURAGE = (
     "finding comes back unaddressed. Run it on every change, even ones that "
     "'look small'. The fix happens next in /xp-quality-review, where each "
     "valid finding must be addressed (or recorded as debt with a concrete "
-    "reason) — never waved off as low-severity, pre-existing, or out of scope."
+    "reason) — never waved off as low-severity, pre-existing, or out of scope. "
+    "It cannot be launched with the Skill tool — invoke Workflow instead."
 )
 
 # Every shipped xp-agents skill directory name. Pinned to skills/ by

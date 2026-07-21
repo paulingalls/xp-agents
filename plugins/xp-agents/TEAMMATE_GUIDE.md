@@ -16,7 +16,7 @@ Take small steps. Don't try to implement everything at once.
 
 ## Review Cycle
 
-Before each commit: `/xp-quality-review` → `git commit` (pre-commit hooks enforce tests + format). `/xp-quality-review` spawns the independent `xp-code-reviewer`, which self-finds correctness plus reuse, quality, efficiency, courage, drift, and debt. The broad multi-agent `/code-review` workflow is not per-commit — it runs once at sprint close.
+Before each commit: `/xp-quality-review` → `git commit` (pre-commit hooks enforce tests + format). `/xp-quality-review` spawns the independent `xp-code-reviewer`, which self-finds correctness plus reuse, quality, efficiency, courage, drift, and debt. The broad `/code-review` (Workflow tool) is not per-commit — it runs once at sprint close.
 
 Security review is layered: a deterministic secret/pattern scan on staged diffs at commit; `/security-review` at close. No on-demand triage skill.
 
