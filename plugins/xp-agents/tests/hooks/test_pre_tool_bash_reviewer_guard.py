@@ -283,6 +283,22 @@ class TestAmbiguityHandling(_ReviewerGuardCase):
         inherited from `shell_commands.simple_commands`, never a block."""
         self._assert_allowed("git reset --hard 'unclosed", _CLOSE_REVIEWER)
 
+    def test_git_not_in_first_position_is_not_recognized(self):
+        """The anchor's accepted limit, pinned so it stays a KNOWN scope and
+        not a discovered surprise: recognition keys on the simple command's
+        first token, so a git call reached any other way is never refused. This
+        guard is a guardrail against an agent going off its written script --
+        both incidents were a bare `git reset` -- not a sandbox against evasion.
+        """
+        for command in (
+            "/usr/bin/git reset --hard main",
+            "env git reset --hard main",
+            "GIT_DIR=.git git reset",
+            'bash -c "git reset --hard main"',
+        ):
+            with self.subTest(command=command):
+                self._assert_allowed(command, _CLOSE_REVIEWER)
+
     def test_opaque_subcommand_is_refused(self):
         """Deny-by-default applies to a variable subcommand too. Allowing it
         would make `SUB=reset; git $SUB --hard main` a one-line bypass of the

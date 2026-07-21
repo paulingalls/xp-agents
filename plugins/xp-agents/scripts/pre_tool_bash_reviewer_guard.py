@@ -8,6 +8,12 @@ its `git commit`, committing half a split and leaving the suite GREEN over
 duplicated code; a `git reset --hard <base>` during a branch close moved a
 branch ref back 20 commits. Prose the model can talk itself past is not a gate.
 
+Attribution honesty: the second record names `xp-close-reviewer` outright, so
+this guard covers it. The first says only "during /xp-quality-review" -- the
+reviewer subagent is the likely actor but is INFERRED, and if the LEAD issued
+that reset the guard does not cover it and cannot, since the main agent sends no
+`agent_type` and must stay unguarded (see `_guarded_agent`).
+
 Scope is deliberately narrow, because a guard that false-refuses is its own
 failure mode:
 
@@ -39,6 +45,14 @@ ambiguous"):
   is to ALLOW, so the same no-op would make `SUB=reset; git $SUB --hard main` a
   one-line bypass of the whole guard. A reviewer loses nothing by spelling an
   inspection literally, so deny-by-default wins on both sides of the trade.
+- Deny-by-default applies only to what is RECOGNIZED as a git call, and
+  `shell_commands.git_invocation` anchors on the simple command's FIRST token.
+  A git call reached any other way (`/usr/bin/git reset`, `env git reset`,
+  `GIT_DIR=x git reset`, `bash -c "git reset"`, a `then`-prefixed branch of an
+  `if`) is not recognized and not refused. That is the accepted shape of this
+  guard: a guardrail against an agent going off its written script -- both
+  incidents were a bare `git reset` -- NOT a sandbox against an agent trying to
+  evade it. Do not cite it as one.
 """
 
 import sys
@@ -139,8 +153,8 @@ def reviewer_mutation_block(input_data: dict) -> str | None:
             continue
         return (
             f"Refusing `git {subcommand}`: {agent} is a read-only reviewer and "
-            "must not mutate git state. Inspection has mutated the lead's "
-            "shared index twice — once committing half a split with the suite "
+            "must not mutate git state. Git state has been destroyed twice "
+            "during a review — once committing half a split with the suite "
             "still green, once moving a sprint branch back 20 commits. Read "
             "the same information instead: git diff, git log, git show, git "
             "status, git reflog. If a mutation is genuinely required, report it "
