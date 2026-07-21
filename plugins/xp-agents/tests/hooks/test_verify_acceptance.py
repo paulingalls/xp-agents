@@ -7,6 +7,7 @@ first failing command (naming it in stderr). Back-compat: a story
 with the legacy `command: str` shape is treated as a one-element list.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -172,12 +173,17 @@ class TestManualTypeStoryPath(_SMMTestCase):
     """verify_acceptance gates on command PRESENCE, not on type==manual. A
     manual block with only prose `steps` (no command) is N/A — its prose is
     never shelled. A manual block that DOES carry a runnable command runs it,
-    and its exit code decides pass/fail (fixes the N/A-green honesty bug)."""
+    and its exit code decides pass/fail (fixes the N/A-green honesty bug).
+
+    Seeded by writing sprint.json directly: AUTHORING no longer accepts a
+    command on a manual block, so a manual+command block can only exist as
+    one already stored (grandfathered). Run-time is what these pin, and it is
+    unchanged — routing still keys on command presence."""
 
     def _save(self, ae: dict) -> None:
         story = make_story_dict(id="story-001", acceptance_execution=ae)
         sprint = make_sprint_dict(stories=[story])
-        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
 
     def _verify(self, story_id: str):
         return run_cli(_VERIFY_ACCEPTANCE, ["--story", story_id], self.smm_dir)
@@ -208,11 +214,14 @@ class TestManualTypeStoryPath(_SMMTestCase):
 class TestManualTypeSprintMatrix(_SMMTestCase):
     """--sprint gates on command PRESENCE. A manual block with only prose
     `steps` is an N/A row (never shelled, never reddens the sprint); a manual
-    block carrying a runnable command is executed like any other."""
+    block carrying a runnable command is executed like any other.
+
+    Written straight to disk for the same reason as TestManualTypeStoryPath:
+    a manual+command block is only reachable as an already-stored one."""
 
     def _seed(self, stories: list[dict]) -> None:
         sprint = make_sprint_dict(sprint_id="sprint-012", stories=stories)
-        sprint_store.save_sprint(self.smm_dir, sprint, enforce_budget=False)
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
 
     def test_manual_steps_only_is_na_and_sprint_stays_green(self):
         manual_story = make_story_dict(

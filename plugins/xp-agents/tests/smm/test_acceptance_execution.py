@@ -36,6 +36,11 @@ def _vac(item: object) -> list[str]:
     return validate_per_ac_verify(item, _AC_PREFIX)
 
 
+def _vm(ae: object) -> list[str]:
+    """Validate with the authoring-time manual-shape rule switched on."""
+    return validate_acceptance_execution(ae, _PREFIX, enforce_manual_shape=True)
+
+
 class TestValidateBackCompatCommand(unittest.TestCase):
     """Single `command: str` shape — pre-existing behavior must keep working."""
 
@@ -155,8 +160,18 @@ class TestValidatePins(unittest.TestCase):
 
 class TestManualOptionalCommand(unittest.TestCase):
     """A type==manual block may omit the command/commands block — its check is
-    human/agent judgment, optionally with a runnable confirmation. Every other
-    type still requires exactly one of command xor commands."""
+    human/agent judgment. Every other type still requires exactly one of
+    command xor commands.
+
+    The command block used to be merely OPTIONAL here: a manual block MAY
+    carry a runnable confirmation, so a command on it was valid at every
+    layer. Authoring reversed that (see TestManualShapeRuleAuthoring) after
+    an operator put observational prose in a manual block's `command`, the
+    runner shelled it, and the exit-127 red read as a failing test. Prose
+    now has exactly one home, `steps`. What survives unchanged is the
+    default-off posture pinned below and the run-time contract: routing
+    keys on command PRESENCE, so a stored manual+command block still runs.
+    """
 
     def test_manual_without_command_is_valid(self):
         self.assertEqual(_v({"type": "manual"}), [])
@@ -165,8 +180,9 @@ class TestManualOptionalCommand(unittest.TestCase):
         ae = {"type": "manual", "steps": ["Deploy to staging", "Confirm redirect"]}
         self.assertEqual(_v(ae), [])
 
-    def test_manual_with_command_is_valid(self):
-        # A manual block MAY carry a runnable confirmation command.
+    def test_manual_with_command_is_valid_by_default(self):
+        # Default-off: the rule fires only when a caller asks for it, so the
+        # milestone-level call site (no runner ever shells it) is unchanged.
         ae = {"type": "manual", "command": "git ls-files --error-unmatch docs/x.md"}
         self.assertEqual(_v(ae), [])
 
@@ -178,6 +194,45 @@ class TestManualOptionalCommand(unittest.TestCase):
         # The xor still holds when a manual block DOES carry a command block.
         ae = {"type": "manual", "command": "true", "commands": ["true"]}
         errors = _v(ae)
+        self.assertTrue(any("command" in e and "commands" in e for e in errors), errors)
+
+
+class TestManualShapeRuleAuthoring(unittest.TestCase):
+    """`enforce_manual_shape=True`: a manual block may not carry a command.
+
+    Authoring-layer rule only — prose belongs in `steps`, so it can never
+    land in a field that gets shelled. Run-time is untouched: whatever runs
+    a block still keys on command presence.
+    """
+
+    def test_manual_with_command_rejected(self):
+        ae = {"type": "manual", "command": "go read the logs and confirm X"}
+        errors = _vm(ae)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("command", errors[0])
+        self.assertIn("manual", errors[0])
+        self.assertIn("steps", errors[0])
+
+    def test_manual_with_commands_rejected(self):
+        ae = {"type": "manual", "commands": ["go read the logs", "confirm X"]}
+        errors = _vm(ae)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("commands", errors[0])
+        self.assertIn("manual", errors[0])
+        self.assertIn("steps", errors[0])
+
+    def test_manual_with_steps_only_still_valid(self):
+        ae = {"type": "manual", "steps": ["Deploy to staging", "Confirm redirect"]}
+        self.assertEqual(_vm(ae), [])
+
+    def test_manual_without_any_block_still_valid(self):
+        self.assertEqual(_vm({"type": "manual"}), [])
+
+    def test_non_manual_with_command_still_valid(self):
+        self.assertEqual(_vm({"type": "pytest", "command": "pytest tests/"}), [])
+
+    def test_non_manual_without_command_still_rejected(self):
+        errors = _vm({"type": "pytest"})
         self.assertTrue(any("command" in e and "commands" in e for e in errors), errors)
 
 

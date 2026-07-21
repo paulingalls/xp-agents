@@ -16,6 +16,7 @@ from pathlib import Path
 
 import file_domain_lock
 from _append_impl import flock_with_timeout, write_text_atomic
+from _manual_shape_exemption import grandfathered_story_ids
 from sprint_schema import (
     SPRINT_FILENAME,
     VALID_STORY_STATUSES,
@@ -108,6 +109,9 @@ def save_sprint(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> No
 
     Clears the NEEDS_SPRINT marker if the sprint has active stories.
 
+    Every write applies the manual-acceptance-shape rule, exempting only
+    blocks already on disk (see _manual_shape_exemption).
+
     Raises:
         ValueError: Schema validation failure.
         OSError: Target is a symlink.
@@ -120,6 +124,7 @@ def save_sprint(smm_dir: Path, data: dict, *, enforce_budget: bool = True) -> No
         data,
         enforce_budget=enforce_budget,
         valid_surfaces=(acceptance_surface_names(smm_dir) if enforce_budget else None),
+        grandfathered_story_ids=grandfathered_story_ids(smm_dir, data),
     )
     if errors:
         raise ValueError(f"Sprint validation failed: {'; '.join(errors)}")
