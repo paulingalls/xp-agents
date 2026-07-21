@@ -365,6 +365,67 @@ class TestExitStatusProvesRunnerPassed(unittest.TestCase):
         self.assertTrue(exit_status_proves_runner_passed('sh -c "pytest"'))
         self.assertTrue(exit_status_proves_runner_passed('bash -c "cd app && pytest"'))
 
+    def test_operator_after_a_shell_c_wrapper_still_swallows(self):
+        """The wrapper does not launder a discarded exit in the OTHER
+        direction either.
+
+        `strip_quoted` deletes the body, so the outer scan sees a bare
+        `sh -c ` that names no framework — and an operator-position rule that
+        never saw a runner out here has nothing to refuse. The runner really
+        ran (`executed_framework` reads the body and says so), so this is the
+        clear branch's exact shape: exit status belongs to `tee`, the suite
+        may be red, and the gate would have cleared.
+        """
+        for command in (
+            'sh -c "pytest" | tee out.log',
+            'sh -c "pytest"; echo done',
+            'bash -c "pytest" || true',
+            'sh -c "pytest" && echo ok | tee log',
+        ):
+            with self.subTest(command=command):
+                self.assertFalse(exit_status_proves_runner_passed(command))
+
+    def test_backgrounded_runner_does_not_prove_it(self):
+        """`&` is the operator that discards the exit hardest: the shell does
+        not wait at all, so the 0 arrives before a single test has run.
+
+        It is absent from the segment vocabulary on purpose — `2>&1` and `&>`
+        put an `&` in commands that are not compound at all, and teaching the
+        shared alternation about it would change `is_compound` (and with it the
+        write direction's evidence rule) for every redirect. The async form is
+        recognized here instead, where the only consequence is refusing to
+        clear.
+        """
+        for command in ("pytest tests/ &", "npm test &", "pytest > out.txt 2>&1 &"):
+            with self.subTest(command=command):
+                self.assertFalse(exit_status_proves_runner_passed(command))
+
+    def test_redirect_ampersand_is_not_backgrounding(self):
+        """Anti-deadlock control: `2>&1` and `&>` are redirects. Refusing on a
+        bare `&` scan would stop clearing for the most ordinary shape there
+        is."""
+        for command in (
+            "pytest tests/ 2>&1",
+            "pytest &> out.txt",
+            "cd app && pytest 2>&1",
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(exit_status_proves_runner_passed(command))
+
+    def test_shell_c_wrapper_anti_deadlock(self):
+        """...and the controls: a wrapper whose exit DOES survive still
+        clears, and a wrapper running no runner never arms the rule."""
+        for command in (
+            'sh -c "pytest"',
+            'cd app && sh -c "pytest"',
+            'sh -c "pytest" && echo ok',
+            # No runner inside, so the `;` has no runner exit to swallow —
+            # the pytest that follows is the one whose status we see.
+            'sh -c "echo hi" ; pytest',
+        ):
+            with self.subTest(command=command):
+                self.assertTrue(exit_status_proves_runner_passed(command))
+
     def test_commands_that_run_no_runner_are_vacuously_true(self):
         """There is no runner whose exit could have been swallowed, so this
         predicate has nothing to refuse — the executable-position check in

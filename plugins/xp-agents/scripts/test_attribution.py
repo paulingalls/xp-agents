@@ -57,6 +57,17 @@ _FAILURE_PROPAGATING_OPERATOR = "&&"
 _SUBSTITUTION_OPEN = "$("
 _SUBSTITUTION_BACKTICK = "`"
 
+# Asynchronous execution: a bare `&` puts the runner in the background, so the
+# shell returns 0 before a single test has run — the hardest-discarded exit
+# there is. Deliberately NOT an entry in the segment alternation above: `2>&1`
+# and `&>` are redirects, present in commands that are not compound at all, and
+# teaching that alternation about `&` would change `is_compound` — and with it
+# the WRITE direction's evidence rule — for every redirect in the codebase. The
+# lookaround excludes both redirect forms, and this pattern is read only by
+# `_outer_exit_proves_runner_passed`, where the sole consequence of a false
+# positive is refusing to clear.
+_ASYNC_RE = re.compile(r"(?<![<>&])&(?![&>])")
+
 # Tokens that wrap another executable without being the thing under test, mapped
 # to the options each one takes a SEPARATE VALUE for. Peeled so `time grep pytest
 # x` is still seen as a grep, not as a test run.
@@ -127,10 +138,21 @@ _ASSIGNMENT_RE = re.compile(r"^\w+=")
 #   * The shell must HEAD a segment (start of line or after an operator), so a
 #     shell invocation quoted inside another command (`echo "sh -c 'pytest'"`)
 #     stays data.
+#
+# ONE spelling of the invocation itself, shared with `_SHELL_C_HEAD_RE` below:
+# the two ask different questions of the same launcher (what is its body / does
+# this segment invoke one), and a second hand-written copy is how they drift.
+_SHELL_C_INVOCATION = r"(?:\S*/)?(?:ba|z|k|da)?sh\s+(?:-\w+\s+)*-\w*c"
 _SHELL_C_RE = re.compile(
-    r"(?:^|&&|\|\||;|\||\n)\s*(?:\S*/)?(?:ba|z|k|da)?sh\s+(?:-\w+\s+)*-\w*c\s+"
-    r"('[^']*'|\"[^\"]*\")"
+    r"(?:^|&&|\|\||;|\||\n)\s*" + _SHELL_C_INVOCATION + r"\s+('[^']*'|\"[^\"]*\")"
 )
+
+# The same launcher, recognized from the HEAD of an already-split segment.
+# `strip_quoted` has deleted the body by then, so the segment reads as a bare
+# `sh -c ` that names no framework — see `_outer_exit_proves_runner_passed`,
+# where a wrapper whose body runs a runner must still count as a
+# runner-executing segment or every operator AFTER it stops counting.
+_SHELL_C_HEAD_RE = re.compile(r"^" + _SHELL_C_INVOCATION + r"\b")
 
 # Shell punctuation that can prefix an executable without being part of its
 # name — `(grep ...)` must still read as a grep, or the refusal list below is
@@ -271,17 +293,39 @@ def _closed_substitutions(segment: str) -> int:
 
 def _outer_exit_proves_runner_passed(command: str) -> bool:
     """`exit_status_proves_runner_passed` for one command's own segments,
-    without descending into `sh -c` bodies."""
+    without descending into `sh -c` bodies.
+
+    A `sh -c "<body>"` whose BODY runs a runner is itself a runner-executing
+    segment out here, and has to be recognized as one even though the body is
+    gone: `strip_quoted` deletes it, leaving a bare `sh -c ` that names no
+    framework. Without this the wrapper laundered the very thing this predicate
+    exists to catch — `sh -c "pytest" | tee log` saw no runner in the outer
+    scan, so the pipe that swallowed its exit had nothing to swallow, while
+    `executed_framework` (which DOES read the body) reported a runner and the
+    gate cleared on tee's 0. Which body belongs to which wrapper is not tracked:
+    with more than one `sh -c` in a command, any of them running a runner arms
+    the rule at the first — over-refusal, the safe direction.
+    """
     parts = _SEGMENT_BREAK_RE.split(git_commits.strip_quoted(command))
     segments, operators = parts[::2], parts[1::2]
+    shell_c_runs_a_runner = any(
+        next(_executing_frameworks(body), None) is not None
+        for body in _shell_c_bodies(command)
+    )
     open_substitutions: list[str] = []
     runner_seen = False
 
     for i, segment in enumerate(segments):
-        if _segment_framework(segment.strip()):
+        stripped = segment.strip()
+        runs_a_runner = _segment_framework(stripped) is not None or (
+            shell_c_runs_a_runner and _SHELL_C_HEAD_RE.match(stripped) is not None
+        )
+        if runs_a_runner:
             if open_substitutions:
                 return False  # captured — the exit went into a string
             runner_seen = True
+        if runner_seen and not open_substitutions and _ASYNC_RE.search(stripped):
+            return False  # backgrounded — the shell never waited for it
         # Checked AFTER the runner, because a capture's `)` rides on the last
         # token of the very segment that runs it: `echo $(pytest)`.
         for _ in range(_closed_substitutions(segment)):
@@ -315,8 +359,9 @@ def exit_status_proves_runner_passed(command: str) -> bool:
     the note at the top of this module states for the SUCCESS path: "exit 0
     means every segment ran". Every segment does run — but only `&&` carries a
     segment's FAILURE out to the overall exit. `;` and `\\n` discard it, `||`
-    masks it, a pipeline reports its last stage, and a command substitution
-    captures it into a string. Live evidence: `OUT=$(pytest tests/); echo $?`
+    masks it, a pipeline reports its last stage, a command substitution
+    captures it into a string, and a trailing `&` returns before the runner has
+    produced one. Live evidence: `OUT=$(pytest tests/); echo $?`
     exited 0 with a red pytest inside, and every open test-failure concern was
     resolved on the strength of that 0.
 
@@ -332,9 +377,11 @@ def exit_status_proves_runner_passed(command: str) -> bool:
     an operator-only scan clears it).
 
     A `sh -c` body is code, so it is judged by the same rule and the wrapper
-    cannot launder a discarded exit. It gets its own recursion rather than
-    reusing `_segments`, which flattens bodies in with the outer segments and
-    discards operator position — the two things this predicate needs.
+    cannot launder a discarded exit in EITHER direction — not an operator
+    inside the body (its own recursion, rather than reusing `_segments`, which
+    flattens bodies in with the outer segments and discards operator position),
+    and not one after the wrapper (`_outer_exit_proves_runner_passed` counts a
+    body-runs-a-runner wrapper as a runner-executing segment).
 
     Conservative by construction, since a wrong True disarms the gate: no
     `set -o pipefail` awareness, and a runner reached through a closing token

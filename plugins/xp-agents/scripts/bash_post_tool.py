@@ -82,13 +82,17 @@ def _resolve_test_concerns(smm_dir: Path, agent_id: str) -> bool:
     )
 
 
-def _observed_a_green_run(command: str) -> bool:
-    """True when this succeeding command actually EXECUTED a test runner AND
-    its exit status is what we just saw succeed.
+def _green_run_signals(command: str) -> tuple[bool, bool]:
+    """`(a test runner EXECUTED, the 0 we just saw is that runner's own)`.
 
-    Two independent ways a 0 lies, and clearing on either DISARMS the gate —
-    the far worse direction, since attributing too little merely files a false
-    concern.
+    Both, from one call, because the success path asks them at two different
+    places — the STATUS digest needs the second alone, the concern-resolving
+    clear needs both — and they are the two independent ways a 0 lies. Deriving
+    them twice would let the two un-gate legs drift apart, which is silent: the
+    gate simply stops being armed.
+
+    Clearing on either lie DISARMS the gate — the far worse direction, since
+    attributing too little merely files a false concern.
 
     The runner never ran. `is_test_run` matches a runner NAME anywhere in the
     command, so a succeeding `grep -rn pytest src/` (grep exits 0 when it
@@ -108,8 +112,10 @@ def _observed_a_green_run(command: str) -> bool:
     `exit_status_proves_runner_passed` answers this one — by shell structure, so
     the answer is the same in every language.
     """
-    ran_a_runner = test_attribution.executed_framework(command) is not None
-    return ran_a_runner and test_attribution.exit_status_proves_runner_passed(command)
+    return (
+        test_attribution.executed_framework(command) is not None,
+        test_attribution.exit_status_proves_runner_passed(command),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +207,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         if tdd_red:
             metadata[METADATA_KEY_TDD_RED] = True
         # There are TWO ways a green run un-gates a red one — the resolution
-        # below and this status — so both consult the same predicate.
-        ran_a_runner = test_attribution.executed_framework(command) is not None
-        exit_proves_pass = test_attribution.exit_status_proves_runner_passed(command)
+        # below and this status — so both read one derivation of the same
+        # signals.
+        ran_a_runner, exit_proves_pass = _green_run_signals(command)
         if failed == 0 and not exit_proves_pass:
             # The status leg is the one easy to miss, because it un-gates with
             # no resolution event at all: `tdd_check.find_last_test_signal`
@@ -246,7 +252,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 severity="high",
             )
             _common.append_safe(smm_dir, concern)
-        elif failed == 0 and _observed_a_green_run(command):
+        elif failed == 0 and ran_a_runner and exit_proves_pass:
             had_failures = _resolve_test_concerns(smm_dir, agent_id)
 
             # Nudge: commit after green if there are uncommitted code files
@@ -264,11 +270,11 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                     return " ".join(parts)
         elif failed == 0 and ran_a_runner:
             # A runner ran and reported nothing failing, but its exit status
-            # never reached the shell — the only way to land here, since
-            # `_observed_a_green_run` differs from `ran_a_runner` in exactly
-            # that one term. Refusing silently is an armed gate with no visible
-            # way out: the agent sees neither the reason nor the fact that a
-            # plain re-run clears it.
+            # never reached the shell — the only way to land here, since the
+            # clear above differs from this branch in exactly that one term.
+            # Refusing silently is an armed gate with no visible way out: the
+            # agent sees neither the reason nor the fact that a plain re-run
+            # clears it.
             return CAPTURED_EXIT_ADVISORY
 
         return None
