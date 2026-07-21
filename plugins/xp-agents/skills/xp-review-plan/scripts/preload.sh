@@ -10,6 +10,12 @@ echo "SMM_DIR=${SMM_DIR}"
 # absent (already consumed by a first pass) but .last-plan-path names a file
 # that still exists, this is a re-review — the blocking-finding protocol's
 # demanded second pass — not a misfire.
+#
+# ACCEPTED LIMIT: .last-plan-path is NOT session-scoped. A later session with
+# no marker falls back to the PREVIOUS session's plan while that file exists,
+# so PLAN_SOURCE=last-reviewed carries no freshness guarantee. Accepted because
+# xp-assign's preload already reads this same file cross-session — the fallback
+# inherits that staleness shape rather than adding a new one.
 MARKER="${SMM_DIR}/.plan-awaiting-review"
 LAST_PLAN_PATH_FILE="${SMM_DIR}/.last-plan-path"
 PLAN_PATH=""
