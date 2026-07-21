@@ -101,12 +101,10 @@ def _is_current_sprint_story_branch(smm_dir: Path, branch: str) -> bool:
     Matching the recorded ``branch_name`` is what holds that line — story ids
     restart at story-001 every sprint, so a prior sprint's orphan collides with
     a live story id as a matter of course. The id stays as the cheap first gate:
-    a free or plan branch has none, never reads the sprint, and resolves exactly
-    as it did before.
+    a free or plan branch has none, never reads the sprint, resolves as before.
 
     Reads through the LOUD ``load_sprint`` — a corrupt sprint.json must not
-    quietly become "not a story branch" and hence "prove it against primary".
-    ``resolve_story_base``, the next call on the True arm, reads the same way.
+    quietly become "not a story branch", hence "prove it against primary".
     """
     if identity.extract_story_id(branch) is None:
         return False
@@ -124,13 +122,10 @@ def _resolve_target(
     Three arms, most-specific first: an explicit ``--target`` always wins; a
     branch this sprint owns resolves to its STORY BASE; anything else keeps
     ``get_merge_target`` (plan branch or primary), unchanged. One target, never
-    a candidate list — a delete that tries a second ref on refusal would widen
-    the proven set, which is not what the sprint-base question asks.
-
-    ``story_base`` is a parameter because the two callers must NOT share one:
-    the delete leg only PROVES and refuses, so the degrading resolver is safe
-    there, while the merge leg WRITES into the answer and must take the
-    ``_required`` sibling.
+    a candidate list: retrying a refusal against a second ref would widen the
+    set of branches delete can prove, which is not what this question asks.
+    ``story_base`` is a parameter because the two callers must NOT share one —
+    each says why at its own definition.
     """
     if args.target:
         return args.target
@@ -186,7 +181,7 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     Without a merge_target, delete_branch's ancestry-proven ``-D`` fallback can
     never engage — so from the CLI it was unreachable, and `git branch -d`
     refuses whenever a branch's tip differs from its upstream tracking ref even
-    though it is fully merged: the case worktree teammates hit at every close.
+    though it is merged: the case worktree teammates hit at every close.
     xp-kickoff says "merge ... then delete", and did exactly that — merged, then
     called delete without saying what the target was. The user answered "merge",
     got the merge, and then a silent exit 1.
@@ -195,15 +190,15 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     the ``-D`` proof (ancestry AND a surviving ref — read it there, it is not
     re-derived here). The ancestry half is also exactly kickoff's own rule ("do
     not auto-delete branches with commits ahead"), now enforced by construction
-    rather than by remembering. The default itself comes from ``_resolve_target``,
-    the same resolver kickoff's merge-branch uses, so the merge leg and the
-    ancestry proof cannot disagree — but note it can answer with the recorded
-    PLAN branch, which is why the surviving-ref half exists.
+    rather than by remembering. The default comes from ``_resolve_target``, which
+    kickoff's merge-branch also asks, so the two legs pick the same branch for
+    the same input — but it can answer with the recorded PLAN branch, which is
+    why the surviving-ref half exists.
 
-    The DEGRADING ``get_story_base_branch`` is right here and only here: this
-    command proves and refuses, so an unresolvable base that degrades to primary
-    costs at worst a refusal the user can override with ``--target``. The merge
-    leg, which writes into the answer, takes the ``_required`` sibling instead.
+    The one place they part is the resolver passed in: DEGRADING here, because
+    proving against a base that fell back to primary costs at worst a refusal
+    the caller can override with ``--target``, where merging into one would put
+    story work on the release branch.
 
     On refusal: exit 1 WITH a reason we verified. The silence was half the bug;
     a confidently wrong reason would be the other half back again.
@@ -290,7 +285,18 @@ def _cmd_extract_story_id(args: argparse.Namespace) -> int:
 
 
 def _cmd_merge_branch(args: argparse.Namespace) -> int:
-    target = args.target or branching.get_merge_target(Path(args.smm_dir), args.cwd)
+    """Merge a branch into the target it belongs to.
+
+    Takes the ``_required`` resolver — the opposite posture from ``_cmd_delete``
+    — because this WRITES a merge commit into whatever it is handed and proves
+    nothing first. Its ValueError names both candidate branches and the way out,
+    so print it like ``create`` does rather than bury it under a traceback.
+    """
+    try:
+        target = _resolve_target(args, branching.get_story_base_branch_required)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 1
     branching.merge_branch(args.cwd, args.branch, target)
     return 0
 
