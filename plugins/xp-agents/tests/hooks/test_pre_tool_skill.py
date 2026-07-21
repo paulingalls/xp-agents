@@ -68,6 +68,15 @@ class TestCodeReviewNudge(_HookTestCase):
         self.assertIn("Workflow", result)
         self.assertIn("Skill", result)
 
+    def test_courage_nudge_does_not_imply_per_commit_cadence(self):
+        """/code-review runs once at sprint/plan/free-close, never per commit
+        (per-commit is /xp-quality-review only), so the nudge must not tell
+        the agent to run it on every change."""
+        result = pre_tool_skill.run(_make_skill_input("code-review"))
+        result = self._assert_not_none(result)
+        self.assertNotIn("every change", result)
+        self.assertNotIn("every commit", result)
+
 
 class TestTeammateLifecycleGate(_HookTestCase):
     """PreToolUse:Skill blocks teammates from lead-owned lifecycle skills."""

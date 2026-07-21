@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _pin_helpers import rel
+from _pin_helpers import rel, shipped_files_to_scan
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
 
@@ -32,6 +32,9 @@ _NEGATION_RE = re.compile(r"\b(not|cannot|never)\b", re.I)
 _PAREN_PAIR = "(/code-review, /xp-quality-review)"
 _ARROW_CHAIN_RE = re.compile(r"/code-review\s*(?:→|->)\s*/xp-quality-review")
 _AFTER_COMMITS_RE = re.compile(r"/code-review\s+after\s+commits?", re.I)
+# "run it on every change" is the same per-commit claim in prose form.
+_EVERY_CHANGE_RE = re.compile(r"every (change|commit)", re.I)
+_AGENT_NAME_RE = re.compile(r"xp-code-reviewer")
 
 _GUIDE_NAMES = ("PROCESS_GUIDE.md", "TEAMMATE_GUIDE.md")
 
@@ -41,28 +44,30 @@ def _shipped_files() -> list[Path]:
 
     Mirrors the story's end-to-end read-through:
     `grep -rn "code-review" plugins/xp-agents/ | grep -v /tests/`.
+    The Python half reuses `_pin_helpers.shipped_files_to_scan` — the same
+    shipped-module surface the vocabulary pins scan; this adds the prose.
     """
-    files: list[Path] = []
+    files: list[Path] = list(shipped_files_to_scan(_PLUGIN_ROOT))
     files += sorted(_PLUGIN_ROOT.glob("*.md"))
     files += sorted(_PLUGIN_ROOT.glob("agents/*.md"))
     files += sorted(_PLUGIN_ROOT.glob("skills/*/SKILL.md"))
-    files += sorted((_PLUGIN_ROOT / "scripts").rglob("*.py"))
     files += sorted((_PLUGIN_ROOT / "scripts").rglob("*.md"))
-    files += sorted((_PLUGIN_ROOT / "smm").rglob("*.py"))
-    files += sorted(_PLUGIN_ROOT.glob("skills/*/scripts/*.py"))
     return [f for f in files if f.is_file()]
 
 
-def _code_review_lines(path: Path) -> list[tuple[int, str]]:
-    """(lineno, line) pairs mentioning /code-review, excluding our own
-    xp-code-reviewer agent (a distinct, unrelated surface)."""
+def _code_review_lines(path: Path) -> list[tuple[int, str, str]]:
+    """(lineno, raw line, scannable line) for lines mentioning /code-review.
+
+    The scannable copy blanks out our own `xp-code-reviewer` agent (a
+    distinct, unrelated surface) instead of dropping the whole line, so a
+    line naming both the agent and the workflow is still swept.
+    """
     out = []
     for lineno, line in enumerate(path.read_text().splitlines(), start=1):
-        if "code-review" not in line.lower():
+        scannable = _AGENT_NAME_RE.sub("", line)
+        if "code-review" not in scannable.lower():
             continue
-        if "xp-code-reviewer" in line:
-            continue
-        out.append((lineno, line))
+        out.append((lineno, line, scannable))
     return out
 
 
@@ -72,12 +77,14 @@ class TestNoSkillLaunchSuggestion(unittest.TestCase):
     def test_no_shipped_mention_suggests_skill_launch(self):
         violations = []
         for f in _shipped_files():
-            for lineno, line in _code_review_lines(f):
+            for lineno, line, scannable in _code_review_lines(f):
                 loc = f"{rel(f, _PLUGIN_ROOT)}:{lineno}: {line.strip()}"
-                if _SKILL_CALL_RE.search(line):
+                if _SKILL_CALL_RE.search(scannable):
                     violations.append(loc)
                     continue
-                if re.search(r"\bSkill\b", line) and not _NEGATION_RE.search(line):
+                if re.search(r"\bSkill\b", scannable) and not _NEGATION_RE.search(
+                    scannable
+                ):
                     violations.append(loc)
         self.assertEqual(
             violations,
@@ -93,11 +100,12 @@ class TestNoPerCommitImplication(unittest.TestCase):
     def test_no_shipped_mention_implies_per_commit_cadence(self):
         violations = []
         for f in _shipped_files():
-            for lineno, line in _code_review_lines(f):
+            for lineno, line, scannable in _code_review_lines(f):
                 if (
-                    _PAREN_PAIR in line
-                    or _ARROW_CHAIN_RE.search(line)
-                    or _AFTER_COMMITS_RE.search(line)
+                    _PAREN_PAIR in scannable
+                    or _ARROW_CHAIN_RE.search(scannable)
+                    or _AFTER_COMMITS_RE.search(scannable)
+                    or _EVERY_CHANGE_RE.search(scannable)
                 ):
                     loc = f"{rel(f, _PLUGIN_ROOT)}:{lineno}: {line.strip()}"
                     violations.append(loc)

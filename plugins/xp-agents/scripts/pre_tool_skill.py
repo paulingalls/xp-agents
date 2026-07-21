@@ -4,7 +4,7 @@
 - Teammate gate: block CLI teammates from lead-owned lifecycle skills
   (everything shipped except the review cycle). Teammates implement one story
   and report; the lead coordinates the project (plan, schedule, accept, close).
-- /code-review: courage nudge — review every change, act on every finding.
+- /code-review: courage nudge — act on every finding it reports.
 """
 
 import sys
@@ -23,11 +23,11 @@ import worktree
 _CODE_REVIEW_COURAGE = (
     "Courage means doing the right thing even when it's uncomfortable. "
     "/code-review identifies correctness bugs but fixes nothing — every "
-    "finding comes back unaddressed. Run it on every change, even ones that "
-    "'look small'. The fix happens next in /xp-quality-review, where each "
-    "valid finding must be addressed (or recorded as debt with a concrete "
-    "reason) — never waved off as low-severity, pre-existing, or out of scope. "
-    "It cannot be launched with the Skill tool — invoke Workflow instead."
+    "finding comes back unaddressed. The fix happens next in "
+    "/xp-quality-review, where each valid finding must be addressed (or "
+    "recorded as debt with a concrete reason) — never waved off as "
+    "low-severity, pre-existing, or out of scope. It cannot be launched "
+    "with the Skill tool — invoke Workflow instead."
 )
 
 # Every shipped xp-agents skill directory name. Pinned to skills/ by
