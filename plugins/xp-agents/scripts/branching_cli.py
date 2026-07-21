@@ -9,12 +9,14 @@ __main__ guard delegates here.
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import branch_queries
 import branching
 import branching_cli_accept
 import identity
+import sprint_store
 import worktree
 from branching_cli_worktree import (
     _cmd_find_closing_teammate_worktree,
@@ -89,8 +91,53 @@ def _cmd_create(args: argparse.Namespace) -> int:
     return _print_or_skip(result, branching.BRANCH_MIN_STAGE["story"], resumed=existed)
 
 
-def _resolve_target(args: argparse.Namespace) -> str:
-    return args.target or branching.get_merge_target(Path(args.smm_dir), args.cwd)
+def _is_current_sprint_story_branch(smm_dir: Path, branch: str) -> bool:
+    """True when ``branch`` is the branch RECORDED for a story of THIS sprint.
+
+    Deliberately narrower than "the name looks like a story branch": kickoff's
+    orphan listing surfaces every story branch with no ACTIVE story behind it,
+    so it mixes this sprint's finished stories with PRIOR sprints' leftovers,
+    and only the former are based on the sprint branch sprint.json names.
+    Matching the recorded ``branch_name`` is what holds that line — story ids
+    restart at story-001 every sprint, so a prior sprint's orphan collides with
+    a live story id as a matter of course. The id stays as the cheap first gate:
+    a free or plan branch has none, never reads the sprint, and resolves exactly
+    as it did before.
+
+    Reads through the LOUD ``load_sprint`` — a corrupt sprint.json must not
+    quietly become "not a story branch" and hence "prove it against primary".
+    ``resolve_story_base``, the next call on the True arm, reads the same way.
+    """
+    if identity.extract_story_id(branch) is None:
+        return False
+    sprint = sprint_store.load_sprint(smm_dir)
+    if sprint is None:
+        return False
+    return any(s.get("branch_name") == branch for s in sprint["stories"])
+
+
+def _resolve_target(
+    args: argparse.Namespace, story_base: Callable[[Path, str], str]
+) -> str:
+    """The ONE branch ``--branch`` is proven against, or merged into.
+
+    Three arms, most-specific first: an explicit ``--target`` always wins; a
+    branch this sprint owns resolves to its STORY BASE; anything else keeps
+    ``get_merge_target`` (plan branch or primary), unchanged. One target, never
+    a candidate list — a delete that tries a second ref on refusal would widen
+    the proven set, which is not what the sprint-base question asks.
+
+    ``story_base`` is a parameter because the two callers must NOT share one:
+    the delete leg only PROVES and refuses, so the degrading resolver is safe
+    there, while the merge leg WRITES into the answer and must take the
+    ``_required`` sibling.
+    """
+    if args.target:
+        return args.target
+    smm_dir = Path(args.smm_dir)
+    if _is_current_sprint_story_branch(smm_dir, args.branch):
+        return story_base(smm_dir, args.cwd)
+    return branching.get_merge_target(smm_dir, args.cwd)
 
 
 def _delete_refusal(cwd: str, branch: str, target: str) -> str:
@@ -153,10 +200,15 @@ def _cmd_delete(args: argparse.Namespace) -> int:
     ancestry proof cannot disagree — but note it can answer with the recorded
     PLAN branch, which is why the surviving-ref half exists.
 
+    The DEGRADING ``get_story_base_branch`` is right here and only here: this
+    command proves and refuses, so an unresolvable base that degrades to primary
+    costs at worst a refusal the user can override with ``--target``. The merge
+    leg, which writes into the answer, takes the ``_required`` sibling instead.
+
     On refusal: exit 1 WITH a reason we verified. The silence was half the bug;
     a confidently wrong reason would be the other half back again.
     """
-    target = _resolve_target(args)
+    target = _resolve_target(args, branching.get_story_base_branch)
     if branching.delete_branch(args.cwd, args.branch, merge_target=target):
         return 0
     sys.stderr.write(f"delete: {_delete_refusal(args.cwd, args.branch, target)}\n")
@@ -238,7 +290,8 @@ def _cmd_extract_story_id(args: argparse.Namespace) -> int:
 
 
 def _cmd_merge_branch(args: argparse.Namespace) -> int:
-    branching.merge_branch(args.cwd, args.branch, _resolve_target(args))
+    target = args.target or branching.get_merge_target(Path(args.smm_dir), args.cwd)
+    branching.merge_branch(args.cwd, args.branch, target)
     return 0
 
 
