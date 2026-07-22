@@ -77,6 +77,8 @@ Use blocking questions whenever uncertain about customer intent — don't reserv
 In your output, flag blocking questions prominently:
 > **BLOCKING QUESTION — the main agent must use AskUserQuestion to get the user's answer before proceeding.**
 
+**Re-review pass.** `PLAN_SOURCE=last-reviewed` means this is the demanded second pass over the same plan. The user's answers reach you only if they were written into the plan or recorded in the SMM — re-raise a blocking question only when the plan text itself still leaves it open, and do not re-record assumptions or decisions you already logged. Repeating a resolved question restarts the loop.
+
 ### 8. Architectural Decisions (Constraints Pillar)
 Record only **new** decisions — do NOT re-record decisions already in the SMM's Constraints pillar.
 

@@ -266,7 +266,9 @@ def _handle_commit(
     if commit_hash:
         markers.reset_review_cycle(smm_dir, agent_id, commit_hash)
 
-    return _check_qr_linkage(events, agent_id, has_code=has_code)
+    return _check_qr_linkage(
+        events, agent_id, has_code=has_code, cadence=review_cadence
+    )
 
 
 def _working_tree_is_test_only(cwd: str) -> bool:

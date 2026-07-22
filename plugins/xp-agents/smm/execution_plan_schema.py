@@ -9,6 +9,7 @@ no external jsonschema dependency, stdlib-only.
 """
 
 import re
+from typing import TypeGuard
 
 from _acceptance_execution import validate_acceptance_execution
 from schema_helpers import budget_error
@@ -28,6 +29,72 @@ VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 # trailing newline is never part of a legitimate branch name, so this only
 # rejects input that was already broken.
 VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\Z")
+
+
+# Characters `git check-ref-format` forbids outright, plus whitespace. `\` and
+# the glob/revision metacharacters are the ones that make a ref unusable; the
+# leading dash is handled separately because it is an argv hazard, not a git one.
+_REF_FORBIDDEN_CHARS = frozenset(" \t\n\r\x7f~^:?*[\\")
+
+
+def usable_git_ref_name(value: object) -> TypeGuard[str]:
+    """True when value is safe to hand git as a ref argument.
+
+    This asks "can git use this?" — deliberately NOT "does this match the
+    names we generate?". `VALID_BRANCH_NAME_RE` answers the second question,
+    and reusing it for the first was wrong in BOTH directions: it rejected
+    `main+dev`, `trunk@2`, `feat(ui)`, `développement` and `主线` — all legal
+    git branches a project may already have configured — while accepting
+    `a..b`, `a.lock` and `trailing.`, which git itself refuses.
+
+    Over-rejection was the damaging half. `healed_integration_branch` heals an
+    unusable value to the primary branch, so a project whose integration branch
+    merely contained a `+` or a non-ASCII letter had its merges silently
+    redirected into the RELEASE branch and the branch stripped of protected
+    status. A plugin that ships to any project cannot read non-ASCII as
+    invalid — that is the cross-language guardrail, reached through a value
+    rather than through code.
+
+    So the rule is git's own, plus one addition: no leading `-`, because
+    `git checkout -f` discards local changes. That is an argv hazard git has
+    no opinion about, and it is why this predicate exists rather than a bare
+    `check-ref-format` shell-out (which would also cost a subprocess per call).
+
+    Lives beside the pattern because every value that pattern guards
+    (plan.branch, sprint.branch_name, system_context's integration_branch)
+    has the same argv exposure and must answer this question the same way.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    if value.startswith("-"):  # reaches argv as a FLAG, not a ref
+        return False
+    if any(ch in _REF_FORBIDDEN_CHARS or ord(ch) < 0x20 for ch in value):
+        return False
+    if ".." in value or "@{" in value or value == "@":
+        return False
+    if value.startswith("/") or value.endswith("/") or "//" in value:
+        return False
+    # Whole-value, NOT per-component: git rejects a ref that ENDS in a dot, but
+    # `foo./bar` is valid (verified against `git check-ref-format`). Applying
+    # this per component over-rejected a legal branch.
+    if value.endswith("."):
+        return False
+    # `HEAD` clears check-ref-format as a ref PATH, but `--branch HEAD` is "not
+    # a valid branch name" — and an integration_branch of HEAD would detach on
+    # checkout and no-op every merge, which is the argv-hazard class the
+    # leading-dash refusal above exists for.
+    if value == "HEAD":
+        return False
+    # Per-component rules: no leading dot, no `.lock` suffix, no empty part.
+    return all(
+        part
+        and not part.startswith(".")
+        # lang-ok: git's own reserved ref suffix per check-ref-format, not a
+        # source-file extension — identical for every language a project uses.
+        and not part.endswith(".lock")
+        for part in value.split("/")
+    )
+
 
 MILESTONE_FIELD_MAXLENGTH: dict[str, int] = {
     "goal": 200,

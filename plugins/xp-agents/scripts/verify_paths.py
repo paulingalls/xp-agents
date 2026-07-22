@@ -321,7 +321,13 @@ def extract_verify_paths(story: dict) -> set[str]:
             for cmd in extract_commands(item):
                 paths |= _extract_paths_from_command(cmd)
     ae = story.get("acceptance_execution")
-    if ae:
+    # The presence guard is not optional and not symmetry for its own sake: a
+    # `manual` block carrying only `steps` is the CANONICAL command-less shape,
+    # and `extract_commands` falls through to `ae["command"]`. Without this,
+    # every caller inherited a KeyError -- including the story-close merge gate
+    # and `verify_deferred`, which is documented as never raising and feeds the
+    # PreToolUse:Bash hook. A hook that dies gates nothing, silently.
+    if ae and ("command" in ae or "commands" in ae):
         for cmd in extract_commands(ae):
             paths |= _extract_paths_from_command(cmd)
     pins = (ae or {}).get("pins", []) or []

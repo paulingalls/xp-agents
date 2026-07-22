@@ -426,15 +426,15 @@ def generate_smm(root: Path) -> dict:
         _seed_entry(
             "wisdom",
             "Commit after every green test run — "
-            "frequent commits keep review cycle "
-            "(/code-review, /xp-quality-review) small",
+            "frequent commits keep /xp-quality-review small",
         ),
         _seed_entry(
             "wisdom",
             "Review cadence (commit | story), chosen at kickoff: in commit "
-            "cadence run /code-review → /xp-quality-review before each commit; "
-            "in story cadence the per-commit gate defers and the full cycle "
-            "runs at /xp-story-close on the cumulative diff. LLM "
+            "cadence run /xp-quality-review before each commit; in story "
+            "cadence the per-commit gate defers and /xp-quality-review runs "
+            "at /xp-story-close on the cumulative diff. /code-review "
+            "(Workflow tool) runs once at free/sprint/plan close; LLM "
             "/security-review fires at close Step 4.",
         ),
         _seed_entry(

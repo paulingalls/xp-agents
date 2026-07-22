@@ -19,7 +19,6 @@ Usage:
         [--plugin-dir /path/to/plugins/xp-agents]
 """
 
-import argparse
 import os
 import subprocess
 import sys
@@ -31,9 +30,17 @@ from pathlib import Path
 # so the `sprint_store` import below resolves.
 import worktree  # isort: split
 
+import branch_lifecycle
+import branch_resolution
 import identity
 import in_place_marker
 import sprint_store
+
+# The CLI surface (every flag this script accepts) lives in a sibling leaf
+# module; keep the name importable here so `spawn_teammate.parse_args` IS
+# `spawn_args.parse_args`. main() calls it through THIS module's global, so
+# every caller and every `spawn_teammate.parse_args` test spelling is unchanged.
+from spawn_args import parse_args
 
 # Command-line construction (the claude -p argv shape) lives in a sibling leaf
 # module; keep the name importable here so `spawn_teammate.build_command` IS
@@ -126,6 +133,59 @@ def cleanup_existing(name: str, cwd: str, *, owns_branch: bool = True) -> None:
         worktree.remove_worktree_dir(name, cwd, force=False)
 
 
+def _release_branch_from_main(cwd: str, branch: str, smm_dir: Path | None) -> None:
+    """Check the main checkout away from `branch` so a worktree can take it.
+
+    No-op unless main is ON that exact branch — the recovery is conditional.
+
+    `branching.py create` leaves the main checkout on the branch it just cut, and
+    `git worktree add <path> <branch>` then refuses (exit 128) a branch that is
+    already checked out elsewhere, killing the spawn before the agent starts.
+    The only thing that ever prevented that was a second, hand-written
+    `git checkout "$BASE"` in the assign flow, with nothing enforcing it — so the
+    precondition lives here instead of in the caller.
+
+    The base is resolved through the SAME ``--required`` resolver the assign flow
+    uses, so the two cannot disagree about what "base" means and neither can
+    silently degrade to the release branch. With no `smm_dir` there is no honest
+    base to resolve, so this SKIPS rather than guessing one: behavior identical
+    to before it existed, git's 128 included. Only positional test callers reach
+    that leg — ``--smm-dir`` is required and `main` always passes it.
+
+    NEVER `--force`, and never a stash. Uncommitted work in the main checkout
+    must STOP the spawn: this is the same philosophy `cleanup_existing` documents
+    above — hand the decision to git, which refuses to clobber modified or
+    untracked files. The refusal is a RuntimeError naming the branch, the base
+    and git's stderr, because the caller needs an actionable reason and
+    CalledProcessError carries none of that in its message. It relays git's
+    reason rather than ASSERTING one: a blocked checkout is usually a dirty
+    tree, but not always, and prescribing "stash it" for a failure that was
+    never about local changes sends the operator after the wrong thing.
+
+    Routed through the SAME retry `branch_lifecycle` uses for its checkout, for
+    the same reason and in a strictly worse spot: this one runs immediately
+    before a `git worktree add`, i.e. in the middle of a fan-out where sibling
+    spawns are mutating the worktree registry and taking the index concurrently.
+    Both retried signatures (`index.lock`, a transient "already used by
+    worktree" registry misread) are live here, and either one would otherwise
+    surface as the refusal above — telling the operator to commit work that is
+    not there while the spawn dies.
+    """
+    if smm_dir is None or identity.get_current_branch(cwd) != branch:
+        return
+    base = branch_resolution.get_story_base_branch_required(smm_dir, cwd)
+    result = branch_lifecycle._git_retry_on_lock(["git", "checkout", base], cwd)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"The main checkout at {cwd} is on '{branch}', the branch this "
+            f"worktree needs, and git refused to check it away to the story "
+            f"base '{base}': {result.stderr.strip()}. Not forcing the checkout "
+            f"— that would discard whatever is uncommitted in the main "
+            f"checkout. Clear what git reports above (commonly: commit or stash "
+            f"the changes), then re-run the spawn."
+        )
+
+
 def create_worktree(
     name: str, cwd: str, *, branch: str | None = None, smm_dir: Path | None = None
 ) -> str:
@@ -151,6 +211,7 @@ def create_worktree(
     wt_path = str(wt)
 
     if branch is not None:
+        _release_branch_from_main(cwd, branch, smm_dir)
         cmd = ["git", "worktree", "add", wt_path, branch]
     else:
         cmd = ["git", "worktree", "add", "-b", name, wt_path]
@@ -158,12 +219,17 @@ def create_worktree(
         if current:
             cmd.append(current)
 
-    subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=True,
-        check=True,
-    )
+    try:
+        subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        # CalledProcessError's message is the exit code and nothing else, and
+        # this runs inside a backgrounded spawn — so the 128 the recovery above
+        # does NOT cover (a sibling worktree holds the branch, the path is
+        # already registered) reached the lead as a bare number with no reason.
+        # Relay git's own words; the exception type is unchanged, so callers and
+        # their tests still see CalledProcessError.
+        sys.stderr.write(f"git worktree add failed: {(exc.stderr or '').strip()}\n")
+        raise
     if smm_dir is not None:
         run_bootstrap(wt_path, smm_dir)
     return wt_path
@@ -174,62 +240,6 @@ def write_story_assignment(smm_dir: Path, name: str, story_id: str | None) -> No
     if story_id is None:
         return
     worktree.write_story_assignment(smm_dir, name, story_id)
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments."""
-    parser = argparse.ArgumentParser(description="Spawn a CLI teammate")
-    parser.add_argument("--name", required=True)
-    parser.add_argument("--smm-dir", required=True)
-    parser.add_argument(
-        "--prompt-file",
-        required=False,
-        default=None,
-        help=(
-            "Path to the teammate prompt. OPTIONAL: when omitted or empty, "
-            "spawn resolves the deterministic project_prompt_path(--smm-dir, "
-            "--name) itself — the same path --print-prompt-path returns. This "
-            "avoids threading a queried path across separate Bash tool calls "
-            "(shell state does not persist), which handed spawn an empty value."
-        ),
-    )
-    parser.add_argument(
-        "--print-log-path",
-        action="store_true",
-        help=(
-            "Print the deterministic project-scoped forensic-log path for "
-            "--name and exit 0 WITHOUT spawning. /xp-assign calls this to "
-            "surface the live `tail -f` target to the lead — the path matches "
-            "run_with_tee's own log so a tailer watches the file the tee writes."
-        ),
-    )
-    parser.add_argument(
-        "--print-prompt-path",
-        action="store_true",
-        help=(
-            "Print the deterministic project-scoped prompt-file path for --name "
-            "(creating its parent dir) and exit 0 WITHOUT spawning. /xp-assign "
-            "calls this so the orchestrator writes the teammate prompt to a "
-            "per-project location instead of a flat /tmp/prompt-<id>.txt that "
-            "collides across concurrent sessions."
-        ),
-    )
-    parser.add_argument("--story-id", default=None)
-    parser.add_argument("--branch", default=None)
-    parser.add_argument("--model", default=None)
-    parser.add_argument("--plugin-dir", default=None)
-    parser.add_argument("--effort", default=None)
-    parser.add_argument(
-        "--in-place",
-        action="store_true",
-        help=(
-            "Run the teammate in the main checkout (solo delegation) instead of "
-            "a worktree: skip create_worktree + the worktree preamble, run in the "
-            "process cwd, and skip the rc=0 promote-to-reviewing (the story stays "
-            "in-progress/solo for /xp-accept's solo path)."
-        ),
-    )
-    return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:

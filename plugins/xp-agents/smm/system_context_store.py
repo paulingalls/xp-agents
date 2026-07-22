@@ -16,6 +16,7 @@ import marker_names
 from _append_impl import write_text_atomic
 from system_context_schema import (
     SYSTEM_CONTEXT_FILENAME,
+    integration_branch_error,
     validate_system_context,
 )
 
@@ -54,7 +55,15 @@ def load_system_context(smm_dir: Path) -> dict | None:
             data["principles"] = data.pop("key_decisions")
         data.pop("sources", None)
 
-    errors = validate_system_context(data, enforce_budget=False)
+    # enforce_ref_format=False: a stored integration_branch that predates the
+    # git-ref rule must still LOAD, unchanged, or every session of a project
+    # configured before the rule hard-fails. The value is healed where it is
+    # USED as a ref (branch_resolution), never here — this loader feeds
+    # `_maybe_auto_promote`'s load → mutate → save, which would persist the
+    # substitute over the branch name the user configured.
+    errors = validate_system_context(
+        data, enforce_budget=False, enforce_ref_format=False
+    )
     if errors:
         raise ValueError(
             f"Schema-invalid system context at {path}: {'; '.join(errors)}"
@@ -86,12 +95,67 @@ def acceptance_surface_names(smm_dir: Path) -> frozenset[str] | None:
     return names or None
 
 
+_NO_STORED_VALUE = object()
+
+
+def _stored_integration_branch(path: Path) -> object:
+    """The integration_branch currently on disk, or ``_NO_STORED_VALUE``.
+
+    FAILS CLOSED. A missing, corrupt, symlinked or unreadable document is no
+    proof that a value was already stored, so it yields the sentinel — which
+    compares equal to nothing and therefore grandfathers nothing. A
+    grandfather that failed open would not be a grandfather; it would be an
+    unconditional bypass reachable by deleting a file.
+    """
+    if path.is_symlink():
+        return _NO_STORED_VALUE
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _NO_STORED_VALUE
+    if not isinstance(doc, dict):
+        return _NO_STORED_VALUE
+    bs = doc.get("branching_strategy")
+    if not isinstance(bs, dict) or "integration_branch" not in bs:
+        return _NO_STORED_VALUE
+    return bs["integration_branch"]
+
+
+def _is_grandfathered_branch(path: Path, data: dict) -> bool:
+    """True when the incoming integration_branch is the one already stored.
+
+    Compares THAT FIELD, never whole-document equality: the round-trip this
+    exists for (`branch_resolution._maybe_auto_promote`) loads the doc,
+    changes the stage, and saves — the document differs, the field does not.
+    NEW bad input is still rejected; only re-writing a value the project
+    already had is allowed through.
+
+    False whenever the incoming value already satisfies the rule: there is
+    nothing to grandfather, so the strict flag stays UP. That matters because
+    ``enforce_ref_format`` is document-wide — anything that starts consulting
+    it must not be silently disabled by an integration_branch that happens to
+    match disk — and it keeps the common save off the extra disk read.
+    """
+    bs = data.get("branching_strategy")
+    if not isinstance(bs, dict) or "integration_branch" not in bs:
+        return False
+    if integration_branch_error(bs) is None:
+        return False
+    return bs["integration_branch"] == _stored_integration_branch(path)
+
+
 def save_system_context(
     smm_dir: Path, data: dict, *, enforce_budget: bool = True
 ) -> None:
     """Validate and atomically write the system context.
 
     Clears the NEEDS_SYSTEM_CONTEXT marker on success.
+
+    The git-ref rule on integration_branch is enforced STRICTLY here — the
+    write path is where a bad value gets in — but grandfathered: a value
+    already on disk may be written back, so an internal load/save round-trip
+    of a config that predates the rule does not crash. See
+    ``_is_grandfathered_branch``.
 
     Raises:
         ValueError: If the data fails schema validation.
@@ -101,7 +165,11 @@ def save_system_context(
     if path.is_symlink():
         raise OSError(f"System context path is a symlink: {path}")
 
-    errors = validate_system_context(data, enforce_budget=enforce_budget)
+    errors = validate_system_context(
+        data,
+        enforce_budget=enforce_budget,
+        enforce_ref_format=not _is_grandfathered_branch(path, data),
+    )
     if errors:
         raise ValueError(f"System context validation failed: {'; '.join(errors)}")
 

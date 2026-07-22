@@ -191,6 +191,114 @@ class TestReviewPlanPreload(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("SYSTEM_CONTEXT_RENDERED=", result.stdout)
 
+    def test_preload_rereview_falls_back_to_last_plan_path(self):
+        """Second invocation with no marker re-reviews the same plan.
+
+        Reproduces the live bug: a first pass consumes the marker, so the
+        demanded re-review (blocking-finding protocol) must not error with
+        'No plan marker' — it should return the same PLAN_FILE.
+        """
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        first = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn(f"PLAN_FILE={plan_path}", first.stdout)
+
+        second = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertNotIn("PLAN_FILE_ERROR=", second.stdout)
+        self.assertIn(f"PLAN_FILE={plan_path}", second.stdout)
+
+    def test_preload_marker_pass_tags_plan_source_marker(self):
+        """First pass (marker present) tags PLAN_SOURCE=marker."""
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PLAN_SOURCE=marker", result.stdout)
+
+    def test_preload_rereview_tags_plan_source_last_reviewed(self):
+        """Second pass (no marker, fallback) tags PLAN_SOURCE=last-reviewed."""
+        plan_path = self._write_plan()
+        (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
+        self._run_preload(_PRELOAD_SCRIPT)
+
+        second = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("PLAN_SOURCE=last-reviewed", second.stdout)
+
+    def test_preload_first_pass_still_consumes_marker(self):
+        """Gate pin: the marker is still consumed on a successful first pass.
+
+        lead_gates registers PLAN_AWAITING_REVIEW with no active_when, so it
+        stays armed until the marker file disappears. The fallback must not
+        trade a broken re-review for a permanently blocked lead.
+        """
+        plan_path = self._write_plan()
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text(str(plan_path))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_preload_dead_marker_then_rereview_does_not_resurrect_stale_plan(self):
+        """Two-invocation sequence: dead marker error must NOT poison the fallback.
+
+        approve plan A -> succeeds, .last-plan-path=A
+        approve plan B -> B's file dies -> invalid-marker error
+        re-run          -> must NOT silently emit plan A via last-reviewed fallback
+        """
+        plan_a = self._write_plan(content=_SAMPLE_PLAN)
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text(str(plan_a))
+        first = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn(f"PLAN_FILE={plan_a}", first.stdout)
+
+        dead_plan_b = self._plans_dir / "plan-b-dead.md"
+        marker.write_text(str(dead_plan_b))
+        second = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("PLAN_FILE_ERROR=", second.stdout)
+
+        third = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertNotIn(f"PLAN_FILE={plan_a}", third.stdout)
+        self.assertIn("PLAN_FILE_ERROR=No plan marker", third.stdout)
+
+    def test_preload_dead_marker_error_unchanged(self):
+        """Marker naming a dead file still reports the existing invalid-marker error."""
+        marker = self.smm_dir / ".plan-awaiting-review"
+        marker.write_text(str(self._plans_dir / "does-not-exist.md"))
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PLAN_FILE_ERROR=Marker", result.stdout)
+        self.assertIn("invalid", result.stdout)
+
+    def test_preload_no_marker_no_last_plan_path_reports_no_plan_marker(self):
+        """Neither marker nor .last-plan-path -> existing 'No plan marker' error."""
+        marker = self.smm_dir / ".plan-awaiting-review"
+        if marker.exists():
+            marker.unlink()
+        last_plan = self.smm_dir / ".last-plan-path"
+        if last_plan.exists():
+            last_plan.unlink()
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PLAN_FILE_ERROR=No plan marker", result.stdout)
+
+    def test_preload_last_plan_path_names_dead_file_falls_through(self):
+        """.last-plan-path names a dead file -> no dead path emitted."""
+        dead_plan = self._plans_dir / "since-deleted.md"
+        (self.smm_dir / ".last-plan-path").write_text(str(dead_plan))
+        marker = self.smm_dir / ".plan-awaiting-review"
+        if marker.exists():
+            marker.unlink()
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(f"PLAN_FILE={dead_plan}", result.stdout)
+        self.assertIn("PLAN_FILE_ERROR=No plan marker", result.stdout)
+
     def test_preload_system_context_tempfile_carries_plan_reviewer_subset(self):
         """Rendered tempfile contains the plan-reviewer subset.
 

@@ -100,6 +100,47 @@ class TestBuildCapstoneStory(unittest.TestCase):
         sprint["stories"].append(story)
         self.assertEqual(sprint_schema.validate_sprint(sprint), [])
 
+    def test_manual_harness_capstone_still_blocks_until_filled(self):
+        # RETIRES `test_manual_harness_places_the_placeholder_in_steps`, which
+        # pinned `type == "manual"` with the placeholder in `steps`. That kept
+        # the block authoring-valid but broke the capstone's ONE job: a
+        # command-less block is an N/A row in the sprint verify matrix, so
+        # `failing` excluded it and an UNFILLED capstone reported green -- the
+        # exact opposite of "stays in the acceptance roll-up until an
+        # implementer fills it in", and a silent disagreement between the two
+        # harness arms.
+        #
+        # A capstone's harness is genuinely UNKNOWN until someone fills it, so
+        # claiming `manual` was the error. It now carries the harness
+        # placeholder like every other unresolved harness, which is both
+        # authoring-valid (not a manual block, so no refusal) and runnable
+        # (exits 127 while unfilled, which is what blocks the close).
+        story = self._build(harness="manual")
+        ae = story["acceptance_execution"]
+        self.assertNotEqual(ae["type"], "manual")
+        self.assertIn("command", ae)
+        self.assertIn("implementer fills", ae["command"])
+
+    def test_every_harness_arm_agrees_on_blocking(self):
+        """The two arms must not disagree about whether an unfilled capstone
+        blocks a close -- that divergence is what made this a defect."""
+        for harness in ("manual", "pytest", None):
+            with self.subTest(harness=harness):
+                ae = self._build(harness=harness)["acceptance_execution"]
+                self.assertIn("command", ae)
+                self.assertNotIn("steps", ae)
+
+    def test_manual_harness_capstone_is_authoring_valid(self):
+        import sprint_schema
+
+        story = self._build(harness="manual")
+        sprint = _make_sprint()
+        sprint["stories"].append(story)
+        errors = sprint_schema.validate_sprint(
+            sprint, grandfathered_story_ids=frozenset()
+        )
+        self.assertEqual(errors, [], errors)
+
 
 if __name__ == "__main__":
     unittest.main()

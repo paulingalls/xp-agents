@@ -2,6 +2,78 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.15.0 — Gate-logic and honesty repairs
+
+**Eleven gates that reported something other than what the code did.** Milestone 7
+collected the concerns that resisted blind fan-out — each needed measurement or
+design before code. Minor bump: three of these change behavior you may depend on.
+
+**Behavior changes (read these):**
+
+- **`/xp-assign` selects solo-first.** A mixed frontier — a teammate batch plus one
+  pending solo story — used to strand the solo story entirely: `SOLO_TARGET` was
+  zeroed by the batch's mere presence, and mode selection never read it anyway.
+  Assign now targets the pending solo story and **drains** it before the batch
+  resumes. That ordering is a safety requirement, not a preference: a teammate spawn
+  checks out the base in the same checkout an in-place solo teammate is committing
+  in. The known hole at >1 in-progress solo story is stated in the skill rather than
+  papered over.
+- **A `type: "manual"` acceptance block may no longer carry `command`/`commands`.**
+  Observational prose in a `command` was shelled, exited 127, and read as a red
+  test — poisoning a close gate until someone deleted the acceptance block to
+  silence it. Prose now has exactly one home, `steps`. This retires the authoring
+  half of the earlier "a manual command is runnable" rule; **run-time is unchanged**,
+  so a block already on disk still runs, and a per-story exemption derived from disk
+  keeps one stored block from refusing every later edit to that sprint.
+- **The commit-review nudge respects the active cadence.** Under story cadence the
+  gate said "review deferred to /xp-story-close" while the commit path demanded
+  `/xp-quality-review` anyway. It is now silent, as is the post-green sibling that
+  promised committing would "trigger /xp-quality-review" — a trigger that does not
+  fire under story cadence.
+
+**Honesty repairs:**
+
+- `branching_strategy.integration_branch` is checked as a git ref, so
+  `get_primary_branch` no longer hands `-f` to `git checkout`. The check is git's own
+  `check-ref-format` rule plus a leading-dash refusal (an argv hazard git has no
+  opinion about) — **not** a naming pattern: `main+dev`, `trunk@2`, `feat(ui)` and
+  non-ASCII names like `développement` are legal branches and are accepted. Loaders
+  **preserve** a stored nonconforming value; the heal applies where the value is used,
+  so a stage-1 auto-promote round-trip can never rewrite your configured branch name.
+- A reviewer subagent can no longer mutate the shared index — the guard is scoped to
+  the reviewing agents and destructive commands only.
+- A captured runner's exit no longer clears a red test-failure gate: a compound
+  command that pipes or substitutes the runner's output proves nothing about the
+  suite, and is no longer treated as a green run.
+- Orphan story-branch deletion resolves the **sprint** base rather than main, so a
+  branch merged into an open sprint is deletable via the documented path.
+- Plan re-review survives the blocking protocol. The marker is still consumed on the
+  first pass; the re-review a blocking finding demands now resolves the plan through
+  the recorded last-plan pointer instead, so it no longer dead-ends on "no plan
+  marker".
+- Teammate spawn recovers when the main checkout holds the target branch. Branch
+  creation leaves the checkout on the new branch, so the following `git worktree add`
+  failed 128 and the spawn died before the agent started; the only guard was an
+  easily-dropped second checkout in the assign step.
+- Sprint-planning prose states the exemption the collision check actually
+  implements: a claim held by a **done or deferred** story never collides, so
+  re-touching its file needs no dependency edge — planners no longer have to invent
+  one.
+- Shipped guidance names the **Workflow** tool for `/code-review` consistently, and
+  the courage nudge no longer implies it runs per commit.
+
+**Internal:** `_preload_base.sh`, `sprint_store.py`, `spawn_teammate.py` and
+`system_context_schema.py` all crossed or approached the 500-line cap and were split
+along cohesive seams (`_preload_emit.sh`, `_manual_shape_exemption.py`,
+`sprint_capstone.py`, `spawn_args.py`), each an identity re-export with the existing
+tests unchanged as the proof. Full suite green (7326 passed).
+
+Close-cycle review of this branch found and fixed five further defects before release:
+a newline chain bypassing the reviewer git-mutation guard, a trailing newline making
+a green suite stop clearing the test-failure gate, a `KeyError` that took down the
+`PreToolUse:Bash` hook, an unfilled capstone reporting green, and the ref check above
+rejecting legal branch names.
+
 ## v4.14.6 — Hotfix: close Step 4b runs /code-review via the Workflow tool
 
 **Every sprint/plan/free-close was breaking at Step 4b.** `/code-review` can no
@@ -118,8 +190,11 @@ Correctness:
   previously raised `ImportError` when imported from it.
 - Milestone-level `acceptance_execution.pins` is now **rejected at schema**
   (story-scoped only) instead of silently no-op'ing.
-- `xp-assign` preload emits `SOLO_TARGET` even when a teammate batch is fully
-  spawned (was zeroed by the mere presence of a batch).
+- ~~`xp-assign` preload emits `SOLO_TARGET` even when a teammate batch is fully
+  spawned~~ — **corrected in v4.15.0: this never shipped.** The change was
+  reverted as inert before this release merged, so 4.14.2 did not contain it.
+  v4.15.0 delivers the capability for real, with different semantics
+  (solo-**first**, not batch-fully-spawned).
 - The `WorktreeCreate` bootstrap now runs **only for teammate-named worktrees**,
   so an Explore/ad-hoc worktree no longer pays the (up to 600s) project bootstrap.
 - `smm_count` excludes a corrupt log line from a scoped count only on positive

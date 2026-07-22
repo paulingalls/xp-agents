@@ -115,6 +115,29 @@ class TestExtractVerifyPaths(unittest.TestCase):
         )
         self.assertEqual(verify_paths.extract_verify_paths(story), set())
 
+    def test_command_less_manual_block_yields_no_paths(self):
+        """A `manual` block with only `steps` is now the CANONICAL shape --
+        authoring refuses `command`/`commands` on one -- and it must read as
+        "nothing to verify", not crash.
+
+        `extract_commands` falls through to `ae["command"]`, so the missing
+        presence guard here raised KeyError. Its siblings all have that guard
+        (verify_acceptance, sprint_render) and the per-AC loop ten lines above
+        has it; only this call site was bare. The blast radius was not local:
+        close_verify_gate calls this on the story-close merge path, and
+        verify_deferred.untouched_paths_for_story -- documented as never
+        raising -- feeds pre_tool_bash, so the KeyError took the whole
+        PreToolUse:Bash hook down and a dead hook gates nothing silently.
+        """
+        story = make_story_dict(
+            acceptance_criteria=["a manual string AC"],
+            acceptance_execution={
+                "type": "manual",
+                "steps": ["Deploy to staging", "Confirm the redirect"],
+            },
+        )
+        self.assertEqual(verify_paths.extract_verify_paths(story), set())
+
     def test_cd_prefixed_pin_matches_rebased_token(self):
         story = make_story_dict(
             acceptance_criteria=["a manual string AC"],

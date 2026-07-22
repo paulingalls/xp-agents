@@ -41,6 +41,26 @@ def _setup_merged_branch(td: str, branch: str, *, diverge: bool = False) -> str:
     return main
 
 
+def _run_delete(td: str, branch: str, *flags: str, smm_dir: str | None = None):
+    """Run `branching.py delete` exactly as xp-kickoff's triage documents it.
+
+    Module-level because three classes drive the same subprocess; keeping it
+    per-class produced two byte-identical copies and invited a third.
+    ``smm_dir`` defaults to the repo itself — an SMM with no sprint and no
+    plan, i.e. the primary-branch fallback.
+    """
+    cli = str(_PLUGIN_ROOT / "scripts" / "branching.py")
+    return subprocess.run(
+        [
+            *[sys.executable, cli, "--smm-dir", smm_dir or td, "delete"],
+            *["--cwd", td, "--branch", branch, *flags],
+        ],
+        capture_output=True,
+        text=True,
+        env=_bf.GIT_ENV,
+    )
+
+
 class TestDeleteBranchBackwardCompatible(unittest.TestCase):
     def test_safe_path_unchanged_when_no_merge_target(self):
         with tempfile.TemporaryDirectory() as td:
@@ -220,24 +240,12 @@ class TestDeleteCLIPassesMergeTarget(unittest.TestCase):
     and the ancestry proof cannot disagree.
     """
 
-    def _delete(self, td: str, branch: str, *flags: str, smm_dir: str | None = None):
-        cli = str(_PLUGIN_ROOT / "scripts" / "branching.py")
-        return subprocess.run(
-            [
-                *[sys.executable, cli, "--smm-dir", smm_dir or td, "delete"],
-                *["--cwd", td, "--branch", branch, *flags],
-            ],
-            capture_output=True,
-            text=True,
-            env=_bf.GIT_ENV,
-        )
-
     def test_merged_but_diverged_from_upstream_now_deletes(self):
         """The teammate-close case. Was a silent exit 1; the branch is fully
         merged, so `-D` is provably safe."""
         with tempfile.TemporaryDirectory() as td:
             _setup_merged_branch(td, "paul/story-002-merged", diverge=True)
-            result = self._delete(td, "paul/story-002-merged")
+            result = _run_delete(td, "paul/story-002-merged")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "paul/story-002-merged"))
 
@@ -252,7 +260,7 @@ class TestDeleteCLIPassesMergeTarget(unittest.TestCase):
             subprocess.run(
                 ["git", "checkout", main], cwd=td, capture_output=True, check=True
             )
-            result = self._delete(td, "paul/story-003-unmerged")
+            result = _run_delete(td, "paul/story-003-unmerged")
             self.assertEqual(result.returncode, 1)
             self.assertTrue(result.stderr.strip(), "a silent exit 1 IS the bug")
             self.assertIn("paul/story-003-unmerged", result.stderr)
@@ -264,7 +272,7 @@ class TestDeleteCLIPassesMergeTarget(unittest.TestCase):
     def test_explicit_target_is_honored(self):
         with tempfile.TemporaryDirectory() as td:
             main = _setup_merged_branch(td, "paul/story-004-merged", diverge=True)
-            result = self._delete(td, "paul/story-004-merged", "--target", main)
+            result = _run_delete(td, "paul/story-004-merged", "--target", main)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "paul/story-004-merged"))
 
@@ -278,18 +286,6 @@ class TestDeleteCLIRefusalIsHonest(unittest.TestCase):
     proven), and for a target that resolved to the branch itself. Each arm here
     pins a state where the old sentence was false.
     """
-
-    def _delete(self, td: str, branch: str, *flags: str, smm_dir: str | None = None):
-        cli = str(_PLUGIN_ROOT / "scripts" / "branching.py")
-        return subprocess.run(
-            [
-                *[sys.executable, cli, "--smm-dir", smm_dir or td, "delete"],
-                *["--cwd", td, "--branch", branch, *flags],
-            ],
-            capture_output=True,
-            text=True,
-            env=_bf.GIT_ENV,
-        )
 
     def test_default_target_resolving_to_the_branch_itself_refuses(self):
         """The destructive default. get_merge_target returns the RECORDED PLAN
@@ -307,7 +303,7 @@ class TestDeleteCLIRefusalIsHonest(unittest.TestCase):
             smm.mkdir()
             _bf.seed_plan(smm, branch=plan_branch)
 
-            result = self._delete(td, plan_branch, smm_dir=str(smm))
+            result = _run_delete(td, plan_branch, smm_dir=str(smm))
 
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertTrue(
@@ -331,7 +327,7 @@ class TestDeleteCLIRefusalIsHonest(unittest.TestCase):
                 check=True,
                 env=_bf.GIT_ENV,
             )
-            result = self._delete(td, "paul/story-007-held")
+            result = _run_delete(td, "paul/story-007-held")
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("checked out in a worktree", result.stderr)
             self.assertTrue(_bf.branch_exists(td, "paul/story-007-held"))
@@ -339,7 +335,7 @@ class TestDeleteCLIRefusalIsHonest(unittest.TestCase):
     def test_missing_branch_is_not_reported_as_unmerged(self):
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
-            result = self._delete(td, "paul/story-404-gone")
+            result = _run_delete(td, "paul/story-404-gone")
             self.assertEqual(result.returncode, 1)
             self.assertIn("paul/story-404-gone", result.stderr)
             self.assertNotIn("not merged", result.stderr)
@@ -350,12 +346,148 @@ class TestDeleteCLIRefusalIsHonest(unittest.TestCase):
         fact; the honest answer is that the target does not resolve."""
         with tempfile.TemporaryDirectory() as td:
             _setup_merged_branch(td, "paul/story-006-merged", diverge=True)
-            result = self._delete(
+            result = _run_delete(
                 td, "paul/story-006-merged", "--target", "no-such-target"
             )
             self.assertEqual(result.returncode, 1)
             self.assertIn("no-such-target", result.stderr)
             self.assertNotIn("not merged", result.stderr)
+
+
+_SPRINT_BRANCH = "paul/sprint-001-open"
+
+
+def _repo_on_sprint_branch(td: str) -> None:
+    """A repo whose sprint branch is cut off main and is AHEAD of it.
+
+    Ahead is the whole point: a story merged into the sprint branch is then
+    provably NOT merged into main, so a delete proven against main refuses.
+    Leaves HEAD on the sprint branch, so the next ``make_commit`` cuts a story
+    branch off it — the real topology.
+    """
+    _bf.init_repo(td)
+    _bf.make_commit(td, _SPRINT_BRANCH, "sprint.txt", "s", "sprint base")
+
+
+def _seed_open_sprint(smm: Path, *, story_branch: str) -> None:
+    """Stage 2 + an OPEN sprint on ``_SPRINT_BRANCH`` owning ``story_branch``.
+
+    The story is ``done`` — that is what makes its branch an ORPHAN in
+    kickoff's triage listing (which surfaces branches with no ACTIVE story)
+    while the sprint it belongs to is still open. Exactly the reported state.
+    """
+    _bf.write_system_context(smm, stage=2)
+    _bf.seed_sprint_with_stories(
+        smm,
+        [("story-001", "done")],
+        base_branch=_SPRINT_BRANCH,
+        story_branches={"story-001": story_branch},
+    )
+
+
+class TestDeleteCLIResolvesCurrentSprintStoryBase(unittest.TestCase):
+    """Concern 9df23ed3ec84: a story branch's base is its SPRINT branch, but
+    the delete target defaulted to `get_merge_target` — plan branch or primary,
+    never the sprint. So every story branch merged into a still-OPEN sprint was
+    undeletable via the path kickoff documents: it refused "not merged into
+    main". Hit live on three branches, each worked around with `--target`.
+
+    The swap is GATED on current-sprint membership rather than unconditional,
+    because kickoff's orphan list also carries PRIOR-sprint story branches,
+    whose base already landed and which resolve correctly via `get_merge_target`
+    today. An unconditional swap trades the reported bug for that new one.
+    """
+
+    def test_story_merged_into_open_sprint_deletes_without_a_target(self):
+        """The reported bug, end to end through kickoff's documented command."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            branch = "paul/story-001-work"
+            _repo_on_sprint_branch(td)
+            _bf.make_commit(td, branch, "w.txt", "x", "story work")
+            _checkout_and_merge(td, _SPRINT_BRANCH, branch)
+            _seed_open_sprint(Path(smm), story_branch=branch)
+
+            result = _run_delete(td, branch, smm_dir=smm)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, branch))
+
+    def test_story_not_merged_into_its_sprint_base_still_refuses(self):
+        """The fix changes WHICH target is proven against, never WHETHER proof
+        is required. The refusal must also name the sprint base it actually
+        checked — naming 'main' here would be the old lie in a new place."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            branch = "paul/story-001-unmerged"
+            _repo_on_sprint_branch(td)
+            _bf.make_commit(td, branch, "u.txt", "x", "story work")
+            _bf.checkout_main(td)
+            _seed_open_sprint(Path(smm), story_branch=branch)
+
+            result = _run_delete(td, branch, smm_dir=smm)
+
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("not merged", result.stderr)
+            self.assertIn(_SPRINT_BRANCH, result.stderr)
+            self.assertTrue(_bf.branch_exists(td, branch), "unmerged work survives")
+
+    def test_prior_sprint_story_branch_still_resolves_via_merge_target(self):
+        """The regression the gating exists to prevent — and why membership is
+        keyed on the RECORDED branch, not on the story id alone.
+
+        Story ids restart at story-001 every sprint, so a prior sprint's orphan
+        branch collides with a current story id as a matter of course. Gating on
+        the id alone would resolve THIS sprint's base for it and refuse to
+        delete a branch that today deletes cleanly via primary.
+        """
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            prior, current = "paul/story-001-prior", "paul/story-001-current"
+            _repo_on_sprint_branch(td)
+            _bf.make_branch(td, current)  # this sprint's story-001, still open
+            _bf.checkout_main(td)
+            _bf.make_commit(td, prior, "p.txt", "x", "last sprint's work")
+            _checkout_and_merge(td, "main", prior)
+            _seed_open_sprint(Path(smm), story_branch=current)
+
+            result = _run_delete(td, prior, smm_dir=smm)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, prior))
+
+    def test_explicit_target_beats_the_derived_story_base(self):
+        """Same branch, both ways round: the derived base refuses it, the
+        explicit target deletes it. Asserting only the second half would pass
+        even if --target were being ignored."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            branch = "paul/story-001-on-main"
+            _repo_on_sprint_branch(td)
+            _bf.checkout_main(td)
+            _bf.make_commit(td, branch, "m.txt", "x", "work off main")
+            _checkout_and_merge(td, "main", branch)
+            _seed_open_sprint(Path(smm), story_branch=branch)
+
+            derived = _run_delete(td, branch, smm_dir=smm)
+            self.assertEqual(derived.returncode, 1, derived.stdout)
+            self.assertTrue(_bf.branch_exists(td, branch))
+
+            explicit = _run_delete(td, branch, "--target", "main", smm_dir=smm)
+            self.assertEqual(explicit.returncode, 0, explicit.stderr)
+            self.assertFalse(_bf.branch_exists(td, branch))
+
+    def test_non_story_branch_keeps_the_merge_target_fallback(self):
+        """A free branch has no story id, so an open sprint changes nothing for
+        it — it is still proven against the primary branch."""
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as smm:
+            branch = "paul/free-tidy-up"
+            _repo_on_sprint_branch(td)
+            _bf.checkout_main(td)
+            _bf.make_commit(td, branch, "f.txt", "x", "free work")
+            _checkout_and_merge(td, "main", branch)
+            _seed_open_sprint(Path(smm), story_branch="paul/story-001-current")
+
+            result = _run_delete(td, branch, smm_dir=smm)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(_bf.branch_exists(td, branch))
 
 
 if __name__ == "__main__":

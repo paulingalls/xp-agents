@@ -24,6 +24,7 @@ import git_commits
 import identity
 import markers
 import pre_tool_bash_branch_delete
+import pre_tool_bash_reviewer_guard
 import resolution
 import security_patterns
 import security_scanner
@@ -252,6 +253,22 @@ def _verify_touch_nudge(
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core logic. Returns additionalContext string or None. Raises BlockedError."""
+    # Reviewer read-only guard — deliberately ABOVE the is_xp_agent skip. Both
+    # guarded agents ARE xp- agents, so a guard anywhere below this line would
+    # never be reached and would ship inert. The narrow exception to
+    # recursion-prevention is safe because this guard forks no agent and reaches
+    # no hook — it only reads the payload it was handed and refuses — so there is
+    # no recursion path to prevent. It also sits above get_validated_smm_dir
+    # because it needs no SMM: the reviewer contract holds whether or not the
+    # project has one, and making enforcement conditional on SMM presence would
+    # silently disarm it exactly where state is least well tracked.
+    reviewer_block = pre_tool_bash_reviewer_guard.reviewer_mutation_block(input_data)
+    if reviewer_block:
+        raise _common.BlockedError(
+            reviewer_block,
+            "Reviewer must not mutate git state — inspection is read-only.",
+        )
+
     if _common.is_xp_agent(input_data):
         return None
 

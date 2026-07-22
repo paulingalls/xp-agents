@@ -90,8 +90,9 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     This is the assign gate's remit, stated positively: /xp-assign exists to
     create a story's branch and spawn its teammate, one spawn per invocation.
     So there is something to assign exactly while a teammate story is promoted
-    but not yet spawned — the same target /xp-assign's own preload derives as
-    RECOMMENDED_TIER_STORY (the first un-spawned story in batch order).
+    but not yet spawned — the first un-spawned story in batch order, which is
+    also what /xp-assign's own preload derives as RECOMMENDED_TIER_STORY once
+    no in-progress solo story outranks the batch (assign selects solo-first).
 
     It goes false the moment the last teammate is spawned, and stays false
     through accept and close. A story merely SCHEDULED does not revive it:
