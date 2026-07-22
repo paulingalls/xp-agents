@@ -273,6 +273,28 @@ def _record_unconfirmed_commit(smm_dir: Path, command: str, agent_id: str) -> No
         )
 
 
+def _record_head_moved_trace(smm_dir: Path, command: str, agent_id: str) -> None:
+    """A commit-shaped command ran and HEAD now points at a commit with no
+    recorded event — the message did not parse, so no commit event was built.
+    State the observation, not the inference: this fires for an unparsed
+    success and, rarely, for a rejection atop un-recorded history; both are
+    worth a low trace and neither is falsely called a landed commit.
+    Never raise: a hook must not break the user's commit.
+    """
+    first_line = command.strip().split("\n", 1)[0][:120]
+    with contextlib.suppress(OSError, ValueError):
+        _common.append_safe(
+            smm_dir,
+            concerns.make_concern(
+                "A git commit command ran and HEAD points at a commit with no "
+                "recorded event (its message did not parse). Command: "
+                f"{first_line}",
+                "low",
+                agent_id,
+            ),
+        )
+
+
 def _record_unlinkable_trailer(
     smm_dir: Path, agent_id: str, unknown_ids: list[str]
 ) -> None:

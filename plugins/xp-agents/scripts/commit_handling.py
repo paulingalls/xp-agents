@@ -46,6 +46,18 @@ _WATERMARK_ID = "bash-post-tool"
 
 COMMIT_SIZE_THRESHOLD = 12
 
+# Detects the git-global `-C <path>` change-directory flag (`git -C /x
+# commit ...`), NOT the unrelated `git commit -C <commit>` reuse-message
+# flag nor a `-C` substring inside a quoted commit message. Anchored the
+# same way `commits.dash_c_unreachable`'s pattern is: `git` must be
+# followed only by other short dash-flags before `-C` — `commit` intervening
+# (as in the reuse-message flag) breaks the match. Used only to gate the
+# HEAD-moved disambiguator away from `-C`-targeted commands: dash_c_unreachable
+# already claims the hidden-shell-variable case, and a literal-but-nonexistent
+# `-C` path is an ordinary git failure (see `_handle_commit`), not a candidate
+# for the ordinary-commit proxy.
+_GIT_DASH_C_FLAG_RE = re.compile(r"git\s+(?:-\S+\s+)*?-C\s+")
+
 
 # -------------------------------------------------------------------
 # Story/QR attribution + commit-event construction — re-exported from
@@ -57,6 +69,7 @@ COMMIT_SIZE_THRESHOLD = 12
 from commit_event import (  # noqa: E402  intentional mid-file re-export
     _check_qr_linkage,
     _confirm_commit_repo,
+    _record_head_moved_trace,
     _record_unconfirmed_commit,
     _record_unlinkable_trailer,
     _resolve_story_id,
@@ -70,9 +83,11 @@ from commit_event import (  # noqa: E402  intentional mid-file re-export
 __all__ = [
     "COMMIT_SIZE_THRESHOLD",
     "_check_qr_linkage",
+    "_commit_hash_recorded",
     "_confirm_commit_repo",
     "_handle_commit",
     "_prior_commit_was_test_only",
+    "_record_head_moved_trace",
     "_record_unconfirmed_commit",
     "_record_unlinkable_trailer",
     "_resolve_story_id",
@@ -80,6 +95,19 @@ __all__ = [
     "is_tdd_red_step",
     "make_commit_event",
 ]
+
+
+def _commit_hash_recorded(events: list[dict], commit_hash: str) -> bool:
+    """True if a COMMIT event already carries `commit_hash` in its metadata.
+
+    Shared by the success-path dedup guard and the HEAD-moved disambiguator
+    below — both need the same "have we already recorded this hash" check.
+    """
+    return any(
+        e.get("type") == _common.COMMIT
+        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
+        for e in events
+    )
 
 
 def _handle_commit(
@@ -124,6 +152,30 @@ def _handle_commit(
         # (no commit anywhere), so dash_c_unreachable returns False for it.
         if commits.dash_c_unreachable(command):
             _record_unconfirmed_commit(smm_dir, command, agent_id)
+            return None
+        if _GIT_DASH_C_FLAG_RE.search(command):
+            # An explicit `git -C <literal-path>` that failed to confirm here
+            # named a path git itself could not reach (dash_c_unreachable
+            # already ruled out the hidden-shell-variable case) — git aborts
+            # before landing anywhere, an ordinary failure that stays silent.
+            # Falling through to probe HEAD would read the ORCHESTRATOR's
+            # cwd (parse_effective_cwd's fallback), not the commit's
+            # intended target, and misread that unrelated repo's history.
+            # Anchored to `git ... -C` so the `commit -C <commit>`
+            # reuse-message flag and a `-C` token inside a message body
+            # (both ordinary-cwd) still reach the disambiguator below.
+            return None
+        # Repo was reachable, but HEAD's subject didn't match and stdout
+        # carried no success line. Disambiguate a rejected pre-commit (HEAD
+        # unchanged) from an unparsed success (HEAD advanced): read HEAD from
+        # the command's own repo; trace only when it names a commit with no
+        # recorded event.
+        probe_cwd = commits.parse_effective_cwd(command, cwd, scan_target=scan_target)
+        head = commits.get_head_commit_hash(probe_cwd)
+        if head:
+            events, _ = _common.load_events_with_resolutions(smm_dir)
+            if not _commit_hash_recorded(events, head):
+                _record_head_moved_trace(smm_dir, command, agent_id)
         return None
 
     msg = commits.parse_commit_message(response_text)
@@ -141,11 +193,7 @@ def _handle_commit(
     # echo a stale `[branch hash] msg` line (e.g. piped from prior output);
     # the same guard catches that.
     events, resolutions = _common.load_events_with_resolutions(smm_dir)
-    if commit_hash and any(
-        e.get("type") == _common.COMMIT
-        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
-        for e in events
-    ):
+    if commit_hash and _commit_hash_recorded(events, commit_hash):
         return None
 
     raw_body = raw_body or msg
