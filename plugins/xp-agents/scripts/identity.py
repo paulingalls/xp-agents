@@ -119,8 +119,9 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
     """The live in-place teammate's name, or None.
 
     Shared env leg behind `is_worktree_teammate`, `tdd_check._reader_scope`,
-    and `pre_tool_skill._is_live_teammate` — the three sites that used to roll
-    this guard by hand. `XP_TEAMMATE_NAME` is a documented leaky var, so it is
+    `pre_tool_skill._is_live_teammate`, and `commit_event._resolve_story_id` —
+    the four sites that used to roll this guard by hand, each with its own
+    drift. `XP_TEAMMATE_NAME` is a documented leaky var, so it is
     trusted only when spawn_teammate's lifetime-scoped in-place marker is live
     for that name under the resolved SMM dir.
 
@@ -173,8 +174,9 @@ def is_worktree_teammate(input_data: dict, smm_dir: Path | None = None) -> bool:
     misfires for it. Trust the env only when spawn_teammate's lifetime-scoped
     in-place marker is live for that name; a leaked env with no marker is not a
     teammate. Delegates to ``in_place_teammate_name`` — the shared helper that
-    also backs ``tdd_check._reader_scope`` and
-    ``pre_tool_skill._is_live_teammate`` — so every caller (session_start,
+    also backs ``tdd_check._reader_scope``,
+    ``pre_tool_skill._is_live_teammate``, and
+    ``commit_event._resolve_story_id`` — so every caller (session_start,
     kickoff/stop gates, pre_tool_write, session_end, bash_post_tool) inherits
     the same guard.
 

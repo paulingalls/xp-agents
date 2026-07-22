@@ -109,13 +109,14 @@ def find_last_test_signal(
 ) -> str | None:
     """Scan events from the end. Return 'pass', 'fail', or None.
 
-    `smm_dir`, when the caller already has one validated, locates the
-    in-place-teammate marker for `_reader_scope`'s env leg; omit it and that
-    leg self-resolves through `identity.in_place_teammate_name`'s shared
-    validated resolver (see `_reader_scope`). None of the current callers
-    thread it — each already resolves its own validated smm_dir earlier in
-    its own scope, but doesn't forward it here — so every real call reaches
-    this leg with `smm_dir=None`, relying entirely on the self-resolution.
+    `smm_dir` locates the in-place-teammate marker for `_reader_scope`'s env
+    leg. All three hook callers (tdd_stop_gate, teammate_idle, task_completed)
+    thread the SAME validated dir they read `events` from, so the marker and
+    the log always come from one SMM — a caller that passes an explicit
+    `smm_dir` must not have the env silently redirect half the read. Omit it
+    and the leg self-resolves through `identity.in_place_teammate_name`'s
+    shared validated resolver (see `_reader_scope`), which also avoids a
+    second `init.sh` derivation per hook.
 
     Skips resolved concerns — a resolved test failure should not block.
 

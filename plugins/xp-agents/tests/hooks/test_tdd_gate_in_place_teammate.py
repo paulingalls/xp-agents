@@ -11,6 +11,7 @@ shared `identity.in_place_teammate_name` helper (story-003 dedup).
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -108,9 +109,8 @@ class TestReaderScopeSharedResolver(_GateTestCase):
     `identity.in_place_teammate_name` — the same helper `is_worktree_teammate`
     uses — instead of hand-rolling the `SMM_DIR` env read. These pin the
     self-resolution, fail-closed, and zero-cost behaviors directly against
-    `_reader_scope`, since `tdd_stop_gate.run` never threads a resolved
-    `smm_dir` into `find_last_test_signal` (every real call site reaches this
-    leg with `smm_dir=None`)."""
+    `_reader_scope` with `smm_dir=None`, the shape any caller that omits the
+    param gets (the hook callers thread their validated dir instead)."""
 
     def test_self_resolves_dir_when_param_and_env_both_absent(self):
         """AC1: no smm_dir param, no SMM_DIR env — _reader_scope now
@@ -150,6 +150,41 @@ class TestReaderScopeSharedResolver(_GateTestCase):
                 with patch("worktree.in_place_teammate_from_env") as mock_marker:
                     _, owner = tdd_check._reader_scope([session_anchor()], _LEAD_CWD)
                 mock_marker.assert_not_called()
+        self.assertIsNone(owner)
+
+    def test_caller_supplied_dir_wins_over_the_env_for_the_marker_read(self):
+        """The gate must evaluate identity against the SAME SMM it read the
+        log from: `tdd_stop_gate.run` threads its validated `smm_dir` down, so
+        a `SMM_DIR` env pointing at a DIFFERENT dir cannot redirect half the
+        read. Here the marker is live only under the env dir — ignoring the
+        caller's dir would grant the reader an owner filter that hides this
+        lead-authored failure, un-gating a red suite (the disarm direction)."""
+        with tempfile.TemporaryDirectory() as other:
+            worktree.in_place_marker_path(Path(other), _IN_PLACE_NAME).touch()
+            events = [failing_tests_concern(agent_id="main"), *filler(3)]
+            with patch.dict(
+                os.environ,
+                {"XP_TEAMMATE_NAME": _IN_PLACE_NAME, "SMM_DIR": other},
+                clear=False,
+            ):
+                result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
+        self.assertIsNotNone(result)
+
+    def test_process_cwd_inside_a_worktree_still_reads_as_the_lead(self):
+        """The shared helper carries no cwd leg, so `_reader_scope` still keys
+        on the hook-supplied `cwd` ALONE — deliberately unlike
+        `is_worktree_teammate`'s `os.getcwd()` fallback. conftest pins
+        `identity._process_cwd` to '' globally, so opt back in here: a process
+        cwd inside a worktree must NOT turn a lead payload into a teammate
+        read, which would hide the lead's own signals behind an owner filter."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            os.environ.pop("SMM_DIR", None)
+            with patch(
+                "identity._process_cwd",
+                return_value=f"/tmp/wt/{_IN_PLACE_NAME}",
+            ):
+                _, owner = tdd_check._reader_scope([session_anchor()], _LEAD_CWD)
         self.assertIsNone(owner)
 
     def test_no_env_var_never_resolves_smm_dir(self):

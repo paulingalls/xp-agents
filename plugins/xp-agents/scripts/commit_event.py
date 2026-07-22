@@ -79,12 +79,14 @@ def _resolve_story_id(
         # XP_TEAMMATE_NAME is a documented leaky var, so the env alone isn't
         # trustworthy: were it to leak into the lead AND a stale name-keyed
         # .story-assignment still exist, the lead's own commit would be
-        # mis-attributed. Gate on the lifetime-scoped in-place marker that
-        # spawn_teammate writes only WHILE the in-place child runs — a leaked
-        # env with no live marker falls through to the heuristics instead.
-        env_name = identity.teammate_name_from_env()
-        if worktree.in_place_teammate_from_env(smm_dir, env_name):
-            wt_name = env_name
+        # mis-attributed. `identity.in_place_teammate_name` — the shared helper
+        # that also backs is_worktree_teammate, tdd_check._reader_scope, and
+        # pre_tool_skill._is_live_teammate — gates on the lifetime-scoped
+        # in-place marker spawn_teammate writes only WHILE the in-place child
+        # runs; a leaked env with no live marker returns None and falls through
+        # to the heuristics instead. Passing the already-validated `smm_dir`
+        # keeps attribution keyed to the SAME SMM this commit is recorded in.
+        wt_name = identity.in_place_teammate_name(smm_dir)
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)
         try:

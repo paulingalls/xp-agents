@@ -162,6 +162,22 @@ class TestInPlaceTeammateName(unittest.TestCase):
             ):
                 self.assertIsNone(identity.in_place_teammate_name())
 
+    def test_process_cwd_inside_a_worktree_is_ignored(self):
+        """The helper is the ENV leg and nothing else — it must carry no cwd
+        logic of its own. `is_worktree_teammate` keeps its `os.getcwd()`
+        fallback ABOVE the call; `tdd_check._reader_scope` and
+        `pre_tool_skill._is_live_teammate` deliberately have none (that leak is
+        the documented reason they don't just call `is_worktree_teammate`).
+        That separation only holds while this helper stays cwd-free, so pin it
+        here: a process cwd inside a worktree, with no env var, is still None."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            with patch(
+                "identity._process_cwd",
+                return_value="/tmp/wt/worktree-story-001",
+            ):
+                self.assertIsNone(identity.in_place_teammate_name())
+
     def test_explicit_smm_dir_param_used_directly(self):
         with tempfile.TemporaryDirectory() as tmp:
             smm_dir = Path(tmp)
