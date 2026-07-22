@@ -276,6 +276,71 @@ class TestStagedLintGateAnyLanguage(_HookTestCase):
         self.assertIn("budget", msg)
         self.assertIn("ruff", msg, "the linter that never got to run must be named")
 
+    def test_a_config_style_flag_the_tool_rejects_does_not_block_the_commit(self):
+        """THE gate-level outcome, not just the runner's: a flag WE composed must
+        never be what blocks a commit.
+
+        The gate ships eslint `--no-warn-ignored` for flat config, and that option
+        landed in 8.51 while flat config is recognized from 8.21 — so every project
+        in that window is handed an option its binary rejects: non-zero WITH output,
+        which the gate reads as findings. The committer sees a block naming a flag
+        they never wrote and cannot fix from their diff.
+        """
+        self._seed("eslint.config.mjs", "web/app.ts")
+
+        def _reject_the_composed_flag(*args, **kwargs):
+            if "--no-warn-ignored" in args[0]:
+                return _mock_ruff_result(
+                    returncode=2, stdout="Invalid option '--warn-ignored'"
+                )
+            return _mock_ruff_result(returncode=0)
+
+        with (
+            patch("lint_check.shutil.which", return_value="/usr/bin/tool"),
+            patch("lint_check.subprocess.run", side_effect=_reject_the_composed_flag),
+        ):
+            # No BlockedError: the retry without the optional flag ran clean.
+            self._run(["web/app.ts"])
+
+    def test_an_optional_flag_retry_stays_inside_the_shared_budget(self):
+        """The retry is a SECOND process, and it spends the same wall clock.
+
+        `optional_flag_retry` re-runs a batch whose flag the tool rejected. That
+        recovery must not buy back the fail-OPEN the budget above exists to
+        prevent: hand the retry a fresh full timeout and one linter group can
+        burn 2 x its slice, which is the same N-fold breach — just with N=2 and
+        no second linter needed.
+
+        Here eslint burns every second it is handed and then answers with its
+        usage-error code, so the retry fires on a budget that is already spent.
+        """
+        self._seed("eslint.config.mjs", "web/app.ts")
+        elapsed = 0.0
+
+        def _burn_the_whole_budget(*args, **kwargs):
+            nonlocal elapsed
+            elapsed += float(kwargs["timeout"])
+            rejected = "--no-warn-ignored" in args[0]
+            return _mock_ruff_result(
+                returncode=2 if rejected else 0,
+                stdout="Invalid option '--warn-ignored'" if rejected else "",
+            )
+
+        with (
+            patch("staged_lint.time.monotonic", side_effect=lambda: elapsed),
+            patch("lint_check.shutil.which", return_value="/usr/bin/tool"),
+            patch("lint_check.subprocess.run", side_effect=_burn_the_whole_budget),
+            contextlib.suppress(_common.BlockedError),
+        ):
+            self._run(["web/app.ts"])
+
+        self.assertLessEqual(
+            elapsed,
+            lint_check.BATCH_TIMEOUT_CAP_S,
+            "a retry must come out of the batch's own budget, not double it — a "
+            "gate that outlives the harness hook timeout fails OPEN",
+        )
+
     def test_a_polyglot_repo_routes_each_file_to_its_own_linter(self):
         """A monorepo with Python AND TypeScript: each staged file reaches the
         linter that claims it. One fork per linter, not one per file."""

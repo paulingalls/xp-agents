@@ -8,6 +8,8 @@ Further split across sibling modules to stay under the cap:
     columns that make "non-zero exit" a sufficient finding signal
   - test_lint_detection_batch_timeout.py — run_linter_batch's scaled timeout
     and the bash-failure concern content
+  - test_lint_config_style_flags.py — the config-style flag column and the
+    retry that recovers when a tool rejects one of those flags
 """
 
 import sys

@@ -60,10 +60,45 @@ def _config_style_flags(config_path: str | None) -> list[str]:
     No config path means the mode is unknown, and unknown answers NOTHING: a flag the
     tool might reject is worse than the warning it would have suppressed, because a
     rejected flag exits non-zero with output and the gate reads that as findings.
+
+    These flags are OPTIONAL by construction: the tool may still reject them on a
+    version older than the one that introduced them. `optional_flag_retry` is how the
+    runner recovers, so nothing here needs to know the tool's version.
     """
     if not config_path:
         return []
-    return CONFIG_STYLE_FLAGS.get(Path(config_path).name, [])
+    row = CONFIG_STYLE_FLAGS.get(Path(config_path).name)
+    return list(row.flags) if row is not None else []
+
+
+def optional_flag_retry(
+    argv: list[str], config_path: str | None, returncode: int
+) -> list[str] | None:
+    """The argv to re-run WITHOUT this row's optional flags, or None to accept the run.
+
+    The config-style flags are the only optional part of a composed argv: every other
+    element is required for the run to mean anything. A tool that predates such a flag
+    rejects it as an unrecognised option — non-zero WITH output, which the gate reads
+    as FINDINGS, so the committer gets an unfixable block naming a flag they never
+    wrote. This is the recovery, and it replaces asking the binary its version.
+
+    Only the row's declared `usage_error_exit_code` earns a retry. MEASURED (eslint
+    8.57.1): findings — warnings, errors, and parse errors alike — exit 1, while an
+    unsupported flag exits 2. So an ordinary lint failure returns None here and costs
+    nothing; only a genuinely rejected flag pays for a second run.
+
+    None when there is nothing to retry: a different exit code, no row, no optional
+    flags in `argv`, or a row that declares no usage-error code.
+    """
+    if not config_path:
+        return None
+    row = CONFIG_STYLE_FLAGS.get(Path(config_path).name)
+    if row is None or row.usage_error_exit_code != returncode:
+        return None
+    optional = _config_style_flags(config_path)
+    if not optional or not any(flag in argv for flag in optional):
+        return None
+    return [arg for arg in argv if arg not in optional]
 
 
 def _argv_prefix(linter_name: str, config_path: str | None) -> list[str] | None:
