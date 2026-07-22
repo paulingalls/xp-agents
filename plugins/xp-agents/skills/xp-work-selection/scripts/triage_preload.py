@@ -47,6 +47,17 @@ _EXCERPT_MAX_CHARS = 400
 # decision. The two bounds answer different questions; do not converge them.
 _DIGEST_EXCERPT_MAX_CHARS = 60
 
+# Deferrals at which an item stops reading as "carried on purpose" and starts
+# reading as neglected, and so goes back to full length. See `_digests`.
+#
+# Deliberately the same 3 as the RETRO lane's `_FORCE_CLOSE_THRESHOLD`
+# (work_selection_filters), which refuses a plain defer once a Try has 3 prior
+# deferrals — one policy, "3 deferrals means you are carrying this dishonestly",
+# read by two lanes. Not imported: that one gates a WRITE and this one gates a
+# RENDERING, so coupling them would make a display tweak able to refuse a
+# deferral. If you move either number, move it knowing the other exists.
+_NEGLECT_DEFER_COUNT = 3
+
 
 def _format_intent(entry: dict, session_anchor_timestamps: list[str]) -> str:
     """Render one triage intent as a suffix on the item's line.
@@ -125,9 +136,25 @@ def _digests(item: dict, intents: dict[str, dict] | None) -> bool:
     `sessions_since_event` counts RETAINED session anchors and compaction
     archives them, so on a real log every open item ages to a handful of values
     and no threshold discriminates.)
+
+    Two deferred items are exempt, because in both the digest would be reading
+    the deferral to mean something it does not:
+
+      * **high severity** — a high-severity concern is the item whose WHY the
+        lead most needs in front of them while deciding, deferred or not.
+      * **repeatedly deferred** — repeat deferral is evidence of NEGLECT, and
+        an unqualified digest inverts that signal by shrinking the item as the
+        count grows. Stated honestly: this branch is FORWARD-LOOKING and fires
+        on ZERO items today by construction — every `defer_count` on the live
+        log is 1 — so it is a guard against the signal inverting later, not a
+        measured saving.
     """
     entry = (intents or {}).get(item.get("id", ""))
-    return bool(entry) and entry["intent"] == event_schema.DISPOSITION_DEFERRED
+    if not entry or entry["intent"] != event_schema.DISPOSITION_DEFERRED:
+        return False
+    if item.get("severity") == "high":
+        return False
+    return (entry.get("defer_count") or 0) < _NEGLECT_DEFER_COUNT
 
 
 def _full_line(
