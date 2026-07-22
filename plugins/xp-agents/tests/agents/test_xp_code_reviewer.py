@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _md_helpers import _split_frontmatter_body
+from _md_helpers import PROJECT_AGNOSTIC_FORBIDDEN_VOCAB, _split_frontmatter_body
 from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
@@ -82,32 +82,21 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         project-agnostic guardrail vocabulary layer).
         """
         section_1 = _section_slice(self.body, "## 1.", "## 2.")
-        section_1_lower = section_1.lower()
-        # xp-agents-internal surface names — the rule, not an illustrative example.
-        for leak in (
-            "accept_in_flight",
-            "quality_review_done",
-            "simplify_done",
-            ".assign-pending",
-            "review_cycle_done",
-        ):
+        # Shared canonical list — scanned RAW (never lowercased), since the
+        # tuple is mixed-case and a `.lower()` copy silently can't match
+        # members like ACCEPT_IN_FLIGHT.
+        for leak in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
             self.assertNotIn(
                 leak,
-                section_1_lower,
-                f"Section 1 must not leak xp-agents internal name {leak!r}",
+                section_1,
+                f"Section 1 must not leak language-specific or xp-agents "
+                f"internal token {leak!r}",
             )
-        # Language-specific gating leaks. `.py` would appear if the prose
-        # named a Python file suffix; `python` would appear if the prose
-        # singled out the language.
+        # Not in the shared tuple: singling out the language by name.
         self.assertNotIn(
             "python",
-            section_1_lower,
+            section_1.lower(),
             "Section 1 must not single out Python — agent reviews any language",
-        )
-        self.assertNotRegex(
-            section_1,
-            r"\.py\b",
-            "Section 1 must not gate on a Python file suffix",
         )
 
     def test_section_1b_bounded_self_verify_exists(self):
@@ -234,29 +223,17 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         (CLAUDE.md project-agnostic guardrail vocabulary layer).
         """
         section_1c = _section_slice(self.body, "## 1c", "## 2.")
-        section_1c_lower = section_1c.lower()
-        for leak in (
-            "accept_in_flight",
-            "quality_review_done",
-            "simplify_done",
-            ".assign-pending",
-            "review_cycle_done",
-            "close_cycle_stop_gate",
-        ):
+        for leak in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
             self.assertNotIn(
                 leak,
-                section_1c_lower,
-                f"Section 1c must not leak xp-agents internal name {leak!r}",
+                section_1c,
+                f"Section 1c must not leak language-specific or xp-agents "
+                f"internal token {leak!r}",
             )
         self.assertNotIn(
             "python",
-            section_1c_lower,
+            section_1c.lower(),
             "Section 1c must not single out Python — agent reviews any language",
-        )
-        self.assertNotRegex(
-            section_1c,
-            r"\.py\b",
-            "Section 1c must not gate on a Python file suffix",
         )
 
 

@@ -7,6 +7,38 @@ and stays isolated rather than cross-import.
 
 import re
 
+# Language-specific tokens and plugin-internal surface names that must not
+# appear in shipped agent/skill prose — the plugin ships to projects in any
+# language, and this repo is a test fixture for it, not its vocabulary.
+#
+# USAGE CONTRACT — scan the RAW section text, never a `.lower()` copy. The
+# tuple is deliberately mixed-case (`ACCEPT_IN_FLIGHT`, ` LOC`), so a scanner
+# that lowercases its section first can never match those members and the
+# guard silently degrades to an inert check that passes on a real leak.
+#
+# tests/skills/test_assign_tier_prose.py deliberately does NOT use this tuple:
+# the assign skill prose names the plugin's own `.py`/`.js` script files, which
+# is permitted (a leak is a predicate on a USER path, not on the plugin's own),
+# so it keeps a narrower hand-rolled list.
+PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
+    ".py",
+    ".ts",
+    ".js",
+    ".go",
+    ".rs",
+    "def ",
+    "class ",
+    "function ",
+    " LOC",
+    "lines of code",
+    "ACCEPT_IN_FLIGHT",
+    "close_cycle_stop_gate",
+    "simplify_done",
+    "quality_review_done",
+    "assign-pending",
+    "review_cycle_done",
+)
+
 
 def _split_frontmatter_body(text: str) -> tuple[str, str]:
     """Split a markdown doc into (frontmatter, body) on the closing `---` fence.

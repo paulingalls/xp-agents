@@ -17,31 +17,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import tier_wire
-from conftest import _PLUGIN_ROOT, _split_frontmatter_body
+from conftest import (
+    _PLUGIN_ROOT,
+    PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
+    _split_frontmatter_body,
+)
 
 _PLAN_REVIEWER_MD = _PLUGIN_ROOT / "agents" / "xp-plan-reviewer.md"
 
 _TIER_HEADING = "Tier Recommendation"
-
-# Language-specific tokens and plugin-internal surface names that must NOT
-# appear in the tier rubric — the rubric must work for any-language projects.
-_FORBIDDEN_VOCAB = (
-    ".py",
-    ".ts",
-    ".js",
-    ".go",
-    ".rs",
-    "def ",
-    "class ",
-    "function ",
-    " LOC",
-    "lines of code",
-    "ACCEPT_IN_FLIGHT",
-    "close_cycle_stop_gate",
-    "simplify_done",
-    "assign-pending",
-    "review_cycle_done",
-)
 
 
 class TestPlanReviewerTierRubric(unittest.TestCase):
@@ -112,7 +96,7 @@ class TestPlanReviewerTierRubric(unittest.TestCase):
         self.assertIn("retracted", self.tier_section)
 
     def test_rubric_is_project_agnostic(self):
-        for token in _FORBIDDEN_VOCAB:
+        for token in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
             self.assertNotIn(
                 token,
                 self.tier_section,
