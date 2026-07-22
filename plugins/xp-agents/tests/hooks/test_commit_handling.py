@@ -261,6 +261,45 @@ class TestExtractCommitMessageStdinHeredoc(unittest.TestCase):
         command = "git commit -q -F - <<'MSG'\nfeat: only one\nMSG"
         self.assertEqual(commits.extract_commit_message(command), "feat: only one")
 
+    def test_redirect_after_delimiter_still_parses(self):
+        """AC-1: a redirect on the same line as the opening delimiter is a
+        legal shell suffix (`<<'EOF' > /dev/null`) — the old pattern demanded
+        the newline immediately after the delimiter and returned None."""
+        import commits
+
+        command = "git commit -q -F - <<'EOF' > /dev/null\nfeat: redirected\nEOF"
+        self.assertEqual(commits.extract_commit_message(command), "feat: redirected")
+
+    def test_pipe_and_chain_after_delimiter_still_parses(self):
+        """AC-2: a pipe plus a chained command after the opening delimiter
+        (`<<'EOF' | cat && echo done`) — story-005's actual command shape
+        (concern 1e6186970e01)."""
+        import commits
+
+        command = (
+            "git commit -q -F - <<'EOF' | cat && echo done\n"
+            "feat: piped and chained\nEOF"
+        )
+        self.assertEqual(
+            commits.extract_commit_message(command), "feat: piped and chained"
+        )
+
+    def test_binds_to_dash_F_heredoc_even_when_earlier_heredoc_has_trailing_redirect(
+        self,
+    ):
+        """AC-4, asserted explicitly: the looser opening pattern now admits a
+        trailing redirect on ANY heredoc line, not just the message's — so an
+        earlier, unrelated heredoc with its own trailing redirect must still
+        be skipped in favor of the one introduced after `-F -`. Guards the
+        `stdin_flag.end()` search-start boundary against the new pattern."""
+        import commits
+
+        command = (
+            "cat <<CFG > config.txt\nkey=val\nCFG\n"
+            "git commit -q -F - <<'MSG'\nfeat: real subject\nMSG"
+        )
+        self.assertEqual(commits.extract_commit_message(command), "feat: real subject")
+
 
 if __name__ == "__main__":
     unittest.main()
