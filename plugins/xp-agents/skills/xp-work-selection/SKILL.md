@@ -148,7 +148,9 @@ If the preload shows "### Open Concerns:", process each item:
 
 **Auto-resolve "MAYBE ADDRESSED" concerns:** If a concern is annotated with
 "**MAYBE ADDRESSED** by: ..." and you judge the listed commits genuinely fix
-the concern, auto-resolve it without asking the user:
+the concern, auto-resolve it without asking the user. A "#### Deferred earlier"
+line is an index excerpt, not the whole concern — `get-event` it (command in
+that header) before dropping; a drop is terminal:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/work_selection_decide.py triage-drop \
   --smm-dir <SMM_DIR> --event-id <event-id>
