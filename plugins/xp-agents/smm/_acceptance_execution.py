@@ -12,16 +12,33 @@ The command/commands verify block takes two shapes:
 
 The story/milestone acceptance_execution block requires exactly one of them
 for every ``type`` EXCEPT ``manual``: a manual check is verified by human/agent
-judgment, so its command block is optional. When a manual block DOES carry a
-command it is a runnable confirmation (verify_acceptance runs it); when it does
-not, the check is prose. Human/agent steps live in an optional
-``steps: list[str]`` (distinct from runnable ``commands``). A per-AC verify
-object may carry neither command block (a structured manual check).
+judgment, so its command block is optional. Human/agent steps live in an
+optional ``steps: list[str]`` (distinct from runnable ``commands``). A per-AC
+verify object may carry neither command block (a structured manual check).
 
-Gate on command PRESENCE, not on ``type``: whatever runs a command runs it
-regardless of type, and a manual block with no command is N/A. (Historically a
-manual block's ``commands`` were treated as prose and never run — that prose now
-belongs in ``steps``; a manual ``command``/``commands`` is runnable.)
+Two layers, and they say different things — do not collapse them:
+
+AUTHORING (``enforce_manual_shape=True``) forbids ``command``/``commands`` on a
+manual block outright. Prose then has exactly one home, ``steps``, so it can
+never land in a field that gets shelled. This reverses an earlier rule that a
+manual block MAY carry a runnable confirmation: an operator declared
+observational prose in a manual ``command``, the runner shelled it, ``/bin/sh``
+exited 127, and the close gate reported a plain red the operator could not make
+green. Off by default — only the story-level write path asks for it, so read
+paths keep loading what is already stored.
+
+The milestone-level caller (execution_plan_schema) does NOT yet ask for it, and
+that is an open gap rather than a proven-safe scope: xp-sprint-reviewer's
+milestone acceptance gate runs a milestone block's ``setup``/``command`` via
+Bash, so prose declared there reaches a shell exactly the way the story-level
+defect did. Closing it needs the same per-item grandfather this story built for
+stories (validate_plan walks every milestone on the read path too).
+
+RUN-TIME is UNCHANGED. Gate on command PRESENCE, not on ``type``: whatever runs
+a command runs it regardless of type, and a manual block with no command is N/A.
+A grandfathered manual+command block already on disk therefore still runs
+exactly as before — the authoring rule narrows what can be written, not what a
+written block does.
 """
 
 
@@ -74,9 +91,20 @@ def _validate_command_block(
 
 
 def validate_acceptance_execution(
-    ae: object, prefix: str, *, allow_pins: bool = True
+    ae: object,
+    prefix: str,
+    *,
+    allow_pins: bool = True,
+    enforce_manual_shape: bool = False,
 ) -> list[str]:
     """Validate an acceptance_execution block.
+
+    ``enforce_manual_shape`` turns on the authoring-time rule that a manual
+    block may not carry ``command``/``commands`` (see the module docstring).
+    It defaults to False so read paths keep loading stored blocks. The
+    milestone-level caller leaves it off as a KNOWN GAP, not a safe scope —
+    a milestone block does get shelled (xp-sprint-reviewer's milestone
+    acceptance gate) and closing the gap needs its own grandfather.
 
     ``allow_pins`` gates the optional ``pins`` field. It defaults to True
     for the story-level caller (sprint_schema.py), the only scope
@@ -97,10 +125,22 @@ def validate_acceptance_execution(
         errors.append(f"{prefix}.type is required and must be a string")
 
     # The command block is optional for a manual check (its verification is
-    # human/agent judgment, optionally with a runnable confirmation); every
-    # other type must still carry exactly one of command xor commands.
-    require_one = ae.get("type") != "manual"
+    # human/agent judgment); every other type must still carry exactly one of
+    # command xor commands. Whether a manual block MAY carry one is the
+    # enforce_manual_shape question below, not this one.
+    is_manual = ae.get("type") == "manual"
+    require_one = not is_manual
     errors.extend(_validate_command_block(ae, prefix, require_one=require_one))
+
+    if enforce_manual_shape and is_manual:
+        present = [key for key in ("command", "commands") if key in ae]
+        if present:
+            errors.append(
+                f"{prefix}.{present[0]} is not allowed when type is `manual` — "
+                "a manual check is human/agent judgment, and anything declared "
+                "here is shelled by the acceptance runner; move the prose to "
+                f"{prefix}.steps"
+            )
     if "pins" in ae:
         if not allow_pins:
             errors.append(

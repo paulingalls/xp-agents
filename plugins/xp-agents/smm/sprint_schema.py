@@ -100,8 +100,14 @@ def _validate_story(
     *,
     enforce_budget: bool = True,
     valid_surfaces: frozenset[str] | None = None,
+    grandfathered_story_ids: frozenset[str] | None = None,
 ) -> list[str]:
-    """Validate a story entry."""
+    """Validate a story entry.
+
+    ``grandfathered_story_ids`` carries the manual-shape rule: None switches
+    it off entirely (read paths), a set switches it on for every story except
+    the listed ids. See validate_sprint.
+    """
     errors: list[str] = []
     if not isinstance(story, dict):
         return [f"stories[{idx}] must be an object"]
@@ -162,8 +168,16 @@ def _validate_story(
 
     ae = story.get("acceptance_execution")
     if ae is not None:
+        enforce_manual_shape = (
+            grandfathered_story_ids is not None
+            and story.get("id") not in grandfathered_story_ids
+        )
         errors.extend(
-            validate_acceptance_execution(ae, f"stories[{idx}].acceptance_execution")
+            validate_acceptance_execution(
+                ae,
+                f"stories[{idx}].acceptance_execution",
+                enforce_manual_shape=enforce_manual_shape,
+            )
         )
 
     bn = story.get("branch_name")
@@ -215,14 +229,22 @@ def validate_sprint(
     *,
     enforce_budget: bool = True,
     valid_surfaces: frozenset[str] | None = None,
+    grandfathered_story_ids: frozenset[str] | None = None,
 ) -> list[str]:
     """Validate a sprint document.
 
     Returns a list of error strings — empty list means valid.
-    When enforce_budget is False, field-length budgets are skipped
-    (read-path grandfathering, matching execution_plan_schema precedent).
+    When enforce_budget is False, field-length budgets are skipped and the
+    caller is expected to drop the acceptance-surface FK too (save_sprint
+    gates both on the same flag) — read-path grandfathering, matching
+    execution_plan_schema precedent.
     When valid_surfaces is supplied, each story's per-AC ``surface`` must be
     one of those names (FK to acceptance_surfaces); None keeps it shape-only.
+    ``grandfathered_story_ids`` is the manual-shape rule's switch: None (the
+    read-path default) leaves it off, so a stored manual+command block still
+    loads; a frozenset turns it on for every story whose id is not listed.
+    An empty frozenset is therefore "enforce everywhere" — the fail-closed
+    answer when no on-disk proof of grandfathering could be read.
     """
     errors: list[str] = []
 
@@ -259,6 +281,7 @@ def validate_sprint(
                     idx,
                     enforce_budget=enforce_budget,
                     valid_surfaces=valid_surfaces,
+                    grandfathered_story_ids=grandfathered_story_ids,
                 )
             )
 

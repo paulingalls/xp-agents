@@ -366,6 +366,118 @@ class TestSetStoryBranch(_SMMTestCase):
             )
 
 
+_PROSE_MANUAL = {"type": "manual", "command": "go read the logs and confirm X"}
+
+
+class TestManualShapeAtAuthoring(_SMMTestCase):
+    """A manual acceptance block may not carry a command at authoring time.
+
+    Prose declared in `command` used to reach the runner, which shelled it
+    for an exit 127 that read as a plain red. The write must now fail
+    loudly instead. Stored blocks are grandfathered per story, derived from
+    disk and failing CLOSED — see TestManualShapeGrandfathering.
+    """
+
+    def _store(self, sprint: dict) -> None:
+        (self.smm_dir / "sprint.json").write_text(json.dumps(sprint))
+
+    def test_save_rejects_prose_in_manual_command(self):
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[_make_story(acceptance_execution=dict(_PROSE_MANUAL))]
+        )
+        with self.assertRaises(ValueError) as ctx:
+            sprint_store.save_sprint(self.smm_dir, sprint)
+        msg = str(ctx.exception)
+        self.assertIn("command", msg)
+        self.assertIn("manual", msg)
+        self.assertIn("steps", msg)
+
+    def test_save_accepts_manual_with_steps_only(self):
+        import sprint_store
+
+        ae = {"type": "manual", "steps": ["Deploy to staging", "Confirm redirect"]}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        sprint_store.save_sprint(self.smm_dir, sprint)
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["acceptance_execution"], ae)
+
+    def test_save_accepts_non_manual_with_command(self):
+        import sprint_store
+
+        ae = {"type": "pytest", "command": "pytest tests/"}
+        sprint = _make_sprint(stories=[_make_story(acceptance_execution=ae)])
+        sprint_store.save_sprint(self.smm_dir, sprint)
+
+    def test_missing_sprint_grants_no_exemption(self):
+        # Fail closed: no file on disk is no proof anything was grandfathered.
+        import sprint_store
+
+        sprint = _make_sprint(
+            stories=[_make_story(acceptance_execution=dict(_PROSE_MANUAL))]
+        )
+        with self.assertRaises(ValueError):
+            sprint_store.save_sprint(self.smm_dir, sprint)
+
+    def test_corrupt_sprint_grants_no_exemption(self):
+        import sprint_store
+
+        (self.smm_dir / "sprint.json").write_text("{bad json")
+        sprint = _make_sprint(
+            stories=[_make_story(acceptance_execution=dict(_PROSE_MANUAL))]
+        )
+        with self.assertRaises(ValueError):
+            sprint_store.save_sprint(self.smm_dir, sprint)
+
+
+class TestManualShapeGrandfathering(_SMMTestCase):
+    """A manual+command block ALREADY on disk keeps the sprint editable.
+
+    validate_sprint walks every story, so a flag-only rule would make one
+    stored block refuse every later, unrelated write on that sprint. The
+    exemption is per story and covers only an UNCHANGED stored block.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.stored = _make_story(
+            id="story-001", acceptance_execution=dict(_PROSE_MANUAL)
+        )
+        self.other = _make_story(id="story-002", context="Second story.")
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(_make_sprint(stories=[self.stored, self.other]))
+        )
+
+    def test_stored_block_still_loads(self):
+        import sprint_store
+
+        loaded = sprint_store.load_sprint_required(self.smm_dir)
+        self.assertEqual(loaded["stories"][0]["acceptance_execution"], _PROSE_MANUAL)
+
+    def test_status_update_still_succeeds(self):
+        import sprint_store
+
+        sprint_store.update_story_status(self.smm_dir, "story-001", "in-progress")
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][0]["status"], "in-progress")
+
+    def test_editing_a_different_story_still_succeeds(self):
+        import sprint_store
+
+        sprint_store.edit_story(self.smm_dir, "story-002", {"context": "Rewritten."})
+        loaded = json.loads((self.smm_dir / "sprint.json").read_text())
+        self.assertEqual(loaded["stories"][1]["context"], "Rewritten.")
+
+    def test_editing_the_offending_block_is_rejected(self):
+        import sprint_store
+
+        updates = {"acceptance_execution": {"type": "manual", "command": "still prose"}}
+        with self.assertRaises(ValueError) as ctx:
+            sprint_store.edit_story(self.smm_dir, "story-001", updates)
+        self.assertIn("steps", str(ctx.exception))
+
+
 # Status check functions, compute_velocity, compute_blockers, count_by_status
 # tests live in test_sprint_status.py — split per the 500-line cap. Render
 # tests live in test_sprint_render.py. Load/save and mutations stay here.
