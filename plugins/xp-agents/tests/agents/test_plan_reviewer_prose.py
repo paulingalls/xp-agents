@@ -199,6 +199,12 @@ class TestPlanReviewerRealBehaviorRule(unittest.TestCase):
     it into the reviewer's context, which means every OTHER project using the
     plugin got a reviewer with no real-behavior demand at all. These pins keep
     the rule in the shipped agent, where every project sees it.
+
+    What these pins do NOT claim — the same caveat the Final-Message pins
+    above carry, and the one §2c itself is about: they prove the RULE TEXT is
+    present and correctly scoped, never that a reviewer reading it flags an
+    inert plan. That is reviewer judgment, unobservable from here. Don't read
+    a green run as evidence an inert plan would be caught.
     """
 
     _MISSING_HEADING = (

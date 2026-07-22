@@ -20,6 +20,13 @@ import re
 # the assign skill prose names the plugin's own `.py`/`.js` script files, which
 # is permitted (a leak is a predicate on a USER path, not on the plugin's own),
 # so it keeps a narrower hand-rolled list.
+#
+# `def `/`class `/`function ` are declaration keywords, but they are also
+# ordinary English ("its enclosing function", "a class of errors"). A hit on
+# one of those three may be a FALSE POSITIVE — reword the prose (a comma or a
+# possessive is usually enough), do not delete the member: removing it is what
+# lets a real language leak back in. The mixed-case members are matched raw for
+# the same reason, so both casings of a mixed-case name are listed explicitly.
 PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
     ".py",
     ".ts",
@@ -32,6 +39,7 @@ PROJECT_AGNOSTIC_FORBIDDEN_VOCAB: tuple[str, ...] = (
     " LOC",
     "lines of code",
     "ACCEPT_IN_FLIGHT",
+    "accept_in_flight",
     "close_cycle_stop_gate",
     "simplify_done",
     "quality_review_done",
