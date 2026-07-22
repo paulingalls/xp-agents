@@ -79,7 +79,7 @@ Use blocking questions whenever uncertain about customer intent — don't reserv
 In your output, flag blocking questions prominently:
 > **BLOCKING QUESTION — the main agent must use AskUserQuestion to get the user's answer before proceeding.**
 
-**Re-review pass.** `PLAN_SOURCE=last-reviewed` means this is the demanded second pass over the same plan. The user's answers reach you only if they were written into the plan or recorded in the SMM — re-raise a blocking question only when the plan text itself still leaves it open, and do not re-record assumptions or decisions you already logged. Repeating a resolved question restarts the loop.
+**Re-review pass.** `PLAN_SOURCE=last-reviewed` means this is a second pass over the same plan, one someone asked for explicitly — you never demand it. The user's answers reach you only if they were written into the plan or recorded in the SMM — re-raise a blocking question only when the plan text still leaves it open, and do not re-record assumptions or decisions you already logged. Repeating a resolved question restarts the loop.
 
 ### 8. Architectural Decisions (Constraints Pillar)
 Record only **new** decisions — do NOT re-record decisions already in the SMM's Constraints pillar.
@@ -95,7 +95,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 - **Solo** (sequential): few steps, sequential with overlapping file targets, or small scope. Most plans fall here.
 - **Worktree subagents** (parallel): 2+ independent step groups with non-overlapping file targets.
 
-Criteria: independent step group count (1=solo, 2+ non-overlapping=consider subagents); file-target overlap (overlap=solo, separate=parallelizable); dependency chains (sequential=solo); work substantial enough to justify coordination overhead (small=solo even if parallelizable).
+Also weigh dependency chains (sequential=solo) and whether the work justifies the coordination overhead (small=solo even if parallelizable).
 
 Include your recommendation under an "Execution mode" heading.
 
@@ -212,7 +212,7 @@ You return to the main agent via your last reply — the main agent does NOT rea
 1. **Concerns** — bullet list of every `concern` event you appended this run, each with `[severity]` and a one-line summary. Write `Concerns: none.` if you appended none.
 2. **Assumptions** — bullet list of every `assumption` event you appended, one line each. Write `Assumptions: none.` if you appended none.
 3. **Blocking questions** — bullet list of every 🔴 `question` event you appended, with the exact question text. Write `Blocking questions: none.` if you appended none.
-4. **Next step** — exactly one of: `BLOCKING — main agent must run AskUserQuestion on the question(s) above, then re-review.` (blocking questions exist), `Run /xp-assign to spawn the teammate(s).` (teammate mode, plan clean), `Begin implementation.` (solo mode, plan clean), or `Rework: <one-line reason>.` (plan needs revision).
+4. **Next step** — exactly one of: `BLOCKING — main agent must run AskUserQuestion on the question(s) above, record each answer into the plan, then proceed (/xp-assign in teammate mode, implementation in solo) carrying any unresolved findings forward.` (blocking questions exist), `Run /xp-assign to spawn the teammate(s).` (teammate mode, plan clean), `Begin implementation.` (solo mode, plan clean), or `Rework: <one-line reason>.` (plan needs revision).
 
 The four block headings (`Concerns`, `Assumptions`, `Blocking questions`, `Next step`) are load-bearing — a doctrine test pins them.
 

@@ -18,6 +18,7 @@ section + the four block headings `Concerns` / `Assumptions` /
 back at this test path — keep the pointer here, not there.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -74,6 +75,20 @@ class TestPlanReviewerFinalMessage(unittest.TestCase):
             cls.final_message_section = (
                 cls.body[start:] if after == -1 else cls.body[start:after]
             )
+        # The Next-step options are backtick-delimited literals. Pin the
+        # BLOCKING one on its own: a section-wide substring check is vacuous
+        # here, because "/xp-assign", "implementation" and "record" all
+        # already appear in the sibling clean-plan options and the section
+        # intro, so it would stay green even if the blocking option were
+        # reverted to demanding another review round.
+        cls.blocking_option = next(
+            (
+                opt
+                for opt in re.findall(r"`([^`]+)`", cls.final_message_section)
+                if opt.startswith("BLOCKING")
+            ),
+            "",
+        )
 
     def test_file_exists(self):
         self.assertTrue(
@@ -98,6 +113,79 @@ class TestPlanReviewerFinalMessage(unittest.TestCase):
             [],
             "xp-plan-reviewer.md Final Message section must name each "
             f"required block; missing: {missing}",
+        )
+
+    # --- Next step routes forward, not back into another review round ----
+    #
+    # The re-review loop was driven from here: the blocking Next-step option
+    # read "...then re-review", so every revision re-entered review and the
+    # reviewer kept demanding another round. Nothing bounded it. The customer
+    # stopped it twice by hand.
+    #
+    # Scoped to the Final Message section on purpose: §7's re-review-pass
+    # guidance is deliberately KEPT — it still governs a second pass someone
+    # explicitly asks for. What must go is the reviewer DEMANDING one.
+    #
+    # What these pins do NOT claim: "record the answer into the plan" is
+    # agent-compliance prose, exactly like the "then re-review" it replaces.
+    # These tests pin that the INSTRUCTION exists, never that the main agent
+    # obeyed it. That trade is deliberate — the only gate that could enforce
+    # it would have to read the plan's prose for an answer, which is a worse
+    # mechanism than the problem. Don't read a green run here as evidence
+    # the answer actually reached implementation.
+
+    def test_blocking_option_is_locatable(self):
+        # Guard for the three pins below: they all read blocking_option, so a
+        # reformat that stops it parsing would silently vacate them.
+        self.assertNotEqual(
+            self.blocking_option,
+            "",
+            "Final Message must still offer a backticked Next-step option "
+            "starting with 'BLOCKING' — the pins below key on it.",
+        )
+
+    def test_blocking_option_does_not_demand_another_review_round(self):
+        self.assertNotIn(
+            "re-review",
+            self.final_message_section.lower(),
+            "The Next-step blocking option must not route a blocking finding "
+            "back into another review round — that demand is the loop. An "
+            "explicitly requested second pass still works (§7 keeps its "
+            "re-review-pass guidance); the reviewer just stops asking for one.",
+        )
+
+    def test_blocking_option_records_the_answer_into_the_plan(self):
+        # Load-bearing half. Today the user's answer reaches implementation
+        # only VIA the second review; drop the second review without this
+        # step and the answer is simply lost.
+        lowered = self.blocking_option.lower()
+        self.assertIn(
+            "record",
+            lowered,
+            "The Next-step blocking option must direct the main agent to "
+            "record the AskUserQuestion answer, or dropping the re-review "
+            "loses the answer entirely",
+        )
+        self.assertIn(
+            "into the plan",
+            lowered,
+            "The answer must be recorded INTO THE PLAN — that is what carries "
+            "it forward to implementation once the second review is gone",
+        )
+
+    def test_blocking_option_routes_forward_to_execution(self):
+        lowered = self.blocking_option.lower()
+        self.assertIn(
+            "/xp-assign",
+            lowered,
+            "The blocking option must route forward to the teammate-mode "
+            "next step, the same destination a clean plan gets",
+        )
+        self.assertIn(
+            "implementation",
+            lowered,
+            "The blocking option must route forward to implementation in solo "
+            "mode, carrying outstanding findings with it",
         )
 
 
