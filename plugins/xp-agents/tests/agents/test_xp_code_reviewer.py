@@ -17,13 +17,18 @@ guard) is the load-bearing sprint-104/sprint-113 lesson (CLAUDE.md two-layer
 project-agnostic guardrail).
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _md_helpers import PROJECT_AGNOSTIC_FORBIDDEN_VOCAB, _split_frontmatter_body
+from _md_helpers import (
+    PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
+    _split_frontmatter_body,
+    assert_project_agnostic,
+)
 from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
@@ -82,17 +87,9 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         project-agnostic guardrail vocabulary layer).
         """
         section_1 = _section_slice(self.body, "## 1.", "## 2.")
-        # Shared canonical list — scanned RAW (never lowercased), since the
-        # tuple is mixed-case and a `.lower()` copy silently can't match
-        # members like ACCEPT_IN_FLIGHT.
-        for leak in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
-            self.assertNotIn(
-                leak,
-                section_1,
-                f"Section 1 must not leak language-specific or xp-agents "
-                f"internal token {leak!r}",
-            )
-        # Not in the shared tuple: singling out the language by name.
+        assert_project_agnostic(self, section_1, "Section 1")
+        # Singling out the language by name stays at the call site — only this
+        # file's two sites assert it (rationale: the helper's docstring).
         self.assertNotIn(
             "python",
             section_1.lower(),
@@ -223,17 +220,55 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         (CLAUDE.md project-agnostic guardrail vocabulary layer).
         """
         section_1c = _section_slice(self.body, "## 1c", "## 2.")
-        for leak in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
-            self.assertNotIn(
-                leak,
-                section_1c,
-                f"Section 1c must not leak language-specific or xp-agents "
-                f"internal token {leak!r}",
-            )
+        assert_project_agnostic(self, section_1c, "Section 1c")
         self.assertNotIn(
             "python",
             section_1c.lower(),
             "Section 1c must not single out Python — agent reviews any language",
+        )
+
+
+class TestProjectAgnosticAssertHelper(unittest.TestCase):
+    """Pin the shared vocab-scan helper's own contract: scan RAW.
+
+    Four prose suites across two agents route their forbidden-vocabulary scan
+    through `assert_project_agnostic`. Centralizing the loop is the point of
+    the extraction, but it also concentrates the blast radius: a helper that
+    lowercased its input would degrade all four guards at once, silently. So
+    the "scan RAW, never lowercase" contract is pinned here, at the helper,
+    rather than restated as a comment at each call site.
+    """
+
+    # The mixed-case members. Merely asserting "it raises" would leave
+    # `ACCEPT_IN_FLIGHT` inert: the tuple lists that name in BOTH casings, so a
+    # lowercasing helper still raises — on the lowercase twin. The assertion
+    # therefore pins WHICH member the failure names, in its raw casing, so a
+    # lowercasing helper goes red on both members rather than only on ` LOC`
+    # (the one member with no twin to cover for it). That the message names the
+    # offending token at all is part of the helper's contract too — a scan that
+    # fails without saying what leaked sends the reader back to the tuple.
+    MIXED_CASE_MEMBERS = ("ACCEPT_IN_FLIGHT", " LOC")
+
+    def test_mixed_case_members_still_fail_through_the_helper(self):
+        for member in self.MIXED_CASE_MEMBERS:
+            with self.subTest(member=member):
+                self.assertIn(member, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB)
+                with self.assertRaisesRegex(
+                    AssertionError, re.escape(f"token: {member!r}")
+                ):
+                    assert_project_agnostic(
+                        self,
+                        f"a prose section mentioning{member} verbatim",
+                        "fixture section",
+                    )
+
+    def test_helper_passes_clean_prose(self):
+        """A guard that fails on everything is as useless as one that fails on
+        nothing — pin the negative case too."""
+        assert_project_agnostic(
+            self,
+            "a prose section using only generic terms: state field, marker, gate.",
+            "fixture section",
         )
 
 

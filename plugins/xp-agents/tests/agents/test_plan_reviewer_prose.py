@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB, _slice
+from conftest import _PLUGIN_ROOT, _slice, assert_project_agnostic
 
 _PLAN_REVIEWER_MD = _PLUGIN_ROOT / "agents" / "xp-plan-reviewer.md"
 
@@ -295,17 +295,10 @@ class TestPlanReviewerRealBehaviorRule(unittest.TestCase):
         )
 
     def test_rule_is_project_agnostic(self):
-        # Scans the RAW section, never a lowercased copy: the shared tuple is
-        # deliberately mixed-case, so a lowercased scan silently can't match
-        # some members (see PROJECT_AGNOSTIC_FORBIDDEN_VOCAB's usage contract).
-        for token in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
-            self.assertNotIn(
-                token,
-                self.section,
-                "§2c must work for projects in any language and must not name "
-                "this plugin's internal surfaces; found language-specific or "
-                f"plugin-internal token: {token!r}",
-            )
+        # The shared helper owns the "scan RAW, never lowercase" contract —
+        # §2c must work for projects in any language and must not name this
+        # plugin's internal surfaces.
+        assert_project_agnostic(self, self.section, "§2c")
 
 
 if __name__ == "__main__":
