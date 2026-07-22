@@ -445,6 +445,42 @@ class TestHeadMovedUnparsedTrace(_HookTestCase):
         traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
         self.assertEqual(len(traces), 1)
 
+    def test_literal_dash_C_path_suppressed_no_trace(self):
+        """A `git -C <literal-path>` that failed to confirm is an ordinary git
+        failure (git aborts, lands nothing) — suppress silently rather than
+        probe the ORCHESTRATOR cwd's unrelated HEAD. Covers the suppress branch
+        the other `-C` tests deliberately dodge."""
+        command = "git -C /nonexistent/repo commit -m 'feat: unparseable subject'"
+        with patch_commits(
+            files=["src/foo.py"],
+            body="a different subject entirely",
+            head_sha="movedhash123",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=""),
+                smm_dir=self.smm_dir,
+            )
+        traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+        self.assertEqual(len(traces), 0)
+
+    def test_dash_C_git_in_message_body_still_traces(self):
+        """A commit message that MENTIONS `git -C` (routine in a git-tooling
+        repo) must not be misread as a `git -C <path>` invocation and
+        suppressed. The gate scans the quote-stripped command, so message-body
+        text — even a full `git -C /path` phrase — can never gate it."""
+        command = "git commit -m 'docs: prefer git -C over cd for worktrees'"
+        with patch_commits(
+            files=["src/foo.py"],
+            body="a different subject entirely",
+            head_sha="movedhash123",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=""),
+                smm_dir=self.smm_dir,
+            )
+        traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+        self.assertEqual(len(traces), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

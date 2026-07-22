@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import code_files
 import commits
+import git_commits
 import identity
 import lint_resolution
 import markers
@@ -56,6 +57,13 @@ COMMIT_SIZE_THRESHOLD = 12
 # already claims the hidden-shell-variable case, and a literal-but-nonexistent
 # `-C` path is an ordinary git failure (see `_handle_commit`), not a candidate
 # for the ordinary-commit proxy.
+#
+# Searched against the QUOTE-STRIPPED command, never the raw one: a message
+# body that literally spells out `git -C /path` (routine in a git-tooling
+# repo) must not be misread as an invocation and silently suppress the trace.
+# Stripping first is safe here because the one case that needs the raw text —
+# `git -C "$VAR"` hiding its path behind a shell variable — is claimed by
+# `dash_c_unreachable`, which runs and returns BEFORE this gate.
 _GIT_DASH_C_FLAG_RE = re.compile(r"git\s+(?:-\S+\s+)*?-C\s+")
 
 
@@ -153,7 +161,12 @@ def _handle_commit(
         if commits.dash_c_unreachable(command):
             _record_unconfirmed_commit(smm_dir, command, agent_id)
             return None
-        if _GIT_DASH_C_FLAG_RE.search(command):
+        dash_c_scan = (
+            scan_target
+            if scan_target is not None
+            else git_commits.strip_quoted(command)
+        )
+        if _GIT_DASH_C_FLAG_RE.search(dash_c_scan):
             # An explicit `git -C <literal-path>` that failed to confirm here
             # named a path git itself could not reach (dash_c_unreachable
             # already ruled out the hidden-shell-variable case) — git aborts
