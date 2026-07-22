@@ -37,7 +37,10 @@ class TestSprintStartDomainProse(unittest.TestCase):
             "done or deferred" in self.body_lower or "done/deferred" in self.body_lower,
             "File Domain bullet must name the done/deferred exemption",
         )
-        self.assertIn("no dependency", self.body_lower)
+        # "no dependency edge", not "no dependency" -- the bare substring is
+        # already satisfied by the pre-existing "Stories with no dependency
+        # between them", so it could never go red on a dropped clause.
+        self.assertIn("no dependency edge", self.body_lower)
 
     def test_preserves_concurrent_disjointness_wording(self):
         # Characterization: the existing dependency-edge exemption sentences
