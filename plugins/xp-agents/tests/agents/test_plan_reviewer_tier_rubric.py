@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import tier_wire
 from conftest import (
     _PLUGIN_ROOT,
-    PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
     _split_frontmatter_body,
+    assert_project_agnostic,
 )
 
 _PLAN_REVIEWER_MD = _PLUGIN_ROOT / "agents" / "xp-plan-reviewer.md"
@@ -96,13 +96,7 @@ class TestPlanReviewerTierRubric(unittest.TestCase):
         self.assertIn("retracted", self.tier_section)
 
     def test_rubric_is_project_agnostic(self):
-        for token in PROJECT_AGNOSTIC_FORBIDDEN_VOCAB:
-            self.assertNotIn(
-                token,
-                self.tier_section,
-                f"Tier recommendation rubric must not contain language-specific or "
-                f"plugin-internal token: {token!r}",
-            )
+        assert_project_agnostic(self, self.tier_section, "Tier recommendation rubric")
 
     def test_recommended_effort_metadata_key_documented(self):
         """The effort dimension (story-003) writes metadata.recommended_effort
