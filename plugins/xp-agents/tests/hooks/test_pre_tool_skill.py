@@ -111,6 +111,22 @@ class TestTeammateLifecycleGate(_HookTestCase):
             )
         self._assert_not_none(reason)
 
+    def test_in_place_teammate_env_leg_delegates_to_shared_helper(self):
+        """story-003: _is_live_teammate's env leg now delegates to
+        identity.in_place_teammate_name (the same helper is_worktree_teammate
+        and tdd_check._reader_scope use) instead of hand-rolling
+        _common.get_validated_smm_dir + worktree.in_place_teammate_from_env."""
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-008"}):
+            with patch(
+                "identity.in_place_teammate_name", return_value="worktree-story-008"
+            ) as mock_shared:
+                reason = pre_tool_skill.teammate_block_reason(
+                    _make_skill_input("xp-sprint-close", cwd="/home/user/project"),
+                    smm_dir=self.smm_dir,
+                )
+            mock_shared.assert_called_once_with(self.smm_dir)
+        self._assert_not_none(reason)
+
     def test_leaked_env_lead_not_blocked(self):
         """A lead with a LEAKED XP_TEAMMATE_NAME but NO live in-place marker is
         NOT a teammate — it must not be locked out of lead-owned skills. Mirrors
