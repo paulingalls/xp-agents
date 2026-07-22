@@ -17,6 +17,7 @@ import commits
 import concerns
 import git_commits
 import identity
+import markers
 import test_attribution
 from commit_handling import (
     _handle_commit,
@@ -262,7 +263,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 if had_failures:
                     parts.append("All prior test failures resolved — tests are green.")
                 uncommitted = commits.get_uncommitted_code_files(cwd)
-                if uncommitted:
+                if uncommitted and markers.read_review_cadence(smm_dir) != "story":
                     parts.append("Commit now to trigger /xp-quality-review.")
                 if parts:
                     return " ".join(parts)

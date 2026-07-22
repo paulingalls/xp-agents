@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import bash_post_tool
 import commit_handling
+import markers
 from _commit_helpers import patch_commits
 from conftest import _HookTestCase, _make_bash_input, _ProbeTestHelpers, make_event
 from event_helpers import events_of_type
@@ -191,6 +192,86 @@ class TestCheckQRLinkagePhrasings(unittest.TestCase):
         ]
         result = commit_handling._check_qr_linkage(events, "main")
         self.assertIsNone(result)
+
+
+class TestCadenceAwareQRLinkage(unittest.TestCase):
+    """_check_qr_linkage respects the active review cadence (story-009)."""
+
+    def _events_no_qr(self) -> list[dict]:
+        return [make_event(EVENT_TYPE_COMMIT, content="prior commit", agent_id="main")]
+
+    def test_story_cadence_no_qr_is_silent(self):
+        result = commit_handling._check_qr_linkage(
+            self._events_no_qr(), "main", cadence="story"
+        )
+        self.assertIsNone(result)
+
+    def test_commit_cadence_no_qr_warns_verbatim(self):
+        result = commit_handling._check_qr_linkage(
+            self._events_no_qr(), "main", cadence="commit"
+        )
+        self.assertEqual(
+            result,
+            "No quality review found since previous commit. "
+            "Run /xp-quality-review before committing.",
+        )
+
+    def test_qr_ran_since_previous_commit_silent_under_story_cadence(self):
+        events = [
+            make_event(EVENT_TYPE_COMMIT, content="prior commit", agent_id="main"),
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="Quality review complete.",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            ),
+        ]
+        result = commit_handling._check_qr_linkage(events, "main", cadence="story")
+        self.assertIsNone(result)
+
+    def test_qr_ran_since_previous_commit_silent_under_commit_cadence(self):
+        events = [
+            make_event(EVENT_TYPE_COMMIT, content="prior commit", agent_id="main"),
+            make_event(
+                EVENT_TYPE_STATUS,
+                content="Quality review complete.",
+                metadata={"action": STATUS_ACTION_QR_COMPLETE},
+            ),
+        ]
+        result = commit_handling._check_qr_linkage(events, "main", cadence="commit")
+        self.assertIsNone(result)
+
+
+class TestStoryCadenceWiring(_ProbeTestHelpers, _HookTestCase):
+    """End-to-end pin: _handle_commit must actually pass the marker's cadence
+    through to _check_qr_linkage — a unit test on _check_qr_linkage alone
+    would pass even if commit_handling.py never threaded the argument."""
+
+    def _run_commit(self, agent_id: str = "main") -> str | None:
+        with patch_commits(files=["src/app.py"], body="Fix stuff", head_sha="def456"):
+            return bash_post_tool.run(
+                _make_bash_input(
+                    command="git commit -m 'Fix stuff'",
+                    stdout="[main def456] Fix stuff\n 1 file changed",
+                    cwd=str(self.smm_dir),
+                    agent_id=agent_id,
+                ),
+                smm_dir=self.smm_dir,
+            )
+
+    def test_story_cadence_marker_silences_the_commit_nudge(self):
+        ev = make_event(EVENT_TYPE_COMMIT, agent_id="main", content="Prior commit")
+        _common.append_safe(self.smm_dir, ev)
+        markers.write_review_cadence(self.smm_dir, "story")
+        result = self._run_commit()
+        if result:
+            self.assertNotIn("quality review", result.lower())
+
+    def test_missing_marker_falls_back_to_commit_cadence_nudge(self):
+        ev = make_event(EVENT_TYPE_COMMIT, agent_id="main", content="Prior commit")
+        _common.append_safe(self.smm_dir, ev)
+        result = self._run_commit()
+        assert result is not None
+        self.assertIn("quality review", result.lower())
 
 
 class TestM2CommitSuccessAction(_HookTestCase):

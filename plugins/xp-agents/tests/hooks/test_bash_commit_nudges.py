@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import bash_post_tool
+import markers
 from conftest import _HookTestCase, _make_bash_input, make_event
 from event_helpers import events_of_type
 from event_schema import (
@@ -99,6 +100,34 @@ class TestBashPostToolGreenNudge(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         self.assertIsNone(result)
+
+    def test_story_cadence_green_with_uncommitted_code_no_trigger_promise(self):
+        """story-009: under story cadence, committing does not trigger
+        /xp-quality-review — the nudge must not promise otherwise."""
+        markers.write_review_cadence(self.smm_dir, "story")
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        if result:
+            self.assertNotIn("trigger /xp-quality-review", result)
+
+    def test_commit_cadence_green_with_uncommitted_code_nudge_verbatim(self):
+        """Characterization: commit cadence keeps the exact existing text."""
+        markers.write_review_cadence(self.smm_dir, "commit")
+        with patch("commits.get_uncommitted_code_files", return_value=["src/app.py"]):
+            result = bash_post_tool.run(
+                _make_bash_input(
+                    command="python3 -m pytest tests/",
+                    stdout="===== 5 passed in 0.3s =====",
+                ),
+                smm_dir=self.smm_dir,
+            )
+        self.assertEqual(result, "Commit now to trigger /xp-quality-review.")
 
     def test_zero_passed_zero_failed_no_nudge(self):
         """Ambiguous output (0 passed, 0 failed) -> no nudge."""
