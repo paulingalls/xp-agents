@@ -36,6 +36,76 @@ def _has_code_changes(event: dict) -> bool:
     return any(code_files.is_code_file(f) for f in working_on)
 
 
+# Per-tool-call telemetry excluded from the batch count. A TDD cycle that
+# runs the suite five times has not accumulated five more units of unshipped
+# work, and counting it would score the Feedback value as a defect. Edits are
+# deliberately NOT excluded — they ARE the work being batched, and dropping
+# them would leave the metric blind to a run that edits twenty files before
+# committing.
+_BATCH_EXCLUDED_ACTIONS = frozenset({STATUS_ACTION_TEST_RUN_COMPLETE})
+
+
+def batch_sizes_per_agent(events: list[dict]) -> dict[str, int]:
+    """Largest batch each agent accumulated before one of its own commits.
+
+    Deliberately NOT "everything since its last commit" — that was the old,
+    defective definition this replaces.
+
+    THE canonical definition of ``max_events_to_commit``. A batch is ONE
+    agent's events from its first code edit through its next commit,
+    excluding test-run telemetry. The partition by ``agent_id`` is what
+    makes the derived flag actionable: a teammate's events never inflate
+    another agent's batch, so the agent the flag names is the agent who can
+    shrink it by committing sooner.
+
+    Events before an agent's first code edit do not count — planning is not
+    batching. An agent with no closed interval is ABSENT from the result
+    rather than reported as zero: an agent that never commits (every
+    reviewer, every skill) has no batch, which is a different claim from
+    having an empty one.
+
+    Both producers of ``max_events_to_commit`` — the retro flag here and
+    the per-agent prose figures in story_metrics — call this, so the key
+    cannot come to mean two things again (story-010).
+    """
+    open_batches: dict[str, int] = {}
+    maxima: dict[str, int] = {}
+
+    for e in events:
+        agent = e.get("agent_id", "main")
+        action = event_action(e)
+        is_commit = (
+            e.get("type") == _common.COMMIT or action == STATUS_ACTION_COMMIT_SUCCESS
+        )
+
+        if is_commit:
+            batch = open_batches.pop(agent, None)
+            if batch is not None:
+                maxima[agent] = max(maxima.get(agent, 0), batch)
+        elif action in _BATCH_EXCLUDED_ACTIONS:
+            # Excluded events cannot open an interval they don't count in.
+            continue
+        elif agent in open_batches:
+            open_batches[agent] += 1
+        elif _has_code_changes(e):
+            open_batches[agent] = 1
+
+    return maxima
+
+
+def _max_batch(events: list[dict]) -> tuple[int, str | None]:
+    """The single worst batch and the agent that accumulated it.
+
+    Returns ``(0, None)`` when no interval ever closed — there is no batch
+    to name.
+    """
+    maxima = batch_sizes_per_agent(events)
+    if not maxima:
+        return 0, None
+    agent = max(maxima, key=lambda a: maxima[a])
+    return maxima[agent], agent
+
+
 def build_work_signals(events: list[dict]) -> dict:
     """Analyze event sequence for work-level signals.
 
@@ -49,9 +119,7 @@ def build_work_signals(events: list[dict]) -> dict:
     consecutive_failures = 0
     max_consecutive_failures = 0
 
-    events_since_first_edit = 0
-    max_events_to_commit = 0
-    editing = False
+    max_events_to_commit, batch_agent = _max_batch(events)
 
     for e in events:
         etype = e.get("type", "")
@@ -66,21 +134,7 @@ def build_work_signals(events: list[dict]) -> dict:
             # Concerns before this commit are now addressed
             concerns_addressed += pending_concerns
             pending_concerns = 0
-            # Track events from first edit to commit
-            if editing:
-                max_events_to_commit = max(
-                    max_events_to_commit, events_since_first_edit
-                )
-            events_since_first_edit = 0
-            editing = False
         else:
-            # Start counting from first code change
-            if not editing and _has_code_changes(e):
-                editing = True
-                events_since_first_edit = 1
-            elif editing:
-                events_since_first_edit += 1
-
             is_test_run = action == STATUS_ACTION_TEST_RUN_COMPLETE
 
             if etype == _common.CONCERN:
@@ -120,4 +174,5 @@ def build_work_signals(events: list[dict]) -> dict:
         "unaddressed_concerns": pending_concerns,
         "max_consecutive_test_failures": max_consecutive_failures,
         "max_events_to_commit": max_events_to_commit,
+        "max_events_to_commit_agent": batch_agent,
     }
