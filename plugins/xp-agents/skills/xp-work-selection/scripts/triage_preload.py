@@ -145,9 +145,13 @@ def _digests(item: dict, intents: dict[str, dict] | None) -> bool:
       * **repeatedly deferred** — repeat deferral is evidence of NEGLECT, and
         an unqualified digest inverts that signal by shrinking the item as the
         count grows. Stated honestly: this branch is FORWARD-LOOKING and fires
-        on ZERO items today by construction — every `defer_count` on the live
-        log is 1 — so it is a guard against the signal inverting later, not a
-        measured saving.
+        on ZERO items as of this writing — every `defer_count` on the live log
+        is 1 — so it is a guard against the signal inverting later, not a
+        measured saving. It is reachable, not dead: SKILL.md Step 2 re-presents
+        a deferred item every kickoff, and each keep-deferred bumps the count.
+        But it re-inflates only an item the lead keeps CHOOSING to carry, so on
+        this log the digest is where a deferred item STAYS — which is why the
+        line, not the item, is what shrinks.
     """
     entry = (intents or {}).get(item.get("id", ""))
     if not entry or entry["intent"] != event_schema.DISPOSITION_DEFERRED:

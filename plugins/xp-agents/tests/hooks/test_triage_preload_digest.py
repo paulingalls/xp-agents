@@ -21,7 +21,7 @@ sys.path.insert(
 
 import triage_preload
 from conftest import _SMMTestCase, make_event, triage_event
-from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_DEBT
+from event_schema import EVENT_TYPE_COMMIT, EVENT_TYPE_CONCERN, EVENT_TYPE_DEBT
 
 
 class _DigestTestCase(_SMMTestCase):
@@ -135,6 +135,44 @@ class TestDeferredDigest(_DigestTestCase):
             f"block went {before} -> {after} chars; AC1 requires >= 40% smaller",
         )
 
+    def test_digested_concern_still_carries_its_addressing_commits(self):
+        """AC2's last clause, and the one leg no other test covered: deleting
+        the annotation from the digest branch left the whole suite green.
+
+        It is not "one lookup away" like the excerpt is. `get-event <id>` returns
+        the concern EVENT; these commits are derived at render time by
+        `commits.find_addressing_commits` and are never stored on it, so the
+        digest is their ONLY surface. Both readers of this block auto-resolve off
+        exactly this line with a TERMINAL `triage-drop` — and on the live log
+        most MAYBE-ADDRESSED concerns are deferred, so the digest branch is where
+        that evidence mostly lives.
+        """
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content=f"Auth validation: {self._LONG}",
+            files=["scripts/auth.py"],
+            ts="2026-01-01T00:00:00+00:00",
+        )
+        commit = make_event(
+            EVENT_TYPE_COMMIT,
+            content="Fix auth validation",
+            files=["scripts/auth.py"],
+            ts="2026-01-02T00:00:00+00:00",
+        )
+        self._write_events([concern, commit])
+        self._defer(concern["id"])
+
+        lines = triage_preload.run(self.smm_dir).splitlines()
+        self.assertIn("#### Deferred earlier", "\n".join(lines))
+        # Attached to ITS OWN line, not merely present somewhere in the block:
+        # the annotation is only usable if the reader can tell whose it is.
+        after = lines[lines.index(self._line_for(concern["id"])) + 1 :]
+        self.assertEqual(
+            after[:1],
+            ["  **MAYBE ADDRESSED** by: Fix auth validation"],
+            f"digest line lost its addressing commits; got {after[:1]}",
+        )
+
     def test_undeferred_item_keeps_its_full_excerpt_byte_for_byte(self):
         """AC1's other half. The digest is earned by the lead's own deferral;
         an item they have not judged loses nothing."""
@@ -222,14 +260,19 @@ class TestDigestContractWithItsReader(_DigestTestCase):
     ASKING, and a drop is terminal — so it has to know that a digest line is an
     index excerpt and fetch the full text first. Rename the header on one side
     only and the instruction silently stops matching anything.
+
+    Only ONE of the two dropping readers is pinned here, and that is a known
+    gap, not a claim of coverage: `_close_pipeline_shared.md` Step 5b runs the
+    same `triage_preload.py` and issues the same terminal `triage-drop` off the
+    same annotation, with no fetch-the-full-text guard — and on the live log 16
+    of 21 MAYBE-ADDRESSED concerns render as digest lines, so it is the reader
+    MORE exposed to the shortened form, not less. That file is story-012's
+    declared domain, so the guard and its pin belong there; add it to `_READERS`
+    when it lands.
     """
 
-    _SKILL = (
-        Path(__file__).parent.parent.parent
-        / "skills"
-        / "xp-work-selection"
-        / "SKILL.md"
-    )
+    _PLUGIN = Path(__file__).parent.parent.parent
+    _READERS = (_PLUGIN / "skills" / "xp-work-selection" / "SKILL.md",)
 
     def _rendered_header(self) -> str:
         item = make_event(EVENT_TYPE_CONCERN, content="Some concern")
@@ -241,10 +284,16 @@ class TestDigestContractWithItsReader(_DigestTestCase):
             if ln.startswith("####")
         )
 
-    def test_skill_prose_names_the_header_the_renderer_emits(self):
+    def test_every_dropping_reader_names_the_header_the_renderer_emits(self):
         header = self._rendered_header()
         marker = header.split("—")[0].strip()
-        self.assertIn(marker, self._SKILL.read_text())
+        for reader in self._READERS:
+            self.assertIn(
+                marker,
+                reader.read_text(),
+                f"{reader.name} issues a terminal triage-drop but never names "
+                f"{marker!r}, so its fetch-the-full-text guard cannot fire",
+            )
 
     def test_header_carries_a_runnable_retrieval_command(self):
         """The digest's whole honesty claim is that the id retrieves the whole
