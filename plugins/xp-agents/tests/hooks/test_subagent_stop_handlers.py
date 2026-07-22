@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import assign_scope
 import markers
 import subagent_stop
 from conftest import (
@@ -219,6 +220,93 @@ class TestPlanReviewerDone(_HookTestCase):
             "cwd": "/tmp",
         }
         self.assertIsNone(pre_tool_write.run(write_input, smm_dir=self.smm_dir))
+
+
+class TestPlanReviewerArmsScopedMarker(_HookTestCase):
+    """The marker records WHICH stories it was armed for.
+
+    Its payload used to be the reviewer's agent id, which no reader consumed.
+    Scoping it is what lets the assign gate tell a marker armed for THIS plan
+    review from one left over by an earlier, unrelated frontier — see
+    tests/hooks/test_lead_gates_story_scope.py for the reading side.
+
+    The format is spelled out here by hand, not built with the codec: this and
+    the reader's copy are the two ends of the contract, and a codec-built
+    expectation on both sides would let the format drift with both green.
+    """
+
+    def _reviewer_input(self) -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "plan-reviewer-1",
+            "agent_type": "xp-plan-reviewer",
+            "last_assistant_message": "Plan reviewed.",
+        }
+
+    def _write_sprint(self, stories, sprint_id="sprint-042") -> None:
+        from conftest import _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(stories, sprint_id=sprint_id)
+        )
+
+    @staticmethod
+    def _teammate(story_id: str, status: str = "in-progress") -> dict:
+        from conftest import _s
+
+        return _s(story_id, f"Story {story_id}", status, execution_mode="teammate")
+
+    def test_payload_carries_the_sentinel_sprint_and_promoted_ids(self):
+        """Only the PROMOTED teammate stories: a scheduled one has no teammate
+        to spawn yet, and a solo one never will."""
+        self._write_sprint(
+            [
+                self._teammate("story-001"),
+                self._teammate("story-002"),
+                self._teammate("story-003", status="scheduled"),
+                {**self._teammate("story-004"), "execution_mode": "solo"},
+            ]
+        )
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertEqual(
+            (self.smm_dir / ".assign-pending").read_text(),
+            "sprint=sprint-042;stories=story-001,story-002",
+        )
+
+    def test_the_just_planned_story_is_always_in_scope(self):
+        """The invariant that keeps the normal path from arming an empty scope:
+        at plan-review-done the just-planned story is in-progress and delegated,
+        so it is promoted by construction."""
+        self._write_sprint([self._teammate("story-001")])
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertEqual(
+            assign_scope.read_assign_scope(self.smm_dir, "sprint-042"),
+            frozenset({"story-001"}),
+        )
+
+    def test_the_reader_rejects_the_payload_under_another_sprint(self):
+        """Ties the recorded sprint id to its purpose: ids repeat every sprint
+        and nothing sweeps this marker at a sprint boundary."""
+        self._write_sprint([self._teammate("story-001")])
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(assign_scope.read_assign_scope(self.smm_dir, "sprint-043"))
+
+    def test_an_id_that_cannot_round_trip_arms_no_scope_at_all(self):
+        """The same "ids are unvalidated free strings" fact the sentinel exists
+        for, applied to the ENCODER. An id carrying the list separator decodes
+        as FRAGMENTS that match no story, which empties the intersection — and
+        an empty intersection is the predicate's False, which DELETES a marker
+        the lead still needs. Unencodable ids therefore drop the whole scope:
+        the sentinel-less payload reads as legacy, and legacy stays armed.
+
+        Asserted through the reader (the fail-closed answer is what matters),
+        plus the marker still being ARMED — dropping the scope must not drop
+        the gate.
+        """
+        self._write_sprint([self._teammate("story-001,story-002")])
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
+        self.assertIsNone(assign_scope.read_assign_scope(self.smm_dir, "sprint-042"))
 
 
 class TestCloseReviewerDone(_HookTestCase):

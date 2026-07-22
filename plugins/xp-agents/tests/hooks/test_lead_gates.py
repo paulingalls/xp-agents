@@ -7,8 +7,11 @@ Split from test_pre_tool_write_gates.py, which was over the 500-line cap; the
 plan and question gate suites and the accept marker stay there. Split AGAIN, for
 the same reason, when the fail-closed suite grew: every "a read this gate cannot
 trust must BLOCK, never allow" test now lives in test_write_gate_fails_closed.py,
-which owns that seam across BOTH modules. The fixtures the two share are in
-tests/_lead_gate_fixtures.py.
+which owns that seam across BOTH modules. And a THIRD time for the marker's
+story scope — how the predicate tells the stories a marker was armed for from
+an unrelated frontier — in test_lead_gates_story_scope.py. The fixtures all
+three share are in tests/_lead_gate_fixtures.py, whose `_arm` writes the LEGACY
+(pre-scope) payload and is now a legacy-compat pin for the tests here.
 
 WHY THE ASSIGN GATE IS STATE-DERIVED. The marker alone used to block. That made
 it a marker-block gate: `/xp-assign` clears the marker, but nothing cleared it

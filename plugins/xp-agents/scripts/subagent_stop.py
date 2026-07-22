@@ -13,12 +13,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import append_validation
+import assign_scope
 import concerns
 import coordination
 import identity
 import marker_names
 import markers
 import sprint_state
+import sprint_status
 import target_routing
 from event_schema import (
     EVENT_TYPE_SPRINT,
@@ -228,12 +230,36 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     # story). Solo/unset plan reviews leave no marker so the agent codes
     # straight through — but still record the reviewer's completion (the
     # generic path below skips xp-* agents).
-    if not sprint_state.in_progress_is_teammate(smm_dir):
+    #
+    # Loaded ONCE and read twice: the same sprint answers "is this a delegated
+    # plan?" and "which stories is the marker being armed for?". The two used
+    # to be separate loads of the same file.
+    # A missing sprint collapses to the empty one: it has no promoted stories,
+    # so it takes the same exit as a solo plan rather than needing its own.
+    sprint_data = sprint_state.read_sprint_content(smm_dir) or {}
+    promoted = sprint_status.select_promoted_teammate_stories(
+        sprint_data.get("stories", [])
+    )
+    if not promoted:
         _emit_subagent_complete(smm_dir, input_data)
         return None
 
     agent_id = input_data.get("agent_id", _PLAN_REVIEWER_AGENT_ID)
-    markers.marker_write(smm_dir, markers.ASSIGN_PENDING, agent_id)
+    # SCOPE the marker to the stories this review covered, so a marker that
+    # goes moot cannot gate an unrelated frontier promoted later. Only the
+    # promoted set — deliberately NOT also filtered by "already spawned":
+    # the reader applies that, and re-deriving it here would put a
+    # `git worktree list` subprocess on the SubagentStop path. The simpler
+    # form is also the safer one — a worktree that vanished while its story
+    # is still in flight keeps the marker ARMED.
+    markers.marker_write(
+        smm_dir,
+        markers.ASSIGN_PENDING,
+        assign_scope.format_assign_scope(
+            sprint_data.get("sprint_id") or "",
+            [story.get("id", "") for story in promoted],
+        ),
+    )
 
     gate_event = _common.make_event(
         _common.STATUS,
