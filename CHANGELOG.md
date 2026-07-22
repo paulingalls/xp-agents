@@ -33,12 +33,13 @@ design before code. Minor bump: three of these change behavior you may depend on
 
 **Honesty repairs:**
 
-- `branching_strategy.integration_branch` is checked as a git ref. `VALID_BRANCH_NAME_RE`
-  matches `-f` and `--force` (the dash is inside its character class), so the rule is
-  the pattern **and** a leading-dash refusal — `get_primary_branch` no longer hands
-  `-f` to `git checkout`. Loaders **preserve** a stored nonconforming value; the heal
-  applies where the value is used, so a stage-1 auto-promote round-trip can never
-  rewrite your configured branch name.
+- `branching_strategy.integration_branch` is checked as a git ref, so
+  `get_primary_branch` no longer hands `-f` to `git checkout`. The check is git's own
+  `check-ref-format` rule plus a leading-dash refusal (an argv hazard git has no
+  opinion about) — **not** a naming pattern: `main+dev`, `trunk@2`, `feat(ui)` and
+  non-ASCII names like `développement` are legal branches and are accepted. Loaders
+  **preserve** a stored nonconforming value; the heal applies where the value is used,
+  so a stage-1 auto-promote round-trip can never rewrite your configured branch name.
 - A reviewer subagent can no longer mutate the shared index — the guard is scoped to
   the reviewing agents and destructive commands only.
 - A captured runner's exit no longer clears a red test-failure gate: a compound
@@ -46,8 +47,10 @@ design before code. Minor bump: three of these change behavior you may depend on
   suite, and is no longer treated as a green run.
 - Orphan story-branch deletion resolves the **sprint** base rather than main, so a
   branch merged into an open sprint is deletable via the documented path.
-- Plan re-review survives the blocking protocol — the plan marker is no longer
-  consumed on the first pass, so the re-review a blocking finding demands can run.
+- Plan re-review survives the blocking protocol. The marker is still consumed on the
+  first pass; the re-review a blocking finding demands now resolves the plan through
+  the recorded last-plan pointer instead, so it no longer dead-ends on "no plan
+  marker".
 - Teammate spawn recovers when the main checkout holds the target branch. Branch
   creation leaves the checkout on the new branch, so the following `git worktree add`
   failed 128 and the spawn died before the agent started; the only guard was an
@@ -63,7 +66,13 @@ design before code. Minor bump: three of these change behavior you may depend on
 `system_context_schema.py` all crossed or approached the 500-line cap and were split
 along cohesive seams (`_preload_emit.sh`, `_manual_shape_exemption.py`,
 `sprint_capstone.py`, `spawn_args.py`), each an identity re-export with the existing
-tests unchanged as the proof. Full suite green (7297 passed).
+tests unchanged as the proof. Full suite green (7326 passed).
+
+Close-cycle review of this branch found and fixed five further defects before release:
+a newline chain bypassing the reviewer git-mutation guard, a trailing newline making
+a green suite stop clearing the test-failure gate, a `KeyError` that took down the
+`PreToolUse:Bash` hook, an unfilled capstone reporting green, and the ref check above
+rejecting legal branch names.
 
 ## v4.14.6 — Hotfix: close Step 4b runs /code-review via the Workflow tool
 
