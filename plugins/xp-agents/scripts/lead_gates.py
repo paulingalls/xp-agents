@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import assign_scope
 import identity
 import markers
 import sprint_state
@@ -100,7 +101,7 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     gate covers that window.
 
     IN SCOPE means the marker was armed FOR that story. The marker records the
-    stories its plan review covered (markers.format_assign_scope, written by
+    stories its plan review covered (assign_scope.format_assign_scope, written by
     subagent_stop); intersecting against them is what stops a marker that went
     moot from gating an UNRELATED frontier promoted later. Without it the
     self-clearing consume is not enough: the consume needs a lead write to
@@ -132,7 +133,7 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
       * the marker's scope is unreadable, sentinel-less (armed before the format
         existed), names ANOTHER sprint, or is empty -> we cannot say what it was
         armed for -> no intersection at all -> the unscoped behavior -> block.
-        `markers.read_assign_scope` collapses every one of those to None.
+        `assign_scope.read_assign_scope` collapses every one of those to None.
 
     False therefore means the sprint positively says there is nothing to assign,
     never "could not tell".
@@ -158,7 +159,7 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     if not promoted:
         return False  # the stale case — settled without paying for git
 
-    armed = markers.read_assign_scope(smm_dir, sprint_data.get("sprint_id") or "")
+    armed = assign_scope.read_assign_scope(smm_dir, sprint_data.get("sprint_id") or "")
     if armed is not None:
         promoted = [story for story in promoted if story.get("id") in armed]
         if not promoted:
@@ -238,7 +239,7 @@ def check_lead_gates(
     closed on the PREDICATE's side rather than here: the marker records the
     stories it was armed for, so a moot marker no longer matches an unrelated
     frontier even when nothing ever consumed it. See
-    _unspawned_teammate_story_exists and markers.read_assign_scope.
+    _unspawned_teammate_story_exists and assign_scope.read_assign_scope.
 
     *smm_dir* is handed to the probe rather than left to its env fallback: that
     leg reads $SMM_DIR and fails CLOSED without it, which would misread a live

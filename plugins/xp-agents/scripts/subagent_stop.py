@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import append_validation
+import assign_scope
 import concerns
 import coordination
 import identity
@@ -254,7 +255,7 @@ def _handle_plan_review_done(smm_dir: Path, input_data: dict) -> None:
     markers.marker_write(
         smm_dir,
         markers.ASSIGN_PENDING,
-        markers.format_assign_scope(
+        assign_scope.format_assign_scope(
             sprint_data.get("sprint_id") or "",
             [story.get("id", "") for story in promoted],
         ),

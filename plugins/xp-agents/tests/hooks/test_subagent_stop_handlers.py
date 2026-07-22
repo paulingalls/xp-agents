@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
+import assign_scope
 import markers
 import subagent_stop
 from conftest import (
@@ -279,7 +280,7 @@ class TestPlanReviewerArmsScopedMarker(_HookTestCase):
         self._write_sprint([self._teammate("story-001")])
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
         self.assertEqual(
-            markers.read_assign_scope(self.smm_dir, "sprint-042"),
+            assign_scope.read_assign_scope(self.smm_dir, "sprint-042"),
             frozenset({"story-001"}),
         )
 
@@ -288,7 +289,24 @@ class TestPlanReviewerArmsScopedMarker(_HookTestCase):
         and nothing sweeps this marker at a sprint boundary."""
         self._write_sprint([self._teammate("story-001")])
         subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
-        self.assertIsNone(markers.read_assign_scope(self.smm_dir, "sprint-043"))
+        self.assertIsNone(assign_scope.read_assign_scope(self.smm_dir, "sprint-043"))
+
+    def test_an_id_that_cannot_round_trip_arms_no_scope_at_all(self):
+        """The same "ids are unvalidated free strings" fact the sentinel exists
+        for, applied to the ENCODER. An id carrying the list separator decodes
+        as FRAGMENTS that match no story, which empties the intersection — and
+        an empty intersection is the predicate's False, which DELETES a marker
+        the lead still needs. Unencodable ids therefore drop the whole scope:
+        the sentinel-less payload reads as legacy, and legacy stays armed.
+
+        Asserted through the reader (the fail-closed answer is what matters),
+        plus the marker still being ARMED — dropping the scope must not drop
+        the gate.
+        """
+        self._write_sprint([self._teammate("story-001,story-002")])
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.ASSIGN_PENDING))
+        self.assertIsNone(assign_scope.read_assign_scope(self.smm_dir, "sprint-042"))
 
 
 class TestCloseReviewerDone(_HookTestCase):
