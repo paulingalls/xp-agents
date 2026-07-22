@@ -10,11 +10,24 @@ The three additions:
                documented convention. Replaces the classifier-fed
                ## Review Focus handshake table (removed in story-002).
 
+Section 1's removed-behavior angle also carries the story-007 widening: when a
+hunk deletes a name, search the project's tests for it, including in files the
+diff never touched.
+
 Tests are prose pins: the agent is an LLM, so the deterministic guard is the
 prompt prose itself. Sprint-103 attempted similar work and was abandoned at
 close — the cross-language vocabulary guard (test 2 and the §1c anti-leak
 guard) is the load-bearing sprint-104/sprint-113 lesson (CLAUDE.md two-layer
 project-agnostic guardrail).
+
+WHAT THESE PINS DO NOT PROVE. story-007's criteria are about what the reviewer
+DOES when it meets a removal diff — that it finds the orphaned tests, and stays
+quiet when there are none. No prose pin can observe that; only a live review
+can. What is proved here is narrower and worth stating plainly: the instruction
+is present, both of its halves are legible, it is distinguishable from the
+sibling angle it extends, and it names no language. A pin that claimed the
+behavior itself would be a green check certifying something untrue — the same
+error as a test that outlives the thing it tests.
 """
 
 import re
@@ -32,6 +45,11 @@ from _md_helpers import (
 from conftest import _PLUGIN_ROOT
 
 _AGENT_PROMPT = _PLUGIN_ROOT / "agents" / "xp-code-reviewer.md"
+
+# Members of PROJECT_AGNOSTIC_FORBIDDEN_VOCAB whose casing is load-bearing, used
+# by both the helper's contract pin and the §1 mutation proof. See
+# TestProjectAgnosticAssertHelper for why the pair, and not either one alone.
+_MIXED_CASE_VOCAB_MEMBERS = ("ACCEPT_IN_FLIGHT", " LOC")
 
 
 def _section_slice(body: str, start_heading: str, end_heading: str) -> str:
@@ -95,6 +113,91 @@ class TestXpCodeReviewerProse(unittest.TestCase):
             section_1.lower(),
             "Section 1 must not single out Python — agent reviews any language",
         )
+
+    def _removed_behavior_angle(self) -> str:
+        """The removed-behavior angle alone, sliced out of §1's angle list.
+
+        Asserting against the whole of §1 would let the sibling angles satisfy
+        a pin about this one — the vacuous-pass shape story-006's Half-B pins
+        were corrected for. The slice ends at the next angle, `cross-file`.
+        """
+        return _section_slice(self.body, "removed-behavior", "cross-file")
+
+    def test_removed_behavior_angle_searches_beyond_the_changed_files(self):
+        """AC-1: a deleted name's tests are hunted OUTSIDE the diff's own files.
+
+        The reviewer's pre-existing angle reads the diff's own hunks. The gap
+        this pins is what survives elsewhere: the tests of a deleted symbol
+        routinely live in files the diff never opened, where the file-domain
+        collision gate is equally blind.
+        """
+        angle = self._removed_behavior_angle().lower()
+        # The trigger: a hunk deleting a name, not just a deleted guard.
+        self.assertRegex(
+            angle,
+            r"delete[sd]?\b[^.;)]{0,40}\bname\b",
+            "the removed-behavior angle must trigger on a hunk that DELETES A "
+            "NAME, not only on a deleted guard/validation/test",
+        )
+        # The action: go looking, in the project's tests.
+        self.assertRegex(
+            angle,
+            r"\bsearch\b[^.;)]{0,60}\btests\b",
+            "the angle must instruct SEARCHING the project's tests for that "
+            "name — the near half (reading the diff's own hunks) is already "
+            "covered by the pre-existing clause",
+        )
+        # The half that is not already implied: coverage outside the diff.
+        self.assertRegex(
+            angle,
+            r"(never touched|not touched|untouched|outside|elsewhere)",
+            "the angle must widen the search BEYOND the changed files — "
+            "without this half the clause is indistinguishable from the "
+            "removed-behavior sentence that was already there",
+        )
+
+    def test_removed_behavior_angle_states_the_quiet_case(self):
+        """AC-2: nothing is raised when the removal took its tests with it.
+
+        Half a rule invites a reviewer to report every deletion. The clause
+        must make the negative case as legible as the positive one.
+        """
+        angle = self._removed_behavior_angle().lower()
+        # The alternation lists the ways prose says "the tests went along with
+        # the removal". It must stay wide enough that the rewording this
+        # failure message itself suggests would pass — a pin whose message
+        # names a phrasing it then rejects sends the next author in a circle.
+        self.assertRegex(
+            angle,
+            r"\bnothing\b[^.;)]{0,60}(with it|took them|went with|its tests)",
+            "the angle must say to raise NOTHING when the removal deleted its "
+            "tests too — otherwise the instruction reads as 'report every "
+            "deletion'",
+        )
+
+    def test_new_clause_lies_inside_the_vocab_scan(self):
+        """AC-3, by mutation rather than by claim.
+
+        `test_state_lifecycle_angle_is_cross_language` scans all of §1, so it
+        should already cover the new clause — but "should" is what a vacuous
+        guard also says. Injecting a forbidden term into the clause itself and
+        watching the scan go red is the difference between the two.
+
+        Both mixed-case members are injected for the reason documented at
+        `_MIXED_CASE_VOCAB_MEMBERS`: a lowercase probe like `.py` would pass
+        through a degraded scan and prove nothing.
+        """
+        section_1 = _section_slice(self.body, "## 1.", "## 2.")
+        angle = self._removed_behavior_angle()
+        self.assertIn(angle, section_1, "the angle must lie within §1")
+        for term in _MIXED_CASE_VOCAB_MEMBERS:
+            with self.subTest(term=term):
+                mutated = section_1.replace(angle, f"{angle.rstrip()} {term} ")
+                self.assertNotEqual(mutated, section_1, "the injection landed")
+                with self.assertRaisesRegex(
+                    AssertionError, re.escape(f"token: {term!r}")
+                ):
+                    assert_project_agnostic(self, mutated, "Section 1 (mutated)")
 
     def test_section_1b_bounded_self_verify_exists(self):
         """Section 1b stands up the bounded self-verify pass."""
@@ -239,18 +342,17 @@ class TestProjectAgnosticAssertHelper(unittest.TestCase):
     rather than restated as a comment at each call site.
     """
 
-    # The mixed-case members. Merely asserting "it raises" would leave
-    # `ACCEPT_IN_FLIGHT` inert: the tuple lists that name in BOTH casings, so a
-    # lowercasing helper still raises — on the lowercase twin. The assertion
-    # therefore pins WHICH member the failure names, in its raw casing, so a
-    # lowercasing helper goes red on both members rather than only on ` LOC`
-    # (the one member with no twin to cover for it). That the message names the
-    # offending token at all is part of the helper's contract too — a scan that
-    # fails without saying what leaked sends the reader back to the tuple.
-    MIXED_CASE_MEMBERS = ("ACCEPT_IN_FLIGHT", " LOC")
+    # Merely asserting "it raises" would leave `ACCEPT_IN_FLIGHT` inert: the
+    # tuple lists that name in BOTH casings, so a lowercasing helper still
+    # raises — on the lowercase twin. The assertion therefore pins WHICH member
+    # the failure names, in its raw casing, so a lowercasing helper goes red on
+    # both members rather than only on ` LOC` (the one member with no twin to
+    # cover for it). That the message names the offending token at all is part
+    # of the helper's contract too — a scan that fails without saying what
+    # leaked sends the reader back to the tuple.
 
     def test_mixed_case_members_still_fail_through_the_helper(self):
-        for member in self.MIXED_CASE_MEMBERS:
+        for member in _MIXED_CASE_VOCAB_MEMBERS:
             with self.subTest(member=member):
                 self.assertIn(member, PROJECT_AGNOSTIC_FORBIDDEN_VOCAB)
                 with self.assertRaisesRegex(
