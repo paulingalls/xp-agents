@@ -22,6 +22,7 @@ import _common
 import commits
 import concerns
 import identity
+import markers
 import worktree
 from event_schema import (
     METADATA_KEY_COMMIT_HASH,
@@ -136,7 +137,11 @@ _QR_WINDOW_CAP = 30
 
 
 def _check_qr_linkage(
-    events: list[dict], agent_id: str, *, has_code: bool = True
+    events: list[dict],
+    agent_id: str,
+    *,
+    has_code: bool = True,
+    cadence: str = markers.DEFAULT_CADENCE,
 ) -> str | None:
     """Return a warning if no quality-review status since previous commit.
 
@@ -148,8 +153,17 @@ def _check_qr_linkage(
 
     `has_code=False` short-circuits the nudge for doc-only / config-only
     commits — /xp-quality-review only applies to code changes.
+
+    `cadence="story"` also short-circuits: under story cadence, per-commit
+    review is deliberately deferred to /xp-story-close (announced by
+    pre_tool_bash.py's PreToolUse advisory), so demanding it here would
+    contradict that deferral. Silence, not a second deferral message — the
+    nudge exists to catch a *missing* per-commit review, and under story
+    cadence there is no per-commit review to miss.
     """
     if not has_code:
+        return None
+    if cadence == "story":
         return None
     prev_commit_idx: int | None = None
     start = max(0, len(events) - _QR_WINDOW_CAP)
