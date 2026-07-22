@@ -53,6 +53,19 @@ ambiguous"):
   guard: a guardrail against an agent going off its written script -- both
   incidents were a bare `git reset` -- NOT a sandbox against an agent trying to
   evade it. Do not cite it as one.
+
+Measured, not assumed: across every retained transcript for this project since
+this guard went live (roughly a dozen reviewer runs, one sprint), the refused
+shape has been one thing, three times -- `git checkout <path>`, a reviewer
+putting back a file it had itself changed to prove a finding. None of the
+read-only forms this guard's own scope argument turns on above -- `branch`,
+`worktree`, `fetch`, `config` -- were ever attempted; the sample holds zero
+refusals of that shape. In both of those refused reviewers the block did not
+stop the mutation: the reviewer's very next action was a `python3` heredoc
+that rewrote the file anyway. It was not stuck without a route -- it had one,
+just not a sanctioned, reviewable one, and it took it. That CONFIRMS, rather
+than contradicts, the limit stated just above: this guard stops an agent from
+going off its written script, not one that goes looking for a way around it.
 """
 
 import sys
@@ -157,7 +170,11 @@ def reviewer_mutation_block(input_data: dict) -> str | None:
             "during a review — once committing half a split with the suite "
             "still green, once moving a sprint branch back 20 commits. Read "
             "the same information instead: git diff, git log, git show, git "
-            "status, git reflog. If a mutation is genuinely required, report it "
-            "and let the agent that owns the branch perform it."
+            "status, git reflog. If you need to put back a file you changed "
+            "yourself to prove a finding, use your Read and Edit (or Write) "
+            "tools to put its original contents back directly — no git "
+            "subcommand needed. If a mutation to someone else's work is "
+            "genuinely required, report it and let the agent that owns the "
+            "branch perform it."
         )
     return None

@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import _common
 import pre_tool_bash
+import pre_tool_bash_reviewer_guard as reviewer_guard
 from _branching_fixtures import GIT_ENV, init_repo
 from conftest import _HookTestCase, _make_bash_input
 
@@ -152,6 +153,13 @@ class TestMutatingGitIsRefused(_ReviewerGuardCase):
         reason = self._assert_refused("git reset --hard main", _CLOSE_REVIEWER)
         self.assertIn("git diff", reason)
 
+    def test_refusal_names_the_self_restore_route(self):
+        """AC-1/2: pinned on the concrete route, not a word today's hand-off
+        sentence already satisfies vacuously (see story-006)."""
+        reason = self._assert_refused("git checkout moved_to.py", _CODE_REVIEWER)
+        self.assertIn("Edit", reason)
+        self.assertNotIn("git restore", reason)
+
     def test_mutating_subcommand_denied_by_default(self):
         """Deny-by-default is the property that survives an enumeration gap:
         subcommands nobody thought to list are refused because they are absent
@@ -169,6 +177,8 @@ class TestMutatingGitIsRefused(_ReviewerGuardCase):
             "git merge main",
             "git cherry-pick abc123",
             "git config user.email x@y.z",
+            "git checkout some/dir/file.py",
+            "git fetch origin",
         ):
             with self.subTest(command=command):
                 self._assert_refused(command, _CLOSE_REVIEWER)
@@ -350,6 +360,22 @@ class TestSiblingGateRegression(_ReviewerGuardCase):
         )
 
 
+class TestModuleDocstringRecordsMeasurement(_ReviewerGuardCase):
+    """AC-4: only the docstring can honestly record what was refused, its
+    sample, and that read-only forms went unattempted (cf. prose pin style)."""
+
+    _DOC = reviewer_guard.__doc__ or ""
+
+    def test_names_refused_shape_sample_and_unattempted_forms(self):
+        self.assertIn("checkout", self._DOC)
+        self.assertIn("one sprint", self._DOC)
+        self.assertIn("worktree", self._DOC)
+        self.assertIn("zero", self._DOC)
+
+    def test_does_not_claim_the_reviewer_had_no_route(self):
+        self.assertNotIn("had no route", self._DOC.lower())
+
+
 class TestIndexSurvivesEndToEnd(_HookTestCase):
     """AC5, the incident reproduced: a reviewer attempts a destructive reset
     while the lead has work staged, and the index must be left exactly as the
@@ -429,6 +455,14 @@ class TestIndexSurvivesEndToEnd(_HookTestCase):
             staged_before,
             "`git reset` left the index intact — the premise of this guard is wrong",
         )
+
+    def test_self_restore_route_reaches_stderr(self):
+        """AC-5: the route survives the real hook path, not just run()'s return."""
+        self._stage_lead_work()
+        result = self._invoke_hook("git checkout moved_to.py", _CLOSE_REVIEWER)
+
+        self.assertEqual(result.returncode, 2, f"stderr={result.stderr}")
+        self.assertIn("Edit", result.stderr)
 
     def test_read_only_inspection_reaches_the_host_unblocked(self):
         """The allow path over the real entry point: exit 0, nothing on stderr."""
