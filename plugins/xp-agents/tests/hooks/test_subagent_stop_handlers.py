@@ -221,6 +221,76 @@ class TestPlanReviewerDone(_HookTestCase):
         self.assertIsNone(pre_tool_write.run(write_input, smm_dir=self.smm_dir))
 
 
+class TestPlanReviewerArmsScopedMarker(_HookTestCase):
+    """The marker records WHICH stories it was armed for.
+
+    Its payload used to be the reviewer's agent id, which no reader consumed.
+    Scoping it is what lets the assign gate tell a marker armed for THIS plan
+    review from one left over by an earlier, unrelated frontier — see
+    tests/hooks/test_lead_gates_story_scope.py for the reading side.
+
+    The format is spelled out here by hand, not built with the codec: this and
+    the reader's copy are the two ends of the contract, and a codec-built
+    expectation on both sides would let the format drift with both green.
+    """
+
+    def _reviewer_input(self) -> dict:
+        return {
+            "session_id": "t",
+            "agent_id": "plan-reviewer-1",
+            "agent_type": "xp-plan-reviewer",
+            "last_assistant_message": "Plan reviewed.",
+        }
+
+    def _write_sprint(self, stories, sprint_id="sprint-042") -> None:
+        from conftest import _sprint_json
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(stories, sprint_id=sprint_id)
+        )
+
+    @staticmethod
+    def _teammate(story_id: str, status: str = "in-progress") -> dict:
+        from conftest import _s
+
+        return _s(story_id, f"Story {story_id}", status, execution_mode="teammate")
+
+    def test_payload_carries_the_sentinel_sprint_and_promoted_ids(self):
+        """Only the PROMOTED teammate stories: a scheduled one has no teammate
+        to spawn yet, and a solo one never will."""
+        self._write_sprint(
+            [
+                self._teammate("story-001"),
+                self._teammate("story-002"),
+                self._teammate("story-003", status="scheduled"),
+                {**self._teammate("story-004"), "execution_mode": "solo"},
+            ]
+        )
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertEqual(
+            (self.smm_dir / ".assign-pending").read_text(),
+            "sprint=sprint-042;stories=story-001,story-002",
+        )
+
+    def test_the_just_planned_story_is_always_in_scope(self):
+        """The invariant that keeps the normal path from arming an empty scope:
+        at plan-review-done the just-planned story is in-progress and delegated,
+        so it is promoted by construction."""
+        self._write_sprint([self._teammate("story-001")])
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertEqual(
+            markers.read_assign_scope(self.smm_dir, "sprint-042"),
+            frozenset({"story-001"}),
+        )
+
+    def test_the_reader_rejects_the_payload_under_another_sprint(self):
+        """Ties the recorded sprint id to its purpose: ids repeat every sprint
+        and nothing sweeps this marker at a sprint boundary."""
+        self._write_sprint([self._teammate("story-001")])
+        subagent_stop.run(self._reviewer_input(), smm_dir=self.smm_dir)
+        self.assertIsNone(markers.read_assign_scope(self.smm_dir, "sprint-043"))
+
+
 class TestCloseReviewerDone(_HookTestCase):
     """subagent_stop._handle_close_reviewer_done consumes CLOSE_CYCLE_ACTIVE.
 
