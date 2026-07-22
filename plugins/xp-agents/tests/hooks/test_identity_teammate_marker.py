@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
 import identity
 import worktree
 from conftest import _HookTestCase
@@ -77,11 +78,39 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
             self.assertTrue(identity.is_worktree_teammate(_MAIN_CWD))
 
     def test_teammate_env_no_resolvable_smm_dir_is_not_teammate(self):
-        """Teammate-shaped env but no smm_dir param and no SMM_DIR env → cannot
-        verify a marker → not a teammate (conservative)."""
+        """AC3 (story-003): teammate-shaped env but the validated resolver
+        cannot produce a directory (no param, no SMM_DIR, and init.sh derives
+        nothing) → cannot verify a marker → not a teammate (fails closed).
+        Mocks the resolver directly rather than relying on the ambient repo
+        having no derivable SMM dir, which self-resolution would otherwise
+        make this test depend on."""
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
+            with patch.object(_common, "get_validated_smm_dir", return_value=None):
+                self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
+
+    def test_self_resolves_dir_when_param_and_env_both_absent(self):
+        """AC1 (story-003): no smm_dir param, no SMM_DIR env — is_worktree_teammate
+        now self-resolves through the same validated resolver every hook shares
+        (mocked here to stand in for init.sh derivation), where before this
+        story it returned False outright. A live marker there is detected."""
+        worktree.claim_in_place_marker(self.smm_dir, _TEAMMATE)
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
+            os.environ.pop("SMM_DIR", None)
+            with patch.object(
+                _common, "get_validated_smm_dir", return_value=self.smm_dir
+            ) as mock_resolve:
+                self.assertTrue(identity.is_worktree_teammate(_MAIN_CWD))
+            mock_resolve.assert_called_once_with(None)
+
+    def test_no_env_var_never_resolves_smm_dir(self):
+        """AC4 (story-003): with no XP_TEAMMATE_NAME, the lead's hot path pays
+        no subprocess — pinned via call count, not vacuously."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            with patch.object(_common, "get_validated_smm_dir") as mock_resolve:
+                self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
+            mock_resolve.assert_not_called()
 
     def test_worktree_teammate_null_cwd_detected_via_process_cwd(self):
         """A WORKTREE teammate whose hook payload carries no cwd is still a
