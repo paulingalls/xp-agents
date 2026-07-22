@@ -12,11 +12,13 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import _common
 import sprint_store
 import triage
+import work_signals
 
 # Re-export for backward compat — canonical impl lives in smm/triage.py
 extract_file_domain_paths = triage.extract_file_domain_paths
@@ -163,26 +165,19 @@ def _attribute_commits(
 
 
 def _per_agent_event_counts(events: list[dict], started: str) -> dict:
-    """Count max events-to-commit per agent within the sprint window."""
-    counters: dict[str, int] = {}
-    maxima: dict[str, int] = {}
+    """Per-agent batch sizes within the sprint window, for retro prose.
 
-    for e in events:
-        if e.get("ts", "")[:10] < started:
-            continue
-        agent_id = e.get("agent_id", "main")
-        if e.get("type") == _common.COMMIT:
-            cur = counters.get(agent_id, 0)
-            maxima[agent_id] = max(maxima.get(agent_id, 0), cur)
-            counters[agent_id] = 0
-        else:
-            counters[agent_id] = counters.get(agent_id, 0) + 1
-
-    for agent_id, cur in counters.items():
-        maxima[agent_id] = max(maxima.get(agent_id, 0), cur)
-
+    Delegates to work_signals.batch_sizes_per_agent, which owns the
+    definition of `max_events_to_commit`. This module used to compute its
+    own — every non-commit event since the previous commit, no first-edit
+    anchor, and a trailing flush that handed a batch size to the 45 agent
+    ids that never commit at all. The retro then printed that number under
+    the same name the flag used for a different quantity (story-010).
+    """
+    in_window = [e for e in events if e.get("ts", "")[:10] >= started]
     return {
-        agent_id: {"max_events_to_commit": count} for agent_id, count in maxima.items()
+        agent_id: {"max_events_to_commit": count}
+        for agent_id, count in work_signals.batch_sizes_per_agent(in_window).items()
     }
 
 

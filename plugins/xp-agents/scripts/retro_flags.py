@@ -35,6 +35,43 @@ _FLAG_SUPPRESSIONS: dict[str, str] = {
     "max_events_to_commit": "retro-try-kickoff-exemption",
 }
 
+# --- batch-size flag: threshold and its provenance (story-010) -------------
+#
+# The batch counter (work_signals.batch_sizes_per_agent) measures ONE agent's
+# events from its first code edit through its own next commit, excluding
+# test-run telemetry. The threshold below is derived from that counter's own
+# output, not inherited.
+#
+# The previous 75 was carried over from an era when the counter summed every
+# agent's events into one global stream. Re-instrumented, the same log peaks
+# at 28 — so 75 could never fire again, and a flag that cannot fire is as
+# dishonest as one that always does.
+#
+# Which mechanism keeps this flag quiet, after this change? The THRESHOLD.
+# The `retro-try-kickoff-exemption` suppression above is now the secondary
+# path: it only engages when that decision is active, whereas the
+# re-baselined threshold governs every ordinary session. A future reader
+# finding the flag quiet should look here first, not at the suppression.
+BATCH_THRESHOLD_BASIS = {
+    "source": "xp-agents SMM events.jsonl, the retro's own `unanalyzed` slice",
+    "events": 604,
+    # Every batch interval that closed in that slice, measured with the
+    # post-story-010 counter.
+    "closed_intervals": [5, 6, 12, 13, 14, 17, 20, 28],
+    "caveat": (
+        "n=8 closed intervals from a post-compaction log covering one "
+        "sprint of this project — a small, single-project sample. Re-measure "
+        "before trusting it as a cross-project default."
+    ),
+}
+
+# Sits above the sample's p90 (20) and at/below its max (28): quiet on
+# ordinary work, still reachable by the worst batch actually observed.
+# test_retro_flags_batch.TestBatchThresholdProvenance holds the number inside
+# that band — it does not freeze the exact value, but a bump outside what the
+# recorded sample supports goes red until the sample is re-measured too.
+MAX_EVENTS_TO_COMMIT_THRESHOLD = 25
+
 # Fraction of decision events with metadata.action="explicit_zero" above
 # which the retro flags "we keep declining to record decisions" (Honesty lens).
 ZERO_DECISION_RATE_THRESHOLD = 0.5
@@ -146,17 +183,25 @@ def evaluate_flags(
         )
 
     events_to_commit = work_signals.get("max_events_to_commit", 0)
-    if events_to_commit >= 75:
+    if events_to_commit >= MAX_EVENTS_TO_COMMIT_THRESHOLD:
         suppressor = _FLAG_SUPPRESSIONS.get("max_events_to_commit")
         if not (suppressor and suppressor in active_decisions):
+            # Written from the counter, not from intent: it measures one
+            # agent's own events, anchored at that agent's first code edit,
+            # closed by that agent's own commit, with test runs excluded.
+            # Naming the agent is what makes "commit sooner" actionable —
+            # the reader knows whose batch this was.
+            batch_agent = work_signals.get("max_events_to_commit_agent") or "one agent"
             flags.append(
                 _flag(
                     "max_events_to_commit",
                     events_to_commit,
-                    75,
+                    MAX_EVENTS_TO_COMMIT_THRESHOLD,
                     "Simplicity",
-                    f"Large batch: {events_to_commit} events between "
-                    f"first edit and commit (threshold: 75)",
+                    f"Large batch: {batch_agent} accumulated "
+                    f"{events_to_commit} events between its first code edit "
+                    f"and its own commit, excluding test runs "
+                    f"(threshold: {MAX_EVENTS_TO_COMMIT_THRESHOLD})",
                 )
             )
 

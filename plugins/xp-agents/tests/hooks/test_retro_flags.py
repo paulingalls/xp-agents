@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for retro_flags: deterministic threshold evaluation."""
+"""Tests for retro_flags: deterministic threshold evaluation.
+
+The batch-size flag (`max_events_to_commit`) — its threshold, that
+threshold's provenance, its message wording, and its decision-aware
+suppression — lives in test_retro_flags_batch.py, which imports
+`_healthy_signals` from here.
+"""
 
 import json
 import sys
@@ -33,7 +39,11 @@ def _healthy_signals():
         "concerns_addressed_by_commits": 2,
         "unaddressed_concerns": 0,
         "max_consecutive_test_failures": 1,
-        "max_events_to_commit": 30,
+        # story-010 re-pin: 30 was healthy against the inherited 75. Under the
+        # re-baselined threshold it is not — 12 sits near the measured median
+        # of the batch distribution the threshold was derived from.
+        "max_events_to_commit": 12,
+        "max_events_to_commit_agent": "worktree-story-001",
     }
     status = {
         "quality_reviews": 3,
@@ -176,22 +186,6 @@ class TestUnaddressedConcerns(unittest.TestCase):
         self.assertIn("unaddressed_concerns", names)
 
 
-class TestEventsToCommit(unittest.TestCase):
-    def test_fires_at_threshold(self):
-        h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 75
-        flags = retro_flags.evaluate_flags(h, w, s, ss)
-        names = [f["metric"] for f in flags]
-        self.assertIn("max_events_to_commit", names)
-
-    def test_below_threshold(self):
-        h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 74
-        flags = retro_flags.evaluate_flags(h, w, s, ss)
-        names = [f["metric"] for f in flags]
-        self.assertNotIn("max_events_to_commit", names)
-
-
 class TestConsecutiveTestFailures(unittest.TestCase):
     def test_fires_at_threshold(self):
         h, w, s, ss = _healthy_signals()
@@ -326,51 +320,6 @@ class TestFlagStructure(unittest.TestCase):
         w["max_events_to_commit"] = 80
         flags = retro_flags.evaluate_flags(h, w, s, ss)
         self.assertEqual(flags[0]["category"], "fix")
-
-
-class TestDecisionAwareSuppression(unittest.TestCase):
-    def test_max_events_to_commit_suppressed_by_decision(self):
-        h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 80
-        flags = retro_flags.evaluate_flags(
-            h, w, s, ss, decisions=["retro-try-kickoff-exemption"]
-        )
-        names = [f["metric"] for f in flags]
-        self.assertNotIn("max_events_to_commit", names)
-
-    def test_unrelated_decision_does_not_suppress(self):
-        h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 80
-        flags = retro_flags.evaluate_flags(
-            h, w, s, ss, decisions=["retro-try-something-else"]
-        )
-        names = [f["metric"] for f in flags]
-        self.assertIn("max_events_to_commit", names)
-
-    def test_other_flags_unaffected_by_kickoff_decision(self):
-        h, w, s, ss = _healthy_signals()
-        w["unaddressed_concerns"] = 2
-        w["max_events_to_commit"] = 80
-        flags = retro_flags.evaluate_flags(
-            h, w, s, ss, decisions=["retro-try-kickoff-exemption"]
-        )
-        names = [f["metric"] for f in flags]
-        self.assertNotIn("max_events_to_commit", names)
-        self.assertIn("unaddressed_concerns", names)
-
-    def test_backward_compat_no_decisions_param(self):
-        h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 80
-        flags = retro_flags.evaluate_flags(h, w, s, ss)
-        names = [f["metric"] for f in flags]
-        self.assertIn("max_events_to_commit", names)
-
-    def test_empty_decisions_list_no_suppression(self):
-        h, w, s, ss = _healthy_signals()
-        w["max_events_to_commit"] = 80
-        flags = retro_flags.evaluate_flags(h, w, s, ss, decisions=[])
-        names = [f["metric"] for f in flags]
-        self.assertIn("max_events_to_commit", names)
 
 
 def _decision(action: str | None = None) -> dict:
