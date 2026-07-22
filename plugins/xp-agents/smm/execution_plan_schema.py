@@ -74,13 +74,24 @@ def usable_git_ref_name(value: object) -> TypeGuard[str]:
         return False
     if value.startswith("/") or value.endswith("/") or "//" in value:
         return False
+    # Whole-value, NOT per-component: git rejects a ref that ENDS in a dot, but
+    # `foo./bar` is valid (verified against `git check-ref-format`). Applying
+    # this per component over-rejected a legal branch.
+    if value.endswith("."):
+        return False
+    # `HEAD` clears check-ref-format as a ref PATH, but `--branch HEAD` is "not
+    # a valid branch name" — and an integration_branch of HEAD would detach on
+    # checkout and no-op every merge, which is the argv-hazard class the
+    # leading-dash refusal above exists for.
+    if value == "HEAD":
+        return False
     # Per-component rules: no leading dot, no `.lock` suffix, no empty part.
     return all(
         part
         and not part.startswith(".")
         # lang-ok: git's own reserved ref suffix per check-ref-format, not a
         # source-file extension — identical for every language a project uses.
-        and not part.endswith((".", ".lock"))
+        and not part.endswith(".lock")
         for part in value.split("/")
     )
 

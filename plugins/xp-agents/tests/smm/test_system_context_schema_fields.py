@@ -76,6 +76,19 @@ class TestUsableGitRefName(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(usable_git_ref_name(name))
 
+    def test_matches_git_on_the_dot_and_HEAD_edges(self) -> None:
+        """Both verified against real `git check-ref-format`, not from memory.
+
+        `foo./bar` is VALID to git: only the ref AS A WHOLE may not end in a
+        dot, so a per-component trailing-dot rule over-rejects. `HEAD` passes
+        `check-ref-format` as a ref PATH but `--branch HEAD` is "not a valid
+        branch name" — and an integration_branch of HEAD would detach on
+        checkout and no-op merges, the same argv-hazard class the leading-dash
+        refusal exists for.
+        """
+        self.assertTrue(usable_git_ref_name("foo./bar"))
+        self.assertFalse(usable_git_ref_name("HEAD"))
+
     def test_still_rejects_what_git_itself_refuses(self) -> None:
         """Widening must not become "anything goes": these are the forms
         `git check-ref-format` rejects, plus the leading dash that reaches
