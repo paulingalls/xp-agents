@@ -33,7 +33,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if not events:
         return None
 
-    signal = tdd_check.find_last_test_signal(events, input_data.get("cwd", "."))
+    signal = tdd_check.find_last_test_signal(
+        events, input_data.get("cwd", "."), smm_dir
+    )
     if signal == "fail":
         agent_id = input_data.get("agent_id", "")
         if coordination.has_active_teammates(smm_dir, agent_id):

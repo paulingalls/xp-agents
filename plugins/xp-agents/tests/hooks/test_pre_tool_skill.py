@@ -111,6 +111,41 @@ class TestTeammateLifecycleGate(_HookTestCase):
             )
         self._assert_not_none(reason)
 
+    def test_in_place_teammate_env_leg_delegates_to_shared_helper(self):
+        """story-003: _is_live_teammate's env leg now delegates to
+        identity.in_place_teammate_name (the same helper is_worktree_teammate
+        and tdd_check._reader_scope use) instead of hand-rolling
+        _common.get_validated_smm_dir + worktree.in_place_teammate_from_env."""
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "worktree-story-008"}):
+            with patch(
+                "identity.in_place_teammate_name", return_value="worktree-story-008"
+            ) as mock_shared:
+                reason = pre_tool_skill.teammate_block_reason(
+                    _make_skill_input("xp-sprint-close", cwd="/home/user/project"),
+                    smm_dir=self.smm_dir,
+                )
+            mock_shared.assert_called_once_with(self.smm_dir)
+        self._assert_not_none(reason)
+
+    def test_lead_with_a_worktree_process_cwd_not_blocked(self):
+        """The shared helper carries no cwd leg, so `_is_live_teammate` still
+        keys on the hook-supplied `cwd` ALONE — deliberately unlike
+        `is_worktree_teammate`'s `os.getcwd()` fallback. A lead whose PROCESS
+        cwd happens to sit in a worktree (running a script from there) must not
+        be locked out of lead-owned skills. conftest pins `_process_cwd` to '',
+        so opt back in here."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            with patch(
+                "identity._process_cwd",
+                return_value="/tmp/wt/worktree-story-008",
+            ):
+                reason = pre_tool_skill.teammate_block_reason(
+                    _make_skill_input("xp-accept", cwd="/home/user/project"),
+                    smm_dir=self.smm_dir,
+                )
+        self.assertIsNone(reason)
+
     def test_leaked_env_lead_not_blocked(self):
         """A lead with a LEAKED XP_TEAMMATE_NAME but NO live in-place marker is
         NOT a teammate — it must not be locked out of lead-owned skills. Mirrors

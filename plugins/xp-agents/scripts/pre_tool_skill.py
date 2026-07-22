@@ -18,7 +18,6 @@ import identity
 import sprint_state
 import sprint_store
 import target_routing
-import worktree
 
 _CODE_REVIEW_COURAGE = (
     "Courage means doing the right thing even when it's uncomfortable. "
@@ -77,23 +76,19 @@ def _is_live_teammate(input_data: dict, smm_dir: Path | None) -> bool:
     """True only for a GENUINE live CLI teammate — not a lead with a leaked env.
 
     A worktree teammate is identified by its cwd path marker (non-leaky). An
-    in-place teammate shares the main checkout, so it is recovered from
-    XP_TEAMMATE_NAME — a documented leaky var — and trusted ONLY when the
-    lifetime-scoped in-place marker spawn_teammate writes is live (the same
-    guard commit_handling uses for attribution). Without that marker, a lead
-    that inherited a leaked var is NOT a teammate and must not be locked out of
+    in-place teammate shares the main checkout, so it is recovered via
+    ``identity.in_place_teammate_name`` — the shared marker-guarded
+    XP_TEAMMATE_NAME helper that also backs ``identity.is_worktree_teammate``
+    and ``tdd_check._reader_scope`` — trusted ONLY when the lifetime-scoped
+    in-place marker spawn_teammate writes is live (the same guard
+    commit_handling uses for attribution). Without that marker, a lead that
+    inherited a leaked var is NOT a teammate and must not be locked out of
     lead-owned skills.
     """
     cwd_name = identity.extract_worktree_name(input_data.get("cwd", ""))
     if cwd_name and identity.is_teammate_agent_id(cwd_name):
         return True
-    env_name = identity.teammate_name_from_env()
-    if env_name is None or not identity.is_teammate_agent_id(env_name):
-        return False
-    smm_dir = _common.get_validated_smm_dir(smm_dir)
-    return smm_dir is not None and worktree.in_place_teammate_from_env(
-        smm_dir, env_name
-    )
+    return identity.in_place_teammate_name(smm_dir) is not None
 
 
 def teammate_block_reason(input_data: dict, smm_dir: Path | None = None) -> str | None:

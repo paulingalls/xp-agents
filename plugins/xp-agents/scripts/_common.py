@@ -25,7 +25,7 @@ from _append_impl import (
     write_json_atomic as _write_json_atomic,
 )
 from append_validation import validate_smm_dir
-from hook_io import (  # noqa: F401 — re-exported by identity for hook scripts
+from hook_io import (  # noqa: F401 — re-exported by _common for hook scripts
     BlockedError,
     block_output,
     hook_output,
@@ -165,9 +165,11 @@ def subagent_completed_content(agent_id: str) -> str:
 def resolve_smm_dir() -> Path | None:
     """Return the SMM directory or None. Delegates to _append_impl.
 
-    Caching lives in _append_impl on the slow part only (init.sh subprocess
-    via _derive_smm_dir). The env-var read happens on every call so tests
-    that pin SMM_DIR see fresh values without manual cache busts.
+    NOTHING here is cached — neither the env-var read nor the init.sh
+    subprocess in `_derive_smm_dir` (see its own docstring: a process-local
+    cache is unsafe when derivation depends on cwd/env tests may mutate, and
+    each hook is a fresh `python3` so it would never hit anyway). Callers on a
+    hot path should resolve ONCE and thread the result, not re-call.
 
     Note: when $SMM_DIR is unset and derivation runs, init.sh creates/seeds
     the SMM directory if it doesn't exist (first-call side effect). When
@@ -177,7 +179,7 @@ def resolve_smm_dir() -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Hook I/O — see hook_io.py (re-exported above by identity)
+# Hook I/O — see hook_io.py (re-exported above by this module)
 # ---------------------------------------------------------------------------
 
 
