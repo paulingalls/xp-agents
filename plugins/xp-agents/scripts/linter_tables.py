@@ -28,6 +28,8 @@ LOAD-BEARING CONSTRAINT: this module must never import from `linters` (no
 circular import) — it is pure data, imported DOWN into `linters`.
 """
 
+from typing import NamedTuple
+
 LINTER_CONFIGS = [
     # (config_pattern, linter_name, check_content)
     # Python
@@ -269,8 +271,8 @@ LINTER_CONFIG_FLAGS: dict[str, list[str]] = {
 
 # COLUMN: config-style flags. An option a CLI accepts only in ONE of its own config
 # MODES, and only from some VERSION on — keyed by the config FILE, because the file is
-# what selects the mode. Each row carries the flags, the minimum version that accepts
-# them (None = every version), and how that binary reports its version.
+# what selects the mode. Each row carries the flags and the exit code that means "I do
+# not understand that option"; deliberately NOT a version, for the reason below.
 #
 # Why the gate needs it at all: `LINTER_STRICT_FLAGS` ships eslint `--max-warnings=0`
 # so warn-level rules block. eslint reports "File ignored because of a matching ignore
@@ -320,26 +322,39 @@ LINTER_CONFIG_FLAGS: dict[str, list[str]] = {
 # warn-level violation goes exit 1 -> exit 0; errors still exit 1). That trade was
 # declined: it would cost every eslintrc project its warn-level gate permanently to
 # fix a block that only fires when an ignore-matched file is staged. Pinned by
-# tests/hooks/test_lint_detection_linter_table.py::TestEslintrcCarriesNoConfigStyleFlag.
+# tests/hooks/test_lint_config_style_flags.py::TestEslintrcCarriesNoConfigStyleFlag.
 #
 # Structural, by the same test as the columns above: the row is the flag's own `--help`
-# line plus which config file enables it and from which version. No rule name, in any
-# language; the version is compared numerically, never matched per tool. The
-# alternative — reading eslint's message text — is a rule map by another name.
+# line plus which config file enables it, and an exit code. No rule name, in any
+# language. The alternative — reading eslint's message text — is a rule map by another
+# name.
 #
 # An absent row adds nothing, which is why an unknown config style is safe by default,
-# and why every failure to determine a version resolves to "no flag": the tool is
+# and why every way of failing to place a flag resolves to "no flag": the tool is
 # invoked exactly as it is today.
-_ESLINT_FLAT_IGNORE_ROW: dict[str, object] = {
-    "flags": ["--no-warn-ignored"],
-    # The exit code this CLI uses for "I do not understand that option", which is
-    # the ONLY code that earns a retry without the optional flags. Structural, and
-    # per-row because the convention is per-tool, not per-language. Omit the key and
-    # the flags are simply always passed — same behavior as before this column.
-    "usage_error_exit_code": 2,
-}
+class ConfigStyleRow(NamedTuple):
+    """One config style's optional flags, and how its CLI rejects an option.
 
-CONFIG_STYLE_FLAGS: dict[str, dict[str, object]] = {
+    A tuple, not a dict, for two reasons: the fields are a fixed shape a type
+    checker can hold the literals to, and the row is IMMUTABLE — the same object is
+    shared by every filename that selects the same config style, so a mutable row
+    would let one caller's edit reach all of them.
+    """
+
+    flags: tuple[str, ...]
+    # The exit code this CLI uses for "I do not understand that option", which is the
+    # ONLY code that earns a retry without the optional flags. Structural, and per-row
+    # because the convention is per-tool, not per-language. Leave it None and the
+    # flags are simply always passed — same behavior as before this column.
+    usage_error_exit_code: int | None = None
+
+
+_ESLINT_FLAT_IGNORE_ROW = ConfigStyleRow(
+    flags=("--no-warn-ignored",),
+    usage_error_exit_code=2,
+)
+
+CONFIG_STYLE_FLAGS: dict[str, ConfigStyleRow] = {
     "eslint.config.js": _ESLINT_FLAT_IGNORE_ROW,
     "eslint.config.mjs": _ESLINT_FLAT_IGNORE_ROW,
     "eslint.config.ts": _ESLINT_FLAT_IGNORE_ROW,

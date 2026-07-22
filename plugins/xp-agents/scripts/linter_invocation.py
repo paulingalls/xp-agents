@@ -68,10 +68,7 @@ def _config_style_flags(config_path: str | None) -> list[str]:
     if not config_path:
         return []
     row = CONFIG_STYLE_FLAGS.get(Path(config_path).name)
-    if not row:
-        return []
-    raw_flags = row.get("flags")
-    return [str(flag) for flag in raw_flags] if isinstance(raw_flags, list) else []
+    return list(row.flags) if row is not None else []
 
 
 def optional_flag_retry(
@@ -96,9 +93,7 @@ def optional_flag_retry(
     if not config_path:
         return None
     row = CONFIG_STYLE_FLAGS.get(Path(config_path).name)
-    if not row:
-        return None
-    if row.get("usage_error_exit_code") != returncode:
+    if row is None or row.usage_error_exit_code != returncode:
         return None
     optional = _config_style_flags(config_path)
     if not optional or not any(flag in argv for flag in optional):

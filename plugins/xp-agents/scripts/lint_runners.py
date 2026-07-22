@@ -10,11 +10,19 @@ callers (staged_lint.py, lint_resolution.py, tests) that reach them as
 import re
 import shutil
 import subprocess
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, TypeVar
 
 import linters
 from linters import LINTER_BINARIES, LINTER_EXTENSIONS
+
+# Text mode or binary mode, whichever the caller's own `run` chose — the retry
+# helper never touches the streams, so it hands back exactly what it was given.
+_Proc = TypeVar(
+    "_Proc", subprocess.CompletedProcess[str], subprocess.CompletedProcess[bytes]
+)
 
 # Edit-time, per-file (run_linter). Deliberately short: this path is
 # interactive, and its timeout is HARMLESS — it returns None, so a slow linter
@@ -143,11 +151,12 @@ def run_linter(
         result = _run_with_optional_flag_retry(
             cmd,
             config_path,
-            lambda argv: subprocess.run(
+            LINTER_BASE_TIMEOUT_S,
+            lambda argv, timeout: subprocess.run(
                 argv,
                 capture_output=True,
                 text=True,
-                timeout=LINTER_BASE_TIMEOUT_S,
+                timeout=timeout,
                 cwd=cwd,
             ),
         )
@@ -162,7 +171,12 @@ def run_linter(
     return None
 
 
-def _run_with_optional_flag_retry(cmd, config_path, run):
+def _run_with_optional_flag_retry(
+    cmd: list[str],
+    config_path: str | None,
+    timeout: float,
+    run: Callable[[list[str], float], _Proc],
+) -> _Proc:
     """Run `cmd` via `run`, retrying once without this row's OPTIONAL flags.
 
     The config-style flags are the only optional part of a composed argv. A tool
@@ -173,10 +187,21 @@ def _run_with_optional_flag_retry(cmd, config_path, run):
     Only the row's declared usage-error exit code earns the retry: MEASURED (eslint
     8.57.1) findings exit 1 and an unsupported flag exits 2, so an ordinary lint
     failure never pays for a second process. See CONFIG_STYLE_FLAGS.
+
+    `timeout` is the budget for BOTH runs together, and the retry gets only what the
+    first one left. A fresh full timeout would let one batch spend 2x its slice of
+    the gate's shared wall clock — the same N-fold breach BATCH_TIMEOUT_CAP_S exists
+    to bound, and past the harness's hook timeout the gate does not fail closed, it
+    fails OPEN. Nothing left means no retry: the first result stands, and a rejected
+    flag reported as findings still BLOCKS, which is the safe direction.
     """
-    result = run(cmd)
+    started = time.monotonic()
+    result = run(cmd, timeout)
     retry_cmd = linters.optional_flag_retry(cmd, config_path, result.returncode)
-    return run(retry_cmd) if retry_cmd is not None else result
+    if retry_cmd is None:
+        return result
+    remaining = timeout - (time.monotonic() - started)
+    return run(retry_cmd, remaining) if remaining > 0 else result
 
 
 def run_ruff(file_path: str | Path, *, cwd: str | None = None) -> tuple[list[str], str]:
@@ -327,11 +352,12 @@ def run_linter_batch(
         proc = _run_with_optional_flag_retry(
             cmd,
             config_path,
-            lambda argv: subprocess.run(
+            timeout,
+            lambda argv, budget: subprocess.run(
                 argv,
                 capture_output=True,
                 text=True,
-                timeout=timeout,
+                timeout=budget,
                 cwd=cwd,
             ),
         )
@@ -427,11 +453,12 @@ def run_linter_stdin(
         proc = _run_with_optional_flag_retry(
             cmd,
             config_path,
-            lambda argv: subprocess.run(
+            timeout,
+            lambda argv, budget: subprocess.run(
                 argv,
                 capture_output=True,
                 input=blob,
-                timeout=timeout,
+                timeout=budget,
                 cwd=cwd,
             ),
         )
