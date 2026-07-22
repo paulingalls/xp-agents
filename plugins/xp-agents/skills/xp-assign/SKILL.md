@@ -33,17 +33,12 @@ allowed-tools:
 > The lead loops externally (plan → /xp-review-plan → /xp-assign, repeat per
 > story). Independent read-only calls may still batch.
 
-/xp-assign is the **universal per-story execution-shape decision**: for one
-story, it reads the session default tier and the plan-reviewer's
-recommendation and decides whether to run the work in-agent (no spawn) or to
-spawn a teammate, and at which tier. It is valid for both solo and parallel
-frontiers — the decision is the same shape either way; only the spawn outcome
-differs. The structural decide-half (solo vs parallel, promotion, solo branch)
-still belongs to `/xp-schedule`: for parallel frontiers, by the time xp-assign
-runs `/xp-schedule` has already promoted the batch to `in-progress` with
-`execution_mode=teammate` and the preload lists them as `TEAMMATE_STORY_IDS`.
-The lead per-story plans→reviews→assigns one story at a time; each /xp-assign
-run resolves the lowest-id un-spawned story in the batch and exits.
+/xp-assign makes the **per-story execution-shape decision** — in-agent (no
+spawn) or one teammate spawn, and at which tier — the same shape on solo and
+parallel frontiers; only the outcome differs. The structural decide-half (solo
+vs parallel, promotion, solo branch) belongs to `/xp-schedule`: by the time
+xp-assign runs it has promoted the batch to `in-progress` with
+`execution_mode=teammate`, which the preload lists as `TEAMMATE_STORY_IDS`.
 
 **Parallelism shape:** earlier teammates run asynchronously while the
 lead plans the next story (the Bash `run_in_background=true`). The
@@ -61,8 +56,10 @@ background sits empty for a whole close cycle.
 3. If `SPRINT_FILE` provided, read it for story context (optional — status tracking only).
 4. **Mode + target — solo-first.** If `SOLO_TARGET` is non-empty → solo frontier (`MODE=solo`); set `TARGET=$SOLO_TARGET` and skip step 5 (no worktree to look up). Else if `TEAMMATE_STORY_IDS` is non-empty → teammate batch (`MODE=teammate`); resolve `TARGET` via step 5. Else nothing to assign — stop.
 
-   **A live solo story drains: there is no fall-through to the batch.** While it is in-progress every invocation targets it, and the batch resumes only once it is accepted — a teammate spawn checks out the base branch (step 2) in the main checkout an in-place solo teammate is concurrently committing in. It is the one place the **plan → SPAWN → accept** precedence yields: re-invoking while its spawn runs only earns that spawn's refusal, so its accept comes first.
-5. **Target lookup (teammate batch only).** When `MODE=teammate`, find the lowest-id story in `TEAMMATE_STORY_IDS` whose teammate worktree is NOT yet live:
+   **A live solo story drains: while `SOLO_TARGET` names one there is no fall-through to the batch.** Every invocation targets it until it is accepted — a teammate spawn checks out the base branch (step 2) in the main checkout an in-place solo teammate is concurrently committing in. It is the one place the **plan → SPAWN → accept** precedence yields: re-invoking during its spawn only earns that spawn's refusal, and re-invoking after it EXITS re-runs the finished story (the exclusive claim is released at exit) — so its accept comes first.
+
+   **The hole: >1 in-progress solo story.** The preload cannot pick one, so `SOLO_TARGET` arrives empty — indistinguishable from "no solo story", and this step would select the batch and check out that base anyway. Empty is NOT proof the drain is over: before selecting the batch, confirm `SPRINT_FILE` shows no `in-progress` + `execution_mode=solo` story; reconcile one that is (accept or defer) rather than spawn into its checkout.
+5. **Target lookup (teammate batch only).** When `MODE=teammate`, resolve the lowest-id un-spawned story in `TEAMMATE_STORY_IDS` — the first whose teammate worktree is not yet live:
    ```bash
    TARGET=""
    for sid in $TEAMMATE_STORY_IDS; do
@@ -76,9 +73,9 @@ background sits empty for a whole close cycle.
    ```
    If `TARGET` is empty — every teammate in the batch is already spawned. Output "All teammates spawned; /xp-accept each as it lands." Stop.
 
-   The auto-detect assumes the lead plans stories in id order. If you need to spawn out-of-order, plan + /xp-review-plan + /xp-assign one story at a time — never plan multiple stories then call /xp-assign repeatedly, or the wrong plan will be paired with the wrong story.
+   The auto-detect assumes the lead plans stories in id order. To spawn out-of-order, plan + review + assign one story at a time — planning several, then calling /xp-assign repeatedly, pairs the wrong plan with the wrong story.
 
-   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE distinct cases: (a) story is genuinely un-spawned (correct target), (b) earlier spawn crashed before worktree-create (story still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`, not still in-progress). Cases (a) and (b) are both "spawn it"; only (c) has to be ruled out, and `git branch --merged "$BASE"` (Step 2's base) is the check: if it lists the story's branch, that story is finished but left in-progress — **ask the user** whether to close it or re-spawn; don't silently re-target. A live duplicate cannot hide behind the empty result: a live worktree teammate HAS a worktree, so this lookup finds it and never targets that story, and an in-place teammate — which never has one — is refused by the spawn's exclusive per-name claim (non-zero exit, never a second agent in one checkout).
+   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE distinct cases: (a) story is genuinely un-spawned (correct target), (b) earlier spawn crashed before worktree-create (story still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`, not still in-progress). Only (a) is "spawn it", and sprint.json's `branch_name` discriminates: null → no branch was ever cut → (a); non-null → Step 2 already ran, so (b) or (c) — **ask the user** (re-spawn, close it, or investigate); don't silently re-target. `git branch --merged "$BASE"` (`$BASE` via Step 2's `get-base`; unset in pre-flight) separates those two: it lists the branch when the merge landed but the close stopped before deleting it. A completed close DELETES the branch, so absence is the ordinary shape of (c) — never evidence of (a). A live duplicate cannot hide behind the empty result: a worktree teammate HAS a worktree, so this lookup finds it and never targets that story; an in-place teammate — which never has one — is refused by the spawn's exclusive per-name claim (non-zero exit, never two agents in one checkout).
 
 ## Step 0: Execution-shape decision (the behavior table)
 
@@ -86,8 +83,7 @@ Before spawning, decide the execution shape for `TARGET` from two preload
 inputs: `TEAMMATE_DEFAULT` (the session default tier — `off`/`haiku`/`sonnet`/
 `opus`/`fable`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story
 pick — `in-agent`/`haiku`/`sonnet`/`opus`/`fable`/`none`, where `none` means it
-was omitted or retracted as ambiguous). The preload computed `RECOMMENDED_TIER` for the SAME story this
-skill spawns; `RECOMMENDED_TIER_STORY` echoes that target. **Verify
+was omitted or retracted as ambiguous). **Verify
 `RECOMMENDED_TIER_STORY` equals the `TARGET` you resolved in pre-flight before
 applying `RECOMMENDED_TIER`.** If they differ, the un-spawned frontier shifted
 between preload and now — treat `RECOMMENDED_TIER` as `none` (apply the default)
@@ -151,7 +147,7 @@ reads. The matching branches (1, 3, 4, 6) write no override event.
 `MODE=solo` spawn runs in the main checkout (Step 4 in-place variant),
 `execution_mode` stays solo (solo accept/close path). Solo delegation pays only
 at a CHEAPER tier — solo + `inherit` (same tier as the orchestrator) continues
-in-agent, no spawn. In-agent outcomes never spawn.
+in-agent, no spawn.
 
 ## Step 1: Read the story's executor_model (optional)
 
@@ -266,7 +262,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
 
-Single Bash call with `run_in_background=true` — not a parallel batch. The teammate runs asynchronously; this skill returns immediately so the lead can continue with the next story.
+Single Bash call with `run_in_background=true` — not a parallel batch. The teammate runs asynchronously; this skill returns immediately.
 
 **Solo in-place variant (`MODE=solo` spawn).** Skip Step 2 (the solo branch
 exists). Spawn **in the main checkout**: add `--in-place`, drop

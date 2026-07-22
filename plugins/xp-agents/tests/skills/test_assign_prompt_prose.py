@@ -4,7 +4,7 @@
 Each class here pins prose whose wording (or ordering) is load-bearing for code
 elsewhere: the prompt-write step's verbatim branch (the spawn's refusal gate),
 pre-flight mode selection order (the preload's SOLO_TARGET emission), and the
-stale-spawn check's event signal.
+signal the stale-spawn check keys on.
 
 ## Prompt-write step: the story branch VERBATIM.
 
@@ -137,6 +137,25 @@ class TestAssignPreflightModeProse(unittest.TestCase):
         self.assertRegex(self.preflight, r"(?i)checkout")
         self.assertRegex(self.preflight, r"(?i)in.place|solo")
 
+    def test_the_hole_in_the_drain_is_stated_not_papered_over(self):
+        """>1 in-progress solo empties SOLO_TARGET, and empty is exactly what
+        "no solo story" looks like — so the drain has a hole the preload cannot
+        close. Prose that asserts the invariant unconditionally claims a
+        guarantee the code does not hold, and the lead acts on the claim: it
+        selects the batch and Step 2 checks out the base in the very checkout
+        the solo teammate is committing in. The caveat is the guard."""
+        self.assertRegex(
+            self.preflight,
+            r"(?i)>\s*1 in-progress solo|more than one.{0,40}solo",
+            "pre-flight asserts the drain without naming the state that breaks "
+            "it — an unqualified invariant the preload cannot deliver",
+        )
+        self.assertRegex(
+            self.preflight,
+            r"(?i)reconcile|accept or defer",
+            "naming the hole without an action leaves the lead to fall through",
+        )
+
     def test_draining_is_reconciled_with_the_spawn_first_precedence(self):
         """Draining makes the batch's next spawn WAIT on an accept, which the
         intro's 'plan -> SPAWN -> accept ... spawning never waits on an accept'
@@ -175,6 +194,18 @@ class TestAssignStaleSpawnCheckProse(unittest.TestCase):
         decorative in the first place."""
         self.assertIn("git branch --merged", self.frontmatter)
         self.assertIn("git branch --merged", self.body)
+
+    def test_the_check_does_not_hinge_on_a_branch_the_close_deletes(self):
+        """`git branch --merged` alone reproduces the defect it replaced. A
+        completed /xp-story-close DELETES the story branch (close_common merge
+        -> branching.delete_branch, and cleanup_teammate on the worktree path),
+        so in the ordinary (c) the branch is gone and --merged lists nothing —
+        reading as "un-spawned, go ahead". The discriminator that survives the
+        delete is the story's recorded `branch_name`: set means Step 2 already
+        cut a branch for it, whatever git still holds."""
+        stale = _slice(self.body, "**Stale-spawn check.**", ("## Step 0",))
+        self.assertIn("branch_name", stale)
+        self.assertRegex(stale, r"(?i)delete")
 
 
 if __name__ == "__main__":

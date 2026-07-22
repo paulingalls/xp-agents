@@ -68,7 +68,9 @@ batch = [
 # target (story-008), INDEPENDENT of the teammate batch — a mixed frontier must
 # stay routable, or a pulled-forward solo story is unassignable for as long as
 # any teammate is in flight. A solo frontier promotes exactly one story; >1
-# in-progress solo is ambiguous -> empty (the skill falls back to the batch).
+# in-progress solo is ambiguous -> empty, which the skill cannot tell from "no
+# solo story" — so pre-flight re-checks SPRINT_FILE for a live solo story before
+# it selects the batch (empty SOLO_TARGET is not proof the drain is over).
 solo_in_progress = [
     s["id"]
     for s in stories
