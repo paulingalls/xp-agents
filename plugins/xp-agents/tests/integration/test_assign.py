@@ -16,11 +16,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _bases import _PLUGIN_ROOT
 from conftest import (
+    _extract_preload_var,
     _IntegrationTestCase,
     _s,
     _sprint_json,
     cleanup_test_worktrees,
+    make_event,
 )
+from event_schema import EVENT_TYPE_DECISION
 
 _PRELOAD_SCRIPT = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
 
@@ -133,126 +136,6 @@ class TestWorktreeCreateSubprocess(_IntegrationTestCase):
         super().tearDown()
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _extract_preload_var(stdout: str, name: str) -> str | None:
-    """Extract a VAR=value from preload stdout. Returns value or None."""
-    prefix = f"{name}="
-    for line in stdout.splitlines():
-        if line.startswith(prefix):
-            return line.split("=", 1)[1]
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Sprint fixture helpers for mode selection tests
-# ---------------------------------------------------------------------------
-
-
-def _multi_story_sprint_worktree() -> str:
-    """Sprint with independent M/L stories and non-overlapping domains."""
-    return _sprint_json(
-        [
-            _s(
-                "story-001",
-                "User registration",
-                "ready",
-                file_domain=["src/auth/register.py", "tests/test_register.py"],
-            ),
-            _s(
-                "story-002",
-                "Admin dashboard",
-                "ready",
-                file_domain=["src/admin/dashboard.py", "tests/test_dashboard.py"],
-            ),
-        ],
-        sprint_id="sprint-001",
-        started="2026-04-01",
-    )
-
-
-def _multi_story_sprint_solo_deps() -> str:
-    """Sprint with dependency chains (forces solo mode)."""
-    return _sprint_json(
-        [
-            _s(
-                "story-001",
-                "User model",
-                "ready",
-                file_domain=["src/models/user.py"],
-            ),
-            _s(
-                "story-002",
-                "User API",
-                "ready",
-                file_domain=["src/api/user.py"],
-                dependencies=["story-001"],
-            ),
-        ],
-        sprint_id="sprint-002",
-        started="2026-04-01",
-    )
-
-
-def _multi_story_sprint_all_small() -> str:
-    """Sprint with all S stories (forces solo mode)."""
-    return _sprint_json(
-        [
-            _s(
-                "story-001",
-                "Fix typo",
-                "ready",
-                file_domain=["src/ui/header.py"],
-            ),
-            _s(
-                "story-002",
-                "Update readme",
-                "ready",
-                file_domain=["docs/README.md"],
-            ),
-        ],
-        sprint_id="sprint-003",
-        started="2026-04-01",
-    )
-
-
-def _multi_story_sprint_no_domains() -> str:
-    """Sprint with missing file domains (forces solo mode)."""
-    return _sprint_json(
-        [
-            _s("story-001", "Feature A", "ready"),
-            _s("story-002", "Feature B", "ready"),
-        ],
-        sprint_id="sprint-004",
-        started="2026-04-01",
-    )
-
-
-def _multi_story_sprint_overlapping_domains() -> str:
-    """Sprint with overlapping file domains (forces solo mode)."""
-    return _sprint_json(
-        [
-            _s(
-                "story-001",
-                "Auth flow",
-                "ready",
-                file_domain=["src/auth/login.py", "src/shared/utils.py"],
-            ),
-            _s(
-                "story-002",
-                "Password reset",
-                "ready",
-                file_domain=["src/auth/reset.py", "src/shared/utils.py"],
-            ),
-        ],
-        sprint_id="sprint-005",
-        started="2026-04-01",
-    )
-
-
 class TestAssignPerStorySpawnShape(_IntegrationTestCase):
     """story-003: the reshaped /xp-assign drives ONE spawn per invocation,
     forwarding the story's executor_model to spawn_teammate's --model flag
@@ -347,6 +230,104 @@ class TestAssignPerStorySpawnShape(_IntegrationTestCase):
     def tearDown(self):
         cleanup_test_worktrees(self.tmpdir, prefix="worktree-")
         super().tearDown()
+
+
+class TestAssignMixedFrontierE2E(_IntegrationTestCase):
+    """story-008 E2E: the frontier that actually blocked an assign this session.
+
+    Six teammate stories in flight plus one pulled-forward solo hotfix. The
+    preload used to suppress SOLO_TARGET whenever a batch existed, so the solo
+    story was unassignable for as long as ANY teammate was live: /xp-assign
+    resolved a teammate while the lead held the solo story's plan — the
+    plan/story mispairing the SKILL itself warns about.
+
+    The unit fixtures in test_assign_preload_tier_target.py use one teammate;
+    this reproduces the real batch size, because the suppression scaled with the
+    batch and "six teammates" is the state that has to stay routable.
+    """
+
+    def _write_sprint(self, sprint_json: str) -> None:
+        (self.smm_dir / "sprint.json").write_text(sprint_json)
+
+    def _blocked_frontier(self) -> str:
+        """Six in-progress teammate stories + one in-progress solo story."""
+        stories = [
+            _s(
+                f"story-{n:03d}",
+                f"Teammate story {n}",
+                "in-progress",
+                execution_mode="teammate",
+            )
+            for n in range(1, 7)
+        ]
+        stories.append(
+            _s(
+                "story-008",
+                "Pulled-forward solo fix",
+                "in-progress",
+                execution_mode="solo",
+            )
+        )
+        return _sprint_json(stories, sprint_id="sprint-mixed", started="2026-07-01")
+
+    def test_solo_story_is_the_target_despite_six_live_teammates(self):
+        """AC: SOLO_TARGET names the solo story rather than being empty, and it
+        is the tier-lookup target — so Step 0 applies the SOLO story's
+        recommendation instead of a teammate's."""
+        self._write_sprint(self._blocked_frontier())
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "SOLO_TARGET"), "story-008"
+        )
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-008"
+        )
+        # The batch is intact — solo-first reorders selection, it drops nothing.
+        self.assertEqual(
+            (_extract_preload_var(result.stdout, "TEAMMATE_STORY_IDS") or "").split(),
+            [f"story-{n:03d}" for n in range(1, 7)],
+        )
+
+    def test_the_solo_storys_own_tier_recommendation_is_what_resolves(self):
+        """The mispairing had a second half: even reaching the solo story, the
+        lead would apply whatever tier the preload looked up. With
+        recommendations seeded for BOTH a teammate and the solo story, the solo
+        story's must win — otherwise Step 0's target-identity check trips and
+        silently discards the plan-reviewer's pick."""
+        self._write_sprint(self._blocked_frontier())
+        self._seed_events(
+            [
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-001",
+                    ts="2026-07-02T00:00:00+00:00",
+                    metadata={
+                        "recommended_model": "haiku",
+                        "story_id": "story-001",
+                        "advisory": True,
+                    },
+                ),
+                make_event(
+                    EVENT_TYPE_DECISION,
+                    topic="tier-recommendation-story-008",
+                    ts="2026-07-02T00:00:00+00:00",
+                    metadata={
+                        "recommended_model": "opus",
+                        "story_id": "story-008",
+                        "advisory": True,
+                    },
+                ),
+            ]
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER_STORY"), "story-008"
+        )
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "RECOMMENDED_TIER"), "opus"
+        )
 
 
 if __name__ == "__main__":

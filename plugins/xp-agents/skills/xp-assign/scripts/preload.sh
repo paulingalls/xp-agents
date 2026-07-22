@@ -26,9 +26,12 @@ fi
 #   TEAMMATE_STORY_IDS     — the teammate batch /xp-schedule promoted
 #                            (in-progress + execution_mode=teammate), consumed by
 #                            the skill to split + spawn (symmetric with FRONTIER_IDS).
-#   RECOMMENDED_TIER_STORY — the spawn target: the first un-spawned story in batch
-#                            order, the SAME order the skill pre-flight consumes
-#                            TEAMMATE_STORY_IDS, so preload and skill never disagree.
+#   SOLO_TARGET            — a lone in-progress solo story, if any; the skill
+#                            selects it BEFORE the batch (solo-first drain).
+#   RECOMMENDED_TIER_STORY — the spawn target, resolved SOLO-FIRST and otherwise
+#                            as the first un-spawned story in batch order — the
+#                            SAME precedence and order the skill pre-flight
+#                            applies, so preload and skill never disagree.
 #   RECOMMENDED_TIER       — that target's plan-reviewer recommendation (latest
 #                            in-sprint tier-recommendation-<target> event wins;
 #                            `none` when the plan-reviewer omitted it OR retracted
@@ -61,26 +64,33 @@ batch = [
     if s.get("status") == "in-progress" and s.get("execution_mode") == "teammate"
 ]
 
-# Solo target: with no teammate batch, a single in-progress solo story is the
-# in-place execution-shape target (story-008). A solo frontier promotes exactly
-# one story; >1 in-progress solo is ambiguous -> empty (the skill stops).
+# Solo target: a single in-progress solo story is the in-place execution-shape
+# target (story-008), INDEPENDENT of the teammate batch — a mixed frontier must
+# stay routable, or a pulled-forward solo story is unassignable for as long as
+# any teammate is in flight. A solo frontier promotes exactly one story; >1
+# in-progress solo is ambiguous -> empty, which the skill cannot tell from "no
+# solo story" — so pre-flight re-checks SPRINT_FILE for a live solo story before
+# it selects the batch (empty SOLO_TARGET is not proof the drain is over).
 solo_in_progress = [
     s["id"]
     for s in stories
     if s.get("status") == "in-progress" and s.get("execution_mode") == "solo"
 ]
-solo_target = solo_in_progress[0] if (not batch and len(solo_in_progress) == 1) else ""
+solo_target = solo_in_progress[0] if len(solo_in_progress) == 1 else ""
 
-# Spawn target: the first un-spawned story in batch order. The skill pre-flight
-# iterates TEAMMATE_STORY_IDS in this same order, so the two never disagree.
-# Falls back to the solo target so the tier lookup + pin cover the solo story.
-target = ""
-for sid in batch:
-    if not find_teammate_worktree_for_story(sid, cwd):
-        target = sid
-        break
-if not target:
+# Spawn target, SOLO-FIRST — the same precedence the skill pre-flight applies,
+# so the advertised target and the resolved one agree (on a mismatch the skill
+# discards RECOMMENDED_TIER and the story spawns at the default tier). Absent a
+# solo target it is the first un-spawned story in batch order, and the skill
+# iterates TEAMMATE_STORY_IDS in that same order.
+if solo_target:
     target = solo_target
+else:
+    target = ""
+    for sid in batch:
+        if not find_teammate_worktree_for_story(sid, cwd):
+            target = sid
+            break
 
 tier = "none"
 effort = ""
