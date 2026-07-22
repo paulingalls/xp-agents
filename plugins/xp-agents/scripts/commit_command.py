@@ -105,10 +105,44 @@ _SIMPLE_MSG_RE = re.compile(
 # heredoc appended to the command. Capture the heredoc body so the commit can
 # still be confirmed when `-q` suppresses git's `[branch hash]` stdout line.
 _STDIN_FLAG_RE = re.compile(r"(?:^|\s)(?:-F|--file)(?:=|\s+)-(?=\s|$)")
-_STDIN_HEREDOC_RE = re.compile(r"<<-?\s*'?(\w+)'?\n(.*?)\n\1", re.DOTALL)
+
+# Two patterns, chosen by which form opened the heredoc — a conditional
+# backreference would be less clear and each form is independently testable.
+# `[^\n]*` after the delimiter admits a trailing redirect, pipe, or chained
+# command on the opening line (all legal shell after a heredoc delimiter).
+# `(?=\n|$)` makes the closing delimiter own its line, so a body line that
+# merely STARTS WITH the delimiter word (a prefix, not the delimiter itself)
+# is not mistaken for the close. Group numbering is (1)=delimiter, (2)=body
+# in both, matching bash's own termination rules measured directly: plain
+# `<<` terminates only at column 0 (no leading whitespace tolerated); `<<-`
+# terminates on leading TABS only, never spaces.
+_STDIN_HEREDOC_RE = re.compile(r"<<\s*'?(\w+)'?[^\n]*\n(.*?)\n\1(?=\n|$)", re.DOTALL)
+_STDIN_HEREDOC_DASH_RE = re.compile(
+    r"<<-\s*'?(\w+)'?[^\n]*\n(.*?)\n\t*\1(?=\n|$)", re.DOTALL
+)
 _FILE_FLAG_RE = re.compile(
     r"""(?:^|\s)(?:-F|--file)(?:=|\s+)(?!-\s|-$)(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
 )
+
+
+def _find_stdin_heredoc_body(command: str, start: int) -> str | None:
+    """Return the stdin heredoc body introduced at or after `start`.
+
+    Tries both the plain and `<<-` patterns and keeps whichever matches
+    earliest — the two are mutually exclusive at the syntax level (a literal
+    `<<-` can never satisfy the plain pattern's `(\\w+)` right after `<<`,
+    since `-` is not a word character), so only one can ever match a given
+    heredoc occurrence. `<<-` also strips leading tabs from EVERY body line
+    (not just the closing delimiter line), so the extracted message matches
+    what git actually stored rather than the raw indented source text.
+    """
+    plain = _STDIN_HEREDOC_RE.search(command, start)
+    dash = _STDIN_HEREDOC_DASH_RE.search(command, start)
+    if dash and (plain is None or dash.start() < plain.start()):
+        return "\n".join(line.lstrip("\t") for line in dash.group(2).split("\n"))
+    if plain:
+        return plain.group(2)
+    return None
 
 
 def extract_commit_message(command: str) -> str | None:
@@ -134,12 +168,9 @@ def extract_commit_message(command: str) -> str | None:
         # Bind to the heredoc introduced AFTER `-F -`, not merely the first in
         # the command. A compound line can open an earlier, unrelated heredoc
         # (e.g. `cat <<CFG ... CFG` writing a config file) whose body is not the
-        # commit message; `.search` from the flag's end skips past it to the one
-        # actually feeding this commit's stdin.
-        stdin_body = _STDIN_HEREDOC_RE.search(command, stdin_flag.end())
-        if stdin_body:
-            return stdin_body.group(2)
-        return None
+        # commit message; searching from the flag's end skips past it to the
+        # one actually feeding this commit's stdin.
+        return _find_stdin_heredoc_body(command, stdin_flag.end())
     file_flag = _FILE_FLAG_RE.search(command)
     if file_flag:
         # The message file may already be gone by PostToolUse time; a missing
