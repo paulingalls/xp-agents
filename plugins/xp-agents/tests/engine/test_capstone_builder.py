@@ -100,6 +100,31 @@ class TestBuildCapstoneStory(unittest.TestCase):
         sprint["stories"].append(story)
         self.assertEqual(sprint_schema.validate_sprint(sprint), [])
 
+    def test_manual_harness_places_the_placeholder_in_steps(self):
+        # A project may declare a manual acceptance surface, and --harness is
+        # a free-form string, so `manual` reaches the builder. Authoring
+        # forbids command/commands on a manual block, so a `command`
+        # placeholder here would make the builder emit a story that
+        # `add-story` refuses — a refusal the operator cannot fix, since the
+        # plugin wrote the block.
+        story = self._build(harness="manual")
+        ae = story["acceptance_execution"]
+        self.assertEqual(ae["type"], "manual")
+        self.assertNotIn("command", ae)
+        self.assertNotIn("commands", ae)
+        self.assertTrue(ae["steps"])
+
+    def test_manual_harness_capstone_is_authoring_valid(self):
+        import sprint_schema
+
+        story = self._build(harness="manual")
+        sprint = _make_sprint()
+        sprint["stories"].append(story)
+        errors = sprint_schema.validate_sprint(
+            sprint, grandfathered_story_ids=frozenset()
+        )
+        self.assertEqual(errors, [], errors)
+
 
 if __name__ == "__main__":
     unittest.main()

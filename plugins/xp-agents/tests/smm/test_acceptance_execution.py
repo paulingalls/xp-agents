@@ -181,8 +181,10 @@ class TestManualOptionalCommand(unittest.TestCase):
         self.assertEqual(_v(ae), [])
 
     def test_manual_with_command_is_valid_by_default(self):
-        # Default-off: the rule fires only when a caller asks for it, so the
-        # milestone-level call site (no runner ever shells it) is unchanged.
+        # Default-off: the rule fires only when a caller asks for it, so read
+        # paths and the milestone-level call site are unchanged. The milestone
+        # site is a known gap, not a safe scope — its block IS shelled by the
+        # sprint reviewer's milestone acceptance gate.
         ae = {"type": "manual", "command": "git ls-files --error-unmatch docs/x.md"}
         self.assertEqual(_v(ae), [])
 

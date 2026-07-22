@@ -24,8 +24,15 @@ never land in a field that gets shelled. This reverses an earlier rule that a
 manual block MAY carry a runnable confirmation: an operator declared
 observational prose in a manual ``command``, the runner shelled it, ``/bin/sh``
 exited 127, and the close gate reported a plain red the operator could not make
-green. Off by default — only the story-level write path asks for it, because
-only story-level blocks are ever shelled.
+green. Off by default — only the story-level write path asks for it, so read
+paths keep loading what is already stored.
+
+The milestone-level caller (execution_plan_schema) does NOT yet ask for it, and
+that is an open gap rather than a proven-safe scope: xp-sprint-reviewer's
+milestone acceptance gate runs a milestone block's ``setup``/``command`` via
+Bash, so prose declared there reaches a shell exactly the way the story-level
+defect did. Closing it needs the same per-item grandfather this story built for
+stories (validate_plan walks every milestone on the read path too).
 
 RUN-TIME is UNCHANGED. Gate on command PRESENCE, not on ``type``: whatever runs
 a command runs it regardless of type, and a manual block with no command is N/A.
@@ -94,9 +101,10 @@ def validate_acceptance_execution(
 
     ``enforce_manual_shape`` turns on the authoring-time rule that a manual
     block may not carry ``command``/``commands`` (see the module docstring).
-    It defaults to False so read paths and the milestone-level caller are
-    unaffected: no runner shells a milestone block, so the false-red this
-    rule prevents cannot occur there.
+    It defaults to False so read paths keep loading stored blocks. The
+    milestone-level caller leaves it off as a KNOWN GAP, not a safe scope —
+    a milestone block does get shelled (xp-sprint-reviewer's milestone
+    acceptance gate) and closing the gap needs its own grandfather.
 
     ``allow_pins`` gates the optional ``pins`` field. It defaults to True
     for the story-level caller (sprint_schema.py), the only scope
@@ -117,8 +125,9 @@ def validate_acceptance_execution(
         errors.append(f"{prefix}.type is required and must be a string")
 
     # The command block is optional for a manual check (its verification is
-    # human/agent judgment, optionally with a runnable confirmation); every
-    # other type must still carry exactly one of command xor commands.
+    # human/agent judgment); every other type must still carry exactly one of
+    # command xor commands. Whether a manual block MAY carry one is the
+    # enforce_manual_shape question below, not this one.
     is_manual = ae.get("type") == "manual"
     require_one = not is_manual
     errors.extend(_validate_command_block(ae, prefix, require_one=require_one))

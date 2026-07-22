@@ -297,6 +297,16 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
 
 
 # -------------------------------------------------------------------
+# Capstone story builder — re-exported from sprint_capstone
+# -------------------------------------------------------------------
+# Body lives in sprint_capstone.py (pure, no I/O); this block keeps the
+# historical `from sprint_store import build_capstone_story` import path
+# working for sprint_cli_mutate and the tests.
+from sprint_capstone import (  # noqa: E402  intentional mid-file re-export
+    build_capstone_story,
+)
+
+# -------------------------------------------------------------------
 # Ready frontier + dependency queries — re-exported from sprint_frontier
 # -------------------------------------------------------------------
 # Bodies live in sprint_frontier.py; this block keeps the historical
@@ -432,74 +442,3 @@ def get_story_branch_name(smm_dir: Path, story_id: str) -> str:
     if story is None:
         return ""
     return story.get("branch_name", "") or ""
-
-
-# -------------------------------------------------------------------
-# Capstone story builder (pure — no I/O)
-# -------------------------------------------------------------------
-
-
-def build_capstone_story(
-    story_id: str,
-    milestone_name: str,
-    touched_surfaces: list[str],
-    depends_on: list[str],
-    *,
-    milestone_ref: str = "",
-    harness: str | None = None,
-) -> dict:
-    """Return a schema-valid capstone story dict for a milestone.
-
-    The capstone is the final story: it depends on every sibling and
-    proves the milestone's surfaces compose end to end. Each touched
-    surface becomes one behavior-shaped object AC (`{description,
-    surface}`); a cross-surface ``E2E:`` AC heads the list. The
-    ``acceptance_execution`` block is a non-empty placeholder the
-    implementer replaces with the real cross-cutting invocation when the
-    capstone's own story is built. Pure: the caller appends the result
-    to the stories list and persists via ``save_sprint``.
-
-    ``harness`` is the resolved ``acceptance_execution.type``. It is
-    never guessed here — callers resolve it (e.g. from the project's
-    declared acceptance surfaces) and pass it in, or pass ``None`` when
-    no harness could be resolved. ``None`` yields a schema-valid
-    placeholder type rather than an omitted field, so the capstone stays
-    in the acceptance roll-up until an implementer fills it in.
-    """
-    acceptance_criteria: list[str | dict] = [
-        f"E2E: Given the {milestone_name} stories ship, When the cross-cutting "
-        f"acceptance test exercises every touched surface, Then all report green"
-    ]
-    for surface in touched_surfaces:
-        acceptance_criteria.append(
-            {
-                "description": (
-                    f"Given the {milestone_name} stories ship, When the {surface} "
-                    f"acceptance suite runs, Then it passes"
-                ),
-                "surface": surface,
-            }
-        )
-
-    return {
-        "id": story_id,
-        "title": f"Capstone: {milestone_name}",
-        "status": "ready",
-        "dependencies": list(depends_on),
-        "milestone_ref": milestone_ref,
-        "design_sources": "",
-        "context": (
-            f"Capstone for {milestone_name}: cross-cutting acceptance test "
-            f"proving the milestone's surfaces compose end to end."
-        ),
-        "file_domain": [
-            "<implementer fills: cross-cutting acceptance test path>",
-        ],
-        "interface_contracts": [],
-        "acceptance_criteria": acceptance_criteria,
-        "acceptance_execution": {
-            "type": harness or "<implementer fills: test harness>",
-            "command": "<implementer fills: cross-cutting test invocation>",
-            "notes": "Placeholder — fill with the real cross-cutting test command.",
-        },
-    }
