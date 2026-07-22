@@ -102,6 +102,38 @@ class TestMutatingGitIsRefused(_ReviewerGuardCase):
     def test_chained_before_a_read_is_refused(self):
         self._assert_refused("git reset --hard main; git status", _CODE_REVIEWER)
 
+    def test_newline_chained_after_a_read_is_refused(self):
+        """A NEWLINE ends a simple command exactly as `&&` does, and it is the
+        ordinary shape an agent emits -- a multi-line Bash block, not a crafted
+        one. shlex consumes newlines as whitespace, so a separator set that
+        merely LISTS "\\n" never sees one: the whole block collapsed into a
+        single simple command whose first token was the leading read, and the
+        mutation behind it was never inspected (security review 5c64d9dfe42c).
+        That made the gate inert by default rather than only under crafting."""
+        self._assert_refused("git status\ngit reset --hard main", _CLOSE_REVIEWER)
+        self._assert_refused("git log -5\ngit branch -D sprint-125", _CODE_REVIEWER)
+
+    def test_coalesced_punctuation_separators_are_refused(self):
+        """`punctuation_chars` hands back a RUN of separator characters as one
+        token, so `|&` and `;;` matched no single-character entry and split
+        nothing. Any token made only of separator characters ends a command."""
+        self._assert_refused("git status |& git reset --hard main", _CLOSE_REVIEWER)
+        self._assert_refused("git status ;; git reset --hard main", _CODE_REVIEWER)
+
+    def test_newline_inside_a_quoted_message_does_not_split(self):
+        """The quoting invariant the tokenizer exists for, now that newlines
+        split: a multi-line commit MESSAGE is one token to the shell, so text
+        that merely reads like a mutation is prose. Splitting on raw newlines
+        instead of on lexed tokens would re-open the scar
+        `story_done_gate._MARK_DONE_RE` carries -- refusing a commit over what
+        its message says. `commit` is refused here anyway, so assert on the
+        REASON: it must name commit, never reset."""
+        reason = self._assert_refused(
+            'git commit -m "fixes\ngit reset --hard main"', _CODE_REVIEWER
+        )
+        self.assertIn("commit", reason)
+        self.assertNotIn("reset", reason)
+
     def test_checkout_is_refused(self):
         """`git checkout` is named in the close-reviewer's written contract."""
         self._assert_refused("git checkout main", _CLOSE_REVIEWER)
