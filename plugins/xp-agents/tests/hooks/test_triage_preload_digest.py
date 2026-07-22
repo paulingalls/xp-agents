@@ -105,7 +105,19 @@ class TestDeferredDigest(_DigestTestCase):
 
     def test_block_shrinks_by_at_least_40_percent_once_the_lead_defers(self):
         """AC1, measured on the same fixture through the real writer: render,
-        defer everything, render again."""
+        defer everything, render again.
+
+        This fixture defers EVERYTHING, so it measures the mechanism, not a
+        forecast — read it as a floor on the best case, and do not quote it as
+        the saving a real project sees. What a real log gets depends entirely on
+        what FRACTION of its items the lead has deferred, because an undeferred
+        item is untouched by design. Measured live at story close: 34 of 68 open
+        items deferred → 31.6% off the whole block, while the same change over
+        the population as it stood when the story began (52 items, 35 deferred)
+        was 44.5%. Same code, same day; the block grew 16 new undeferred items
+        in between. The per-item efficacy is the stable number: 69% off the
+        items that digest.
+        """
         items = [
             make_event(EVENT_TYPE_CONCERN, content=f"Concern {i}: {self._LONG}")
             for i in range(10)
