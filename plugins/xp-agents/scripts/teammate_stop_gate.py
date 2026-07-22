@@ -51,6 +51,12 @@ def run(
     if not has_uncommitted:
         return None
 
+    # Under story cadence, per-increment review is deferred to the merge.
+    # Don't demand /xp-quality-review; only demand that changes be committed.
+    cadence = markers.read_review_cadence(smm_dir)
+    if cadence == "story":
+        return "You have uncommitted changes. Commit them before stopping."
+
     agent_id = identity.resolve_agent_id(input_data)
     cycle = markers.read_review_cycle(smm_dir, agent_id) if agent_id else {}
 
