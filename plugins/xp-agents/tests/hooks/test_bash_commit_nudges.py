@@ -113,8 +113,11 @@ class TestBashPostToolGreenNudge(_HookTestCase):
                 ),
                 smm_dir=self.smm_dir,
             )
-        if result:
-            self.assertNotIn("trigger /xp-quality-review", result)
+        # Unconditional: the sibling verbatim test proves this exact setup
+        # returns the nudge under commit cadence, so a conditional
+        # `if result: assertNotIn(...)` would pass vacuously the day the
+        # nudge stops being produced for an unrelated reason.
+        self.assertIsNone(result)
 
     def test_commit_cadence_green_with_uncommitted_code_nudge_verbatim(self):
         """Characterization: commit cadence keeps the exact existing text."""

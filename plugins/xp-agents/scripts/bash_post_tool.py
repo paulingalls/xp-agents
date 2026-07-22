@@ -262,8 +262,12 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 parts: list[str] = []
                 if had_failures:
                     parts.append("All prior test failures resolved — tests are green.")
-                uncommitted = commits.get_uncommitted_code_files(cwd)
-                if uncommitted and markers.read_review_cadence(smm_dir) != "story":
+                # Under story cadence committing triggers no review — the
+                # promise would be false. Cadence is tested first because it
+                # is one marker read, while the uncommitted probe spawns git
+                # subprocesses on every green test run.
+                cadence = markers.read_review_cadence(smm_dir)
+                if cadence != "story" and commits.get_uncommitted_code_files(cwd):
                     parts.append("Commit now to trigger /xp-quality-review.")
                 if parts:
                     return " ".join(parts)

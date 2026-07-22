@@ -263,14 +263,16 @@ class TestStoryCadenceWiring(_ProbeTestHelpers, _HookTestCase):
         _common.append_safe(self.smm_dir, ev)
         markers.write_review_cadence(self.smm_dir, "story")
         result = self._run_commit()
-        if result:
-            self.assertNotIn("quality review", result.lower())
+        # Unconditional: the sibling test below proves this exact setup DOES
+        # warn without the marker, so silence here is the signal. A
+        # `if result: assertNotIn(...)` guard would pass vacuously the day
+        # the commit stops being recorded at all.
+        self.assertIsNone(result)
 
     def test_missing_marker_falls_back_to_commit_cadence_nudge(self):
         ev = make_event(EVENT_TYPE_COMMIT, agent_id="main", content="Prior commit")
         _common.append_safe(self.smm_dir, ev)
-        result = self._run_commit()
-        assert result is not None
+        result = self._assert_not_none(self._run_commit())
         self.assertIn("quality review", result.lower())
 
 
