@@ -322,5 +322,160 @@ class TestRunWithOverlap(_SMMTestCase):
         self.assertIn(concern["id"], output)
 
 
+class TestDeferredDigest(_SMMTestCase):
+    """Story-002. An item the LEAD ALREADY DEFERRED earns a shorter form.
+
+    Not a smaller version of the 400-char excerpt — an INDEX ENTRY. The 400-char
+    bound exists so the lead can triage an item FROM THE BLOCK; a digested item
+    has already been triaged, so its line only has to be recognisable, with the
+    id that retrieves the whole thing. Cutting the FULL items to 60 would repeat
+    story-013's mistake (mid-WHY cuts on items the lead has not yet judged).
+
+    Fixtures defer through the REAL writer, so they cannot encode an intent
+    shape the writer does not produce.
+    """
+
+    # Long enough that the 400-char excerpt and the 60-char digest line are
+    # unmistakably different renderings of the same item.
+    _LONG = (
+        "Simplicity: the kickoff triage block is read at every session start, "
+        "and its cost is dominated by item count rather than by per-item "
+        "length, so the lever is which items earn a full line. " * 3
+    )
+
+    def _defer(self, event_id: str, times: int = 1) -> None:
+        for _ in range(times):
+            triage_event(self.smm_dir, "triage-defer", event_id)
+
+    def test_deferred_item_moves_into_a_digest_sub_block(self):
+        deferred = make_event(EVENT_TYPE_DEBT, content=self._LONG)
+        self._write_events([deferred])
+        self._defer(deferred["id"])
+
+        output = triage_preload.run(self.smm_dir)
+        self.assertIn("#### Deferred earlier — 1 item", output)
+        self.assertIn(f"[id: {deferred['id']}]", output)
+        self.assertIn("DEFERRED x1", output)
+        # An index entry, not the 400-char excerpt.
+        self.assertNotIn(self._LONG[:200], output)
+        self.assertIn(self._LONG[:40], output)
+
+    def test_every_open_item_id_survives_the_digest(self):
+        """The honesty invariant. A 'collapse' that silently dropped an item
+        would be indistinguishable, to the lead, from the item having been
+        fixed — the laundering this milestone exists to end. This is the
+        assertion that catches it."""
+        items = [
+            make_event(EVENT_TYPE_DEBT, content=f"Debt {i}: {self._LONG}")
+            for i in range(3)
+        ] + [
+            make_event(EVENT_TYPE_CONCERN, content=f"Concern {i}: {self._LONG}")
+            for i in range(3)
+        ]
+        self._write_events(items)
+        for item in items[:2] + items[3:5]:
+            self._defer(item["id"])
+
+        output = triage_preload.run(self.smm_dir)
+        for item in items:
+            self.assertIn(f"[id: {item['id']}]", output)
+        # The header count is PER SECTION, not global: 4 deferred items split
+        # 2-and-2 across Open Debts and Open Concerns read as "2 items" twice.
+        # A global count would say "4 items" in both, overstating each section.
+        self.assertEqual(output.count("#### Deferred earlier — 2 items"), 2)
+        self.assertNotIn("— 4 items", output)
+
+    def test_digest_line_says_nothing_that_reads_as_resolved(self):
+        deferred = make_event(EVENT_TYPE_DEBT, content=self._LONG)
+        self._write_events([deferred])
+        self._defer(deferred["id"])
+
+        line = next(
+            ln
+            for ln in triage_preload.run(self.smm_dir).splitlines()
+            if deferred["id"] in ln
+        )
+        for word in ("resolved", "fixed", "closed", "done", "dropped", "no longer"):
+            self.assertNotIn(word, line.lower(), f"digest line implies closure: {line}")
+
+    def test_block_shrinks_by_at_least_40_percent_once_the_lead_defers(self):
+        """AC1, measured on the same fixture through the real writer: render,
+        defer everything, render again."""
+        items = [
+            make_event(EVENT_TYPE_CONCERN, content=f"Concern {i}: {self._LONG}")
+            for i in range(10)
+        ]
+        self._write_events(items)
+        before = len(triage_preload.run(self.smm_dir))
+
+        for item in items:
+            self._defer(item["id"])
+        after = len(triage_preload.run(self.smm_dir))
+
+        self.assertLessEqual(
+            after,
+            before * 0.6,
+            f"block went {before} -> {after} chars; AC1 requires >= 40% smaller",
+        )
+
+    def test_undeferred_item_keeps_its_full_excerpt_byte_for_byte(self):
+        """AC1's other half. The digest is earned by the lead's own deferral;
+        an item they have not judged loses nothing."""
+        untouched = make_event(EVENT_TYPE_DEBT, content=f"Untouched: {self._LONG}")
+        deferred = make_event(EVENT_TYPE_DEBT, content=f"Deferred: {self._LONG}")
+        self._write_events([untouched, deferred])
+
+        def _line_for(event_id: str) -> str:
+            return next(
+                ln
+                for ln in triage_preload.run(self.smm_dir).splitlines()
+                if event_id in ln
+            )
+
+        before = _line_for(untouched["id"])
+        self._defer(deferred["id"])
+        self.assertEqual(before, _line_for(untouched["id"]))
+
+
+class TestDigestContractWithItsReader(_SMMTestCase):
+    """Both sides of the digest contract, pinned together.
+
+    The sub-block is a contract between this renderer and the prose that acts on
+    it: xp-work-selection Step 3 auto-resolves a MAYBE ADDRESSED concern WITHOUT
+    ASKING, and a drop is terminal — so it has to know that a digest line is an
+    index excerpt and fetch the full text first. Rename the header on one side
+    only and the instruction silently stops matching anything.
+    """
+
+    _SKILL = (
+        Path(__file__).parent.parent.parent
+        / "skills"
+        / "xp-work-selection"
+        / "SKILL.md"
+    )
+
+    def _rendered_header(self) -> str:
+        item = make_event(EVENT_TYPE_CONCERN, content="Some concern")
+        self._write_events([item])
+        triage_event(self.smm_dir, "triage-defer", item["id"])
+        return next(
+            ln
+            for ln in triage_preload.run(self.smm_dir).splitlines()
+            if ln.startswith("####")
+        )
+
+    def test_skill_prose_names_the_header_the_renderer_emits(self):
+        header = self._rendered_header()
+        marker = header.split("—")[0].strip()
+        self.assertIn(marker, self._SKILL.read_text())
+
+    def test_header_carries_a_runnable_retrieval_command(self):
+        """The digest's whole honesty claim is that the id retrieves the whole
+        item, so the command it names must be the runnable one."""
+        header = self._rendered_header()
+        self.assertIn("python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py", header)
+        self.assertIn("get-event <id>", header)
+
+
 if __name__ == "__main__":
     unittest.main()
