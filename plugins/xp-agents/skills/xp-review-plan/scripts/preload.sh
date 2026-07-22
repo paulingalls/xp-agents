@@ -8,8 +8,9 @@ echo "SMM_DIR=${SMM_DIR}"
 
 # Plan path from marker set by post_tool_exit_plan.py. When the marker is
 # absent (already consumed by a first pass) but .last-plan-path names a file
-# that still exists, this is a re-review — the blocking-finding protocol's
-# demanded second pass — not a misfire.
+# that still exists, this is a re-review — a second pass someone asked for
+# explicitly — not a misfire. Nothing DEMANDS that pass: the reviewer's
+# blocking Next-step option routes forward, not back into another round.
 #
 # ACCEPTED LIMIT: .last-plan-path is NOT session-scoped. A later session with
 # no marker falls back to the PREVIOUS session's plan while that file exists,

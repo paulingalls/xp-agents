@@ -194,9 +194,10 @@ class TestReviewPlanPreload(_IntegrationTestCase):
     def test_preload_rereview_falls_back_to_last_plan_path(self):
         """Second invocation with no marker re-reviews the same plan.
 
-        Reproduces the live bug: a first pass consumes the marker, so the
-        demanded re-review (blocking-finding protocol) must not error with
-        'No plan marker' — it should return the same PLAN_FILE.
+        Reproduces the live bug: a first pass consumes the marker, so an
+        explicitly requested re-review must not error with 'No plan marker'
+        — it should return the same PLAN_FILE. This is the AC-4 pin: a
+        further review stays AVAILABLE even though nothing demands one.
         """
         plan_path = self._write_plan()
         (self.smm_dir / ".plan-awaiting-review").write_text(str(plan_path))
