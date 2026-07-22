@@ -347,6 +347,7 @@ def _outer_exit_proves_runner_passed(command: str) -> bool:
             runner_seen
             and not open_substitutions
             and operator != _FAILURE_PROPAGATING_OPERATOR
+            and any(later.strip() for later in segments[i + 1 :])
         ):
             return False  # discarded — `;`, `\n`, `||` or a pipe swallowed it
     return True
@@ -382,6 +383,15 @@ def exit_status_proves_runner_passed(command: str) -> bool:
     flattens bodies in with the outer segments and discards operator position),
     and not one after the wrapper (`_outer_exit_proves_runner_passed` counts a
     body-runs-a-runner wrapper as a runner-executing segment).
+
+    An operator with NOTHING after it discarded nothing: `pytest tests/\\n` IS
+    `pytest tests/`, and a multi-line Bash block ends in a newline. Reading that
+    trailing operator as a discard refused ordinary GREEN runs, so the gate
+    stopped clearing and the TDD stop gate kept blocking the agent — with
+    re-running in the same shape unable to fix it. That is the deadlock
+    direction this predicate was written to avoid, arriving through the one
+    shape nobody had tested. What makes a trailing operator harmless is the
+    absence of a following command, not the operator.
 
     Conservative by construction, since a wrong True disarms the gate: no
     `set -o pipefail` awareness, and a runner reached through a closing token

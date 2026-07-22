@@ -16,21 +16,28 @@ _MANUAL_TYPE = "manual"
 def _acceptance_execution_placeholder(harness: str | None) -> dict:
     """The capstone's acceptance_execution placeholder for a resolved harness.
 
-    A `manual` harness gets its placeholder in ``steps``, not ``command``:
-    authoring forbids command/commands on a manual block (see
-    _acceptance_execution), so a command here would make the builder emit a
-    story `add-story` refuses — a refusal the operator cannot fix, because
-    the plugin wrote the block. Every other harness keeps the runnable
-    ``command`` placeholder.
+    Always a runnable ``command`` placeholder, because blocking is the
+    capstone's whole job: the placeholder exits 127, the sprint verify matrix
+    reports it failing, and `--verify-gate acceptance` refuses the close until
+    an implementer writes the real check.
+
+    A `manual` harness is therefore NOT carried through. `--harness` is
+    free-form and a project may declare a manual acceptance surface, so
+    `manual` does reach here — but authoring forbids command/commands on a
+    manual block, and honouring it would have emitted either a story
+    `add-story` refuses (a refusal the operator cannot fix, since the plugin
+    wrote the block) or a command-less block, which the matrix scores as N/A
+    and EXCLUDES from `failing`. That second shape shipped an unfilled capstone
+    with the close reporting green — the precise inverse of this function's
+    purpose, and a silent disagreement between the two harness arms.
+
+    The resolution is that a capstone's harness is genuinely UNKNOWN until
+    someone fills it in, so claiming `manual` was the error: it falls back to
+    the harness placeholder like any other unresolved harness. Filling the
+    capstone means naming the real harness anyway.
     """
-    if harness == _MANUAL_TYPE:
-        return {
-            "type": _MANUAL_TYPE,
-            "steps": [_COMMAND_PLACEHOLDER],
-            "notes": "Placeholder — fill with the real cross-cutting check steps.",
-        }
     return {
-        "type": harness or _HARNESS_PLACEHOLDER,
+        "type": _HARNESS_PLACEHOLDER if harness in (None, _MANUAL_TYPE) else harness,
         "command": _COMMAND_PLACEHOLDER,
         "notes": "Placeholder — fill with the real cross-cutting test command.",
     }

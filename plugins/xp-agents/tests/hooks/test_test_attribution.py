@@ -284,6 +284,35 @@ class TestAttributeFailure(unittest.TestCase):
                 self.assertEqual(attribute_failure(command, BARE_EXIT), framework)
 
 
+class TestTrailingOperatorDiscardsNothing(unittest.TestCase):
+    """An operator with NOTHING after it swallowed no exit status.
+
+    `pytest tests/\\n` is `pytest tests/`. The split yields an empty final
+    segment and a `\\n` operator, and reading that operator as "the exit was
+    discarded" refused an ordinary green run: a multi-line Bash block ends in a
+    newline, so the gate stopped clearing over a GREEN suite and the TDD stop
+    gate kept blocking the agent -- with re-running in the same shape unable to
+    fix it. Over-refusal is the deadlock direction this predicate was written to
+    avoid, arriving through the shape nobody tested.
+    """
+
+    def test_trailing_newline_still_proves(self):
+        self.assertTrue(exit_status_proves_runner_passed("pytest tests/"))
+        self.assertTrue(exit_status_proves_runner_passed("pytest tests/\n"))
+        self.assertTrue(exit_status_proves_runner_passed("npm test\n"))
+
+    def test_trailing_semicolon_still_proves(self):
+        self.assertTrue(exit_status_proves_runner_passed("pytest tests/;"))
+        self.assertTrue(exit_status_proves_runner_passed("pytest tests/ ; \n"))
+
+    def test_operator_with_a_real_command_after_it_still_refuses(self):
+        """The discarding cases must NOT be loosened: what makes a trailing
+        operator harmless is the absence of anything after it, not the operator."""
+        self.assertFalse(exit_status_proves_runner_passed("pytest tests/\necho hi"))
+        self.assertFalse(exit_status_proves_runner_passed("pytest tests/; echo hi"))
+        self.assertFalse(exit_status_proves_runner_passed("pytest tests/ | tee log"))
+
+
 class TestExitStatusProvesRunnerPassed(unittest.TestCase):
     """The CLEAR direction: when does an overall exit 0 actually prove it?
 

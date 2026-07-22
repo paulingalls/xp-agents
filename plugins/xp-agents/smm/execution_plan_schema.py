@@ -31,23 +31,57 @@ VALID_SOURCE_TYPES = frozenset({"repo", "url", "pasted"})
 VALID_BRANCH_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\Z")
 
 
+# Characters `git check-ref-format` forbids outright, plus whitespace. `\` and
+# the glob/revision metacharacters are the ones that make a ref unusable; the
+# leading dash is handled separately because it is an argv hazard, not a git one.
+_REF_FORBIDDEN_CHARS = frozenset(" \t\n\r\x7f~^:?*[\\")
+
+
 def usable_git_ref_name(value: object) -> TypeGuard[str]:
     """True when value is safe to hand git as a ref argument.
 
-    The pattern alone is not enough: `-` is inside its character class, so
-    `-f` and `--force` match it and would reach argv as FLAGS. `git checkout
-    -f` discards local changes — the exact outcome the pattern above exists
-    to prevent, reached through the one input shape it lets past.
+    This asks "can git use this?" — deliberately NOT "does this match the
+    names we generate?". `VALID_BRANCH_NAME_RE` answers the second question,
+    and reusing it for the first was wrong in BOTH directions: it rejected
+    `main+dev`, `trunk@2`, `feat(ui)`, `développement` and `主线` — all legal
+    git branches a project may already have configured — while accepting
+    `a..b`, `a.lock` and `trailing.`, which git itself refuses.
 
-    Lives here, beside the pattern, because every value the pattern guards
+    Over-rejection was the damaging half. `healed_integration_branch` heals an
+    unusable value to the primary branch, so a project whose integration branch
+    merely contained a `+` or a non-ASCII letter had its merges silently
+    redirected into the RELEASE branch and the branch stripped of protected
+    status. A plugin that ships to any project cannot read non-ASCII as
+    invalid — that is the cross-language guardrail, reached through a value
+    rather than through code.
+
+    So the rule is git's own, plus one addition: no leading `-`, because
+    `git checkout -f` discards local changes. That is an argv hazard git has
+    no opinion about, and it is why this predicate exists rather than a bare
+    `check-ref-format` shell-out (which would also cost a subprocess per call).
+
+    Lives beside the pattern because every value that pattern guards
     (plan.branch, sprint.branch_name, system_context's integration_branch)
-    has the same argv exposure and must answer the same question the same
-    way.
+    has the same argv exposure and must answer this question the same way.
     """
-    return (
-        isinstance(value, str)
-        and VALID_BRANCH_NAME_RE.match(value) is not None
-        and not value.startswith("-")
+    if not isinstance(value, str) or not value:
+        return False
+    if value.startswith("-"):  # reaches argv as a FLAG, not a ref
+        return False
+    if any(ch in _REF_FORBIDDEN_CHARS or ord(ch) < 0x20 for ch in value):
+        return False
+    if ".." in value or "@{" in value or value == "@":
+        return False
+    if value.startswith("/") or value.endswith("/") or "//" in value:
+        return False
+    # Per-component rules: no leading dot, no `.lock` suffix, no empty part.
+    return all(
+        part
+        and not part.startswith(".")
+        # lang-ok: git's own reserved ref suffix per check-ref-format, not a
+        # source-file extension — identical for every language a project uses.
+        and not part.endswith((".", ".lock"))
+        for part in value.split("/")
     )
 
 

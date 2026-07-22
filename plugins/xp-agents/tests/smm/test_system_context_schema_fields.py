@@ -61,6 +61,47 @@ class TestUsableGitRefName(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(usable_git_ref_name(name))
 
+    def test_accepts_git_legal_names_the_naming_pattern_rejects(self) -> None:
+        """The question here is "can git use this?", NOT "does this match the
+        names we generate?" — two different jobs that shared one regex.
+
+        `VALID_BRANCH_NAME_RE` constrains branch names the plugin CREATES.
+        Reusing it to judge a name the USER configured rejected legal git
+        branches: `healed_integration_branch` then silently retargeted merges
+        to the primary branch — the RELEASE branch — and dropped the branch's
+        protected status, on nothing worse than a `+` or a non-ASCII letter.
+        A plugin that ships to any project cannot treat non-ASCII as invalid.
+        """
+        for name in ("main+dev", "trunk@2", "feat(ui)", "développement", "主线"):
+            with self.subTest(name=name):
+                self.assertTrue(usable_git_ref_name(name))
+
+    def test_still_rejects_what_git_itself_refuses(self) -> None:
+        """Widening must not become "anything goes": these are the forms
+        `git check-ref-format` rejects, plus the leading dash that reaches
+        argv as a flag."""
+        for value in (
+            "-f",
+            "--force",
+            "has space",
+            "a..b",
+            "a~1",
+            "a^",
+            "a:b",
+            "a?",
+            "a*",
+            "a[b",
+            "a\\b",
+            "a@{0}",
+            "a.lock",
+            "/leading",
+            "trailing/",
+            "trailing.",
+            "ctrl\x01char",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(usable_git_ref_name(value))
+
     def test_rejects_every_unusable_ref(self) -> None:
         for value in UNUSABLE_REFS:
             with self.subTest(value=value):
