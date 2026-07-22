@@ -14,10 +14,11 @@ Worktree creation/cleanup pins live in `test_spawn_worktree.py`; this file owns
 only the release-the-held-branch behaviour.
 """
 
+import io
 import subprocess
 import sys
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -389,15 +390,30 @@ class TestRecoveryScope(_HeldBranchTestCase):
         `main` always passes it, so the shipped path always has a base to
         resolve. Those callers pass no `branch` either, which is why this leg
         costs nothing in practice.
+
+        Doubles as the pin on the RELAY: this is a 128 the recovery does not
+        cover, and it runs inside a backgrounded spawn where CalledProcessError
+        carries the exit code and nothing else. git's own reason must reach
+        stderr, or the lead gets a bare number.
         """
         base, story = "sprint-base-077", "paulingalls/story-077-nosmm"
         self._seed_base_and_story(base, story)
 
-        with self.assertRaises(subprocess.CalledProcessError):
+        captured = io.StringIO()
+        with (
+            self.assertRaises(subprocess.CalledProcessError),
+            redirect_stderr(captured),
+        ):
             spawn_teammate.create_worktree(
                 "worktree-story-077", str(self.tmpdir), branch=story
             )
 
+        self.assertIn("git worktree add failed", captured.getvalue())
+        self.assertIn(
+            story,
+            captured.getvalue(),
+            "git's own stderr must be relayed — it names the held branch",
+        )
         self.assertEqual(get_current_branch(str(self.tmpdir)), story)
 
 
