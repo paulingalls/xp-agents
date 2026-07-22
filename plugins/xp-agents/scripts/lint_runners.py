@@ -140,12 +140,16 @@ def run_linter(
     if cmd is None:
         return None
     try:
-        result = subprocess.run(
+        result = _run_with_optional_flag_retry(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=LINTER_BASE_TIMEOUT_S,
-            cwd=cwd,
+            config_path,
+            lambda argv: subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=LINTER_BASE_TIMEOUT_S,
+                cwd=cwd,
+            ),
         )
         if result.returncode != 0:
             output = result.stdout or result.stderr
@@ -156,6 +160,23 @@ def run_linter(
         return None
 
     return None
+
+
+def _run_with_optional_flag_retry(cmd, config_path, run):
+    """Run `cmd` via `run`, retrying once without this row's OPTIONAL flags.
+
+    The config-style flags are the only optional part of a composed argv. A tool
+    older than the version that introduced one rejects it as an unrecognised
+    option — non-zero WITH output, which every caller below reads as FINDINGS, so
+    the committer gets an unfixable block naming a flag they never wrote.
+
+    Only the row's declared usage-error exit code earns the retry: MEASURED (eslint
+    8.57.1) findings exit 1 and an unsupported flag exits 2, so an ordinary lint
+    failure never pays for a second process. See CONFIG_STYLE_FLAGS.
+    """
+    result = run(cmd)
+    retry_cmd = linters.optional_flag_retry(cmd, config_path, result.returncode)
+    return run(retry_cmd) if retry_cmd is not None else result
 
 
 def run_ruff(file_path: str | Path, *, cwd: str | None = None) -> tuple[list[str], str]:
@@ -303,12 +324,16 @@ def run_linter_batch(
                 f"linters — this one never ran",
             )
     try:
-        proc = subprocess.run(
+        proc = _run_with_optional_flag_retry(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
+            config_path,
+            lambda argv: subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=cwd,
+            ),
         )
     except subprocess.TimeoutExpired:
         return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
@@ -399,12 +424,16 @@ def run_linter_stdin(
                 f"the shared batch instead",
             )
     try:
-        proc = subprocess.run(
+        proc = _run_with_optional_flag_retry(
             cmd,
-            capture_output=True,
-            input=blob,
-            timeout=timeout,
-            cwd=cwd,
+            config_path,
+            lambda argv: subprocess.run(
+                argv,
+                capture_output=True,
+                input=blob,
+                timeout=timeout,
+                cwd=cwd,
+            ),
         )
     except subprocess.TimeoutExpired:
         return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
