@@ -43,6 +43,9 @@ def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> None:
     report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):
         report.unlink()
+    stream_dump = worktree.teammate_stream_dump_path(smm_dir, name)
+    with contextlib.suppress(OSError):
+        stream_dump.unlink()
     assignment = worktree.story_assignment_path(smm_dir, name)
     with contextlib.suppress(OSError):
         assignment.unlink()

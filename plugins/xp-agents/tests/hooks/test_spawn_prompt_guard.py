@@ -441,12 +441,13 @@ class TestTheRefusalReachesTheLead(_SpawnGuardTestCase):
     """A refusal is only as loud as the pipe it travels down.
 
     /xp-assign never runs the spawn bare: it runs
-    ``spawn_teammate.py ... 2>&1 | teammate_output_filter.py``. That filter keeps
-    only the lines it RECOGNISES as diagnostics and drops the rest, so a refusal
-    it cannot see reaches the lead as "No result event in 1 stream-json lines" —
-    the stale path, the branch, and the remedy all gone. The lead's obvious next
-    move on a contentless failure is to re-run the spawn, which refuses again
-    just as opaquely.
+    ``spawn_teammate.py ... 2>&1 | teammate_output_filter.py``. That filter now
+    surfaces any unrecognised non-JSON line rather than dropping it, but a
+    signal it DOES recognise still gets its own dedicated "Spawn failed: ..."
+    wording ahead of the generic tiers — so the refusal names itself with a
+    token the filter knows, keeping its dedicated phrasing (and the stale
+    path, the branch, and the remedy) intact rather than falling back to the
+    generic "unrecognized output" wording.
 
     The unhandled exception this guard replaced carried a "Traceback" the filter
     matches; a clean SystemExit carries nothing. So the refusal names itself with

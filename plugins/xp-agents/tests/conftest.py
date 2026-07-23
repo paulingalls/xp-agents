@@ -147,6 +147,7 @@ from _md_helpers import (  # noqa: E402, F401
     assert_project_agnostic,
 )
 from _spawn_guard import RealAgentSpawnBlocked  # noqa: E402, F401
+from _stream_stdin_fixtures import _PipeStdinMixin  # noqa: E402, F401
 from _test_typing import _MixinBase  # noqa: E402, F401
 from _worktree_fixtures import _NormalizePathIdentityMixin  # noqa: E402, F401
 
