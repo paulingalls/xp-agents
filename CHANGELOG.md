@@ -2,6 +2,76 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.16.0 — Gate-logic and honesty repairs, continued
+
+**Milestone 7, finished.** Where v4.15.0 took M7's first pass, this closes the
+remaining twelve gate-and-honesty holes — each one a place where a gate or a
+rendered surface reported something subtly other than what the code did. Every
+story here was measured before it was coded; three of the twelve reversed their
+own opening premise once the measurement came in. Minor bump: several change
+behavior you may depend on.
+
+**Behavior changes (read these):**
+
+- **The teammate stop gate honors the review cadence.** The third and last leg of
+  a cadence contradiction the prior release fixed only in part. A dirty-tree
+  teammate was told to run `/xp-quality-review` before stopping even under story
+  cadence — where per-increment review is deferred to the merge and the session's
+  own configuration says to skip it. The gate now branches: under story cadence it
+  demands only the commit, with a message that never claims a review completed;
+  under commit cadence its output is unchanged.
+- **The retro batch-size flag measures one agent's own work.** It counted every
+  agent's events in a single global stream, so during a parallel sprint its
+  "commit more often" advice was unactionable — no one agent could move a number
+  fed by a dozen others — and its label described something the counter never
+  measured. It is now partitioned per agent, anchored at that agent's first edit,
+  closed by its own commit, with pure tool-call telemetry excluded; the threshold
+  is re-baselined from measured sessions (75 → 25) with its provenance recorded
+  beside the constant, and the message is written from what the counter actually
+  counts.
+- **Stale kickoff triage items collapse to a one-line digest.** The work-selection
+  block grew with every open item; deferred items now render as a single digest
+  line carrying their id and defer count while everything else keeps its full
+  excerpt. Nothing is dropped, nothing reads as closed, and full text stays
+  retrievable by id — the block shrinks by item count, not by truncating the
+  rationale you triage on.
+
+**Honesty repairs:**
+
+- **A commit whose message can't be parsed no longer vanishes.** `-F -` heredoc
+  messages now survive a trailing redirect, pipe, or chained command after the
+  delimiter, and a body line that merely begins with the delimiter word (two bash
+  termination rules the old single regex got wrong — plain `<<` closes only at
+  column 0, `<<-` on leading tabs). A real session had lost ten commit events and
+  their resolution trailers this way. And when a message still cannot be parsed, a
+  commit whose HEAD advanced past what's recorded now leaves a low trace stating
+  exactly what was observed — HEAD points at an unrecorded commit — never that a
+  commit "landed", since the same signal fires for a rejection atop untracked
+  history.
+- **Plan review demands real behavior, and runs once.** The reviewer now asks
+  whether a change alters runtime behavior (a red test the change flips), not
+  merely that it is wired in — the recurring inert-fix failure mode — and a
+  blocking question routes forward (asked, answered into the plan, proceed) rather
+  than re-triggering an unbounded re-review loop.
+- **A removal must take its tests with it.** The code reviewer's removed-behavior
+  angle now searches the project's tests for a deleted symbol's name, including in
+  files the diff never touched — the gap the file-domain collision gate is blind to
+  — and the forbidden-vocabulary scan its cross-language guard depends on is
+  centralized so its "scan raw, never lowercase" contract has one owner.
+- **The reviewer read-only guard points at the route it can take.** Measured over
+  every retained review since the guard shipped, its only real refusals were
+  reviewers restoring a file they had changed to prove a finding — for which the
+  old message named the wrong actor. The refusal now names the self-restore route
+  (the reviewer's own edit tools, no git subcommand); the allowlist is unchanged.
+- **The close pipeline's full review carries its own cost bounds.** The shared
+  Step 4b now states what drives the review's scale, that the level token is
+  positional and must be recognised, and that the named workflow — not a
+  hand-authored substitute — is what keeps the fan-out bounded.
+- **The assign marker is story-scoped so it cannot resurrect**, and three copies of
+  a marker-guarded identity check collapse onto one self-resolving helper. A
+  measured legacy-config linter antidote replaces an unmeasured guess, or records
+  the refusal when no binary is available to measure it.
+
 ## v4.15.0 — Gate-logic and honesty repairs
 
 **Eleven gates that reported something other than what the code did.** Milestone 7
