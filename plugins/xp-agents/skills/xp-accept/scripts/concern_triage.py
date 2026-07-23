@@ -72,8 +72,7 @@ def format_concern_triage(
             lines.append(f"  Files: {', '.join(files)}")
         hits = commits.find_addressing_commits(concern, events)
         if hits:
-            msgs = "; ".join(c.get("content", "")[:80] for c in hits[:3])
-            lines.append(f"  **MAYBE ADDRESSED** by: {msgs}")
+            lines.append(commits.format_maybe_addressed_line(hits))
     return "\n".join(lines)
 
 

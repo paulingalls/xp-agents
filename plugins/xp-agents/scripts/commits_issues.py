@@ -113,7 +113,20 @@ def find_addressing_commits(concern: dict, events: list[dict]) -> list[dict]:
     return hits
 
 
+def format_maybe_addressed_line(hits: list[dict]) -> str:
+    """The single owner of the `  **MAYBE ADDRESSED** by: …` annotation line.
+
+    `hits` is a non-empty list of addressing-commit events. Joins the top-3
+    commit messages (each truncated to 80 chars). Three prose readers
+    pattern-match this literal (xp-work-selection Step 3, xp-accept, close
+    Step 5b) — keep it the ONLY place the string is built.
+    """
+    msgs = "; ".join(c.get("content", "")[:80] for c in hits[:3])
+    return f"  **MAYBE ADDRESSED** by: {msgs}"
+
+
 __all__ = [
     "find_addressing_commits",
+    "format_maybe_addressed_line",
     "open_issues_matching_commit",
 ]

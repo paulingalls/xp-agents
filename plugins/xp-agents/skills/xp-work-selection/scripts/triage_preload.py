@@ -213,8 +213,7 @@ def _maybe_addressed_lines(
     event_id = item.get("id", "")
     if not commit_overlap or event_id not in commit_overlap:
         return []
-    msgs = "; ".join(c.get("content", "")[:80] for c in commit_overlap[event_id][:3])
-    return [f"  **MAYBE ADDRESSED** by: {msgs}"]
+    return [commits.format_maybe_addressed_line(commit_overlap[event_id])]
 
 
 def run(smm_dir: Path) -> str:
