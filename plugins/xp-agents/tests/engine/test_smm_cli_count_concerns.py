@@ -13,8 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from _close_fixtures import _quality_meta, _security_meta
+from concerns import TEST_COMMAND_FAILED_PREFIX, TEST_FAILURES_PREFIX
 from conftest import _SMMTestCase, make_event, run_cli, write_events
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
@@ -412,6 +414,137 @@ class TestCountConcerns(_SMMTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "1")
         self.assertIn("fail closed", result.stderr)
+
+    def test_untagged_transient_test_failure_excluded_when_scoped(self) -> None:
+        # concern f995656dba80: a concurrent teammate's TDD red-step
+        # "Test failures detected" concern is untagged (no close_cycle_id)
+        # and transient (auto-resolves on a green run) — it must not leak
+        # into a SIBLING's scoped close-gate count.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={},
+                    content=f"{TEST_FAILURES_PREFIX}: 2 failed (pytest)",
+                )
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_untagged_command_failed_concern_excluded_when_scoped(self) -> None:
+        # bash_failure.py's no-parseable-count path emits a HIGH, untagged
+        # "Test command failed (framework): ..." concern — the SAME transient
+        # class (auto-resolves on green via TEST_CONCERN_RE), a DIFFERENT
+        # producer shape than bash_post_tool's "Test failures detected". It
+        # must also stay out of a sibling's scoped close-gate count.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={},
+                    content=f"{TEST_COMMAND_FAILED_PREFIX} (pytest): ImportError",
+                )
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
+
+    def test_untagged_ordinary_high_concern_still_counted_when_scoped(self) -> None:
+        # M4 preserved: the exclusion is narrow to the test-failure class,
+        # not a blanket untagged-drop (the refuted Try 4782e7c41bdf).
+        write_events(
+            self.events_file,
+            [_concern("high", metadata={}, content="Data loss: unbounded queue")],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+
+    def test_untagged_test_failure_still_counted_when_unscoped(self) -> None:
+        # Without --cycle-id there is no close-gate to protect — the
+        # general count keeps counting every open concern as before.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={},
+                    content=f"{TEST_FAILURES_PREFIX}: 2 failed (pytest)",
+                )
+            ],
+        )
+        result = run_cli(_CLI, ["count-concerns", "--severity", "high"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
+
+    def test_resolved_test_failure_already_excluded_with_and_without_cycle_id(
+        self,
+    ) -> None:
+        # Regression pin: a resolved test-failure concern is already
+        # excluded by the existing resolved_ids filter, independent of
+        # this story's new exclusion.
+        concern = _concern(
+            "high",
+            metadata={},
+            content=f"{TEST_FAILURES_PREFIX}: 1 failed (pytest)",
+        )
+        closer = make_event(
+            EVENT_TYPE_STATUS,
+            working_on=[],
+            metadata={"action": "qr_complete", "resolves": [concern["id"]]},
+        )
+        write_events(self.events_file, [concern, closer])
+        result_scoped = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        result_unscoped = run_cli(
+            _CLI, ["count-concerns", "--severity", "high"], self.smm_dir
+        )
+        self.assertEqual(result_scoped.returncode, 0, result_scoped.stderr)
+        self.assertEqual(result_unscoped.returncode, 0, result_unscoped.stderr)
+        self.assertEqual(result_scoped.stdout.strip(), "0")
+        self.assertEqual(result_unscoped.stdout.strip(), "0")
+
+    def test_test_failure_tagged_with_different_cycle_id_still_excluded(self) -> None:
+        # A test-failure concern tagged with a DIFFERENT close_cycle_id is
+        # excluded by both the cycle-id filter AND the new transient-class
+        # exclusion — confirm it stays excluded either way.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={"close_cycle_id": "bbbb22222222"},
+                    content=f"{TEST_FAILURES_PREFIX}: 3 failed (pytest)",
+                )
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
 
 
 if __name__ == "__main__":
