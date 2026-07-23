@@ -64,6 +64,11 @@ in prose, in prompts and in defaults, and they stay LLM-reviewed.
 This is a floor, not a ceiling. Widen it when a real leak escapes through one of
 the named gaps — not preemptively, and never by weakening a marker.
 
+It also covers a second, unrelated leak class: a dict literal keyed by >=2
+linter names (rule codes, per-linter config) outside `linter_tables.py`, the
+one sanctioned registry for that data. Key-based, not value-shape — see
+`_lang_leak_scan._per_linter_dict_sites`.
+
 The walker lives in `tests/_lang_leak_scan.py`, and its own unit tests — the
 detection and false-positive cases — in `test_lang_leak_scan.py`. This file is
 the pin: what the walker finds when it is pointed at the real shipped tree.
@@ -74,13 +79,26 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-from _lang_leak_scan import ENDSWITH_EXTENSION, MARKER, SUFFIX_COMPARE, Site, scan_file
+import linter_tables
+from _lang_leak_scan import (
+    ENDSWITH_EXTENSION,
+    MARKER,
+    PER_LINTER_TABLE,
+    SUFFIX_COMPARE,
+    Site,
+    scan_file,
+)
 from _pin_helpers import rel as _rel_impl
 from _pin_helpers import shipped_files_to_scan
+from linter_tables import LINTER_BINARIES
 
 PLUGIN_ROOT = Path(__file__).parent.parent.parent  # plugins/xp-agents/
 REPO_ROOT = PLUGIN_ROOT.parent.parent  # repo root for stable rel paths
+
+LINTER_NAMES = frozenset(LINTER_BINARIES)
+REGISTRY_PATH = Path(linter_tables.__file__)
 
 # Sites the pin must find in today's tree. A guard that silently matches nothing
 # passes forever; see the vacuity test.
@@ -95,7 +113,11 @@ def _scan_shipped() -> dict[str, list[Site]]:
     return {
         _rel(p): sites
         for p in shipped_files_to_scan(PLUGIN_ROOT)
-        if (sites := scan_file(p))
+        if (
+            sites := scan_file(
+                p, linter_names=LINTER_NAMES, registry_path=REGISTRY_PATH
+            )
+        )
     }
 
 
@@ -114,7 +136,7 @@ class TestNoLanguageLeak(unittest.TestCase):
             f"`# {MARKER} <reason>` marker"
             for path, sites in sorted(_scan_shipped().items())
             for lineno, kind, reason in sites
-            if reason is None
+            if reason is None and kind != PER_LINTER_TABLE
         ]
         if unmarked:
             self.fail(
@@ -200,6 +222,31 @@ class TestNoLanguageLeak(unittest.TestCase):
         pin's own `rglob("*.py")` would otherwise flag itself."""
         rels = [_rel(p) for p in shipped_files_to_scan(PLUGIN_ROOT)]
         self.assertFalse([r for r in rels if "/tests/" in r])
+
+    def test_per_linter_table_finds_no_shipped_site(self) -> None:
+        """Tripwire: per-linter knowledge lives in exactly ONE place today —
+        `linter_tables.py`, exempted as the registry — and nowhere else.
+
+        This must find nothing now. It goes red the day someone lands a dict
+        keyed by >=2 linter names outside that registry without a non-empty
+        justification marker (unmarked or empty-reason). A table with a real
+        reason is allowed here. `test_no_unmarked_extension_predicate`
+        deliberately EXCLUDES this kind, so this tripwire is the sole enforcer
+        for an unmarked one; `test_markers_state_a_reason` additionally flags an
+        empty reason on every kind, PER_LINTER_TABLE included.
+        """
+        found = [
+            f"  {path}:{lineno}"
+            for path, sites in sorted(_scan_shipped().items())
+            for lineno, kind, reason in sites
+            if kind == PER_LINTER_TABLE and not reason
+        ]
+        if found:
+            self.fail(
+                "Per-linter table(s) found outside linter_tables.py — "
+                "per-language rule/config knowledge belongs in the registry:\n"
+                + "\n".join(found)
+            )
 
 
 if __name__ == "__main__":

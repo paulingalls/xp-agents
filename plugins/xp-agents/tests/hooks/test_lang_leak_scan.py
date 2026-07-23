@@ -376,5 +376,77 @@ class TestWalkerFalsePositives(unittest.TestCase):
         self.assertEqual(sites, [(8, "suffix-compare", None)])
 
 
+class TestPerLinterTableDetection(unittest.TestCase):
+    """The key-based per-linter-table detector.
+
+    A dict keyed by >=2 linter names outside the registry is a per-language
+    rule-semantics table — the leak `linter_tables.py`'s own docstring names.
+    The signal is the KEYS, not the value shape: rule codes and per-language
+    config are both kebab/snake identifiers indistinguishable from ordinary
+    shipped dict values, so a value-shape scan is unfixably noisy (see the
+    story's plan). `linter_names` is read live from the registry by the
+    caller — this walker enumerates no linters itself.
+    """
+
+    LINTERS = frozenset({"eslint", "clippy", "ruff", "flake8"})
+
+    def _scan(self, src: str, registry_path: Path | None = None) -> list[Site]:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "shipped_module.py"
+            tmp.write_text(src)
+            return scan_file(
+                tmp, linter_names=self.LINTERS, registry_path=registry_path
+            )
+
+    def test_planted_rule_code_table_is_caught(self) -> None:
+        """AC1: the canonical leak named in linter_tables.py's docstring —
+        a hardcoded map of a language's rule codes."""
+        sites = self._scan(
+            'RULES = {"eslint": "no-unused-vars", "clippy": "unused_imports"}\n'
+        )
+        self.assertEqual(sites, [(1, "per-linter-table", None)])
+
+    def test_non_rule_values_are_still_flagged(self) -> None:
+        """Per-linter config tables belong in the registry regardless of what
+        the values look like — value shape is not the signal, the keys are."""
+        sites = self._scan(
+            'CONFIG = {"eslint": {"fix": True}, "flake8": {"max-line-length": 80}}\n'
+        )
+        self.assertEqual(sites, [(1, "per-linter-table", None)])
+
+    def test_marked_per_linter_table_passes(self) -> None:
+        sites = self._scan(
+            "# lang-ok: docs example table, not consulted at runtime\n"
+            'RULES = {"eslint": "no-unused-vars", "clippy": "unused_imports"}\n'
+        )
+        self.assertEqual(
+            sites,
+            [(2, "per-linter-table", "docs example table, not consulted at runtime")],
+        )
+
+    def test_dict_keyed_by_non_linters_is_not_flagged(self) -> None:
+        sites = self._scan('MAP = {"modules": (1, 2), "conventions": (3, 4)}\n')
+        self.assertEqual(sites, [])
+
+    def test_snake_value_dict_keyed_by_non_linters_is_not_flagged(self) -> None:
+        """TRAP: proves the detector reads KEYS, not values — these values
+        look exactly like rule-code identifiers but the keys aren't linters."""
+        sites = self._scan('MAP = {"a": "test_runs", "b": "lint_events"}\n')
+        self.assertEqual(sites, [])
+
+    def test_single_linter_key_is_below_threshold(self) -> None:
+        sites = self._scan('MAP = {"eslint": "no-unused-vars", "count": 3}\n')
+        self.assertEqual(sites, [])
+
+    def test_registry_file_itself_is_exempt(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "linter_tables.py"
+            tmp.write_text(
+                'RULES = {"eslint": "no-unused-vars", "clippy": "unused_imports"}\n'
+            )
+            sites = scan_file(tmp, linter_names=self.LINTERS, registry_path=tmp)
+        self.assertEqual(sites, [])
+
+
 if __name__ == "__main__":
     unittest.main()
