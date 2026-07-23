@@ -32,25 +32,14 @@ import _common
 import acceptance_env
 import branch_lifecycle
 import branching
+import close_review_support
 import close_verify_gate
-import commits
-import git_hooks
 import git_remote
 import identity
 import sprint_store
 import trailer_gate
 import worktree
 from merge_commit_event import append_merge_commit_event
-
-
-def pre_commit_hook_present(repo_root: str) -> bool:
-    """Return True when the project runs tests via a git hook on commit/push.
-
-    Strict — defers to ``git_hooks.will_fire_hook`` (markers + executable
-    pre-commit/pre-push, honoring ``core.hooksPath``). Non-executable
-    scripts and ``.sample`` files don't qualify because git won't fire them.
-    """
-    return git_hooks.will_fire_hook(repo_root)
 
 
 def _run_or_relay(argv: list[str], cwd: str, success_msg: str | None = None) -> int:
@@ -211,47 +200,6 @@ def cmd_create_pr(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_hook_present(args: argparse.Namespace) -> int:
-    """Print 'present' or 'absent' for the close-skill preloads."""
-    print("present" if pre_commit_hook_present(args.cwd) else "absent")
-    return 0
-
-
-def cmd_diff_command(args: argparse.Namespace) -> int:
-    """Print `git diff <target>...<source>` — the range the merge actually lands.
-
-    Invariant: **the review source is the ref that merges; the PR head is never
-    the review source.** cmd_merge merges a LOCAL ref (`<source>`), while the PR
-    head is only the REMOTE head as of Step 2's push — close-time fixes (Step 4b
-    validate-and-fix, Step 5c "fix now") land on `<source>` AFTER that push and
-    still ship in the merge, so reviewing `gh pr diff <N>` would miss them
-    (live at sprint-118). The PR is still created (Step 3) as the human record
-    and push target; only its role as review INPUT is removed.
-
-    Not `...HEAD`: at story-close this runs from the ORCHESTRATOR checkout,
-    where HEAD is the sprint branch, not the story branch. Naming `<source>` is
-    cwd-independent (worktrees share the object store and refs). Three-dot
-    matches the sizing gate (commits.get_code_files_in_range).
-    """
-    print(f"git diff {args.target}...{args.source}")
-    return 0
-
-
-def cmd_close_review_gate(args: argparse.Namespace) -> int:
-    """Emit CLOSE_CODE_FILE_COUNT and the RUN_FULL_CODE_REVIEW threshold flag.
-
-    The shared Step 4b runs the broad workflow /code-review at sprint/plan/free
-    close ONLY when the cumulative close diff (``<target>...HEAD``) has at least
-    REVIEW_CYCLE_THRESHOLD code files — per-increment self-find already covered
-    smaller diffs. Fails safe to false (count 0) when the range can't resolve.
-    """
-    count = len(commits.get_code_files_in_range(args.cwd, args.target))
-    run_full = count >= commits.REVIEW_CYCLE_THRESHOLD
-    print(f"CLOSE_CODE_FILE_COUNT={count}")
-    print(f"RUN_FULL_CODE_REVIEW={'true' if run_full else 'false'}")
-    return 0
-
-
 def cmd_merge(args: argparse.Namespace) -> int:
     """Chained merge --no-ff + (push target if remote) + delete source.
 
@@ -344,6 +292,40 @@ def cmd_merge(args: argparse.Namespace) -> int:
         except Exception as exc:  # advisory must never block the merge chain
             sys.stderr.write(f"warn: trailer advisory skipped ({exc})\n")
 
+    # Archive the sprint AFTER the merge commits but BEFORE delete_branch — the
+    # one irreversible step. If archive fails, return nonzero with the source
+    # branch intact: re-running this same merge command re-merges idempotently
+    # ("Already up to date") and re-attempts the archive. Must run before the
+    # acceptance verify-gate would ever see a missing sprint.json again — it
+    # already ran, above, before the merge.
+    if getattr(args, "archive_sprint", False):
+        if smm_dir is None:
+            # A misconfigured invocation must not invisibly skip the archive
+            # (matches --verify-gate's loud refusal posture). The merge
+            # already committed, so fail the same way an archive failure
+            # would: nonzero, source branch intact, no push/delete — a retry
+            # with --smm-dir set re-merges idempotently and archives.
+            sys.stderr.write(
+                "sprint archive failed after merge; source branch kept for "
+                "retry: --archive-sprint requires --smm-dir\n"
+            )
+            return 1
+        # smm/ is already on sys.path (see the sprint_store import above).
+        from sprint_archive import archive as archive_sprint
+
+        try:
+            archived = archive_sprint(smm_dir)
+        except OSError as exc:
+            sys.stderr.write(
+                f"sprint archive failed after merge; source branch kept for "
+                f"retry: {exc}\n"
+            )
+            return 1
+        if archived is None:
+            print("sprint already archived (idempotent) — continuing to branch cleanup")
+        else:
+            print(f"archived sprint: {archived}")
+
     if git_remote.has_remote(args.cwd):
         rc = _run_or_relay(
             ["git", "push", "origin", args.target],
@@ -432,7 +414,7 @@ def _build_parser() -> argparse.ArgumentParser:
         parents=[cwd_parent],
         help="print 'present' or 'absent' for the project's git hooks",
     )
-    p.set_defaults(func=cmd_hook_present)
+    p.set_defaults(func=close_review_support.cmd_hook_present)
 
     p = sub.add_parser(
         "diff-command",
@@ -445,7 +427,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the ref that merges (the close's <CURRENT_BRANCH>); the review "
         "range is <target>...<source>, never the PR head",
     )
-    p.set_defaults(func=cmd_diff_command)
+    p.set_defaults(func=close_review_support.cmd_diff_command)
 
     p = sub.add_parser(
         "close-review-gate",
@@ -453,7 +435,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="emit RUN_FULL_CODE_REVIEW threshold flag for the cumulative close diff",
     )
     p.add_argument("--target", required=True)
-    p.set_defaults(func=cmd_close_review_gate)
+    p.set_defaults(func=close_review_support.cmd_close_review_gate)
 
     p = sub.add_parser(
         "merge",
@@ -483,6 +465,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="after-review clean re-check target (story-close teammate worktree); "
         "refuse the merge if dirty so an uncommitted reviewer fix isn't discarded "
         "by worktree cleanup. Empty (solo/other closes) skips the check.",
+    )
+    p.add_argument(
+        "--archive-sprint",
+        action="store_true",
+        help="archive sprint.json (into sprints/) after the merge commits and "
+        "before the source branch delete — retry-safe on archive failure "
+        "(requires --smm-dir; sprint-close only)",
     )
     p.set_defaults(func=cmd_merge)
 

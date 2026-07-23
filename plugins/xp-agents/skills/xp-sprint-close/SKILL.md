@@ -117,11 +117,10 @@ steps in order after Step 4.5, then continue with Step 7 below.
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py merge \
   --cwd . --source <CURRENT_BRANCH> --target <TARGET_BRANCH> \
-  --verify-gate acceptance --smm-dir <SMM_DIR> && \
-python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> archive
+  --verify-gate acceptance --archive-sprint --smm-dir <SMM_DIR>
 ```
 
-`--verify-gate acceptance` is a deterministic backstop that refuses the merge on a red verify status; on the Step 0 `--force-close` path also pass `--force-verify`. Any failing step aborts the chain — source intact for retry, and a failed archive leaves sprint.json in place. Conflicts are never auto-resolved. The completed sprint is snapshotted under `sprints/` before the next `/xp-sprint-start` overwrites `sprint.json`.
+`--verify-gate acceptance` is a deterministic backstop that refuses the merge on a red verify status; on the Step 0 `--force-close` path also pass `--force-verify`. The archive runs INSIDE the merge, after the merge commit lands and before the source branch delete — so a failed archive leaves the source branch intact and sprint.json in place; re-running this exact command re-merges idempotently (`git merge --no-ff` no-ops on an already-merged branch) and retries the archive. Conflicts are never auto-resolved. The completed sprint is snapshotted under `sprints/` before the next `/xp-sprint-start` overwrites `sprint.json`.
 
 ## Step 8: Plan-close chain (if applicable)
 
