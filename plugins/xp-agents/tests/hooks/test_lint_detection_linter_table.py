@@ -262,47 +262,5 @@ class TestLinterTableColumns(unittest.TestCase):
                 )
 
 
-class TestConfigStyleFlagsAgreesWithLinterConfigs(unittest.TestCase):
-    """Guards the two eslint-flat-config tables against drifting apart.
-
-    CONFIG_STYLE_FLAGS is keyed by config FILENAME (not by linter name) because
-    the flag it answers — `--no-warn-ignored` — is only valid under flat
-    config, and the config file is what selects the mode; see the column's own
-    docstring in linters.py. LINTER_CONFIGS is a separate table naming which
-    filenames `detect_linter_config` recognizes as flat config for eslint
-    (`eslint.config.js` / `.mjs` / `.ts`).
-
-    Today both tables list the same three filenames, so nothing is broken yet.
-    But nothing enforces that they stay in sync: add a fourth flat-config
-    filename to LINTER_CONFIGS (say, eslint.config.cjs, which real eslint
-    supports) without a matching CONFIG_STYLE_FLAGS row, and the ignored-file
-    warning this column exists to suppress comes back for every project using
-    that filename — silently, because both tables still type-check and no
-    other test reads them together. This test is that missing link.
-    """
-
-    def test_flat_config_filenames_in_linter_configs_have_a_config_style_flags_row(
-        self,
-    ):
-        flat_config_filenames = {
-            config_name
-            for config_name, linter, _content_check in linters.LINTER_CONFIGS
-            if linter == "eslint" and config_name.startswith("eslint.config.")
-        }
-        # Vacuity guard: if eslint's flat-config rows ever get renamed or
-        # removed from LINTER_CONFIGS, this test must not pass by finding an
-        # empty set to be trivially "a subset of" anything.
-        self.assertTrue(flat_config_filenames, "no flat-config rows found to check")
-
-        missing = flat_config_filenames - linters.CONFIG_STYLE_FLAGS.keys()
-        self.assertFalse(
-            missing,
-            f"{sorted(missing)} appear as flat-config rows in LINTER_CONFIGS but "
-            "have no CONFIG_STYLE_FLAGS entry — eslint would run under flat "
-            "config without --no-warn-ignored, and the gate would refuse a file "
-            "the project's own config says to skip",
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

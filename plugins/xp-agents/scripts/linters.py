@@ -154,6 +154,7 @@ _REEXPORTED = frozenset(
         "linter_argv",
         "linter_command",
         "linter_stdin_argv",
+        "optional_flag_retry",
         "preconditions_met",
     }
 )

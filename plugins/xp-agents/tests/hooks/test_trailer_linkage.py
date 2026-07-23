@@ -101,6 +101,32 @@ class TestQuietCommitRecording(_RealGitRepoTestCase):
             events[0]["metadata"]["commit_hash"], self._head(), "wrong commit_hash"
         )
 
+    def test_quiet_chained_heredoc_dash_F_commit_is_recorded(self):
+        """AC-5 / story-005's literal command (concern 1e6186970e01):
+        `git add -A && git commit -q -F - <<'EOF' && git show --stat HEAD`.
+        The pre-fix pattern demanded the newline immediately after the
+        opening delimiter; the trailing `&& git show --stat HEAD` broke that,
+        `extract_commit_message` returned None, and NO commit event was
+        recorded even though the commit landed."""
+        self._stage("a.py")
+        subprocess.run(
+            ["git", "-C", str(self.repo), "commit", "-q", "-F", "-"],
+            input="feat: chained heredoc bodied commit\n",
+            text=True,
+            check=True,
+        )
+        command = (
+            f"git add -A && git -C {self.repo} commit -q -F - <<'EOF' && "
+            "git show --stat HEAD\n"
+            "feat: chained heredoc bodied commit\nEOF"
+        )
+        self._run_hook(command)
+        events = self._commit_events()
+        self.assertEqual(len(events), 1, "expected exactly one commit event")
+        self.assertEqual(
+            events[0]["metadata"]["commit_hash"], self._head(), "wrong commit_hash"
+        )
+
     def test_plain_commit_still_records_exactly_one_event(self):
         """Regression guard for the `git commit -m` path that already worked."""
         self._stage("b.py")

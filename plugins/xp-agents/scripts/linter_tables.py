@@ -28,6 +28,8 @@ LOAD-BEARING CONSTRAINT: this module must never import from `linters` (no
 circular import) — it is pure data, imported DOWN into `linters`.
 """
 
+from typing import NamedTuple
+
 LINTER_CONFIGS = [
     # (config_pattern, linter_name, check_content)
     # Python
@@ -268,34 +270,94 @@ LINTER_CONFIG_FLAGS: dict[str, list[str]] = {
 
 
 # COLUMN: config-style flags. An option a CLI accepts only in ONE of its own config
-# MODES — keyed by the config FILE, because the file is what selects the mode.
-#
-# Not keyed by linter, and that is the whole point of the column. `--no-warn-ignored`
-# is a real eslint option, but only under flat config (added 8.51); under `.eslintrc`
-# it is an UNRECOGNISED option, and eslint answers that with exit 2 and nothing linted.
-# The gate reads non-zero-with-output as FINDINGS, so a linter-keyed row would block
-# EVERY commit in every eslintrc project — an unfixable gate, which is the one failure
-# `DEGRADED_LINTERS` exists to avoid. The mode is not knowable from the linter's name;
-# it is knowable from the config file `detect_linter_config` already found.
+# MODES, and only from some VERSION on — keyed by the config FILE, because the file is
+# what selects the mode. Each row carries the flags and the exit code that means "I do
+# not understand that option"; deliberately NOT a version, for the reason below.
 #
 # Why the gate needs it at all: `LINTER_STRICT_FLAGS` ships eslint `--max-warnings=0`
 # so warn-level rules block. eslint reports "File ignored because of a matching ignore
 # pattern" as a WARNING, so once the gate lints files at their REAL paths — where an
 # ignore pattern finally matches — that warning trips the threshold and the gate
-# refuses a file the project's own config says to skip, with nothing to fix. MEASURED
-# against eslint v10: exit 1 by path AND via --stdin-filename; exit 0 with this flag.
+# refuses a file the project's own config says to skip, with nothing to fix.
+#
+# TWO INDEPENDENT AXES, and conflating them is what made the earlier note wrong.
+# MEASURED 2026-07-22 against real eslint 7.32.0 / 8.30.0 / 8.50.0 / 8.57.1, each
+# config mode pinned explicitly via ESLINT_USE_FLAT_CONFIG on a fixture with an
+# ignore-matched file:
+#
+#   CONFIG STYLE (permanent). Under `.eslintrc`, `--no-warn-ignored` exits 2
+#   ("Invalid option '--warn-ignored'") on EVERY version tested — including 8.57.1,
+#   which accepts the same flag under flat config. It is not a version cliff there;
+#   the option does not exist in that mode at all. See the refusal note below.
+#
+#   VERSION (self-healing). Under FLAT config the flag landed in 8.51:
+#   8.30.0 -> exit 2, 8.57.1 -> exit 0. But `detect_linter_config` recognizes
+#   `eslint.config.js` from 8.21, so a filename-keyed row hands every project in the
+#   8.21-8.50 window an unrecognised option. The gate reads non-zero-with-output as
+#   FINDINGS: an unfixable block on every commit — the one failure `DEGRADED_LINTERS`
+#   exists to avoid.
+#
+#   That window is closed WITHOUT a version table, by `usage_error_exit_code`: the
+#   flag is optional, so if the tool rejects it the runner re-runs once without it.
+#   A version table could only cover combinations we measured; this covers every
+#   tool/version/config combination, including ones that do not exist yet. MEASURED
+#   (8.57.1 flat) that the exit code discriminates cleanly: findings — warnings,
+#   errors, even a parse error — exit 1, while an unsupported flag exits 2. So a
+#   REGULAR lint failure never triggers a retry, and the retry costs nothing on the
+#   hot path. A version probe was measured at 0.40-0.64s per invocation and rejected:
+#   it ran inside the gate's shared wall-clock budget, which exists so the gate cannot
+#   outlive the harness hook timeout and fail OPEN.
+#
+#   Honest bound on what this buys: dropping the flag converts an exit-2 "Invalid
+#   option" into the ordinary ignored-file warning-block (measured: 8.30.0 flat,
+#   `--max-warnings=0` alone -> exit 1). That stops us actively breaking those
+#   commits; it does not make the ignored file lintable. It self-heals on upgrade.
+#
+# THE `.eslintrc` REFUSAL — recorded because it was measured, not assumed. No flag
+# suppresses the ignored-file warning under eslintrc: `--quiet` exits 1 ("too many
+# warnings" — it filters the REPORT, but max-warnings still counts the filtered
+# warnings), and `--no-ignore` exits 1 having LINTED the excluded file, overriding the
+# project's own exclusion. The only lever that clears it is dropping
+# `--max-warnings=0`, which measurement shows costs warn-level gating outright (a
+# warn-level violation goes exit 1 -> exit 0; errors still exit 1). That trade was
+# declined: it would cost every eslintrc project its warn-level gate permanently to
+# fix a block that only fires when an ignore-matched file is staged. Pinned by
+# tests/hooks/test_lint_config_style_flags.py::TestEslintrcCarriesNoConfigStyleFlag.
 #
 # Structural, by the same test as the columns above: the row is the flag's own `--help`
-# line ("Suppress warnings when the file list includes ignored files") plus which config
-# file enables it. No rule name, in any language. The alternative — reading eslint's
-# message text — is a rule map by another name, and forbidden.
+# line plus which config file enables it, and an exit code. No rule name, in any
+# language. The alternative — reading eslint's message text — is a rule map by another
+# name.
 #
-# An absent row adds nothing, which is why an unknown config style is safe by default:
-# the tool is invoked exactly as it is today.
-CONFIG_STYLE_FLAGS: dict[str, list[str]] = {
-    "eslint.config.js": ["--no-warn-ignored"],
-    "eslint.config.mjs": ["--no-warn-ignored"],
-    "eslint.config.ts": ["--no-warn-ignored"],
+# An absent row adds nothing, which is why an unknown config style is safe by default,
+# and why every way of failing to place a flag resolves to "no flag": the tool is
+# invoked exactly as it is today.
+class ConfigStyleRow(NamedTuple):
+    """One config style's optional flags, and how its CLI rejects an option.
+
+    A tuple, not a dict, for two reasons: the fields are a fixed shape a type
+    checker can hold the literals to, and the row is IMMUTABLE — the same object is
+    shared by every filename that selects the same config style, so a mutable row
+    would let one caller's edit reach all of them.
+    """
+
+    flags: tuple[str, ...]
+    # The exit code this CLI uses for "I do not understand that option", which is the
+    # ONLY code that earns a retry without the optional flags. Structural, and per-row
+    # because the convention is per-tool, not per-language. Leave it None and the
+    # flags are simply always passed — same behavior as before this column.
+    usage_error_exit_code: int | None = None
+
+
+_ESLINT_FLAT_IGNORE_ROW = ConfigStyleRow(
+    flags=("--no-warn-ignored",),
+    usage_error_exit_code=2,
+)
+
+CONFIG_STYLE_FLAGS: dict[str, ConfigStyleRow] = {
+    "eslint.config.js": _ESLINT_FLAT_IGNORE_ROW,
+    "eslint.config.mjs": _ESLINT_FLAT_IGNORE_ROW,
+    "eslint.config.ts": _ESLINT_FLAT_IGNORE_ROW,
 }
 
 

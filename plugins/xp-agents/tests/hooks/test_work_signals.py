@@ -207,6 +207,140 @@ class TestWorkSignals(unittest.TestCase):
         self.assertEqual(result["max_events_to_commit"], 3)
 
 
+class TestWorkSignalsBatchPartition(unittest.TestCase):
+    """story-010: the batch counter must measure ONE agent's own work.
+
+    Before this, a single global stream summed every agent's events, so the
+    flag's advice ("commit more often") was unactionable — no single agent
+    could shrink a counter fed by thirteen others.
+    """
+
+    def test_batch_is_partitioned_per_agent(self):
+        """Interleaved agents are counted against their own agent_id."""
+        import work_signals
+
+        events = [
+            make_event(EVENT_TYPE_STATUS, working_on=["a.py"], agent_id="teammate-1"),
+            make_event(EVENT_TYPE_STATUS, working_on=["b.py"], agent_id="teammate-2"),
+            *[
+                make_event(
+                    EVENT_TYPE_STATUS,
+                    content="more work",
+                    working_on=[],
+                    agent_id="teammate-2",
+                )
+                for _ in range(5)
+            ],
+            make_event(EVENT_TYPE_COMMIT, content="t1 commits", agent_id="teammate-1"),
+            make_event(EVENT_TYPE_COMMIT, content="t2 commits", agent_id="teammate-2"),
+        ]
+        result = work_signals.build_work_signals(events)
+        # teammate-1 batched 1 event (its own edit); teammate-2 batched 6.
+        # Summed globally, teammate-1's commit would have closed a 7-event
+        # interval it did not create.
+        self.assertEqual(result["max_events_to_commit"], 6)
+
+    def test_batch_names_the_agent_it_measured(self):
+        """The max is attributed, so the reader knows whose batch to shrink."""
+        import work_signals
+
+        events = [
+            make_event(EVENT_TYPE_STATUS, working_on=["a.py"], agent_id="teammate-1"),
+            make_event(EVENT_TYPE_COMMIT, content="quick", agent_id="teammate-1"),
+            make_event(EVENT_TYPE_STATUS, working_on=["b.py"], agent_id="teammate-2"),
+            make_event(
+                EVENT_TYPE_STATUS, content="x", working_on=[], agent_id="teammate-2"
+            ),
+            make_event(EVENT_TYPE_COMMIT, content="slow", agent_id="teammate-2"),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_events_to_commit"], 2)
+        self.assertEqual(result["max_events_to_commit_agent"], "teammate-2")
+
+    def test_no_batch_leaves_agent_unnamed(self):
+        """Nothing measured means nothing to attribute."""
+        import work_signals
+
+        result = work_signals.build_work_signals([])
+        self.assertEqual(result["max_events_to_commit"], 0)
+        self.assertIsNone(result["max_events_to_commit_agent"])
+
+    def test_test_runs_excluded_from_batch(self):
+        """test_run_complete is TDD-loop telemetry, not batched work."""
+        import work_signals
+
+        events = [
+            make_event(EVENT_TYPE_STATUS, working_on=["a.py"]),
+            tests_run_status(passed=False),
+            tests_run_status(passed=False),
+            tests_run_status(passed=True),
+            make_event(EVENT_TYPE_COMMIT, content="Green"),
+        ]
+        result = work_signals.build_work_signals(events)
+        # 1 (the edit), not 4 — running tests three times is the Feedback
+        # value working, and must not read as a bigger batch.
+        self.assertEqual(result["max_events_to_commit"], 1)
+
+    def test_test_run_before_first_edit_does_not_anchor(self):
+        """An excluded event cannot open the interval it is excluded from."""
+        import work_signals
+
+        events = [
+            tests_run_status(passed=True),
+            make_event(EVENT_TYPE_STATUS, working_on=["a.py"]),
+            make_event(EVENT_TYPE_COMMIT, content="Commit"),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_events_to_commit"], 1)
+
+    def test_edits_are_counted_as_the_batch(self):
+        """Edits ARE the work being batched — they are not telemetry.
+
+        Pins decision ff515bf71b6d against the discarded variant that also
+        dropped file_write, under which this run would score 0 and AC-2
+        (same edit volume, twice the commits) could not discriminate.
+        """
+        import work_signals
+
+        events = [
+            *[
+                make_event(
+                    EVENT_TYPE_STATUS,
+                    content="Wrote a code file",
+                    working_on=[f"src/mod_{i}.py"],
+                    metadata={"action": "file_write"},
+                )
+                for i in range(6)
+            ],
+            make_event(EVENT_TYPE_COMMIT, content="One big batch"),
+        ]
+        result = work_signals.build_work_signals(events)
+        self.assertEqual(result["max_events_to_commit"], 6)
+
+    def test_committing_twice_as_often_scores_materially_lower(self):
+        """AC-2, on the flag's own counter, at identical edit volume."""
+        import work_signals
+
+        def edits(n, start=0):
+            return [
+                make_event(
+                    EVENT_TYPE_STATUS,
+                    content="edit",
+                    working_on=[f"src/mod_{i}.py"],
+                    metadata={"action": "file_write"},
+                )
+                for i in range(start, start + n)
+            ]
+
+        commit = make_event(EVENT_TYPE_COMMIT, content="commit")
+        rare = work_signals.build_work_signals([*edits(8), commit])
+        often = work_signals.build_work_signals(
+            [*edits(4), commit, *edits(4, start=4), commit]
+        )
+        self.assertEqual(rare["max_events_to_commit"], 8)
+        self.assertEqual(often["max_events_to_commit"], 4)
+
+
 class TestWorkSignalsM2Actions(unittest.TestCase):
     """sprint-042 M2: action-aware classification with regex fallback."""
 

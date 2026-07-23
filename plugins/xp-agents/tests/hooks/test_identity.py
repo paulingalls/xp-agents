@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import _common
 import identity
+import worktree
 from _branching_fixtures import init_repo
 
 # Direct from the sibling, NOT through conftest: this module deliberately does
@@ -93,6 +95,101 @@ class TestIsTeammateAgentId(unittest.TestCase):
         self.assertFalse(identity.is_teammate_agent_id(""))
 
 
+class TestInPlaceTeammateName(unittest.TestCase):
+    """in_place_teammate_name — the shared marker-guarded env leg behind
+    is_worktree_teammate, tdd_check._reader_scope, and
+    pre_tool_skill._is_live_teammate (story-003 dedup)."""
+
+    def test_no_env_var_never_resolves_smm_dir(self):
+        """AC4: with no XP_TEAMMATE_NAME, the lead's hot path pays no
+        subprocess — pinned via call count, not vacuously."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            with patch.object(_common, "get_validated_smm_dir") as mock_resolve:
+                self.assertIsNone(identity.in_place_teammate_name())
+            mock_resolve.assert_not_called()
+
+    def test_env_var_not_teammate_shaped_never_resolves_smm_dir(self):
+        with patch.dict(os.environ, {"XP_TEAMMATE_NAME": "explorer-1"}, clear=False):
+            with patch.object(_common, "get_validated_smm_dir") as mock_resolve:
+                self.assertIsNone(identity.in_place_teammate_name())
+            mock_resolve.assert_not_called()
+
+    def test_invalid_explicit_smm_dir_fails_closed(self):
+        """An explicit smm_dir that fails validation must never reach
+        in_place_teammate_from_env."""
+        with (
+            patch.dict(
+                os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+            ),
+            patch.object(_common, "try_validate_smm_dir", return_value=None),
+        ):
+            with patch("worktree.in_place_teammate_from_env") as mock_marker:
+                self.assertIsNone(identity.in_place_teammate_name(Path("/whatever")))
+            mock_marker.assert_not_called()
+
+    def test_no_param_and_no_env_fails_closed_without_deriving(self):
+        """Finding #6 / story-003 fail-closed: with neither an smm_dir param
+        nor a SMM_DIR env, the marker is unverifiable. The helper must NOT
+        derive the real shared SMM via init.sh — that would let a live in-place
+        marker for a LEAKED XP_TEAMMATE_NAME misidentify a lead as a teammate.
+        It returns None WITHOUT ever resolving or checking the marker."""
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+        ):
+            os.environ.pop("SMM_DIR", None)
+            with (
+                patch.object(_common, "resolve_smm_dir") as mock_resolve,
+                patch("worktree.in_place_teammate_from_env") as mock_marker,
+            ):
+                self.assertIsNone(identity.in_place_teammate_name())
+            mock_resolve.assert_not_called()
+            mock_marker.assert_not_called()
+
+    def test_leaked_env_without_live_marker_returns_none(self):
+        """A leaked XP_TEAMMATE_NAME with a resolvable SMM but NO live marker
+        is not a teammate — the marker is checkABLE, never skippable."""
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = Path(tmp)
+            with patch.dict(
+                os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+            ):
+                self.assertIsNone(identity.in_place_teammate_name(smm_dir))
+
+    def test_process_cwd_inside_a_worktree_is_ignored(self):
+        """The helper is the ENV leg and nothing else — it must carry no cwd
+        logic of its own. `is_worktree_teammate` keeps its `os.getcwd()`
+        fallback ABOVE the call; `tdd_check._reader_scope` and
+        `pre_tool_skill._is_live_teammate` deliberately have none (that leak is
+        the documented reason they don't just call `is_worktree_teammate`).
+        That separation only holds while this helper stays cwd-free, so pin it
+        here: a process cwd inside a worktree, with no env var, is still None."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("XP_TEAMMATE_NAME", None)
+            with patch(
+                "identity._process_cwd",
+                return_value="/tmp/wt/worktree-story-001",
+            ):
+                self.assertIsNone(identity.in_place_teammate_name())
+
+    def test_explicit_smm_dir_param_used_directly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = Path(tmp)
+            worktree.claim_in_place_marker(smm_dir, "worktree-story-001")
+            try:
+                with patch.dict(
+                    os.environ,
+                    {"XP_TEAMMATE_NAME": "worktree-story-001"},
+                    clear=False,
+                ):
+                    self.assertEqual(
+                        identity.in_place_teammate_name(smm_dir),
+                        "worktree-story-001",
+                    )
+            finally:
+                release_in_place_holds(smm_dir)
+
+
 class TestIsWorktreeTeammate(unittest.TestCase):
     """is_worktree_teammate detects CLI teammates by cwd path or env var."""
 
@@ -160,6 +257,21 @@ class TestIsWorktreeTeammate(unittest.TestCase):
                 # The claim holds a REAL lock; give it back before the dir goes.
                 release_in_place_holds(smm_dir)
                 self.assertTrue(detected)
+
+    def test_leaked_env_no_smm_dir_does_not_derive_shared_smm(self):
+        """Finding #6: a lead with a leaked XP_TEAMMATE_NAME and no SMM_DIR must
+        NOT be misidentified as a teammate by deriving the real shared SMM and
+        finding a live in-place marker there. With neither an smm_dir param nor
+        a SMM_DIR env, the env leg fails closed WITHOUT deriving (story-003's
+        fail-closed property)."""
+        inp = {"cwd": "/home/user/project/src"}
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+        ):
+            os.environ.pop("SMM_DIR", None)
+            with patch.object(_common, "resolve_smm_dir") as mock_resolve:
+                self.assertFalse(identity.is_worktree_teammate(inp))
+            mock_resolve.assert_not_called()
 
     def test_env_var_without_prefix_not_detected(self):
         """XP_TEAMMATE_NAME without worktree-story- prefix not detected."""

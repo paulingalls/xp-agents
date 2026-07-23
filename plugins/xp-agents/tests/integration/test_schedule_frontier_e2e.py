@@ -195,6 +195,64 @@ class TestScheduleFrontierE2E(_IntegrationTestCase):
         self.assertEqual(ss.returncode, 0, ss.stderr)
         self.assertTrue(self._assign_pending())
 
+    # -- AC #4: a marker armed for one frontier does not gate the NEXT one
+
+    def test_stale_marker_does_not_demand_assignment_for_the_next_frontier(self):
+        """Arm for one delegated frontier, then promote a DIFFERENT one.
+
+        The reachable flow, end to end through the real hook subprocesses: the
+        plan review arms the gate (arming happens before any customer decision),
+        the review comes back blocking and the story is deferred instead of
+        assigned, so nothing ever clears the marker — the assign skill's preload
+        is the only clear on that path and it never ran, and the gate's own
+        consume needs a NON-plan lead write, which the plan-mode window has none
+        of. /xp-schedule then promotes the next frontier and the lead's pre-plan
+        window opens.
+
+        The demand there is not a nag that costs a keystroke: satisfying it runs
+        the assign skill against the PREVIOUS story's recorded plan path, so the
+        next teammate is spawned on the wrong plan with a branch name that still
+        matches. Scoping the marker is what keeps it quiet.
+        """
+        self._write_sprint(
+            [
+                _make_story(
+                    id="story-001",
+                    status="in-progress",
+                    dependencies=[],
+                    execution_mode="teammate",
+                    file_domain=["a.py — x"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — y"],
+                ),
+            ]
+        )
+
+        ss = self._run_script("subagent_stop.py", self._reviewer_input())
+        self.assertEqual(ss.returncode, 0, ss.stderr)
+        self.assertTrue(self._assign_pending(), "plan review must arm the gate")
+
+        # Blocking findings: story-001 is dropped, never assigned.
+        sprint_store.update_story_status(self.smm_dir, "story-001", "deferred")
+
+        # /xp-schedule promotes the next delegated frontier. Pre-plan-review.
+        sprint_store.update_story_status(self.smm_dir, "story-002", "in-progress")
+        sprint_store.edit_story(
+            self.smm_dir, "story-002", {"execution_mode": "teammate"}
+        )
+
+        wo = self._run_script("pre_tool_write.py", self._write_input())
+        self.assertEqual(wo.returncode, 0, wo.stderr)
+        self.assertNotIn("xp-assign", wo.stderr)
+        self.assertFalse(
+            self._assign_pending(),
+            "the out-of-scope marker must be consumed, not left to fire later",
+        )
+
     # -- AC #3: close does not promote; /xp-schedule advances the next frontier
 
     def test_close_leaves_next_then_schedule_promotes(self):

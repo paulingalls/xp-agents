@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import assign_scope
 import identity
 import markers
 import sprint_state
@@ -85,7 +86,7 @@ def _story_is_spawned(story: dict, live_branches: dict[str, str]) -> bool:
 
 
 def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
-    """True while some in-progress teammate story still has no live worktree.
+    """True while some IN-SCOPE in-progress teammate story has no live worktree.
 
     This is the assign gate's remit, stated positively: /xp-assign exists to
     create a story's branch and spawn its teammate, one spawn per invocation.
@@ -98,6 +99,19 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     through accept and close. A story merely SCHEDULED does not revive it:
     promoting a frontier is /xp-schedule's business, and its own state-derived
     gate covers that window.
+
+    IN SCOPE means the marker was armed FOR that story. The marker records the
+    stories its plan review covered (assign_scope.format_assign_scope, written by
+    subagent_stop); intersecting against them is what stops a marker that went
+    moot from gating an UNRELATED frontier promoted later. Without it the
+    self-clearing consume is not enough: the consume needs a lead write to
+    fire, and this gate is plan-files-exempt with the exemption checked BEFORE
+    the marker, so the entire plan-mode window skips it. The stale marker then
+    fires in the next frontier's PRE-PLAN window, where satisfying it pairs
+    that frontier with the previous story's recorded plan.
+
+    Narrowing NEVER widens: the intersection only removes candidates, so no
+    state that is quiet today can be made to block by it.
 
     FAILS CLOSED, on EVERY read it makes — which is the licence check_lead_gates
     needs to DELETE the marker on a False. There are three reads and each one
@@ -116,6 +130,10 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
         marker. On the Write hot path a bad read must fail closed.
       * a stale same-id worktree from a previous sprint -> not a branch match ->
         reads un-spawned -> block (see _story_is_spawned).
+      * the marker's scope is unreadable, sentinel-less (armed before the format
+        existed), names ANOTHER sprint, or is empty -> we cannot say what it was
+        armed for -> no intersection at all -> the unscoped behavior -> block.
+        `assign_scope.read_assign_scope` collapses every one of those to None.
 
     False therefore means the sprint positively says there is nothing to assign,
     never "could not tell".
@@ -123,7 +141,10 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     HOT PATH. Reached only after the marker stat and the teammate exemption; the
     stale case returns before touching git. ONE `git worktree list` answers every
     story — find_teammate_worktree_for_story re-runs it per call, costing a
-    subprocess PER STORY on every Write/Edit. See check_lead_gates.
+    subprocess PER STORY on every Write/Edit. See check_lead_gates. The scope
+    read is a single small file read and stays AHEAD of that subprocess: it can
+    only shrink the candidate list, so paying for it first can save the git call
+    entirely and never adds one.
     """
     try:
         sprint_data = sprint_state.read_sprint_content(smm_dir)
@@ -137,6 +158,12 @@ def _unspawned_teammate_story_exists(input_data: dict, smm_dir: Path) -> bool:
     )
     if not promoted:
         return False  # the stale case — settled without paying for git
+
+    armed = assign_scope.read_assign_scope(smm_dir, sprint_data.get("sprint_id") or "")
+    if armed is not None:
+        promoted = [story for story in promoted if story.get("id") in armed]
+        if not promoted:
+            return False  # armed for stories that are no longer promoted
 
     cwd = input_data.get("cwd", ".")
     live_branches = worktree.live_teammate_branch_by_story(cwd)
@@ -204,11 +231,15 @@ def check_lead_gates(
     An armed gate whose predicate says there is nothing left to do has its marker
     CONSUMED, not merely skipped: deleting it is what makes the gate self-clearing
     rather than inert, since an inert marker springs back the instant state
-    satisfies the predicate again. See _LeadGate.active_when. Residual, not closed
-    here: the consume needs a lead write to fire, so a marker that goes moot and
-    sees NO lead write before the next teammate frontier is promoted still blocks
-    that frontier's pre-plan window. Closing it needs the marker scoped to the
-    story it was armed for — subagent_stop's side of the contract.
+    satisfies the predicate again. See _LeadGate.active_when.
+
+    The consume alone was not enough, because it needs a lead write to fire and
+    the assign gate is plan-files-exempt — that check runs BEFORE the marker
+    check, so the whole plan-mode window skips the consume too. That residue is
+    closed on the PREDICATE's side rather than here: the marker records the
+    stories it was armed for, so a moot marker no longer matches an unrelated
+    frontier even when nothing ever consumed it. See
+    _unspawned_teammate_story_exists and assign_scope.read_assign_scope.
 
     *smm_dir* is handed to the probe rather than left to its env fallback: that
     leg reads $SMM_DIR and fails CLOSED without it, which would misread a live

@@ -377,6 +377,99 @@ class TestTeammateStopGate(_HookTestCase):
         )
         self.assertIsNone(result)
 
+    def test_story_cadence_skips_review_demand(self):
+        """Story cadence with uncommitted + no review → commit-only, no review demand.
+
+        Under story (deferred-to-merge) cadence, per-increment review is not
+        required. The gate still demands the changes be committed, but does
+        not ask for /xp-quality-review."""
+        import markers
+        import teammate_stop_gate
+
+        markers.write_review_cadence(self.smm_dir, "story")
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        assert result is not None
+        self.assertNotIn("/xp-quality-review", result)
+        self.assertIn("Commit", result)
+
+    def test_commit_cadence_explicit_demands_review(self):
+        """Commit cadence with uncommitted + no review → demand /xp-quality-review.
+
+        Pin the commit cadence branch explicitly (not just as the fail-safe
+        default) to ensure the cadence read is load-bearing."""
+        import markers
+        import teammate_stop_gate
+
+        markers.write_review_cadence(self.smm_dir, "commit")
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        assert result is not None
+        self.assertIn("/xp-quality-review", result)
+
+    def test_no_cadence_marker_defaults_to_review_demand(self):
+        """No cadence marker (missing/corrupt) defaults to careful commit cadence.
+
+        The fail-safe default is commit cadence. Without an explicit marker,
+        the gate demands /xp-quality-review — load-bearing behavior."""
+        import teammate_stop_gate
+
+        # Don't write any cadence marker — test the fail-safe default
+        result = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        assert result is not None
+        self.assertIn("/xp-quality-review", result)
+
+    def test_story_cadence_message_differs_from_commit(self):
+        """Story vs commit cadence produce different messages (AC-4).
+
+        The message must match the cadence: under commit cadence, only message
+        with a completed review is "Review cycle complete. Commit...". Under
+        story cadence, the message never mentions review completion."""
+        import markers
+        import teammate_stop_gate
+
+        # Commit cadence with review done
+        markers.write_review_cadence(self.smm_dir, "commit")
+        self._set_review_flags(quality_review_done=True)
+        commit_msg = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        assert commit_msg is not None
+
+        # Story cadence with no review done
+        markers.write_review_cadence(self.smm_dir, "story")
+        # Clear the quality_review_done flag to test story cadence path
+        import markers as m
+
+        data = m.read_review_cycle(self.smm_dir, "worktree-story-1")
+        data.pop("quality_review_done", None)
+        m.write_review_cycle(self.smm_dir, "worktree-story-1", data)
+        story_msg = teammate_stop_gate.run(
+            _make_teammate_stop_input(),
+            smm_dir=self.smm_dir,
+            has_uncommitted=True,
+        )
+        assert story_msg is not None
+
+        # They should differ
+        self.assertNotEqual(commit_msg, story_msg)
+        # Commit message should mention review cycle
+        self.assertIn("Review cycle complete", commit_msg)
+        # Story message should not
+        self.assertNotIn("Review cycle complete", story_msg)
+
 
 if __name__ == "__main__":
     unittest.main()

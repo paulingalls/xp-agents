@@ -144,6 +144,10 @@ class TestTriageIntentAnnotation(_SMMTestCase):
         self.assertIn("Ship the retry budget", output)  # STILL OFFERED
         self.assertIn(f"[id: {debt['id']}]", output)
         self.assertIn("ADOPTED", output)
+        # And at FULL length. The digest is earned by DEFERRAL only; shrinking
+        # an item the lead just committed to would shorten exactly the item
+        # they are most likely to act on next.
+        self.assertNotIn("#### Deferred earlier", output)
 
     def test_deferred_debt_is_annotated_and_still_offered(self):
         debt = self._triaged_debt("triage-defer", times=2)

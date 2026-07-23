@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import code_files
+import commit_command
 import commits
 import identity
 import lint_resolution
@@ -46,7 +47,6 @@ _WATERMARK_ID = "bash-post-tool"
 
 COMMIT_SIZE_THRESHOLD = 12
 
-
 # -------------------------------------------------------------------
 # Story/QR attribution + commit-event construction — re-exported from
 # commit_event
@@ -57,6 +57,7 @@ COMMIT_SIZE_THRESHOLD = 12
 from commit_event import (  # noqa: E402  intentional mid-file re-export
     _check_qr_linkage,
     _confirm_commit_repo,
+    _record_head_moved_trace,
     _record_unconfirmed_commit,
     _record_unlinkable_trailer,
     _resolve_story_id,
@@ -70,9 +71,12 @@ from commit_event import (  # noqa: E402  intentional mid-file re-export
 __all__ = [
     "COMMIT_SIZE_THRESHOLD",
     "_check_qr_linkage",
+    "_commit_hash_recorded",
     "_confirm_commit_repo",
     "_handle_commit",
+    "_head_trace_recorded",
     "_prior_commit_was_test_only",
+    "_record_head_moved_trace",
     "_record_unconfirmed_commit",
     "_record_unlinkable_trailer",
     "_resolve_story_id",
@@ -80,6 +84,36 @@ __all__ = [
     "is_tdd_red_step",
     "make_commit_event",
 ]
+
+
+def _commit_hash_recorded(events: list[dict], commit_hash: str) -> bool:
+    """True if a COMMIT event already carries `commit_hash` in its metadata.
+
+    Shared by the success-path dedup guard and the HEAD-moved disambiguator
+    below — both need the same "have we already recorded this hash" check.
+    """
+    return any(
+        e.get("type") == _common.COMMIT
+        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
+        for e in events
+    )
+
+
+def _head_trace_recorded(events: list[dict], commit_hash: str) -> bool:
+    """True if a HEAD-moved trace CONCERN already carries `commit_hash`.
+
+    Dedup guard: a commit-shaped command that keeps failing to confirm while
+    HEAD sits at the same unrecorded commit (repeated pre-commit re-runs after
+    a rejection) must not append an identical trace every time. Keyed on the
+    hash `_record_head_moved_trace` stamps into the concern metadata for
+    exactly this purpose. Only the HEAD-moved trace carries a commit_hash on a
+    CONCERN, so the type filter is enough to keep it apart from a COMMIT event.
+    """
+    return any(
+        e.get("type") == _common.CONCERN
+        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
+        for e in events
+    )
 
 
 def _handle_commit(
@@ -124,6 +158,28 @@ def _handle_commit(
         # (no commit anywhere), so dash_c_unreachable returns False for it.
         if commits.dash_c_unreachable(command):
             _record_unconfirmed_commit(smm_dir, command, agent_id)
+            return None
+        # Repo was reachable, but HEAD's subject didn't match and stdout carried
+        # no success line. Disambiguate a rejected pre-commit (HEAD unchanged)
+        # from an unparsed success (HEAD advanced): probe HEAD from the repo the
+        # command actually targeted. head_probe_target reads an explicit
+        # `git -C <path>` (the CI-identity `git -c k=v -C <path>` form included)
+        # and returns None for a nonexistent target — git aborts and lands
+        # nothing, so the orchestrator's unrelated HEAD is never misread. A
+        # reachable `-C` whose landed commit had its message rewritten is probed
+        # in its own repo instead of being blanket-suppressed.
+        probe_cwd = commit_command.head_probe_target(
+            command, cwd, scan_target=scan_target
+        )
+        if probe_cwd is None:
+            return None
+        head = commits.get_head_commit_hash(probe_cwd)
+        if head:
+            events, _ = _common.load_events_with_resolutions(smm_dir)
+            if not _commit_hash_recorded(events, head) and not _head_trace_recorded(
+                events, head
+            ):
+                _record_head_moved_trace(smm_dir, command, agent_id, head)
         return None
 
     msg = commits.parse_commit_message(response_text)
@@ -141,11 +197,7 @@ def _handle_commit(
     # echo a stale `[branch hash] msg` line (e.g. piped from prior output);
     # the same guard catches that.
     events, resolutions = _common.load_events_with_resolutions(smm_dir)
-    if commit_hash and any(
-        e.get("type") == _common.COMMIT
-        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
-        for e in events
-    ):
+    if commit_hash and _commit_hash_recorded(events, commit_hash):
         return None
 
     raw_body = raw_body or msg

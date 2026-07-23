@@ -54,6 +54,13 @@ and a Workflow completion does not arm the review-cycle marker. So:
    `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/review_flag_cli.py --smm-dir <SMM_DIR> --cwd <cwd> simplify_done`
 2. Launch `Workflow({ name: "code-review", args: "high <TARGET_BRANCH>...HEAD" })`
    (background; findings arrive as a task-notification).
+
+   **Cost bound.** Scale: candidate locations in the diff range —
+   pass the close's own range, not wider. Tier: do not raise it —
+   more finder agents, a sweep pass. First word `args`; else does
+   not error, falls to default tier, absorbed into the diff range.
+   Use the named `Workflow` call — a hand-authored substitute has
+   none of it.
 3. **Wait** for the notification; read its `findings` array.
 4. `Skill(skill: "xp-quality-review")` — preload emits `consume-findings`; pass
    the findings to the xp-code-reviewer it spawns to validate & fix (+ quality/

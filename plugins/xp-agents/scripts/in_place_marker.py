@@ -480,9 +480,10 @@ def _probe_pid(pid: int) -> bool | None:
 def in_place_teammate_from_env(smm_dir: Path, env_name: str | None) -> bool:
     """True when env_name names a live in-place teammate (marker present).
 
-    Wraps the env-name-not-None + in_place_marker_exists check the three call
-    sites (identity, pre_tool_skill, commit_handling) rolled by hand. Caller-side
-    id-shape validation (is_teammate_agent_id) and smm_dir resolution stay at the
-    call sites, which differ.
+    Wraps the env-name-not-None + in_place_marker_exists check that four call
+    sites rolled by hand. All four now reach it through the single shared
+    `identity.in_place_teammate_name`, which owns the id-shape validation
+    (is_teammate_agent_id) and the smm_dir resolution — keep new callers on
+    that helper rather than re-rolling either step here.
     """
     return env_name is not None and in_place_marker_exists(smm_dir, env_name)

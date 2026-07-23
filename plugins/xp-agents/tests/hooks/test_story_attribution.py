@@ -101,6 +101,30 @@ class TestResolveStoryId(_HookTestCase):
             result = commit_handling._resolve_story_id(self.smm_dir, "/proj", ["a.py"])
         self.assertEqual(result, "story-001")
 
+    def test_in_place_env_not_teammate_shaped_falls_through(self):
+        """A leaked XP_TEAMMATE_NAME that isn't teammate-shaped is not trusted
+        even with a marker and an assignment file under that same name. The env
+        leg routes through identity.in_place_teammate_name (the shared helper
+        the gates use), which shape-checks before the marker read — so the four
+        sites that consume this env var agree on what counts as a teammate."""
+        import os
+        from unittest import mock
+
+        import worktree
+
+        (self.smm_dir / "sprint.json").write_text(
+            _sprint_json(
+                [_s("story-001", "Auth", "in-progress", file_domain=["a.py"])],
+            )
+        )
+        worktree.story_assignment_path(self.smm_dir, "explorer-9").write_text(
+            "story-002"
+        )
+        worktree.in_place_marker_path(self.smm_dir, "explorer-9").touch()
+        with mock.patch.dict(os.environ, {"XP_TEAMMATE_NAME": "explorer-9"}):
+            result = commit_handling._resolve_story_id(self.smm_dir, "/proj", ["a.py"])
+        self.assertEqual(result, "story-001")
+
     def test_in_place_env_fallback_inert_for_lead(self):
         """No XP_TEAMMATE_NAME (the lead's own commits) → no env Tier 1, so a
         single in-progress story still resolves via the normal heuristic."""

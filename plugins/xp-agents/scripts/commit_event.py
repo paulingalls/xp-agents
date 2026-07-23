@@ -79,12 +79,14 @@ def _resolve_story_id(
         # XP_TEAMMATE_NAME is a documented leaky var, so the env alone isn't
         # trustworthy: were it to leak into the lead AND a stale name-keyed
         # .story-assignment still exist, the lead's own commit would be
-        # mis-attributed. Gate on the lifetime-scoped in-place marker that
-        # spawn_teammate writes only WHILE the in-place child runs — a leaked
-        # env with no live marker falls through to the heuristics instead.
-        env_name = identity.teammate_name_from_env()
-        if worktree.in_place_teammate_from_env(smm_dir, env_name):
-            wt_name = env_name
+        # mis-attributed. `identity.in_place_teammate_name` — the shared helper
+        # that also backs is_worktree_teammate, tdd_check._reader_scope, and
+        # pre_tool_skill._is_live_teammate — gates on the lifetime-scoped
+        # in-place marker spawn_teammate writes only WHILE the in-place child
+        # runs; a leaked env with no live marker returns None and falls through
+        # to the heuristics instead. Passing the already-validated `smm_dir`
+        # keeps attribution keyed to the SAME SMM this commit is recorded in.
+        wt_name = identity.in_place_teammate_name(smm_dir)
     if wt_name is not None:
         assignment = worktree.story_assignment_path(smm_dir, wt_name)
         try:
@@ -267,6 +269,36 @@ def _record_unconfirmed_commit(smm_dir: Path, command: str, agent_id: str) -> No
                 f"landed in; no commit event recorded. Command: {first_line}",
                 "low",
                 agent_id,
+            ),
+        )
+
+
+def _record_head_moved_trace(
+    smm_dir: Path, command: str, agent_id: str, commit_hash: str
+) -> None:
+    """A commit-shaped command ran and HEAD now points at a commit with no
+    recorded event — the message did not parse, so no commit event was built.
+    State the observation, not the inference: this fires for an unparsed
+    success and, rarely, for a rejection atop un-recorded history; both are
+    worth a low trace and neither is falsely called a landed commit.
+
+    `commit_hash` (the HEAD the probe read) is stamped into the concern
+    metadata so `_head_trace_recorded` can dedup repeated runs that fail to
+    confirm while HEAD stays put — otherwise every retried pre-commit rejection
+    appends another identical trace.
+    Never raise: a hook must not break the user's commit.
+    """
+    first_line = command.strip().split("\n", 1)[0][:120]
+    with contextlib.suppress(OSError, ValueError):
+        _common.append_safe(
+            smm_dir,
+            concerns.make_concern(
+                "A git commit command ran and HEAD points at a commit with no "
+                "recorded event (its message did not parse). Command: "
+                f"{first_line}",
+                "low",
+                agent_id,
+                metadata={METADATA_KEY_COMMIT_HASH: commit_hash},
             ),
         )
 

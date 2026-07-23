@@ -11,7 +11,6 @@ narrowing below is paired with a control proving a real failure still blocks;
 silently.
 """
 
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -26,7 +25,7 @@ import bash_failure
 import task_completed
 import tdd_stop_gate
 import teammate_idle
-import worktree
+from _tdd_gate_fixtures import _GateTestCase, filler, session_anchor
 from concerns import TEST_CONCERN_RE
 from conftest import (
     _HookTestCase,
@@ -41,35 +40,11 @@ from conftest import (
 from event_helpers import events_of_type
 from event_schema import (
     EVENT_TYPE_CONCERN,
-    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
     STATUS_ACTION_BASH_FAILED,
 )
 
 _WATERMARK_ID = "test-tdd-gate-session-scope"
-
-
-def session_anchor() -> dict:
-    """The boundary event. Emitted on startup/clear only — NOT on resume or
-    compact, so compaction cannot reset the window and disarm the gate."""
-    return make_event(EVENT_TYPE_SESSION_STARTED, content="Session started")
-
-
-def filler(n: int) -> list[dict]:
-    """Events carrying no test signal at all."""
-    return [make_event(EVENT_TYPE_STATUS, content=f"Edited file {i}") for i in range(n)]
-
-
-class _GateTestCase(_HookTestCase):
-    """Drives the Stop gate with a mocked working tree."""
-
-    def _stop(self, events: list[dict], *, dirty: bool, cwd: str = ".") -> str | None:
-        self._write_events(events)
-        uncommitted = ["src/app.py"] if dirty else []
-        with patch("commits.get_uncommitted_files", return_value=uncommitted) as mock:
-            result = tdd_stop_gate.run(_make_stop_input(cwd=cwd), smm_dir=self.smm_dir)
-        self.tree_was_checked = mock.called
-        return result
 
 
 class TestSessionScope(_GateTestCase):
@@ -309,83 +284,6 @@ class TestTeammateReaderAgentScope(_GateTestCase):
             *filler(3),
         ]
         result = self._stop(events, cwd=_TEAMMATE_CWD, dirty=False)
-        self.assertIsNotNone(result)
-
-
-_IN_PLACE_NAME = "worktree-story-042"
-
-
-class TestInPlaceTeammateReaderWindow(_GateTestCase):
-    """concern bc32dcfe6905: an IN-PLACE teammate (solo behavior-table branch
-    of xp-assign; `spawn_teammate --in-place`) runs in the MAIN checkout, so
-    it carries no `worktree-story-` cwd marker for `extract_worktree_name` to
-    key on. Detection therefore falls through to the ENV + MARKER leg —
-    `XP_TEAMMATE_NAME` guarded by a live in-place marker under `smm_dir`,
-    mirroring `identity.is_worktree_teammate`'s own env leg — and
-    deliberately NEVER that function's process-cwd fallback (a documented
-    leak `_reader_scope` already avoids for the cwd leg). Without this leg an
-    in-place teammate fell through to the LEAD branch and read the lead's
-    `session_started` anchor as its own window: exactly the shared-log/
-    owner-filter hazard the owner mechanism exists to prevent for worktree
-    teammates, now reproduced for the in-place shape.
-    """
-
-    def _in_place_env(self):
-        return patch.dict(
-            os.environ,
-            {"XP_TEAMMATE_NAME": _IN_PLACE_NAME, "SMM_DIR": str(self.smm_dir)},
-            clear=False,
-        )
-
-    def test_own_failure_before_lead_clear_anchor_still_blocks(self):
-        """Mirrors TestTeammateReaderWindow's worktree-teammate AC1, in-place
-        flavor. The failure predates the lead's mid-sprint `/clear` anchor and
-        the tree is clean (already committed) — the combination that would
-        un-gate under the LEAD's anchor-relative window. An in-place teammate
-        has no prior session either, so this must still block."""
-        worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
-        events = [
-            failing_tests_concern(agent_id=_IN_PLACE_NAME),
-            session_anchor(),
-            *filler(3),
-        ]
-        with self._in_place_env():
-            result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
-        self.assertIsNotNone(result)
-        self.assertIn("failing", str(result).lower())
-
-    def test_foreign_fail_concern_does_not_block_the_in_place_teammate(self):
-        """Owner scoping, in-place flavor: a fail concern authored by the lead
-        (shared log) must not gate an in-place teammate that can neither see
-        nor fix it."""
-        worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
-        events = [failing_tests_concern(agent_id="main"), *filler(3)]
-        with self._in_place_env():
-            result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
-        self.assertIsNone(result)
-
-    def test_own_failure_still_blocks_the_in_place_teammate(self):
-        """Control for the test above: its OWN unresolved failure still
-        gates it — the narrowing must not also disarm the common case."""
-        worktree.in_place_marker_path(self.smm_dir, _IN_PLACE_NAME).touch()
-        events = [failing_tests_concern(agent_id=_IN_PLACE_NAME), *filler(3)]
-        with self._in_place_env():
-            result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
-        self.assertIsNotNone(result)
-
-    def test_env_var_without_a_live_marker_falls_back_to_the_lead_window(self):
-        """A leaked `XP_TEAMMATE_NAME` with no live marker must not be
-        trusted (mirrors identity's own env+marker guard). If it were
-        wrongly treated as an in-place teammate, the owner filter would hide
-        the LEAD's own in-session failure below; instead it must still
-        block, unfiltered, as the lead."""
-        events = [session_anchor(), *filler(3), failing_tests_concern(agent_id="main")]
-        with patch.dict(
-            os.environ,
-            {"XP_TEAMMATE_NAME": _IN_PLACE_NAME, "SMM_DIR": str(self.smm_dir)},
-            clear=False,
-        ):
-            result = self._stop(events, cwd=_LEAD_CWD, dirty=False)
         self.assertIsNotNone(result)
 
 
