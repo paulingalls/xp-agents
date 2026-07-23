@@ -273,6 +273,23 @@ class TestCleanup(_IntegrationTestCase):
 
         self.assertFalse(report.exists())
 
+    def test_removes_stream_dump_file(self):
+        """Cleanup removes .teammate-stream-{name}.log alongside the report."""
+        import cleanup_teammate
+        import worktree
+
+        name = "worktree-story-016"
+        _create_teammate_worktree(self.tmpdir, name)
+        _merge_branch(self.tmpdir, name)
+
+        dump = worktree.teammate_stream_dump_path(self.smm_dir, name)
+        dump.write_text("mode: eof\n---\nsome captured line\n")
+        self.assertTrue(dump.exists())
+
+        cleanup_teammate.cleanup(name, str(self.tmpdir), self.smm_dir, "HEAD")
+
+        self.assertFalse(dump.exists(), "Stream dump file should be removed")
+
     def test_removes_story_assignment_file(self):
         """Cleanup removes .story-assignment-{name}."""
         import cleanup_teammate
