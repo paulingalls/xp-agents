@@ -227,11 +227,13 @@ class TestNoLanguageLeak(unittest.TestCase):
         """Tripwire: per-linter knowledge lives in exactly ONE place today —
         `linter_tables.py`, exempted as the registry — and nowhere else.
 
-        This must find nothing now. It goes red the day someone lands an
-        unmarked dict keyed by >=2 linter names outside that registry. A
-        marked-with-reason table is a `test_no_unmarked_extension_predicate` /
-        `test_markers_state_a_reason` concern, not this one — those already
-        cover every kind, PER_LINTER_TABLE included.
+        This must find nothing now. It goes red the day someone lands a dict
+        keyed by >=2 linter names outside that registry without a non-empty
+        justification marker (unmarked or empty-reason). A table with a real
+        reason is allowed here. `test_no_unmarked_extension_predicate`
+        deliberately EXCLUDES this kind, so this tripwire is the sole enforcer
+        for an unmarked one; `test_markers_state_a_reason` additionally flags an
+        empty reason on every kind, PER_LINTER_TABLE included.
         """
         found = [
             f"  {path}:{lineno}"

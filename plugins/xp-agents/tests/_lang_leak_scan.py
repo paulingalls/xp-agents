@@ -426,4 +426,8 @@ def scan_file(
             for start, end in _per_linter_dict_sites(tree, linter_names)
         ]
 
-    return sorted(sites)
+    # None-safe key: two sites can tie on (lineno, kind) — e.g. a per-linter
+    # dict nested on the same line as its parent — and one may be unmarked
+    # (reason None) while the other carries a reason. Sorting the raw tuples
+    # would then compare None < str and raise; coerce None to "" for ordering.
+    return sorted(sites, key=lambda s: (s[0], s[1], s[2] or ""))
