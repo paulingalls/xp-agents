@@ -34,11 +34,12 @@ get_current_branch = identity.get_current_branch
 
 _DECISION_BLOCK = "block"
 _STREAM_JSON_RESULT_TYPE = "result"
-# Markers that make a non-JSON line worth showing the lead. The spawn's own
-# refusal is the one signal we OWN rather than inherit from a tool's output
-# conventions: it exits cleanly (no traceback), so without its token here it is
-# dropped and the lead sees only "No result event" — losing the stale prompt's
-# path and the remedy, on a failure that only a human can clear.
+# Markers that make a non-JSON line get its OWN dedicated wording ("Spawn
+# failed: ...") ahead of the generic unrecognized-output tier below. The
+# spawn's own refusal is the one signal we OWN rather than inherit from a
+# tool's output conventions: it exits cleanly (no traceback), so without its
+# token here it would fall through to the generic tier and lose its
+# dedicated phrasing.
 _ERROR_SIGNALS = (
     "Error:",
     "Error(",
@@ -46,6 +47,11 @@ _ERROR_SIGNALS = (
     "Traceback",
     spawn_prompt.REFUSAL_PREFIX,
 )
+
+# Bound on how many unrecognized non-JSON lines get quoted verbatim in a
+# diagnostic message — enough to show the shape of a spawn-side failure
+# without letting one stderr line become a wall of text.
+_DIAGNOSTIC_LINE_LIMIT = 10
 
 # No-progress deadline. Primary liveness is owned by spawn_teammate.py's
 # watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`
@@ -159,16 +165,42 @@ def parse_result_event(lines: list[str]) -> dict | None:
     return None
 
 
-def extract_diagnostics(lines: list[str]) -> str:
-    """Scan stream-json lines for block events, errors, and other diagnostics.
+def _bounded_join(items: list[str]) -> str:
+    """Join items with '; ', eliding past _DIAGNOSTIC_LINE_LIMIT with a count."""
+    shown = items[:_DIAGNOSTIC_LINE_LIMIT]
+    text = "; ".join(shown)
+    remaining = len(items) - len(shown)
+    if remaining > 0:
+        text += f" (+{remaining} more)"
+    return text
 
-    Returns a human-readable summary for debugging spawn failures.
+
+def extract_diagnostics(lines: list[str]) -> str:
+    """Scan captured lines for block events, errors, and other diagnostics.
+
+    Precedence: a hook block wins outright, then a recognised error signal
+    (fatal:, Traceback, the spawn's own refusal, ...), then any OTHER non-JSON
+    line is surfaced rather than silently dropped — captured lines that parse
+    as neither a block nor a known error are still spawn-side evidence, and
+    discarding them turns a real failure into an unexplained "No result
+    event". Only once none of that is present does the generic fallback
+    fire, and it reports the parsed-JSON count and the total captured-line
+    count as two distinct figures rather than asserting the whole capture
+    was stream-json.
     """
     if not lines:
         return "No output received from claude -p"
 
     blocks: list[str] = []
-    for data in _iter_json_objects(lines):
+    non_json_lines: list[str] = []
+    parsed_count = 0
+    for line in lines:
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            non_json_lines.append(line)
+            continue
+        parsed_count += 1
         reason = data.get("reason", "")
         if data.get("decision") == _DECISION_BLOCK and reason:
             blocks.append(reason)
@@ -177,14 +209,22 @@ def extract_diagnostics(lines: list[str]) -> str:
         return "Blocked by hook: " + "; ".join(blocks)
 
     errors = [
-        line
-        for line in lines
-        if not line.startswith("{") and any(sig in line for sig in _ERROR_SIGNALS)
+        line for line in non_json_lines if any(sig in line for sig in _ERROR_SIGNALS)
     ]
     if errors:
         return "Spawn failed: " + "; ".join(errors)
 
-    return f"No result event in {len(lines)} stream-json lines (no block detected)"
+    if non_json_lines:
+        return (
+            f"Unrecognized output ({len(non_json_lines)} of {len(lines)} line(s) "
+            f"captured, {parsed_count} parsed as stream-json): "
+            + _bounded_join(non_json_lines)
+        )
+
+    return (
+        f"No result event: {parsed_count} of {len(lines)} line(s) parsed as "
+        "stream-json (no block detected)"
+    )
 
 
 def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:

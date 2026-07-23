@@ -282,6 +282,33 @@ class TestExtractDiagnostics(unittest.TestCase):
         diags = teammate_output_filter.extract_diagnostics(lines)
         self.assertIn("fatal:", diags)
 
+    def test_surfaces_unrecognized_non_json_lines(self):
+        """Non-JSON lines matching no known error signal are surfaced rather
+        than dropped -- the exact failure mode behind concern bed429ee8018:
+        the two 7-line captures were spawn-side text, not stream-json, and
+        got silently discarded instead of shown to the lead."""
+        import teammate_output_filter
+
+        lines = [
+            "WARN: falling back to /tmp for worktree base",
+            "Spawning teammate in worktree ...",
+        ]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("WARN: falling back to /tmp for worktree base", diags)
+        self.assertIn("Spawning teammate in worktree ...", diags)
+
+    def test_mixed_json_and_unrecognized_reports_both_counts_not_stream_json(self):
+        """A mix of parsed JSON and unrecognized non-JSON text reports the
+        parsed-event count and the raw line count as distinct figures, and
+        must not describe the unparsed line as stream-json."""
+        import teammate_output_filter
+
+        lines = [_SYSTEM_LINE, "some spawn-side diagnostic text", _ASSISTANT_LINE]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("some spawn-side diagnostic text", diags)
+        self.assertIn("2", diags)  # parsed-as-stream-json count
+        self.assertIn("3", diags)  # total captured-line count
+
 
 if __name__ == "__main__":
     unittest.main()
