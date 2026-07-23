@@ -48,10 +48,16 @@ _ERROR_SIGNALS = (
     spawn_prompt.REFUSAL_PREFIX,
 )
 
-# Bound on how many unrecognized non-JSON lines get quoted verbatim in a
-# diagnostic message — enough to show the shape of a spawn-side failure
-# without letting one stderr line become a wall of text.
+# Bounds on the unrecognized-output tier of a diagnostic message: how many
+# lines get quoted, and how much of each. Both are needed — the count alone
+# does not stop ONE line from being a wall of text, and the reader yields any
+# unterminated trailing fragment at EOF, so an abrupt mid-line EOF (the very
+# failure this diagnostic serves) can hand back a read-chunk-sized line. The
+# message keeps the shape; the stream-dump artifact keeps the verbatim text.
+# The recognised-signal tier is deliberately NOT length-bounded: the spawn's
+# own refusal carries its remedy ~450 chars into a single line.
 _DIAGNOSTIC_LINE_LIMIT = 10
+_DIAGNOSTIC_LINE_CHARS = 200
 
 # No-progress deadline. Primary liveness is owned by spawn_teammate.py's
 # watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`
@@ -138,13 +144,32 @@ def _iter_lines_with_timeout(fd: int, timeout: float | None) -> Iterator[str]:
             yield line.decode("utf-8", errors="replace")
 
 
+def _parse_stream_object(line: str) -> dict | None:
+    """Parse one captured line as a stream-json event, or None if it isn't one.
+
+    Single definition of "parsed as stream-json", shared by the fd-side reader
+    (_consume_stream), parse_result_event and extract_diagnostics, so the
+    diagnostic's counts cannot drift from what the reader actually accepted.
+
+    Non-object JSON (a bare number, string, null, array) is NOT an event: the
+    stream is merged with the spawn's stderr (2>&1), so such a line is
+    spawn-side text that happens to be JSON-parseable. Returning it would hand
+    a non-dict to `.get()` and kill the filter — the teammate's sole stdout
+    reader — losing the whole capture on the exact path meant to preserve it.
+    """
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _iter_json_objects(lines: list[str]) -> Iterator[dict]:
     """Yield parsed JSON objects from stream-json lines, skipping malformed."""
     for line in lines:
-        try:
-            yield json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        data = _parse_stream_object(line)
+        if data is not None:
+            yield data
 
 
 def _is_result(data: dict) -> bool:
@@ -165,9 +190,17 @@ def parse_result_event(lines: list[str]) -> dict | None:
     return None
 
 
+def _clip(line: str) -> str:
+    """Clip one quoted line to _DIAGNOSTIC_LINE_CHARS, naming the elision."""
+    if len(line) <= _DIAGNOSTIC_LINE_CHARS:
+        return line
+    dropped = len(line) - _DIAGNOSTIC_LINE_CHARS
+    return f"{line[:_DIAGNOSTIC_LINE_CHARS]}... (+{dropped} chars truncated)"
+
+
 def _bounded_join(items: list[str]) -> str:
-    """Join items with '; ', eliding past _DIAGNOSTIC_LINE_LIMIT with a count."""
-    shown = items[:_DIAGNOSTIC_LINE_LIMIT]
+    """Join items with '; ', bounded in both line count and per-line length."""
+    shown = [_clip(item) for item in items[:_DIAGNOSTIC_LINE_LIMIT]]
     text = "; ".join(shown)
     remaining = len(items) - len(shown)
     if remaining > 0:
@@ -195,9 +228,8 @@ def extract_diagnostics(lines: list[str]) -> str:
     non_json_lines: list[str] = []
     parsed_count = 0
     for line in lines:
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
+        data = _parse_stream_object(line)
+        if data is None:
             non_json_lines.append(line)
             continue
         parsed_count += 1
@@ -325,9 +357,8 @@ def _consume_stream(
     try:
         for line in _iter_lines_with_timeout(fd, timeout):
             lines.append(line)
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
+            data = _parse_stream_object(line)
+            if data is None:
                 continue
             if _is_result(data):
                 result = data

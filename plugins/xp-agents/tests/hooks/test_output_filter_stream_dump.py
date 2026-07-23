@@ -5,8 +5,8 @@ A no-result stream (EOF or progress-timeout) persists every captured line to
 a `.teammate-stream-{name}.log` artifact so evidence that would otherwise be
 described-then-discarded survives for inspection. Covers: EOF mode, timeout
 mode, the no-artifact-on-success invariant, and head+tail retention over the
-line cap. Uses the same real-fd `_PipeStdinMixin` pattern as
-test_output_filter_streaming.py (StringIO cannot back the fd-based reader).
+line cap. Uses the shared real-fd `_PipeStdinMixin` from
+tests/_stream_stdin_fixtures.py (StringIO cannot back the fd-based reader).
 """
 
 import json
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _PipeStdinMixin
 
 _SYSTEM_LINE = json.dumps(
     {
@@ -40,55 +40,6 @@ _RESULT_LINE = json.dumps(
         "result": "Implemented story-001 successfully.",
     }
 )
-
-
-class _PipeStdinMixin:
-    """Mixin that gives a test a real-fd stdin via os.pipe().
-
-    Production code calls sys.stdin.fileno() and os.read(); StringIO
-    cannot back that, so tests that exercise the streaming filter must
-    use a real OS pipe. Mirrors the mixin in test_output_filter_streaming.py.
-    """
-
-    _saved_stdin: object | None = None
-    _read_fd: int | None = None
-    _write_fd: int | None = None
-
-    def _open_pipe_stdin(self) -> int:
-        r, w = os.pipe()
-        self._read_fd = r
-        self._write_fd = w
-        self._saved_stdin = sys.stdin
-
-        read_fd = r
-
-        class _PipeStdin:
-            def fileno(self) -> int:
-                return read_fd
-
-        sys.stdin = _PipeStdin()  # type: ignore[assignment]
-        return w
-
-    def _feed_eof(self, data: str) -> None:
-        write_fd = self._open_pipe_stdin()
-        os.write(write_fd, data.encode("utf-8"))
-        os.close(write_fd)
-        self._write_fd = None
-
-    def _close_pipe_stdin(self) -> None:
-        import contextlib
-
-        if self._write_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(self._write_fd)
-            self._write_fd = None
-        if self._read_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(self._read_fd)
-            self._read_fd = None
-        if self._saved_stdin is not None:
-            sys.stdin = self._saved_stdin  # type: ignore[assignment]
-            self._saved_stdin = None
 
 
 class TestStreamDumpOnEOF(_PipeStdinMixin, _HookTestCase):

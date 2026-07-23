@@ -109,6 +109,24 @@ class TestConftestConsolidation(unittest.TestCase):
         )
         self.assertEqual(hits[0].name, "_test_typing.py")
 
+    def test_single_pipe_stdin_mixin_definition(self):
+        # Story-008: _PipeStdinMixin (os.pipe-backed fake stdin, the only
+        # harness the fd-driven output filter can be tested through) was
+        # copy-pasted byte-for-byte into a second streaming test file.
+        # Promote to tests/_stream_stdin_fixtures.py so the next streaming
+        # test imports it instead of pasting a third fd-lifecycle copy —
+        # each copy owns real fds and a sys.stdin swap, so a divergent one
+        # leaks fds across the whole session.
+        hits = _files_matching(r"^class _PipeStdinMixin\b")
+        self.assertEqual(
+            len(hits),
+            1,
+            f"_PipeStdinMixin should be defined exactly once "
+            f"(in tests/_stream_stdin_fixtures.py); found in: "
+            f"{[str(p) for p in hits]}",
+        )
+        self.assertEqual(hits[0].name, "_stream_stdin_fixtures.py")
+
     def test_single_lint_tmpdir_mixin_definition(self):
         # Story-020 phase 2: _LintTmpDirMixin (setUp/tearDown that creates a
         # tmpdir with ruff.toml and rmtree's it) was defined inline in

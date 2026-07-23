@@ -7,7 +7,6 @@ pipe, no-progress timeout configuration, and bulk-burst parsing.
 Parsing/formatting unit tests live in test_output_filter_parsing.py.
 """
 
-import contextlib
 import json
 import os
 import sys
@@ -21,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-from conftest import _HookTestCase
+from conftest import _HookTestCase, _PipeStdinMixin
 from event_schema import EVENT_TYPE_STATUS
 
 _SYSTEM_LINE = json.dumps(
@@ -53,52 +52,6 @@ _RESULT_LINE = json.dumps(
 _MOCK_LINES = [_SYSTEM_LINE, _ASSISTANT_LINE, _RESULT_LINE]
 
 
-class _PipeStdinMixin:
-    """Mixin that gives a test a real-fd stdin via os.pipe().
-
-    Production code calls sys.stdin.fileno() and os.read(); StringIO
-    cannot back that, so tests that exercise the streaming filter must
-    use a real OS pipe. Mixin handles save/restore of sys.stdin and
-    cleanup of fds even when the test raises SystemExit.
-    """
-
-    _saved_stdin: object | None = None
-    _read_fd: int | None = None
-    _write_fd: int | None = None
-
-    def _open_pipe_stdin(self) -> int:
-        """Allocate pipe; install fake stdin pointing at the read fd.
-
-        Returns the write fd so the test can feed bytes / close to EOF.
-        """
-        r, w = os.pipe()
-        self._read_fd = r
-        self._write_fd = w
-        self._saved_stdin = sys.stdin
-
-        read_fd = r
-
-        class _PipeStdin:
-            def fileno(self) -> int:
-                return read_fd
-
-        sys.stdin = _PipeStdin()  # type: ignore[assignment]
-        return w
-
-    def _close_pipe_stdin(self) -> None:
-        if self._write_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(self._write_fd)
-            self._write_fd = None
-        if self._read_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(self._read_fd)
-            self._read_fd = None
-        if self._saved_stdin is not None:
-            sys.stdin = self._saved_stdin  # type: ignore[assignment]
-            self._saved_stdin = None
-
-
 class TestMainE2E(_PipeStdinMixin, _HookTestCase):
     """E2E: pipe mock stream-json through main() via real OS pipe.
 
@@ -109,13 +62,6 @@ class TestMainE2E(_PipeStdinMixin, _HookTestCase):
     def tearDown(self):
         self._close_pipe_stdin()
         super().tearDown()
-
-    def _feed_eof(self, data: str) -> None:
-        """Write data to the pipe and close write end to signal EOF."""
-        write_fd = self._open_pipe_stdin()
-        os.write(write_fd, data.encode("utf-8"))
-        os.close(write_fd)
-        self._write_fd = None
 
     def test_produces_report_and_event(self):
         """main() creates report file and appends SMM event."""
