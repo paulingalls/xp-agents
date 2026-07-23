@@ -25,10 +25,10 @@ from pathlib import Path
 
 # The refusal names itself with this token so the lead actually SEES it. The
 # spawn is never run bare: /xp-assign pipes it (2>&1) into teammate_output_filter,
-# which keeps only the non-JSON lines it recognises as diagnostics and drops the
-# rest — so a refusal it cannot match reaches the lead as "No result event",
-# without the path, the branch, or the remedy. The filter imports this constant
-# rather than re-spelling the string, so the two ends cannot drift apart.
+# which gives a recognised error signal like this one its own dedicated
+# wording ahead of the generic diagnostic tiers below it. The filter imports
+# this constant rather than re-spelling the string, so the two ends cannot
+# drift apart.
 REFUSAL_PREFIX = "REFUSING TO SPAWN"
 
 
