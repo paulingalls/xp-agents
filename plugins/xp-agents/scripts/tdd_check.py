@@ -73,14 +73,14 @@ def _reader_scope(
     lead's own in-session signals behind an owner filter for a name that
     never claimed one.
 
-    `smm_dir` locates the marker; when None `in_place_teammate_name` resolves
-    it through the same validated resolver every hook shares
-    (`_common.get_validated_smm_dir` — the `SMM_DIR` env, else derived via
-    `init.sh`). With neither a param nor a resolvable dir, the in-place leg is
-    unverifiable and fails closed (lead branch) — never CLOSED in the
-    disarming sense, since the lead branch's own unfiltered whole-session scan
-    still catches a same-process failure; it only loses the tighter
-    teammate-shaped window.
+    `smm_dir` locates the marker; when None `in_place_teammate_name` falls
+    back to the explicit `SMM_DIR` env (NOT init.sh derivation — deriving the
+    shared SMM would let a live in-place marker for a leaked `XP_TEAMMATE_NAME`
+    misread the lead as a teammate). With neither a param nor the env, the
+    in-place leg is unverifiable and fails closed (lead branch) — never CLOSED
+    in the disarming sense, since the lead branch's own unfiltered
+    whole-session scan still catches a same-process failure; it only loses the
+    tighter teammate-shaped window.
 
     For any other reader (the lead), the window anchors at the most recent
     `session_started` event, as before.

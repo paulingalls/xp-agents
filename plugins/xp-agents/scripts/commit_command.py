@@ -31,7 +31,21 @@ import git_commits
 # tightening the capture keeps the helper honest with its docstring.
 _BOUNDARY = r"(?:^|[\n;]|&&|\|\|)\s*"
 _PATH_TOKEN = r"([^\s;&|]+)"
-_GIT_DASH_C_RE = re.compile(_BOUNDARY + r"git\s+-C\s+" + _PATH_TOKEN)
+
+# Global git options that may sit between `git` and the `-C` change-directory
+# flag. `-c <name>=<value>` takes its value as a SEPARATE token — the project's
+# own CI-identity form `git -c commit.gpgsign=false -C /path commit` — so the
+# chain must be able to consume that bare value token; a plain `(?:-\S+\s+)*?`
+# chain stalls on it (the value does not start with `-`) and the `-C` goes
+# unrecognized, leaving the repo to resolve to the hook's own cwd. Ordinary
+# boolean flags (`--no-pager`) match the `-\S+` alternative. `commit`
+# intervening still breaks the chain, so `git commit -C <commit>` (the
+# reuse-message flag) is never mistaken for the global `-C`.
+_GLOBAL_FLAG_CHAIN = r"(?:-c\s+\S+\s+|-\S+\s+)*?"
+
+_GIT_DASH_C_RE = re.compile(
+    _BOUNDARY + r"git\s+" + _GLOBAL_FLAG_CHAIN + r"-C\s+" + _PATH_TOKEN
+)
 _CD_RE = re.compile(_BOUNDARY + r"cd\s+" + _PATH_TOKEN)
 
 
@@ -63,7 +77,11 @@ def parse_effective_cwd(
     # Fast-path: skip the strip+regex passes for commands that can't match
     # either pattern. PreToolUse:Bash fires on every Bash call (pytest, ls,
     # ruff, …); the strip+two-regex scan is wasted work for the 99% case.
-    if "cd " not in command and "git -C" not in command:
+    # `git -` (not the tighter `git -C`) so the `-C` reached PAST a global
+    # option — the CI-identity `git -c key=val -C /path` form — is not skipped:
+    # a git command only carries `git -<flag>` when it has a global option
+    # before the subcommand, which is exactly when `-C` can appear.
+    if "cd " not in command and "git -" not in command:
         return fallback
 
     if scan_target is None:
@@ -186,10 +204,55 @@ def extract_commit_message(command: str) -> str | None:
 
 # Matches `-C <path>` on the RAW command, before strip_quoted removes quoted
 # tokens. `git -C "$WT" commit` otherwise loses its path entirely and the repo
-# silently resolves to the hook's own cwd.
+# silently resolves to the hook's own cwd. Shares `_GLOBAL_FLAG_CHAIN` so the
+# `-c key=val` CI-identity form is skipped the same way as in `_GIT_DASH_C_RE`.
 _RAW_DASH_C_RE = re.compile(
-    r"""git\s+(?:-\S+\s+)*?-C\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
+    r"git\s+" + _GLOBAL_FLAG_CHAIN + r"""-C\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
 )
+
+# Detects the PRESENCE of a git-global `-C` flag on the QUOTE-STRIPPED command
+# (a `-C` inside a commit-message body is stripped away, so it can never
+# count). Path-agnostic: the path itself is read from the RAW command via
+# `_RAW_DASH_C_RE` so a quoted literal path survives. `head_probe_target` uses
+# this to tell an explicit `git -C <path>` apart from a plain/`cd` command.
+_HAS_GLOBAL_DASH_C_RE = re.compile(r"git\s+" + _GLOBAL_FLAG_CHAIN + r"-C(?:\s|$)")
+
+
+def head_probe_target(
+    command: str, fallback: str, *, scan_target: str | None = None
+) -> str | None:
+    """The repo to probe HEAD from for a commit-shaped command that did NOT
+    confirm — or None to suppress the probe (git aborted, nothing landed).
+
+    A git-global `git -C <path>` change-directory flag is detected on the
+    QUOTE-STRIPPED command, so a `-C` inside a commit-message body never
+    counts. Its literal path — read from the RAW command so a quoted path
+    survives — resolves against `fallback`:
+
+      * reachable dir  -> probe THAT repo. A `git -C <reachable>` commit that
+        landed but whose message a commit-msg hook rewrote fails confirmation;
+        probing its own repo still lets the HEAD-moved disambiguator trace it.
+      * not a dir      -> None. `git -C <nonexistent>` aborts before landing
+        anything, so probing `parse_effective_cwd`'s fallback (the orchestrator
+        cwd) would misread an unrelated repo's HEAD and fabricate a trace.
+
+    With no global `-C` flag, defer to `parse_effective_cwd` (the last `cd`
+    target, else the hook's own cwd).
+    """
+    if scan_target is None:
+        scan_target = git_commits.strip_quoted(command)
+    if _HAS_GLOBAL_DASH_C_RE.search(scan_target):
+        m = _RAW_DASH_C_RE.search(command)
+        raw_path = next((g for g in m.groups() if g), "") if m else ""
+        if not raw_path:
+            # `-C` flag present but its path is unrecoverable — suppress rather
+            # than probe the wrong repo (the safe default the old gate took).
+            return None
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = Path(fallback) / path
+        return str(path) if path.is_dir() else None
+    return parse_effective_cwd(command, fallback, scan_target=scan_target)
 
 
 def dash_c_unreachable(command: str) -> bool:

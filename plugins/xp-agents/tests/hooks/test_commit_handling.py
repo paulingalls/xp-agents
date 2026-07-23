@@ -481,6 +481,71 @@ class TestHeadMovedUnparsedTrace(_HookTestCase):
         traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
         self.assertEqual(len(traces), 1)
 
+    def test_config_flag_before_dash_C_nonexistent_path_suppressed(self):
+        """Finding #1: the CI-identity `git -c key=val -C <literal-path>` form
+        must still be recognized as `-C`-targeted and suppressed when the path
+        is unreachable. The `-c commit.gpgsign=false` config token doesn't
+        start with `-`, so the old `(?:-\\S+\\s+)*?` chain stalled on it, missed
+        the `-C`, and probed the ORCHESTRATOR's HEAD — the exact misread the
+        gate exists to prevent."""
+        command = (
+            "git -c commit.gpgsign=false -C /nonexistent/repo commit "
+            "-m 'feat: unparseable subject'"
+        )
+        with patch_commits(
+            files=["src/foo.py"],
+            body="a different subject entirely",
+            head_sha="movedhash123",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout=""),
+                smm_dir=self.smm_dir,
+            )
+        traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+        self.assertEqual(len(traces), 0)
+
+    def test_reachable_dash_C_landed_commit_still_traces(self):
+        """Finding #2: a `git -C <reachable> commit` that LANDED but whose
+        message a commit-msg hook rewrote fails confirmation. The gate must NOT
+        blanket-suppress it — probe HEAD from the `-C` target's own repo so an
+        unparsed success there is still traced. `/tmp` stands in for a reachable
+        target."""
+        command = (
+            "git -c commit.gpgsign=false -C /tmp commit -m 'feat: unparseable subject'"
+        )
+        with patch_commits(
+            files=["src/foo.py"],
+            body="a different subject entirely",
+            head_sha="movedhash123",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=command, stdout="", cwd="/tmp"),
+                smm_dir=self.smm_dir,
+            )
+        traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+        self.assertEqual(len(traces), 1)
+
+    def test_repeated_unparsed_head_moved_dedups_trace(self):
+        """Finding #3: re-running the same failing commit-shaped command while
+        HEAD still points at the same unrecorded commit (a rejected pre-commit
+        that keeps getting retried) must not append a second identical trace —
+        the dedup keys on the HEAD hash stamped into the trace metadata."""
+        with patch_commits(
+            files=["src/foo.py"],
+            body="a different subject entirely",
+            head_sha="movedhash123",
+        ):
+            bash_post_tool.run(
+                _make_bash_input(command=self._UNMATCHED_COMMAND, stdout=""),
+                smm_dir=self.smm_dir,
+            )
+            bash_post_tool.run(
+                _make_bash_input(command=self._UNMATCHED_COMMAND, stdout=""),
+                smm_dir=self.smm_dir,
+            )
+        traces = events_of_type(self._read_events(), EVENT_TYPE_CONCERN)
+        self.assertEqual(len(traces), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

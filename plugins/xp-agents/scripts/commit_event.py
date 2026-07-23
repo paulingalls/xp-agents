@@ -273,12 +273,19 @@ def _record_unconfirmed_commit(smm_dir: Path, command: str, agent_id: str) -> No
         )
 
 
-def _record_head_moved_trace(smm_dir: Path, command: str, agent_id: str) -> None:
+def _record_head_moved_trace(
+    smm_dir: Path, command: str, agent_id: str, commit_hash: str
+) -> None:
     """A commit-shaped command ran and HEAD now points at a commit with no
     recorded event — the message did not parse, so no commit event was built.
     State the observation, not the inference: this fires for an unparsed
     success and, rarely, for a rejection atop un-recorded history; both are
     worth a low trace and neither is falsely called a landed commit.
+
+    `commit_hash` (the HEAD the probe read) is stamped into the concern
+    metadata so `_head_trace_recorded` can dedup repeated runs that fail to
+    confirm while HEAD stays put — otherwise every retried pre-commit rejection
+    appends another identical trace.
     Never raise: a hook must not break the user's commit.
     """
     first_line = command.strip().split("\n", 1)[0][:120]
@@ -291,6 +298,7 @@ def _record_head_moved_trace(smm_dir: Path, command: str, agent_id: str) -> None
                 f"{first_line}",
                 "low",
                 agent_id,
+                metadata={METADATA_KEY_COMMIT_HASH: commit_hash},
             ),
         )
 

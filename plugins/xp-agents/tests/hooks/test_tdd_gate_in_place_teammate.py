@@ -108,36 +108,34 @@ class TestReaderScopeSharedResolver(_GateTestCase):
     """story-003: `_reader_scope`'s env leg now delegates to
     `identity.in_place_teammate_name` — the same helper `is_worktree_teammate`
     uses — instead of hand-rolling the `SMM_DIR` env read. These pin the
-    self-resolution, fail-closed, and zero-cost behaviors directly against
-    `_reader_scope` with `smm_dir=None`, the shape any caller that omits the
-    param gets (the hook callers thread their validated dir instead)."""
+    env-fallback, fail-closed (no init.sh derivation), and zero-cost behaviors
+    directly against `_reader_scope` with `smm_dir=None`, the shape any caller
+    that omits the param gets (the hook callers thread their validated dir
+    instead)."""
 
-    def test_self_resolves_dir_when_param_and_env_both_absent(self):
-        """AC1: no smm_dir param, no SMM_DIR env — _reader_scope now
-        self-resolves through the shared resolver (mocked here to stand in
-        for init.sh derivation), where before this story it fell back to the
-        lead branch outright."""
+    def test_no_param_no_env_fails_closed_to_lead_without_deriving(self):
+        """Finding #6 / story-003 fail-closed: no smm_dir param, no SMM_DIR env
+        — `_reader_scope`'s env leg must NOT derive the real shared SMM via
+        init.sh (a live marker there for a LEAKED name would misread the lead
+        as an in-place teammate and hide the lead's own in-session failures).
+        It falls back to the lead branch WITHOUT resolving, even with a live
+        marker in the (would-be-derived) shared SMM."""
         worktree.claim_in_place_marker(self.smm_dir, _IN_PLACE_NAME)
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _IN_PLACE_NAME}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            with patch.object(
-                _common, "get_validated_smm_dir", return_value=self.smm_dir
-            ) as mock_resolve:
+            with patch.object(_common, "resolve_smm_dir") as mock_resolve:
                 result = tdd_check._reader_scope([session_anchor()], _LEAD_CWD)
-            mock_resolve.assert_called_once_with(None)
-        self.assertEqual(result, (0, _IN_PLACE_NAME))
+            mock_resolve.assert_not_called()
+        self.assertEqual(result, (0, None))
 
-    def test_leaked_env_without_live_marker_falls_back_to_lead_window(self):
-        """AC2: self-resolution makes the marker CHECKABLE, never SKIPPABLE —
-        a leaked env with no live marker still reads as the lead."""
+    def test_leaked_env_with_explicit_dir_but_no_live_marker_reads_as_lead(self):
+        """A leaked env with an explicit resolvable dir but NO live marker still
+        reads as the lead — the marker is checkABLE, never skippable."""
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _IN_PLACE_NAME}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            with patch.object(
-                _common, "get_validated_smm_dir", return_value=self.smm_dir
-            ):
-                window_start, owner = tdd_check._reader_scope(
-                    [session_anchor()], _LEAD_CWD
-                )
+            window_start, owner = tdd_check._reader_scope(
+                [session_anchor()], _LEAD_CWD, smm_dir=self.smm_dir
+            )
         self.assertIsNone(owner)
         self.assertEqual(window_start, 0)
 

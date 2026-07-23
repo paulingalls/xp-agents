@@ -125,15 +125,24 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
     trusted only when spawn_teammate's lifetime-scoped in-place marker is live
     for that name under the resolved SMM dir.
 
-    *smm_dir* locates the marker; when None it resolves through the same
-    validated resolver every hook shares (`_common.get_validated_smm_dir` —
-    the `SMM_DIR` env, else derived via `init.sh`). When that resolver cannot
-    produce a directory, the marker is unverifiable and this fails closed
-    (None) — it never hands None to `in_place_teammate_from_env`.
+    *smm_dir* locates the marker. When None it falls back to the explicit
+    ``SMM_DIR`` env spawn_teammate sets for the in-place child (the marker
+    lives under that same dir) — and NOT to init.sh derivation. That
+    distinction is load-bearing: ``XP_TEAMMATE_NAME`` is a leaky var, so on a
+    lead that inherited it with ``SMM_DIR`` unset, deriving the real shared
+    SMM would let a live in-place marker for that leaked name misidentify the
+    lead as a teammate. With neither a param nor the env, the marker is
+    unverifiable and this fails closed (None) — the story-003 fail-closed
+    property this helper is contracted to preserve.
     """
     env_name = teammate_name_from_env()
     if env_name is None or not is_teammate_agent_id(env_name):
         return None
+    if smm_dir is None:
+        env_dir = os.environ.get("SMM_DIR", "")
+        if not env_dir:
+            return None
+        smm_dir = Path(env_dir)
     # Deferred import: identity carries no sys.path shim of its own (its
     # module-level imports are stdlib-only) — a top-level `import _common`
     # would resolve only by the side effect of some other module having
@@ -142,7 +151,7 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
     # after running that shim.
     import _common
 
-    resolved_smm_dir = _common.get_validated_smm_dir(smm_dir)
+    resolved_smm_dir = _common.try_validate_smm_dir(smm_dir)
     if resolved_smm_dir is None:
         return None
     # Deferred import: worktree imports identity at module load, so a
@@ -180,11 +189,11 @@ def is_worktree_teammate(input_data: dict, smm_dir: Path | None = None) -> bool:
     kickoff/stop gates, pre_tool_write, session_end, bash_post_tool) inherits
     the same guard.
 
-    *smm_dir* locates the marker; when None it resolves through the same
-    validated resolver every hook shares (``_common.get_validated_smm_dir`` —
-    the ``SMM_DIR`` env, else derived via ``init.sh``). With neither a param
-    nor a resolvable dir, the marker is unverifiable and the env leg fails
-    closed (not a teammate).
+    *smm_dir* locates the marker; when None it falls back to the explicit
+    ``SMM_DIR`` env spawn_teammate sets for the in-place child (NOT init.sh
+    derivation — see ``in_place_teammate_name``). With neither a param nor the
+    env, the marker is unverifiable and the env leg fails closed (not a
+    teammate).
     """
     name = extract_worktree_name(input_data.get("cwd", "")) or extract_worktree_name(
         _process_cwd()

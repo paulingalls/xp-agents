@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import code_files
+import commit_command
 import commits
-import git_commits
 import identity
 import lint_resolution
 import markers
@@ -46,26 +46,6 @@ from verify_deferred import (
 _WATERMARK_ID = "bash-post-tool"
 
 COMMIT_SIZE_THRESHOLD = 12
-
-# Detects the git-global `-C <path>` change-directory flag (`git -C /x
-# commit ...`), NOT the unrelated `git commit -C <commit>` reuse-message
-# flag nor a `-C` substring inside a quoted commit message. Anchored the
-# same way `commits.dash_c_unreachable`'s pattern is: `git` must be
-# followed only by other short dash-flags before `-C` — `commit` intervening
-# (as in the reuse-message flag) breaks the match. Used only to gate the
-# HEAD-moved disambiguator away from `-C`-targeted commands: dash_c_unreachable
-# already claims the hidden-shell-variable case, and a literal-but-nonexistent
-# `-C` path is an ordinary git failure (see `_handle_commit`), not a candidate
-# for the ordinary-commit proxy.
-#
-# Searched against the QUOTE-STRIPPED command, never the raw one: a message
-# body that literally spells out `git -C /path` (routine in a git-tooling
-# repo) must not be misread as an invocation and silently suppress the trace.
-# Stripping first is safe here because the one case that needs the raw text —
-# `git -C "$VAR"` hiding its path behind a shell variable — is claimed by
-# `dash_c_unreachable`, which runs and returns BEFORE this gate.
-_GIT_DASH_C_FLAG_RE = re.compile(r"git\s+(?:-\S+\s+)*?-C\s+")
-
 
 # -------------------------------------------------------------------
 # Story/QR attribution + commit-event construction — re-exported from
@@ -94,6 +74,7 @@ __all__ = [
     "_commit_hash_recorded",
     "_confirm_commit_repo",
     "_handle_commit",
+    "_head_trace_recorded",
     "_prior_commit_was_test_only",
     "_record_head_moved_trace",
     "_record_unconfirmed_commit",
@@ -113,6 +94,23 @@ def _commit_hash_recorded(events: list[dict], commit_hash: str) -> bool:
     """
     return any(
         e.get("type") == _common.COMMIT
+        and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
+        for e in events
+    )
+
+
+def _head_trace_recorded(events: list[dict], commit_hash: str) -> bool:
+    """True if a HEAD-moved trace CONCERN already carries `commit_hash`.
+
+    Dedup guard: a commit-shaped command that keeps failing to confirm while
+    HEAD sits at the same unrecorded commit (repeated pre-commit re-runs after
+    a rejection) must not append an identical trace every time. Keyed on the
+    hash `_record_head_moved_trace` stamps into the concern metadata for
+    exactly this purpose. Only the HEAD-moved trace carries a commit_hash on a
+    CONCERN, so the type filter is enough to keep it apart from a COMMIT event.
+    """
+    return any(
+        e.get("type") == _common.CONCERN
         and e.get("metadata", {}).get(METADATA_KEY_COMMIT_HASH) == commit_hash
         for e in events
     )
@@ -161,34 +159,27 @@ def _handle_commit(
         if commits.dash_c_unreachable(command):
             _record_unconfirmed_commit(smm_dir, command, agent_id)
             return None
-        dash_c_scan = (
-            scan_target
-            if scan_target is not None
-            else git_commits.strip_quoted(command)
+        # Repo was reachable, but HEAD's subject didn't match and stdout carried
+        # no success line. Disambiguate a rejected pre-commit (HEAD unchanged)
+        # from an unparsed success (HEAD advanced): probe HEAD from the repo the
+        # command actually targeted. head_probe_target reads an explicit
+        # `git -C <path>` (the CI-identity `git -c k=v -C <path>` form included)
+        # and returns None for a nonexistent target — git aborts and lands
+        # nothing, so the orchestrator's unrelated HEAD is never misread. A
+        # reachable `-C` whose landed commit had its message rewritten is probed
+        # in its own repo instead of being blanket-suppressed.
+        probe_cwd = commit_command.head_probe_target(
+            command, cwd, scan_target=scan_target
         )
-        if _GIT_DASH_C_FLAG_RE.search(dash_c_scan):
-            # An explicit `git -C <literal-path>` that failed to confirm here
-            # named a path git itself could not reach (dash_c_unreachable
-            # already ruled out the hidden-shell-variable case) — git aborts
-            # before landing anywhere, an ordinary failure that stays silent.
-            # Falling through to probe HEAD would read the ORCHESTRATOR's
-            # cwd (parse_effective_cwd's fallback), not the commit's
-            # intended target, and misread that unrelated repo's history.
-            # Anchored to `git ... -C` so the `commit -C <commit>`
-            # reuse-message flag and a `-C` token inside a message body
-            # (both ordinary-cwd) still reach the disambiguator below.
+        if probe_cwd is None:
             return None
-        # Repo was reachable, but HEAD's subject didn't match and stdout
-        # carried no success line. Disambiguate a rejected pre-commit (HEAD
-        # unchanged) from an unparsed success (HEAD advanced): read HEAD from
-        # the command's own repo; trace only when it names a commit with no
-        # recorded event.
-        probe_cwd = commits.parse_effective_cwd(command, cwd, scan_target=scan_target)
         head = commits.get_head_commit_hash(probe_cwd)
         if head:
             events, _ = _common.load_events_with_resolutions(smm_dir)
-            if not _commit_hash_recorded(events, head):
-                _record_head_moved_trace(smm_dir, command, agent_id)
+            if not _commit_hash_recorded(events, head) and not _head_trace_recorded(
+                events, head
+            ):
+                _record_head_moved_trace(smm_dir, command, agent_id, head)
         return None
 
     msg = commits.parse_commit_message(response_text)

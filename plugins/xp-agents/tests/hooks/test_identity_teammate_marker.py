@@ -78,37 +78,34 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
             self.assertTrue(identity.is_worktree_teammate(_MAIN_CWD))
 
     def test_teammate_env_no_resolvable_smm_dir_is_not_teammate(self):
-        """AC3 (story-003): teammate-shaped env but the validated resolver
-        cannot produce a directory (no param, no SMM_DIR, and init.sh derives
-        nothing) → cannot verify a marker → not a teammate (fails closed).
-        Mocks the resolver directly rather than relying on the ambient repo
-        having no derivable SMM dir, which self-resolution would otherwise
-        make this test depend on."""
+        """AC3 (story-003): teammate-shaped env but no way to locate the marker
+        (no param, no SMM_DIR env) → cannot verify a marker → not a teammate
+        (fails closed WITHOUT deriving the shared SMM)."""
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            with patch.object(_common, "get_validated_smm_dir", return_value=None):
+            with patch.object(_common, "resolve_smm_dir") as mock_resolve:
                 self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
+            mock_resolve.assert_not_called()
 
-    def test_self_resolves_dir_when_param_and_env_both_absent(self):
-        """AC1 (story-003): no smm_dir param, no SMM_DIR env — is_worktree_teammate
-        now self-resolves through the same validated resolver every hook shares
-        (mocked here to stand in for init.sh derivation), where before this
-        story it returned False outright. A live marker there is detected."""
+    def test_leaked_env_no_param_no_env_does_not_derive_shared_smm(self):
+        """Finding #6 / story-003 fail-closed: with no smm_dir param and no
+        SMM_DIR env, is_worktree_teammate must NOT derive the real shared SMM
+        via init.sh — a live in-place marker there for a LEAKED name would
+        misidentify the lead as a teammate. Even with a live marker present in
+        the (would-be-derived) shared SMM, it returns False WITHOUT resolving."""
         worktree.claim_in_place_marker(self.smm_dir, _TEAMMATE)
         with patch.dict(os.environ, {"XP_TEAMMATE_NAME": _TEAMMATE}, clear=False):
             os.environ.pop("SMM_DIR", None)
-            with patch.object(
-                _common, "get_validated_smm_dir", return_value=self.smm_dir
-            ) as mock_resolve:
-                self.assertTrue(identity.is_worktree_teammate(_MAIN_CWD))
-            mock_resolve.assert_called_once_with(None)
+            with patch.object(_common, "resolve_smm_dir") as mock_resolve:
+                self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
+            mock_resolve.assert_not_called()
 
     def test_no_env_var_never_resolves_smm_dir(self):
         """AC4 (story-003): with no XP_TEAMMATE_NAME, the lead's hot path pays
         no subprocess — pinned via call count, not vacuously."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("XP_TEAMMATE_NAME", None)
-            with patch.object(_common, "get_validated_smm_dir") as mock_resolve:
+            with patch.object(_common, "resolve_smm_dir") as mock_resolve:
                 self.assertFalse(identity.is_worktree_teammate(_MAIN_CWD))
             mock_resolve.assert_not_called()
 

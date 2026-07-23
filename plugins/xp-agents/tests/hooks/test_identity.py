@@ -115,52 +115,46 @@ class TestInPlaceTeammateName(unittest.TestCase):
                 self.assertIsNone(identity.in_place_teammate_name())
             mock_resolve.assert_not_called()
 
-    def test_unresolvable_smm_dir_fails_closed(self):
-        """AC3: get_validated_smm_dir returning None must never reach
+    def test_invalid_explicit_smm_dir_fails_closed(self):
+        """An explicit smm_dir that fails validation must never reach
         in_place_teammate_from_env."""
         with (
             patch.dict(
                 os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
             ),
-            patch.object(_common, "get_validated_smm_dir", return_value=None),
+            patch.object(_common, "try_validate_smm_dir", return_value=None),
         ):
             with patch("worktree.in_place_teammate_from_env") as mock_marker:
-                self.assertIsNone(identity.in_place_teammate_name())
+                self.assertIsNone(identity.in_place_teammate_name(Path("/whatever")))
             mock_marker.assert_not_called()
 
-    def test_self_resolves_dir_when_param_and_env_both_absent(self):
-        """AC1: no smm_dir param, no SMM_DIR env — resolution runs through the
-        same validated resolver every hook shares (mocked here to stand in for
-        init.sh derivation)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            smm_dir = Path(tmp)
-            worktree.claim_in_place_marker(smm_dir, "worktree-story-001")
-            try:
-                with patch.dict(
-                    os.environ,
-                    {"XP_TEAMMATE_NAME": "worktree-story-001"},
-                    clear=False,
-                ):
-                    with patch.object(
-                        _common, "get_validated_smm_dir", return_value=smm_dir
-                    ) as mock_resolve:
-                        result = identity.in_place_teammate_name()
-                    mock_resolve.assert_called_once_with(None)
-                self.assertEqual(result, "worktree-story-001")
-            finally:
-                release_in_place_holds(smm_dir)
-
-    def test_leaked_env_without_live_marker_returns_none_even_when_resolved(self):
-        """AC2: self-resolution makes the marker CHECKABLE, never SKIPPABLE."""
-        with tempfile.TemporaryDirectory() as tmp:
-            smm_dir = Path(tmp)
+    def test_no_param_and_no_env_fails_closed_without_deriving(self):
+        """Finding #6 / story-003 fail-closed: with neither an smm_dir param
+        nor a SMM_DIR env, the marker is unverifiable. The helper must NOT
+        derive the real shared SMM via init.sh — that would let a live in-place
+        marker for a LEAKED XP_TEAMMATE_NAME misidentify a lead as a teammate.
+        It returns None WITHOUT ever resolving or checking the marker."""
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+        ):
+            os.environ.pop("SMM_DIR", None)
             with (
-                patch.dict(
-                    os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
-                ),
-                patch.object(_common, "get_validated_smm_dir", return_value=smm_dir),
+                patch.object(_common, "resolve_smm_dir") as mock_resolve,
+                patch("worktree.in_place_teammate_from_env") as mock_marker,
             ):
                 self.assertIsNone(identity.in_place_teammate_name())
+            mock_resolve.assert_not_called()
+            mock_marker.assert_not_called()
+
+    def test_leaked_env_without_live_marker_returns_none(self):
+        """A leaked XP_TEAMMATE_NAME with a resolvable SMM but NO live marker
+        is not a teammate — the marker is checkABLE, never skippable."""
+        with tempfile.TemporaryDirectory() as tmp:
+            smm_dir = Path(tmp)
+            with patch.dict(
+                os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+            ):
+                self.assertIsNone(identity.in_place_teammate_name(smm_dir))
 
     def test_process_cwd_inside_a_worktree_is_ignored(self):
         """The helper is the ENV leg and nothing else — it must carry no cwd
@@ -263,6 +257,21 @@ class TestIsWorktreeTeammate(unittest.TestCase):
                 # The claim holds a REAL lock; give it back before the dir goes.
                 release_in_place_holds(smm_dir)
                 self.assertTrue(detected)
+
+    def test_leaked_env_no_smm_dir_does_not_derive_shared_smm(self):
+        """Finding #6: a lead with a leaked XP_TEAMMATE_NAME and no SMM_DIR must
+        NOT be misidentified as a teammate by deriving the real shared SMM and
+        finding a live in-place marker there. With neither an smm_dir param nor
+        a SMM_DIR env, the env leg fails closed WITHOUT deriving (story-003's
+        fail-closed property)."""
+        inp = {"cwd": "/home/user/project/src"}
+        with patch.dict(
+            os.environ, {"XP_TEAMMATE_NAME": "worktree-story-001"}, clear=False
+        ):
+            os.environ.pop("SMM_DIR", None)
+            with patch.object(_common, "resolve_smm_dir") as mock_resolve:
+                self.assertFalse(identity.is_worktree_teammate(inp))
+            mock_resolve.assert_not_called()
 
     def test_env_var_without_prefix_not_detected(self):
         """XP_TEAMMATE_NAME without worktree-story- prefix not detected."""
