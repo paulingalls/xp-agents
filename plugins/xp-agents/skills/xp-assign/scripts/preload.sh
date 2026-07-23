@@ -8,15 +8,6 @@ echo "SMM_DIR=${SMM_DIR}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 echo "SMM_FILE=$(smm_render_to_tempfile)"
 
-# Plan path persisted by xp-review-plan preload
-PLAN_MARKER="${SMM_DIR}/.last-plan-path"
-if [ -f "$PLAN_MARKER" ]; then
-    PLAN_PATH=$(cat "$PLAN_MARKER")
-    if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
-        echo "PLAN_FILE=${PLAN_PATH}"
-    fi
-fi
-
 if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi
@@ -154,5 +145,27 @@ if [ -z "$TEAMMATE_OUT" ]; then
     TEAMMATE_OUT=$'TEAMMATE_STORY_IDS=\nSOLO_TARGET=\nRECOMMENDED_TIER_STORY=\nRECOMMENDED_TIER=none\nRECOMMENDED_EFFORT=\nTEAMMATE_DEFAULT=inherit'
 fi
 echo "$TEAMMATE_OUT"
+
+# Plan path persisted by xp-review-plan preload — guarded against a stale
+# plan authored for a DIFFERENT story than the resolved spawn target
+# (debt 2491b4d3e025). ".last-plan-path" holds only a path (no story id)
+# and is overwritten by every /xp-review-plan, so if the lead planned
+# several stories before assigning it can name the LATEST plan while the
+# target is the lowest un-spawned story. Emission runs AFTER the Python
+# block above so PLAN_TARGET is known.
+PLAN_TARGET=$(printf '%s\n' "$TEAMMATE_OUT" | sed -n 's/^RECOMMENDED_TIER_STORY=//p')
+PLAN_MARKER="${SMM_DIR}/.last-plan-path"
+if [ -f "$PLAN_MARKER" ]; then
+    PLAN_PATH=$(cat "$PLAN_MARKER")
+    if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
+        if grep -qE '^#[[:space:]]+story-[0-9]+' "$PLAN_PATH" \
+           && [ -n "$PLAN_TARGET" ] \
+           && ! grep -qE "^#[[:space:]]+${PLAN_TARGET}([^0-9]|\$)" "$PLAN_PATH"; then
+            :  # stale plan for a DIFFERENT story — do not emit PLAN_FILE
+        else
+            emit_path_var PLAN_FILE "$PLAN_PATH"
+        fi
+    fi
+fi
 
 rm -f "${SMM_DIR}/.assign-pending"
