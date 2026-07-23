@@ -32,6 +32,12 @@ Site = tuple[int, str, str | None]
 SUFFIX_COMPARE = "suffix-compare"
 SUFFIX_MATCH = "suffix-match"
 ENDSWITH_EXTENSION = "endswith-extension"
+PER_LINTER_TABLE = "per-linter-table"
+
+# A dict keyed by this many-or-more linter names is a per-linter table, not an
+# incidental single mention. Two is the guard: `{"eslint": ..., "count": 3}`
+# names a linter once in passing, which is not the shape this rule targets.
+_PER_LINTER_MIN_KEYS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +285,32 @@ def _predicates(tree: ast.Module) -> list[tuple[int, int, str]]:
     return sorted(found.values())
 
 
+def _per_linter_dict_sites(
+    tree: ast.Module, linter_names: frozenset[str]
+) -> list[tuple[int, int]]:
+    """Return (lineno, end_lineno) for every dict literal keyed by >=2 names
+    in *linter_names*.
+
+    The signal is the KEYS, not the values: rule codes and per-linter config
+    are both ordinary-looking identifiers, so a value-shape scan false-positives
+    on shipped dicts unrelated to linting. A dict whose keys name >=2 linters is
+    a per-language rule/config table wherever it lives — the shape
+    `linter_tables.py`'s own docstring calls out as the leak.
+    """
+    sites: list[tuple[int, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = {
+            key.value
+            for key in node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        if len(keys & linter_names) >= _PER_LINTER_MIN_KEYS:
+            sites.append((node.lineno, node.end_lineno or node.lineno))
+    return sites
+
+
 # ---------------------------------------------------------------------------
 # Marker lookup — the AST discards comments, so this reads raw source lines
 # ---------------------------------------------------------------------------
@@ -359,12 +391,20 @@ def _find_reason(
     return None
 
 
-def scan_file(path: Path) -> list[Site]:
+def scan_file(
+    path: Path,
+    linter_names: frozenset[str] = frozenset(),
+    registry_path: Path | None = None,
+) -> list[Site]:
     """Return every extension predicate in *path* with its marker status.
 
     Sites are returned whether marked or not: the pin reads the marker (unmarked
     -> fail, empty reason -> fail) and the vacuity guard counts them. A syntax
     error yields [] — a different bug class, caught elsewhere.
+
+    *linter_names* additionally enables the per-linter-table detector (inert
+    when empty, so existing callers are unaffected); *registry_path* exempts
+    the one file that legitimately holds those tables.
     """
     src = path.read_text(encoding="utf-8")
     try:
@@ -375,7 +415,15 @@ def scan_file(path: Path) -> list[Site]:
     lines = src.splitlines()
     func_markers = _function_markers(tree, lines)
 
-    return [
+    sites = [
         (start, kind, _find_reason(start, end, lines, func_markers))
         for start, end, kind in _predicates(tree)
     ]
+
+    if linter_names and path != registry_path:
+        sites += [
+            (start, PER_LINTER_TABLE, _find_reason(start, end, lines, func_markers))
+            for start, end in _per_linter_dict_sites(tree, linter_names)
+        ]
+
+    return sorted(sites)
