@@ -265,6 +265,50 @@ def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
     return f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
 
 
+# Retention cap for the stream-dump artifact. Split head/tail rather than
+# tail-only: a refusal or WARN printed early and then buried under noise is
+# exactly the case the artifact exists to preserve, and tail-only retention
+# would elide it.
+_STREAM_DUMP_MAX_LINES = 500
+
+
+def _trim_for_dump(lines: list[str]) -> tuple[list[str], int]:
+    """Keep head + tail of *lines* within _STREAM_DUMP_MAX_LINES. Returns
+    (retained_lines_with_elision_marker, elided_count)."""
+    if len(lines) <= _STREAM_DUMP_MAX_LINES:
+        return list(lines), 0
+    half = _STREAM_DUMP_MAX_LINES // 2
+    head = lines[:half]
+    tail = lines[-half:]
+    elided = len(lines) - len(head) - len(tail)
+    return [*head, f"... ({elided} line(s) elided) ...", *tail], elided
+
+
+def _compose_stream_dump(
+    lines: list[str],
+    *,
+    mode: str,
+    timeout: float | None,
+    parsed_count: int,
+    total_count: int,
+) -> str:
+    """Compose the verbatim stream-dump artifact text: header + retained lines.
+
+    Composition (header wording, retention trim) is the filter's knowledge;
+    the writer it hands the finished string to (worktree.
+    write_teammate_stream_dump) knows only the path and the write.
+    """
+    retained, elided = _trim_for_dump(lines)
+    header = [
+        f"mode: {mode}",
+        f"timeout_s: {timeout if timeout is not None else 'n/a'}",
+        f"parsed_stream_json_lines: {parsed_count}",
+        f"total_captured_lines: {total_count}",
+        f"elided_lines: {elided}",
+    ]
+    return "\n".join(header) + "\n---\n" + "\n".join(retained) + "\n"
+
+
 def _consume_stream(
     fd: int, timeout: float | None
 ) -> tuple[list[str], dict | None, bool]:
@@ -309,9 +353,32 @@ def process_stream(smm_dir: Path, teammate_id: str) -> None:
     lines, result, timed_out = _consume_stream(fd, timeout)
 
     if result is None:
+        parsed_count = sum(1 for _ in _iter_json_objects(lines))
+        mode = "timeout" if timed_out else "eof"
+        dump_text = _compose_stream_dump(
+            lines,
+            mode=mode,
+            timeout=timeout if timed_out else None,
+            parsed_count=parsed_count,
+            total_count=len(lines),
+        )
+        dump_path: Path | None = None
+        dump_error: OSError | None = None
+        try:
+            worktree.write_teammate_stream_dump(smm_dir, teammate_id, dump_text)
+            dump_path = worktree.teammate_stream_dump_path(smm_dir, teammate_id)
+        except OSError as exc:
+            dump_error = exc
+
         diag = extract_diagnostics(lines)
         if timed_out:
             diag = f"Timeout after {timeout}s with no teammate output. {diag}"
+        else:
+            diag = f"Stream closed (EOF) with no result event. {diag}"
+        if dump_path is not None:
+            diag += f" Captured output saved to {dump_path}"
+        elif dump_error is not None:
+            diag += f" (failed to save captured output: {dump_error})"
         print(diag, file=sys.stderr)
         sys.exit(1)
 
