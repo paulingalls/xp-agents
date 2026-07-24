@@ -62,7 +62,7 @@ Build a `branching_strategy` object:
 ```json
 {
   "stage": <0-3>,
-  "user_namespace": "<from git config user.email local-part, slugified>",
+  "user_namespace": "<the prefix already in use on `<prefix>/...` branches from Step 3; else git config user.email local-part, slugified. One segment, no `/`>",
   "protected_branches": ["main"],
   "integration_branch": null,
   "rationale": "<why this stage was chosen, citing specific signals>"

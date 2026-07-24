@@ -17,6 +17,7 @@ from _append_impl import write_text_atomic
 from system_context_schema import (
     SYSTEM_CONTEXT_FILENAME,
     integration_branch_error,
+    user_namespace_error,
     validate_system_context,
 )
 
@@ -98,8 +99,8 @@ def acceptance_surface_names(smm_dir: Path) -> frozenset[str] | None:
 _NO_STORED_VALUE = object()
 
 
-def _stored_integration_branch(path: Path) -> object:
-    """The integration_branch currently on disk, or ``_NO_STORED_VALUE``.
+def _stored_branching_field(path: Path, field: str) -> object:
+    """The branching_strategy *field* currently on disk, or ``_NO_STORED_VALUE``.
 
     FAILS CLOSED. A missing, corrupt, symlinked or unreadable document is no
     proof that a value was already stored, so it yields the sentinel — which
@@ -116,32 +117,43 @@ def _stored_integration_branch(path: Path) -> object:
     if not isinstance(doc, dict):
         return _NO_STORED_VALUE
     bs = doc.get("branching_strategy")
-    if not isinstance(bs, dict) or "integration_branch" not in bs:
+    if not isinstance(bs, dict) or field not in bs:
         return _NO_STORED_VALUE
-    return bs["integration_branch"]
+    return bs[field]
 
 
-def _is_grandfathered_branch(path: Path, data: dict) -> bool:
-    """True when the incoming integration_branch is the one already stored.
+# Every branching_strategy field the git-ref rule governs, with the validator
+# that reports it. Keyed by field so the grandfather stays per-FIELD while
+# ``enforce_ref_format`` remains document-wide.
+_REF_FORMAT_VALIDATORS = {
+    "integration_branch": integration_branch_error,
+    "user_namespace": user_namespace_error,
+}
 
-    Compares THAT FIELD, never whole-document equality: the round-trip this
-    exists for (`branch_resolution._maybe_auto_promote`) loads the doc,
-    changes the stage, and saves — the document differs, the field does not.
-    NEW bad input is still rejected; only re-writing a value the project
-    already had is allowed through.
 
-    False whenever the incoming value already satisfies the rule: there is
-    nothing to grandfather, so the strict flag stays UP. That matters because
-    ``enforce_ref_format`` is document-wide — anything that starts consulting
-    it must not be silently disabled by an integration_branch that happens to
-    match disk — and it keeps the common save off the extra disk read.
+def _is_grandfathered_ref_format(path: Path, data: dict) -> bool:
+    """True when EVERY ref-format violation in *data* is a value already stored.
+
+    Compares FIELDS, never whole-document equality: the round-trip this exists
+    for (`branch_resolution._maybe_auto_promote`) loads the doc, changes the
+    stage, and saves — the document differs, the fields do not. NEW bad input is
+    still rejected; only re-writing a value the project already had is allowed
+    through.
+
+    ALL violations must match, because ``enforce_ref_format`` is document-wide:
+    a grandfathered integration_branch must not license a brand-new unusable
+    user_namespace riding along in the same save.
+
+    False when nothing violates the rule: there is nothing to grandfather, the
+    strict flag stays UP, and the common save skips the extra disk read.
     """
     bs = data.get("branching_strategy")
-    if not isinstance(bs, dict) or "integration_branch" not in bs:
+    if not isinstance(bs, dict):
         return False
-    if integration_branch_error(bs) is None:
+    offenders = [f for f, err in _REF_FORMAT_VALIDATORS.items() if err(bs) is not None]
+    if not offenders:
         return False
-    return bs["integration_branch"] == _stored_integration_branch(path)
+    return all(f in bs and bs[f] == _stored_branching_field(path, f) for f in offenders)
 
 
 def save_system_context(
@@ -151,11 +163,11 @@ def save_system_context(
 
     Clears the NEEDS_SYSTEM_CONTEXT marker on success.
 
-    The git-ref rule on integration_branch is enforced STRICTLY here — the
-    write path is where a bad value gets in — but grandfathered: a value
-    already on disk may be written back, so an internal load/save round-trip
-    of a config that predates the rule does not crash. See
-    ``_is_grandfathered_branch``.
+    The git-ref rule on integration_branch and user_namespace is enforced
+    STRICTLY here — the write path is where a bad value gets in — but
+    grandfathered: a value already on disk may be written back, so an internal
+    load/save round-trip of a config that predates the rule does not crash. See
+    ``_is_grandfathered_ref_format``.
 
     Raises:
         ValueError: If the data fails schema validation.
@@ -168,7 +180,7 @@ def save_system_context(
     errors = validate_system_context(
         data,
         enforce_budget=enforce_budget,
-        enforce_ref_format=not _is_grandfathered_branch(path, data),
+        enforce_ref_format=not _is_grandfathered_ref_format(path, data),
     )
     if errors:
         raise ValueError(f"System context validation failed: {'; '.join(errors)}")

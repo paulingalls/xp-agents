@@ -2,6 +2,47 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.19.0 — The recorded branch namespace is now the one in force
+
+**Minor, not patch: branch names can change on upgrade.** `branching_strategy.user_namespace`
+was inert. `identity.user_namespace()` derived the branch prefix from the git
+`user.email` local-part and never read the recorded field, so `system_context.json`
+could say `alice` while every branch was cut as `a-smith/...` — with nothing
+reporting the disagreement. This repo hit exactly that: the analyzer recorded the
+prefix already on 200+ merged branches, the git email had since changed, and the
+next branch was cut under the new one.
+
+The recorded value now WINS, falling back to git identity when absent or unusable.
+It is user-editable via `system_context_cli edit-branching-field`, so it was always
+meant as an override; an override nothing reads is a lie.
+
+**What changes for you on upgrade.** If your recorded `user_namespace` disagrees
+with your git-derived slug, new branches switch to the recorded prefix — and your
+EXISTING branches stop matching `list_user_branches`, which backs kickoff's
+orphan-branch triage and free-close discovery. One-time, and visible: check
+`branching_strategy.user_namespace` in your rendered system context before
+upgrading, and either edit it to the prefix you actually use or delete the field to
+keep deriving from git.
+
+The field is also now validated as a git ref segment, at the same two points
+`integration_branch` already was: rejected at write time (`user_namespace_error`),
+healed to "no override" at use time (`healed_user_namespace`). It reaches `git
+branch` and `git checkout` as argv, so a leading dash would have arrived as a FLAG.
+Values already on disk are grandfathered per-field, so a load/mutate/save
+round-trip of a config that predates the rule does not crash — and a grandfathered
+`integration_branch` cannot smuggle a brand-new unusable `user_namespace` through
+the same save.
+
+`xp-system-analyzer`'s prompt now states the rule it was already following
+(prefer the prefix in use on existing branches, else the git email local-part, one
+segment) — prompt and behavior had drifted, which is how an unmatched value got
+recorded in the first place. The rendered system context marks a stored namespace
+that is not usable, the way it already marked `integration_branch`.
+
+`system_context_schema.py` had reached 560 lines against a 500 cap; the
+branching-strategy validators moved to `system_context_branching_validators.py`
+and are re-exported by identity, leaving the schema at 371.
+
 ## v4.18.0 — Remove machinery that could not fire
 
 **Minor, not patch: this removes shipped surface.** `scripts/backfill_story_id.py`

@@ -130,6 +130,56 @@ class TestBranchingStrategyValidation(unittest.TestCase):
             any("budget" in e.lower() or "user_namespace" in e for e in errors)
         )
 
+    def test_user_namespace_leading_dash_rejected(self) -> None:
+        """The namespace is interpolated into branch names handed to `git
+        branch` / `git checkout` as argv, so a leading dash would arrive as a
+        FLAG. Same guard integration_branch already carries."""
+        doc = valid_doc(
+            branching_strategy={"stage": 1, "user_namespace": "--upload-pack=evil"}
+        )
+        errors = validate_system_context(doc)
+        self.assertTrue(any("user_namespace" in e for e in errors))
+
+    def test_user_namespace_with_space_rejected(self) -> None:
+        doc = valid_doc(branching_strategy={"stage": 1, "user_namespace": "has space"})
+        errors = validate_system_context(doc)
+        self.assertTrue(any("user_namespace" in e for e in errors))
+
+    def test_user_namespace_ref_format_skipped_when_not_enforced(self) -> None:
+        """Loaders pass enforce_ref_format=False so a context stored before this
+        rule still LOADS unchanged — the value is healed where it is used."""
+        doc = valid_doc(branching_strategy={"stage": 1, "user_namespace": "has space"})
+        errors = validate_system_context(doc, enforce_ref_format=False)
+        self.assertEqual(errors, [])
+
+    def test_user_namespace_non_ascii_accepted(self) -> None:
+        """Cross-language guardrail: git accepts non-ASCII refs, so we must not
+        read them as invalid just because our generator never emits them."""
+        doc = valid_doc(branching_strategy={"stage": 1, "user_namespace": "主线"})
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
+    def test_user_namespace_with_slash_rejected(self) -> None:
+        """The namespace is ONE segment, unlike integration_branch.
+
+        It becomes the first component of names the branch helpers parse with
+        `^[^/]+/...` (is_free_branch, is_sprint_branch, extract_story_id), so a
+        two-segment namespace creates `team/paul/free-...` branches that those
+        parsers cannot read — free-close and story-close then refuse to
+        recognize the plugin's own branches.
+        """
+        doc = valid_doc(branching_strategy={"stage": 1, "user_namespace": "team/paul"})
+        errors = validate_system_context(doc)
+        self.assertTrue(any("user_namespace" in e for e in errors))
+
+    def test_integration_branch_with_slash_still_accepted(self) -> None:
+        """The segment rule is namespace-only — a full ref may carry slashes."""
+        doc = valid_doc(
+            branching_strategy={"stage": 1, "integration_branch": "release/2026"}
+        )
+        errors = validate_system_context(doc)
+        self.assertEqual(errors, [])
+
 
 class TestStagePromptDismissedAt(unittest.TestCase):
     """Optional ISO timestamp recording when the user dismissed the

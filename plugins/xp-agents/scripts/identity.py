@@ -231,11 +231,67 @@ def _git_config(key: str, cwd: str) -> str:
     return _git_stdout(["git", "config", key], cwd)
 
 
-def user_namespace(cwd: str) -> str:
-    """Derive a branch-naming namespace from git config.
+def _recorded_user_namespace(smm_dir: Path | None) -> str | None:
+    """A usable branching_strategy.user_namespace override, else None.
 
-    Tries user.email local-part first, falls back to user.name, then "user".
+    Resolves smm_dir itself when not given so the 10 existing call sites need
+    no signature change — and, more importantly, so branch READERS
+    (list_user_branches, branch_queries) cannot disagree with branch WRITERS
+    about the namespace. A disagreement there breaks kickoff's orphan-branch
+    triage, which is worse than either value being "wrong".
+
+    Deferred imports mirror worktree._out_of_repo_worktrees_base: these live in
+    smm/ and pulling them at module import would make identity (a hot-path
+    helper imported by nearly every hook) depend on the SMM engine.
     """
+    from system_context_schema import healed_user_namespace
+
+    if smm_dir is None:
+        from _append_impl import resolve_smm_dir
+
+        try:
+            resolved = resolve_smm_dir()
+        except OSError:
+            return None
+        if resolved is None:
+            return None
+        smm_dir = Path(resolved)
+
+    from system_context_store import load_system_context
+
+    try:
+        ctx = load_system_context(smm_dir)
+    except (ValueError, OSError):
+        # Never let a malformed/absent system_context break branch naming —
+        # git-derived is always a valid answer. Exactly the two the loader
+        # raises (corrupt/schema-invalid -> ValueError, symlinked path ->
+        # OSError), matching store.acceptance_surface_names' best-effort read
+        # rather than swallowing every Exception: a NameError or a broken
+        # import here is a bug, and a naming helper that hides it hands back a
+        # silently different branch prefix.
+        return None
+    if not isinstance(ctx, dict):
+        return None
+    return healed_user_namespace(ctx.get("branching_strategy"))
+
+
+def user_namespace(cwd: str, smm_dir: Path | None = None) -> str:
+    """The branch-naming namespace: recorded override first, else git config.
+
+    A recorded ``branching_strategy.user_namespace`` WINS. It is user-editable
+    via ``system_context_cli edit-branching-field``, so it is an override — and
+    before this it was inert, letting system_context record one namespace while
+    every branch was created under another with nothing reporting the
+    disagreement. Unusable values (leading dash, spaces, or a second `/`
+    segment the branch-name parsers could not read back) are ignored here and
+    rejected at write time by ``user_namespace_error``.
+
+    Falling back: user.email local-part, then user.name, then "user".
+    """
+    recorded = _recorded_user_namespace(smm_dir)
+    if recorded is not None:
+        return recorded
+
     email = _git_config("user.email", cwd)
     if email and "@" in email:
         slug = _slugify(email.split("@")[0])

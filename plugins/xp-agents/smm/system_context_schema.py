@@ -8,12 +8,21 @@ Follows the same pattern as execution_plan_schema.py: hand-rolled validator,
 no external jsonschema dependency, stdlib-only.
 """
 
-from execution_plan_schema import usable_git_ref_name
 from schema_helpers import budget_error
-from smm_schema import EVENT_ID_RE, is_iso8601
+from smm_schema import EVENT_ID_RE
 
 # Re-export shim per the split convention — extracted constants/validators
 # keep the historical import path working for callers (e.g. tests).
+from system_context_branching_validators import (  # noqa: F401
+    _BRANCHING_STRATEGY_REQUIRED,
+    BRANCHING_STRATEGY_FIELD_MAXLENGTH,
+    _usable_ref_segment,
+    _validate_branching_strategy,
+    healed_integration_branch,
+    healed_user_namespace,
+    integration_branch_error,
+    user_namespace_error,
+)
 from system_context_entry_validators import (  # noqa: F401
     ACCEPTANCE_SURFACE_HARNESS_MAXLENGTH,
     ACCEPTANCE_SURFACE_NAME_MAXLENGTH,
@@ -60,17 +69,6 @@ PROJECT_SPECIFIC_SOFT_CAP: int = 10
 PROJECT_SPECIFIC_HARD_CAP: int = 15
 ACCEPTANCE_SURFACES_SOFT_CAP: int = 5
 ACCEPTANCE_SURFACES_HARD_CAP: int = 8
-
-BRANCHING_STRATEGY_FIELD_MAXLENGTH: dict[str, int] = {
-    "rationale": 300,
-    "user_namespace": 50,
-    # None = never dismissed; ISO 8601 string = dismissed at that time.
-    # ISO 8601 with offset is ~32 chars; 50 leaves headroom for fractional
-    # seconds + future format variants without re-bumping the budget.
-    "stage_prompt_dismissed_at": 50,
-}
-
-_BRANCHING_STRATEGY_REQUIRED = frozenset({"stage"})
 
 PRINCIPLE_FIELD_MAXLENGTH: dict[str, int] = {
     "decision": 200,
@@ -252,134 +250,6 @@ def _validate_principle(
         val = decision["source_event_id"]
         if not isinstance(val, str) or not EVENT_ID_RE.match(val):
             errors.append(f"principles[{idx}].source_event_id must be a 12-char hex ID")
-
-    return errors
-
-
-def integration_branch_error(bs: object) -> str | None:
-    """Message when branching_strategy.integration_branch cannot serve as a
-    git ref, else None. Null/missing is fine — callers fall back to primary.
-
-    Same class of value as sprint.branch_name and plan.branch, and now held
-    to the same rule: ``get_primary_branch`` hands this straight to `git
-    checkout` / `git merge` as argv.
-    """
-    if not isinstance(bs, dict) or bs.get("integration_branch") is None:
-        return None
-    value = bs["integration_branch"]
-    if usable_git_ref_name(value):
-        return None
-    return (
-        "branching_strategy.integration_branch must be a branch name usable as"
-        f" a git ref (got {value!r}): slash-separated [A-Za-z0-9._-], no leading"
-        " dash (it would reach `git checkout` / `git merge` as a FLAG); use null"
-        " to leave it unset"
-    )
-
-
-def healed_integration_branch(bs: object) -> str | None:
-    """The stored value when usable as a ref, else None (fall back to primary).
-
-    The SINGLE heal helper, applied where the value is USED rather than where
-    it is loaded. Loaders preserve the stored bytes: `branch_resolution`'s
-    stage auto-promote does load → mutate → save, so healing inside a loader
-    would silently persist the substitute over the branch a user configured.
-    """
-    if not isinstance(bs, dict):
-        return None
-    value = bs.get("integration_branch")
-    return value if usable_git_ref_name(value) else None
-
-
-def _validate_branching_strategy(
-    bs: object, *, enforce_budget: bool = True, enforce_ref_format: bool = True
-) -> list[str]:
-    errors: list[str] = []
-    if not isinstance(bs, dict):
-        return ["branching_strategy must be an object"]
-
-    for field in _BRANCHING_STRATEGY_REQUIRED:
-        if field not in bs:
-            errors.append(f"branching_strategy missing required field: {field}")
-
-    if errors:
-        return errors
-
-    stage = bs["stage"]
-    if not isinstance(stage, int) or isinstance(stage, bool):
-        errors.append("branching_strategy.stage must be an integer")
-    elif stage < 0 or stage > 3:
-        errors.append(f"branching_strategy.stage must be 0-3 (got {stage})")
-
-    if "user_namespace" in bs:
-        if not isinstance(bs["user_namespace"], str):
-            errors.append("branching_strategy.user_namespace must be a string")
-        elif enforce_budget:
-            max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["user_namespace"]
-            actual = len(bs["user_namespace"])
-            if actual > max_len:
-                errors.append(
-                    budget_error("branching_strategy.user_namespace", actual, max_len)
-                )
-
-    if "protected_branches" in bs:
-        pb = bs["protected_branches"]
-        if not isinstance(pb, list):
-            errors.append("branching_strategy.protected_branches must be a list")
-        else:
-            for idx, item in enumerate(pb):
-                if not isinstance(item, str):
-                    errors.append(
-                        f"branching_strategy.protected_branches[{idx}] must be a string"
-                    )
-
-    if "integration_branch" in bs:
-        ib = bs["integration_branch"]
-        if ib is not None and not isinstance(ib, str):
-            errors.append(
-                "branching_strategy.integration_branch must be a string or null"
-            )
-        elif enforce_ref_format:
-            ref_error = integration_branch_error(bs)
-            if ref_error is not None:
-                errors.append(ref_error)
-
-    if "rationale" in bs:
-        if not isinstance(bs["rationale"], str):
-            errors.append("branching_strategy.rationale must be a string")
-        elif enforce_budget:
-            max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH["rationale"]
-            actual = len(bs["rationale"])
-            if actual > max_len:
-                errors.append(
-                    budget_error("branching_strategy.rationale", actual, max_len)
-                )
-
-    if "stage_prompt_dismissed_at" in bs:
-        val = bs["stage_prompt_dismissed_at"]
-        if val is not None and not isinstance(val, str):
-            errors.append(
-                "branching_strategy.stage_prompt_dismissed_at must be a string or null"
-            )
-        elif isinstance(val, str):
-            if enforce_budget:
-                max_len = BRANCHING_STRATEGY_FIELD_MAXLENGTH[
-                    "stage_prompt_dismissed_at"
-                ]
-                actual = len(val)
-                if actual > max_len:
-                    errors.append(
-                        budget_error(
-                            "branching_strategy.stage_prompt_dismissed_at",
-                            actual,
-                            max_len,
-                        )
-                    )
-            if not is_iso8601(val):
-                errors.append(
-                    "branching_strategy.stage_prompt_dismissed_at must be"
-                    " an ISO 8601 timestamp string"
-                )
 
     return errors
 
