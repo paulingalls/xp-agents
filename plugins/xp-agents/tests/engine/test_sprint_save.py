@@ -104,7 +104,7 @@ def _local_sprint(status="done"):
 
 
 class TestSaveSprintAcceptanceFlow(_SMMTestCase):
-    """sprint_save.py handles the .accept marker and the sprint-complete nudge."""
+    """sprint_save.py clears a stale .accept marker on structural mutations."""
 
     def _run_save(self, data: dict) -> None:
         sprint_save.run(data, self.smm_dir)

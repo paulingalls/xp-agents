@@ -458,21 +458,15 @@ def run(data: dict, smm_dir: Path) -> None:
     # Use in-memory data to avoid re-reading the file we just wrote.
     has_ip = any(s["status"] == "in-progress" for s in data["stories"])
     if accept_marker_existed and not has_ip:
-        # STALE-MARKER CLEANUP ONLY — and that is the whole of it.
+        # Third-line fallback for a STALE marker, not the clearer. `.accept` is
+        # normally consumed unconditionally by xp-accept's preload
+        # (`consume_marker ACCEPT`), and swept at fresh SessionStart via
+        # `markers._STALE_SESSION_MARKERS`. This only catches a marker that
+        # outlived both — `run()` is reached solely from the structural
+        # mutations named in the module docstring, so it fires at sprint
+        # creation with a previous cycle's marker still on disk.
         #
-        # `run()` is reached only from the STRUCTURAL mutations named in the
-        # module docstring, so this fires when a sprint is created (or a story
-        # added) while a previous cycle's `.accept` is still on disk. Clearing
-        # it there is correct, and is the one thing this block can do.
-        #
-        # It formerly also emitted an `iteration_complete` event and printed a
-        # sprint-complete nudge. Both were removed in v4.18.0 because neither
-        # could fire: an iteration completes via `update-story`, which calls
-        # `store.update_story_status` and never enters `run()`; the nudge
-        # additionally required no ready/in-progress story, which no freshly
-        # created sprint has. The live sprint-complete prompt is the stop
-        # gate's, not this one. See SMM discovery b426495126f1.
-        #
-        # Do NOT wire new accept-flow side effects in here expecting the accept
-        # path to reach them — it does not.
+        # Do NOT wire accept-flow side effects in here expecting the accept path
+        # to reach them: it does not. An iteration completes via `update-story`,
+        # which never enters `run()`. See SMM discovery b426495126f1.
         accept_marker.unlink(missing_ok=True)

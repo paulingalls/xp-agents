@@ -36,9 +36,15 @@ only reachable path would have announced "Iteration complete" during sprint
 `retro_metrics` fed a permanent `0` into every retrospective input.
 
 Its tests passed the whole time: they call `sprint_save.run()` directly, proving
-the function works without proving anything about whether the trigger fires. The
-`.accept` unlink and the sprint-complete nudge in that block are kept — those are
-marker lifecycle, not the metric.
+the function works without proving anything about whether the trigger fires.
+
+The **sprint-complete nudge** in the same block went with it, for the same
+reason plus one more: it additionally required no ready or in-progress story,
+which no freshly created sprint has, so it was unreachable twice over. The live
+"Sprint complete — run /xp-sprint-review" prompt is the stop gate's. Only the
+`.accept` unlink is kept, and only because it *is* reachable — as a fallback for
+a marker that outlived both its normal clearers (xp-accept's preload and the
+SessionStart sweep).
 
 
 ## v4.17.0 — Archive robustness, and diagnostics that tell the truth
