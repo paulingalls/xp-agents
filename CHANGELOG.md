@@ -21,6 +21,21 @@ paths that fire only when a cap binds, schema-migration insurance, and a
 regression pin that names a deleted agent precisely to keep it deleted. This was
 the only entry that was finished rather than waiting.
 
+**Also removed: the `iteration_complete` event and its `iterations_completed`
+metric.** The emission lived in `sprint_save.run()`, which its own docstring
+scopes to *structural* mutations (`create`, `add-story`). An iteration actually
+completes on `update-story`, which calls `store.update_story_status()` and never
+enters that function — so the event could not fire when it claimed to, and its
+only reachable path would have announced "Iteration complete" during sprint
+*creation*. Zero firings in 5065 events across 11 projects, while
+`retro_metrics` fed a permanent `0` into every retrospective input.
+
+Its tests passed the whole time: they call `sprint_save.run()` directly, proving
+the function works without proving anything about whether the trigger fires. The
+`.accept` unlink and the sprint-complete nudge in that block are kept — those are
+marker lifecycle, not the metric.
+
+
 ## v4.17.0 — Archive robustness, and diagnostics that tell the truth
 
 **Milestone 5 plus four adopted backlog items.** Two threads run through this

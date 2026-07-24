@@ -48,7 +48,7 @@ class TestActionVocabularySmoke(_HookTestCase):
         """Wipe smm_dir back to the setUp baseline (events.jsonl + lock).
 
         Per-subTest reset prevents marker leakage across drivers — e.g.
-        ``_drive_iteration_complete`` writes ``.accept`` and review-cycle
+        ``_drive_close_started`` writes a close marker and review-cycle
         drivers write a review flag. Without this reset, a later driver's
         behavior would depend on dict-iteration order of ``_PRODUCER_CASES``.
         """

@@ -70,7 +70,6 @@ class TestStatusActionConstants(unittest.TestCase):
     def test_action_vocabularies_distinct_from_legacy_status_actions(self):
         """M1/M2/M3 vocabularies must not collide with legacy status actions."""
         new_values = {getattr(event_schema, n) for n in self.EXPECTED}
-        self.assertNotIn(event_schema.STATUS_ACTION_ITERATION_COMPLETE, new_values)
         self.assertNotIn(event_schema.STATUS_ACTION_SPRINT_RETRO_DONE, new_values)
 
     def test_m2_set_disjoint_from_m1_review_cycle(self):

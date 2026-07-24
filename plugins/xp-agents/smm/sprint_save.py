@@ -8,9 +8,9 @@ xp-work-selection, and xp-accept. After writing sprint.json it:
 
 - Clears the .needs-sprint marker if sprint now has active stories.
 - If the .accept marker was present and no in-progress stories remain,
-  treats this as acceptance completion: clears .accept, records an
-  iteration_complete status event, and — if the sprint is now complete —
-  prints a sprint-review nudge to stdout for the main agent to see.
+  treats this as acceptance completion: clears .accept, and — if the sprint
+  is now complete — prints a sprint-review nudge to stdout for the main
+  agent to see.
 
 Library only — no CLI entrypoint, deliberately. `sprint_cli.py create` is the
 sole way to write a whole sprint, because the re-slice preserve
@@ -46,10 +46,6 @@ import sprint_store  # noqa: E402
 import system_context_store  # noqa: E402
 import triage  # noqa: E402
 import worktree  # noqa: E402
-from event_schema import (  # noqa: E402
-    EVENT_TYPE_STATUS,
-    STATUS_ACTION_ITERATION_COMPLETE,
-)
 
 # Matches "Milestone N: <anything>" or "Milestone N — <anything>"
 _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
@@ -469,18 +465,14 @@ def run(data: dict, smm_dir: Path) -> None:
     if accept_marker_existed and not has_ip:
         accept_marker.unlink(missing_ok=True)
 
-        # agent_id is teammate-resolved attribution per the agent-id-semantics
-        # ADR; skill identity lives in metadata.action.
-        agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
-        event = _common.make_event(
-            EVENT_TYPE_STATUS,
-            agent_id,
-            "Iteration complete — accept verification done.",
-            working_on=[],
-            metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},
-        )
-        _common.append_safe(smm_dir, event)
-
-        is_done = not sprint_store.has_active_stories_data(data)
-        if is_done:
+        # This block once also emitted an `iteration_complete` status event,
+        # removed in v4.17.1. It could not fire when it claimed to: `run()` is
+        # scoped to STRUCTURAL mutations (see the docstring above), while an
+        # iteration actually completes on `update-story`, which calls
+        # `store.update_story_status` and never enters here. Zero firings in
+        # 5065 real events across 11 projects, so `retro_metrics`'
+        # `iterations_completed` fed a permanent 0 into every retro input.
+        # The marker unlink and the nudge below are kept: those are `.accept`
+        # lifecycle, not the metric. See SMM discovery b426495126f1.
+        if not sprint_store.has_active_stories_data(data):
             print(_SPRINT_REVIEW_NUDGE)

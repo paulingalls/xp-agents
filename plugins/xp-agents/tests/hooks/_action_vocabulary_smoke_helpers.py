@@ -40,7 +40,6 @@ import post_tool_use
 import review_cycle_done
 import save_retrospective
 import smm_cli
-import sprint_save
 import subagent_stop
 import work_selection_decide
 from _commit_helpers import patch_commits
@@ -51,7 +50,6 @@ from conftest import (
     _make_skill_input,
     _make_stop_input,
     _make_write_input,
-    _s,
     make_event,
 )
 
@@ -216,22 +214,6 @@ def _drive_question_close(smm_dir: Path) -> list[dict]:
     return _events(smm_dir)
 
 
-def _drive_iteration_complete(smm_dir: Path) -> list[dict]:
-    # iteration_complete fires only when .accept exists and the sprint has
-    # no in-progress stories — otherwise sprint_save treats this as a
-    # regular write and emits no lifecycle event.
-    (smm_dir / ".accept").write_text("done")
-    data = {
-        "sprint_id": "sprint-001",
-        "goal": "Build auth",
-        "started": "2026-04-01",
-        "milestone": "",
-        "stories": [_s("story-001", "Login", "done")],
-    }
-    sprint_save.run(data, smm_dir)
-    return _events(smm_dir)
-
-
 def _drive_retro_try_disposition(smm_dir: Path) -> list[dict]:
     # work_selection_decide tags every retro-Try adopt/defer/drop. `defer` is
     # driven here because it is the one the FORCE-CLOSE gate reads back.
@@ -320,7 +302,6 @@ _PRODUCER_CASES: dict[str, Driver] = {
     "STATUS_ACTION_PLAN_REVIEWED": _drive_review_cycle("xp-review-plan"),
     "STATUS_ACTION_ASSIGN_COMPLETE": _drive_review_cycle("xp-assign"),
     "STATUS_ACTION_HOUSEKEEPING_COMPLETE": _drive_review_cycle("xp-housekeeper"),
-    "STATUS_ACTION_ITERATION_COMPLETE": _drive_iteration_complete,
     "STATUS_ACTION_QUESTION_CLOSE": _drive_question_close,
     "STATUS_ACTION_RETRO_TRY_DISPOSITION": _drive_retro_try_disposition,
     "STATUS_ACTION_TRIAGE_DISPOSITION": _drive_triage_disposition,
