@@ -57,6 +57,22 @@ BATCH_TIMEOUT_CAP_S: float = 40.0
 _MATERIALLY_SHORT_S: float = 5.0
 
 
+def own_ceiling_s(path_count: int) -> float:
+    """This run's own timeout cap, BEFORE any shared-budget narrowing.
+
+    Lives beside the constants and beside `timeout_message`, which is the one
+    thing that interprets the number: a `fired` materially under this ceiling
+    is what makes a timeout read as cut short. Both runners derive it from
+    here rather than each restating the formula, so the message can never
+    describe a ceiling a caller computed differently. The stdin path is just
+    the one-path case — it feeds a single file on stdin.
+    """
+    return min(
+        BATCH_TIMEOUT_CAP_S,
+        BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * path_count,
+    )
+
+
 def timeout_message(
     linter_name: str,
     exc: subprocess.TimeoutExpired,
@@ -84,13 +100,25 @@ def timeout_message(
     flag-rejected first attempt, and this is the second. Name it, so the
     small `fired` next to the full `timeout` reconciles instead of reading as
     the gate mysteriously narrowing the run mid-flight.
+
+    That reconciliation is only worth printing when the two numbers actually
+    RENDER apart. A flag rejection normally exits in milliseconds, so the
+    retry's slice rounds to the full one and the tail would read "30.25s of
+    the 30.25s this run was granted" — a sentence that contradicts itself and
+    reconciles nothing. The naming still earns its place there (a rejected
+    flag is worth knowing about); only the numbers drop out.
     """
     fired = exc.timeout if exc.timeout is not None else timeout
     is_second_attempt = fired < timeout
+    slice_tail = (
+        f"; that attempt's own slice was {fired:g}s of the {timeout:g}s this "
+        f"run was granted"
+        if f"{fired:g}" != f"{timeout:g}"
+        else ""
+    )
     second_attempt_note = (
         f" — this was the batch's second attempt, after its first was "
-        f"rejected for an unsupported flag; that attempt's own slice was "
-        f"{fired:g}s of the {timeout:g}s this run was granted"
+        f"rejected for an unsupported flag{slice_tail}"
         if is_second_attempt
         else ""
     )

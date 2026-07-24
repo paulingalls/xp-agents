@@ -16,10 +16,14 @@ from pathlib import Path
 from typing import Literal, NamedTuple, TypeVar
 
 import linters
-from lint_budget import (
+from lint_budget import (  # noqa: F401 — see BASE_S/PER_PATH_S below
+    # Not read here any more (own_ceiling_s owns the formula) but still BOUND:
+    # lint_check re-exports the trio FROM this module by identity, and tests
+    # reach them as `lint_check.X`. Dropping them here breaks that chain.
     BATCH_TIMEOUT_BASE_S,
     BATCH_TIMEOUT_CAP_S,
     BATCH_TIMEOUT_PER_PATH_S,
+    own_ceiling_s,
     timeout_message,
 )
 from linters import LINTER_BINARIES, LINTER_EXTENSIONS
@@ -307,10 +311,7 @@ def run_linter_batch(
             f"{linter_name}: cannot be invoked in this project "
             f"(missing compile database or config) — refusing to report it clean",
         )
-    own_ceiling = min(
-        BATCH_TIMEOUT_CAP_S,
-        BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
-    )
+    own_ceiling = own_ceiling_s(len(eligible))
     timeout = own_ceiling
     if budget_s is not None:
         timeout = min(timeout, budget_s)
@@ -411,9 +412,7 @@ def run_linter_stdin(
             f"— refusing to report it clean",
         )
 
-    own_ceiling = min(
-        BATCH_TIMEOUT_CAP_S, BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S
-    )
+    own_ceiling = own_ceiling_s(1)
     timeout = own_ceiling
     # The remedy this path alone can offer: it costs a process of its own only
     # because `path`'s staged bytes differ from the working tree. Re-staging

@@ -184,8 +184,10 @@ class TestBatchTimeoutCutShortVsHang(unittest.TestCase):
             result = lint_runners.run_linter_batch("ruff", ["a.py"], budget_s=5.0)
 
         self.assertEqual(result.status, "unverified")
-        self.assertIn("5s", result.output, "the slice it actually got")
-        self.assertIn("30.25s", result.output, "its own ceiling for N=1")
+        # "ran 5s", not a bare "5s" — "30.25s" contains "5s", so the loose form
+        # would pass off the ceiling alone and pin nothing about the slice.
+        self.assertIn("ran 5s", result.output, "the slice it actually got")
+        self.assertIn("its own 30.25s ceiling", result.output, "own ceiling, N=1")
         self.assertIn(
             "may have been cut short rather than hung",
             result.output,
@@ -285,8 +287,8 @@ class TestStdinTimeoutCutShortIncludesRemedy(unittest.TestCase):
                     budget_s=5.0,
                 )
         self.assertEqual(result.status, "unverified")
-        self.assertIn("5s", result.output, "the slice it actually got")
-        self.assertIn("30.25s", result.output, "its own ceiling")
+        self.assertIn("ran 5s", result.output, "the slice it actually got")
+        self.assertIn("its own 30.25s ceiling", result.output, "its own ceiling")
         self.assertIn("may have been cut short rather than hung", result.output)
         self.assertIn("git add app.ts", result.output)
 
@@ -296,6 +298,11 @@ class TestBatchRetryTimeoutNamesSecondAttempt(unittest.TestCase):
     as a hang — not cut short — because the retry used its OWN full (smaller)
     slice; and the message must report THAT slice, not the batch's nominal
     timeout, while naming it as the second attempt so the numbers reconcile.
+
+    The reconciling NUMBERS are printed only when they render apart. A flag
+    rejection exits in milliseconds, so in the realistic case below the retry's
+    slice rounds to the full one, and a tail reading "30.25s of the 30.25s this
+    run was granted" would contradict itself while reconciling nothing.
     """
 
     def test_retry_that_hangs_reads_as_hang_with_its_own_slice(self):
@@ -327,6 +334,27 @@ class TestBatchRetryTimeoutNamesSecondAttempt(unittest.TestCase):
         self.assertNotIn("cut short", result.output)
         self.assertIn("second attempt", result.output)
         self.assertIn("rejected for an unsupported flag", result.output)
+        self.assertNotIn(
+            "30.25s of the 30.25s",
+            result.output,
+            "a tail that reconciles a number against itself is noise",
+        )
+
+    def test_slice_tail_appears_when_the_two_numbers_render_apart(self):
+        """The other side of the same rule: a first attempt that burned a
+        VISIBLE share of the slice does leave the retry a different number, and
+        then the tail is the whole point — it reconciles the small `fired`
+        against the full `timeout` instead of reading as a mid-flight narrowing.
+        """
+        message = lint_budget.timeout_message(
+            "eslint",
+            subprocess.TimeoutExpired(["npx"], 4.25),
+            timeout=30.25,
+            own_ceiling=30.25,
+            budget_s=None,
+        )
+        self.assertIn("second attempt", message)
+        self.assertIn("4.25s of the 30.25s this run was granted", message)
 
 
 class TestEslintrcCarriesNoConfigStyleFlag(unittest.TestCase):
