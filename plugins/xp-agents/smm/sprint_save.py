@@ -7,10 +7,10 @@ subcommands (create, add-story); reached indirectly by xp-sprint-start,
 xp-work-selection, and xp-accept. After writing sprint.json it:
 
 - Clears the .needs-sprint marker if sprint now has active stories.
-- If the .accept marker was present and no in-progress stories remain,
-  treats this as acceptance completion: clears .accept, and — if the sprint
-  is now complete — prints a sprint-review nudge to stdout for the main
-  agent to see.
+- Clears a stale .accept marker when one is present and no in-progress
+  stories remain. This is stale-marker cleanup at sprint creation, NOT the
+  acceptance flow: an iteration completes via `update-story`, which never
+  reaches this module. Do not add accept-flow side effects here.
 
 Library only — no CLI entrypoint, deliberately. `sprint_cli.py create` is the
 sole way to write a whole sprint, because the re-slice preserve
@@ -55,11 +55,6 @@ _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
 # non-numbered / cross-milestone carryover label matches neither regex: it has
 # no single target milestone, so it transitions nothing and records no concern.
 _MILESTONE_INTENT_RE = re.compile(r"milestone\s*\d", re.IGNORECASE)
-
-_SPRINT_REVIEW_NUDGE = (
-    "\n**Sprint complete!** All stories are done or deferred. "
-    "Run `/xp-sprint-review` to review the sprint."
-)
 
 
 def _record_concern(smm_dir: Path, content: str) -> None:
@@ -463,16 +458,21 @@ def run(data: dict, smm_dir: Path) -> None:
     # Use in-memory data to avoid re-reading the file we just wrote.
     has_ip = any(s["status"] == "in-progress" for s in data["stories"])
     if accept_marker_existed and not has_ip:
+        # STALE-MARKER CLEANUP ONLY — and that is the whole of it.
+        #
+        # `run()` is reached only from the STRUCTURAL mutations named in the
+        # module docstring, so this fires when a sprint is created (or a story
+        # added) while a previous cycle's `.accept` is still on disk. Clearing
+        # it there is correct, and is the one thing this block can do.
+        #
+        # It formerly also emitted an `iteration_complete` event and printed a
+        # sprint-complete nudge. Both were removed in v4.18.0 because neither
+        # could fire: an iteration completes via `update-story`, which calls
+        # `store.update_story_status` and never enters `run()`; the nudge
+        # additionally required no ready/in-progress story, which no freshly
+        # created sprint has. The live sprint-complete prompt is the stop
+        # gate's, not this one. See SMM discovery b426495126f1.
+        #
+        # Do NOT wire new accept-flow side effects in here expecting the accept
+        # path to reach them — it does not.
         accept_marker.unlink(missing_ok=True)
-
-        # This block once also emitted an `iteration_complete` status event,
-        # removed in v4.17.1. It could not fire when it claimed to: `run()` is
-        # scoped to STRUCTURAL mutations (see the docstring above), while an
-        # iteration actually completes on `update-story`, which calls
-        # `store.update_story_status` and never enters here. Zero firings in
-        # 5065 real events across 11 projects, so `retro_metrics`'
-        # `iterations_completed` fed a permanent 0 into every retro input.
-        # The marker unlink and the nudge below are kept: those are `.accept`
-        # lifecycle, not the metric. See SMM discovery b426495126f1.
-        if not sprint_store.has_active_stories_data(data):
-            print(_SPRINT_REVIEW_NUDGE)

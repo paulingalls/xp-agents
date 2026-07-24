@@ -2,9 +2,14 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
-## v4.17.1 — Remove a completed one-shot migration
+## v4.18.0 — Remove machinery that could not fire
 
-Housekeeping only; no behavior change.
+**Minor, not patch: this removes shipped surface.** `scripts/backfill_story_id.py`
+(an operator-invocable script, still named in `changelog_pre_v4.md`) and the
+exported `event_schema.STATUS_ACTION_ITERATION_COMPLETE` constant are both gone.
+Anything invoking the script, or importing that constant, breaks on upgrade —
+which is a breaking change however small, and this project gives those a minor
+bump.
 
 `backfill_story_id.py` was a one-shot reconciler. Before Tier-0 attribution,
 commit events could carry a missing or wrong `metadata.story_id`; v2.28.1 made

@@ -121,29 +121,6 @@ class TestSaveSprintAcceptanceFlow(_SMMTestCase):
         self._run_save(_local_sprint(status="in-progress"))
         self.assertTrue((self.smm_dir / ".accept").exists())
 
-    def test_sprint_complete_nudge_printed(self):
-        """Sprint complete in accept flow -> stdout nudge."""
-        from contextlib import redirect_stdout
-        from io import StringIO
-
-        (self.smm_dir / ".accept").write_text("done")
-        buf = StringIO()
-        with redirect_stdout(buf):
-            self._run_save(_local_sprint(status="done"))
-        self.assertIn("Sprint complete", buf.getvalue())
-        self.assertIn("xp-sprint-review", buf.getvalue())
-
-    def test_no_nudge_when_sprint_not_complete(self):
-        """Accept flow but sprint has ready stories -> no nudge."""
-        from contextlib import redirect_stdout
-        from io import StringIO
-
-        (self.smm_dir / ".accept").write_text("done")
-        buf = StringIO()
-        with redirect_stdout(buf):
-            self._run_save(_local_sprint(status="ready"))
-        self.assertNotIn("Sprint complete", buf.getvalue())
-
     def test_clears_needs_sprint_marker_with_active_stories(self):
         """NEEDS_SPRINT marker clears with active stories."""
         (self.smm_dir / ".needs-sprint").write_text("startup")
