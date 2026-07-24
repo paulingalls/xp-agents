@@ -1,5 +1,52 @@
 <!--
 PROVENANCE — drafted 2026-07-15 from a research session (Codex docs + repo map).
+Revised 2026-07-24 in a design session in two passes.
+
+Pass 1 audited the claims against OUR code: split gap #9 into sandbox reach vs
+silent path divergence, re-scoped gaps #4/#12/#14, added gaps #15-17, settled the
+SMM-root and tier-abstraction designs.
+
+Pass 2 checked the Codex-side claims against the live docs, which moved several
+findings in BOTH directions:
+  - Event overlap is 10 of 14 (the original figure). Pass 1 briefly "corrected"
+    this to 9 by trusting this doc's own incomplete Codex event list instead of
+    the hooks reference. SessionEnd exists; gap #4 largely dissolved.
+  - Gap #11, the headline blocker, is probably not real: PreToolUse's only
+    documented exception is hosted tools such as WebSearch, and our gate rides
+    PreToolUse:Bash.
+  - Gap #18 is new and Blocker-class: untrusted plugin hooks are skipped
+    SILENTLY, so an untrusted Codex session looks enforced but is not.
+  - `--add-dir` and `sandbox_workspace_write.writable_roots` both exist, so the
+    gap #9a mitigation is real and the SMM-root decision's premise holds.
+  - Effort values are minimal|low|medium|high|xhigh — Codex has a `minimal` we
+    lack and lacks our `max`; support is per-model, not per-harness.
+
+Pass 3 completed the audit — the Skill hook surface, plan-mode/question hooks,
+skill+subagent packaging, and the Claude-side plugin reference:
+  - Gap #9c is the most consequential find of the whole session and has nothing
+    to do with Codex: CLAUDE_PLUGIN_DATA is DELETED on plugin uninstall, and the
+    entire SMM lives there today.
+  - Gap #6 is a deadlock, not a Low: QUESTION_GATE clears only via
+    AskUserQuestion, so a Codex lead raising a blocking question bricks its writes.
+  - Gaps #23/#24 are new Blocker/High: the Skill hook surface also carries the
+    teammate privilege gate and the ACCEPT_IN_FLIGHT drain.
+  - Gap #5 degrades BETTER than written — second doors already exist in code.
+  - Gap #26 was mis-attributed to Codex; Claude auto-invokes skills too.
+  - Gaps #31/#32 + the payload table: our 33 handlers read 14 distinct payload
+    fields and only 4 are documented for Codex. All four Stop gates release via
+    stop_hook_active, a Claude-specific latch — absent it, a gate can block the
+    agent from ever ending its turn.
+
+**Recurring theme worth carrying into implementation:** most findings are
+latent Claude-side weaknesses that porting merely exposed — enforcement that can
+vanish silently, a gate with exactly one escape hatch, a marker that leaks, an SMM
+in a deletable directory. Phase 1 is therefore worth shipping on its own merits
+even if Codex never lands.
+
+Codex model identifiers remain unverified by design — they are P0 deliverables,
+not assumptions. Claims sourced from third-party knowledge bases rather than
+official docs are marked unverified inline (notably the .git/.codex/.agents
+sandbox protection).
 Doc-version assumptions: latest Codex CLI as of July 2026 (hooks system live,
 `--dangerously-bypass-hook-trust` honored through `codex exec` thread start/resume
 per openai/codex#26434, plan mode default-on since v0.96, `codex plugin
@@ -28,8 +75,11 @@ From this single GitHub repo:
 Codex shipped a hooks system that is a near-clone of Claude Code's:
 
 - Same `hooks/hooks.json` file format, three-level structure, regex matchers.
-- Events: SessionStart, SubagentStart, PreToolUse, PermissionRequest,
-  PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStop, Stop.
+- Events: SessionStart, **SessionEnd**, SubagentStart, PreToolUse,
+  PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit,
+  SubagentStop, Stop. (`SessionEnd` was missing from this list in the original
+  draft and that omission propagated into a wrong gap #4 and a wrong event count
+  — corrected 2026-07-24 against the hooks reference.)
 - Same protocols we already use: exit 2 + stderr to block, `{"decision":
   "block", "reason": ...}` on Stop/SubagentStop to force continuation,
   `hookSpecificOutput.additionalContext` to inject context.
@@ -37,24 +87,55 @@ Codex shipped a hooks system that is a near-clone of Claude Code's:
   provided as documented compatibility aliases alongside `PLUGIN_ROOT` /
   `PLUGIN_DATA`. Our `hooks.json` interpolations and `smm/init.sh` may work
   verbatim.
-- Plugins: manifest at `.codex-plugin/plugin.json`, same `skills/<name>/SKILL.md`
-  frontmatter format, marketplace catalogs at `.agents/plugins/marketplace.json`,
-  GitHub-shorthand install with `@ref` pinning.
+- Plugins: manifest at `.codex-plugin/plugin.json`, `skills/<name>/SKILL.md`,
+  marketplace catalogs at `.agents/plugins/marketplace.json`, GitHub-shorthand
+  install with `@ref` pinning. ⚠️ "**same** frontmatter format" was too strong —
+  Codex supports only `name`/`description` there and puts the rest in a separate
+  `agents/openai.yaml`; all 18 of our skills carry more (gap #25).
 - Headless: `codex exec -` (stdin prompt), `--json` JSONL event stream,
   `-o/--output-last-message`, sandbox modes, `--ask-for-approval never`,
   `--dangerously-bypass-hook-trust` for unattended hook execution.
 - Custom subagents: TOML files in `.codex/agents/` (project) or
-  `~/.codex/agents/` (personal); SubagentStart/SubagentStop hooks fire for them.
+  `~/.codex/agents/` (personal). ⚠️ "SubagentStart/SubagentStop **fire for them**"
+  is an **unverified assertion** — the subagents documentation does not state it.
+  Gap #1's fallback marker path depends on it, so P0 must confirm it and record the
+  payload field that identifies which agent ran.
 
-Key refs: learn.chatgpt.com/docs/hooks, /docs/non-interactive-mode,
-/docs/build-plugins, developers.openai.com/codex/subagents.
+Key refs (all re-fetched 2026-07-24): learn.chatgpt.com/docs/hooks,
+/docs/non-interactive-mode, /docs/build-plugins, /docs/build-skills,
+/docs/config-file/config-reference,
+learn.chatgpt.com/docs/agent-configuration/subagents.
+
+**Reading note.** Claims in this section were written from a research pass and
+several proved wrong on re-verification. Treat anything here without a "verified
+<date>" marker as a hypothesis, and prefer the gap inventory below — it carries the
+verification status per item.
 
 Our own architecture cooperates: hooks-first means the enforcement layer is
 exactly the thing Codex cloned; the SMM is plain files; teammate identity is
-cwd/env-based (never platform identity); the spawn pipeline is a plain
-subprocess. An audit of `hooks/hooks.json` found **all hooks are
-`type: "command"`** (Codex parses-but-skips `prompt`/`agent` hook types — we
-don't use them) and 10 of our 14 registered events exist in Codex.
+primarily cwd/env-based rather than platform identity (with one Claude-branded
+legacy fallback — gap #16); the spawn pipeline is a plain subprocess. An audit
+of `hooks/hooks.json` found **all hooks are `type: "command"`** (Codex
+parses-but-skips `prompt`/`agent` hook types — we don't use them) and **10 of
+our 14 registered events exist in Codex** — verified against the hooks reference
+2026-07-24. The four that do not: `PostToolUseFailure`, `TaskCompleted`,
+`TeammateIdle`, `WorktreeCreate`. Codex's eleventh event, `PermissionRequest`,
+we do not register.
+
+Codex's full event set is `SessionStart`, `SessionEnd`, `SubagentStart`,
+`PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`,
+`UserPromptSubmit`, `SubagentStop`, `Stop`. **`SessionEnd` does exist** — an
+earlier draft of the event list in this doc omitted it, which made gap #4 look
+worse than it is. Only `PreToolUse` onward can block; `SessionStart`,
+`SessionEnd`, and `SubagentStart` cannot.
+
+A second audit found **two `async: true` handlers** in the whole file:
+`compact.py` on `SessionEnd` and `bash_failure.py` on `PostToolUseFailure`. Codex
+documents `async` as "parsed, but asynchronous command hooks aren't supported
+yet." Since `SessionEnd` *is* a Codex event, this matters: whether `compact.py`
+runs synchronously or is skipped outright decides if `events.jsonl` ever compacts
+on Codex. **P0 must observe which.** `bash_failure.py` is moot — its event is
+absent regardless.
 
 ## The load-bearing insight: 4-way matrix → 2 spawn targets
 
@@ -73,27 +154,325 @@ provider-neutral and does not change.
 
 Packaging synergy: the installed plugin directory ships **both** manifests, so
 a Codex lead points a Claude teammate's `--plugin-dir` at Codex's plugin cache
-copy, and a Claude lead relies on the user's one-time marketplace registration
-**and plugin installation** for Codex teammates. No second checkout.
+copy. The reverse direction is **not** symmetric — `codex exec` has no
+`--plugin-dir` (gap #21), so a Claude lead spawning Codex teammates depends on the
+user's one-time marketplace registration **and** plugin installation, with no
+ad-hoc fallback. Still no second checkout, but the Codex direction has a hard
+prerequisite the Claude direction does not.
 
 ## Gap inventory (what does NOT port as-is)
 
 | # | Gap | Severity | Resolution (phase) |
 |---|-----|----------|--------------------|
-| 1 | `PostToolUse:Skill\|Agent` → `review_cycle_done.py` sets `quality_review_done`; Codex skills are $-mention instruction loads, not tool calls — no hook fires. Commit gate + teammate stop gate hang off this marker. | **Blocker** | Make marker-setting explicit: review flow's final step runs a marker script that validates preconditions itself, and/or run reviews as Codex subagents caught by SubagentStop. (P1) |
-| 2 | `Write\|Edit\|MultiEdit` matchers — Codex edits via `apply_patch` (patch-blob `tool_input`, not `{file_path, ...}`). | High | `tool_input` normalization layer in `_common` consumed by `pre_tool_write.py` / `post_tool_use.py`; codex hooks variant matches `apply_patch`. (P1 prep, P2 wiring) |
-| 3 | `PostToolUseFailure:Bash` (test-failure signal) — event absent in Codex; its PostToolUse fires for failed commands too. | High | Fold failure detection into the PostToolUse handler, keyed on exit status in the payload. (P1) |
-| 4 | `SessionEnd` absent in Codex — teammate completion event written there today. | Medium | Move to `teammate_output_filter.py` (which already records completion externally). (P1) |
-| 5 | `PreToolUse:EnterPlanMode` / `PostToolUse:ExitPlanMode` — Codex plan mode is a collaboration mode, not a tool call. | Medium | Run planning as a subagent; keep plan review on SubagentStop (already our design). Schedule-gate-on-plan-entry either moves to UserPromptSubmit heuristics or is Claude-only. (P1/P4) |
-| 6 | `AskUserQuestion` hooks (`question_answered.py`) — Codex `request_user_input` exists only inside plan mode and is not hook-visible. | Low | Skill prose instructs the model to append clarification events directly; hook remains Claude-only. (P4) |
+| 1 | `PostToolUse:Skill\|Agent` → `review_cycle_done.py` sets `quality_review_done`; Codex skills activate by `$`-mention or implicit description match, not tool calls — no hook fires. Commit gate + teammate stop gate hang off this marker. **Audited 2026-07-24: the loss is wider than the review marker.** The `Skill`-matched hook surface carries *three* separate responsibilities — see gaps #23 and #24. **Also: a second marker path already exists** — `subagent_stop.py::_update_review_cycle_flags` sets `quality_review_done` (and `simplify_done`) from `SubagentStop`, keyed on `agent_type`/`agent_id`. Today that fires because forked review skills present as subagents on Claude. | **Blocker** | Make marker-setting explicit: add a `quality_review_done` leg to the **existing** `review_flag_cli.py`, which already has exactly this shape for `simplify_done` — its docstring currently says no leg is needed "because /xp-quality-review still launches via the Skill tool," an assumption Codex falsifies. That makes P1 item 1 a small, well-precedented change rather than new machinery. Keep `SubagentStop` as the second path — **but note the plan's claim that SubagentStart/SubagentStop fire for Codex custom subagents is NOT stated in the subagents docs. It is load-bearing for this fix and is now a P0 check.** (P1) |
+| 2 | `Write\|Edit\|MultiEdit` matchers — Codex edits via `apply_patch`. Verified 2026-07-24: tool events carry `tool_name` (canonical, e.g. `Bash`, `apply_patch`, MCP ids), `tool_input`, `tool_use_id`, and `tool_response` on PostToolUse — and **both Bash and apply_patch put their payload in `tool_input.command`**, so file paths must be parsed out of patch text rather than read from a `file_path` field. | High | `tool_input` normalization layer in `_common` consumed by `pre_tool_write.py` / `post_tool_use.py`; codex hooks variant matches `apply_patch`. The normalizer needs a patch-text path extractor, which is the one piece with no Claude-side analogue — and per the project-agnostic guardrail it must work on patch structure, not on any language's syntax. (P1 prep, P2 wiring) |
+| 3 | `PostToolUseFailure:Bash` (test-failure signal) — event absent in Codex; its PostToolUse fires for failed commands too. | High | Fold failure detection into the PostToolUse handler, keyed on exit status in the payload. Codex's PostToolUse carries `tool_response`, but the docs do not spell out where a non-zero exit status appears — P0 must record the exact field before the handler is written, since "no failure detected" would fail silently. (P1) |
+| 4 | ~~`SessionEnd` absent in Codex~~ — **mostly dissolved.** `SessionEnd` *is* a Codex event (verified 2026-07-24), so `session_end.py`'s teammate-completion event needs no relocation. What remains: `SessionEnd` also carries `compact.py` with `async: true`, and Codex parses-but-does-not-yet-support async handlers. | Low (was Medium) | Observe in P0 whether an `async` handler on a supported event runs synchronously or is skipped. If skipped, compaction on Codex falls back to its `PostCompact` trigger alone — a session that never compacts context never compacts `events.jsonl` — and P1 either drops the `async` flag (it buys little) or adds a size check at `SessionStart`. Note Codex cannot block on `SessionEnd`, so nothing gate-like may ever depend on it. |
+| 5 | `PreToolUse:EnterPlanMode` / `PostToolUse:ExitPlanMode` — Codex plan mode is a collaboration mode, not a tool call. **Audited 2026-07-24: both hooks already have second doors, so this degrades better than written.** (a) The schedule plan-mode gate's second door is `pre_tool_write.py`, which runs the same gate against writes — `pre_tool_plan_mode.py` calls itself "the gate's second door" explicitly. (b) `PLAN_AWAITING_REVIEW` is written not only by `post_tool_exit_plan.py:39` but also by `subagent_stop.py:337` — and `SubagentStop` exists on Codex. | Low-Medium (was Medium) | The planned resolution is **already implemented**, not aspirational: plan-as-subagent + `SubagentStop` genuinely sets the marker today. ⚠️ **Cross-dependency to respect:** the schedule gate's surviving door runs on write interception, so it only fires on Codex once gap #2's `apply_patch` normalization lands. Until then *both* doors are shut and the schedule gate is absent on Codex — sequence gap #2 before claiming gap #5 is handled. Also depends on the P0 check that SubagentStop fires for Codex subagents at all. (P1) |
+| 6 | `AskUserQuestion` hooks (`question_answered.py`) — Codex `request_user_input` exists only inside plan mode and is not hook-visible. **Audited 2026-07-24: this is not Low, it is a deadlock.** `QUESTION_GATE` is armed when a blocking question is appended (`smm/_append_impl.py:226`) and consumed **only** by `question_answered.py:81` on `PostToolUse:AskUserQuestion`. It is a lead gate (`lead_gates.py:200`, `plan_files_exempt=False`), and its own message states AskUserQuestion "is the ONLY way to clear this." On Codex there is no such tool, so **a Codex lead that raises a blocking question permanently blocks its own writes with no recovery path.** Teammates are exempt, so only leads brick. | **Blocker** (was Low) | Add a CLI leg that clears `QUESTION_GATE` *while recording a real answer* — the skill asks in chat (Codex's native affordance), then passes the answer text to the CLI, which appends the `answer` event and consumes the marker. Same pattern as gaps #1/#24: replace tool-call inference with an explicit, precondition-validating script. **The honesty property must survive the port**: require the answer text so the leg cannot be used to fake-clear a gate, which is exactly what the current message warns against. (P1) |
+| 6b | `ASKING_USER` (set by `question_answered.py` on the "Chat about this…" failure path) defers three stop gates — close-cycle, housekeeping, sprint — and is consumed by `user_prompt_log.py` on `UserPromptSubmit`. | Low (genuinely) | No action. The marker exists only because Claude's AskUserQuestion has a "chat instead" escape hatch that leaves a dialogue mid-flight. Codex asks in chat natively, so there is no such state to defer for, and the consumer (`UserPromptSubmit`) exists on Codex anyway. Self-consistent by omission. |
 | 7 | `TeammateIdle` / `TaskCompleted` / `WorktreeCreate` — Claude platform events. Already near-no-ops for CLI teammates (gate on `teammate_name`, an Agent-Teams-only field). | Low | Claude-only; omit from codex hooks variant. (P2) |
-| 8 | stream-json parse in `teammate_output_filter.py` (`total_cost_usd`, `num_turns`, `result`). | High | Codex JSONL parser behind same interface; cost computed from token counts. (P3) |
-| 9 | SMM lives outside the worktree (`CLAUDE_PLUGIN_DATA`, user-level) — Codex `workspace-write` sandbox blocks the teammate's own `append.sh` shell calls. | High | First test `--sandbox workspace-write --add-dir "$SMM_DIR" --add-dir /tmp/xp-agents-teammates/`; use `danger-full-access` only if that fails. Decide in P0. (P3) |
-| 10 | Hook trust: non-managed Codex hooks need one interactive trust review per content hash; re-review after every plugin update. | Medium | Headless teammates: `--dangerously-bypass-hook-trust`. Interactive leads: documented `/hooks` trust step in install docs. (P2/P5) |
-| 11 | Codex docs note PreToolUse "doesn't yet intercept all shell calls" — a commit gate with a bypass hole is not a gate. | **Blocker if real** | Empirical test matrix in P0: every way Codex can shell out must hit the gate, or Codex teammates wait. (P0) |
-| 12 | Model/effort tiers (`--model sonnet/opus`, `--effort`) are Claude names. | Medium | Provider-aware tier map (sprint tier → `-m gpt-5.x-…` + `-c model_reasoning_effort=…`). (P3) |
+| 8 | stream-json parse in `teammate_output_filter.py` (`total_cost_usd`, `num_turns`, `result`). Audited: only ~6 coupling points, so the interface is genuinely small. | High | Codex JSONL parser behind same interface. Verified `--json` event spec 2026-07-24: `thread.started`, `turn.started`, `turn.completed`, `item.started`, `item.completed`, `item.failed`, `error`. The final message is the last `item.completed` of type `agent_message` (or just use `-o <path>`). `turn.completed.usage` carries `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens` — **no cost field**, so `total_cost_usd` has no direct analogue and cost must be derived or reported as tokens (see open question #4). `num_turns` maps to counting `turn.completed` events. (P3) |
+| 9a | **Sandbox reach.** SMM lives outside the worktree (user-level) — Codex `workspace-write` sandbox may block the teammate's own `append.sh` shell calls. | High | First test `--sandbox workspace-write --add-dir "$SMM_DIR" --add-dir "$WORKTREE_BASE"`; use `danger-full-access` only if that fails. Decide in P0. (P3) |
+| 9b | **Path divergence (worse than 9a, and silent).** `smm/init.sh` derives `BASE_DIR` from `CLAUDE_PLUGIN_DATA` with a hardcoded `$HOME/.claude/...` fallback. `PROJECT_ID` (hash of the absolute git-common-dir) is harness-neutral, but the *root* is not. So a Claude lead and a Codex lead on the same repo resolve **two different SMMs with no error** — which defeats the broadcast-log premise. Codex's native `PLUGIN_DATA` is never consulted; and if Codex drops the `CLAUDE_PLUGIN_DATA` compat alias, a Codex-only user silently gets a `~/.claude` tree. | **High** | Resolution order becomes `XP_AGENTS_DATA` → `PLUGIN_DATA` → `CLAUDE_PLUGIN_DATA` → neutral `$HOME/.xp-agents/data` default, plus a read-side migration/symlink for existing SMMs. Decided; see "SMM root" below. Spawned teammates are already safe (the lead exports `SMM_DIR` and `init.sh` honors it verbatim) — this bites *independent leads* and fresh Codex sessions. (P1) |
+| 9c | **`CLAUDE_PLUGIN_DATA` IS DELETED ON UNINSTALL — the SMM lives there.** The Claude plugins reference: the data directory "is deleted automatically when you uninstall the plugin from the last scope where it is installed… The CLI deletes by default; pass `--keep-data` to preserve it." `${CLAUDE_PLUGIN_DATA}` resolves to `~/.claude/plugins/data/{id}/`, which is exactly where `init.sh` puts `events.jsonl`, `sprint.json`, `execution_plan.json`, `system_context.json`, `session_history.json`, and every retrospective. It survives *updates* ("outlives any single plugin version") but not uninstall. | **High — and live on Claude today, with no Codex involved** | This converts the gap #9b decision from "harness hygiene" into **data-loss prevention**: moving the SMM to `XP_AGENTS_DATA` / `~/.xp-agents` takes the project's entire memory out of a directory managed by plugin lifecycle operations. Ship the P1 SMM-root change with a migration that *copies* rather than moves, and document `--keep-data` for anyone on the old layout. Worth its own release note — a user who uninstalls to reinstall a newer version currently loses all XP history silently. (P1, urgent) |
+| 10 | Hook trust: non-managed Codex hooks need one interactive trust review per content hash; re-review after every plugin update. | Medium — but see gap #18, which reframes the *consequence* of untrusted hooks from friction to silent non-enforcement. | Headless teammates: `--dangerously-bypass-hook-trust`. Interactive leads: documented `/hooks` trust step in install docs. **Better option the earlier draft missed:** hooks delivered via `requirements.toml` are "marked as managed, trusted by policy, and can't be disabled" — the right answer for org/CI deployments, and it removes the re-review-per-update tax entirely. Worth evaluating in P2 rather than treating bypass flags as the only path. (P2/P5) |
+| 11 | PreToolUse shell coverage — a commit gate with a bypass hole is not a gate. | **Downgraded from "Blocker if real" to High-verify.** | The current hooks reference says PreToolUse intercepts `Bash`, `apply_patch`, MCP tools, and most local function tools, and names one documented exception: **hosted tools such as `WebSearch`**, which don't use the local hook path. Our commit gate rides `PreToolUse:Bash`, which is squarely in the intercepted set, and no hosted tool can run `git commit`. So the feared hole appears not to exist as described. Still confirm empirically in P0 — enumerate every shell path — but this is no longer a plausible no-go. |
+| 12 | **Tier vocabulary is Claude model names, and it is load-bearing.** `smm/tier_wire.py` single-sources `TEAMMATE_MODELS = {haiku, sonnet, opus, fable}`, which fans out to 4 shipped code importers (`markers.py`, `retrospective.py`, `spawn_command.py`, `smm/sprint_schema.py`), 4 prose files (`agents/xp-plan-reviewer.md`; `xp-assign` / `xp-kickoff` / `xp-schedule` SKILL.md), and 5 binding tests that pin the prose to the constants. Because `sprint_schema.py` is a consumer, **persisted** `sprint.json` / `execution_plan.json` carry these strings. `TEAMMATE_EFFORTS` (`low…max`) is likewise described in-file as a Claude knob; Codex's `model_reasoning_effort` has no `xhigh`/`max`, so `effort_supported()` needs harness awareness too. | **High** (was Medium — this is a vocabulary refactor across a prose-pin test surface, not a flag mapping) | Abstract tiers + per-harness lookup table. Decided; see "Tier abstraction" below. (P1 for the refactor, P3 to fill the codex row) |
 | 13 | Lead orchestration: Claude's `run_in_background` Bash + task-notification tells the lead a teammate finished; Codex has no re-invoking notification. | Medium | Codex lead polls: completion sentinel + SMM event already written by the filter; `/xp-assign` prose gains a poll/check loop for Codex leads. (P4) |
-| 14 | `agents/*.md` (xp-code-reviewer etc.) are Claude subagent definitions; Codex custom agents are TOML and `plugin.json` has no `agents` field. | Medium | Translate to TOML; deliver via setup script/skill into `.codex/agents/` (project) since plugins can't bundle them. (P4) |
+| 14 | `agents/*.md` (xp-code-reviewer etc.) are Claude subagent definitions; Codex custom agents are TOML and `plugin.json` has no `agents` field. The frontmatter leaks Claude vocabulary **twice**, not once: all 7 agents pin `model: opus\|sonnet`, *and* `tools:` names Claude tools (`Read, Edit, Grep, Glob, Bash, Write`) where Codex edits via `apply_patch`. The same tool-name leak is hardcoded at `spawn_command.py:19` — `_ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"`, passed to `--allowedTools`, which has no Codex equivalent. | Medium | Translate to TOML; deliver via setup script/skill into `.codex/agents/` (project) since plugins can't bundle them. `model:` resolves through the gap-#12 tier table rather than naming a model. `tools:` and `_ALLOWED_TOOLS` need a per-harness tool-vocabulary map. Verified 2026-07-24: `codex exec` has **no CLI tool-restriction flag**; the nearest analogues are config-level (`features.shell_tool`, `apps.<id>.enabled_tools`/`disabled_tools`, `mcp_servers.<id>.enabled_tools`), and they use Codex's tool namespace, not Claude's. So `_ALLOWED_TOOLS` is simply omitted for Codex and the restriction comes from `--sandbox` plus `--ask-for-approval` (`untrusted`/`on-request`/`never`, or a granular object). Also unconfirmed-but-promising: marketplace-entry fallback manifests reportedly carry an `agents` field, which if real would let plugins ship subagents after all — check in P0, because it would simplify this gap considerably. (P4; `_ALLOWED_TOOLS` in P3 with the spawn seam) |
+| 15 | `session_start.py:245` reads `.claude-plugin/plugin.json` to report the plugin version. | Low | Works as long as Phase 2 ships both manifests, but nothing in Phase 2 names this consumer. Make the read try `.codex-plugin/plugin.json` as a fallback, or resolve the manifest name per harness. (P2) |
+| 16 | `identity.py:20` `WORKTREE_PATH_FRAGMENT = ".claude/worktrees/"` — the legacy in-repo worktree fallback (`worktree.py:95`, fires only when the out-of-repo base is unresolvable) is Claude-branded. | Low | Rename to a harness-neutral fragment with back-compat detection of the old one, so existing worktrees keep being recognized. Note this is why the feasibility claim above says teammate identity is *primarily* cwd-based: the primary `worktree-story-` fragment is neutral, the legacy parent is not. (P1) |
+| 17 | **The SMM root also locates teammate worktrees.** `worktree.py:82` places them at `{base}/{project-id}/worktrees/{name}` — a deliberate sibling of the SMM dir, because out-of-repo placement stops a Node module walk-up from reaching the primary checkout's `node_modules` (the dependency-resolution leak story-024 fixed). | Medium | Any change to the SMM root moves teammate worktrees with it. This is the reason git-anchoring the SMM was rejected (see "SMM root" below) — it would drag worktrees back next to the repo and reintroduce the leak. Any future re-litigation of SMM placement must decouple the worktree base first. (constraint on P1) |
+| 18 | **Untrusted plugin hooks are SILENTLY SKIPPED, not errored.** Codex "skips plugin-bundled hooks until you review and trust the current hook definition." An interactive Codex lead that has not granted trust therefore runs with **every XP gate silently absent** — TDD gate, commit gate, stop gates, schedule gate — and nothing says so. | **Blocker** (new; supersedes gap #10's framing of trust as a UX tax) | Enforcement must fail loud. Add a positive liveness check: `SessionStart` writes a heartbeat marker, and the interactive skills refuse to proceed when it is missing/stale, reporting the `/hooks` trust step. This is worth doing on Claude too — it converts "hooks silently not loaded" from an invisible failure into a visible one on both harnesses. (P1 for the mechanism, P2 for the Codex trust docs) |
+| 19 | **Plugin-bundled hooks are version-gated.** The capability was added late (openai/codex issue #16430 — "docs imply plugin-local hooks, but runtime only executes global hooks.json" — fixed by PR #19705) and is referenced behind a `plugin_hooks` enablement. | **High** | The minimum-version pin is load-bearing for *enforcement*, not hygiene: an older Codex runs our plugin's skills while ignoring its hooks, which is precisely the unenforced-teammate failure mode. Pin a minimum version, verify at spawn (P5 item 2 moves earlier), and pair with the gap #18 liveness check. **Do not treat the version pin as a substitute for #18** — see "Why the version pin is not enough" below. (P0 to establish the floor, P3 to enforce at spawn) |
+| 20 | **Codex auto-discovers `./hooks/hooks.json` when the manifest omits a `hooks` field.** Our `hooks/hooks.json` is the *Claude* variant. | **High** | The `.codex-plugin/plugin.json` manifest MUST set `hooks` explicitly to `./hooks/hooks.codex.json`; omitting it makes Codex load the Claude file with its Claude-only event registrations. Manifest hook paths resolve relative to the plugin root and must stay inside it. P0 must also record what Codex does with unknown event names — ignore or error. (P2, tested in P0) |
+| 21 | **`codex exec` has no `--plugin-dir` equivalent.** No CLI flag or config setting loads a plugin ad hoc; config exposes only `plugins.<plugin>.mcp_servers` overrides. | Medium | Asymmetry with Claude, where `--plugin-dir` is how a headless teammate gets the plugin at all. A Codex teammate therefore **requires** the plugin to be installed for the user — the Phase 3 preflight is a hard fail with no fallback, not a warning. This also removes the "no second checkout" convenience in the packaging-synergy note below for the Codex direction. (P3) |
+
+Second audit pass (2026-07-24) — the `Skill` hook surface and the skill/subagent
+packaging formats:
+
+| # | Gap | Severity | Resolution (phase) |
+|---|-----|----------|--------------------|
+| 23 | **The teammate privilege gate disappears.** `pre_tool_skill.py` (`PreToolUse:Skill`) blocks CLI teammates from lead-owned lifecycle skills — plan, schedule, accept, close — because "teammates implement one story and report; the lead coordinates the project." On Codex, skill activation is not a tool call, so this **authority boundary cannot fire at all**: a Codex teammate could run `/xp-sprint-close`. Nothing in the earlier plan mentions this. | **Blocker** | `PermissionRequest` is the only Codex hook positioned to intercept skill activation (`approval_policy.granular.skill_approval` gates "skill-script approval prompts", and PermissionRequest runs "when Codex is about to ask for approval" and may deny). **But the catch is fatal for teammates:** headless teammates run `--ask-for-approval never`, so no approval is requested and the hook never fires. So the gate must move into the skills themselves — a teammate check at the top of each lead-owned skill's preload, which is harness-independent and works even with no hook. Do this in P1; it also hardens Claude against a teammate that bypasses the Skill tool. |
+| 24 | **`ACCEPT_IN_FLIGHT` never drains.** `accept_terminal.py` (also `PostToolUse:Skill\|Agent`) consumes the marker when `/xp-accept` dispatches to `/xp-schedule` or `/xp-sprint-review`. `sprint_stop_gate.py:67` suppresses the sprint stop gate while it is armed, so on Codex the marker leaks and the stop gate stays suppressed for the rest of the session. | High | Same fix shape as #1 — drain from the skill itself (a CLI leg) rather than inferring completion from a tool call. The marker CLI allowlist already includes `ACCEPT_IN_FLIGHT` (`markers.py:397`), so the arm/consume plumbing exists; only the trigger point moves. (P1) |
+| 25 | **SKILL.md frontmatter is Claude-shaped.** All 18 shipped skills use `allowed-tools` (18), plus `effort` (6), `context` (3), `agent` (3). Codex's SKILL.md supports only `name` and `description`; optional metadata lives in a **separate `agents/openai.yaml`** (`interface`, `policy`, `dependencies.tools`). `allowed-tools` is a third site of the Claude tool-vocabulary leak, after `agents/*.md` `tools:` and `spawn_command._ALLOWED_TOOLS`. | Medium | Confirm whether Codex ignores unknown frontmatter keys or rejects the skill (P0 — rejection would make this a blocker). Generate `agents/openai.yaml` alongside, the same way Phase 2 generates the hooks variant, so one source emits both. (P2) |
+| 26 | **Implicit skill invocation on description match.** Codex activates skills either by `$`-mention or implicitly when a task matches the skill's `description`. Our skills are lifecycle-ordered and gate-protected, so implicit activation could fire `/xp-story-close` or `/xp-accept` out of sequence. **Correction (2026-07-24): this is NOT Codex-specific.** The Claude plugins reference says skills "are automatically discovered when the plugin is installed" and "Claude can invoke them automatically based on task context" — so we are already exposed on Claude, and Codex is the harness that actually offers a *control*. | **High** (existing latent risk, not a new one) | Set `policy.allow_implicit_invocation: false` in the generated `agents/openai.yaml` for every lifecycle skill, and investigate whether Claude has an equivalent (if not, tighten the `description` fields so they read as "invoke me explicitly" rather than as task-matching bait). Our carefully-written descriptions are an *attack surface* here, not an aid. (P2, plus a Claude-side investigation) |
+| 27 | **Codex's effort vocabulary differs *between its own surfaces*.** CLI/config `model_reasoning_effort` accepts `minimal, low, medium, high, xhigh`; **subagent TOML** documents `ultra, max, xhigh, high, medium, low` — it has `ultra`/`max` and lacks `minimal`. | Medium | The `HARNESSES` table needs a per-**surface** effort map (CLI-spawn vs subagent-definition), not one per harness. Keep the union axis (`minimal…max`, plus a decision on `ultra`) and declare support per surface. Verify both sets in P0 — they may simply be documentation drift. |
+| 28 | **`skill_approval: false` auto-rejects skills silently.** Reported behavior: "when false, Codex auto-rejects that category silently." | Medium | Another silent-failure mode in the gap #18 family: a Codex session with `skill_approval` disabled cannot run our skills and says nothing. The liveness heartbeat does not cover this (hooks are fine; *skills* are blocked), so the install docs must call it out, and P0 should confirm the behavior. |
+
+Audited clean (2026-07-24), recorded so nobody re-audits them: the skill
+`preload.sh` scripts already self-resolve `PLUGIN_ROOT` from `BASH_SOURCE` rather
+than the env var — P1 item 5's concern is **already satisfied** for that whole
+surface. `lefthook.yml` and the CI workflows contain no harness assumptions.
+`teammate_output_filter.py`'s stream coupling is only ~6 points, confirming gap
+#8's "behind the same interface" premise.
+
+Two residual prose/path leaks found in that sweep, both small:
+
+| # | Gap | Severity | Resolution (phase) |
+|---|-----|----------|--------------------|
+| 29a | `skills/_preload_base.sh:267` tells the user to "look in CLAUDE.md" for the test command — harness-specific advice in shipped prose (Codex reads AGENTS.md). | Low | Name both files, or say "the project's agent instructions". Folds into Phase 2 item 5's prose audit. (P2) |
+| 29b | `skills/xp-review-plan/scripts/preload.sh:35` points the user at `~/.claude/plans/` on a bad plan marker. The *path resolution* is already clean (marker file → `.last-plan-path`), so this is only the error message — but it is the visible tip of gap #5: Codex plan mode is a collaboration mode and may not produce a plan file at all. | Low (message) / see #5 (mechanism) | Make the message harness-neutral and driven by the recorded marker path. (P1 with the gap #5 verification) |
+
+Third audit pass (2026-07-24) — the Stop-gate release valve and subagent routing:
+
+| # | Gap | Severity | Resolution (phase) |
+|---|-----|----------|--------------------|
+| 31 | **All four Stop gates release via `stop_hook_active`, a Claude-specific latch.** `tdd_stop_gate.py`, `sprint_stop_gate.py`, `housekeeping_stop_gate.py`, and `close_cycle_stop_gate.py` all branch on `input_data.get("stop_hook_active")`. Claude latches it `True` session-wide once any Stop hook returns a `reason`; our gates use that as the escape so an agent can eventually terminate (age-gated abandonment handling). If Codex omits the field it reads falsy **forever**, the bypass never fires, and a gate can block the agent from ever ending its turn. | **Blocker** | This is the mirror image of gap #18: that one is "gates silently absent," this is "gates that can never release" — and an unbounded stop loop burns tokens indefinitely, which is the worse failure. P0 must determine Codex's loop-protection mechanism and its field name (Codex documents Stop as blockable, so *some* protection must exist). If there is no equivalent, the gates need their own turn-counter or timestamp-based release that does not depend on a platform latch — which is also a Claude-side robustness win, since today the design leans on a subtle documented latching behavior. Note `close_cycle_stop_gate` is partly protected by the SessionStart sweep backstop; the other three are not. (P0 to identify, P1 to decouple) |
+| 32 | **Subagent routing depends on two undocumented fields.** `agent_type` (10 uses) and `agent_id` (7) drive: review-cycle flags (`subagent_stop.py`), the `PLAN_AWAITING_REVIEW` write, housekeeping completion, and the `SubagentStart` `_TIERS` injection registry. That registry also keys on **Claude built-in agent type names** — `Explore`, `workflow-subagent`, `general-purpose`, `claude` — which do not exist on Codex. | **High** | Unknown types fall through to the full-SMM tier, so type-name misses degrade toward *more* injection rather than none — good design, and it caps the severity. The hard dependency is different: `xp-retrospective` receives `RETRO_INPUT` and `xp-housekeeper` receives `CURATION_INPUT` **only** through this injection (their own agent definitions say so). If `SubagentStart` does not fire on Codex, or names the agent differently, those two agents get no inputs. This raises the existing "does SubagentStart/Stop fire" P0 question from "gap #1's fallback" to "input delivery for four agents." Name the Codex TOML agents identically to the Claude ones so the `xp-` matching keeps working. (P0 to verify, P4 to wire) |
+
+### Hook payload compatibility surface
+
+Enumerating every field our hooks actually read gives P0 an exact checklist
+instead of "verify the payloads." **Our 33 handlers consume 14 distinct fields;
+only 4 are documented for Codex.**
+
+| Field | Uses | Codex status | What breaks if absent |
+|---|---|---|---|
+| `cwd` | 18 | ✅ documented | Everything — teammate detection, agent-id resolution, SMM routing |
+| `tool_input` | 12 | ✅ documented | Write/commit gates (shape differs — gap #2) |
+| `agent_type` | 10 | ❓ **undocumented** | All subagent routing (gap #32) |
+| `agent_id` | 7 | ❓ **undocumented** | Per-agent review flags, marker scoping |
+| `stop_hook_active` | 4 | ❓ **no known analogue** | Stop gates never release (gap #31) |
+| `tool_name` | 3 | ✅ documented | Matcher-adjacent dispatch |
+| `source` | 3 | ❓ undocumented | SessionStart branching (fresh vs resume vs compact) — drives kickoff marker arming and the stale-marker sweep |
+| `tool_response` | 2 | ✅ documented (PostToolUse) | Failure detection (gap #3) |
+| `prompt` | 2 | ❓ undocumented | UserPromptSubmit logging + nugget injection |
+| `error` | 2 | ❓ | Failure paths — event absent on Codex anyway |
+| `reason` | 1 | ❓ | — |
+| `name` | 1 | ❓ | — |
+| `is_interrupt` | 1 | ❓ | — |
+| `exit_code` | 1 | ❓ | Bash failure — event absent on Codex anyway |
+
+The three that matter are `agent_type`/`agent_id`, `stop_hook_active`, and
+`source`: between them they carry all subagent routing, every Stop gate's release,
+and SessionStart's fresh-vs-resume branch. P0 should dump a raw payload for each
+of SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart,
+SubagentStop, and Stop, and record the field names verbatim.
+
+## Design decisions
+
+Settled in the 2026-07-24 design session. Both are recorded as SMM decision
+events; these are the rationale, not a re-litigation.
+
+### SMM root (gap #9b)
+
+Resolution order in `smm/init.sh`:
+
+```bash
+BASE_DIR="${XP_AGENTS_DATA:-${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-$HOME/.xp-agents/data}}}"
+SMM_DIR="${BASE_DIR}/${PROJECT_ID}/smm"
+```
+
+A dedicated `XP_AGENTS_DATA` wins, then the harness-native var, then the Claude
+compat alias, then a harness-neutral default. `PROJECT_ID` (hash of the absolute
+git-common-dir) is unchanged — it is already harness-neutral and is what makes
+every worktree share one SMM.
+
+**Rejected: anchoring the SMM to the git common dir** (`$GIT_COMMON_DIR/xp-agents/smm`).
+Tempting — identical across harnesses by construction, no env var, and seemingly
+inside the writable workspace so gap #9a evaporates. Rejected for three reasons,
+in increasing order of severity:
+
+1. It reverses the user-level SMM decision.
+2. Per gap #17 it drags teammate worktrees back next to the repo, reintroducing
+   story-024's `node_modules` walk-up leak.
+3. **It probably does not even work on Codex.** Secondary sources report that
+   Codex's sandbox keeps control directories — `.git`, `.codex`, `.agents` —
+   read-only *even when their parent root is writable*. If true, an SMM inside
+   `.git` could never be appended to by a sandboxed teammate, which is the exact
+   opposite of the intended benefit. **Unverified** — the official config
+   reference does not document protected-path behavior, so treat this as a strong
+   caution rather than an established fact, and settle it in P0 if anyone ever
+   wants to revisit.
+
+Revisit only after decoupling the worktree base from the SMM base *and*
+confirming point 3.
+
+The chosen approach's sandbox story is sound: `codex exec` supports `--add-dir`
+(repeatable) and `config.toml` supports `sandbox_workspace_write.writable_roots`,
+so a user-level SMM can be granted write access under `workspace-write` without
+resorting to `danger-full-access`. Two adjacent settings to watch:
+`exclude_slash_tmp` and `exclude_tmpdir_env_var` can withdraw `/tmp`, which
+matters if any teammate log or lock path lands there.
+
+Existing SMMs need a migrate-or-symlink step; nothing is silently abandoned.
+
+### Hook liveness, and why the version pin is not enough (gaps #18, #19)
+
+The obvious objection to the liveness heartbeat is "if we require a new enough
+Codex, doesn't that cover it?" It does not, for three reasons.
+
+**1. Trust-skip is the newest version's designed behavior, not a bug.** Codex
+"skips plugin-bundled hooks until you review and trust the current hook
+definition," keyed on the definition's **content hash** — so it re-arms after every
+plugin update. Upgrading makes gap #18 more reliably present, not less. A version
+floor fixes gap #19's cause and nothing about #18's.
+
+**2. A version check has nowhere to run for an interactive lead.** For a spawned
+teammate a preflight is natural — the lead shells out, so it can check
+`codex --version` and pass `--dangerously-bypass-hook-trust`. There, version pin
+plus bypass really does cover both gaps. But an interactive lead has no spawner:
+the user starts a session directly, and the only place a version check could live
+is inside a hook. That is circular — if hooks are not running, neither is the check
+that would say so. The heartbeat inverts the dependency: skills load as instruction
+loads, independent of the hook runtime, and the marker can only have been written
+*by* a hook. A skill observing "no fresh marker" is the one check that still
+executes when the thing being tested is broken.
+
+**3. The heartbeat is cause-agnostic; the version pin tests a proxy.** A floor
+catches one cause. The heartbeat tests the property we actually care about — are
+the gates live? — and therefore also catches: plugin not installed or not enabled,
+a wrong manifest `hooks` path (gap #20), the `plugin_hooks` enablement off, a hooks
+file rejected for unknown event names (open question #8), hooks disabled by the
+user, and plain plugin-load failure **on Claude**. None of those are version
+problems. In XP terms the pin asserts "this should work"; the heartbeat observes
+"this does work."
+
+**Keep both, but the heartbeat is the safety net** — the version pin is cheap
+insurance at a seam where a preflight already exists. If one had to go, it is the
+pin: the heartbeat catches an old Codex ignoring hooks as a side effect, while the
+pin catches none of the other causes and cannot run interactively.
+
+Implementation is small: `SessionStart` already writes markers via
+`markers.marker_write`, and `_preload_base.sh` is sourced by 16 preload scripts, so
+one check in one file covers every skill that has a preload.
+
+Two wrinkles to settle rather than discover:
+
+- **Staleness is the real design problem.** If hooks never run this session, a
+  heartbeat from a previous *working* session is still on disk. Session-id keying
+  does not help because a preload may not know the current session id. Refresh the
+  heartbeat from `UserPromptSubmit` as well (it already has three handlers
+  registered and fires every prompt), so a dead hook runtime goes stale within one
+  turn. It is still time-based, so pick the threshold deliberately.
+- **Teammate SessionStart writes no markers today** (`session_start.py:117` —
+  "Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers."). Decide
+  whether teammates get their own heartbeat write or an explicit exemption that
+  leans on the spawner's bypass flag.
+
+### Tier abstraction (gaps #12, #14)
+
+**Two independent axes**, model tier × effort tier, resolved through a
+per-harness table. Fusing them into a single "intensity" tier was considered and
+rejected: it would delete already-wired, already-tested `--model`/`--effort`
+plumbing and lose a real point in the space (a cheap model thinking hard is not
+the same trade as a strong model thinking briefly).
+
+**Model tiers are `economy` / `standard` / `advanced` / `frontier`**, chosen to be
+**deliberately disjoint** from effort's `low` / `medium` / `high` / `xhigh` / `max`.
+This is not cosmetic: the same token appears in CLI args, the plan-reviewer's
+recommendation metadata, `tier-recommendation-*` decision topics, the kickoff
+menu, and persisted `executor_model` fields. A shared adjective like `medium`
+meaning two different things across those surfaces is a bug factory.
+
+Abstract effort tiers must be the **union** across harnesses, not Claude's set.
+Verified 2026-07-24: Claude offers `low, medium, high, xhigh, max`; Codex's
+`model_reasoning_effort` accepts `minimal, low, medium, high, xhigh` (aliases
+`extra_high`/`extra-high` normalize to `xhigh`). So Codex has a `minimal` we lack
+and lacks our `max`. The abstract axis is therefore
+`minimal, low, medium, high, xhigh, max`, with per-harness support declared.
+
+Effort support is **per model, not per harness** — Codex documents `xhigh` as
+"model-dependent" (e.g. a mini-tier model tops out at `high`), exactly as `haiku`
+rejects effort on Claude today. So the existing `EFFORT_SUPPORT: dict[model,
+frozenset[effort]]` shape is the right one and must be kept; a flat
+per-harness deny-list would be a regression.
+
+```python
+HARNESSES = {
+  "claude": {
+    "binary": "claude",
+    "models": {"economy": "haiku", "standard": "sonnet",
+               "advanced": "opus", "frontier": "fable"},
+    # abstract effort tier -> harness spelling; None = no equivalent
+    "efforts": {"minimal": None, "low": "low", "medium": "medium",
+                "high": "high", "xhigh": "xhigh", "max": "max"},
+    # abstract model tier -> abstract effort tiers that model accepts
+    "effort_support": {"economy": frozenset(),          # haiku rejects effort
+                       "standard": ..., "advanced": ..., "frontier": ...},
+    "model_flag":  ["--model", "{model}"],
+    "effort_flag": ["--effort", "{effort}"],
+  },
+  "codex": {
+    "binary": "codex",
+    "models": {...},                     # PLACEHOLDER — P0 deliverable
+    "efforts": {"minimal": "minimal", "low": "low", "medium": "medium",
+                "high": "high", "xhigh": "xhigh", "max": None},
+    "effort_support": {...},             # PLACEHOLDER — per-model, P0
+    "model_flag":  ["-m", "{model}"],
+    "effort_flag": ["-c", "model_reasoning_effort={effort}"],
+  },
+}
+```
+
+A `None` effort entry means "this harness has no equivalent". Adding harness #3
+is then a data change, not a code change.
+
+Codex also accepts a `-e <effort>` shorthand and reads `model` /
+`model_reasoning_effort` from `~/.codex/config.toml`. We should pass explicit
+`-c` overrides rather than relying on user config, so a teammate's tier is not
+silently overridden by the operator's global defaults.
+
+**Per-surface effort sets (gap #27).** Codex's two surfaces disagree with each
+other, so `HARNESSES` needs a surface dimension, not just a harness one:
+
+| Surface | Documented effort values |
+|---|---|
+| Claude CLI (`--effort`) | `low, medium, high, xhigh, max` |
+| Codex CLI (`-c model_reasoning_effort`) | `minimal, low, medium, high, xhigh` |
+| Codex subagent TOML (`model_reasoning_effort`) | `ultra, max, xhigh, high, medium, low` |
+
+The union is `minimal, low, medium, high, xhigh, max, ultra`. Before adopting
+`ultra` into the abstract axis, P0 should check whether the subagent list is real
+or documentation drift — inventing an abstract tier that only one surface of one
+harness supports is worse than omitting it.
+
+**Codex subagent TOML shape** (verified 2026-07-24). Required: `name`,
+`description`, `developer_instructions`. Optional: `model`,
+`model_reasoning_effort`, `sandbox_mode`, `mcp_servers`, `skills.config`;
+these override parent-session settings, resolving explicit spawn value →
+`[agents]` defaults → parent session value. **There is no `tools` field** — so
+`agents/*.md`'s `tools:` list has no Codex analogue at all, and `sandbox_mode` is
+the only restriction lever. That settles the gap #14 question: don't try to
+translate `tools:`; map the *intent* (read-only reviewer vs read-write fixer) onto
+`sandbox_mode`.
+
+Documented subagent model options as of 2026-07-24 are `gpt-5.6`, `gpt-5.4`,
+`gpt-5.6-terra`, `gpt-5.3-codex-spark`. Recorded as a **starting point for the P0
+mapping, not as the mapping** — these churn fast, the CLI's accepted model set may
+differ from the subagent set, and a stale id in shipped code fails at spawn time.
+
+**The load-bearing benefit is maintenance, not cosmetics.** Today the tokens *are*
+Claude model names, so adding a harness forces churn in 4 prose files and 5
+binding tests. Once prose names only abstract tiers, the prose-pin surface stops
+growing when a harness is added — which is what makes "more CLI harnesses later"
+cheap.
+
+**Unsupported pairs are dropped, never clamped.** A requested effort tier the
+harness cannot honor is omitted with a stderr note, falling back to the model
+default. This is already `spawn_command.build_command`'s tested contract; clamping
+(`max` → `high`) would silently substitute an intent the caller did not express
+and would make the same tier mean different things on different harnesses.
+
+**Tier is a property of the work; provider is a property of the operator's
+environment.** The plan-reviewer therefore recommends a *tier* and must never
+recommend a provider; provider comes from session config or a per-story override.
+Useful consequence: existing `metadata.recommended_model` events stay semantically
+valid, so they can be aliased rather than migrated.
+
+**Migration is read-side aliasing**, not a data rewrite: accept
+`haiku→economy`, `sonnet→standard`, `opus→advanced`, `fable→frontier` on load.
+That covers persisted `executor_model` values in `sprint.json` /
+`execution_plan.json` and old `tier-recommendation-*` events alike. Eventually
+`recommended_model` wants renaming to `recommended_tier`; that is an event-wire
+change and can lag behind the constant rename.
+
+**Not yet known: Codex's actual model identifiers and its exact effort value
+set.** The provenance header already says re-verify before executing any phase,
+and these must not be guessed into constants. The `codex` row of the table ships
+as a P0 deliverable.
 
 ## Phases
 
@@ -136,11 +515,90 @@ Pass/fail checklist — ALL must pass to proceed:
       `--add-dir` for the SMM/log roots; use `danger-full-access` only if that
       scoped configuration fails.
 - [ ] Record hook stdin payload shapes (`tool_name`, `tool_input`, exit status
-      fields) for Bash and apply_patch — feeds the P1 normalization layer.
+      fields) for Bash and apply_patch — feeds the P1 normalization layer. Docs
+      say both use `tool_input.command`; capture a real apply_patch payload so the
+      patch-text path extractor is written against fact, not inference.
+- [ ] **Hook liveness is observable (gap #18).** Confirm that untrusted
+      plugin hooks are skipped *silently*, then confirm the SessionStart heartbeat
+      marker distinguishes "hooks live" from "hooks absent". This is the check that
+      keeps an unenforced session from looking like an enforced one.
+- [ ] **Establish the minimum Codex version (gap #19)** at which plugin-bundled
+      hooks actually execute, and whether any `plugin_hooks` enablement is needed.
+      Record the version in the findings doc; it becomes the spawn-time floor.
+- [ ] **Manifest `hooks` field behavior (gap #20).** Confirm an explicit
+      `"hooks": "./hooks/hooks.codex.json"` is honored, and record what Codex does
+      when a hooks file registers events it does not know (`PostToolUseFailure`,
+      `TeammateIdle`, `TaskCompleted`, `WorktreeCreate`) — ignore or error. If it
+      errors, the generated Codex variant must omit them, not merely map them.
+- [ ] **`async` handler behavior on a supported event (gap #4).** Register
+      `compact.py` with `async: true` on `SessionEnd` and observe: runs
+      synchronously, or skipped?
+- [ ] **Codex model + effort table (gap #12).** Record the concrete model ids for
+      each abstract tier and the per-model effort support, including which models
+      accept `xhigh`. Fills `HARNESSES["codex"]`.
+- [ ] **Does any manifest/marketplace field ship subagents (gap #14)?** Secondary
+      sources mention an `agents` field in marketplace fallback manifests. If real,
+      Phase 4 gets simpler; if not, confirm the `.codex/agents/` setup-script path.
+- [ ] **Do SubagentStart/SubagentStop actually fire for Codex custom subagents,
+      and with what identifying payload?** This doc asserted they do; the subagents
+      documentation does not say so. Gap #1's second marker path depends on it, and
+      `subagent_stop.py` keys on `agent_type`/`agent_id` — so record the exact field
+      that names the agent, or the routing cannot work.
+- [ ] **Does Codex reject or ignore unknown SKILL.md frontmatter keys** (gap #25 —
+      `allowed-tools`, `effort`, `context`, `agent`)? Rejection makes this a blocker
+      and forces generated per-harness SKILL.md files.
+- [ ] **Confirm implicit skill invocation can be disabled** per skill via
+      `policy.allow_implicit_invocation: false` in `agents/openai.yaml` (gap #26),
+      and that a `$`-mention still works when it is off.
+- [ ] **Confirm `skill_approval: false` silently auto-rejects** (gap #28) and decide
+      whether install docs must require it enabled.
+- [ ] **Reconcile the two Codex effort value sets** (gap #27): CLI
+      `minimal…xhigh` vs subagent TOML `low…ultra`. Which is authoritative per
+      surface, and is `ultra` real?
+- [ ] **Dump a raw payload for every event we register** — SessionStart,
+      UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart, SubagentStop, Stop —
+      and check them against the 14-field compatibility table above. The three that
+      decide feasibility are `agent_type`/`agent_id` (gap #32), `stop_hook_active`
+      (gap #31), and `source`.
+- [ ] **What is Codex's Stop-loop protection (gap #31)?** Codex documents Stop as
+      blockable, so something must prevent infinite blocking. Find the mechanism and
+      its field name. If there is no per-payload signal, the Stop gates need a
+      platform-independent release.
+- [ ] **Does `SubagentStart` injection reach a Codex subagent's context at all?**
+      Not just "does the hook fire" — confirm `additionalContext` lands, since
+      `RETRO_INPUT`/`CURATION_INPUT` delivery for retro and housekeeper depends on
+      it (gap #32).
+- [ ] **BEHAVIORAL: does the model respect the gates?** *(moved here from P3 — it
+      is the highest-variance unknown in the plan and the cheapest thing to observe,
+      because P0 is already running a real teammate.)* Our guides, block reasons, and
+      stop-gate prose were tuned on Claude over many sprints; nothing establishes
+      that a GPT-5.x model reads them the same way. With the teammate running,
+      observe qualitatively:
+      - Given a blocked `git commit` with our stderr reason, does it **run the
+        review** — or retry, work around the gate, or argue with it?
+      - On a Stop-gate block, does it continue productively, or loop? (Pairs with
+        gap #31 — a model that loops plus a gate that cannot release is an unbounded
+        token burn.)
+      - Does it follow TDD ordering and the review cycle from `TEAMMATE_GUIDE`
+        prose alone?
+      - Does it honor the sequential-discipline note, or batch gated steps?
+      Discovering in P3 that the model fights the gates would waste Phases 2 and 3.
 
 Deliverable: `docs/completed/CODEX_SPIKE_FINDINGS.md` with observed payloads,
-version numbers, and a go/no-go. **No-go criterion**: gap #11 confirmed with no
-workaround → park the plan, file upstream issue, revisit on Codex release.
+version numbers, and a go/no-go.
+
+**No-go criteria** (revised — the original named gap #11, which the 2026-07-24
+doc review downgraded to Low):
+
+1. **Plugin-bundled hooks unreliable across Codex versions** (gap #19). If
+   enforcement cannot be depended on to load, a Codex teammate is an unenforced
+   teammate and the feature is worse than not shipping it.
+2. **The model does not respect the gates** (the behavioral check above). Gates that
+   are present but ignored are the same outcome as gates that are absent.
+3. Gap #11 confirmed after all, with no workaround.
+
+Any of these → park Codex, file upstream issues, ship Phase 1 anyway (it stands on
+its own merits), revisit on a later Codex release.
 
 ### Phase 1 — Decouple (Claude-only shippable; value even if Codex never lands)
 
@@ -154,9 +612,12 @@ each story; behavior on Claude Code unchanged.
    belt-and-suspenders on Claude; the script becomes the source of truth.
 2. **Failure folding** (gap #3). PostToolUse:Bash handler detects failures from
    the payload; `PostToolUseFailure` registration becomes Claude-only redundancy.
-3. **SessionEnd → runner** (gap #4). Teammate-completion event written by
-   `teammate_output_filter.py`; `session_end.py` teammate branch becomes
-   Claude-only redundancy.
+3. ~~**SessionEnd → runner**~~ (gap #4) — **dropped.** `SessionEnd` exists on
+   Codex, so the teammate-completion event needs no relocation. What is left is
+   deciding `compact.py`'s `async` flag once P0 reports whether async handlers run
+   there; if they do not, drop the flag (it buys little) or add a `SessionStart`
+   size check. Keep this slot as a reminder that the original item was based on a
+   wrong event list.
 4. **tool_input normalization** (gap #2). `_common` gains
    `normalize_write_input(tool_name, tool_input) -> {files, kind}` consumed by
    write/edit hooks; Claude shapes today, apply_patch shape added in P3.
@@ -164,9 +625,48 @@ each story; behavior on Claude Code unchanged.
    `__file__` first, then `PLUGIN_ROOT`, then `CLAUDE_PLUGIN_ROOT` — removes the
    assumption that the invoking harness exports a Claude compatibility variable
    into shell contexts.
-6. **Plan review via subagent** (gap #5) if not already fully true post-pull —
-   verify `pre_tool_plan_mode.py` / `post_tool_exit_plan.py` degrade gracefully
-   when the plan-mode tools never fire.
+6. **Plan review via subagent** (gap #5) — **verified already true**, so this
+   reduces to a regression test: `subagent_stop.py:337` writes
+   `PLAN_AWAITING_REVIEW` and `pre_tool_write.py` is the schedule gate's second
+   door. Pin both so a future refactor cannot quietly remove the only doors that
+   survive on Codex. Sequence **after** item 4 — the write door needs apply_patch
+   normalization to fire on Codex at all.
+7. **Harness-neutral SMM root** (gaps #9b **and #9c**) — do this **first** in the
+   phase. `init.sh` resolution order becomes `XP_AGENTS_DATA` → `PLUGIN_DATA` →
+   `CLAUDE_PLUGIN_DATA` → `$HOME/.xp-agents/data`. Gap #9c makes it urgent and
+   entirely Claude-relevant: `CLAUDE_PLUGIN_DATA` is **deleted on plugin
+   uninstall**, so today the SMM is one `claude plugin uninstall` away from total
+   loss. Migration **copies**, never moves; the release note says so plainly; and
+   document `--keep-data` for anyone still on the old layout. Test that the worktree
+   sibling base (gap #17) moves with it.
+8. **Abstract tier vocabulary** (gap #12). Rename `tier_wire` constants to
+   `economy`/`standard`/`advanced`/`frontier`, introduce the `HARNESSES` table with
+   the claude row populated, make `effort_supported()` harness-aware, add read-side
+   legacy aliasing, and update the 4 prose files plus their 5 binding tests. The
+   codex row stays a placeholder until P0/P3. Claude behavior unchanged.
+9. **Harness-neutral worktree fragment** (gap #16). Rename the legacy
+   `.claude/worktrees/` fragment, keeping back-compat detection of the old spelling
+   so existing worktrees stay recognized.
+10. **`QUESTION_GATE` clear-with-answer CLI leg** (gap #6). Removes the deadlock
+    and, on Claude, gives a recovery path for a gate that currently has exactly one
+    escape. Must require the answer text so the honesty property holds.
+11. **Move lead-only enforcement into the skills** (gaps #23, #24). The teammate
+    privilege gate and the `ACCEPT_IN_FLIGHT` drain currently ride the `Skill` tool
+    surface, which does not exist on Codex — and, on Claude, is bypassable by any
+    path that does not go through the Skill tool. Put the teammate check in each
+    lead-owned skill's preload and give `ACCEPT_IN_FLIGHT` an explicit drain leg.
+    Both are hook-independent, so they harden Claude today and port for free.
+12. **`quality_review_done` CLI leg** (gap #1) on the existing
+    `review_flag_cli.py`, matching the `simplify_done` leg's shape, and correct that
+    file's docstring assumption about the Skill tool.
+13. **Hook liveness heartbeat** (gap #18) — the highest-value item in this phase
+    and valuable on Claude alone. `SessionStart` writes a heartbeat (session id +
+    plugin version + timestamp); the interactive skills check it and refuse to
+    proceed when it is missing or stale, naming the likely cause (Codex: hooks not
+    trusted, run `/hooks`; either harness: plugin not loaded). Today, if hooks fail
+    to load for any reason, every XP gate quietly disappears and the session looks
+    normal — that is an honesty failure independent of Codex. Converting silent
+    non-enforcement into a loud refusal is the point.
 
 ### Phase 2 — Dual packaging
 
@@ -174,6 +674,23 @@ each story; behavior on Claude Code unchanged.
    same name/version/description and explicit `"skills": "./skills/"` plus
    `"hooks": "./hooks/hooks.codex.json"`. A manifest pin test verifies the
    two manifests retain identical shared metadata.
+
+   Verified 2026-07-24 on the Claude side: `plugin.json` supports `name`,
+   `version`, `description`, `author`, `homepage`, `keywords`, `skills`,
+   `commands`, `agents`, `hooks`, `mcpServers`, and `dependencies` — so **both**
+   harnesses accept a `hooks` path and both auto-discover `hooks/hooks.json` when
+   it is omitted, which is what makes gap #20's explicit-path fix symmetrical.
+   Note manifest component keys **replace** the default directory rather than
+   adding to it, so listing `hooks` means the default is no longer scanned.
+
+   Two useful affordances the earlier draft missed:
+   - **Claude ignores unrecognized top-level fields** (warnings, not errors) and
+     the docs explicitly endorse "one manifest that doubles as" another
+     ecosystem's. Wrong *types* still fail. So the two manifests can safely carry
+     each other's keys if that ever simplifies generation.
+   - **`claude plugin validate --strict` treats those warnings as errors** — a
+     ready-made CI check for a misspelled or leftover field. Adopt it in Phase 5's
+     CI matrix rather than writing our own field linter.
 2. **Generated hooks variants.** One source spec (e.g.
    `hooks/hooks.spec.json` or generate from the existing file) → emit
    `hooks.json` (Claude: full event set) and `hooks.codex.json` (Codex: mapped
@@ -199,9 +716,11 @@ each story; behavior on Claude Code unchanged.
 
 1. `spawn_teammate.py --provider codex`: build
    `codex exec - --json --dangerously-bypass-hook-trust -o <last-msg-path>` +
-   `--sandbox` and `--add-dir` flags per the P0 decision (gap #9), `-m` /
-   `-c model_reasoning_effort` from the provider-aware tier map (gap #12),
-   cwd = worktree, prompt via stdin (preamble unchanged).
+   `--sandbox` and `--add-dir` flags per the P0 decision (gap #9a), with `-m` and
+   `-c model_reasoning_effort` emitted from the `HARNESSES["codex"]` row whose
+   model/effort values P0 supplies (gap #12) — the abstract tier constants and the
+   table itself already landed in P1. `_ALLOWED_TOOLS` becomes per-harness here
+   (gap #14). cwd = worktree, prompt via stdin (preamble unchanged).
 2. Preflight checks: Codex binary on PATH, authenticated, marketplace
    registered, and plugin installed (else fail with the exact two commands:
    `codex plugin marketplace add paulingalls/xp-agents`; `codex plugin add
@@ -215,7 +734,10 @@ each story; behavior on Claude Code unchanged.
 4. apply_patch wiring into the P1 normalization layer (gap #2), using P0's
    recorded payload shapes.
 5. Execution-plan/sprint schema: executor field grows a provider dimension
-   (tier wire already exists; extend, don't fork).
+   alongside the abstract model/effort tiers (tier wire already exists; extend,
+   don't fork). Per the tier/provider split above, the planner and plan-reviewer
+   still emit only a tier — provider is set by session config or a per-story
+   override, never recommended by a reviewer.
 6. Integration test: spawn a real Codex teammate against a fixture repo (CI:
    skip-if-no-codex, same pattern as lint binary tests); assert commit gate
    blocked once, review marker unblocked it, SMM events landed, story promoted.
@@ -253,17 +775,28 @@ each story; behavior on Claude Code unchanged.
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | Codex hooks churn/regress between releases (experimental) | High | Version pin + canary CI; hooks variants generated so retargeting is one emitter change |
-| PreToolUse shell-coverage hole (gap #11) unfixable | Medium | P0 no-go gate; upstream issue; Codex-teammate feature flag stays off |
-| Trust-review UX tax alienates Codex users | Medium | Batch hook changes per release; document; watch for managed/requirements.toml options |
-| GPT-5.x-codex responds differently to gate pressure (stop-gate loops, block-reason compliance) | Medium | P3 integration test includes a deliberately-blocked flow; tune TEAMMATE_GUIDE prose per harness if needed |
+| PreToolUse shell-coverage hole (gap #11) unfixable | **Low** (was Medium — the docs' only documented exception is hosted tools like WebSearch, and our gate rides `PreToolUse:Bash`) | P0 no-go gate retained as cheap insurance; upstream issue; Codex-teammate feature flag stays off |
+| Trust-review UX tax alienates Codex users | Medium | Batch hook changes per release; document; prefer `requirements.toml` managed hooks (trusted by policy, cannot be disabled) for org deployments |
+| **Silent non-enforcement**: hooks not trusted (gap #18) or a too-old Codex (gap #19) yields a session that looks enforced but is not — teammates commit unreviewed code and nothing reports it | **High** | The P1 liveness heartbeat is the mitigation, and it is why that item is P1 rather than P4. Treat any gate that can vanish quietly as a correctness bug, not a UX issue |
+| Codex model ids and effort support churn (versions move fast) | High | The `HARNESSES` table is data; keep model ids in one place, pin a canary CI job, and never infer a tier mapping in code |
+| **SMM destroyed by a plugin uninstall** (gap #9c) — happens today on Claude, no Codex needed, and it is silent | **High / already live** | P1 item 7 moves the SMM out of `CLAUDE_PLUGIN_DATA`; until it ships, document `--keep-data`. Treat this as the phase's first story, not a dual-target nicety |
+| Lifecycle skills fire out of order via implicit invocation (gap #26) — also already live on Claude | Medium | `policy.allow_implicit_invocation: false` on Codex; audit `description` fields on both harnesses so they do not read as task-matching bait |
+| GPT-5.x-codex responds differently to gate pressure (stop-gate loops, block-reason compliance) | **Medium likelihood, high impact — and entirely unmeasured.** The only risk here with no supporting evidence either way | **Observed in P0**, not deferred to P3: the spike already runs a real teammate, so watching gate compliance is nearly free there, and it is a no-go criterion. P3's deliberately-blocked integration test then becomes a regression test rather than the first look. Tune `TEAMMATE_GUIDE` prose per harness if needed. Compounds with gap #31 — a looping model plus a gate that cannot release is an unbounded token burn |
 | Maintenance: every new hook now has two targets | Certain | Generation + pin test makes drift a test failure, not a code-review hope |
+| Tier rename (gap #12) touches persisted sprint data and 5 prose-pin tests at once — a botched migration mislabels stories' executors | Medium | Read-side aliasing rather than data rewrite, so old values keep loading; land the rename as its own P1 story with the alias table tested against real `sprint.json` fixtures before any prose changes |
+| SMM-root change (gap #9b) silently relocates a live SMM and its worktree siblings, orphaning in-flight teammate state | Medium | Migrate-or-symlink with the old path still readable; refuse to migrate while any teammate worktree is live (the `/xp-scaffold-acceptance` precedent already refuses on live worktrees) |
 
 ## Non-goals
 
 - Agent Teams parity on Codex (we already chose CLI teammates over Agent Teams).
-- Providers beyond Claude Code and Codex — but the `--provider` seam and
-  normalization layer are the extension points if that ever changes.
-- Porting Claude-only redundancies (TeammateIdle/TaskCompleted/WorktreeCreate).
+- *Implementing* harnesses beyond Claude Code and Codex. Additional CLI harnesses
+  are an explicit future goal, so the `--provider` seam, the `HARNESSES` table, and
+  the tool-input normalization layer are designed as the extension points — adding
+  harness #3 should be a data change plus a stream parser, with no prose churn. But
+  no third harness is built in these phases.
+- Porting Claude-only redundancies (`PostToolUseFailure`, `TeammateIdle`,
+  `TaskCompleted`, `WorktreeCreate`). Note `SessionEnd` is **not** in this set — it
+  exists on Codex.
 
 ## Open questions (resolve in P0/P1)
 
@@ -271,10 +804,40 @@ each story; behavior on Claude Code unchanged.
    mode (interactive, headless, and a worktree cwd)? Resolve with the Phase 0
    clean-install smoke test; do not pre-seed trust configuration from the spawn
    script unless the result proves it is required.
-2. Exact Codex hook stdin field names for tool payloads (docs say common fields
-   match; `tool_input` shape for apply_patch unverified) — P0 checklist item.
-3. Does the Codex JSONL stream expose enough for the watchdog's
-   activity-detection (any event flow = alive)? Expected yes (`--json` streams
-   all events).
-4. Cost reporting: token→dollar mapping source for Codex models (config? static
-   table? omit and report tokens only?).
+2. Exact Codex hook stdin field names for tool payloads — **partly answered**
+   (2026-07-24): common fields are `session_id`, `cwd`, `hook_event_name`, plus
+   `turn_id` on turn-scoped hooks; tool events add `tool_name`, `tool_input`,
+   `tool_use_id`, and `tool_response` on PostToolUse. Both Bash and `apply_patch`
+   carry their payload in `tool_input.command`. Still capture a real apply_patch
+   payload in P0 before writing the path extractor.
+3. ~~Does the Codex JSONL stream expose enough for the watchdog's
+   activity-detection?~~ **Answered: yes.** `--json` streams `thread.started`,
+   `turn.started`/`turn.completed`, `item.started`/`item.completed`/`item.failed`,
+   and `error`, so any line is a liveness signal. Note `item.failed` and `error`
+   give the watchdog a real failure signal too, which the Claude path infers less
+   directly.
+4. Cost reporting — **narrowed**: `turn.completed.usage` gives `input_tokens`,
+   `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens` and **no cost
+   field**, so there is no analogue to Claude's `total_cost_usd`. Remaining choice:
+   ship a static per-model price table (drifts, needs maintenance) or report tokens
+   only and drop dollar figures for Codex teammates. Leaning tokens-only —
+   an honest token count beats a silently stale dollar amount.
+5. **Codex model identifiers per abstract tier** — still open and P0-gated. The
+   effort *value set* is now known (`minimal, low, medium, high, xhigh`, with
+   `xhigh` model-dependent), but which concrete model backs
+   `economy`/`standard`/`advanced`/`frontier`, and each model's effort support,
+   must be observed. Do not hardcode ids from memory; they churn.
+6. **Codex tool vocabulary for TOML agent definitions** — the `--allowedTools`
+   half is answered (no CLI equivalent; config-level `features.shell_tool` /
+   `apps.*.enabled_tools` only, in Codex's namespace), so `_ALLOWED_TOOLS` is
+   omitted for Codex. Still needed: the concrete tool names to write into TOML
+   agent definitions, and whether a manifest/marketplace `agents` field can ship
+   them at all (gap #14).
+7. **Does compaction need a third trigger?** (gap #4). `SessionEnd` exists on
+   Codex, so this reduces to whether an `async: true` handler runs there at all. If
+   it does not, decide in P1 between dropping the `async` flag and adding a
+   `SessionStart` size check.
+8. **Does an explicit manifest `hooks` path suppress `./hooks/hooks.json`
+   auto-discovery** (gap #20), and what does Codex do with event names it does not
+   recognize — ignore, warn, or reject the whole file? The last case would make the
+   generated Codex variant mandatory rather than merely tidy.
