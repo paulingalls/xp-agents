@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 from _close_fixtures import _quality_meta, _security_meta
 from concerns import TEST_COMMAND_FAILED_PREFIX, TEST_FAILURES_PREFIX
 from conftest import _SMMTestCase, make_event, run_cli, write_events
+from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import EVENT_TYPE_CONCERN, EVENT_TYPE_STATUS
 
 _CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
@@ -425,7 +426,7 @@ class TestCountConcerns(_SMMTestCase):
             [
                 _concern(
                     "high",
-                    metadata={},
+                    metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
                     content=f"{TEST_FAILURES_PREFIX}: 2 failed (pytest)",
                 )
             ],
@@ -449,7 +450,7 @@ class TestCountConcerns(_SMMTestCase):
             [
                 _concern(
                     "high",
-                    metadata={},
+                    metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
                     content=f"{TEST_COMMAND_FAILED_PREFIX} (pytest): ImportError",
                 )
             ],
@@ -485,7 +486,7 @@ class TestCountConcerns(_SMMTestCase):
             [
                 _concern(
                     "high",
-                    metadata={},
+                    metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
                     content=f"{TEST_FAILURES_PREFIX}: 2 failed (pytest)",
                 )
             ],
@@ -523,6 +524,62 @@ class TestCountConcerns(_SMMTestCase):
         self.assertEqual(result_unscoped.returncode, 0, result_unscoped.stderr)
         self.assertEqual(result_scoped.stdout.strip(), "0")
         self.assertEqual(result_unscoped.stdout.strip(), "0")
+
+    def test_untagged_reviewer_concern_with_test_wording_still_counted(self) -> None:
+        # agents/xp-close-reviewer.md tells reviewers the close_cycle_id is
+        # OPTIONAL: "an untagged concern is counted, never dropped". So a
+        # reviewer Block worded "Test command failed on a clean checkout" and
+        # filed WITHOUT the tag must still count — otherwise the shipped prose
+        # is false and the abort gate silently drops a real block.
+        #
+        # Content cannot distinguish it from the transient class, so the
+        # exclusion keys on the producer marker and fails CLOSED: an event
+        # carrying some OTHER action, or authored by an agent (no action at
+        # all beyond what it set), is counted.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={"kind": "quality"},
+                    content=f"{TEST_COMMAND_FAILED_PREFIX} on a clean checkout",
+                )
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "1",
+            "an untagged reviewer Block must count even when its wording "
+            "matches the transient class — the marker, not the text, decides",
+        )
+
+    def test_marked_transient_concern_excluded_when_scoped(self) -> None:
+        # The positive half: a concern carrying the producer marker IS the
+        # transient class and stays excluded, so story-007's original fix
+        # (concern f995656dba80) still holds.
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
+                    content="Anything at all — the marker decides, not this text",
+                )
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", "aaaa11111111"],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "0")
 
     def test_test_failure_wording_tagged_with_this_cycle_still_counted(self) -> None:
         # The transient class the exclusion targets is UNTAGGED by definition

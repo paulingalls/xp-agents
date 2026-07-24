@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from append_validation import parse_jsonl
-from concerns import TEST_CONCERN_RE
+from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import (
     EVENT_TYPE_CONCERN,
     METADATA_KEY_CLOSE_CYCLE_ID,
@@ -179,6 +179,29 @@ def _cmd_count_classifications(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_transient_test_concern(event: dict) -> bool:
+    """True for a hook-raised test-failure concern — the one transient class.
+
+    Provenance, not wording: `bash_failure` and `bash_post_tool` stamp
+    CONCERN_ACTION_TRANSIENT_TEST on the concerns that auto-resolve on the next
+    green run. Nothing else sets it, so an LLM-authored concern can never
+    impersonate the class no matter how it is phrased.
+
+    There is deliberately NO content fallback for events written before the
+    marker shipped. A fallback would have to ask the wording again, which is the
+    exact fail-open being closed — an unmarked reviewer Block phrased "test
+    command failed" would keep being dropped. Unmarked therefore means counted,
+    in both directions: the worst case is a pre-marker transient concern
+    counting once against a close that starts before the next green run
+    clears it, which fails CLOSED (a spurious abort the operator can see and
+    override) rather than OPEN (a silent merge over a real block).
+    """
+    metadata = event.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    return metadata.get("action") == CONCERN_ACTION_TRANSIENT_TEST
+
+
 def _cmd_count_concerns(args: argparse.Namespace) -> int:
     """Count OPEN type==concern events filtered by severity, cycle-id, since-ts.
 
@@ -222,25 +245,12 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         # Transient TDD test-failure concerns (bash_post_tool + bash_failure) carry
         # no close_cycle_id and auto-resolve on a green run. In a SCOPED close-gate
         # count (--cycle-id set) a CONCURRENT teammate's still-red one leaks in and
-        # false-aborts a sibling's clean close (concern f995656dba80). Exclude that
-        # transient class here, matched by the SAME TEST_CONCERN_RE the green-run
-        # auto-resolve keys on (bash_post_tool._resolve_test_concerns) — so the
-        # invariant holds: excluded-from-scoped-gate IFF auto-resolves-on-green,
-        # covering every producer shape ("Test failures detected", "Test command
-        # failed", "Test run failed"), not just bash_post_tool's. Genuine untagged
-        # HIGH concerns still count, so M4's fail-closed protection (decision
-        # 1838fb483fa8) is preserved, NOT reversed (the refuted Try 4782e7c41bdf
-        # dropped ALL untagged; this drops one transient class).
-        # `tag is None` is load-bearing, not belt-and-braces: TEST_CONCERN_RE is
-        # a case-insensitive SEARCH, so a close-reviewer HIGH that merely
-        # contains "test command failed" would otherwise be subtracted from the
-        # very count that blocks its own auto-merge. Only the untagged class
-        # auto-resolves on green, so only it is excluded.
-        if (
-            args.cycle_id
-            and tag is None
-            and TEST_CONCERN_RE.search(event.get("content", ""))
-        ):
+        # false-aborts a sibling's clean close (concern f995656dba80).
+        # Excluded by PROVENANCE — see _is_transient_test_concern. The
+        # invariant still holds: excluded-from-scoped-gate IFF
+        # auto-resolves-on-green, since the marker is stamped by exactly
+        # the producers whose concerns bash_post_tool clears on green.
+        if args.cycle_id and tag is None and _is_transient_test_concern(event):
             continue
         count += 1
     # Only re-walk the raw text to recover the exact unparseable lines when

@@ -75,6 +75,7 @@ the pin: what the walker finds when it is pointed at the real shipped tree.
 """
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -247,6 +248,44 @@ class TestNoLanguageLeak(unittest.TestCase):
                 "per-language rule/config knowledge belongs in the registry:\n"
                 + "\n".join(found)
             )
+
+    def test_per_linter_table_tripwire_is_not_vacuous(self) -> None:
+        """The tripwire above must be able to FAIL, not merely pass.
+
+        `scan_file` disables the per-linter detector when `linter_names` is
+        empty (its documented inert-when-empty contract), and `LINTER_NAMES`
+        derives from `LINTER_BINARIES`. Rename, empty or move that registry and
+        the tripwire passes forever green — while
+        `test_no_unmarked_extension_predicate` deliberately EXCLUDES this kind,
+        making the tripwire the sole enforcer. Every sibling rule here carries a
+        vacuity companion for exactly this failure mode; this is that companion.
+        """
+        self.assertGreaterEqual(
+            len(LINTER_NAMES),
+            2,
+            msg=(
+                "LINTER_NAMES has fewer than 2 entries, so the per-linter "
+                "detector (which needs >=2 linter-named keys) can never fire. "
+                "Check LINTER_BINARIES in linters.py."
+            ),
+        )
+        names = sorted(LINTER_NAMES)[:2]
+        with tempfile.TemporaryDirectory() as td:
+            probe = Path(td, "probe.py")
+            probe.write_text(
+                f"CODES = {{\n    {names[0]!r}: ['a'],\n    {names[1]!r}: ['b'],\n}}\n"
+            )
+            sites = scan_file(
+                probe, linter_names=LINTER_NAMES, registry_path=REGISTRY_PATH
+            )
+        self.assertTrue(
+            any(kind == PER_LINTER_TABLE for _, kind, _ in sites),
+            msg=(
+                "The per-linter detector did not fire on a synthetic table "
+                f"keyed by {names!r}. The tripwire is blind, so its green "
+                "result proves nothing."
+            ),
+        )
 
 
 if __name__ == "__main__":

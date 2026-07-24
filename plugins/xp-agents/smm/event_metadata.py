@@ -61,6 +61,19 @@ STATUS_ACTION_LINT_RESOLVED = "lint_resolved"
 STATUS_ACTION_BASH_FAILED = "bash_failed"
 STATUS_ACTION_COMMIT_SUCCESS = "commit_success"
 
+# The ONE transient concern class a scoped close-gate count excludes: a test
+# failure raised by a hook, which auto-resolves on the next green run. Stamped
+# by its two producers (bash_failure.py, bash_post_tool.py) so the exclusion can
+# key on PROVENANCE rather than on wording.
+#
+# Wording cannot carry this. The exclusion previously matched content against
+# TEST_CONCERN_RE, a case-insensitive search — so a close-reviewer Block that
+# merely contained "test command failed" was silently subtracted from the very
+# count that blocks its own auto-merge, and the shipped reviewer prose
+# ("an untagged concern is counted, never dropped") became false. A marker only
+# its producers set fails CLOSED: anything unmarked counts.
+CONCERN_ACTION_TRANSIENT_TEST = "transient_test_failure"
+
 # Subagent + plan lifecycle vocabulary — extends the tool-action wave
 # with subagent stop signals. Closes the cleanup window opened by the
 # prior tool-action vocabulary. Producer map:
