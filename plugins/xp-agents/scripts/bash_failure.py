@@ -33,6 +33,7 @@ import append_validation
 import concerns
 import identity
 import test_attribution
+from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import STATUS_ACTION_BASH_FAILED, get_required_budget
 from test_parsing import is_test_run
 
@@ -125,6 +126,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> None:
         agent_id,
         content,
         severity="high",
+        metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
     )
     _common.append_safe(smm_dir, concern)
 

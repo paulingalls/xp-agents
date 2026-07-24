@@ -273,7 +273,11 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         assert plan_path is not None
         self.assertTrue(Path(plan_path).is_file())
 
-    def test_preload_plan_before_sprint_in_output(self):
+    def test_preload_emits_both_plan_and_sprint(self):
+        """story-004: PLAN_FILE now emits AFTER the Python TEAMMATE_OUT block
+        (it needs the resolved target to guard against a stale plan path), so
+        SPRINT_FILE now precedes it. Output order doesn't matter to the
+        skill — only that both are present."""
         self._seed_plan()
         (self.smm_dir / "sprint.json").write_text(_multi_story_sprint_worktree())
         result = self._run_preload(_PRELOAD_SCRIPT)
@@ -284,7 +288,6 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         sprint_pos = output.find("SPRINT_FILE=")
         self.assertGreaterEqual(plan_pos, 0)
         self.assertGreaterEqual(sprint_pos, 0)
-        self.assertLess(plan_pos, sprint_pos)
 
     def test_preload_clears_assign_pending_marker(self):
         marker = self.smm_dir / ".assign-pending"

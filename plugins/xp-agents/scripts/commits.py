@@ -15,7 +15,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import code_files
 import git_commits
-from commits_issues import find_addressing_commits, open_issues_matching_commit
+from commits_issues import (
+    find_addressing_commits,
+    format_maybe_addressed_line,
+    open_issues_matching_commit,
+)
 from smm_schema import EVENT_ID_RE
 
 REVIEW_CYCLE_THRESHOLD: int = 2
@@ -392,6 +396,7 @@ __all__ = [
     "extract_implicit_event_ids",
     "extract_resolves_trailer",
     "find_addressing_commits",
+    "format_maybe_addressed_line",
     "get_code_files_for_review",
     "get_code_files_in_range",
     "get_commit_message_body",

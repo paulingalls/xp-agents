@@ -35,6 +35,10 @@ TEAMMATE_CONFIG = ".teammate-config"
 
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
 TEAMMATE_REPORT = ".teammate-report-{name}.txt"
+# Verbatim capture of a teammate stream that produced no result event. `.log`,
+# not `.jsonl`: the capture may hold non-JSON spawn-side text alongside
+# stream-json lines, so the name promises no format.
+TEAMMATE_STREAM_DUMP = ".teammate-stream-{name}.log"
 STORY_ASSIGNMENT = ".story-assignment-{name}"
 # Lifetime-scoped: written by spawn_teammate --in-place only for the duration
 # of the in-place child run, gated on by commit_handling before it trusts the

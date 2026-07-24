@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from conftest import _HookTestCase
 from event_schema import EVENT_TYPE_STATUS
+from spawn_prompt import REFUSAL_PREFIX as _REFUSAL_PREFIX
 
 _SYSTEM_LINE = json.dumps(
     {
@@ -281,6 +282,103 @@ class TestExtractDiagnostics(unittest.TestCase):
         lines = ["fatal: not a git repository"]
         diags = teammate_output_filter.extract_diagnostics(lines)
         self.assertIn("fatal:", diags)
+
+    def test_surfaces_unrecognized_non_json_lines(self):
+        """Non-JSON lines matching no known error signal are surfaced rather
+        than dropped -- the exact failure mode behind concern bed429ee8018:
+        the two 7-line captures were spawn-side text, not stream-json, and
+        got silently discarded instead of shown to the lead."""
+        import teammate_output_filter
+
+        lines = [
+            "WARN: falling back to /tmp for worktree base",
+            "Spawning teammate in worktree ...",
+        ]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("WARN: falling back to /tmp for worktree base", diags)
+        self.assertIn("Spawning teammate in worktree ...", diags)
+
+    def test_mixed_json_and_unrecognized_reports_both_counts_not_stream_json(self):
+        """A mix of parsed JSON and unrecognized non-JSON text reports the
+        parsed-event count and the raw line count as distinct figures, and
+        must not describe the unparsed line as stream-json."""
+        import teammate_output_filter
+
+        lines = [_SYSTEM_LINE, "some spawn-side diagnostic text", _ASSISTANT_LINE]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("some spawn-side diagnostic text", diags)
+        # Assert the counts as one phrase: a bare assertIn("2") would pass on
+        # any stray 2 anywhere in the message, including inside a quoted line.
+        self.assertIn("1 of 3 line(s) captured, 2 parsed as stream-json", diags)
+
+    def test_scalar_json_line_is_treated_as_non_stream_json(self):
+        """A line that is valid JSON but NOT an object (a bare number, string,
+        or null) is spawn-side text, not a stream-json event. It must be
+        surfaced as unrecognized output — never fed to `.get()`, which raises
+        AttributeError and kills the filter, the teammate's sole stdout
+        reader, losing the whole capture on the very path that exists to
+        preserve it."""
+        import teammate_output_filter
+
+        for scalar in ("7", '"just a quoted string"', "null", "[1, 2]"):
+            with self.subTest(scalar=scalar):
+                diags = teammate_output_filter.extract_diagnostics(
+                    [_SYSTEM_LINE, scalar]
+                )
+                self.assertIn(scalar, diags)
+                self.assertIn("1 of 2 line(s) captured, 1 parsed", diags)
+
+    def test_long_unrecognized_line_is_truncated_in_the_message(self):
+        """A single unrecognized line is bounded in LENGTH, not just count.
+
+        The reader yields any unterminated trailing fragment at EOF, so an
+        abrupt mid-line EOF -- the very failure this diagnostic serves -- can
+        hand back a read-chunk-sized line. Quoting it whole would dump ~64KB
+        into the lead's context; the artifact keeps the verbatim text, the
+        message keeps only the shape."""
+        import teammate_output_filter
+
+        giant = '{"type":"assistant","message":' + "x" * 60000
+        diags = teammate_output_filter.extract_diagnostics([giant])
+        self.assertLess(len(diags), 1000)
+        self.assertIn('{"type":"assistant","message":', diags)
+        self.assertIn("truncated", diags)
+
+    def test_recognized_error_line_keeps_a_full_refusal(self):
+        """The refusal's remedy sits ~450 chars into a single line, so the
+        recognised-signal tier must quote it whole -- truncation there would
+        drop the path and the fix, the contract test_spawn_prompt_guard
+        pins."""
+        import teammate_output_filter
+
+        refusal = f"{_REFUSAL_PREFIX} story-001: " + "detail " * 100 + "re-run."
+        diags = teammate_output_filter.extract_diagnostics([refusal])
+        self.assertIn(refusal, diags)
+
+    def test_truncated_json_carrying_an_error_signal_is_still_bounded(self):
+        """The recognised-signal tier is LOOSELY bounded, not unbounded.
+
+        A stream severed mid-line inside a large assistant event yields the
+        whole unterminated fragment at EOF (the very failure this diagnostic
+        serves). It does not parse, so it reaches the non-JSON tiers -- and if
+        its text carries an "Error:" it lands in the error tier. Quoting that
+        whole would dump ~64KB into the lead's context; the artifact keeps the
+        verbatim bytes, the message keeps the shape.
+        """
+        import teammate_output_filter
+
+        giant = '{"type":"assistant","message":"Error: ' + "x" * 60000
+        diags = teammate_output_filter.extract_diagnostics([giant])
+        self.assertLess(len(diags), 4000)
+        self.assertIn("truncated", diags)
+        self.assertIn('{"type":"assistant","message":"Error: ', diags)
+
+    def test_consume_stream_survives_scalar_json_line(self):
+        """The fd-side reader shares the object predicate: a scalar JSON line
+        must not crash _consume_stream before extract_diagnostics ever runs."""
+        import teammate_output_filter
+
+        self.assertIsNone(teammate_output_filter.parse_result_event(["7", "null"]))
 
 
 if __name__ == "__main__":

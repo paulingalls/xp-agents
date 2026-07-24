@@ -20,6 +20,7 @@ ever grows a suffix.
 """
 
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -58,4 +59,49 @@ def write_archive(backups_dir: Path, prefix: str, content: str) -> Path:
         f"Could not claim an archive name under {backups_dir} after "
         f"{MAX_COLLISIONS} collisions on {prefix}-{ts}; refusing to overwrite "
         "an existing archive, which may be the only copy of removed events."
+    )
+
+
+def archive_json(
+    smm_dir: Path, src_filename: str, dest_subdir: str, prefix: str
+) -> Path | None:
+    """Move smm_dir/src_filename to smm_dir/dest_subdir/{prefix}_{ts}.json.
+
+    Never overwrites an existing destination.
+
+    Returns the archived path, or None if the source does not exist. On a
+    same-second collision the name grows a -1, -2, ... suffix (O_EXCL claim),
+    so a second archive in the same second never clobbers the first.
+    """
+    src = smm_dir / src_filename
+    dest_dir = smm_dir / dest_subdir
+    dest_dir.mkdir(exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    for collision in range(MAX_COLLISIONS):
+        suffix = "" if collision == 0 else f"-{collision}"
+        dest = dest_dir / f"{prefix}_{ts}{suffix}.json"
+        try:
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            continue
+        os.close(fd)  # claim only; move replaces the empty placeholder
+        try:
+            shutil.move(str(src), str(dest))
+        except FileNotFoundError:
+            dest.unlink(missing_ok=True)  # source vanished — leave no empty placeholder
+            return None
+        except OSError:
+            # ANY other failure (permissions, a full or read-only destination,
+            # a cross-device copy that dies mid-way) must clear the claim too.
+            # A surviving 0-byte file carries a real snapshot's name, so every
+            # later reader takes it for a valid archived sprint/plan — and the
+            # next same-second archive skips that name and files the REAL
+            # snapshot under a -1 suffix beside the empty one.
+            dest.unlink(missing_ok=True)
+            raise
+        return dest
+    raise OSError(
+        f"Could not claim an archive name under {dest_dir} after "
+        f"{MAX_COLLISIONS} collisions on {prefix}_{ts}; refusing to overwrite "
+        "an existing snapshot."
     )

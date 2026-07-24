@@ -7,6 +7,7 @@ the retry that recovers when a tool rejects one of its flags), not one more
 registry column, so they get their own file rather than a bigger one.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import lint_budget
 import lint_runners
 import linters
 
@@ -156,6 +158,238 @@ class TestOptionalFlagRetry(unittest.TestCase):
         self.assertEqual(run.status, "findings", "the SECOND run is what is reported")
         self.assertIn("oops", run.output, "and its bytes decode leniently")
         self.assertNotIn("Invalid option", run.output)
+
+
+class TestBatchTimeoutCutShortVsHang(unittest.TestCase):
+    """story-009: a spent shared lint budget must not read as a hung linter.
+
+    The fake raises TimeoutExpired with the timeout it was ACTUALLY handed
+    (`kwargs["timeout"]`), not an invented number — otherwise the test would
+    only prove the except-branch is reachable, not that the printed numbers
+    are the ones production computed.
+    """
+
+    @staticmethod
+    def _fake_immediate_timeout(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    def test_budget_well_below_ceiling_reads_as_cut_short_not_hang(self):
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch(
+                "lint_runners.subprocess.run",
+                side_effect=self._fake_immediate_timeout,
+            ),
+        ):
+            result = lint_runners.run_linter_batch("ruff", ["a.py"], budget_s=5.0)
+
+        self.assertEqual(result.status, "unverified")
+        # "ran 5s", not a bare "5s" — "30.25s" contains "5s", so the loose form
+        # would pass off the ceiling alone and pin nothing about the slice.
+        self.assertIn("ran 5s", result.output, "the slice it actually got")
+        self.assertIn("its own 30.25s ceiling", result.output, "own ceiling, N=1")
+        self.assertIn(
+            "may have been cut short rather than hung",
+            result.output,
+        )
+        self.assertNotIn("timed out after", result.output, "not the hang wording")
+        self.assertNotIn("earlier linters", result.output, "asserts nothing about WHO")
+
+
+class TestBatchTimeoutMarginIsNotABareLessThan(unittest.TestCase):
+    """N >= 40 saturates own_ceiling to the CAP, so on a real first batch
+    `budget_s` is necessarily a hair under it — staged_lint sets the deadline
+    (staged_lint.py:345) BEFORE the git read in `_divergent_from_index` and
+    grouping, and that alone must not misread as cut short.
+
+    Both fixtures are derived from `_MATERIALLY_SHORT_S` itself, not a
+    hand-picked number, so this pair fails if the margin is ever weakened to
+    a bare `<`: at half the margin it must still read as a hang (a bare `<`
+    would already call this cut short, since budget_s < ceiling); at five
+    times the margin it must read as cut short.
+    """
+
+    _N = 40
+
+    def _fixture_ceiling(self):
+        ceiling = min(
+            lint_runners.BATCH_TIMEOUT_CAP_S,
+            lint_runners.BATCH_TIMEOUT_BASE_S
+            + lint_runners.BATCH_TIMEOUT_PER_PATH_S * self._N,
+        )
+        self.assertEqual(
+            ceiling,
+            lint_runners.BATCH_TIMEOUT_CAP_S,
+            f"N={self._N} must saturate the cap for this test to prove anything",
+        )
+        return ceiling
+
+    @staticmethod
+    def _fake_immediate_timeout(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    def _run(self, budget_s):
+        paths = [f"f{i}.py" for i in range(self._N)]
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch(
+                "lint_runners.subprocess.run",
+                side_effect=self._fake_immediate_timeout,
+            ),
+        ):
+            return lint_runners.run_linter_batch("ruff", paths, budget_s=budget_s)
+
+    def test_just_inside_the_margin_still_reads_as_a_hang(self):
+        budget_s = self._fixture_ceiling() - lint_budget._MATERIALLY_SHORT_S / 2
+        result = self._run(budget_s)
+        self.assertEqual(result.status, "unverified")
+        self.assertIn("timed out after", result.output)
+        self.assertNotIn("cut short", result.output)
+        self.assertNotIn("earlier linters", result.output)
+
+    def test_well_outside_the_margin_reads_as_cut_short(self):
+        budget_s = self._fixture_ceiling() - lint_budget._MATERIALLY_SHORT_S * 5
+        result = self._run(budget_s)
+        self.assertEqual(result.status, "unverified")
+        self.assertIn("may have been cut short rather than hung", result.output)
+        self.assertNotIn("timed out after", result.output)
+
+
+class TestStdinTimeoutCutShortIncludesRemedy(unittest.TestCase):
+    """The stdin path's cut-short message keeps its actionable `git add`
+    remedy — run_linter_stdin costs a process of its own only because the
+    staged bytes diverge from the working tree, and that is fixable, unlike
+    a generic budget message naming nothing the committer can act on.
+    """
+
+    @staticmethod
+    def _fake_immediate_timeout(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    def test_cut_short_stdin_run_names_the_git_add_remedy(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td, "eslint.config.js")
+            cfg.write_text("")
+            with (
+                patch("lint_runners.shutil.which", return_value="/usr/bin/npx"),
+                patch(
+                    "lint_runners.subprocess.run",
+                    side_effect=self._fake_immediate_timeout,
+                ),
+            ):
+                result = lint_runners.run_linter_stdin(
+                    "eslint",
+                    "app.ts",
+                    b"const a = 1;\n",
+                    cwd=td,
+                    root=td,
+                    config_path=str(cfg),
+                    budget_s=5.0,
+                )
+        self.assertEqual(result.status, "unverified")
+        self.assertIn("ran 5s", result.output, "the slice it actually got")
+        self.assertIn("its own 30.25s ceiling", result.output, "its own ceiling")
+        self.assertIn("may have been cut short rather than hung", result.output)
+        self.assertIn("git add app.ts", result.output)
+
+
+class TestBatchRetryTimeoutNamesSecondAttempt(unittest.TestCase):
+    """A rejected flag's retry can itself genuinely hang. It must still read
+    as a hang — not cut short — and the verdict must be driven by what the two
+    attempts consumed TOGETHER, since they share one slice: the retry is handed
+    exactly what the first attempt left, so their total is the nominal timeout.
+
+    Reporting the retry's remainder alone inverts the verdict on the very path
+    this class covers — a first attempt that burned most of the slice leaves a
+    small remainder that reads as "cut short" though the run spent its whole
+    ceiling.
+    """
+
+    def test_retry_that_hangs_reads_as_hang_with_its_own_slice(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td, "eslint.config.js")
+            cfg.write_text("")
+            js_path = Path(td, "a.js")
+            js_path.write_text("const a = 1;\n")
+
+            def fake_run(argv, **kwargs):
+                if "--no-warn-ignored" in argv:
+                    return Mock(returncode=2, stdout="Invalid option", stderr="")
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+            with (
+                patch("lint_runners.shutil.which", return_value="/usr/bin/npx"),
+                patch("lint_runners.subprocess.run", side_effect=fake_run),
+            ):
+                result = lint_runners.run_linter_batch(
+                    "eslint",
+                    [str(js_path)],
+                    root=td,
+                    config_path=str(cfg),
+                    cwd=td,
+                )
+
+        self.assertEqual(result.status, "unverified")
+        self.assertIn("timed out after", result.output, "genuine hang, not cut short")
+        self.assertNotIn("cut short", result.output)
+        self.assertIn("second attempt", result.output)
+        self.assertIn("rejected for an unsupported flag", result.output)
+        self.assertNotIn(
+            "30.25s of the 30.25s",
+            result.output,
+            "a tail that reconciles a number against itself is noise",
+        )
+
+    def test_slow_first_attempt_then_hang_still_reads_as_a_hang(self):
+        """The inverted-verdict case: `npx eslint` cold-starts ~20s and exits 2
+        on an unsupported flag, so the retry gets only the 10.25s left — and
+        hangs in it. The run consumed its entire 30.25s ceiling, so it must NOT
+        read as cut short, and the number printed must be the total the two
+        attempts spent, not the remainder the second one was handed.
+        """
+        message = lint_budget.timeout_message(
+            "eslint",
+            subprocess.TimeoutExpired(["npx"], 10.25),
+            timeout=30.25,
+            own_ceiling=30.25,
+            budget_s=None,
+        )
+        self.assertIn("second attempt", message)
+        self.assertIn("timed out after 30.25s", message)
+        self.assertNotIn("cut short", message)
+
+    def test_retry_under_a_squeezed_budget_still_reads_as_cut_short(self):
+        """The other direction: when the SHARED budget narrowed the slice, the
+        two attempts together still only got that narrowed slice, so the verdict
+        stays "cut short" — the total is what decides, not the retry alone.
+        """
+        message = lint_budget.timeout_message(
+            "eslint",
+            subprocess.TimeoutExpired(["npx"], 2.0),
+            timeout=5.0,
+            own_ceiling=30.25,
+            budget_s=5.0,
+            remedy="git add app.ts",
+        )
+        self.assertIn("second attempt", message)
+        self.assertIn("ran 5s against its own 30.25s ceiling", message)
+        self.assertIn("may have been cut short rather than hung", message)
+        self.assertIn("git add app.ts", message)
+
+    def test_message_never_reconciles_a_number_against_itself(self):
+        """A tail quoting two near-identical durations ("30.2481s of the 30.25s")
+        reconciles nothing and reads as a contradiction. The message reports ONE
+        duration — the total — so there is no pair to contradict.
+        """
+        message = lint_budget.timeout_message(
+            "eslint",
+            subprocess.TimeoutExpired(["npx"], 30.2481),
+            timeout=30.25,
+            own_ceiling=30.25,
+            budget_s=None,
+        )
+        self.assertNotIn("this run was granted", message)
+        self.assertNotIn("30.2481", message)
 
 
 class TestEslintrcCarriesNoConfigStyleFlag(unittest.TestCase):

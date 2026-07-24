@@ -34,11 +34,12 @@ get_current_branch = identity.get_current_branch
 
 _DECISION_BLOCK = "block"
 _STREAM_JSON_RESULT_TYPE = "result"
-# Markers that make a non-JSON line worth showing the lead. The spawn's own
-# refusal is the one signal we OWN rather than inherit from a tool's output
-# conventions: it exits cleanly (no traceback), so without its token here it is
-# dropped and the lead sees only "No result event" — losing the stale prompt's
-# path and the remedy, on a failure that only a human can clear.
+# Markers that make a non-JSON line get its OWN dedicated wording ("Spawn
+# failed: ...") ahead of the generic unrecognized-output tier below. The
+# spawn's own refusal is the one signal we OWN rather than inherit from a
+# tool's output conventions: it exits cleanly (no traceback), so without its
+# token here it would fall through to the generic tier and lose its
+# dedicated phrasing.
 _ERROR_SIGNALS = (
     "Error:",
     "Error(",
@@ -46,6 +47,21 @@ _ERROR_SIGNALS = (
     "Traceback",
     spawn_prompt.REFUSAL_PREFIX,
 )
+
+# Bounds on a diagnostic message: how many lines get quoted, and how much of
+# each. Both are needed — the count alone does not stop ONE line from being a
+# wall of text, and the reader yields any unterminated trailing fragment at
+# EOF, so an abrupt mid-line EOF (the very failure this diagnostic serves) can
+# hand back a read-chunk-sized line. The message keeps the shape; the
+# stream-dump artifact keeps the verbatim text.
+_DIAGNOSTIC_LINE_LIMIT = 10
+_DIAGNOSTIC_LINE_CHARS = 200
+# The recognised-signal tier gets a far LOOSER per-line bound, not none: the
+# spawn's own refusal carries its remedy ~450 chars into a single line and must
+# arrive whole (test_spawn_prompt_guard pins that contract). But a truncated
+# JSON fragment whose text happens to carry "Error:" reaches this tier too —
+# unbounded, that is a ~64KB dump into the lead's context.
+_ERROR_LINE_CHARS = 2000
 
 # No-progress deadline. Primary liveness is owned by spawn_teammate.py's
 # watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`
@@ -132,13 +148,32 @@ def _iter_lines_with_timeout(fd: int, timeout: float | None) -> Iterator[str]:
             yield line.decode("utf-8", errors="replace")
 
 
+def _parse_stream_object(line: str) -> dict | None:
+    """Parse one captured line as a stream-json event, or None if it isn't one.
+
+    Single definition of "parsed as stream-json", shared by the fd-side reader
+    (_consume_stream), parse_result_event and extract_diagnostics, so the
+    diagnostic's counts cannot drift from what the reader actually accepted.
+
+    Non-object JSON (a bare number, string, null, array) is NOT an event: the
+    stream is merged with the spawn's stderr (2>&1), so such a line is
+    spawn-side text that happens to be JSON-parseable. Returning it would hand
+    a non-dict to `.get()` and kill the filter — the teammate's sole stdout
+    reader — losing the whole capture on the exact path meant to preserve it.
+    """
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _iter_json_objects(lines: list[str]) -> Iterator[dict]:
     """Yield parsed JSON objects from stream-json lines, skipping malformed."""
     for line in lines:
-        try:
-            yield json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        data = _parse_stream_object(line)
+        if data is not None:
+            yield data
 
 
 def _is_result(data: dict) -> bool:
@@ -159,16 +194,48 @@ def parse_result_event(lines: list[str]) -> dict | None:
     return None
 
 
-def extract_diagnostics(lines: list[str]) -> str:
-    """Scan stream-json lines for block events, errors, and other diagnostics.
+def _clip(line: str, limit: int) -> str:
+    """Clip one quoted line to *limit* chars, naming the elision."""
+    if len(line) <= limit:
+        return line
+    return f"{line[:limit]}... (+{len(line) - limit} chars truncated)"
 
-    Returns a human-readable summary for debugging spawn failures.
+
+def _bounded_join(items: list[str], limit: int = _DIAGNOSTIC_LINE_CHARS) -> str:
+    """Join items with '; ', bounded in both line count and per-line length."""
+    shown = [_clip(item, limit) for item in items[:_DIAGNOSTIC_LINE_LIMIT]]
+    text = "; ".join(shown)
+    remaining = len(items) - len(shown)
+    if remaining > 0:
+        text += f" (+{remaining} more)"
+    return text
+
+
+def extract_diagnostics(lines: list[str]) -> str:
+    """Scan captured lines for block events, errors, and other diagnostics.
+
+    Precedence: a hook block wins outright, then a recognised error signal
+    (fatal:, Traceback, the spawn's own refusal, ...), then any OTHER non-JSON
+    line is surfaced rather than silently dropped — captured lines that parse
+    as neither a block nor a known error are still spawn-side evidence, and
+    discarding them turns a real failure into an unexplained "No result
+    event". Only once none of that is present does the generic fallback
+    fire, and it reports the parsed-JSON count and the total captured-line
+    count as two distinct figures rather than asserting the whole capture
+    was stream-json.
     """
     if not lines:
         return "No output received from claude -p"
 
     blocks: list[str] = []
-    for data in _iter_json_objects(lines):
+    non_json_lines: list[str] = []
+    parsed_count = 0
+    for line in lines:
+        data = _parse_stream_object(line)
+        if data is None:
+            non_json_lines.append(line)
+            continue
+        parsed_count += 1
         reason = data.get("reason", "")
         if data.get("decision") == _DECISION_BLOCK and reason:
             blocks.append(reason)
@@ -177,14 +244,22 @@ def extract_diagnostics(lines: list[str]) -> str:
         return "Blocked by hook: " + "; ".join(blocks)
 
     errors = [
-        line
-        for line in lines
-        if not line.startswith("{") and any(sig in line for sig in _ERROR_SIGNALS)
+        line for line in non_json_lines if any(sig in line for sig in _ERROR_SIGNALS)
     ]
     if errors:
-        return "Spawn failed: " + "; ".join(errors)
+        return "Spawn failed: " + _bounded_join(errors, _ERROR_LINE_CHARS)
 
-    return f"No result event in {len(lines)} stream-json lines (no block detected)"
+    if non_json_lines:
+        return (
+            f"Unrecognized output ({len(non_json_lines)} of {len(lines)} line(s) "
+            f"captured, {parsed_count} parsed as stream-json): "
+            + _bounded_join(non_json_lines)
+        )
+
+    return (
+        f"No result event: {parsed_count} of {len(lines)} line(s) parsed as "
+        "stream-json (no block detected)"
+    )
 
 
 def write_report(smm_dir: Path, teammate_id: str, result_text: str) -> Path:
@@ -225,6 +300,50 @@ def format_summary(report_path: Path, branch_name: str, cost: float) -> str:
     return f"Report: {report_path} | Branch: {branch_name} | Cost: ${cost:.2f}"
 
 
+# Retention cap for the stream-dump artifact. Split head/tail rather than
+# tail-only: a refusal or WARN printed early and then buried under noise is
+# exactly the case the artifact exists to preserve, and tail-only retention
+# would elide it.
+_STREAM_DUMP_MAX_LINES = 500
+
+
+def _trim_for_dump(lines: list[str]) -> tuple[list[str], int]:
+    """Keep head + tail of *lines* within _STREAM_DUMP_MAX_LINES. Returns
+    (retained_lines_with_elision_marker, elided_count)."""
+    if len(lines) <= _STREAM_DUMP_MAX_LINES:
+        return list(lines), 0
+    half = _STREAM_DUMP_MAX_LINES // 2
+    head = lines[:half]
+    tail = lines[-half:]
+    elided = len(lines) - len(head) - len(tail)
+    return [*head, f"... ({elided} line(s) elided) ...", *tail], elided
+
+
+def _compose_stream_dump(
+    lines: list[str],
+    *,
+    mode: str,
+    timeout: float | None,
+    parsed_count: int,
+    total_count: int,
+) -> str:
+    """Compose the verbatim stream-dump artifact text: header + retained lines.
+
+    Composition (header wording, retention trim) is the filter's knowledge;
+    the writer it hands the finished string to (worktree.
+    write_teammate_stream_dump) knows only the path and the write.
+    """
+    retained, elided = _trim_for_dump(lines)
+    header = [
+        f"mode: {mode}",
+        f"timeout_s: {timeout if timeout is not None else 'n/a'}",
+        f"parsed_stream_json_lines: {parsed_count}",
+        f"total_captured_lines: {total_count}",
+        f"elided_lines: {elided}",
+    ]
+    return "\n".join(header) + "\n---\n" + "\n".join(retained) + "\n"
+
+
 def _consume_stream(
     fd: int, timeout: float | None
 ) -> tuple[list[str], dict | None, bool]:
@@ -241,9 +360,8 @@ def _consume_stream(
     try:
         for line in _iter_lines_with_timeout(fd, timeout):
             lines.append(line)
-            try:
-                data = json.loads(line)
-            except json.JSONDecodeError:
+            data = _parse_stream_object(line)
+            if data is None:
                 continue
             if _is_result(data):
                 result = data
@@ -269,9 +387,33 @@ def process_stream(smm_dir: Path, teammate_id: str) -> None:
     lines, result, timed_out = _consume_stream(fd, timeout)
 
     if result is None:
+        parsed_count = sum(1 for _ in _iter_json_objects(lines))
+        mode = "timeout" if timed_out else "eof"
+        dump_text = _compose_stream_dump(
+            lines,
+            mode=mode,
+            timeout=timeout if timed_out else None,
+            parsed_count=parsed_count,
+            total_count=len(lines),
+        )
+        dump_path: Path | None = None
+        dump_error: OSError | None = None
+        try:
+            dump_path = worktree.write_teammate_stream_dump(
+                smm_dir, teammate_id, dump_text
+            )
+        except OSError as exc:
+            dump_error = exc
+
         diag = extract_diagnostics(lines)
         if timed_out:
             diag = f"Timeout after {timeout}s with no teammate output. {diag}"
+        else:
+            diag = f"Stream closed (EOF) with no result event. {diag}"
+        if dump_path is not None:
+            diag += f" Captured output saved to {dump_path}"
+        elif dump_error is not None:
+            diag += f" (failed to save captured output: {dump_error})"
         print(diag, file=sys.stderr)
         sys.exit(1)
 

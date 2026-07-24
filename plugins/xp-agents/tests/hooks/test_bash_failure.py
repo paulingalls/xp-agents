@@ -26,6 +26,7 @@ from conftest import (
     make_event,
 )
 from event_helpers import events_of_type
+from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import (
     EVENT_TYPE_CONCERN,
     EVENT_TYPE_STATUS,
@@ -82,6 +83,29 @@ class TestBashFailure(_HookTestCase):
         self.assertIn("failed", statuses[0]["content"].lower())
         self.assertEqual(len(concerns), 1)
         self.assertEqual(concerns[0]["severity"], "high")
+
+    def test_concern_carries_the_transient_marker(self):
+        """The scoped close-gate count excludes this class by PROVENANCE.
+
+        `smm_count._is_transient_test_concern` keys on this marker and has no
+        content fallback, so if this producer stops stamping it, a concurrent
+        teammate's red-step concern silently starts false-aborting a sibling's
+        clean close again (concern f995656dba80) — with every count-concerns
+        test still green, because those construct their own fixtures. This is
+        the pin that keeps the producer and the consumer in agreement.
+        """
+        inp = _make_bash_failure_input(
+            command="python3 -m pytest tests/",
+            error="Command exited with non-zero status code 1",
+        )
+        self.mod.run(inp, smm_dir=self.smm_dir)
+        events = _common.read_events_locked(self.smm_dir, _WATERMARK_ID)
+        concerns = events_of_type(events, EVENT_TYPE_CONCERN)
+        self.assertEqual(len(concerns), 1)
+        self.assertEqual(
+            concerns[0].get("metadata", {}).get("action"),
+            CONCERN_ACTION_TRANSIENT_TEST,
+        )
 
     def test_jest_failure_records_concern(self):
         inp = _make_bash_failure_input(command="npx jest", error="exit code 1")

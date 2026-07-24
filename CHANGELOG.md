@@ -2,6 +2,67 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.17.0 — Archive robustness, and diagnostics that tell the truth
+
+**Milestone 5 plus four adopted backlog items.** Two threads run through this
+release. The first is retry-safety around the destructive parts of a close: an
+archive that overwrites, or a sprint-close that deletes before it archives,
+loses work exactly when you most need it back. The second is a class of bug this
+project keeps finding in its own gates — a diagnostic that reports something
+subtly other than what happened, and so sends the next investigation somewhere
+useful-looking and wrong. Two stories here were re-scoped mid-flight when
+measurement falsified their opening premise, and one of those falsified premises
+had already cost a session's worth of misdirected debugging.
+
+**Behavior changes (read these):**
+
+- **A failed teammate spawn now leaves its evidence on disk.** When the output
+  filter ends with no result event, it writes the raw capture to
+  `.teammate-stream-<name>.log` beside the teammate report (head and tail kept
+  past a 500-line cap), names that path in the error, and says explicitly whether
+  the stream hit EOF or the progress timeout. Previously those lines were
+  captured, counted, and discarded.
+
+- **The filter no longer claims unparsed output is stream-json.** Its no-result
+  message reported the raw line count as "stream-json lines" whether or not
+  anything parsed, and silently dropped any non-JSON line that did not match a
+  known error signal. It now surfaces unrecognized lines (bounded, elided with a
+  count) and reports the parsed count and the total separately. This is the fix
+  for a real misdiagnosis: two spawn failures emitted seven lines of spawn-side
+  output that were thrown away and reported as protocol output, sending the
+  investigation at the pipe instead of the gap in the reporting.
+
+- **A cut-short lint run is no longer reported as a hang.** When the shared
+  commit-gate budget is partly spent, a linter killed at its narrowed slice said
+  "timed out after Ns". It now reports the slice it got against its own ceiling
+  and the shared budget remaining at the start, and says it may have been cut
+  short rather than hung — while asserting nothing about which linter spent the
+  clock, because the code cannot observe that. The block itself is unchanged and
+  still fails closed.
+
+- **The auto-merge gate stops counting other teammates' transient concerns.** A
+  concurrent teammate's TDD red-step concern, carrying no close-cycle id, was
+  counted against a sibling story's clean close and false-aborted it. Caught live
+  during this sprint's own close.
+
+- **`/xp-assign` refuses a stale plan path** rather than pairing the wrong plan
+  with a story.
+
+**Robustness:**
+
+- Archiving is collision-safe through one shared `archive_json` helper, and
+  sprint-close archives *before* the destructive delete, so a retried close no
+  longer races its own cleanup.
+- The cross-language leak test now detects hardcoded per-linter rule-code tables,
+  not just file-extension predicates — the coverage half of the guardrail that
+  previously only human review caught.
+- The MAYBE-ADDRESSED annotation has a single formatter instead of divergent
+  copies.
+
+**Deferred:** one story was dropped after its debt was validated stale against
+current code — the gate it described already reads correctly, and the proposed
+fix would have reintroduced a misidentification the current design prevents.
+
 ## v4.16.0 — Gate-logic and honesty repairs, continued
 
 **Milestone 7, finished.** Where v4.15.0 took M7's first pass, this closes the

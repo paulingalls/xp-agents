@@ -24,6 +24,7 @@ from commit_handling import (
     _working_tree_is_test_only,
     is_tdd_red_step,
 )
+from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import (
     METADATA_KEY_TDD_RED,
     STATUS_ACTION_TEST_RUN_COMPLETE,
@@ -252,6 +253,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
                 agent_id,
                 f"{concerns.TEST_FAILURES_PREFIX}: {failed} failed ({framework})",
                 severity="high",
+                metadata={"action": CONCERN_ACTION_TRANSIENT_TEST},
             )
             _common.append_safe(smm_dir, concern)
         elif failed == 0 and ran_a_runner and exit_proves_pass:

@@ -10,12 +10,11 @@ validation on save, fail-loud on corrupt reads, symlink rejection.
 """
 
 import json
-import shutil
-from datetime import datetime, timezone
 from pathlib import Path
 
 from _acceptance_execution import render_acceptance_execution
 from _append_impl import write_text_atomic
+from archive import archive_json
 from execution_plan_schema import (
     PLAN_FILENAME,
     VALID_MILESTONE_STATUSES,
@@ -214,17 +213,7 @@ def archive(smm_dir: Path) -> Path | None:
 
     Returns the archived file path, or None if no plan exists.
     """
-    src = smm_dir / PLAN_FILENAME
-    plans_dir = smm_dir / "plans"
-    plans_dir.mkdir(exist_ok=True)
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    dest = plans_dir / f"execution_plan_{ts}.json"
-    try:
-        shutil.move(str(src), str(dest))
-    except FileNotFoundError:
-        return None
-    return dest
+    return archive_json(smm_dir, PLAN_FILENAME, "plans", "execution_plan")
 
 
 def render_markdown(plan: dict) -> str:
