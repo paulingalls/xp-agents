@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Literal, NamedTuple, TypeVar
 
 import linters
+from lint_budget import (
+    BATCH_TIMEOUT_BASE_S,
+    BATCH_TIMEOUT_CAP_S,
+    BATCH_TIMEOUT_PER_PATH_S,
+    timeout_message,
+)
 from linters import LINTER_BINARIES, LINTER_EXTENSIONS
 
 # Text mode or binary mode, whichever the caller's own `run` chose — the retry
@@ -28,40 +34,6 @@ _Proc = TypeVar(
 # interactive, and its timeout is HARMLESS — it returns None, so a slow linter
 # just means no nudge on that keystroke.
 LINTER_BASE_TIMEOUT_S: float = 5.0
-
-# Commit-time, per batch (run_linter_batch): min(CAP, BASE + PER_PATH * N).
-#
-# NOT the edit-time number, though it once was. The two have opposite failure
-# semantics: an edit-time timeout is silent, while a batch timeout is
-# `unverified` and the commit gate fails CLOSED on it — it BLOCKS. And a timeout
-# is the one `unverified` cause the agent cannot act on: it can install a missing
-# binary, but it cannot make golangci-lint faster. Too small a budget therefore
-# blocks every commit in that ecosystem, unfixably.
-#
-# 5s was safe only while the batch ran ruff and nothing else. The gate now
-# dispatches off the linter table, so the batch runs `npx eslint`,
-# `golangci-lint run`, `dart analyze` — tools whose COLD START alone (npx bin
-# resolution, a TS program build, a package type-check) routinely exceeds 5s on a
-# real repo. Budget for a linter that actually works; the CAP still bounds one
-# that has genuinely hung.
-#
-# CEILING, and it is a hard one: the CAP must stay well inside the HARNESS's own
-# hook timeout (60s default; pre_tool_bash registers no override). A hook the
-# harness kills produces no exit 2 — so overrunning that budget does not fail
-# closed, it fails OPEN, and the commit sails through unlinted. That is strictly
-# worse than the block we are widening this to avoid. 40s leaves ~20s of headroom
-# for the rest of the hook (tier-1 diff scan, git forks, SMM loads). Do NOT raise
-# the CAP past that without raising the hook's registered timeout first.
-#
-# The CAP is a TOTAL, not a per-batch allowance: one commit can run several
-# batches (a polyglot repo routes each file to its own linter), and N batches of
-# CAP each would breach the ceiling N-fold. staged_lint_gate spends this one
-# budget across all of them and passes what is left as `budget_s`; a batch with
-# nothing left is UNVERIFIED, which blocks. Bound per-batch alone and the
-# ceiling above is only true of a single-language repo.
-BATCH_TIMEOUT_BASE_S: float = 30.0
-BATCH_TIMEOUT_PER_PATH_S: float = 0.25
-BATCH_TIMEOUT_CAP_S: float = 40.0
 
 # Codes deferred until staging. F401 (unused import) / F811 (redef of unused)
 # false-positive during multi-Edit migrations — an import added in one Edit and
@@ -335,10 +307,11 @@ def run_linter_batch(
             f"{linter_name}: cannot be invoked in this project "
             f"(missing compile database or config) — refusing to report it clean",
         )
-    timeout = min(
+    own_ceiling = min(
         BATCH_TIMEOUT_CAP_S,
         BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S * len(eligible),
     )
+    timeout = own_ceiling
     if budget_s is not None:
         timeout = min(timeout, budget_s)
         if timeout <= 0:
@@ -361,8 +334,17 @@ def run_linter_batch(
                 cwd=cwd,
             ),
         )
-    except subprocess.TimeoutExpired:
-        return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
+    except subprocess.TimeoutExpired as exc:
+        return LintRun(
+            "unverified",
+            timeout_message(
+                linter_name,
+                exc,
+                timeout=timeout,
+                own_ceiling=own_ceiling,
+                budget_s=budget_s,
+            ),
+        )
     except (OSError, FileNotFoundError) as e:
         return LintRun("unverified", f"{linter_name}: failed to run ({e})")
 
@@ -429,25 +411,32 @@ def run_linter_stdin(
             f"— refusing to report it clean",
         )
 
-    timeout = min(BATCH_TIMEOUT_CAP_S, BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S)
+    own_ceiling = min(
+        BATCH_TIMEOUT_CAP_S, BATCH_TIMEOUT_BASE_S + BATCH_TIMEOUT_PER_PATH_S
+    )
+    timeout = own_ceiling
+    # The remedy this path alone can offer: it costs a process of its own only
+    # because `path`'s staged bytes differ from the working tree. Re-staging
+    # makes them agree, which routes it back through the batched path instead —
+    # N files, one process. Handed to timeout_message for BOTH the pre-run
+    # spent-budget message below and a mid-run cut-short one.
+    remedy = (
+        f"Its staged bytes differ from the working tree, which is why it costs "
+        f"a process of its own; `git add {path}` (if the working-tree copy is "
+        f"what you meant to commit) lets it lint in the shared batch instead"
+    )
     if budget_s is not None:
         timeout = min(timeout, budget_s)
         if timeout <= 0:
             # Says what to DO about it, because unusually there IS something.
             # A spent budget normally names a cause the committer cannot act on
-            # (nobody can make golangci-lint faster). This one they can: the file
-            # is only on this per-file path because its staged bytes differ from
-            # the file on disk. Re-stage it and it stops differing, which routes
-            # it back through the batched path — N files, one process. An
-            # unfixable gate gets switched off; a fixable one gets fixed.
+            # (nobody can make golangci-lint faster). This one they can — see
+            # `remedy` above.
             return LintRun(
                 "unverified",
                 f"{linter_name}: the commit gate's {BATCH_TIMEOUT_CAP_S:g}s lint "
                 f"budget was already spent when {path} came up — it was never "
-                f"linted. Its staged bytes differ from the working tree, which "
-                f"is why it costs a process of its own; `git add {path}` (if the "
-                f"working-tree copy is what you meant to commit) lets it lint in "
-                f"the shared batch instead",
+                f"linted. {remedy}",
             )
     try:
         proc = _run_with_optional_flag_retry(
@@ -462,8 +451,18 @@ def run_linter_stdin(
                 cwd=cwd,
             ),
         )
-    except subprocess.TimeoutExpired:
-        return LintRun("unverified", f"{linter_name}: timed out after {timeout:g}s")
+    except subprocess.TimeoutExpired as exc:
+        return LintRun(
+            "unverified",
+            timeout_message(
+                linter_name,
+                exc,
+                timeout=timeout,
+                own_ceiling=own_ceiling,
+                budget_s=budget_s,
+                remedy=remedy,
+            ),
+        )
     except (OSError, FileNotFoundError) as e:
         return LintRun("unverified", f"{linter_name}: failed to run ({e})")
 

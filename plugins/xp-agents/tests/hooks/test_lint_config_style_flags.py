@@ -7,6 +7,7 @@ the retry that recovers when a tool rejects one of its flags), not one more
 registry column, so they get their own file rather than a bigger one.
 """
 
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -156,6 +157,40 @@ class TestOptionalFlagRetry(unittest.TestCase):
         self.assertEqual(run.status, "findings", "the SECOND run is what is reported")
         self.assertIn("oops", run.output, "and its bytes decode leniently")
         self.assertNotIn("Invalid option", run.output)
+
+
+class TestBatchTimeoutCutShortVsHang(unittest.TestCase):
+    """story-009: a spent shared lint budget must not read as a hung linter.
+
+    The fake raises TimeoutExpired with the timeout it was ACTUALLY handed
+    (`kwargs["timeout"]`), not an invented number — otherwise the test would
+    only prove the except-branch is reachable, not that the printed numbers
+    are the ones production computed.
+    """
+
+    @staticmethod
+    def _fake_immediate_timeout(argv, **kwargs):
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    def test_budget_well_below_ceiling_reads_as_cut_short_not_hang(self):
+        with (
+            patch("lint_runners.shutil.which", return_value="/usr/bin/ruff"),
+            patch(
+                "lint_runners.subprocess.run",
+                side_effect=self._fake_immediate_timeout,
+            ),
+        ):
+            result = lint_runners.run_linter_batch("ruff", ["a.py"], budget_s=5.0)
+
+        self.assertEqual(result.status, "unverified")
+        self.assertIn("5s", result.output, "the slice it actually got")
+        self.assertIn("30.25s", result.output, "its own ceiling for N=1")
+        self.assertIn(
+            "may have been cut short rather than hung",
+            result.output,
+        )
+        self.assertNotIn("timed out after", result.output, "not the hang wording")
+        self.assertNotIn("earlier linters", result.output, "asserts nothing about WHO")
 
 
 class TestEslintrcCarriesNoConfigStyleFlag(unittest.TestCase):
