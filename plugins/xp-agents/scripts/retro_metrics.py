@@ -22,7 +22,6 @@ from event_schema import (
     METADATA_KEY_RESOLVES,
     STATUS_ACTION_CLOSE_STARTED,
     STATUS_ACTION_FILE_WRITE,
-    STATUS_ACTION_ITERATION_COMPLETE,
     STATUS_ACTION_LINT_RESOLVED,
     STATUS_ACTION_QR_COMPLETE,
     STATUS_ACTION_SECURITY_COMPLETE,
@@ -303,7 +302,6 @@ def _compute_session_stats(events: list[dict]) -> dict:
         "questions_open": 0,
         "questions_answered": 0,
         "decisions_total": 0,
-        "iterations_completed": 0,
     }
 
     question_ids: set[str] = set()
@@ -316,8 +314,6 @@ def _compute_session_stats(events: list[dict]) -> dict:
             case _common.STATUS:
                 stats["status_count"] += 1
                 agent["status_count"] += 1
-                if event_action(e) == STATUS_ACTION_ITERATION_COMPLETE:
-                    stats["iterations_completed"] += 1
             case _common.CONCERN:
                 stats["concerns_raised"] += 1
                 agent["concerns_raised"] += 1

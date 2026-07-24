@@ -24,7 +24,6 @@ event_schema — so this module has no circular-import risk with it.
 
 # Status event metadata.action discriminators — used by cascading gates
 # to identify specific lifecycle events without scanning content strings.
-STATUS_ACTION_ITERATION_COMPLETE = "iteration_complete"
 STATUS_ACTION_SPRINT_RETRO_DONE = "sprint_retro_done"
 
 # Review-cycle lifecycle actions — vocabulary for the deterministic-event

@@ -7,10 +7,10 @@ subcommands (create, add-story); reached indirectly by xp-sprint-start,
 xp-work-selection, and xp-accept. After writing sprint.json it:
 
 - Clears the .needs-sprint marker if sprint now has active stories.
-- If the .accept marker was present and no in-progress stories remain,
-  treats this as acceptance completion: clears .accept, records an
-  iteration_complete status event, and — if the sprint is now complete —
-  prints a sprint-review nudge to stdout for the main agent to see.
+- Clears a stale .accept marker when one is present and no in-progress
+  stories remain. This is stale-marker cleanup at sprint creation, NOT the
+  acceptance flow: an iteration completes via `update-story`, which never
+  reaches this module. Do not add accept-flow side effects here.
 
 Library only — no CLI entrypoint, deliberately. `sprint_cli.py create` is the
 sole way to write a whole sprint, because the re-slice preserve
@@ -46,10 +46,6 @@ import sprint_store  # noqa: E402
 import system_context_store  # noqa: E402
 import triage  # noqa: E402
 import worktree  # noqa: E402
-from event_schema import (  # noqa: E402
-    EVENT_TYPE_STATUS,
-    STATUS_ACTION_ITERATION_COMPLETE,
-)
 
 # Matches "Milestone N: <anything>" or "Milestone N — <anything>"
 _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
@@ -59,11 +55,6 @@ _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
 # non-numbered / cross-milestone carryover label matches neither regex: it has
 # no single target milestone, so it transitions nothing and records no concern.
 _MILESTONE_INTENT_RE = re.compile(r"milestone\s*\d", re.IGNORECASE)
-
-_SPRINT_REVIEW_NUDGE = (
-    "\n**Sprint complete!** All stories are done or deferred. "
-    "Run `/xp-sprint-review` to review the sprint."
-)
 
 
 def _record_concern(smm_dir: Path, content: str) -> None:
@@ -467,20 +458,15 @@ def run(data: dict, smm_dir: Path) -> None:
     # Use in-memory data to avoid re-reading the file we just wrote.
     has_ip = any(s["status"] == "in-progress" for s in data["stories"])
     if accept_marker_existed and not has_ip:
+        # Third-line fallback for a STALE marker, not the clearer. `.accept` is
+        # normally consumed unconditionally by xp-accept's preload
+        # (`consume_marker ACCEPT`), and swept at fresh SessionStart via
+        # `markers._STALE_SESSION_MARKERS`. This only catches a marker that
+        # outlived both — `run()` is reached solely from the structural
+        # mutations named in the module docstring, so it fires at sprint
+        # creation with a previous cycle's marker still on disk.
+        #
+        # Do NOT wire accept-flow side effects in here expecting the accept path
+        # to reach them: it does not. An iteration completes via `update-story`,
+        # which never enters `run()`. See SMM discovery b426495126f1.
         accept_marker.unlink(missing_ok=True)
-
-        # agent_id is teammate-resolved attribution per the agent-id-semantics
-        # ADR; skill identity lives in metadata.action.
-        agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
-        event = _common.make_event(
-            EVENT_TYPE_STATUS,
-            agent_id,
-            "Iteration complete — accept verification done.",
-            working_on=[],
-            metadata={"action": STATUS_ACTION_ITERATION_COMPLETE},
-        )
-        _common.append_safe(smm_dir, event)
-
-        is_done = not sprint_store.has_active_stories_data(data)
-        if is_done:
-            print(_SPRINT_REVIEW_NUDGE)

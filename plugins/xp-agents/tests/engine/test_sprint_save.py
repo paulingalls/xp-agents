@@ -20,10 +20,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import sprint_save
-from _system_context_fixtures import read_events
 from conftest import _SMMTestCase, make_milestone_dict
 from event_helpers import events_of_type
-from event_schema import EVENT_TYPE_CONCERN, event_action
+from event_schema import EVENT_TYPE_CONCERN
 
 
 class TestSaveSprint(_SMMTestCase):
@@ -105,7 +104,7 @@ def _local_sprint(status="done"):
 
 
 class TestSaveSprintAcceptanceFlow(_SMMTestCase):
-    """sprint_save.py handles .accept marker and iteration_complete."""
+    """sprint_save.py clears a stale .accept marker on structural mutations."""
 
     def _run_save(self, data: dict) -> None:
         sprint_save.run(data, self.smm_dir)
@@ -121,44 +120,6 @@ class TestSaveSprintAcceptanceFlow(_SMMTestCase):
         (self.smm_dir / ".accept").write_text("done")
         self._run_save(_local_sprint(status="in-progress"))
         self.assertTrue((self.smm_dir / ".accept").exists())
-
-    def test_no_iteration_complete_without_accept_marker(self):
-        """Without .accept marker, no iteration_complete event."""
-        self._run_save(_local_sprint(status="done"))
-        events = read_events(self.smm_dir)
-        iter_events = [e for e in events if event_action(e) == "iteration_complete"]
-        self.assertEqual(len(iter_events), 0)
-
-    def test_iteration_complete_recorded_on_accept_flow(self):
-        """.accept present -> iteration_complete status event."""
-        (self.smm_dir / ".accept").write_text("done")
-        self._run_save(_local_sprint(status="done"))
-        events = read_events(self.smm_dir)
-        iter_events = [e for e in events if event_action(e) == "iteration_complete"]
-        self.assertEqual(len(iter_events), 1)
-
-    def test_sprint_complete_nudge_printed(self):
-        """Sprint complete in accept flow -> stdout nudge."""
-        from contextlib import redirect_stdout
-        from io import StringIO
-
-        (self.smm_dir / ".accept").write_text("done")
-        buf = StringIO()
-        with redirect_stdout(buf):
-            self._run_save(_local_sprint(status="done"))
-        self.assertIn("Sprint complete", buf.getvalue())
-        self.assertIn("xp-sprint-review", buf.getvalue())
-
-    def test_no_nudge_when_sprint_not_complete(self):
-        """Accept flow but sprint has ready stories -> no nudge."""
-        from contextlib import redirect_stdout
-        from io import StringIO
-
-        (self.smm_dir / ".accept").write_text("done")
-        buf = StringIO()
-        with redirect_stdout(buf):
-            self._run_save(_local_sprint(status="ready"))
-        self.assertNotIn("Sprint complete", buf.getvalue())
 
     def test_clears_needs_sprint_marker_with_active_stories(self):
         """NEEDS_SPRINT marker clears with active stories."""

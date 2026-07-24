@@ -3,8 +3,9 @@
 
 Stop-gate tests migrated to test_sprint_stop_gate.py.
 Accept-done behavior migrated to test_sprint_save.py (sprint_save.py
-now handles .accept clearing and iteration_complete recording as part
-of the PostToolUse:Skill replacement plan).
+handles .accept clearing as part of the PostToolUse:Skill replacement
+plan; the iteration_complete event it once recorded was removed in
+v4.18.0 — it was wired to a trigger production never pulls).
 """
 
 import re

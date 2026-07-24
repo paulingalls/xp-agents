@@ -2,6 +2,51 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.18.0 — Remove machinery that could not fire
+
+**Minor, not patch: this removes shipped surface.** `scripts/backfill_story_id.py`
+(an operator-invocable script, still named in `changelog_pre_v4.md`) and the
+exported `event_schema.STATUS_ACTION_ITERATION_COMPLETE` constant are both gone.
+Anything invoking the script, or importing that constant, breaks on upgrade —
+which is a breaking change however small, and this project gives those a minor
+bump.
+
+`backfill_story_id.py` was a one-shot reconciler. Before Tier-0 attribution,
+commit events could carry a missing or wrong `metadata.story_id`; v2.28.1 made
+the `[story-NNN]` commit prefix authoritative for new commits, and this script
+existed to retrofit the old ones. Measured across every project event log
+available: of 1067 commit events, **0** still disagree with their prefix. The
+migration is complete everywhere it could apply, and new commits cannot regress
+into the old state. Removed, with its test — 268 lines.
+
+It surfaced from an audit asking which shipped machinery has ever actually
+executed: 14 of 35 `metadata.action` constants have never appeared in 5065 real
+events. Most of that list is dormant *by design* rather than dead — retirement
+paths that fire only when a cap binds, schema-migration insurance, and a
+regression pin that names a deleted agent precisely to keep it deleted. This was
+the only entry that was finished rather than waiting.
+
+**Also removed: the `iteration_complete` event and its `iterations_completed`
+metric.** The emission lived in `sprint_save.run()`, which its own docstring
+scopes to *structural* mutations (`create`, `add-story`). An iteration actually
+completes on `update-story`, which calls `store.update_story_status()` and never
+enters that function — so the event could not fire when it claimed to, and its
+only reachable path would have announced "Iteration complete" during sprint
+*creation*. Zero firings in 5065 events across 11 projects, while
+`retro_metrics` fed a permanent `0` into every retrospective input.
+
+Its tests passed the whole time: they call `sprint_save.run()` directly, proving
+the function works without proving anything about whether the trigger fires.
+
+The **sprint-complete nudge** in the same block went with it, for the same
+reason plus one more: it additionally required no ready or in-progress story,
+which no freshly created sprint has, so it was unreachable twice over. The live
+"Sprint complete — run /xp-sprint-review" prompt is the stop gate's. Only the
+`.accept` unlink is kept, and only because it *is* reachable — as a fallback for
+a marker that outlived both its normal clearers (xp-accept's preload and the
+SessionStart sweep).
+
+
 ## v4.17.0 — Archive robustness, and diagnostics that tell the truth
 
 **Milestone 5 plus four adopted backlog items.** Two threads run through this
