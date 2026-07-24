@@ -61,6 +61,25 @@ class TestArchiveJson(_SMMTestCase):
         assert dest is not None
         self.assertNotIn("-", dest.stem.split("_", 1)[1])
 
+    def test_failed_move_leaves_no_empty_placeholder(self):
+        """A move that fails for any reason must clean up its O_EXCL claim.
+
+        The claim is a 0-byte file with a real snapshot's name. Left behind, it
+        reads as a valid archived sprint/plan to every later reader — and to
+        the next same-second archive, which would then skip that name and file
+        the real snapshot under a `-1` suffix beside the empty one.
+        """
+        import archive
+
+        (self.smm_dir / "src.json").write_text("content")
+        with (
+            patch.object(archive.shutil, "move", side_effect=PermissionError("nope")),
+            self.assertRaises(PermissionError),
+        ):
+            archive.archive_json(self.smm_dir, "src.json", "things", "thing")
+        self.assertEqual(list((self.smm_dir / "things").glob("*.json")), [])
+        self.assertTrue((self.smm_dir / "src.json").exists(), "source untouched")
+
     def test_exhaustion_raises_oserror(self):
         import archive
 

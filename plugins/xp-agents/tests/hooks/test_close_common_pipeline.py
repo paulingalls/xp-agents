@@ -468,10 +468,17 @@ class TestMerge(unittest.TestCase):
 
 class TestMergeArchiveSprint(unittest.TestCase):
     """--archive-sprint (story-002, SMM debt 80ea48e4d5fb): folds the sprint
-    archive into cmd_merge, AFTER the merge commit but BEFORE delete_branch —
-    the one irreversible step. An archive failure returns nonzero with the
-    source branch intact, so re-running the identical merge command is safe:
-    the re-merge is idempotent ("Already up to date") and the archive retries."""
+    archive into cmd_merge, after the merge commit AND the target push but
+    BEFORE delete_branch — the one irreversible step. An archive failure
+    returns nonzero with the source branch intact, so re-running the identical
+    merge command is safe: the re-merge is idempotent ("Already up to date"),
+    the re-push is a no-op, and the archive retries.
+
+    The archive is LAST-but-one deliberately. sprint.json is the acceptance
+    verify-gate's only input (close_verify_gate fails open when it is gone), so
+    archiving it while a later step can still fail would disarm that gate for
+    every subsequent run. Nothing archives until the close is complete enough
+    that only the branch delete remains."""
 
     def _make_smm(self, td: str) -> Path:
         smm = Path(td) / "smm"
@@ -525,7 +532,11 @@ class TestMergeArchiveSprint(unittest.TestCase):
             # Archive raised before shutil.move — sprint.json untouched.
             self.assertTrue((smm / "sprint.json").exists())
 
-    def test_idempotent_double_archive_archives_once(self):
+    def test_push_failure_leaves_sprint_json_for_the_retry(self):
+        # A failed target push must leave sprint.json IN PLACE. Archiving it
+        # first would hand the retry an SMM with no sprint, and the acceptance
+        # verify-gate fails open on a missing sprint — so a close that is not
+        # finished would have silently disarmed its own deterministic backstop.
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             main = _bf.get_current_branch(td)
@@ -542,7 +553,7 @@ class TestMergeArchiveSprint(unittest.TestCase):
                 capture_output=True,
                 check=True,
             )
-            # Sabotage the remote so the merge succeeds + archives, but the
+            # Sabotage the remote so the merge succeeds locally but the
             # subsequent target push fails — source branch survives for retry.
             subprocess.run(
                 ["git", "remote", "set-url", "origin", "/nonexistent/remote.git"],
@@ -565,9 +576,12 @@ class TestMergeArchiveSprint(unittest.TestCase):
             first = _run(merge_args)
             self.assertNotEqual(first.returncode, 0)
             self.assertTrue(_bf.branch_exists(td, "feature-idem"))
-            self.assertFalse((smm / "sprint.json").exists())
-            archived = list((smm / "sprints").glob("sprint_*.json"))
-            self.assertEqual(len(archived), 1)
+            self.assertTrue(
+                (smm / "sprint.json").exists(),
+                "sprint.json must survive a failed push — it is the acceptance "
+                "gate's only input, and the close is not complete",
+            )
+            self.assertEqual(list((smm / "sprints").glob("sprint_*.json")), [])
 
             # Restore the remote and retry the identical command.
             subprocess.run(
@@ -579,12 +593,42 @@ class TestMergeArchiveSprint(unittest.TestCase):
             second = _run(merge_args)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertFalse(_bf.branch_exists(td, "feature-idem"))
+            self.assertFalse((smm / "sprint.json").exists())
             archived_after = list((smm / "sprints").glob("sprint_*.json"))
-            self.assertEqual(
-                len(archived_after),
-                1,
-                "archive must not run again once sprint.json is gone",
+            self.assertEqual(len(archived_after), 1)
+
+    def test_absent_sprint_json_says_so_on_stderr_and_completes_chain(self):
+        # The idempotent branch: nothing to archive. It must NOT be a silent
+        # stdout aside — a genuinely missing sprint.json (wrong --smm-dir, a
+        # sprint that was never written) has to be visible, since the close
+        # otherwise exits 0 having produced no snapshot at all. It still does
+        # not abort: the merge and push already landed, and no retry can make
+        # an absent file appear.
+        with tempfile.TemporaryDirectory() as td:
+            _bf.init_repo(td)
+            main = _bf.get_current_branch(td)
+            smm = self._make_smm(td)
+            _bf.make_commit(td, "feature-nosprint", "f.txt", "x", "feature commit")
+            subprocess.run(
+                ["git", "checkout", main], cwd=td, capture_output=True, check=True
             )
+            result = _run(
+                [
+                    "merge",
+                    "--cwd",
+                    td,
+                    "--source",
+                    "feature-nosprint",
+                    "--target",
+                    main,
+                    "--archive-sprint",
+                    "--smm-dir",
+                    str(smm),
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("no sprint.json", result.stderr)
+            self.assertFalse(_bf.branch_exists(td, "feature-nosprint"))
 
     def test_happy_path_archives_and_completes_full_chain(self):
         with tempfile.TemporaryDirectory() as td:
@@ -686,16 +730,13 @@ class TestMergeArchiveSprint(unittest.TestCase):
             self.assertIn("--smm-dir", result.stderr)
             self.assertTrue(_bf.branch_exists(td, "feature-noargs"))
 
-    def test_verify_gate_acceptance_retry_after_archive_survives_fail_open(self):
+    def test_verify_gate_acceptance_stays_armed_across_a_failed_push(self):
         # Pins the production combination sprint-close actually runs: `merge
-        # --verify-gate acceptance --archive-sprint`. Hazard #3 from the story:
-        # after a successful archive but a later failed step, sprint.json is
-        # already gone, so the RETRY's verify-gate re-load of sprint.json
-        # returns None and close_verify_gate.verify_gate_block fails OPEN
-        # (close_verify_gate.py) — the retry is not blocked, the re-merge is a
-        # no-op, and archive() is idempotent (returns None). If a future change
-        # made the acceptance gate fail CLOSED on a missing sprint, this test
-        # would catch the regression by going red.
+        # --verify-gate acceptance --archive-sprint`. The acceptance gate fails
+        # OPEN on a missing sprint.json (close_verify_gate.py), so an archive
+        # that ran before the close finished would leave every retry ungated.
+        # Ordering the archive after the push keeps the gate's input alive for
+        # exactly as long as a step can still fail.
         with tempfile.TemporaryDirectory() as td:
             _bf.init_repo(td)
             main = _bf.get_current_branch(td)
@@ -735,7 +776,10 @@ class TestMergeArchiveSprint(unittest.TestCase):
             first = _run(merge_args)
             self.assertNotEqual(first.returncode, 0)
             self.assertTrue(_bf.branch_exists(td, "feature-gated"))
-            self.assertFalse((smm / "sprint.json").exists())
+            self.assertTrue(
+                (smm / "sprint.json").exists(),
+                "the retry's acceptance gate must still have a sprint to read",
+            )
 
             subprocess.run(
                 ["git", "remote", "set-url", "origin", bare],

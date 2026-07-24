@@ -64,14 +64,58 @@ class TestAssignPlanPathGuard(_IntegrationTestCase):
             _extract_preload_var(result.stdout, "PLAN_FILE"), str(plan_path)
         )
 
-    def test_no_target_emits_plan_unguarded(self):
-        """Empty batch (no un-spawned story) -> target empty -> emit as today."""
-        plan_path = self._write_plan("# story-005: Some other story\n\nDetails.\n")
+    def test_unresolvable_target_suppresses_a_story_titled_plan(self):
+        """No resolvable target -> fail CLOSED on a plan that names a story.
+
+        The target is empty when the batch is empty AND when the resolution
+        itself broke (the preload's Python block is `2>/dev/null`, so a failure
+        there is indistinguishable from an empty batch). Emitting then hands
+        over the exact stale plan this guard exists to suppress, on the path
+        where resolution is already known to be unhealthy — so a plan that
+        declares an owning story is withheld unless that story IS the target.
+        """
+        self._write_plan("# story-005: Some other story\n\nDetails.\n")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(_extract_preload_var(result.stdout, "PLAN_FILE"))
+
+    def test_unresolvable_target_still_emits_a_free_form_plan(self):
+        """Fail-closed is scoped to plans that CLAIM an owner. A plan with no
+        story-titled H1 was never attributable, so withholding it would be a
+        false negative, not a guard."""
+        plan_path = self._write_plan("# Ad-hoc plan\n\nDetails.\n")
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             _extract_preload_var(result.stdout, "PLAN_FILE"), str(plan_path)
         )
+
+    def test_story_id_quoted_below_the_h1_does_not_suppress(self):
+        """The guard keys on the H1, not on any `# story-NNN` line anywhere.
+
+        A plan quoting a commit message or a fenced snippet that happens to
+        start `# story-NNN` would otherwise be read as a plan for that story
+        and withheld — a hard stop on a plan that is in fact the right one.
+        """
+        self._write_sprint(self._single_teammate_sprint("story-004"))
+        plan_path = self._write_plan(
+            "# Guard plan path\n\nPrior commit:\n\n```\n# story-005: other\n```\n"
+        )
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            _extract_preload_var(result.stdout, "PLAN_FILE"), str(plan_path)
+        )
+
+    def test_matching_h1_wins_over_another_story_mentioned_later(self):
+        """Symmetric: an H1 naming the target is not undone by a later mention
+        of a different story, and a later mention of the TARGET does not
+        rescue an H1 that names someone else."""
+        self._write_sprint(self._single_teammate_sprint("story-004"))
+        self._write_plan("# story-005: other story\n\nSupersedes story-004.\n")
+        result = self._run_preload(_PRELOAD_SCRIPT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(_extract_preload_var(result.stdout, "PLAN_FILE"))
 
 
 if __name__ == "__main__":

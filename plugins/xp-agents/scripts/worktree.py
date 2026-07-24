@@ -276,12 +276,13 @@ def teammate_stream_dump_path(smm_dir: Path, name: str) -> Path:
     return smm_dir / marker_names.TEAMMATE_STREAM_DUMP.format(name=name)
 
 
-def write_teammate_stream_dump(smm_dir: Path, name: str, text: str) -> None:
+def write_teammate_stream_dump(smm_dir: Path, name: str, text: str) -> Path:
     """Atomically write the stream dump file with symlink rejection.
 
     *text* arrives already composed (header + retained lines) — this
     function only owns the path and the write, mirroring
-    write_story_assignment.
+    write_story_assignment. Returns the path written, so a caller that
+    reports it never re-derives (and cannot name a path it did not write).
     """
     from _append_impl import write_text_atomic
 
@@ -289,6 +290,7 @@ def write_teammate_stream_dump(smm_dir: Path, name: str, text: str) -> None:
     if path.is_symlink():
         raise OSError(f"Refusing to write to symlink: {path}")
     write_text_atomic(path, text)
+    return path
 
 
 def story_assignment_path(smm_dir: Path, name: str) -> Path:

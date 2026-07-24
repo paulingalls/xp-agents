@@ -48,16 +48,20 @@ _ERROR_SIGNALS = (
     spawn_prompt.REFUSAL_PREFIX,
 )
 
-# Bounds on the unrecognized-output tier of a diagnostic message: how many
-# lines get quoted, and how much of each. Both are needed — the count alone
-# does not stop ONE line from being a wall of text, and the reader yields any
-# unterminated trailing fragment at EOF, so an abrupt mid-line EOF (the very
-# failure this diagnostic serves) can hand back a read-chunk-sized line. The
-# message keeps the shape; the stream-dump artifact keeps the verbatim text.
-# The recognised-signal tier is deliberately NOT length-bounded: the spawn's
-# own refusal carries its remedy ~450 chars into a single line.
+# Bounds on a diagnostic message: how many lines get quoted, and how much of
+# each. Both are needed — the count alone does not stop ONE line from being a
+# wall of text, and the reader yields any unterminated trailing fragment at
+# EOF, so an abrupt mid-line EOF (the very failure this diagnostic serves) can
+# hand back a read-chunk-sized line. The message keeps the shape; the
+# stream-dump artifact keeps the verbatim text.
 _DIAGNOSTIC_LINE_LIMIT = 10
 _DIAGNOSTIC_LINE_CHARS = 200
+# The recognised-signal tier gets a far LOOSER per-line bound, not none: the
+# spawn's own refusal carries its remedy ~450 chars into a single line and must
+# arrive whole (test_spawn_prompt_guard pins that contract). But a truncated
+# JSON fragment whose text happens to carry "Error:" reaches this tier too —
+# unbounded, that is a ~64KB dump into the lead's context.
+_ERROR_LINE_CHARS = 2000
 
 # No-progress deadline. Primary liveness is owned by spawn_teammate.py's
 # watchdog (teammate_runner._WATCHDOG_TIMEOUT_S): when the child `claude -p`
@@ -190,17 +194,16 @@ def parse_result_event(lines: list[str]) -> dict | None:
     return None
 
 
-def _clip(line: str) -> str:
-    """Clip one quoted line to _DIAGNOSTIC_LINE_CHARS, naming the elision."""
-    if len(line) <= _DIAGNOSTIC_LINE_CHARS:
+def _clip(line: str, limit: int) -> str:
+    """Clip one quoted line to *limit* chars, naming the elision."""
+    if len(line) <= limit:
         return line
-    dropped = len(line) - _DIAGNOSTIC_LINE_CHARS
-    return f"{line[:_DIAGNOSTIC_LINE_CHARS]}... (+{dropped} chars truncated)"
+    return f"{line[:limit]}... (+{len(line) - limit} chars truncated)"
 
 
-def _bounded_join(items: list[str]) -> str:
+def _bounded_join(items: list[str], limit: int = _DIAGNOSTIC_LINE_CHARS) -> str:
     """Join items with '; ', bounded in both line count and per-line length."""
-    shown = [_clip(item) for item in items[:_DIAGNOSTIC_LINE_LIMIT]]
+    shown = [_clip(item, limit) for item in items[:_DIAGNOSTIC_LINE_LIMIT]]
     text = "; ".join(shown)
     remaining = len(items) - len(shown)
     if remaining > 0:
@@ -244,7 +247,7 @@ def extract_diagnostics(lines: list[str]) -> str:
         line for line in non_json_lines if any(sig in line for sig in _ERROR_SIGNALS)
     ]
     if errors:
-        return "Spawn failed: " + "; ".join(errors)
+        return "Spawn failed: " + _bounded_join(errors, _ERROR_LINE_CHARS)
 
     if non_json_lines:
         return (
@@ -396,8 +399,9 @@ def process_stream(smm_dir: Path, teammate_id: str) -> None:
         dump_path: Path | None = None
         dump_error: OSError | None = None
         try:
-            worktree.write_teammate_stream_dump(smm_dir, teammate_id, dump_text)
-            dump_path = worktree.teammate_stream_dump_path(smm_dir, teammate_id)
+            dump_path = worktree.write_teammate_stream_dump(
+                smm_dir, teammate_id, dump_text
+            )
         except OSError as exc:
             dump_error = exc
 

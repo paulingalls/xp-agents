@@ -90,6 +90,15 @@ def archive_json(
         except FileNotFoundError:
             dest.unlink(missing_ok=True)  # source vanished — leave no empty placeholder
             return None
+        except OSError:
+            # ANY other failure (permissions, a full or read-only destination,
+            # a cross-device copy that dies mid-way) must clear the claim too.
+            # A surviving 0-byte file carries a real snapshot's name, so every
+            # later reader takes it for a valid archived sprint/plan — and the
+            # next same-second archive skips that name and files the REAL
+            # snapshot under a -1 suffix beside the empty one.
+            dest.unlink(missing_ok=True)
+            raise
         return dest
     raise OSError(
         f"Could not claim an archive name under {dest_dir} after "

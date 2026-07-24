@@ -374,6 +374,10 @@ def _find_reason(
     own line span (a set literal or a formatter-wrapped call runs over several
     lines, and a trailing marker sits on only one of them), then falls back to
     the innermost enclosing marked function.
+
+    Pass an empty *func_markers* to disable that last fallback — see
+    `scan_file`, where a per-linter table must not inherit an enclosing
+    function's extension-dispatch justification.
     """
     for text in _comment_block_above(start, lines):
         reason = _reason_in(text)
@@ -421,8 +425,15 @@ def scan_file(
     ]
 
     if linter_names and path != registry_path:
+        # NO function-marker fallback here (`[]`, not `func_markers`). A
+        # scope-level `lang-ok:` justifies the EXTENSION dispatch it was
+        # written for and says nothing about a per-linter table that happens to
+        # sit in the same body — inheriting it would let the tripwire certify
+        # the exact leak it exists to catch inside any already-marked function
+        # (`lint_runners._eligible_for_linter` is one such today). The escape
+        # hatch stays available: put the marker AT the table.
         sites += [
-            (start, PER_LINTER_TABLE, _find_reason(start, end, lines, func_markers))
+            (start, PER_LINTER_TABLE, _find_reason(start, end, lines, []))
             for start, end in _per_linter_dict_sites(tree, linter_names)
         ]
 

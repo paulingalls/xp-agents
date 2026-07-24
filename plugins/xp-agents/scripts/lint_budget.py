@@ -61,8 +61,8 @@ def own_ceiling_s(path_count: int) -> float:
     """This run's own timeout cap, BEFORE any shared-budget narrowing.
 
     Lives beside the constants and beside `timeout_message`, which is the one
-    thing that interprets the number: a `fired` materially under this ceiling
-    is what makes a timeout read as cut short. Both runners derive it from
+    thing that interprets the number: a total consumed materially under this
+    ceiling is what makes a timeout read as cut short. Both runners derive it from
     here rather than each restating the formula, so the message can never
     describe a ceiling a caller computed differently. The stdin path is just
     the one-path case — it feeds a single file on stdin.
@@ -86,45 +86,43 @@ def timeout_message(
 
     The code cannot know WHO spent a shared clock — see the two rejected
     discriminators in lint_runners' commit history — so it never claims to.
-    It states two numbers it DOES know for certain: `fired`, the duration
-    that actually elapsed (`exc.timeout`, falling back to the nominal
-    `timeout` this run was granted), and `own_ceiling`, this run's own cap
-    before any shared-budget narrowing. A `fired` materially below
-    `own_ceiling` means the run stopped short of what it was allowed to use
-    — it MAY have been cut short rather than hung. A `fired` at or near
-    `own_ceiling` still reads as a hang.
+    It states two numbers it DOES know for certain: `consumed`, how long this
+    run spent in total, and `own_ceiling`, its own cap before any
+    shared-budget narrowing. A `consumed` materially below `own_ceiling`
+    means the run stopped short of what it was allowed to use — it MAY have
+    been cut short rather than hung. A `consumed` at or near `own_ceiling`
+    still reads as a hang.
 
-    `fired < timeout` is the one exception that IS certain, not inferred: the
+    `fired < timeout` is the one inference that IS certain, not guessed: the
     only way a run gets less than the nominal slice it was granted is that
     `_run_with_optional_flag_retry` already spent part of that slice on a
-    flag-rejected first attempt, and this is the second. Name it, so the
-    small `fired` next to the full `timeout` reconciles instead of reading as
-    the gate mysteriously narrowing the run mid-flight.
+    flag-rejected first attempt, and this is the second. Both attempts SHARE
+    that one slice — the retry is handed exactly what the first left — so
+    together they consumed the whole `timeout`, whatever the split. That
+    total is the honest number here, and reporting the retry's remainder
+    instead inverts the verdict: a cold `npx eslint` that burns 20s of a
+    30.25s slice and then hangs in the remaining 10.25s spent its ENTIRE
+    ceiling, yet 10.25 alone reads as cut short.
 
-    That reconciliation is only worth printing when the two numbers actually
-    RENDER apart. A flag rejection normally exits in milliseconds, so the
-    retry's slice rounds to the full one and the tail would read "30.25s of
-    the 30.25s this run was granted" — a sentence that contradicts itself and
-    reconciles nothing. The naming still earns its place there (a rejected
-    flag is worth knowing about); only the numbers drop out.
+    The per-attempt split is deliberately not printed. It is knowable only as
+    a difference of two numbers that normally render a hair apart ("30.2481s
+    of the 30.25s"), a pair that reads as a contradiction while reconciling
+    nothing. Naming the second attempt still earns its place — a rejected
+    flag is worth knowing about — but the durations stay a single total.
     """
     fired = exc.timeout if exc.timeout is not None else timeout
     is_second_attempt = fired < timeout
-    slice_tail = (
-        f"; that attempt's own slice was {fired:g}s of the {timeout:g}s this "
-        f"run was granted"
-        if f"{fired:g}" != f"{timeout:g}"
-        else ""
-    )
+    consumed = timeout if is_second_attempt else fired
     second_attempt_note = (
-        f" — this was the batch's second attempt, after its first was "
-        f"rejected for an unsupported flag{slice_tail}"
+        " — this was the batch's second attempt, after its first was rejected "
+        "for an unsupported flag; the duration above covers both, which shared "
+        "one slice"
         if is_second_attempt
         else ""
     )
 
-    if fired >= own_ceiling - _MATERIALLY_SHORT_S:
-        return f"{linter_name}: timed out after {fired:g}s{second_attempt_note}"
+    if consumed >= own_ceiling - _MATERIALLY_SHORT_S:
+        return f"{linter_name}: timed out after {consumed:g}s{second_attempt_note}"
 
     budget_note = (
         f", with {budget_s:g}s left of the commit gate's "
@@ -134,7 +132,7 @@ def timeout_message(
     )
     remedy_note = f". {remedy}" if remedy else ""
     return (
-        f"{linter_name}: ran {fired:g}s against its own {own_ceiling:g}s "
+        f"{linter_name}: ran {consumed:g}s against its own {own_ceiling:g}s "
         f"ceiling{budget_note} — it may have been cut short rather than hung"
         f"{second_attempt_note}{remedy_note}"
     )

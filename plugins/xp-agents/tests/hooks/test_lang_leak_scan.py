@@ -438,6 +438,40 @@ class TestPerLinterTableDetection(unittest.TestCase):
         sites = self._scan('MAP = {"eslint": "no-unused-vars", "count": 3}\n')
         self.assertEqual(sites, [])
 
+    def test_table_inside_marked_function_does_not_inherit_that_marker(self) -> None:
+        """A function-scope `lang-ok:` justifies the EXTENSION dispatch it was
+        written for — it says nothing about a per-linter table dropped into the
+        same body. Inheriting it would let the tripwire certify the exact leak
+        it exists to catch, inside any already-marked function (e.g.
+        `lint_runners._eligible_for_linter`). The table needs its own marker.
+        """
+        sites = self._scan(
+            "def _eligible(name, paths):\n"
+            '    """Filter paths.\n'
+            "\n"
+            "    lang-ok: table-driven, an unlisted language passes through.\n"
+            '    """\n'
+            '    codes = {"eslint": "no-unused-vars", "clippy": "unused_imports"}\n'
+            "    return codes\n"
+        )
+        self.assertEqual(sites, [(6, "per-linter-table", None)])
+
+    def test_table_with_its_own_marker_inside_marked_function_passes(self) -> None:
+        """The escape hatch still exists — it just has to be at the table."""
+        sites = self._scan(
+            "def _eligible(name, paths):\n"
+            '    """Filter paths.\n'
+            "\n"
+            "    lang-ok: table-driven, an unlisted language passes through.\n"
+            '    """\n'
+            "    # lang-ok: fixture data for a doc example\n"
+            '    codes = {"eslint": "no-unused-vars", "clippy": "unused_imports"}\n'
+            "    return codes\n"
+        )
+        self.assertEqual(
+            sites, [(7, "per-linter-table", "fixture data for a doc example")]
+        )
+
     def test_registry_file_itself_is_exempt(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td) / "linter_tables.py"

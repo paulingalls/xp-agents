@@ -524,6 +524,38 @@ class TestCountConcerns(_SMMTestCase):
         self.assertEqual(result_scoped.stdout.strip(), "0")
         self.assertEqual(result_unscoped.stdout.strip(), "0")
 
+    def test_test_failure_wording_tagged_with_this_cycle_still_counted(self) -> None:
+        # The transient class the exclusion targets is UNTAGGED by definition
+        # (bash_post_tool/bash_failure never set close_cycle_id). A concern
+        # explicitly tagged with THIS cycle came from the close reviewer, so it
+        # must count even when its wording happens to match TEST_CONCERN_RE —
+        # otherwise a genuine cycle-tagged HIGH block ("test command failed on
+        # a clean checkout") is silently subtracted from the number driving the
+        # auto-merge conditions, and the story auto-merges over it.
+        cycle = "aaaa11111111"
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    "high",
+                    metadata={"close_cycle_id": cycle},
+                    content="Real reviewer finding: null deref in merge path",
+                ),
+                _concern(
+                    "high",
+                    metadata={"close_cycle_id": cycle},
+                    content=f"{TEST_COMMAND_FAILED_PREFIX} on a clean checkout",
+                ),
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", "--cycle-id", cycle],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "2")
+
     def test_test_failure_tagged_with_different_cycle_id_still_excluded(self) -> None:
         # A test-failure concern tagged with a DIFFERENT close_cycle_id is
         # excluded by both the cycle-id filter AND the new transient-class

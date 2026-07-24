@@ -231,7 +231,16 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         # HIGH concerns still count, so M4's fail-closed protection (decision
         # 1838fb483fa8) is preserved, NOT reversed (the refuted Try 4782e7c41bdf
         # dropped ALL untagged; this drops one transient class).
-        if args.cycle_id and TEST_CONCERN_RE.search(event.get("content", "")):
+        # `tag is None` is load-bearing, not belt-and-braces: TEST_CONCERN_RE is
+        # a case-insensitive SEARCH, so a close-reviewer HIGH that merely
+        # contains "test command failed" would otherwise be subtracted from the
+        # very count that blocks its own auto-merge. Only the untagged class
+        # auto-resolves on green, so only it is excluded.
+        if (
+            args.cycle_id
+            and tag is None
+            and TEST_CONCERN_RE.search(event.get("content", ""))
+        ):
             continue
         count += 1
     # Only re-walk the raw text to recover the exact unparseable lines when

@@ -153,16 +153,34 @@ echo "$TEAMMATE_OUT"
 # several stories before assigning it can name the LATEST plan while the
 # target is the lowest un-spawned story. Emission runs AFTER the Python
 # block above so PLAN_TARGET is known.
+#
+# The owning story is read from the H1 ALONE — the first `# ` heading — not
+# from any matching line in the body. A plan quoting a commit message or a
+# fenced snippet beginning `# story-NNN` is not a plan FOR that story, and
+# treating it as one hard-stops /xp-assign on a plan that is in fact correct.
+#
+# Fails CLOSED: an empty PLAN_TARGET means the target could not be resolved
+# (empty batch, or the Python block above failed — its stderr is discarded, so
+# the two are indistinguishable here), and emitting then hands over exactly the
+# stale plan this guard exists to suppress, on the path where resolution is
+# already unhealthy. A plan whose H1 claims no story stays emittable: it was
+# never attributable, so withholding it would be a false negative.
 PLAN_TARGET=$(printf '%s\n' "$TEAMMATE_OUT" | sed -n 's/^RECOMMENDED_TIER_STORY=//p')
 PLAN_MARKER="${SMM_DIR}/.last-plan-path"
 if [ -f "$PLAN_MARKER" ]; then
     PLAN_PATH=$(cat "$PLAN_MARKER")
     if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
-        if grep -qE '^#[[:space:]]+story-[0-9]+' "$PLAN_PATH" \
-           && [ -n "$PLAN_TARGET" ] \
-           && ! grep -qE "^#[[:space:]]+${PLAN_TARGET}([^0-9]|\$)" "$PLAN_PATH"; then
-            :  # stale plan for a DIFFERENT story — do not emit PLAN_FILE
-        else
+        # Story id declared by the H1, or empty when the H1 declares none.
+        # awk exits at the FIRST heading, so only that line can match.
+        PLAN_H1_STORY=$(awk '/^#[[:space:]]/ {
+            if (match($0, /^#[[:space:]]+story-[0-9]+/)) {
+                s = substr($0, RSTART, RLENGTH)
+                sub(/^#[[:space:]]+/, "", s)
+                print s
+            }
+            exit
+        }' "$PLAN_PATH")
+        if [ -z "$PLAN_H1_STORY" ] || [ "$PLAN_H1_STORY" = "$PLAN_TARGET" ]; then
             emit_path_var PLAN_FILE "$PLAN_PATH"
         fi
     fi

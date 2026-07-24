@@ -344,7 +344,7 @@ class TestExtractDiagnostics(unittest.TestCase):
         self.assertIn('{"type":"assistant","message":', diags)
         self.assertIn("truncated", diags)
 
-    def test_recognized_error_line_is_never_truncated(self):
+    def test_recognized_error_line_keeps_a_full_refusal(self):
         """The refusal's remedy sits ~450 chars into a single line, so the
         recognised-signal tier must quote it whole -- truncation there would
         drop the path and the fix, the contract test_spawn_prompt_guard
@@ -354,6 +354,24 @@ class TestExtractDiagnostics(unittest.TestCase):
         refusal = f"{_REFUSAL_PREFIX} story-001: " + "detail " * 100 + "re-run."
         diags = teammate_output_filter.extract_diagnostics([refusal])
         self.assertIn(refusal, diags)
+
+    def test_truncated_json_carrying_an_error_signal_is_still_bounded(self):
+        """The recognised-signal tier is LOOSELY bounded, not unbounded.
+
+        A stream severed mid-line inside a large assistant event yields the
+        whole unterminated fragment at EOF (the very failure this diagnostic
+        serves). It does not parse, so it reaches the non-JSON tiers -- and if
+        its text carries an "Error:" it lands in the error tier. Quoting that
+        whole would dump ~64KB into the lead's context; the artifact keeps the
+        verbatim bytes, the message keeps the shape.
+        """
+        import teammate_output_filter
+
+        giant = '{"type":"assistant","message":"Error: ' + "x" * 60000
+        diags = teammate_output_filter.extract_diagnostics([giant])
+        self.assertLess(len(diags), 4000)
+        self.assertIn("truncated", diags)
+        self.assertIn('{"type":"assistant","message":"Error: ', diags)
 
     def test_consume_stream_survives_scalar_json_line(self):
         """The fd-side reader shares the object predicate: a scalar JSON line

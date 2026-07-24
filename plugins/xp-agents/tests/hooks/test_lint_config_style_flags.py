@@ -295,14 +295,14 @@ class TestStdinTimeoutCutShortIncludesRemedy(unittest.TestCase):
 
 class TestBatchRetryTimeoutNamesSecondAttempt(unittest.TestCase):
     """A rejected flag's retry can itself genuinely hang. It must still read
-    as a hang — not cut short — because the retry used its OWN full (smaller)
-    slice; and the message must report THAT slice, not the batch's nominal
-    timeout, while naming it as the second attempt so the numbers reconcile.
+    as a hang — not cut short — and the verdict must be driven by what the two
+    attempts consumed TOGETHER, since they share one slice: the retry is handed
+    exactly what the first attempt left, so their total is the nominal timeout.
 
-    The reconciling NUMBERS are printed only when they render apart. A flag
-    rejection exits in milliseconds, so in the realistic case below the retry's
-    slice rounds to the full one, and a tail reading "30.25s of the 30.25s this
-    run was granted" would contradict itself while reconciling nothing.
+    Reporting the retry's remainder alone inverts the verdict on the very path
+    this class covers — a first attempt that burned most of the slice leaves a
+    small remainder that reads as "cut short" though the run spent its whole
+    ceiling.
     """
 
     def test_retry_that_hangs_reads_as_hang_with_its_own_slice(self):
@@ -340,21 +340,56 @@ class TestBatchRetryTimeoutNamesSecondAttempt(unittest.TestCase):
             "a tail that reconciles a number against itself is noise",
         )
 
-    def test_slice_tail_appears_when_the_two_numbers_render_apart(self):
-        """The other side of the same rule: a first attempt that burned a
-        VISIBLE share of the slice does leave the retry a different number, and
-        then the tail is the whole point — it reconciles the small `fired`
-        against the full `timeout` instead of reading as a mid-flight narrowing.
+    def test_slow_first_attempt_then_hang_still_reads_as_a_hang(self):
+        """The inverted-verdict case: `npx eslint` cold-starts ~20s and exits 2
+        on an unsupported flag, so the retry gets only the 10.25s left — and
+        hangs in it. The run consumed its entire 30.25s ceiling, so it must NOT
+        read as cut short, and the number printed must be the total the two
+        attempts spent, not the remainder the second one was handed.
         """
         message = lint_budget.timeout_message(
             "eslint",
-            subprocess.TimeoutExpired(["npx"], 4.25),
+            subprocess.TimeoutExpired(["npx"], 10.25),
             timeout=30.25,
             own_ceiling=30.25,
             budget_s=None,
         )
         self.assertIn("second attempt", message)
-        self.assertIn("4.25s of the 30.25s this run was granted", message)
+        self.assertIn("timed out after 30.25s", message)
+        self.assertNotIn("cut short", message)
+
+    def test_retry_under_a_squeezed_budget_still_reads_as_cut_short(self):
+        """The other direction: when the SHARED budget narrowed the slice, the
+        two attempts together still only got that narrowed slice, so the verdict
+        stays "cut short" — the total is what decides, not the retry alone.
+        """
+        message = lint_budget.timeout_message(
+            "eslint",
+            subprocess.TimeoutExpired(["npx"], 2.0),
+            timeout=5.0,
+            own_ceiling=30.25,
+            budget_s=5.0,
+            remedy="git add app.ts",
+        )
+        self.assertIn("second attempt", message)
+        self.assertIn("ran 5s against its own 30.25s ceiling", message)
+        self.assertIn("may have been cut short rather than hung", message)
+        self.assertIn("git add app.ts", message)
+
+    def test_message_never_reconciles_a_number_against_itself(self):
+        """A tail quoting two near-identical durations ("30.2481s of the 30.25s")
+        reconciles nothing and reads as a contradiction. The message reports ONE
+        duration — the total — so there is no pair to contradict.
+        """
+        message = lint_budget.timeout_message(
+            "eslint",
+            subprocess.TimeoutExpired(["npx"], 30.2481),
+            timeout=30.25,
+            own_ceiling=30.25,
+            budget_s=None,
+        )
+        self.assertNotIn("this run was granted", message)
+        self.assertNotIn("30.2481", message)
 
 
 class TestEslintrcCarriesNoConfigStyleFlag(unittest.TestCase):
