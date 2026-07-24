@@ -2,6 +2,25 @@
 
 History prior to v4.0 lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
+## v4.17.1 — Remove a completed one-shot migration
+
+Housekeeping only; no behavior change.
+
+`backfill_story_id.py` was a one-shot reconciler. Before Tier-0 attribution,
+commit events could carry a missing or wrong `metadata.story_id`; v2.28.1 made
+the `[story-NNN]` commit prefix authoritative for new commits, and this script
+existed to retrofit the old ones. Measured across every project event log
+available: of 1067 commit events, **0** still disagree with their prefix. The
+migration is complete everywhere it could apply, and new commits cannot regress
+into the old state. Removed, with its test — 268 lines.
+
+It surfaced from an audit asking which shipped machinery has ever actually
+executed: 14 of 35 `metadata.action` constants have never appeared in 5065 real
+events. Most of that list is dormant *by design* rather than dead — retirement
+paths that fire only when a cap binds, schema-migration insurance, and a
+regression pin that names a deleted agent precisely to keep it deleted. This was
+the only entry that was finished rather than waiting.
+
 ## v4.17.0 — Archive robustness, and diagnostics that tell the truth
 
 **Milestone 5 plus four adopted backlog items.** Two threads run through this
