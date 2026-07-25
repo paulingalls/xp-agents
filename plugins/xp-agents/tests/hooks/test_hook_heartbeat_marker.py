@@ -134,6 +134,61 @@ class TestPredicateSessionAndFreshness(_HookTestCase):
         self.assertEqual(data["session_id"], "from-payload")
 
 
+class TestDegradesToTimeOnly(_HookTestCase):
+    """An unfamiliar host exposes no session id. It must not be bricked."""
+
+    NOW = 1_000_000.0
+
+    def setUp(self):
+        super().setUp()
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="written-by")):
+            hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
+
+    def test_no_discoverable_id_and_fresh_is_live(self):
+        with patch.dict(os.environ, _env()):
+            result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW + 60)
+        self.assertTrue(result.live, result.reason)
+
+    def test_no_discoverable_id_still_honours_the_threshold(self):
+        with patch.dict(os.environ, _env()):
+            result = hook_liveness.check_liveness(
+                self.smm_dir, now=self.NOW + hook_liveness.STALE_AFTER_SECONDS
+            )
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_STALE)
+
+
+class TestAgeBoundary(_HookTestCase):
+    """`now` is injectable so story-004's capstone need not wait out hours."""
+
+    NOW = 1_000_000.0
+
+    def setUp(self):
+        super().setUp()
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
+            hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
+        self.enterContext(patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")))
+
+    def _at(self, age: float) -> hook_liveness.Liveness:
+        return hook_liveness.check_liveness(self.smm_dir, now=self.NOW + age)
+
+    def test_one_second_inside_the_threshold_is_live(self):
+        self.assertTrue(self._at(hook_liveness.STALE_AFTER_SECONDS - 1).live)
+
+    def test_exactly_at_the_threshold_is_stale(self):
+        self.assertFalse(self._at(hook_liveness.STALE_AFTER_SECONDS).live)
+
+    def test_threshold_is_a_patchable_module_constant(self):
+        """Story-004 shortens the threshold rather than sleeping through it."""
+        with patch.object(hook_liveness, "STALE_AFTER_SECONDS", 10):
+            self.assertTrue(self._at(9).live)
+            self.assertFalse(self._at(11).live)
+
+    def test_default_threshold_tolerates_a_long_pause_between_prompts(self):
+        """Loose on purpose: a check that false-refuses gets switched off."""
+        self.assertGreaterEqual(hook_liveness.STALE_AFTER_SECONDS, 4 * 60 * 60)
+
+
 class TestPredicateOnUnusableMarker(_HookTestCase):
     """`marker_read` already returns None for a symlink and for corrupt
     JSON. These assert the predicate does not undo that guarantee, and that
