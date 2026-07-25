@@ -87,3 +87,39 @@ class TestSessionStartWritesHeartbeat(_HeartbeatWriterTestCase):
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-live")):
             result = hook_liveness.check_liveness(self.smm_dir)
         self.assertTrue(result.live, result.reason)
+
+
+class TestSessionStartSkipsNonMainPaths(_HeartbeatWriterTestCase):
+    """AC#3, asserted rather than left to fall out of the smm_dir=None path.
+
+    A teammate gets its heartbeat from `UserPromptSubmit` instead: its prompt
+    is its entry point, so the write lands before it can invoke a skill, and
+    the teammate SessionStart path stays free of the SMM resolution that
+    would inject the whole render into its context.
+
+    Each assertion names THIS session's marker rather than asking whether any
+    heartbeat exists. A concurrent story seeds a fresh heartbeat into the
+    shared per-test SMM, so a bare "no heartbeat file" assertion would pass
+    today and go red the moment that lands. `_ABSENCE_ID` is unguessable by
+    any seed, which makes the absence claim about our writer specifically.
+    """
+
+    _ABSENCE_ID = "story-002-absence-probe-no-seed-produces-this"
+
+    def _run(self, extra: dict) -> None:
+        with patch.dict(os.environ, _env()):
+            session_start.run(
+                {"session_id": self._ABSENCE_ID, "source": "startup", **extra},
+                smm_dir=self.smm_dir,
+            )
+
+    def test_worktree_teammate_start_writes_no_heartbeat(self):
+        self._run({"cwd": "/tmp/worktree-story-999"})
+        self.assertFalse(self._wrote(self._ABSENCE_ID))
+
+    def test_xp_agent_writes_no_heartbeat(self):
+        """The recursion guard returns before anything else runs. A nested
+        agent is not a session, and crediting one would report liveness for a
+        session whose own hooks may never have fired."""
+        self._run({"agent_type": "xp-code-reviewer"})
+        self.assertFalse(self._wrote(self._ABSENCE_ID))
