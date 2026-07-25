@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import hook_liveness
 import markers
 import session_start
+import user_prompt_log
 from _heartbeat_fixtures import env as _env
 from conftest import _HookTestCase
 
@@ -123,3 +124,109 @@ class TestSessionStartSkipsNonMainPaths(_HeartbeatWriterTestCase):
         session whose own hooks may never have fired."""
         self._run({"agent_type": "xp-code-reviewer"})
         self.assertFalse(self._wrote(self._ABSENCE_ID))
+
+
+class TestUserPromptSubmitRefreshesHeartbeat(_HeartbeatWriterTestCase):
+    """AC#2. The primary writer: every session submits a prompt before it can
+    invoke anything, which is what gives a teammate a heartbeat at all."""
+
+    SESSION = "sess-prompt"
+    STALE_AT = 1_000.0
+
+    def _seed_stale(self) -> None:
+        with patch.dict(os.environ, _env()):
+            hook_liveness.write_heartbeat(
+                self.smm_dir, session_id=self.SESSION, now=self.STALE_AT
+            )
+
+    def _run(self, prompt: str) -> None:
+        with patch.dict(os.environ, _env()):
+            user_prompt_log.run(
+                {"session_id": self.SESSION, "prompt": prompt},
+                smm_dir=self.smm_dir,
+            )
+
+    def _customer_inputs(self) -> list[dict]:
+        return [e for e in self._read_events() if e.get("type") == "customer_input"]
+
+    def test_stale_heartbeat_is_refreshed_to_current(self):
+        self._seed_stale()
+        before = time.time()
+        self._run("please carry on")
+        data = self._payload(self.SESSION)
+        assert isinstance(data, dict)
+        self.assertGreaterEqual(data["written_at"], before)
+
+    def test_refresh_does_not_swallow_the_prompt_event(self):
+        """Same AC, second half. The heartbeat is a side effect bolted onto a
+        hook with a job of its own, and the job must survive it."""
+        self._seed_stale()
+        self._run("please carry on")
+        self.assertEqual(
+            [e["content"] for e in self._customer_inputs()], ["please carry on"]
+        )
+
+    def test_first_prompt_of_a_session_writes_one_from_nothing(self):
+        """A teammate's whole liveness story: it never takes the main
+        SessionStart path, so this is the only write it gets."""
+        self._run("implement the story")
+        self.assertTrue(self._wrote(self.SESSION))
+
+    def test_the_refreshed_heartbeat_reads_back_as_live(self):
+        self._seed_stale()
+        self._run("please carry on")
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
+            result = hook_liveness.check_liveness(self.smm_dir)
+        self.assertTrue(result.live, result.reason)
+
+
+class TestUserPromptSubmitWritesOnEveryTurn(_HeartbeatWriterTestCase):
+    """AC#2 edge. The heartbeat records that the hook RAN — which is the whole
+    claim — so it must land ahead of every early return that means "this
+    particular prompt is not worth logging". A task notification is not
+    customer input; the hook still fired."""
+
+    SESSION = "sess-non-input"
+
+    def _run(self, prompt: str) -> None:
+        with patch.dict(os.environ, _env()):
+            user_prompt_log.run(
+                {"session_id": self.SESSION, "prompt": prompt},
+                smm_dir=self.smm_dir,
+            )
+
+    def test_task_notification_still_writes_a_heartbeat(self):
+        self._run("<task-notification>agent finished</task-notification>")
+        self.assertTrue(self._wrote(self.SESSION))
+
+    def test_task_notification_still_logs_no_customer_input(self):
+        """The pre-existing contract this must not disturb: a notification
+        creates a false loop boundary, so it stays out of the event log."""
+        self._run("<task-notification>agent finished</task-notification>")
+        self.assertEqual(self._read_events(), [])
+
+    def test_blank_prompt_still_writes_a_heartbeat(self):
+        for prompt in ("", "   \n\t "):
+            with self.subTest(prompt=repr(prompt)):
+                self._run(prompt)
+                self.assertTrue(self._wrote(self.SESSION))
+                markers.marker_consume(
+                    self.smm_dir, hook_liveness.heartbeat_marker(self.SESSION)
+                )
+
+    def test_missing_prompt_key_still_writes_a_heartbeat(self):
+        with patch.dict(os.environ, _env()):
+            user_prompt_log.run({"session_id": self.SESSION}, smm_dir=self.smm_dir)
+        self.assertTrue(self._wrote(self.SESSION))
+
+    def test_xp_agent_writes_no_heartbeat(self):
+        with patch.dict(os.environ, _env()):
+            user_prompt_log.run(
+                {
+                    "session_id": self.SESSION,
+                    "prompt": "hi",
+                    "agent_type": "xp-code-reviewer",
+                },
+                smm_dir=self.smm_dir,
+            )
+        self.assertFalse(self._wrote(self.SESSION))
