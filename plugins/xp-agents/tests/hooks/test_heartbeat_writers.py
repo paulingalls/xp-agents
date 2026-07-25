@@ -230,3 +230,79 @@ class TestUserPromptSubmitWritesOnEveryTurn(_HeartbeatWriterTestCase):
                 smm_dir=self.smm_dir,
             )
         self.assertFalse(self._wrote(self.SESSION))
+
+
+class TestSessionIdNormalisation(_HeartbeatWriterTestCase):
+    """Which id keys the marker, at BOTH call sites.
+
+    The payload is the runtime's own answer, so it wins over an inference from
+    the environment. But `write_heartbeat` consults the candidate chain only
+    for None: an empty string or a non-str is truthy-enough to skip the
+    fallback and key a marker on the hash of a value no reader ever addresses
+    — a heartbeat that exists on disk and is invisible to every check, which
+    is worse than none at all because it also silences the reaper.
+    """
+
+    ENV_ID = "id-from-env"
+    PAYLOAD_ID = "id-from-payload"
+
+    # A falsy or wrong-typed payload id must reach the env chain, not the hash
+    # of itself. `0` and `False` are the truthiness traps; `123` and `None` are
+    # the type traps.
+    FALSY_OR_NON_STR = ("", "   ", "\t\n", 0, False, 123, None, [], {})
+
+    def _start(self, session_id: object) -> None:
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.ENV_ID)):
+            session_start.run(
+                {"session_id": session_id, "source": "startup"},
+                smm_dir=self.smm_dir,
+            )
+
+    def _prompt(self, session_id: object) -> None:
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.ENV_ID)):
+            user_prompt_log.run(
+                {"session_id": session_id, "prompt": "go"}, smm_dir=self.smm_dir
+            )
+
+    def _writers(self):
+        return (("session_start", self._start), ("user_prompt_submit", self._prompt))
+
+    def _clear(self) -> None:
+        for marker in (
+            hook_liveness.heartbeat_marker(self.ENV_ID),
+            hook_liveness.heartbeat_marker(self.PAYLOAD_ID),
+        ):
+            markers.marker_consume(self.smm_dir, marker)
+
+    def test_payload_id_wins_over_the_environment(self):
+        for name, write in self._writers():
+            with self.subTest(writer=name):
+                self._clear()
+                write(self.PAYLOAD_ID)
+                self.assertTrue(self._wrote(self.PAYLOAD_ID))
+                self.assertFalse(self._wrote(self.ENV_ID))
+
+    def test_falsy_or_non_str_payload_id_falls_back_to_the_chain(self):
+        for name, write in self._writers():
+            for session_id in self.FALSY_OR_NON_STR:
+                with self.subTest(writer=name, session_id=repr(session_id)):
+                    self._clear()
+                    write(session_id)
+                    self.assertTrue(
+                        self._wrote(self.ENV_ID),
+                        "a falsy payload id must reach the candidate chain",
+                    )
+
+    def test_a_falsy_payload_id_keys_no_marker_of_its_own(self):
+        """The specific corruption: a marker at hash("") that no check reads."""
+        for name, write in self._writers():
+            with self.subTest(writer=name):
+                self._clear()
+                write("")
+                self.assertFalse(self._wrote(""))
+
+    def test_missing_session_id_key_falls_back_to_the_chain(self):
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.ENV_ID)):
+            session_start.run({"source": "startup"}, smm_dir=self.smm_dir)
+            user_prompt_log.run({"prompt": "go"}, smm_dir=self.smm_dir)
+        self.assertTrue(self._wrote(self.ENV_ID))
