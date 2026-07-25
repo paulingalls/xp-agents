@@ -275,6 +275,42 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
         self.assertNotEqual(absent.reason, unreadable.reason)
 
 
+class TestWriteHeartbeatNeverRaises(_HookTestCase):
+    """Recording liveness must not break the hook whose liveness it records.
+
+    `marker_write` rejects a symlinked marker with ValueError and a full or
+    read-only SMM with OSError. The hooks that call this have no top-level
+    guard, so it swallows — but logs, per `_common.append_safe`'s contract
+    that a drop is never silent.
+    """
+
+    def test_symlinked_marker_does_not_raise(self):
+        target = self.smm_dir / "planted.json"
+        target.write_text("{}", encoding="utf-8")
+        markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT).symlink_to(target)
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
+            hook_liveness.write_heartbeat(self.smm_dir)  # must not raise
+
+    def test_unwritable_smm_dir_does_not_raise(self):
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
+            hook_liveness.write_heartbeat(self.smm_dir / "no-such-dir")
+
+    def test_the_drop_is_logged_not_silent(self):
+        """A heartbeat that never lands reads downstream as 'hooks are not
+        running'. That is a false alarm rather than a dangerous one — the
+        trace is what tells the two apart."""
+        target = self.smm_dir / "planted.json"
+        target.write_text("{}", encoding="utf-8")
+        markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT).symlink_to(target)
+        with (
+            patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")),
+            patch("_common.log_hook_error") as logged,
+        ):
+            hook_liveness.write_heartbeat(self.smm_dir)
+        logged.assert_called_once()
+        self.assertIn("write_heartbeat", logged.call_args.args[0])
+
+
 class TestSessionIdChain(_HookTestCase):
     """Adding a harness must be a data change, not a redesign."""
 

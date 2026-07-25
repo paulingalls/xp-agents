@@ -128,18 +128,39 @@ def write_heartbeat(
     `session_id` defaults to the candidate chain, but a hook that was handed
     one in its own input should pass it: that is the runtime's own answer
     rather than an inference from the environment.
+
+    Never raises. `marker_write` rejects a symlinked marker with ValueError
+    and a full or read-only SMM with OSError, and this is called from hook
+    entry points that have no top-level guard — recording liveness must not
+    be the thing that breaks the hook whose liveness it records. Same
+    contract as `_common.append_safe` and `markers.warn_once`.
+
+    The drop is logged, never silent. A heartbeat that never lands reads
+    downstream as "the hook runtime is not running", which is a false alarm
+    rather than a dangerous one — it fails closed. The `hook_errors.jsonl`
+    trace is what tells the two apart.
     """
+    # Lazy, matching markers.warn_once: hooks import this module on every
+    # invocation, and the error path is the exception rather than the rule.
+    import _common
+
     if session_id is None:
         session_id = resolve_session_id()
-    markers.marker_write(
-        smm_dir,
-        markers.HOOK_HEARTBEAT,
-        {
-            "session_id": session_id,
-            "plugin_version": plugin_loader.plugin_version(),
-            "written_at": time.time() if now is None else now,
-        },
-    )
+    try:
+        markers.marker_write(
+            smm_dir,
+            markers.HOOK_HEARTBEAT,
+            {
+                "session_id": session_id,
+                "plugin_version": plugin_loader.plugin_version(),
+                "written_at": time.time() if now is None else now,
+            },
+        )
+    except (ValueError, OSError) as exc:
+        _common.log_hook_error(
+            f"write_heartbeat dropped: {exc}",
+            error_class=type(exc).__name__,
+        )
 
 
 # ---------------------------------------------------------------------------
