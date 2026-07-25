@@ -46,7 +46,11 @@ class TestHeartbeatMarkerDefinition(_HookTestCase):
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
             hook_liveness.write_heartbeat(self.smm_dir)
         markers.sweep_stale_session_markers(self.smm_dir)
-        self.assertTrue(markers.marker_exists(self.smm_dir, markers.HOOK_HEARTBEAT))
+        self.assertTrue(
+            markers.marker_exists(
+                self.smm_dir, hook_liveness.heartbeat_marker("sess-a")
+            )
+        )
 
 
 class TestPredicateWithoutMarker(_HookTestCase):
@@ -122,7 +126,9 @@ class TestPredicateSessionAndFreshness(_HookTestCase):
 
     def test_marker_payload_carries_id_version_and_timestamp(self):
         self._write("sess-a", self.NOW)
-        data = markers.marker_read(self.smm_dir, markers.HOOK_HEARTBEAT)
+        data = markers.marker_read(
+            self.smm_dir, hook_liveness.heartbeat_marker("sess-a")
+        )
         assert isinstance(data, dict)
         self.assertEqual(data["session_id"], "sess-a")
         self.assertEqual(data["written_at"], self.NOW)
@@ -135,7 +141,9 @@ class TestPredicateSessionAndFreshness(_HookTestCase):
             hook_liveness.write_heartbeat(
                 self.smm_dir, session_id="from-payload", now=self.NOW
             )
-        data = markers.marker_read(self.smm_dir, markers.HOOK_HEARTBEAT)
+        data = markers.marker_read(
+            self.smm_dir, hook_liveness.heartbeat_marker("from-payload")
+        )
         assert isinstance(data, dict)
         self.assertEqual(data["session_id"], "from-payload")
 
@@ -147,7 +155,7 @@ class TestDegradesToTimeOnly(_HookTestCase):
 
     def setUp(self):
         super().setUp()
-        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="written-by")):
+        with patch.dict(os.environ, _env()):
             hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
 
     def test_no_discoverable_id_and_fresh_is_live(self):
@@ -206,12 +214,24 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
     JSON. These assert the predicate does not undo that guarantee, and that
     it separates "cannot tell" from "told, and the answer is no"."""
 
+    SESSION = "sess-a"
+
     def _marker_path(self) -> Path:
-        return markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT)
+        return markers.marker_path(
+            self.smm_dir, hook_liveness.heartbeat_marker(self.SESSION)
+        )
+
+    def _check(self) -> hook_liveness.Liveness:
+        # The env patch stays INSIDE the call, for the reason spelled out in
+        # TestAgeBoundary._at: entered from setUp it would exit after
+        # tearDown and reinstate the SMM_DIR tearDown had just popped,
+        # poisoning every later test in this xdist worker.
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=self.SESSION)):
+            return hook_liveness.check_liveness(self.smm_dir)
 
     def test_corrupt_json_reports_not_live_without_raising(self):
         self._marker_path().write_text("{not json", encoding="utf-8")
-        result = hook_liveness.check_liveness(self.smm_dir)
+        result = self._check()
         self.assertFalse(result.live)
         self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 
@@ -219,7 +239,7 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
         real = self.smm_dir / "planted.json"
         real.write_text('{"session_id": "x", "written_at": 0}', encoding="utf-8")
         self._marker_path().symlink_to(real)
-        result = hook_liveness.check_liveness(self.smm_dir)
+        result = self._check()
         self.assertFalse(result.live)
         self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 
@@ -227,7 +247,7 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
         self._marker_path().write_text(
             '{"session_id": "x", "written_at": "yesterday"}', encoding="utf-8"
         )
-        result = hook_liveness.check_liveness(self.smm_dir)
+        result = self._check()
         self.assertFalse(result.live)
         self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 
@@ -236,8 +256,7 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
         self._marker_path().write_text(
             '{"session_id": null, "written_at": true}', encoding="utf-8"
         )
-        with patch.dict(os.environ, _env()):
-            result = hook_liveness.check_liveness(self.smm_dir)
+        result = self._check()
         self.assertFalse(result.live)
         self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 
@@ -250,8 +269,7 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
                     f'{{"session_id": null, "written_at": {literal}}}',
                     encoding="utf-8",
                 )
-                with patch.dict(os.environ, _env()):
-                    result = hook_liveness.check_liveness(self.smm_dir)
+                result = self._check()
                 self.assertFalse(result.live)
                 self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 
@@ -261,18 +279,95 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
         self._marker_path().write_text(
             f'{{"session_id": null, "written_at": {"1" * 400}}}', encoding="utf-8"
         )
-        with patch.dict(os.environ, _env()):
-            result = hook_liveness.check_liveness(self.smm_dir)
+        result = self._check()
         self.assertFalse(result.live)
         self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 
     def test_unreadable_is_not_conflated_with_absent(self):
         """Both refuse, but only one of them means "no hook has run"."""
-        absent = hook_liveness.check_liveness(self.smm_dir)
+        absent = self._check()
         self._marker_path().write_text("{not json", encoding="utf-8")
-        unreadable = hook_liveness.check_liveness(self.smm_dir)
+        unreadable = self._check()
         self.assertNotEqual(absent.code, unreadable.code)
         self.assertNotEqual(absent.reason, unreadable.reason)
+
+
+class TestConcurrentSessionsShareOneSmm(_HookTestCase):
+    """The SMM is deliberately shared: spawners export SMM_DIR verbatim, and
+    two windows on one repo hash the same git-common-dir to one project-id.
+
+    A single marker keyed on one session id therefore has a last-writer-wins
+    bug: every other live session reads a mismatch and is told the plugin is
+    probably not loaded. Concern 07efe6237d02.
+    """
+
+    NOW = 1_000_000.0
+
+    def _write_as(self, session_id: str, at: float) -> None:
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=session_id)):
+            hook_liveness.write_heartbeat(self.smm_dir, now=at)
+
+    def _check_as(self, session_id: str, at: float) -> hook_liveness.Liveness:
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID=session_id)):
+            return hook_liveness.check_liveness(self.smm_dir, now=at)
+
+    def test_a_teammate_heartbeat_does_not_brick_the_lead(self):
+        """The normal teammate flow: the lead is live, a teammate starts and
+        refreshes the shared SMM, and the lead must stay live."""
+        self._write_as("lead", self.NOW)
+        self._write_as("teammate", self.NOW + 1)
+        result = self._check_as("lead", self.NOW + 2)
+        self.assertTrue(result.live, result.reason)
+
+    def test_each_session_reads_its_own_heartbeat(self):
+        self._write_as("lead", self.NOW)
+        self._write_as("teammate", self.NOW + 1)
+        self.assertTrue(self._check_as("teammate", self.NOW + 2).live)
+
+    def test_a_session_that_never_wrote_is_not_live(self):
+        """Hooks running elsewhere must not vouch for a session of its own."""
+        self._write_as("other", self.NOW)
+        result = self._check_as("mine", self.NOW + 1)
+        self.assertFalse(result.live)
+
+    def test_hooks_alive_elsewhere_is_a_distinct_diagnosis(self):
+        """'Nothing has ever run' and 'running, but not for you' are
+        different problems and must not share a message."""
+        nothing = self._check_as("mine", self.NOW)
+        self._write_as("other", self.NOW)
+        elsewhere = self._check_as("mine", self.NOW + 1)
+        self.assertFalse(elsewhere.live)
+        self.assertNotEqual(nothing.code, elsewhere.code)
+        self.assertNotEqual(nothing.reason, elsewhere.reason)
+
+    def test_stale_sibling_heartbeats_are_reaped_on_write(self):
+        """Per-session files must not accumulate forever."""
+        self._write_as("ancient", self.NOW)
+        self._write_as("current", self.NOW + hook_liveness.STALE_AFTER_SECONDS + 60)
+        names = [p.name for p in Path(self.smm_dir).glob(".hook-heartbeat-*")]
+        self.assertEqual(len(names), 1, names)
+
+    def test_a_fresh_sibling_is_not_reaped(self):
+        self._write_as("peer", self.NOW)
+        self._write_as("me", self.NOW + 60)
+        names = [p.name for p in Path(self.smm_dir).glob(".hook-heartbeat-*")]
+        self.assertEqual(len(names), 2, names)
+
+    def test_session_id_never_reaches_the_filename_raw(self):
+        """A session id is untrusted input; it must not steer a path."""
+        self._write_as("../../escape", self.NOW)
+        written = list(Path(self.smm_dir).glob(".hook-heartbeat-*"))
+        self.assertEqual(len(written), 1, written)
+        self.assertNotIn("escape", written[0].name)
+        self.assertNotIn("/", written[0].name.removeprefix(".hook-heartbeat-"))
+
+    def test_the_raw_id_is_still_recorded_inside_the_payload(self):
+        """Hashing the filename must not cost the diagnostic."""
+        self._write_as("sess-readable", self.NOW)
+        marker = hook_liveness.heartbeat_marker("sess-readable")
+        data = markers.marker_read(self.smm_dir, marker)
+        assert isinstance(data, dict)
+        self.assertEqual(data["session_id"], "sess-readable")
 
 
 class TestWriteHeartbeatNeverRaises(_HookTestCase):
@@ -287,7 +382,9 @@ class TestWriteHeartbeatNeverRaises(_HookTestCase):
     def test_symlinked_marker_does_not_raise(self):
         target = self.smm_dir / "planted.json"
         target.write_text("{}", encoding="utf-8")
-        markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT).symlink_to(target)
+        markers.marker_path(
+            self.smm_dir, hook_liveness.heartbeat_marker("sess-a")
+        ).symlink_to(target)
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
             hook_liveness.write_heartbeat(self.smm_dir)  # must not raise
 
@@ -301,7 +398,9 @@ class TestWriteHeartbeatNeverRaises(_HookTestCase):
         trace is what tells the two apart."""
         target = self.smm_dir / "planted.json"
         target.write_text("{}", encoding="utf-8")
-        markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT).symlink_to(target)
+        markers.marker_path(
+            self.smm_dir, hook_liveness.heartbeat_marker("sess-a")
+        ).symlink_to(target)
         with (
             patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")),
             patch("_common.log_hook_error") as logged,
@@ -365,7 +464,7 @@ class TestStatusCLI(_HookTestCase):
         self._plant("sess-old")
         result = self._run("sess-new")
         self.assertEqual(result.returncode, hook_liveness.EXIT_NOT_LIVE)
-        self.assertIn("different session", result.stdout)
+        self.assertIn("another session", result.stdout)
 
     def test_stale_exits_determined_not_live(self):
         self._plant("sess-a", age=hook_liveness.STALE_AFTER_SECONDS + 60)
@@ -374,9 +473,9 @@ class TestStatusCLI(_HookTestCase):
         self.assertIn("stopped", result.stdout)
 
     def test_unreadable_exits_could_not_determine(self):
-        markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT).write_text(
-            "{not json", encoding="utf-8"
-        )
+        markers.marker_path(
+            self.smm_dir, hook_liveness.heartbeat_marker("sess-a")
+        ).write_text("{not json", encoding="utf-8")
         result = self._run("sess-a")
         self.assertEqual(result.returncode, hook_liveness.EXIT_UNDETERMINED)
         self.assertIn("cannot be determined", result.stdout)

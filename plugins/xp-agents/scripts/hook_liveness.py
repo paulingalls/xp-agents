@@ -13,6 +13,7 @@ refresh the marker and the preload that consumes the verdict live
 elsewhere.
 """
 
+import hashlib
 import math
 import os
 import sys
@@ -21,7 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
+import marker_names
 import markers
 import plugin_loader
 
@@ -56,6 +59,19 @@ CODE_NO_MARKER = "no-marker"
 CODE_SESSION_MISMATCH = "session-mismatch"
 CODE_STALE = "stale"
 CODE_UNREADABLE = "unreadable"
+
+# One heartbeat PER SESSION, not one per SMM. The SMM is deliberately shared:
+# spawners export SMM_DIR verbatim to their teammates, and two windows on one
+# repo hash the same git-common-dir to the same project id. A single marker
+# keyed on one session id is therefore last-writer-wins — the moment a teammate
+# starts, the lead reads someone else's id and is told the plugin is probably
+# not loaded. The primary signal would manufacture the false alarm it exists
+# to prevent, in the mode this project is built around.
+#
+# Per-session FILES rather than a set of ids inside one file: concurrent
+# sessions would otherwise read-modify-write the same marker with no lock
+# between them, and a lost update reads exactly like a dead runtime.
+_SESSION_GLOB = f"{marker_names.HOOK_HEARTBEAT}-*"
 
 # Codes meaning "could not determine" rather than "determined not live". Both
 # refuse — a check that cannot see is not a check that passed — but only the
@@ -115,6 +131,60 @@ def resolve_session_id() -> str | None:
     return None
 
 
+def heartbeat_marker(session_id: str | None) -> markers.MarkerDef:
+    """The heartbeat this session owns.
+
+    A session id is untrusted input that would otherwise steer a path, so it
+    is hashed rather than sanitised — no escaping rule to get wrong, and a
+    fixed-length name whatever the host spells its ids like. The raw id still
+    goes inside the payload, so the diagnostic is not lost.
+
+    `None` (no id discoverable) resolves to the unsuffixed shared marker. Such
+    a host gets the time-only check it was always going to get, and the glob
+    that reaps per-session files does not match it.
+    """
+    if session_id is None:
+        return markers.HOOK_HEARTBEAT
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12]
+    return markers.MarkerDef(f"{marker_names.HOOK_HEARTBEAT}-{digest}", "json")
+
+
+def _reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
+    """Delete other sessions' expired heartbeats. Best-effort, never raises.
+
+    Per-session files would otherwise accumulate one per session forever.
+    Reaping on write keeps it self-contained — no cleanup hook to wire, and
+    the work is bounded by the number of live-ish sessions.
+
+    Only expired or unreadable siblings go. A fresh one belongs to a session
+    that may still be running, and deleting it would make that session
+    believe its own hooks had stopped.
+    """
+    for path in smm_dir.glob(_SESSION_GLOB):
+        if path == keep or path.is_symlink():
+            continue
+        try:
+            age = _sibling_age(smm_dir, path, now)
+            if age is not None and age < STALE_AFTER_SECONDS:
+                continue
+            path.unlink()
+        except OSError:
+            continue
+
+
+def _sibling_age(smm_dir: Path, path: Path, now: float) -> float | None:
+    """Age of another session's heartbeat, or None if it is unusable.
+
+    Rebuilds a `MarkerDef` from the filename so the read goes back through
+    `markers.marker_read` — symlink rejection and corrupt-JSON handling stay
+    in the one place that owns them.
+    """
+    data = markers.marker_read(smm_dir, markers.MarkerDef(path.name, "json"))
+    if not isinstance(data, dict):
+        return None
+    return _age_seconds(now, data.get("written_at"))
+
+
 # ---------------------------------------------------------------------------
 # Write
 # ---------------------------------------------------------------------------
@@ -146,14 +216,16 @@ def write_heartbeat(
 
     if session_id is None:
         session_id = resolve_session_id()
+    stamp = time.time() if now is None else now
+    marker = heartbeat_marker(session_id)
     try:
         markers.marker_write(
             smm_dir,
-            markers.HOOK_HEARTBEAT,
+            marker,
             {
                 "session_id": session_id,
                 "plugin_version": plugin_loader.plugin_version(),
-                "written_at": time.time() if now is None else now,
+                "written_at": stamp,
             },
         )
     except (ValueError, OSError) as exc:
@@ -161,6 +233,8 @@ def write_heartbeat(
             f"write_heartbeat dropped: {exc}",
             error_class=type(exc).__name__,
         )
+        return
+    _reap_stale_siblings(smm_dir, markers.marker_path(smm_dir, marker), stamp)
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +271,53 @@ def _describe(seconds: float) -> str:
     return f"{seconds / 3600:.1f}h"
 
 
+def _no_heartbeat_of_our_own(
+    smm_dir: Path, session_id: str | None, now: float
+) -> Liveness:
+    """Verdict when this session's own heartbeat is missing.
+
+    With an id, two different problems wear the same absence. A fresh
+    heartbeat from another session proves the runtime works on this machine
+    and against this SMM — it just is not running for us, which points at
+    trust or a per-session load failure rather than a missing plugin. Nothing
+    fresh anywhere means nothing has run at all. Same refusal, different fix,
+    so they get different messages.
+
+    WITHOUT an id the two cannot be told apart, and guessing would be the
+    wrong way round: a hook that was handed a session id in its payload
+    writes a per-session file even when the reader's environment exposes no
+    id, so demanding the shared marker would refuse a session whose hooks are
+    demonstrably running. Degrading to time-only means exactly this — any
+    fresh heartbeat counts.
+    """
+    freshest: float | None = None
+    for path in smm_dir.glob(_SESSION_GLOB):
+        age = _sibling_age(smm_dir, path, now)
+        if age is not None and age < STALE_AFTER_SECONDS:
+            freshest = age if freshest is None else min(freshest, age)
+    if freshest is None:
+        return Liveness(
+            False,
+            f"No hook-liveness heartbeat has been recorded. {_NOT_LOADED}",
+            CODE_NO_MARKER,
+        )
+    if session_id is None:
+        return Liveness(
+            True,
+            f"Hook runtime is live (last heartbeat {_describe(freshest)} ago; "
+            "no session id available here, so freshness is the only signal).",
+            CODE_LIVE,
+        )
+    return Liveness(
+        False,
+        "No hook has run in this session, though another session's hooks ran "
+        f"{_describe(freshest)} ago. The runtime is reachable but not active "
+        "here — its hooks are likely untrusted, or failed to load for this "
+        "session.",
+        CODE_SESSION_MISMATCH,
+    )
+
+
 def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
     """Report whether the hook runtime is live for the calling session.
 
@@ -204,32 +325,21 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
             discoverable) AND the heartbeat is younger than the threshold.
     """
     now = time.time() if now is None else now
-    path = markers.marker_path(smm_dir, markers.HOOK_HEARTBEAT)
-    data = markers.marker_read(smm_dir, markers.HOOK_HEARTBEAT)
+    session_id = resolve_session_id()
+    marker = heartbeat_marker(session_id)
+    path = markers.marker_path(smm_dir, marker)
+    data = markers.marker_read(smm_dir, marker)
     if not isinstance(data, dict):
         # `marker_read` collapses missing, symlinked and corrupt into None.
         # Anything present-but-unreadable is a different claim from nothing
         # ever having been written, so split them back apart here.
         if path.is_symlink() or path.exists():
             return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
-        return Liveness(
-            False,
-            f"No hook-liveness heartbeat has been recorded. {_NOT_LOADED}",
-            CODE_NO_MARKER,
-        )
+        return _no_heartbeat_of_our_own(smm_dir, session_id, now)
 
     age = _age_seconds(now, data.get("written_at"))
     if age is None:
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
-    session_id = resolve_session_id()
-    if session_id is not None and data.get("session_id") != session_id:
-        return Liveness(
-            False,
-            f"The last hook-liveness heartbeat ({_describe(age)} old) belongs "
-            f"to a different session, so no hook has run in this one. "
-            f"{_NOT_LOADED}",
-            CODE_SESSION_MISMATCH,
-        )
     if age >= STALE_AFTER_SECONDS:
         return Liveness(
             False,
