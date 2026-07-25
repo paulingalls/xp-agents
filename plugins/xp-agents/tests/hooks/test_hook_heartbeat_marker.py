@@ -42,7 +42,13 @@ class TestHeartbeatMarkerDefinition(_HookTestCase):
 
         A heartbeat consumed there and rewritten moments later is churn, and
         an ordering change would erase the signal this feature exists to read.
+
+        Both halves are load-bearing. The per-session file can never appear in
+        the sweep tuple, so that assertion alone cannot fail; the shared
+        no-session-id marker CAN be added to it, and that is the regression
+        worth pinning.
         """
+        self.assertNotIn(markers.HOOK_HEARTBEAT, markers._STALE_SESSION_MARKERS)
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
             hook_liveness.write_heartbeat(self.smm_dir)
         markers.sweep_stale_session_markers(self.smm_dir)
@@ -352,6 +358,44 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
         self._write_as("me", self.NOW + 60)
         names = [p.name for p in Path(self.smm_dir).glob(".hook-heartbeat-*")]
         self.assertEqual(len(names), 2, names)
+
+    def test_the_shared_no_id_marker_is_not_reaped_by_a_per_session_write(self):
+        """The reap glob must never widen to `.hook-heartbeat*`.
+
+        Same discipline the in-place locks keep against IN_PLACE_ACTIVE's
+        glob: a marker caught by someone else's reap gets deleted as if it
+        were theirs. The unsuffixed marker is the only heartbeat a host with
+        no discoverable session id has, and no per-session writer owns it.
+        """
+        with patch.dict(os.environ, _env()):
+            hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
+        self._write_as("someone", self.NOW + hook_liveness.STALE_AFTER_SECONDS + 60)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.HOOK_HEARTBEAT))
+
+    def test_no_discoverable_id_accepts_another_session_s_fresh_heartbeat(self):
+        """The documented degradation, pinned rather than left to prose.
+
+        A host exposing no session id cannot name its own heartbeat, and a
+        hook handed an id in its payload writes a per-session file such a
+        reader can never address. Time-only therefore means ANY fresh
+        heartbeat counts — demanding the shared marker would refuse a session
+        whose hooks are demonstrably running.
+        """
+        self._write_as("some-other-session", self.NOW)
+        with patch.dict(os.environ, _env()):
+            result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW + 60)
+        self.assertTrue(result.live, result.reason)
+        self.assertIn("no session id", result.reason)
+
+    def test_no_discoverable_id_still_refuses_when_every_heartbeat_is_stale(self):
+        """The fail-closed half of that degradation."""
+        self._write_as("some-other-session", self.NOW)
+        with patch.dict(os.environ, _env()):
+            result = hook_liveness.check_liveness(
+                self.smm_dir, now=self.NOW + hook_liveness.STALE_AFTER_SECONDS
+            )
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_NO_MARKER)
 
     def test_session_id_never_reaches_the_filename_raw(self):
         """A session id is untrusted input; it must not steer a path."""
