@@ -55,6 +55,11 @@ from pathlib import Path
 #   (the regression TestPluginDataIsolation guards). Listed here to keep this
 #   registry complete, but the PIN below is what contains it: that assignment
 #   overwrites any leaked value, so this strip is belt to its braces.
+# - XP_SMM_MIGRATE: init.sh's relocation override. `off` suppresses relocation
+#   and `force` performs it despite the teammate-liveness gate, so a leaked
+#   value would either hide the migration tests' subject or drive it past the
+#   very guard those tests exist to pin. The migration suite sets it
+#   explicitly per case.
 for _leaked_var in (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -64,6 +69,7 @@ for _leaked_var in (
     "XP_TEAMMATE_NAME",
     "XP_FILE_DOMAIN_DRIFT_TOLERANCE",
     "XP_AGENTS_DATA",
+    "XP_SMM_MIGRATE",
 ):
     os.environ.pop(_leaked_var, None)
 

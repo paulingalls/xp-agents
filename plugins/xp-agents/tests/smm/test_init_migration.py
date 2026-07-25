@@ -247,6 +247,87 @@ class TestMigrationDeclines(_MigrationCase):
         self.assertEqual((legacy / "events.jsonl").read_text(), '{"e":1}\n')
 
 
+class TestMigrateOverride(_MigrationCase):
+    """XP_SMM_MIGRATE exists for the two calls a session cannot make itself:
+    reporting the state without changing it, and overriding the liveness gate
+    when a human knows the worktree is abandoned. Both belong to the manual
+    tool (`migrate_smm_root.py`), which is why the knob lives on init.sh rather
+    than the tool reimplementing relocation."""
+
+    def _worktree(self, legacy: Path) -> Path:
+        wt = legacy.parent / "worktrees" / "worktree-story-001"
+        wt.mkdir(parents=True)
+        return wt
+
+    def test_off_resolves_legacy_without_relocating(self):
+        """A dry run that migrates is not a dry run."""
+        home = self._home("off")
+        legacy = self._seed_legacy(home)
+        result = self._run_init(
+            extra_env={"HOME": str(home), "XP_SMM_MIGRATE": "off"},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(legacy))
+        self.assertFalse(self._new_smm(home).exists())
+        self.assertFalse((legacy / ".migrated-to").exists())
+
+    def test_off_does_not_suppress_an_already_completed_relocation(self):
+        """`off` blocks the copy, not the result of one — otherwise inspecting
+        a migrated project would report the stale legacy tree as authoritative.
+
+        Pins the PRECEDENCE, not the knob: an existing new-root tree wins before
+        legacy discovery is even reached, so deleting the `off` leg entirely
+        leaves this green. `test_off_resolves_legacy_without_relocating` is the
+        one that guards the leg."""
+        home = self._home("off-after")
+        legacy = self._seed_legacy(home)
+        self.assertEqual(self._migrate(home).returncode, 0)
+        result = self._run_init(
+            extra_env={"HOME": str(home), "XP_SMM_MIGRATE": "off"},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
+        self.assertTrue(legacy.exists())
+
+    def test_force_relocates_despite_a_worktree(self):
+        home = self._home("force")
+        legacy = self._seed_legacy(home)
+        self._worktree(legacy)
+        result = self._run_init(
+            extra_env={"HOME": str(home), "XP_SMM_MIGRATE": "force"},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
+        self.assertEqual(
+            (self._new_smm(home) / "events.jsonl").read_text(), '{"e":1}\n'
+        )
+        self.assertTrue(legacy.exists())
+
+    def test_force_relocates_despite_an_in_place_marker(self):
+        home = self._home("force-marker")
+        legacy = self._seed_legacy(home)
+        (legacy / ".in-place-active-worktree-story-002").write_text("live")
+        result = self._run_init(
+            extra_env={"HOME": str(home), "XP_SMM_MIGRATE": "force"},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
+
+    def test_unrecognized_value_is_the_default_not_a_force(self):
+        """A typo must never be read as consent to override the gate."""
+        home = self._home("typo")
+        legacy = self._seed_legacy(home)
+        self._worktree(legacy)
+        result = self._run_init(
+            extra_env={"HOME": str(home), "XP_SMM_MIGRATE": "FORCE"},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.stdout.strip(), str(legacy))
+        self.assertFalse(self._new_smm(home).exists())
+
+
 class TestCrashResidue(_MigrationCase):
     """A partial migration must never read as a complete one."""
 

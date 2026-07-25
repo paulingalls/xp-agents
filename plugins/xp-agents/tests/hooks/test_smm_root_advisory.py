@@ -131,6 +131,30 @@ class TestSessionStartAdvisory(_AdvisoryCase):
         )
         self.assertIn("uninstall", msg)
         self.assertIn("teammate", msg)
+        # Names the tool that answers "what is holding it", with a real path —
+        # an advisory that states a problem and no next step is just noise.
+        self.assertIn("migrate_smm_root.py", msg)
+        self.assertNotIn("{tool}", msg)
+
+    def test_advisory_names_the_tool_under_the_live_plugin_root(self):
+        """Pins the whole path, not just the basename: the cache is versioned,
+        so the advisory resolves the root at message time — a wrong subdirectory
+        or a hardcoded path would still contain the basename and pass the
+        assertion above."""
+        import session_start
+
+        root = self.tmp / "cache" / "xp-agents" / "9.9.9"
+        self._set_env("CLAUDE_PLUGIN_ROOT", str(root))
+        msg = session_start._system_message(
+            "startup", "9.9.9", self._legacy_smm("xp-agents-xp-agents")
+        )
+        # Invoked via python3: the script ships mode 644 like every other CLI
+        # here, so a bare path pasted at a shell would just say "permission
+        # denied".
+        self.assertIn(
+            f"python3 {root / 'scripts' / 'migrate_smm_root.py'}",
+            msg,
+        )
 
     def test_no_advisory_for_safe_root(self):
         import session_start

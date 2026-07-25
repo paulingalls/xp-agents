@@ -53,7 +53,7 @@ See https://code.claude.com/docs/en/hooks.md for full reference. Minimum-viable 
 
 ## SMM Path Resolution
 
-All scripts resolve via `init.sh` (single canonical source). Honors `$SMM_DIR` env override. SMM lives at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` — user level, not project level, and deliberately NOT under `${CLAUDE_PLUGIN_DATA}`, which `claude plugin uninstall` deletes by default. A pre-existing SMM under a legacy plugin-data root is discovered there rather than abandoned. Never hardcode paths.
+All scripts resolve via `init.sh` (single canonical source). Honors `$SMM_DIR` env override. SMM lives at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` — user level, not project level, and deliberately NOT under `${CLAUDE_PLUGIN_DATA}`, which `claude plugin uninstall` deletes by default. A pre-existing SMM under a legacy plugin-data root is discovered there and relocated by copy, unless a teammate looks live. `XP_SMM_MIGRATE=off|force` overrides that for `scripts/migrate_smm_root.py`, the manual inspect/relocate tool — relocation itself lives only in `init.sh`, never in a caller. Never hardcode paths.
 
 ## Hook Registration
 

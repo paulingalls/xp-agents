@@ -225,7 +225,19 @@ if [[ -z "${SMM_DIR:-}" ]]; then
             # plugin-managed directory that `claude plugin uninstall` deletes —
             # unless a teammate is live against it, in which case using it in
             # place is the only safe choice.
-            if ! teammates_are_live "${BASE_DIR}/${PROJECT_ID}/smm"; then
+            #
+            # XP_SMM_MIGRATE overrides that default for the two things a
+            # session cannot decide for itself. `off` resolves without
+            # relocating, so a tool can report the current state without
+            # changing it — a dry run that migrates is not a dry run. `force`
+            # relocates despite the liveness signal, which is the one case
+            # automation must never take on its own: the gate keys on a
+            # worktree DIRECTORY, cleanup refuses on an unmerged branch by
+            # design, and only a human knows whether that directory belongs to
+            # a running teammate or to a story abandoned months ago.
+            if [[ "${XP_SMM_MIGRATE:-}" != "off" ]] &&
+                { [[ "${XP_SMM_MIGRATE:-}" == "force" ]] ||
+                    ! teammates_are_live "${BASE_DIR}/${PROJECT_ID}/smm"; }; then
                 SMM_DIR="$(migrate_legacy_smm \
                     "${BASE_DIR}/${PROJECT_ID}/smm" \
                     "${NEW_BASE}/${PROJECT_ID}/smm")"

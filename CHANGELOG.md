@@ -60,6 +60,19 @@ host-managed root. It is a notice, never a gate, and it is a positive test
 against the at-risk roots: point `XP_AGENTS_DATA` or `SMM_DIR` wherever you like
 and nothing nags you.
 
+**`scripts/migrate_smm_root.py` is the manual half.** Run it with no arguments
+and it reports where the SMM is, where it would go, how big it is, whether the
+root is at risk, and — the part the notice cannot carry — exactly which worktree
+directories and in-place markers are holding relocation back. `--confirm`
+relocates; `--confirm --force` relocates past a signal you have judged stale,
+which is the one call automation must not make for you. It does not implement
+relocation: copying, locking, the whole-tree re-sync and the forward pointer stay
+in `init.sh`, and the tool drives them, so there is no second set of races to
+get wrong. After a relocation it compares both trees and tells you where the old
+copy still is. Only `smm/` moves — a forced relocation names the sibling worktree
+directories it just cut loose, because worktree placement is derived from the
+SMM's parent and `/xp-story-close` will no longer find them.
+
 `CLAUDE_PLUGIN_DATA` is now READ for discovery but never chosen for a new SMM.
 The harness always sets it, so honoring it as a preference would leave every SMM
 in the deletable directory and make this change a no-op.

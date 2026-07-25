@@ -267,8 +267,19 @@ SMM_ROOT_ADVISORY = (
     "NOTE: the shared mental model still lives under the host-managed plugin "
     "data root, which 'claude plugin uninstall' deletes by default. It relocates "
     "itself automatically, but only once no teammate worktree and no in-place "
-    "teammate remain — check for a stale one whose branch never merged."
+    "teammate remain — check for a stale one whose branch never merged. Run "
+    "'python3 {tool}' to see what is holding it."
 )
+
+
+def _advisory() -> str:
+    """The advisory with a copy-pasteable path to the manual tool.
+
+    Resolved at message time rather than hardcoded: the plugin cache is
+    versioned, so a literal path would name whichever release wrote it.
+    """
+    tool = plugin_loader.resolve_plugin_root() / "scripts" / "migrate_smm_root.py"
+    return SMM_ROOT_ADVISORY.format(tool=tool)
 
 
 def _system_message(source: str, version: str, smm_dir: Path | None = None) -> str:
@@ -286,7 +297,7 @@ def _system_message(source: str, version: str, smm_dir: Path | None = None) -> s
     if _is_fresh_start(source):
         base = f"{base} Run /xp-kickoff."
     if smm_dir is not None and smm_dir_resolve.is_under_plugin_managed_root(smm_dir):
-        return f"{base} {SMM_ROOT_ADVISORY}"
+        return f"{base} {_advisory()}"
     return base
 
 
