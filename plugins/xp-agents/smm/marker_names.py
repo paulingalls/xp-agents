@@ -32,6 +32,7 @@ COORDINATION_JSON = ".coordination.json"
 COORDINATION_LOCK = ".coordination.lock"
 SISTER_TEST_LAYOUT_WARN = ".sister-test-layout-warn"
 TEAMMATE_CONFIG = ".teammate-config"
+HOOK_HEARTBEAT = ".hook-heartbeat"
 
 QUESTION_NUDGED = ".question-nudged-{agent_id}"
 TEAMMATE_REPORT = ".teammate-report-{name}.txt"
