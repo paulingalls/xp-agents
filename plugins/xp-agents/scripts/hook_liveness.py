@@ -13,7 +13,7 @@ refresh the marker and the preload that consumes the verdict live
 elsewhere.
 """
 
-import json
+import math
 import os
 import sys
 import time
@@ -115,20 +115,6 @@ def resolve_session_id() -> str | None:
     return None
 
 
-def _plugin_version() -> str:
-    """Version of the plugin whose hook wrote the heartbeat.
-
-    Duplicated from session_start's private reader rather than imported: a
-    library module must not import a hook entry point, and the hooks that
-    call this one will import this module.
-    """
-    try:
-        path = plugin_loader.resolve_plugin_root() / ".claude-plugin" / "plugin.json"
-        return str(json.loads(path.read_text(encoding="utf-8")).get("version", "?"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return "?"
-
-
 # ---------------------------------------------------------------------------
 # Write
 # ---------------------------------------------------------------------------
@@ -150,7 +136,7 @@ def write_heartbeat(
         markers.HOOK_HEARTBEAT,
         {
             "session_id": session_id,
-            "plugin_version": _plugin_version(),
+            "plugin_version": plugin_loader.plugin_version(),
             "written_at": time.time() if now is None else now,
         },
     )
@@ -159,6 +145,27 @@ def write_heartbeat(
 # ---------------------------------------------------------------------------
 # Predicate
 # ---------------------------------------------------------------------------
+
+
+def _age_seconds(now: float, written_at: object) -> float | None:
+    """Heartbeat age, or None when the timestamp is not a usable number.
+
+    Three ways a JSON number gets past a bare isinstance check, and on a
+    fail-CLOSED predicate two of them fail OPEN: `bool` is an `int`
+    subclass; `NaN` and `Infinity` are values `json.loads` accepts by
+    default, and neither compares True against the staleness threshold, so
+    a corrupt marker would read as live. An out-of-range int overflows the
+    float conversion outright, which raises rather than returning a verdict.
+    """
+    if not isinstance(written_at, (int, float)) or isinstance(written_at, bool):
+        return None
+    try:
+        value = float(written_at)
+    except OverflowError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return now - value
 
 
 def _describe(seconds: float) -> str:
@@ -190,10 +197,9 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
             CODE_NO_MARKER,
         )
 
-    written_at = data.get("written_at")
-    if not isinstance(written_at, (int, float)) or isinstance(written_at, bool):
+    age = _age_seconds(now, data.get("written_at"))
+    if age is None:
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
-    age = now - float(written_at)
     session_id = resolve_session_id()
     if session_id is not None and data.get("session_id") != session_id:
         return Liveness(

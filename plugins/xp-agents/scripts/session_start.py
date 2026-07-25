@@ -8,7 +8,6 @@ Sets .needs-kickoff marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -276,18 +275,6 @@ def run(
 # ---------------------------------------------------------------------------
 
 
-def _get_version() -> str:
-    """Read plugin version from plugin.json."""
-    try:
-        plugin_json = (
-            plugin_loader.resolve_plugin_root() / ".claude-plugin" / "plugin.json"
-        )
-        data = json.loads(plugin_json.read_text())
-        return data.get("version", "?")
-    except (OSError, json.JSONDecodeError, ValueError):
-        return "?"
-
-
 SMM_ROOT_ADVISORY = (
     "NOTE: the shared mental model still lives under the host-managed plugin "
     "data root, which 'claude plugin uninstall' deletes by default. It relocates "
@@ -352,7 +339,7 @@ def main() -> None:
     smm_dir = _resolve_via_init_sh() if resolves else None
     context = run(input_data, smm_dir, already_resolved=resolves)
     if context is not None:
-        version = _get_version()
+        version = plugin_loader.plugin_version()
         source = input_data.get("source", "")
         _common.hook_output(
             "SessionStart",

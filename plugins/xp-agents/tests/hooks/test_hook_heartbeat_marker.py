@@ -43,7 +43,10 @@ class TestHeartbeatMarkerDefinition(_HookTestCase):
         A heartbeat consumed there and rewritten moments later is churn, and
         an ordering change would erase the signal this feature exists to read.
         """
-        self.assertNotIn(markers.HOOK_HEARTBEAT, markers._STALE_SESSION_MARKERS)
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
+            hook_liveness.write_heartbeat(self.smm_dir)
+        markers.sweep_stale_session_markers(self.smm_dir)
+        self.assertTrue(markers.marker_exists(self.smm_dir, markers.HOOK_HEARTBEAT))
 
 
 class TestPredicateWithoutMarker(_HookTestCase):
@@ -170,10 +173,16 @@ class TestAgeBoundary(_HookTestCase):
         super().setUp()
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
             hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW)
-        self.enterContext(patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")))
 
     def _at(self, age: float) -> hook_liveness.Liveness:
-        return hook_liveness.check_liveness(self.smm_dir, now=self.NOW + age)
+        # The env patch stays INSIDE the test body. Entered from setUp via
+        # enterContext/addCleanup it would exit AFTER tearDown, and
+        # `patch.dict`'s exit restores the whole mapping from its entry
+        # snapshot — reinstating the SMM_DIR that `_SMMTestCase.tearDown`
+        # had just popped, pointed at a deleted temp dir, for every later
+        # test in the worker.
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
+            return hook_liveness.check_liveness(self.smm_dir, now=self.NOW + age)
 
     def test_one_second_inside_the_threshold_is_live(self):
         self.assertTrue(self._at(hook_liveness.STALE_AFTER_SECONDS - 1).live)
@@ -219,6 +228,41 @@ class TestPredicateOnUnusableMarker(_HookTestCase):
             '{"session_id": "x", "written_at": "yesterday"}', encoding="utf-8"
         )
         result = hook_liveness.check_liveness(self.smm_dir)
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_boolean_timestamp_reports_not_live(self):
+        """`bool` is an `int` subclass, so a plain isinstance check admits it."""
+        self._marker_path().write_text(
+            '{"session_id": null, "written_at": true}', encoding="utf-8"
+        )
+        with patch.dict(os.environ, _env()):
+            result = hook_liveness.check_liveness(self.smm_dir)
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_non_finite_timestamp_reports_not_live(self):
+        """JSON admits NaN/Infinity, and neither compares True against the
+        threshold — on a fail-CLOSED check that silently reads as live."""
+        for literal in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(literal=literal):
+                self._marker_path().write_text(
+                    f'{{"session_id": null, "written_at": {literal}}}',
+                    encoding="utf-8",
+                )
+                with patch.dict(os.environ, _env()):
+                    result = hook_liveness.check_liveness(self.smm_dir)
+                self.assertFalse(result.live)
+                self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_out_of_range_timestamp_reports_not_live(self):
+        """A JSON int too large to become a float must read as corrupt, not
+        raise out of a predicate whose whole job is to return a verdict."""
+        self._marker_path().write_text(
+            f'{{"session_id": null, "written_at": {"1" * 400}}}', encoding="utf-8"
+        )
+        with patch.dict(os.environ, _env()):
+            result = hook_liveness.check_liveness(self.smm_dir)
         self.assertFalse(result.live)
         self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
 

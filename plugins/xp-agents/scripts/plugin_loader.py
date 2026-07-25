@@ -18,6 +18,7 @@ source-order test runs would poison the result for every subsequent
 in-process caller.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -28,6 +29,20 @@ def resolve_plugin_root() -> Path:
     if env_root:
         return Path(env_root)
     return Path(__file__).parent.parent
+
+
+def plugin_version() -> str:
+    """Version string from the plugin manifest, or '?' if unreadable.
+
+    Lives here rather than in a hook entry point: a library module must not
+    import a hook, so every reader that is not session_start would otherwise
+    copy this.
+    """
+    try:
+        path = resolve_plugin_root() / ".claude-plugin" / "plugin.json"
+        return str(json.loads(path.read_text(encoding="utf-8")).get("version", "?"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return "?"
 
 
 def expand_plugin_root(text: str) -> str:
