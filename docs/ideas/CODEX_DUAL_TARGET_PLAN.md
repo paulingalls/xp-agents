@@ -174,8 +174,8 @@ prerequisite the Claude direction does not.
 | 7 | `TeammateIdle` / `TaskCompleted` / `WorktreeCreate` — Claude platform events. Already near-no-ops for CLI teammates (gate on `teammate_name`, an Agent-Teams-only field). | Low | Claude-only; omit from codex hooks variant. (P2) |
 | 8 | stream-json parse in `teammate_output_filter.py` (`total_cost_usd`, `num_turns`, `result`). Audited: only ~6 coupling points, so the interface is genuinely small. | High | Codex JSONL parser behind same interface. Verified `--json` event spec 2026-07-24: `thread.started`, `turn.started`, `turn.completed`, `item.started`, `item.completed`, `item.failed`, `error`. The final message is the last `item.completed` of type `agent_message` (or just use `-o <path>`). `turn.completed.usage` carries `input_tokens`, `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens` — **no cost field**, so `total_cost_usd` has no direct analogue and cost must be derived or reported as tokens (see open question #4). `num_turns` maps to counting `turn.completed` events. (P3) |
 | 9a | **Sandbox reach.** SMM lives outside the worktree (user-level) — Codex `workspace-write` sandbox may block the teammate's own `append.sh` shell calls. | High | First test `--sandbox workspace-write --add-dir "$SMM_DIR" --add-dir "$WORKTREE_BASE"`; use `danger-full-access` only if that fails. Decide in P0. (P3) |
-| 9b | **Path divergence (worse than 9a, and silent).** `smm/init.sh` derives `BASE_DIR` from `CLAUDE_PLUGIN_DATA` with a hardcoded `$HOME/.claude/...` fallback. `PROJECT_ID` (hash of the absolute git-common-dir) is harness-neutral, but the *root* is not. So a Claude lead and a Codex lead on the same repo resolve **two different SMMs with no error** — which defeats the broadcast-log premise. Codex's native `PLUGIN_DATA` is never consulted; and if Codex drops the `CLAUDE_PLUGIN_DATA` compat alias, a Codex-only user silently gets a `~/.claude` tree. | **High** | Resolution order becomes `XP_AGENTS_DATA` → `PLUGIN_DATA` → `CLAUDE_PLUGIN_DATA` → neutral `$HOME/.xp-agents/data` default, plus a read-side migration/symlink for existing SMMs. Decided; see "SMM root" below. Spawned teammates are already safe (the lead exports `SMM_DIR` and `init.sh` honors it verbatim) — this bites *independent leads* and fresh Codex sessions. (P1) |
-| 9c | **`CLAUDE_PLUGIN_DATA` IS DELETED ON UNINSTALL — the SMM lives there.** The Claude plugins reference: the data directory "is deleted automatically when you uninstall the plugin from the last scope where it is installed… The CLI deletes by default; pass `--keep-data` to preserve it." `${CLAUDE_PLUGIN_DATA}` resolves to `~/.claude/plugins/data/{id}/`, which is exactly where `init.sh` puts `events.jsonl`, `sprint.json`, `execution_plan.json`, `system_context.json`, `session_history.json`, and every retrospective. It survives *updates* ("outlives any single plugin version") but not uninstall. | **High — and live on Claude today, with no Codex involved** | This converts the gap #9b decision from "harness hygiene" into **data-loss prevention**: moving the SMM to `XP_AGENTS_DATA` / `~/.xp-agents` takes the project's entire memory out of a directory managed by plugin lifecycle operations. Ship the P1 SMM-root change with a migration that *copies* rather than moves, and document `--keep-data` for anyone on the old layout. Worth its own release note — a user who uninstalls to reinstall a newer version currently loses all XP history silently. (P1, urgent) |
+| 9b | **CLOSED for the Claude side in v5.0.0; the Codex half lands when the codex row is built.** **Path divergence (worse than 9a, and silent).** `smm/init.sh` USED TO derive `BASE_DIR` from `CLAUDE_PLUGIN_DATA` with a hardcoded `$HOME/.claude/...` fallback. `PROJECT_ID` (hash of the absolute git-common-dir) is harness-neutral, but the *root* is not. So a Claude lead and a Codex lead on the same repo resolve **two different SMMs with no error** — which defeats the broadcast-log premise. Codex's native `PLUGIN_DATA` is never consulted; and if Codex drops the `CLAUDE_PLUGIN_DATA` compat alias, a Codex-only user silently gets a `~/.claude` tree. | **High** | Resolution order is `XP_AGENTS_DATA` → neutral `$HOME/.xp-agents/data`, with host roots as discovery-only candidates and a copy-not-move relocation for existing SMMs. Shipped; see "SMM root" below. The originally planned `→ PLUGIN_DATA → CLAUDE_PLUGIN_DATA` preference chain was rejected — it re-creates this very gap. Spawned teammates are already safe (the lead exports `SMM_DIR` and `init.sh` honors it verbatim) — this bites *independent leads* and fresh Codex sessions. (P1) |
+| 9c | **CLOSED — shipped in v5.0.0 (see P1 item 7).** **`CLAUDE_PLUGIN_DATA` IS DELETED ON UNINSTALL — the SMM lives there.** The Claude plugins reference: the data directory "is deleted automatically when you uninstall the plugin from the last scope where it is installed… The CLI deletes by default; pass `--keep-data` to preserve it." `${CLAUDE_PLUGIN_DATA}` resolves to `~/.claude/plugins/data/{id}/`, which is exactly where `init.sh` puts `events.jsonl`, `sprint.json`, `execution_plan.json`, `system_context.json`, `session_history.json`, and every retrospective. It survives *updates* ("outlives any single plugin version") but not uninstall. | **High — and live on Claude today, with no Codex involved** | This converts the gap #9b decision from "harness hygiene" into **data-loss prevention**: moving the SMM to `XP_AGENTS_DATA` / `~/.xp-agents` takes the project's entire memory out of a directory managed by plugin lifecycle operations. Ship the P1 SMM-root change with a migration that *copies* rather than moves, and document `--keep-data` for anyone on the old layout. Worth its own release note — a user who uninstalls to reinstall a newer version currently loses all XP history silently. (P1, urgent) |
 | 10 | Hook trust: non-managed Codex hooks need one interactive trust review per content hash; re-review after every plugin update. | Medium — but see gap #18, which reframes the *consequence* of untrusted hooks from friction to silent non-enforcement. | Headless teammates: `--dangerously-bypass-hook-trust`. Interactive leads: documented `/hooks` trust step in install docs. **Better option the earlier draft missed:** hooks delivered via `requirements.toml` are "marked as managed, trusted by policy, and can't be disabled" — the right answer for org/CI deployments, and it removes the re-review-per-update tax entirely. Worth evaluating in P2 rather than treating bypass flags as the only path. (P2/P5) |
 | 11 | PreToolUse shell coverage — a commit gate with a bypass hole is not a gate. | **Downgraded from "Blocker if real" to High-verify.** | The current hooks reference says PreToolUse intercepts `Bash`, `apply_patch`, MCP tools, and most local function tools, and names one documented exception: **hosted tools such as `WebSearch`**, which don't use the local hook path. Our commit gate rides `PreToolUse:Bash`, which is squarely in the intercepted set, and no hosted tool can run `git commit`. So the feared hole appears not to exist as described. Still confirm empirically in P0 — enumerate every shell path — but this is no longer a plausible no-go. |
 | 12 | **Tier vocabulary is Claude model names, and it is load-bearing.** `smm/tier_wire.py` single-sources `TEAMMATE_MODELS = {haiku, sonnet, opus, fable}`, which fans out to 4 shipped code importers (`markers.py`, `retrospective.py`, `spawn_command.py`, `smm/sprint_schema.py`), 4 prose files (`agents/xp-plan-reviewer.md`; `xp-assign` / `xp-kickoff` / `xp-schedule` SKILL.md), and 5 binding tests that pin the prose to the constants. Because `sprint_schema.py` is a consumer, **persisted** `sprint.json` / `execution_plan.json` carry these strings. `TEAMMATE_EFFORTS` (`low…max`) is likewise described in-file as a Claude knob; Codex's `model_reasoning_effort` has no `xhigh`/`max`, so `effort_supported()` needs harness awareness too. | **High** (was Medium — this is a vocabulary refactor across a prose-pin test surface, not a flag mapping) | Abstract tiers + per-harness lookup table. Decided; see "Tier abstraction" below. (P1 for the refactor, P3 to fill the codex row) |
@@ -258,17 +258,20 @@ events; these are the rationale, not a re-litigation.
 
 ### SMM root (gap #9b)
 
-Resolution order in `smm/init.sh`:
+**SHIPPED in v5.0.0.** Resolution order in `smm/init.sh` is now:
 
 ```bash
-BASE_DIR="${XP_AGENTS_DATA:-${PLUGIN_DATA:-${CLAUDE_PLUGIN_DATA:-$HOME/.xp-agents/data}}}"
+BASE_DIR="${XP_AGENTS_DATA:-$HOME/.xp-agents/data}"
 SMM_DIR="${BASE_DIR}/${PROJECT_ID}/smm"
 ```
 
-A dedicated `XP_AGENTS_DATA` wins, then the harness-native var, then the Claude
-compat alias, then a harness-neutral default. `PROJECT_ID` (hash of the absolute
-git-common-dir) is unchanged — it is already harness-neutral and is what makes
-every worktree share one SMM.
+A dedicated `XP_AGENTS_DATA` wins, then a harness-neutral default, and **nothing
+else is a preference**. Host-managed roots (`CLAUDE_PLUGIN_DATA`, and Codex's
+`PLUGIN_DATA` when that row is built) are consulted only as a *discovery*
+candidate list for an SMM that already exists, never to choose where a new one
+goes — see P1 item 7 for why treating either as a preference defeats the purpose.
+`PROJECT_ID` (hash of the absolute git-common-dir) is unchanged — it is already
+harness-neutral and is what makes every worktree share one SMM.
 
 **Rejected: anchoring the SMM to the git common dir** (`$GIT_COMMON_DIR/xp-agents/smm`).
 Tempting — identical across harnesses by construction, no env var, and seemingly
@@ -631,14 +634,27 @@ each story; behavior on Claude Code unchanged.
    door. Pin both so a future refactor cannot quietly remove the only doors that
    survive on Codex. Sequence **after** item 4 — the write door needs apply_patch
    normalization to fire on Codex at all.
-7. **Harness-neutral SMM root** (gaps #9b **and #9c**) — do this **first** in the
-   phase. `init.sh` resolution order becomes `XP_AGENTS_DATA` → `PLUGIN_DATA` →
-   `CLAUDE_PLUGIN_DATA` → `$HOME/.xp-agents/data`. Gap #9c makes it urgent and
-   entirely Claude-relevant: `CLAUDE_PLUGIN_DATA` is **deleted on plugin
-   uninstall**, so today the SMM is one `claude plugin uninstall` away from total
-   loss. Migration **copies**, never moves; the release note says so plainly; and
-   document `--keep-data` for anyone still on the old layout. Test that the worktree
-   sibling base (gap #17) moves with it.
+7. ~~**Harness-neutral SMM root** (gaps #9b **and #9c**)~~ — **SHIPPED in v5.0.0**,
+   ahead of the rest of the phase, because #9c was live on Claude with no Codex
+   involved. What landed differs from what this item originally specified, and
+   the difference is the point: the resolution order is **`XP_AGENTS_DATA` →
+   `$HOME/.xp-agents/data`, and nothing else is a preference.** The originally
+   planned `XP_AGENTS_DATA` → `PLUGIN_DATA` → `CLAUDE_PLUGIN_DATA` → `$HOME/…`
+   chain does **not** achieve the goal and must not be revived: the host always
+   sets `CLAUDE_PLUGIN_DATA`, so honoring it as a preference leaves every SMM in
+   the deletable directory and makes the fix a no-op in exactly the case it
+   exists for — and `PLUGIN_DATA` is Codex's native data root, so honoring it
+   re-creates the per-harness split that IS gap #9b. Both host roots are still
+   **read**, but only to discover an SMM that already exists, via a candidate
+   list rather than one path (the variable is absent in some hook processes, and
+   a dev-mode install resolves the plugin id differently).
+
+   Relocation copies and never moves, and declines while any teammate is live —
+   worktree directories **or** in-place markers. On the gap #17 worktree sibling
+   base: it does not migrate. It derives from the SMM's parent, so live
+   worktrees would be orphaned by a move; the liveness gate is what protects
+   them, and a SessionStart advisory covers the case where a stale worktree
+   directory holds the gate on indefinitely.
 8. **Abstract tier vocabulary** (gap #12). Rename `tier_wire` constants to
    `economy`/`standard`/`advanced`/`frontier`, introduce the `HARNESSES` table with
    the claude row populated, make `effort_supported()` harness-aware, add read-side
@@ -779,7 +795,7 @@ each story; behavior on Claude Code unchanged.
 | Trust-review UX tax alienates Codex users | Medium | Batch hook changes per release; document; prefer `requirements.toml` managed hooks (trusted by policy, cannot be disabled) for org deployments |
 | **Silent non-enforcement**: hooks not trusted (gap #18) or a too-old Codex (gap #19) yields a session that looks enforced but is not — teammates commit unreviewed code and nothing reports it | **High** | The P1 liveness heartbeat is the mitigation, and it is why that item is P1 rather than P4. Treat any gate that can vanish quietly as a correctness bug, not a UX issue |
 | Codex model ids and effort support churn (versions move fast) | High | The `HARNESSES` table is data; keep model ids in one place, pin a canary CI job, and never infer a tier mapping in code |
-| **SMM destroyed by a plugin uninstall** (gap #9c) — happens today on Claude, no Codex needed, and it is silent | **High / already live** | P1 item 7 moves the SMM out of `CLAUDE_PLUGIN_DATA`; until it ships, document `--keep-data`. Treat this as the phase's first story, not a dual-target nicety |
+| ~~**SMM destroyed by a plugin uninstall** (gap #9c)~~ — happened today on Claude, no Codex needed, and silently | ~~**High / already live**~~ **CLOSED in v5.0.0** | P1 item 7 shipped ahead of the phase. Residual, tracked as concerns rather than re-opened here: relocation declines while a stale worktree directory exists (mitigated by a SessionStart advisory), and a teammate pinned to the old path at spawn keeps appending there because the SMM handle short-circuits resolution |
 | Lifecycle skills fire out of order via implicit invocation (gap #26) — also already live on Claude | Medium | `policy.allow_implicit_invocation: false` on Codex; audit `description` fields on both harnesses so they do not read as task-matching bait |
 | GPT-5.x-codex responds differently to gate pressure (stop-gate loops, block-reason compliance) | **Medium likelihood, high impact — and entirely unmeasured.** The only risk here with no supporting evidence either way | **Observed in P0**, not deferred to P3: the spike already runs a real teammate, so watching gate compliance is nearly free there, and it is a no-go criterion. P3's deliberately-blocked integration test then becomes a regression test rather than the first look. Tune `TEAMMATE_GUIDE` prose per harness if needed. Compounds with gap #31 — a looping model plus a gate that cannot release is an unbounded token burn |
 | Maintenance: every new hook now has two targets | Certain | Generation + pin test makes drift a test failure, not a code-review hope |
