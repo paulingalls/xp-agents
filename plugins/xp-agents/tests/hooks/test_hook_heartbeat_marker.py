@@ -134,6 +134,45 @@ class TestPredicateSessionAndFreshness(_HookTestCase):
         self.assertEqual(data["session_id"], "from-payload")
 
 
+class TestPredicateOnUnusableMarker(_HookTestCase):
+    """`marker_read` already returns None for a symlink and for corrupt
+    JSON. These assert the predicate does not undo that guarantee, and that
+    it separates "cannot tell" from "told, and the answer is no"."""
+
+    def _marker_path(self) -> Path:
+        return markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT)
+
+    def test_corrupt_json_reports_not_live_without_raising(self):
+        self._marker_path().write_text("{not json", encoding="utf-8")
+        result = hook_liveness.check_liveness(self.smm_dir)
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_symlinked_marker_reports_not_live_without_raising(self):
+        real = self.smm_dir / "planted.json"
+        real.write_text('{"session_id": "x", "written_at": 0}', encoding="utf-8")
+        self._marker_path().symlink_to(real)
+        result = hook_liveness.check_liveness(self.smm_dir)
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_non_numeric_timestamp_reports_not_live_without_raising(self):
+        self._marker_path().write_text(
+            '{"session_id": "x", "written_at": "yesterday"}', encoding="utf-8"
+        )
+        result = hook_liveness.check_liveness(self.smm_dir)
+        self.assertFalse(result.live)
+        self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_unreadable_is_not_conflated_with_absent(self):
+        """Both refuse, but only one of them means "no hook has run"."""
+        absent = hook_liveness.check_liveness(self.smm_dir)
+        self._marker_path().write_text("{not json", encoding="utf-8")
+        unreadable = hook_liveness.check_liveness(self.smm_dir)
+        self.assertNotEqual(absent.code, unreadable.code)
+        self.assertNotEqual(absent.reason, unreadable.reason)
+
+
 class TestSessionIdChain(_HookTestCase):
     """Adding a harness must be a data change, not a redesign."""
 

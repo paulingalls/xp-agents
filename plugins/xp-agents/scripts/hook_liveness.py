@@ -55,6 +55,12 @@ CODE_LIVE = "live"
 CODE_NO_MARKER = "no-marker"
 CODE_SESSION_MISMATCH = "session-mismatch"
 CODE_STALE = "stale"
+CODE_UNREADABLE = "unreadable"
+
+# Codes meaning "could not determine" rather than "determined not live". Both
+# refuse — a check that cannot see is not a check that passed — but only the
+# determined ones support a diagnosis, so callers phrase them differently.
+UNDETERMINED_CODES = frozenset({CODE_UNREADABLE})
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +80,12 @@ class Liveness:
 _NOT_LOADED = (
     "The hook runtime is not running: the plugin providing it is likely "
     "not loaded, disabled, or registered under a path that no longer exists."
+)
+
+_UNREADABLE_REASON = (
+    "A hook-liveness heartbeat exists but cannot be read — it is corrupt, or "
+    "it has been replaced by a link. Whether the hook runtime is running "
+    "cannot be determined, so it must not be assumed."
 )
 
 
@@ -157,15 +169,24 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
             discoverable) AND the heartbeat is younger than the threshold.
     """
     now = time.time() if now is None else now
+    path = markers.marker_path(smm_dir, markers.HOOK_HEARTBEAT)
     data = markers.marker_read(smm_dir, markers.HOOK_HEARTBEAT)
     if not isinstance(data, dict):
+        # `marker_read` collapses missing, symlinked and corrupt into None.
+        # Anything present-but-unreadable is a different claim from nothing
+        # ever having been written, so split them back apart here.
+        if path.is_symlink() or path.exists():
+            return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
         return Liveness(
             False,
             f"No hook-liveness heartbeat has been recorded. {_NOT_LOADED}",
             CODE_NO_MARKER,
         )
 
-    age = now - float(data.get("written_at", 0.0))
+    written_at = data.get("written_at")
+    if not isinstance(written_at, (int, float)) or isinstance(written_at, bool):
+        return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
+    age = now - float(written_at)
     session_id = resolve_session_id()
     if session_id is not None and data.get("session_id") != session_id:
         return Liveness(
