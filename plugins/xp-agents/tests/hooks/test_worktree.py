@@ -110,8 +110,8 @@ class TestWorktreePath(unittest.TestCase):
             self.assertNotIn(Path(git_root).resolve(), result.parents)
 
     def test_falls_back_to_in_repo_when_base_unavailable(self):
-        """When the out-of-repo base can't be resolved (CLAUDE_PLUGIN_DATA
-        unavailable), worktree_path degrades to the legacy in-repo placement —
+        """When the out-of-repo base can't be resolved (no SMM data root
+        available), worktree_path degrades to the legacy in-repo placement —
         AC3, safe degradation, not a crash."""
         with tempfile.TemporaryDirectory() as tmpdir:
             init_repo(tmpdir)

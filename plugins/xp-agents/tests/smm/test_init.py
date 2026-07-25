@@ -193,6 +193,21 @@ class TestInitHonorsXpAgentsDataEnv(_TempRepoTestCase):
     in later commits, so nothing resolved by an existing project changes yet.
     """
 
+    def _legacy_only_env(self, legacy_root: Path) -> dict:
+        """Env whose ONLY reachable data root is `legacy_root`.
+
+        HOME is redirected too. Without it, containment for the tests that
+        disable XP_AGENTS_DATA rests entirely on init.sh keeping
+        CLAUDE_PLUGIN_DATA in the chain — drop or reorder that leg (commit 3
+        changes the default root) and derivation lands in the developer's real
+        ~/.claude tree. Verified: with that leg removed these tests write a
+        project-id dir into the real root.
+        """
+        return {
+            "CLAUDE_PLUGIN_DATA": str(legacy_root),
+            "HOME": str(self.tmpdir / "fake-home"),
+        }
+
     def test_xp_agents_data_is_used_when_set(self):
         root = self.tmpdir / "xp-data-root"
         result = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
@@ -206,16 +221,29 @@ class TestInitHonorsXpAgentsDataEnv(_TempRepoTestCase):
 
     def test_xp_agents_data_outranks_claude_plugin_data(self):
         """The whole point: the harness always sets CLAUDE_PLUGIN_DATA, so a
-        chain that lets it win would be a no-op for every real user."""
-        root = self.tmpdir / "xp-data-wins"
-        result = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
+        chain that lets it win would be a no-op for every real user.
+
+        Sets BOTH roots explicitly. `self._plugin_data_dir` is the value of
+        XP_AGENTS_DATA now, not CLAUDE_PLUGIN_DATA, so asserting against it
+        would prove nothing about precedence — deleting CLAUDE_PLUGIN_DATA
+        from init.sh's chain entirely would leave that version green.
+        """
+        winner = self.tmpdir / "xp-data-wins"
+        loser = self.tmpdir / "claude-data-loses"
+        result = self._run_init(
+            extra_env={
+                "XP_AGENTS_DATA": str(winner),
+                "CLAUDE_PLUGIN_DATA": str(loser),
+            }
+        )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
         derived = Path(result.stdout.strip())
-        self.assertTrue(derived.is_relative_to(root))
+        self.assertTrue(derived.is_relative_to(winner), f"got {derived}")
         self.assertFalse(
-            derived.is_relative_to(self._plugin_data_dir),
+            derived.is_relative_to(loser),
             "CLAUDE_PLUGIN_DATA must not win over XP_AGENTS_DATA",
         )
+        self.assertFalse(loser.exists(), "the losing root must not be created")
 
     def test_smm_dir_still_outranks_xp_agents_data(self):
         """SMM_DIR stays the single canonical handle — it is how a teammate
@@ -232,36 +260,60 @@ class TestInitHonorsXpAgentsDataEnv(_TempRepoTestCase):
 
     def test_unset_leaves_existing_behavior_unchanged(self):
         """Commit-1 safety property: with XP_AGENTS_DATA absent, every project
-        resolves exactly where it did before."""
-        result = self._run_init()
+        resolves exactly where it did before.
+
+        Must genuinely UNSET it — setUpClass pins XP_AGENTS_DATA as the suite's
+        containment root, so `_run_init()` alone leaves it set and this would
+        restate `test_xp_agents_data_is_used_when_set`.
+        """
+        legacy = self.tmpdir / "legacy-unset"
+        result = self._run_init(
+            extra_env=self._legacy_only_env(legacy), unset=("XP_AGENTS_DATA",)
+        )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
         derived = Path(result.stdout.strip())
         self.assertTrue(
-            derived.is_relative_to(self._plugin_data_dir),
-            f"expected {self._plugin_data_dir}, got {derived}",
+            derived.is_relative_to(legacy),
+            f"expected {legacy}, got {derived}",
         )
 
     def test_empty_xp_agents_data_falls_through(self):
-        result = self._run_init(extra_env={"XP_AGENTS_DATA": ""})
+        """`:-` (not `-`) so an empty value falls through, same as unset.
+
+        Supplies its OWN CLAUDE_PLUGIN_DATA: with the session pin now on
+        XP_AGENTS_DATA, emptying it and relying on the ambient env would fall
+        through to a REAL root and litter it.
+        """
+        legacy = self.tmpdir / "legacy-fallthrough"
+        result = self._run_init(
+            extra_env={"XP_AGENTS_DATA": "", **self._legacy_only_env(legacy)}
+        )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
         derived = Path(result.stdout.strip())
-        self.assertTrue(derived.is_relative_to(self._plugin_data_dir))
+        self.assertTrue(
+            derived.is_relative_to(legacy),
+            f"expected fallthrough to {legacy}, got {derived}",
+        )
 
     def test_only_the_root_changes_not_the_project_id(self):
         """`{project-id}/smm` must be identical under either root.
 
         The later migration commits copy `<old-root>/<pid>/smm` to
         `<new-root>/<pid>/smm`; that is only sound while the root is the
-        one and only thing XP_AGENTS_DATA changes.
+        one and only thing XP_AGENTS_DATA changes. So the two arms must
+        resolve via the two DIFFERENT vars, not two values of the same one.
         """
         root = self.tmpdir / "xp-data-suffix"
+        legacy = self.tmpdir / "legacy-suffix"
         with_xp = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
-        without = self._run_init()
+        without = self._run_init(
+            extra_env=self._legacy_only_env(legacy), unset=("XP_AGENTS_DATA",)
+        )
         self.assertEqual(with_xp.returncode, 0, f"init.sh failed: {with_xp.stderr}")
         self.assertEqual(without.returncode, 0, f"init.sh failed: {without.stderr}")
         self.assertEqual(
             Path(with_xp.stdout.strip()).relative_to(root),
-            Path(without.stdout.strip()).relative_to(self._plugin_data_dir),
+            Path(without.stdout.strip()).relative_to(legacy),
         )
 
     def test_never_resolves_under_the_real_root(self):
@@ -345,7 +397,7 @@ class TestSeedSMM(_TempRepoTestCase):
 
 
 class TestPluginDataIsolation(unittest.TestCase):
-    """conftest must pin CLAUDE_PLUGIN_DATA to a throwaway dir for the whole
+    """conftest must pin XP_AGENTS_DATA to a throwaway dir for the whole
     test session.
 
     Regression for SMM dirs littering the real
@@ -356,22 +408,24 @@ class TestPluginDataIsolation(unittest.TestCase):
     per ephemeral test git repo and leaving it behind.
     """
 
-    def test_xp_agents_data_is_stripped(self):
-        """XP_AGENTS_DATA outranks the CLAUDE_PLUGIN_DATA pin in init.sh, so
-        conftest must strip it — otherwise a dev who exports it (the var's
-        whole purpose) sends every derived test SMM into that real root."""
-        self.assertIsNone(
-            os.environ.get("XP_AGENTS_DATA"),
-            "conftest must strip XP_AGENTS_DATA; it outranks the "
-            "CLAUDE_PLUGIN_DATA test pin",
+    def test_leaked_xp_agents_data_cannot_outrank_the_pin(self):
+        """A dev exporting XP_AGENTS_DATA — the var's whole purpose — must not
+        redirect the suite at their real SMM. conftest strips it and then pins
+        its own value, so what survives is always the throwaway dir."""
+        pd = os.environ.get("XP_AGENTS_DATA")
+        self.assertTrue(pd, "conftest must pin XP_AGENTS_DATA")
+        assert pd is not None
+        self.assertTrue(
+            Path(pd).name.startswith("xp-agents-test-plugin-data-"),
+            f"XP_AGENTS_DATA must be conftest's own throwaway dir, got {pd!r}",
         )
 
     def test_plugin_data_env_is_isolated_tempdir(self):
-        pd = os.environ.get("CLAUDE_PLUGIN_DATA")
-        self.assertTrue(pd, "conftest must set CLAUDE_PLUGIN_DATA for test isolation")
+        pd = os.environ.get("XP_AGENTS_DATA")
+        self.assertTrue(pd, "conftest must set XP_AGENTS_DATA for test isolation")
         self.assertFalse(
             _is_real_root(pd),
-            f"CLAUDE_PLUGIN_DATA must be a throwaway dir, not the real "
+            f"XP_AGENTS_DATA must be a throwaway dir, not the real "
             f"plugin-data root, got {pd!r}",
         )
 
@@ -379,7 +433,7 @@ class TestPluginDataIsolation(unittest.TestCase):
         # Assert the pin BEFORE invoking init.sh — when red (env not pinned)
         # this fails here, so the test never itself derives under the real
         # root and leaks a dir.
-        pd = os.environ.get("CLAUDE_PLUGIN_DATA")
+        pd = os.environ.get("XP_AGENTS_DATA")
         self.assertTrue(pd and not _is_real_root(pd), "env not isolated")
         assert pd is not None  # narrowed by the assertTrue above (for Pyright)
 

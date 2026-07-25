@@ -349,7 +349,7 @@ class TestResolveSmmDir(unittest.TestCase):
         target = self.tmpdir / "custom-smm"
         env = {
             "SMM_DIR": str(target),
-            "CLAUDE_PLUGIN_DATA": str(self.tmpdir / "plugin-data"),
+            "XP_AGENTS_DATA": str(self.tmpdir / "plugin-data"),
         }
         with mock.patch.dict(os.environ, env, clear=False):
             result = _append_impl.resolve_smm_dir()
@@ -358,13 +358,13 @@ class TestResolveSmmDir(unittest.TestCase):
     def test_empty_smm_dir_falls_through_to_derivation(self):
         """Empty SMM_DIR should not short-circuit."""
         plugin_data = self.tmpdir / "plugin-data"
-        env = {"SMM_DIR": "", "CLAUDE_PLUGIN_DATA": str(plugin_data)}
+        env = {"SMM_DIR": "", "XP_AGENTS_DATA": str(plugin_data)}
         with mock.patch.dict(os.environ, env, clear=False):
             result = _append_impl.resolve_smm_dir()
         self.assertIsNotNone(result)
         self.assertTrue(
             str(result).startswith(str(plugin_data)),
-            f"expected derived path under CLAUDE_PLUGIN_DATA, got {result}",
+            f"expected derived path under XP_AGENTS_DATA, got {result}",
         )
 
     def test_returns_none_when_not_in_git_repo(self):
@@ -386,7 +386,7 @@ class TestResolveSmmDir(unittest.TestCase):
         """When SMM_DIR is unset, the returned path matches what init.sh produces."""
         plugin_data = self.tmpdir / "plugin-data"
         env_overrides = {k: v for k, v in os.environ.items() if k != "SMM_DIR"} | {
-            "CLAUDE_PLUGIN_DATA": str(plugin_data)
+            "XP_AGENTS_DATA": str(plugin_data)
         }
 
         with mock.patch.dict(os.environ, env_overrides, clear=True):
