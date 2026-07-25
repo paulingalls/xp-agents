@@ -147,9 +147,9 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
         # pointer is not derivation — it is the same handle, relocated — so the
         # fail-closed rule above is intact, and this reader stays on the one
         # tree every other reader and writer uses.
-        from smm_dir_resolve import _follow_migration_pointer
+        from smm_dir_resolve import follow_migration_pointer
 
-        smm_dir = _follow_migration_pointer(Path(env_dir))
+        smm_dir = follow_migration_pointer(Path(env_dir))
     # Deferred import: identity carries no sys.path shim of its own (its
     # module-level imports are stdlib-only) — a top-level `import _common`
     # would resolve only by the side effect of some other module having

@@ -4,7 +4,14 @@ History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
 ## v5.0.0 — The SMM moves out of the deletable directory
 
-**Major, and the break is worth stating plainly before the reason: the SMM's
+**Two breaking changes ship in this release: the SMM's default location, and
+the branch namespace.** The location is the headline and is covered first; the
+namespace flip is under "The recorded branch namespace is now the one in force"
+below, and it is the one that can change your branch names on upgrade.
+
+### The SMM's default location
+
+**The break is worth stating plainly before the reason: the SMM's
 default location changes, and `CLAUDE_PLUGIN_DATA` no longer chooses it.** Two
 contracts change. Anyone who exported `CLAUDE_PLUGIN_DATA` to place the SMM must
 switch to `XP_AGENTS_DATA`; that variable is still read, but only to *find* an
@@ -86,3 +93,42 @@ the derived root unconditionally, which was harmless when that root was always
 plugin-owned but would have narrowed the mode of `$HOME` for anyone setting
 `XP_AGENTS_DATA=$HOME`. It now narrows only a root it created. The SMM directory
 itself is still always `700`.
+
+### The recorded branch namespace is now the one in force
+
+**The second break: branch names can change on upgrade.**
+`branching_strategy.user_namespace` was inert. `identity.user_namespace()`
+derived the branch prefix from the git `user.email` local-part and never read the
+recorded field, so `system_context.json` could say `alice` while every branch was
+cut as `a-smith/...` — with nothing reporting the disagreement. This repo hit
+exactly that: the analyzer recorded the prefix already on 200+ merged branches,
+the git email had since changed, and the next branch was cut under the new one.
+
+The recorded value now WINS, falling back to git identity when absent or
+unusable. It is user-editable via `system_context_cli edit-branching-field`, so
+it was always meant as an override; an override nothing reads is a lie.
+
+**What changes for you on upgrade.** If your recorded `user_namespace` disagrees
+with your git-derived slug, NEW branches switch to the recorded prefix. Your
+existing ones stay visible: `list_user_branches` — which backs kickoff's
+orphan-branch triage and free-close discovery — searches both the recorded
+namespace and the git-derived one, so nothing cut before the upgrade drops out
+of those listings. What it does not do is RESUME across the change: restarting
+work with the same slug cuts a fresh branch under the new prefix rather than
+picking up the old-prefix one, which is then an orphan the triage will offer
+you. If you would rather not have the switch at all, check
+`branching_strategy.user_namespace` in your rendered system context BEFORE
+upgrading and either edit it to the prefix you actually use or delete the field
+to keep deriving from git.
+
+The field is also now validated as a git ref segment, at the same two points
+`integration_branch` already was: rejected at write time (`user_namespace_error`),
+healed to "no override" at use time (`healed_user_namespace`). It reaches `git
+branch` and `git checkout` as argv, so a leading dash would have arrived as a
+FLAG.
+
+This landed as v4.19.0 on the branch that became this release. There was no
+separate v4.19.0 release, so the entry under that heading in
+[`changelog_pre_v5.md`](changelog_pre_v5.md) is a mid-branch snapshot, not a
+shipped version — where the two disagree (it predates the dual-namespace
+search), this note is the accurate one.

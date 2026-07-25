@@ -175,8 +175,21 @@ def _run_teammate(smm_dir: Path | None) -> str | None:
     return "\n\n".join(parts) if parts else None
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Core session_start logic. Returns additionalContext string or None."""
+def run(
+    input_data: dict,
+    smm_dir: Path | None = None,
+    *,
+    already_resolved: bool = False,
+) -> str | None:
+    """Core session_start logic. Returns additionalContext string or None.
+
+    ``already_resolved`` says the caller has itself run the init.sh resolution
+    and ``smm_dir`` is its verbatim answer, ``None`` included. Retrying it here
+    would spend the whole budget a second time on the one case that most needs
+    a fast answer — a resolution that came back empty is overwhelmingly one
+    that timed out, and a fresh attempt has the same work to redo. In-process
+    callers that pass a dir directly leave this False and keep the fallback.
+    """
     # Recursion prevention
     if _common.is_xp_agent(input_data):
         return None
@@ -186,7 +199,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     source = input_data.get("source", "")
 
-    if smm_dir is None or not smm_dir.exists():
+    if not already_resolved and (smm_dir is None or not smm_dir.exists()):
         smm_dir = _resolve_via_init_sh() or smm_dir
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
@@ -320,7 +333,9 @@ def main() -> None:
     on the session that matters: init.sh performs the one-time relocation, a
     whole-SMM copy, so a second round-trip would pay for that copy twice — and
     restart it from scratch after a timeout, doubling the wait that made the
-    first attempt fail.
+    first attempt fail. ``already_resolved`` is what makes that true rather
+    than merely intended: it suppresses ``run``'s own fallback resolution, so
+    an empty answer here fails fast instead of being retried.
 
     Skipped for the two branches that return without one. A nested xp- agent is
     the recursion guard and does nothing at all. Teammates keep getting None,
@@ -334,7 +349,7 @@ def main() -> None:
         _common.is_xp_agent(input_data) or identity.is_worktree_teammate(input_data)
     )
     smm_dir = _resolve_via_init_sh() if resolves else None
-    context = run(input_data, smm_dir)
+    context = run(input_data, smm_dir, already_resolved=resolves)
     if context is not None:
         version = _get_version()
         source = input_data.get("source", "")

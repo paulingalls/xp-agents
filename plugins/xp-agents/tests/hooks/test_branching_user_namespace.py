@@ -72,9 +72,64 @@ class TestReadersUseTheHandedSmm(_NamespaceCase):
 
     def test_free_listing_finds_branches_under_the_override(self):
         self._branch(f"{_OVERRIDE}/free-2026-01-01-spike")
+        found = branching.list_free_branches(self.cwd, self.smm_dir)
+        self.assertIn(f"{_OVERRIDE}/free-2026-01-01-spike", found)
+
+
+class TestReadersAlsoSeePreUpgradeBranches(_NamespaceCase):
+    """Discovery must span BOTH namespaces while an override is in force.
+
+    Every branch cut before the override was read by anything carries the
+    GIT-derived prefix. Globbing only the override drops all of them from
+    kickoff's orphan triage and from free-close discovery on the very upgrade
+    that introduces the override — the user's existing work goes invisible
+    exactly when they most need it listed.
+
+    ``branch_resolution._slug_rebuilt_sprint_branches`` already dual-searches
+    for the identical upgrade problem, with a written rationale; these are the
+    same problem seen from the read side. Both consumers of these lists only
+    PRINT, so over-listing a branch that is genuinely yours costs nothing while
+    under-listing hides work.
+    """
+
+    def test_free_listing_spans_both_namespaces(self):
+        self._branch(f"{_OVERRIDE}/free-2026-01-01-spike")
         self._branch(f"{_GIT_NS}/free-2026-01-01-other")
         found = branching.list_free_branches(self.cwd, self.smm_dir)
-        self.assertEqual(found, [f"{_OVERRIDE}/free-2026-01-01-spike"])
+        self.assertEqual(
+            sorted(found),
+            sorted(
+                [
+                    f"{_GIT_NS}/free-2026-01-01-other",
+                    f"{_OVERRIDE}/free-2026-01-01-spike",
+                ]
+            ),
+        )
+
+    def test_orphan_listing_spans_both_namespaces(self):
+        self._branch(f"{_OVERRIDE}/story-001-thing")
+        self._branch(f"{_GIT_NS}/story-002-older")
+        found = branch_queries.list_orphan_story_branches(self.cwd, self.smm_dir)
+        self.assertEqual(
+            sorted(found),
+            sorted([f"{_GIT_NS}/story-002-older", f"{_OVERRIDE}/story-001-thing"]),
+        )
+
+    def test_a_branch_matching_both_globs_is_listed_once(self):
+        """With no override recorded the two namespaces collapse to one, and a
+        deduped listing is the difference between one entry and two."""
+        no_override = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        _bf.write_system_context(no_override, stage=2)
+        self._branch(f"{_GIT_NS}/free-2026-01-01-solo")
+        found = branching.list_free_branches(self.cwd, no_override)
+        self.assertEqual(found, [f"{_GIT_NS}/free-2026-01-01-solo"])
+
+    def test_another_users_branches_are_still_excluded(self):
+        """Dual-search widens to the SAME user's older prefix, not to everyone.
+        Collision-avoidance across users is the whole point of namespacing."""
+        self._branch("someoneelse/free-2026-01-01-theirs")
+        found = branching.list_free_branches(self.cwd, self.smm_dir)
+        self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

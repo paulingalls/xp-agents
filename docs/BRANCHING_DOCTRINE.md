@@ -228,9 +228,28 @@ no longer have a Stage 1 merge path to take.
 Multiple users can run xp-agents against the same repo. Branches are
 always user-namespaced to prevent collisions.
 
-- **Namespace source.** `git config user.email` → local-part slug
-  (`paul@paulingalls.com` → `paul`). Fallback: `user.name` slug if
-  email is unset.
+- **Namespace source.** A recorded
+  `branching_strategy.user_namespace` in `system_context.json` WINS
+  when present and usable. It is user-editable (`system_context_cli
+  edit-branching-field`); unusable values — leading dash, whitespace,
+  or a second `/` segment the branch-name parsers cannot read back —
+  are ignored here and rejected at write time.
+  Only when no usable override is recorded does the namespace come
+  from git identity: `git config user.email` → local-part slug
+  (`paul@paulingalls.com` → `paul`), then `user.name` slug if email
+  is unset, then the literal `user`.
+  `identity.user_namespace()` is the one answer branch WRITERS mint
+  under; `identity.git_user_namespace()` exposes the git-derived value
+  alone.
+- **Readers search both.** `branching.list_user_branches` (behind
+  `list_free_branches`, `list_story_branches` and so kickoff's orphan
+  triage and free-close discovery) and
+  `branch_resolution._slug_rebuilt_sprint_branches` glob the recorded
+  namespace AND the git-derived one, deduped. Branches cut before the
+  override was read carry the git prefix, and a reader that saw only
+  the override would hide all of a user's existing work on the very
+  upgrade that introduces one. This widens to the same user's older
+  prefix, never to another user's.
 - **Branch shapes.**
   - `<user>/story-NNN-<slug>`
   - `<user>/sprint-NNN-<slug>`

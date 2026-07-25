@@ -282,13 +282,31 @@ def list_user_branches(cwd: str, prefix: str, smm_dir: Path | None = None) -> li
     """Return branches matching <user-ns>/<prefix>-*, excluding HEAD.
 
     ``smm_dir`` is where the namespace override is read from — pass the one the
-    caller holds. The pattern this builds must match what the WRITERS above
+    caller holds. The patterns this builds must match what the WRITERS above
     minted, and they read it from the SMM they were handed.
+
+    TWO patterns whenever a recorded override differs from the git identity,
+    for the same reason ``branch_resolution._slug_rebuilt_sprint_branches``
+    rebuilds two names: every branch cut before anything read the override
+    carries the GIT-derived prefix, so globbing only the override makes all of
+    a user's existing work vanish from kickoff's orphan triage and free-close
+    discovery on the very upgrade that introduces the override. Both consumers
+    only PRINT, so listing a branch that is genuinely yours costs nothing while
+    missing one hides work. Deduped and still namespaced — this widens to the
+    same user's older prefix, never to another user's, which is what the
+    namespacing is for.
     """
-    user_ns = identity.user_namespace(cwd, smm_dir)
+    namespaces = dict.fromkeys(
+        [identity.user_namespace(cwd, smm_dir), identity.git_user_namespace(cwd)]
+    )
     current = identity.get_current_branch(cwd)
-    pattern = f"{user_ns}/{prefix}-*"
-    return [b for b in match_local_branches(cwd, pattern) if b != current]
+    seen = dict.fromkeys(
+        b
+        for ns in namespaces
+        for b in match_local_branches(cwd, f"{ns}/{prefix}-*")
+        if b != current
+    )
+    return list(seen)
 
 
 def list_free_branches(cwd: str, smm_dir: Path | None = None) -> list[str]:

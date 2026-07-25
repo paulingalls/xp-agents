@@ -113,19 +113,16 @@ class TestInitShResolutionBudget(_HookTestCase):
         ):
             self.assertIsNone(session_start._resolve_via_init_sh())
 
-    def test_the_entry_point_resolves_only_once(self):
-        """One resolution serves both the run and the advisory.
+    def _main_with_resolution(self, resolved):
+        """Run main() with the init.sh resolution stubbed to ``resolved``.
 
-        Not a micro-optimization: this call can perform the relocation, so a
-        second one pays for a whole-SMM copy twice — and after a timeout it
-        restarts that copy from scratch, doubling the wait that already made the
-        first attempt fail.
+        Returns (resolve_mock, hook_output_mock).
         """
         import session_start
 
         with (
             patch.object(
-                session_start, "_resolve_via_init_sh", return_value=self.smm_dir
+                session_start, "_resolve_via_init_sh", return_value=resolved
             ) as resolve,
             patch.object(
                 session_start._common,
@@ -135,8 +132,29 @@ class TestInitShResolutionBudget(_HookTestCase):
             patch.object(session_start._common, "hook_output") as hook_output,
         ):
             session_start.main()
+        return resolve, hook_output
+
+    def test_the_entry_point_resolves_only_once(self):
+        """One resolution serves both the run and the advisory.
+
+        Not a micro-optimization: this call can perform the relocation, so a
+        second one pays for a whole-SMM copy twice.
+        """
+        resolve, hook_output = self._main_with_resolution(self.smm_dir)
         self.assertEqual(resolve.call_count, 1)
         hook_output.assert_called_once()
+
+    def test_a_failed_entry_point_resolution_is_not_retried(self):
+        """The timeout case is the one that must not double.
+
+        A resolution that returns nothing is overwhelmingly the one that timed
+        out, so retrying it inside ``run`` spends the budget twice — 60s inside
+        a hook that already gave up at 30 — and then fails anyway. Fail fast to
+        the disabled message instead.
+        """
+        resolve, hook_output = self._main_with_resolution(None)
+        self.assertEqual(resolve.call_count, 1)
+        self.assertIn("SMM init failed", hook_output.call_args.args[1])
 
     def test_the_entry_point_does_not_resolve_for_a_teammate(self):
         """A teammate's SessionStart deliberately runs with no SMM dir (handing

@@ -135,7 +135,11 @@ def _report(current: Path, at_risk: bool, signals: list[str]) -> None:
         )
     else:
         print("  at risk:     no — this root is not managed by the plugin host")
-    if signals:
+    # Only when a relocation is actually wanted. Signals hold back a relocation;
+    # a safe root has none pending, so listing them there told the user to clear
+    # a directory so "the next session relocates on its own" and then finished
+    # with "Nothing to do."
+    if signals and at_risk:
         print()
         # Worded for both modes: `run` decides whether these block or are being
         # overridden, and says which. Claiming "blocked" here and then
@@ -256,9 +260,21 @@ def run(argv: list[str] | None = None) -> int:
     if signals:
         print(f"--force: relocating despite {len(signals)} live-teammate signal(s).")
     source = current
-    moved = _run_init("force" if args.force else None)
+    mode = "force" if args.force else None
+    moved = _run_init(mode)
     if moved is None:
         return 2
+    if moved == source:
+        # A run that meets a crashed run's dead lock frees the name and stops
+        # there BY DESIGN — breaking a lock and claiming it cannot be made one
+        # indivisible step in a shell, so the claim is left to the next run.
+        # For a session that is one session later; for a one-shot command it
+        # would be "nothing happened" and exit 1, in exactly the situation
+        # (a crashed relocation) that makes someone reach for this tool. Take
+        # the next run here. Once only — a second no-op is a real refusal.
+        moved = _run_init(mode)
+        if moved is None:
+            return 2
     if moved == source:
         print("Relocation did not happen; the SMM is still at the old location.")
         return 1

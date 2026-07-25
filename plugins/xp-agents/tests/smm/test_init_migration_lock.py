@@ -59,6 +59,53 @@ class TestCrashResidue(_MigrationCase):
         # cleanup itself, or this test passes with the cleanup deleted.
         self.assertFalse(stale.exists(), "crashed-run residue must be reaped")
 
+    def _assert_breaks_then_migrates_next_run(self, home: Path, lock: Path) -> None:
+        """The run that BREAKS a dead lock must not also claim it.
+
+        Breaking is a read-then-delete and cannot be made indivisible with the
+        tools a POSIX shell has: two processes can read the SAME dead holder,
+        and the second one's delete lands on the FIRST one's fresh live claim —
+        leaving two "holders", both copying, both racing the final rename that
+        buries one whole tree inside the other. Renaming the lock aside instead
+        of deleting it does not help; `mv` acts on the NAME, so it destroys the
+        live claim exactly as `rm` does.
+
+        So a run that finds a dead lock frees the name and stops there. Nothing
+        is claimed after a break, so a double break is harmless: relocation
+        happens on the next run, which finds the name free and claims it
+        atomically. Deferring one session is the accepted cost throughout this
+        design — relocation is already declined outright while a teammate is
+        live — and a crashed migration is what leaves a dead lock in the first
+        place.
+        """
+        legacy = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+        legacy = legacy / self._project_id() / "smm"
+
+        first = self._migrate(home)
+        self.assertEqual(first.returncode, 0, f"init.sh failed: {first.stderr}")
+        self.assertFalse(lock.exists(), "a broken lock must be cleaned up")
+        self.assertFalse(lock.is_symlink(), "a broken lock must be cleaned up")
+        self.assertEqual(
+            first.stdout.strip(),
+            str(legacy),
+            "the run that broke the lock must not go on to claim it",
+        )
+        self.assertFalse(
+            self._new_smm(home).exists(),
+            "nothing may be relocated by the run that broke the lock",
+        )
+
+        second = self._migrate(home)
+        self.assertEqual(second.returncode, 0, f"init.sh failed: {second.stderr}")
+        self.assertEqual(
+            second.stdout.strip(),
+            str(self._new_smm(home)),
+            "the freed name must let the very next run relocate",
+        )
+        self.assertEqual(
+            (self._new_smm(home) / "events.jsonl").read_text(), '{"e":1}\n'
+        )
+
     def test_dead_holder_lock_is_broken(self):
         """A lock whose holder is gone must not deadlock the plugin forever.
 
@@ -73,10 +120,7 @@ class TestCrashResidue(_MigrationCase):
         # PID 1 is alive but is not us; use an implausible one that is not.
         (lock / "pid").write_text("999999")
 
-        result = self._migrate(home)
-        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
-        self.assertFalse(lock.exists(), "a broken lock must be cleaned up")
+        self._assert_breaks_then_migrates_next_run(home, lock)
 
     def test_lock_naming_a_dead_holder_is_broken(self):
         """Same property, in the shape this script actually claims the lock in.
@@ -91,10 +135,7 @@ class TestCrashResidue(_MigrationCase):
         lock.parent.mkdir(parents=True)
         lock.symlink_to("999999")
 
-        result = self._migrate(home)
-        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
-        self.assertFalse(lock.is_symlink(), "a broken lock must be cleaned up")
+        self._assert_breaks_then_migrates_next_run(home, lock)
 
     def test_a_live_runs_in_flight_copy_is_never_reaped(self):
         """Residue is reaped by LIVENESS, not by "it is not mine".
@@ -151,6 +192,60 @@ class TestMigrationLockYields(_MigrationCase):
         self.assertEqual(result.stdout.strip(), str(legacy))
         self.assertFalse(self._new_smm(home).exists())
 
+    def _sleep_shim(self, *, fractional_ok: bool) -> tuple[Path, Path]:
+        """A PATH-shimmed `sleep` that records its argument instead of waiting.
+
+        Returns (bin_dir, log). ``fractional_ok=False`` models the platforms
+        this loop's whole-second fallback exists for: a `sleep` that rejects a
+        fractional argument.
+        """
+        bin_dir = self.tmpdir / f"shim-{'frac' if fractional_ok else 'whole'}"
+        bin_dir.mkdir(exist_ok=True)
+        log = bin_dir / "sleep.log"
+        reject = "" if fractional_ok else 'case "$1" in *.*) exit 1;; esac\n'
+        shim = bin_dir / "sleep"
+        shim.write_text(f'#!/bin/bash\n{reject}printf "%s\\n" "$1" >>"{log}"\n')
+        shim.chmod(0o755)
+        return bin_dir, log
+
+    def _wait_budget_seconds(self, *, fractional_ok: bool) -> float:
+        """Total wall-clock seconds a lock loser would have slept."""
+        home = self._home(f"budget-{'frac' if fractional_ok else 'whole'}")
+        legacy = self._seed_legacy(home)
+        self._hold_lock(home)
+        bin_dir, log = self._sleep_shim(fractional_ok=fractional_ok)
+
+        result = self._run_init(
+            extra_env={
+                "HOME": str(home),
+                "PATH": f"{bin_dir}:{self._test_env['PATH']}",
+            },
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(legacy))
+        self.assertTrue(log.exists(), "the loser must have entered the wait loop")
+        return sum(float(line) for line in log.read_text().split())
+
+    def test_the_wait_is_bounded_in_seconds_not_in_ticks(self):
+        """The budget must not depend on whether `sleep` takes a fraction.
+
+        A fixed tick COUNT made it depend on exactly that: the loop sleeps 0.1s
+        where fractional sleep works and a whole second where it does not, so
+        the same count was 3 seconds on one platform and 30 on another — and 30
+        is precisely the whole budget the SessionStart hook gives init.sh. On
+        such a platform a lock loser timed out with CERTAINTY and the session
+        got no SMM at all. Same wall clock either way, coarser polling.
+        """
+        fine = self._wait_budget_seconds(fractional_ok=True)
+        coarse = self._wait_budget_seconds(fractional_ok=False)
+        self.assertAlmostEqual(fine, coarse, places=6)
+        self.assertLessEqual(
+            coarse,
+            10.0,
+            "the wait must finish comfortably inside session_start's 30s budget",
+        )
+
     def test_waits_for_the_winner_instead_of_taking_the_legacy_tree(self):
         home = self._home("waits")
         self._seed_legacy(home)
@@ -176,6 +271,66 @@ class TestMigrationLockYields(_MigrationCase):
 
 
 class TestMigrationConcurrency(_MigrationCase):
+    def _parallel_init(self, home: Path, n: int) -> list[str]:
+        env = dict(self._test_env)
+        env["HOME"] = str(home)
+        for var in ("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"):
+            env.pop(var, None)
+        procs = [
+            subprocess.Popen(
+                [str(self._INIT_SH)],
+                cwd=str(self.tmpdir),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(n)
+        ]
+        outs = []
+        for p in procs:
+            out, err = p.communicate(timeout=60)
+            self.assertEqual(p.returncode, 0, f"init.sh failed: {err}")
+            outs.append(out.strip())
+        return outs
+
+    def test_a_dead_lock_hit_in_parallel_never_produces_two_winners(self):
+        """The interleaving that a read-then-delete break cannot rule out.
+
+        Every one of these processes reads the same dead holder. If breaking
+        were followed by claiming, the second breaker's delete would land on
+        the first's fresh claim and both would proceed to copy — and the final
+        rename is `[[ -d new ]] || mv`, a check and a syscall apart, so the
+        loser of THAT can move its whole tree INSIDE the live SMM. Breaking
+        without claiming is what makes the interleaving unreachable.
+        """
+        home = self._home("dead-parallel")
+        legacy = self._seed_legacy(home, events='{"e":"orig"}\n')
+        lock = home / ".xp-agents" / "data" / self._project_id() / ".migrate.lock"
+        lock.parent.mkdir(parents=True)
+        lock.symlink_to("999999")
+
+        outs = self._parallel_init(home, 8)
+        new_smm = self._new_smm(home)
+        self.assertTrue(all(o for o in outs), "every invocation must print a path")
+        self.assertTrue(
+            set(outs) <= {str(new_smm), str(legacy)},
+            f"unexpected resolved paths: {set(outs)}",
+        )
+        self.assertFalse(lock.is_symlink(), "the dead lock must have been freed")
+        if new_smm.exists():
+            self.assertEqual((new_smm / "events.jsonl").read_text(), '{"e":"orig"}\n')
+            nested = [p.name for p in new_smm.iterdir() if p.name.startswith(".migrat")]
+            self.assertEqual(nested, [], f"a losing migration landed inside: {nested}")
+        # Whatever happened above, the name is free and the very next run
+        # relocates — a broken lock must never strand the SMM.
+        self.assertEqual(self._migrate(home).stdout.strip(), str(new_smm))
+        self.assertEqual((new_smm / "events.jsonl").read_text(), '{"e":"orig"}\n')
+        residue = [
+            p.name for p in new_smm.parent.iterdir() if p.name.startswith(".migrat")
+        ]
+        self.assertEqual(residue, [], f"temp/lock residue left behind: {residue}")
+
     def test_parallel_invocations_produce_exactly_one_migrated_smm(self):
         """N processes hit the migrate branch at once at every session start —
         SessionStart, several skill preloads and appends fire near-together,

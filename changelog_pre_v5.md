@@ -6,6 +6,10 @@ lives in [`changelog_pre_v4.md`](changelog_pre_v4.md).
 
 ## v4.19.0 — The recorded branch namespace is now the one in force
 
+> Never released on its own: this landed mid-branch and shipped inside v5.0.0.
+> [`CHANGELOG.md`](CHANGELOG.md) carries the authoritative note; nobody upgraded
+> *to* this version, so read it there.
+
 **Minor, not patch: branch names can change on upgrade.** `branching_strategy.user_namespace`
 was inert. `identity.user_namespace()` derived the branch prefix from the git
 `user.email` local-part and never read the recorded field, so `system_context.json`
@@ -19,12 +23,12 @@ It is user-editable via `system_context_cli edit-branching-field`, so it was alw
 meant as an override; an override nothing reads is a lie.
 
 **What changes for you on upgrade.** If your recorded `user_namespace` disagrees
-with your git-derived slug, new branches switch to the recorded prefix — and your
-EXISTING branches stop matching `list_user_branches`, which backs kickoff's
-orphan-branch triage and free-close discovery. One-time, and visible: check
-`branching_strategy.user_namespace` in your rendered system context before
-upgrading, and either edit it to the prefix you actually use or delete the field to
-keep deriving from git.
+with your git-derived slug, new branches switch to the recorded prefix, and at
+this point in the branch the branch READERS still globbed only that prefix, so
+existing branches dropped out of `list_user_branches` — which backs kickoff's
+orphan-branch triage and free-close discovery. That half did not ship: by v5.0.0
+those readers search both namespaces. See the v5.0.0 note for what actually
+reaches you.
 
 The field is also now validated as a git ref segment, at the same two points
 `integration_branch` already was: rejected at write time (`user_namespace_error`),

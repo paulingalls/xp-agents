@@ -58,10 +58,32 @@ teammates_are_live() {
 }
 
 # How long a process that LOSES the migration lock waits for the winner, in
-# 0.1s ticks. Long enough for a local copy of a normal SMM, short enough that a
-# hook never looks hung: past it, the legacy tree is returned and the appends
-# made there after the winner's last re-sync are the price.
-MIGRATE_WAIT_TICKS=30
+# WALL-CLOCK seconds. Seconds and not ticks, because the loop below sleeps 0.1s
+# where fractional `sleep` works and a whole second where it is rejected: a
+# fixed tick COUNT therefore meant two different budgets on two platforms, and
+# the coarse one was 10x the fine one. At 30 ticks that came to exactly the 30s
+# the SessionStart hook gives the whole of init.sh, so on any platform without
+# fractional sleep a lock loser timed out with certainty and the session got no
+# SMM at all — zero margin, by construction.
+#
+# Three seconds is the budget that was actually intended (30 x 0.1s), it is long
+# enough for a local copy of a normal SMM, and it leaves the other ~27s of the
+# caller's budget for the copy THIS process may still have to make plus the
+# rest of init.sh. Past it, the legacy tree is returned and the appends made
+# there after the winner's last re-sync are the price.
+MIGRATE_WAIT_SECONDS=3
+
+# Echo the migrated tree when it is already there, else the legacy one.
+#
+# Every exit from migrate_legacy_smm that is NOT "this process completed the
+# migration" ends here, because a concurrent winner can finish at any point:
+# checking only on some of those paths is how a process ends up appending to a
+# tree that nothing reads again. Never empty — empty stdout from init.sh
+# degrades the whole session to no-SMM.
+answer_existing_smm() {
+    local legacy="$1" new="$2"
+    if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
+}
 
 # Copy a legacy SMM to the new root and echo the directory to use.
 #
@@ -71,7 +93,8 @@ MIGRATE_WAIT_TICKS=30
 # would otherwise abort init.sh, and since this is the single resolver for every
 # script and hook, empty stdout degrades the WHOLE session to no-SMM.
 migrate_legacy_smm() {
-    local legacy="$1" new="$2" project_dir lock tmp holder waited stale stale_pid
+    local legacy="$1" new="$2" project_dir lock tmp holder stale stale_pid
+    local tick ticks waited
     project_dir="$(dirname "${new}")"
     lock="${project_dir}/.migrate.lock"
 
@@ -94,23 +117,49 @@ migrate_legacy_smm() {
     # atomically when the name is taken, but a directory cannot carry its holder
     # at the instant it appears — writing `lock/pid` is a SECOND step, and a
     # racer reading the lock in between sees no holder, concludes the lock is
-    # stale and breaks a LIVE one. Two processes then migrate at once, each
-    # reaping the other's in-flight copy. `ln -s` publishes the name and the
-    # holder in one syscall, so that window does not exist. The target is a
-    # number rather than a path, so the link is always dangling: `-e` and `-d`
-    # are false for it, and `-L` is the only test that sees it.
+    # stale and breaks a LIVE one. `ln -s` publishes the name and the holder in
+    # one syscall, so that window does not exist. The target is a number rather
+    # than a path, so the link is always dangling: `-e` and `-d` are false for
+    # it, and `-L` is the only test that sees it.
+    #
+    # BREAKING one, though, is a read then a delete, and no shell primitive
+    # makes that pair indivisible: two processes can read the SAME dead holder,
+    # and the second one's delete lands on the FIRST one's fresh claim. (`mv`
+    # instead of `rm` does not help — it acts on the NAME, so it takes the live
+    # claim just the same.) Both then hold, both copy, and the final rename is
+    # a `[[ -d ]]` check one syscall away from the `mv`, so the loser of that
+    # buries a whole duplicate tree INSIDE the live SMM.
+    #
+    # So a run that breaks a lock frees the name and stops there — it does not
+    # go on to claim it. A breaker never holds, so two breakers cannot both end
+    # up holding, and the next run finds the name free and claims it
+    # atomically. The cost is relocating one session later, which this design
+    # already accepts wholesale (it declines outright while a teammate is live)
+    # — and a dead lock only exists because a previous migration crashed.
+    #
+    # This NARROWS the window rather than closing it: the `rm` below is still
+    # unconditional, so a break can be overtaken (another run frees the name
+    # first, a third claims it, and this delete lands on that claim) — two
+    # adjacent syscalls wide, where it used to span the whole liveness check.
+    # What bounds the damage is everything downstream: the source tree is never
+    # deleted, in-flight temps are reaped by liveness and not by ownership, and
+    # the rename is guarded by a destination check. A second migrator that gets
+    # past all three leaves a stray copy inside the new tree — not a loss.
     if [[ -L "${lock}" ]]; then
         holder="$(readlink "${lock}" 2>/dev/null || true)"
         if [[ ! "${holder}" =~ ^[0-9]+$ ]] || ! kill -0 "${holder}" 2>/dev/null; then
             rm -f "${lock}" 2>/dev/null || true
+            answer_existing_smm "${legacy}" "${new}"
+            return 0
         fi
     elif [[ -e "${lock}" ]]; then
         # Anything else at that name — including the directory-shaped lock an
         # OLDER version of this script wrote — names no holder we can verify.
         # Reaping beats yielding forever: an unbreakable lock would pin the SMM
-        # in the deletable root permanently. The guarded `mv` below is what
-        # keeps a concurrent old-version run from corrupting the destination.
+        # in the deletable root permanently.
         rm -rf "${lock}" 2>/dev/null || true
+        answer_existing_smm "${legacy}" "${new}"
+        return 0
     fi
 
     if ! ln -s "$$" "${lock}" 2>/dev/null; then
@@ -120,18 +169,31 @@ migrate_legacy_smm() {
         # reaches the migrated SMM and is invisible to every later session.
         # Wait for the winner — bounded, because an unbounded wait would hang
         # every hook behind one slow copy, and legacy is still a usable answer.
-        waited=0
+        # One probe settles BOTH the granularity and the tick count, so the
+        # wall-clock budget above holds on either kind of platform: fractional
+        # where it is supported, so polling stays fine-grained; whole seconds
+        # where it is rejected, with a tenth of the ticks. The probe is itself
+        # part of the wait, and this branch was about to wait regardless, so it
+        # costs nothing.
+        if sleep 0.1 2>/dev/null; then
+            tick="0.1"
+            ticks=$((MIGRATE_WAIT_SECONDS * 10))
+            waited=1 # the probe was a real tick; do not pay for it twice
+        else
+            tick="1"
+            ticks="${MIGRATE_WAIT_SECONDS}"
+            waited=0 # a rejected probe waited for nothing
+        fi
         while [[ ! -d "${new}" ]] && [[ -L "${lock}" ]] &&
-            [[ "${waited}" -lt "${MIGRATE_WAIT_TICKS}" ]]; do
-            # Fractional first, so the common case is imperceptible; whole
-            # seconds where that is rejected. Neither may fail the script —
-            # `set -e` would abort init.sh, and empty stdout degrades the WHOLE
-            # session to no-SMM — so a system with no usable `sleep` at all
-            # just spends the ticks without waiting and falls back to legacy.
-            sleep 0.1 2>/dev/null || sleep 1 2>/dev/null || true
+            [[ "${waited}" -lt "${ticks}" ]]; do
+            # The sleep may not fail the script — `set -e` would abort init.sh,
+            # and empty stdout degrades the WHOLE session to no-SMM — so a
+            # system with no usable `sleep` at all just spends the ticks
+            # without waiting and falls back to legacy.
+            sleep "${tick}" 2>/dev/null || true
             waited=$((waited + 1))
         done
-        if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
+        answer_existing_smm "${legacy}" "${new}"
         return 0
     fi
 
@@ -190,7 +252,7 @@ migrate_legacy_smm() {
     if [[ -d "${new}" ]] || ! mv "${tmp}" "${new}" 2>/dev/null; then
         rm -rf "${tmp}" 2>/dev/null || true
         rm -f "${lock}" 2>/dev/null || true
-        if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
+        answer_existing_smm "${legacy}" "${new}"
         return 0
     fi
 

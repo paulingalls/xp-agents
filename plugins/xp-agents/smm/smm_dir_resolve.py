@@ -44,21 +44,26 @@ _INIT_SH = Path(__file__).parent / "init.sh"
 MIGRATION_POINTER = ".migrated-to"
 
 
-def _follow_migration_pointer(smm_dir: Path) -> Path:
+def follow_migration_pointer(smm_dir: Path) -> Path:
     """One hop along a ``.migrated-to`` pointer, else the input unchanged.
 
     The Python half of init.sh's ``follow_migration_pointer``, and it has to
     exist: a pinned $SMM_DIR skips init.sh entirely, so without this the shell
     half of the plugin follows the relocation while every hook, append and
     marker write keeps addressing the abandoned tree for the rest of that
-    process's life. The two halves must agree on one SMM.
+    process's life. The two halves must agree on one SMM — including on what
+    they consider fatal, which is why an unreadable or non-text pointer
+    degrades to the input here exactly as the shell's `cat`/`[[ -d ]]` pair
+    does. Anything raised out of here reaches the hook that called
+    ``resolve_smm_dir``, and a hook that crashes on a stray byte is strictly
+    worse than one that keeps using the tree it already had.
 
     One hop only, matching the shell: a chain would mean two relocations raced,
     which the lock prevents, and following one blindly risks a cycle.
     """
     try:
         target = (smm_dir / MIGRATION_POINTER).read_text().strip()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return smm_dir
     if not target:
         return smm_dir
@@ -84,7 +89,7 @@ def resolve_smm_dir() -> Path | None:
     """
     env_smm = os.environ.get("SMM_DIR", "").strip()
     if env_smm:
-        return _follow_migration_pointer(Path(env_smm))
+        return follow_migration_pointer(Path(env_smm))
     return _derive_smm_dir()
 
 
@@ -164,6 +169,16 @@ def is_under_plugin_managed_root(smm_dir: Path) -> bool:
     return any(_is_under(resolved, root) for root in plugin_managed_roots())
 
 
+# Matches session_start's own budget for the same script, and for the same
+# reason: init.sh is not always a path lookup. On the first resolution after an
+# upgrade it copies the WHOLE SMM to the new data root — twice, counting the
+# pre-rename re-sync — and a process that loses that race waits for the winner.
+# session_start guards its call directly; every OTHER in-process resolver
+# arrives here, so without this one a wedged init.sh hangs that caller forever.
+# Expiry is handled like the other failures: None, and the caller degrades.
+_DERIVE_TIMEOUT_SECONDS = 30
+
+
 def _derive_smm_dir() -> Path | None:
     """Run init.sh to derive SMM dir from project state."""
     try:
@@ -171,7 +186,12 @@ def _derive_smm_dir() -> Path | None:
             ["bash", str(_INIT_SH)],
             text=True,
             stderr=subprocess.DEVNULL,
+            timeout=_DERIVE_TIMEOUT_SECONDS,
         ).strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ):
         return None
     return Path(out) if out else None

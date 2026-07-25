@@ -300,7 +300,16 @@ resorting to `danger-full-access`. Two adjacent settings to watch:
 `exclude_slash_tmp` and `exclude_tmpdir_env_var` can withdraw `/tmp`, which
 matters if any teammate log or lock path lands there.
 
-Existing SMMs need a migrate-or-symlink step; nothing is silently abandoned.
+Existing SMMs are relocated automatically, by COPY — no symlink was built, and
+the "or-symlink" half of the original sketch is not the shipped design. The
+source tree is never deleted, so an interrupted relocation loses nothing and
+every failure path falls back to reading it. A `.migrated-to` file is left in
+the old tree and BOTH resolvers follow one hop along it
+(`init.sh:follow_migration_pointer` and
+`smm_dir_resolve.follow_migration_pointer`), so a process holding a handle
+pinned before the move still lands on the live tree. Relocation declines while
+any teammate is live, and `scripts/migrate_smm_root.py` is the manual
+inspect/relocate escape hatch.
 
 ### Hook liveness, and why the version pin is not enough (gaps #18, #19)
 
@@ -795,12 +804,12 @@ each story; behavior on Claude Code unchanged.
 | Trust-review UX tax alienates Codex users | Medium | Batch hook changes per release; document; prefer `requirements.toml` managed hooks (trusted by policy, cannot be disabled) for org deployments |
 | **Silent non-enforcement**: hooks not trusted (gap #18) or a too-old Codex (gap #19) yields a session that looks enforced but is not — teammates commit unreviewed code and nothing reports it | **High** | The P1 liveness heartbeat is the mitigation, and it is why that item is P1 rather than P4. Treat any gate that can vanish quietly as a correctness bug, not a UX issue |
 | Codex model ids and effort support churn (versions move fast) | High | The `HARNESSES` table is data; keep model ids in one place, pin a canary CI job, and never infer a tier mapping in code |
-| ~~**SMM destroyed by a plugin uninstall** (gap #9c)~~ — happened today on Claude, no Codex needed, and silently | ~~**High / already live**~~ **CLOSED in v5.0.0** | P1 item 7 shipped ahead of the phase. Residual, tracked as concerns rather than re-opened here: relocation declines while a stale worktree directory exists (mitigated by a SessionStart advisory), and a teammate pinned to the old path at spawn keeps appending there because the SMM handle short-circuits resolution |
+| ~~**SMM destroyed by a plugin uninstall** (gap #9c)~~ — happened today on Claude, no Codex needed, and silently | ~~**High / already live**~~ **CLOSED in v5.0.0** | P1 item 7 shipped ahead of the phase. Residual, tracked as concerns rather than re-opened here: relocation declines while a stale worktree directory exists (mitigated by a SessionStart advisory), and only `smm/` relocates, so a forced relocation cuts the sibling worktree directories loose. A handle pinned before the move is NOT residual — both resolvers follow the `.migrated-to` pointer one hop |
 | Lifecycle skills fire out of order via implicit invocation (gap #26) — also already live on Claude | Medium | `policy.allow_implicit_invocation: false` on Codex; audit `description` fields on both harnesses so they do not read as task-matching bait |
 | GPT-5.x-codex responds differently to gate pressure (stop-gate loops, block-reason compliance) | **Medium likelihood, high impact — and entirely unmeasured.** The only risk here with no supporting evidence either way | **Observed in P0**, not deferred to P3: the spike already runs a real teammate, so watching gate compliance is nearly free there, and it is a no-go criterion. P3's deliberately-blocked integration test then becomes a regression test rather than the first look. Tune `TEAMMATE_GUIDE` prose per harness if needed. Compounds with gap #31 — a looping model plus a gate that cannot release is an unbounded token burn |
 | Maintenance: every new hook now has two targets | Certain | Generation + pin test makes drift a test failure, not a code-review hope |
 | Tier rename (gap #12) touches persisted sprint data and 5 prose-pin tests at once — a botched migration mislabels stories' executors | Medium | Read-side aliasing rather than data rewrite, so old values keep loading; land the rename as its own P1 story with the alias table tested against real `sprint.json` fixtures before any prose changes |
-| SMM-root change (gap #9b) silently relocates a live SMM and its worktree siblings, orphaning in-flight teammate state | Medium | Migrate-or-symlink with the old path still readable; refuse to migrate while any teammate worktree is live (the `/xp-scaffold-acceptance` precedent already refuses on live worktrees) |
+| SMM-root change (gap #9b) relocates a live SMM without its worktree siblings, orphaning in-flight teammate state | Medium — **partly live** | SHIPPED: relocation is a COPY (the old path stays readable and authoritative on any failure), refuses while any teammate worktree or in-place marker is live, and leaves a `.migrated-to` pointer both resolvers follow. STILL OPEN: only `smm/` moves, so a `--force` relocation cuts the sibling worktree directories loose — worktree placement derives from the SMM's parent, and putting them back needs `git worktree move` |
 
 ## Non-goals
 

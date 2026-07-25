@@ -103,6 +103,35 @@ class TestDryRunChangesNothing(_ToolCase):
         self.assertIn("at risk:     no", result.stdout)
         self.assertIn("Nothing to do", result.stdout)
 
+    def test_a_safe_root_does_not_claim_signals_hold_relocation_back(self):
+        """Nothing is holding back a relocation that is not wanted.
+
+        A safe root with a leftover worktree directory used to print "N
+        live-teammate signal(s), which hold relocation back", advise clearing
+        them so "the next session relocates on its own", and then finish with
+        "Nothing to do." — three lines that contradict each other and send the
+        user to delete a directory for no reason.
+        """
+        home = self._home("safe-signals")
+        safe_root = self.tmpdir / "chosen-root-signals"
+        first = self._tool(home, XP_AGENTS_DATA=str(safe_root))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        current = Path(
+            next(
+                line.split("current:")[1].strip()
+                for line in first.stdout.splitlines()
+                if "current:" in line
+            )
+        )
+        (current.parent / "worktrees" / "worktree-story-001").mkdir(parents=True)
+
+        result = self._tool(home, XP_AGENTS_DATA=str(safe_root))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("at risk:     no", result.stdout)
+        self.assertIn("Nothing to do", result.stdout)
+        self.assertNotIn("hold relocation back", result.stdout)
+        self.assertNotIn("relocates on its own", result.stdout)
+
 
 class TestRefusals(_ToolCase):
     def test_refuses_to_relocate_while_a_worktree_exists(self):
@@ -152,6 +181,31 @@ class TestRelocation(_ToolCase):
         # to guess whether it is safe to delete.
         self.assertTrue(legacy.exists())
         self.assertIn(f"The old copy is still at {legacy}", result.stdout)
+
+    def test_confirm_relocates_past_a_crashed_runs_dead_lock(self):
+        """A dead lock costs a SESSION a relocation, never this command.
+
+        init.sh frees a dead lock's name without claiming it — the break is a
+        read then a delete and cannot be made indivisible — so the very first
+        resolution after a crashed relocation deliberately answers with the
+        legacy tree and leaves the claim to the next one. A background session
+        just relocates next time. A one-shot command has no next time, so
+        without a retry here the tool reports "Relocation did not happen" and
+        exits 1 in precisely the situation that makes a user run it.
+        """
+        home = self._home("deadlock")
+        legacy = self._seed_legacy(home)
+        lock = self._new_smm(home).parent / ".migrate.lock"
+        lock.parent.mkdir(parents=True)
+        lock.symlink_to("999999")
+
+        result = self._tool(home, "--confirm")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        new = self._new_smm(home)
+        self.assertIn(f"Relocated to {new}", result.stdout)
+        self.assertEqual((new / "events.jsonl").read_text(), '{"e":1}\n')
+        self.assertTrue(legacy.exists())
+        self.assertFalse(lock.is_symlink(), "the dead lock must not survive")
 
     def test_force_relocates_past_a_stale_worktree(self):
         home = self._home("forced")
