@@ -8,6 +8,7 @@ is the only pressure on the seam.
 
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -20,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import hook_liveness
 import marker_names
 import markers
-from conftest import _HookTestCase
+from conftest import _HookTestCase, run_cli
+
+_HOOK_LIVENESS_PY = Path(__file__).parent.parent.parent / "scripts" / "hook_liveness.py"
 
 
 class TestHeartbeatMarkerDefinition(_HookTestCase):
@@ -244,6 +247,85 @@ class TestSessionIdChain(_HookTestCase):
     def test_empty_value_counts_as_absent(self):
         with patch.dict(os.environ, _env()):
             self.assertIsNone(hook_liveness.resolve_session_id())
+
+
+class TestStatusCLI(_HookTestCase):
+    """A shell caller with only the SMM directory must get a usable answer
+    without importing any of this module's internals.
+
+    Unlike the cadence CLI, which fail-SAFEs, this one fails CLOSED: every
+    path that is not a positive liveness verdict exits non-zero.
+    """
+
+    HOST_VAR = "CLAUDE_CODE_SESSION_ID"
+
+    def _run(self, session_id: str = ""):
+        return run_cli(
+            _HOOK_LIVENESS_PY,
+            ["status"],
+            self.smm_dir,
+            extra_env=_env(**{self.HOST_VAR: session_id}),
+        )
+
+    def _plant(self, session_id: str, age: float = 0.0) -> None:
+        with patch.dict(os.environ, _env(**{self.HOST_VAR: session_id})):
+            hook_liveness.write_heartbeat(self.smm_dir, now=time.time() - age)
+
+    def test_live_exits_zero(self):
+        self._plant("sess-a")
+        result = self._run("sess-a")
+        self.assertEqual(result.returncode, hook_liveness.EXIT_LIVE, result.stdout)
+
+    def test_absent_marker_exits_determined_not_live(self):
+        result = self._run("sess-a")
+        self.assertEqual(result.returncode, hook_liveness.EXIT_NOT_LIVE)
+        self.assertIn("not loaded", result.stdout)
+
+    def test_session_mismatch_exits_determined_not_live(self):
+        self._plant("sess-old")
+        result = self._run("sess-new")
+        self.assertEqual(result.returncode, hook_liveness.EXIT_NOT_LIVE)
+        self.assertIn("different session", result.stdout)
+
+    def test_stale_exits_determined_not_live(self):
+        self._plant("sess-a", age=hook_liveness.STALE_AFTER_SECONDS + 60)
+        result = self._run("sess-a")
+        self.assertEqual(result.returncode, hook_liveness.EXIT_NOT_LIVE)
+        self.assertIn("stopped", result.stdout)
+
+    def test_unreadable_exits_could_not_determine(self):
+        markers.marker_path(self.smm_dir, markers.HOOK_HEARTBEAT).write_text(
+            "{not json", encoding="utf-8"
+        )
+        result = self._run("sess-a")
+        self.assertEqual(result.returncode, hook_liveness.EXIT_UNDETERMINED)
+        self.assertIn("cannot be determined", result.stdout)
+
+    def test_the_two_refusal_classes_have_different_exit_codes(self):
+        self.assertNotEqual(
+            hook_liveness.EXIT_NOT_LIVE, hook_liveness.EXIT_UNDETERMINED
+        )
+        self.assertNotEqual(hook_liveness.EXIT_LIVE, hook_liveness.EXIT_NOT_LIVE)
+
+    def test_undetermined_does_not_collide_with_the_usage_error_code(self):
+        """argparse exits 2 on a bad invocation; that must not read as a
+        liveness verdict."""
+        usage = run_cli(_HOOK_LIVENESS_PY, ["bogus-subcommand"], self.smm_dir)
+        self.assertEqual(usage.returncode, 2)
+        self.assertNotIn(
+            usage.returncode,
+            {hook_liveness.EXIT_LIVE, hook_liveness.EXIT_UNDETERMINED},
+        )
+
+    def test_each_not_live_case_prints_a_distinct_reason(self):
+        absent = self._run("sess-a").stdout
+        self._plant("sess-old")
+        mismatch = self._run("sess-new").stdout
+        self._plant("sess-a", age=hook_liveness.STALE_AFTER_SECONDS + 60)
+        stale = self._run("sess-a").stdout
+        printed = [absent, mismatch, stale]
+        self.assertEqual(len(set(printed)), len(printed), printed)
+        self.assertTrue(all(p.strip() for p in printed))
 
 
 if __name__ == "__main__":

@@ -62,6 +62,13 @@ CODE_UNREADABLE = "unreadable"
 # determined ones support a diagnosis, so callers phrase them differently.
 UNDETERMINED_CODES = frozenset({CODE_UNREADABLE})
 
+# Exit statuses for the CLI. This tool fails CLOSED: only a positive verdict
+# exits zero. 2 is skipped because argparse spends it on usage errors, and a
+# mistyped invocation must not be mistaken for a liveness answer.
+EXIT_LIVE = 0
+EXIT_NOT_LIVE = 1
+EXIT_UNDETERMINED = 3
+
 
 @dataclass(frozen=True, slots=True)
 class Liveness:
@@ -209,3 +216,32 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
         f"Hook runtime is live (last heartbeat {_describe(age)} ago).",
         CODE_LIVE,
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI: status
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Lazy import: the hooks that refresh the heartbeat import this module on
+    # every invocation, and argparse is needed only on the CLI path.
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Hook-liveness heartbeat CLI")
+    parser.add_argument("--smm-dir", required=True, help="SMM directory path")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser(
+        "status", help="Print the liveness verdict; exit non-zero unless live"
+    )
+    args = parser.parse_args(argv)
+
+    result = check_liveness(Path(args.smm_dir))
+    print(result.reason)
+    if result.live:
+        return EXIT_LIVE
+    return EXIT_UNDETERMINED if result.code in UNDETERMINED_CODES else EXIT_NOT_LIVE
+
+
+if __name__ == "__main__":
+    sys.exit(main())
