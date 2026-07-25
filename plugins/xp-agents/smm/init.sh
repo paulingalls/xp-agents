@@ -93,7 +93,7 @@ answer_existing_smm() {
 # would otherwise abort init.sh, and since this is the single resolver for every
 # script and hook, empty stdout degrades the WHOLE session to no-SMM.
 migrate_legacy_smm() {
-    local legacy="$1" new="$2" project_dir lock tmp holder stale stale_pid
+    local legacy="$1" new="$2" project_dir lock tmp stale stale_pid
     local tick ticks waited
     project_dir="$(dirname "${new}")"
     lock="${project_dir}/.migrate.lock"
@@ -122,42 +122,14 @@ migrate_legacy_smm() {
     # than a path, so the link is always dangling: `-e` and `-d` are false for
     # it, and `-L` is the only test that sees it.
     #
-    # BREAKING one, though, is a read then a delete, and no shell primitive
-    # makes that pair indivisible: two processes can read the SAME dead holder,
-    # and the second one's delete lands on the FIRST one's fresh claim. (`mv`
-    # instead of `rm` does not help — it acts on the NAME, so it takes the live
-    # claim just the same.) Both then hold, both copy, and the final rename is
-    # a `[[ -d ]]` check one syscall away from the `mv`, so the loser of that
-    # buries a whole duplicate tree INSIDE the live SMM.
+    # Breaking one is its own primitive with its own single-winner proof —
+    # break_stale_lock.sh, pinned by tests/smm/test_break_stale_lock.py.
     #
-    # So a run that breaks a lock frees the name and stops there — it does not
-    # go on to claim it. A breaker never holds, so two breakers cannot both end
-    # up holding, and the next run finds the name free and claims it
-    # atomically. The cost is relocating one session later, which this design
-    # already accepts wholesale (it declines outright while a teammate is live)
-    # — and a dead lock only exists because a previous migration crashed.
-    #
-    # This NARROWS the window rather than closing it: the `rm` below is still
-    # unconditional, so a break can be overtaken (another run frees the name
-    # first, a third claims it, and this delete lands on that claim) — two
-    # adjacent syscalls wide, where it used to span the whole liveness check.
-    # What bounds the damage is everything downstream: the source tree is never
-    # deleted, in-flight temps are reaped by liveness and not by ownership, and
-    # the rename is guarded by a destination check. A second migrator that gets
-    # past all three leaves a stray copy inside the new tree — not a loss.
-    if [[ -L "${lock}" ]]; then
-        holder="$(readlink "${lock}" 2>/dev/null || true)"
-        if [[ ! "${holder}" =~ ^[0-9]+$ ]] || ! kill -0 "${holder}" 2>/dev/null; then
-            rm -f "${lock}" 2>/dev/null || true
-            answer_existing_smm "${legacy}" "${new}"
-            return 0
-        fi
-    elif [[ -e "${lock}" ]]; then
-        # Anything else at that name — including the directory-shaped lock an
-        # OLDER version of this script wrote — names no holder we can verify.
-        # Reaping beats yielding forever: an unbreakable lock would pin the SMM
-        # in the deletable root permanently.
-        rm -rf "${lock}" 2>/dev/null || true
+    # Exit 0 means THIS run broke a stale lock. It then stops: a breaker
+    # never goes on to claim, so two breakers can never both end up holding.
+    # Any other status falls through — a live holder loses the `ln -s` below
+    # and waits, and a free name is claimed.
+    if "$(dirname "${BASH_SOURCE[0]}")/break_stale_lock.sh" "${lock}"; then
         answer_existing_smm "${legacy}" "${new}"
         return 0
     fi
