@@ -18,7 +18,7 @@ The code-reviewer becomes **read-only** — it produces findings but does not ed
 
 2. **One fixer teammate per quality review cycle.** All findings are batched into a single prompt. Spawning multiple teammates for 2-5 small fixes is wasteful.
 
-3. **Simplify-only review cycle for the fixer.** The fixer runs `/simplify` before committing but does NOT run `/xp-quality-review` or `/xp-security-triage`. This breaks the recursion (no quality review → no code-reviewer → no fixer → ...). Security triage runs after merge on the main agent, covering the fixer's changes.
+3. **Simplify-only review cycle for the fixer.** The fixer runs `/code-review` before committing but does NOT run `/xp-quality-review`. This breaks the recursion (no quality review → no code-reviewer → no fixer → ...). Security stays where the doctrine puts it: the Tier 1 pattern scan fires on the fixer's own commits, and the Tier 2 LLM `/security-review` covers the merged result at the enclosing close.
 
 4. **Regular CLI teammates (from /xp-assign) keep the full review cycle.** The simplify-only cycle is specific to fixer teammates spawned by the quality review skill. The distinction is: fixer teammates implement small scoped fixes from a reviewer's instructions; regular teammates implement full stories with design decisions.
 
@@ -29,21 +29,20 @@ The code-reviewer becomes **read-only** — it produces findings but does not ed
 ### Current Flow (quality review)
 
 ```
-Main agent has uncommitted changes (post-simplify)
+Main agent has uncommitted changes
   → /xp-quality-review skill runs
   → Spawns xp-code-reviewer (Agent tool)
   → Code-reviewer reads code, produces findings
   → Code-reviewer fixes small things directly ← NO INDEPENDENT REVIEW
   → Code-reviewer records large things as debt
   → Quality review skill records summary
-  → Main agent runs /xp-security-triage
-  → Main agent commits
+  → Main agent commits (Tier 1 pattern scan fires in the commit gate)
 ```
 
 ### Target Flow
 
 ```
-Main agent has uncommitted changes (post-simplify)
+Main agent has uncommitted changes
   → /xp-quality-review skill runs
   → Creates temp branch, commits WIP state
   → Spawns xp-code-reviewer (Agent tool)
@@ -59,8 +58,8 @@ Main agent has uncommitted changes (post-simplify)
   → Quality review skill receives summary
   → If fixer ran: main agent merges fixer branch
   → Main agent drops temp branch
-  → Main agent runs /xp-security-triage (reviews everything including fixes)
-  → Main agent commits
+  → Main agent commits (Tier 1 pattern scan covers the fixes too; the LLM
+    /security-review runs later, at close, over the cumulative diff)
 ```
 
 The code-reviewer owns the entire review+fix flow. The quality review skill just spawns it, merges the result, and continues the review cycle.
@@ -166,9 +165,11 @@ Could be a flag on `spawn_teammate.py` (`--review-cycle simplify-only`) or a sep
 
 Read `XP_REVIEW_CYCLE` env var. When set to `simplify-only`:
 - Only require `simplify_done` flag
-- Skip `quality_review_done` and `security_review_done` checks
+- Skip the `quality_review_done` check
 
-Default (unset or `full`): current behavior — require all three flags.
+Default (unset or `full`): current behavior. Note that today's gate blocks on
+`quality_review_done` ALONE — `markers.py` defines exactly two review flags,
+`{simplify_done, quality_review_done}`, and there is no security flag to skip.
 
 ## Fixer Prompt Structure
 

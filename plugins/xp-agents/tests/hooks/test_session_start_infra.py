@@ -26,7 +26,7 @@ class TestSessionStartExecutionPlanMarker(_HookTestCase):
     """session_start writes NEEDS_EXECUTION_PLAN marker when missing."""
 
     def test_startup_no_execution_plan_writes_marker(self):
-        """Startup with no execution_plan.md writes NEEDS_EXECUTION_PLAN."""
+        """Startup with no execution_plan.json writes NEEDS_EXECUTION_PLAN."""
         import markers
         import session_start
 

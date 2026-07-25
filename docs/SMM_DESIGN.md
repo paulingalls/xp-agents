@@ -101,7 +101,7 @@ Coordination is **not a pillar of the curated SMM**. It operates at a fundamenta
 **Enter:** Automatically — agent starts working on files (PostToolUse updates on every Write/Edit).
 **Leave:** Automatically — agent finishes or session ends. Ephemeral.
 **Cap:** Bounded by active agents. Solo: 1 entry. Team: N entries.
-**Conflict detection:** `pre_tool_write.py` reads this file for Write/Edit/MultiEdit (O(1), blocks on overlap). `pre_tool_bash.py` checks heuristically for Bash (advisory, never blocks).
+**Conflict detection:** `pre_tool_write.py` reads this file for Write/Edit/MultiEdit (O(1), blocks on overlap). There is **no** Bash coordination gate — `pre_tool_bash.py` does not read this file at all. Bash isn't statically parseable, so cross-agent damage from `mv`/`sed -i`/redirects is caught at the story-close merge instead (sprint-105 decision).
 
 ---
 
@@ -178,7 +178,7 @@ Behavioral rules learned from experience. The institutional memory.
 - Write tests before implementation — the TDD gate blocks otherwise
 - Split large changes into separate commits
 - Always record decisions when making architectural choices
-- Complete the review cycle (code-review → quality review) before committing code changes; Tier 2/3 cover security at /xp-accept and close
+- Run /xp-quality-review before committing code changes; Tier 1 patterns scan the staged diff, Tier 2 /security-review runs at close
 - Don't amend pushed commits — creates divergent history
 ```
 
@@ -256,10 +256,10 @@ Housekeeping writes the curated `shared_mental_model.json` via `smm_cli.py save`
 During the session, lightweight context is injected at specific moments:
 
 - **UserPromptSubmit:** Prompt nugget — new signal events since last prompt (watermark-based, ~50-100 tokens)
-- **SubagentStart:** Tiered context injection — Explore subagents get Intent+Constraints only (~200 tokens); xp-code-reviewer gets full SMM (for drift management); all others get full curated SMM + process guide (~1000 tokens)
+- **SubagentStart:** Tiered context injection — every tier gets `XP_VALUES.md`, never the process guide (SubagentStart does not load it). Explore subagents get Intent+Constraints only (~200 tokens); `xp-code-reviewer` and unknown/ad-hoc types get the full curated SMM (~500 tokens); generic catch-alls get a pointer to render it on demand; the plugin's own forked `xp-*` agents get values only
 - **After housekeeping:** Process guide via PostToolUse:Skill hook
 
-Conflicts are handled by PreToolUse hooks (blocking for Write, advisory for Bash) — not as context injection. No per-tool-call event log reads. The agent has the full SMM from housekeeping. Nuggets surface only what's new and actionable.
+Conflicts are handled by PreToolUse hooks (blocking for Write/Edit; no gate at all for Bash) — not as context injection. No per-tool-call event log reads. The agent has the full SMM from housekeeping. Nuggets surface only what's new and actionable.
 
 ### The materializer's role
 
@@ -287,7 +287,7 @@ Hard ceilings (`MAX_CONTENT_LENGTH`, `MAX_EVENT_BYTES`, same module) cap unbound
 
 | When | What | Cost |
 |---|---|---|
-| Session start | GUPP + skills list only (no SMM) | ~100 tokens, once |
+| Session start | GUPP + `XP_VALUES.md` only (no SMM, no process guide) | ~100 tokens, once |
 | SessionStart (teammate) | CLI teammates get XP Values + TEAMMATE_GUIDE.md + rendered SMM via SessionStart hook | ~1000 tokens, once |
 | After housekeeping | Agent Reads curated SMM file directly | ~500 tokens, once |
 | After housekeeping | Process guide + XP values via PostToolUse:Skill hook | ~500 tokens, once |
@@ -343,7 +343,7 @@ Every agent leaves the same kinds of trails. Housekeeping doesn't care which age
 
 ## Mid-Session Context
 
-Two injection moments during active work. Conflicts are handled by PreToolUse hooks (blocking or warning), not as separate nuggets.
+Two injection moments during active work. Write/Edit conflicts are handled by a blocking PreToolUse hook, not as separate nuggets; Bash has no coordination gate.
 
 ### Prompt nugget (UserPromptSubmit)
 
@@ -359,7 +359,7 @@ New since last prompt:
 
 ### SubagentStart
 
-Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. `xp-code-reviewer` gets the full SMM (overriding the xp-* default of values-only) because it needs Constraints for drift management. Plan/general-purpose subagents get the full curated SMM (~500 tokens). All rendered from `shared_mental_model.json` via `smm_cli.py`.
+Tiered context injection based on subagent type. Explore subagents get only Intent+Constraints from the curated SMM (~200 tokens) — they need direction and boundaries but not full project history. `xp-code-reviewer` gets the full SMM (overriding the xp-* default of values-only) because it needs Constraints for drift management. Plan and other unknown/ad-hoc types also get the full curated SMM (~500 tokens) — eager context earns its cost there. The purpose-blind, highest-fanout generic types (`general-purpose`, `workflow-subagent`, `claude`) instead get a one-line pointer to run `smm_cli.py render` themselves: most do read-only research and never need it, and a code-writing one self-serves on demand. All renders come from `shared_mental_model.json` via `smm_cli.py`.
 
 **Note:** CLI teammates do NOT use SubagentStart — they are independent `claude -p` processes, not Agent tool subagents. Teammate context (XP Values + TEAMMATE_GUIDE.md + rendered SMM) is injected via the SessionStart hook when `is_worktree_teammate()` detects a worktree path.
 

@@ -2,7 +2,8 @@
 """SessionStart hook: initialize SMM, inject context.
 
 Handles all SessionStart sources (startup, resume, compact, clear).
-Ensures SMM exists and injects GUPP and skills as additionalContext.
+Ensures SMM exists and injects GUPP and XP_VALUES.md as additionalContext
+(plus the rendered SMM and PROCESS_GUIDE.md on the `compact` source).
 Sets .needs-kickoff marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
@@ -253,8 +254,8 @@ def run(
     if values:
         parts.append("\n\n" + values)
 
-    # PROCESS_GUIDE.md is injected by kickoff_done.py after /xp-kickoff
-    # completes, together with the fresh SMM.
+    # PROCESS_GUIDE.md is injected by review_cycle_done.py (PostToolUse:
+    # Skill|Agent) when xp-housekeeper completes, together with the fresh SMM.
 
     # Reinject SMM + process guide after compaction so the lead's
     # context retains project state and workflow rules.

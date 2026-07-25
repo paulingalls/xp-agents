@@ -52,13 +52,13 @@ Both implement file reservation — agents declare intent before modifying files
 
 *Our approach*: Lighter — `status` events include a `working_on` field for intent signaling without full locking.
 
-*→ Reflected in: Milestone 1 (schema), Milestone 5 (skills), Milestone 6 (BEHAVIORAL_GUIDE.md)*
+*→ Reflected in: Milestone 1 (schema), Milestone 5 (skills), Milestone 6 (PROCESS_GUIDE.md)*
 
 **3. GUPP: Physics over politeness** (from Gas Town)
 
 Yegge's most powerful insight: agents that restart should immediately check for pending work and resume, without waiting for permission. *"If there is work on your hook, YOU MUST RUN IT."* The biggest failure isn't wrong work — it's idle agents too polite to start.
 
-*→ Reflected in: Milestone 3 (SessionStart hook), Milestone 5 (skills), Milestone 6 (BEHAVIORAL_GUIDE.md GUPP Rule)*
+*→ Reflected in: Milestone 3 (SessionStart hook), Milestone 5 (skills), Milestone 6 (PROCESS_GUIDE.md; the GUPP rule now ships in the SessionStart injection itself)*
 
 **4. Crash recovery through persistent state** (from Gas Town & Beads)
 
@@ -72,9 +72,9 @@ Yegge's key insight: *"If your state is in git, it's automatically versioned, di
 
 The Ring's `ring:using-ring` meta-skill auto-generates a quick reference from skill frontmatter before any action, preventing agents from forgetting capabilities.
 
-*Our approach*: Skills use structured frontmatter with `trigger` and `skip_when` conditions. SessionStart hook lists available skills.
+*Our approach*: Skills carry standard Claude Code frontmatter (`name`, `description`, `allowed-tools`, and `context: fork` on the three forked ones) — no bespoke `trigger`/`skip_when` conditions. Discovery is not a SessionStart listing either: skills surface through state-derived gates and hook nudges, so the agent is told which skill it owes *right now* rather than handed a catalogue.
 
-*→ Reflected in: Milestone 3 (SessionStart lists skills), Milestone 5 (all skills have frontmatter)*
+*→ Reflected in: Milestone 3 (SessionStart gate markers), Milestone 5 (all skills have frontmatter)*
 
 **6. Schema extensibility for learning** (from Swarm Tools)
 
@@ -102,7 +102,7 @@ Both distribute as Claude Code plugin marketplaces. The Ring manages 6 plugins w
 
 **5. The "Dementia Problem."** Yegge's vivid insight: agents create recursive plans they forget about. *"By phase 3, the AI has mostly forgotten where it came from. It declares, 'Oh wow, this is a big project, I'm going to break it into five phases.'"* Our `decision` and `convention` events survive compaction and prevent this.
 
-**6. Over-engineering review.** The Ring has 7 parallel reviewers and 83 skills. Our 4 focused subagents with XP values cover more ground — the courage-reviewer can say *anything* that needs saying, not siloed into a narrow category. And anyone can extend the team by adding a new subagent to `agents/` with SMM interactions — turning any subagent into a full team member.
+**6. Over-engineering review.** The Ring has 7 parallel reviewers and 83 skills. Our seven focused subagents with XP values cover more ground — `xp-code-reviewer` can say *anything* that needs saying, not siloed into a narrow category. And anyone can extend the team by adding a new subagent to `agents/` with SMM interactions — turning any subagent into a full team member.
 
 ---
 

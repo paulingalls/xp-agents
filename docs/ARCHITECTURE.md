@@ -10,7 +10,7 @@ This document covers the plugin's runtime architecture (hooks, SMM, injection, l
 
 - **[`ACCEPTANCE_TESTING_DOCTRINE.md`](ACCEPTANCE_TESTING_DOCTRINE.md)** — what "done" means, the two-loops model (commit + story), `acceptance_execution` schema, surface-coverage policy, capstone stories for milestone-level acceptance.
 - **[`BRANCHING_DOCTRINE.md`](BRANCHING_DOCTRINE.md)** — branch / sprint / story / free / plan branch shapes, the Stage 0/1/2/3 model, gate + auto-create discipline, user namespacing, `[release]` / `[chore]` / `[sprint-direct]` commit-prefix escape hatches.
-- **[`SECURITY_REVIEW_DOCTRINE.md`](SECURITY_REVIEW_DOCTRINE.md)** — three-tier security review (deterministic per-commit + per-story for orphans + cumulative per-close), separation from quality review, findings recording shape.
+- **[`SECURITY_REVIEW_DOCTRINE.md`](SECURITY_REVIEW_DOCTRINE.md)** — two-tier security review (Tier 1 deterministic patterns per commit, Tier 2 LLM `/security-review` over the cumulative diff at every sprint/plan/free close), separation from quality review, findings recording shape.
 
 Each doctrine doc is the authoritative reference for its subsystem; design-history / migration narratives live in `docs/completed/`.
 
@@ -20,6 +20,11 @@ Each doctrine doc is the authoritative reference for its subsystem; design-histo
 ${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 ├── events.jsonl              ← append-only, one JSON event per line
 ├── shared_mental_model.json   ← curated four-pillar view, written by housekeeping
+├── system_context.json       ← product/system description (architecture, constraints, branching stage)
+├── execution_plan.json       ← ordered milestones with change zones and design context
+├── sprint.json               ← active sprint stories, file domains, acceptance criteria
+├── session_history.json      ← rolling session summaries for the next kickoff
+├── adoption.json             ← durable adopted/deferred ledger (survives event-log compaction)
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
 ├── .coordination.json        ← per-agent working_on for O(1) conflict detection
 ├── .needs-kickoff                    ← gate marker, cleared by /xp-kickoff
@@ -29,7 +34,7 @@ ${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 └── retrospectives/                   ← Keep/Fix/Try session artifacts (.json)
 ```
 
-`XP_AGENTS_DATA` is the SMM data root (defaults to `~/.xp-agents/data/`). It is deliberately NOT `CLAUDE_PLUGIN_DATA`: that resolves under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default, so the project's memory would sit one uninstall away from silent loss. Legacy plugin-data roots are still READ so an SMM already there is discovered rather than abandoned. Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and teammates.
+`XP_AGENTS_DATA` is the SMM data root (defaults to `~/.xp-agents/data/`). It is deliberately NOT `CLAUDE_PLUGIN_DATA`: that resolves under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default, so the project's memory would sit one uninstall away from silent loss. Legacy plugin-data roots are still READ, and an SMM found there is **relocated out** — `init.sh` copies the whole tree to the safe root, leaves the original in place, and writes a forward pointer. It declines to relocate while a teammate looks live against the legacy tree and resolves there instead; that decline can be permanent, because the liveness signal is a worktree DIRECTORY and cleanup refuses to remove one whose branch never merged. `XP_SMM_MIGRATE=off` suppresses relocation (so a tool can report state without changing it) and `XP_SMM_MIGRATE=force` relocates despite the liveness signal — a call only a human should make. `scripts/migrate_smm_root.py` is that human-facing surface: it reports what is holding the SMM back and drives `init.sh` through `XP_SMM_MIGRATE` via `--confirm` / `--confirm --force`, deliberately implementing no copying of its own. Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and teammates.
 
 ### Marker Write Locality
 
@@ -70,9 +75,15 @@ All three are JSON with schema validation and CLI tools (`system_context_cli.py`
 | `answer` | Agent | Response to a question event |
 | `assumption` | Agent + subagent (plan reviewer) | Stated beliefs — escalates if contradicted |
 | `debt` | Subagent (quality reviewer, retrospective) | Acknowledged tradeoff |
+| `commit` | Hook (PostToolUse:Bash, auto) | One record per `git commit` — sha, message, story id |
 | `sprint` | Hook (subagent_stop._handle_sprint_review_done) | Sprint lifecycle events (start/end with velocity data) |
+| `session_started` | Hook (SessionStart) | Session boundary anchor — bounds "this session's" event reads |
 | `session_end` | Hook (SessionEnd) | Duration, unresolved items, final status flag |
+| `session_summary` | Skill (xp-end-session) | Authored session wrap-up, appended to `session_history.json` |
 | `retrospective` | Subagent (retrospective) | Keep/Fix/Try analysis |
+
+All 18 types are enumerated in `event_schema.VALID_TYPES`; anything outside that
+set is rejected at write time.
 
 ## Curated SMM (shared_mental_model.json)
 
@@ -88,7 +99,7 @@ Four pillars:
 
 Context reaches the agent through two mechanisms:
 - **Prompt nuggets** (UserPromptSubmit via `prompt_nugget.py`): lightweight injection of new signal events since last prompt (~50-100 tokens). Watermark-based — only new concerns, decisions, and discoveries.
-- **Tiered context injection** (SubagentStart via `subagent_start.py`): Explore gets Intent+Constraints only; xp-plan-reviewer/xp-retrospective get full SMM + process guide + sprint.json; teammates (custom agent_type) get SMM + teammate guide + filtered sprint stories; default agents get full SMM + process guide.
+- **Tiered context injection** (SubagentStart via `subagent_start.py`): every tier receives `XP_VALUES.md` — never the process guide, which SubagentStart does not load. On top of the values: Explore gets Intent+Constraints; `xp-code-reviewer` and unknown/ad-hoc types (including `Plan`) get the full rendered SMM; `general-purpose` / `workflow-subagent` / `claude` get the reference tier (a one-line pointer to run `smm_cli.py render` themselves); `xp-retrospective` and `xp-housekeeper` get path strings to their preload inputs; every other `xp-*` forked agent gets values only, because its data arrives through its skill's preload. CLI teammates do **not** appear here at all — they are separate `claude -p` processes and take the SessionStart path instead (see §Teammate Detection).
 
 ## Hook Map
 
@@ -98,23 +109,25 @@ All hooks are `type: "command"`. Judgment work uses plugin subagents.
 
 | Event | Matcher | Script | What It Does |
 |---|---|---|---|
-| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM directory, write `.needs-kickoff` marker, inject GUPP + skills (NO SMM, NO process guide — deferred to kickoff) |
+| **SessionStart** | `startup\|resume\|compact\|clear` | `session_start.py` | Init SMM directory, append `session_started`, write `.needs-kickoff` marker, inject GUPP + `XP_VALUES.md` (NO SMM, NO process guide — deferred to kickoff; on `compact` only, the SMM and process guide are re-injected) |
 | **SessionStart** | `startup\|resume\|compact\|clear` | `retrospective.py` | Compute session stats, write `.retro-input.json` |
 | **UserPromptSubmit** | | `user_prompt_log.py` | Log as customer_input event |
 | **UserPromptSubmit** | | `kickoff_gate.py` | Block prompts until `/xp-kickoff` runs (allows the command itself through) |
 | **UserPromptSubmit** | | `prompt_nugget.py` | Inject prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | **PreToolUse** | `Write\|Edit\|MultiEdit` | `pre_tool_write.py` | Conflict blocking (via `.coordination.json`), TDD order check, plan review gate (`.plan-awaiting-review` marker file) |
-| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Commit-gated review cycle (code-review → quality review; Tier 2/3 carry security), cd-into-worktree-git advisory. No file-modification coordination gate — pre_tool_write covers Edit/Write; trust+merge handles the rest (sprint-105 decision) |
+| **PreToolUse** | `Bash` | `pre_tool_bash.py` | Tier 1 deterministic security scan of the staged diff (fail-closed), staged-lint gate, commit-gated review cycle, branch-protection advisories, cd-into-worktree-git advisory. The review gate arms at `commits.REVIEW_CYCLE_THRESHOLD` (2) changed code files since the last review and blocks on `quality_review_done` alone — `/xp-quality-review` is the whole per-commit gate. On **story** cadence it does not block: it emits a deferral advisory and the review relocates to `/xp-story-close`. No file-modification coordination gate — pre_tool_write covers Edit/Write; trust+merge handles the rest (sprint-105 decision) |
 | **PreToolUse** | `Skill` | `pre_tool_skill.py` | Prepare review guidance for skills |
+| **PreToolUse** | `EnterPlanMode` | `pre_tool_plan_mode.py` | Schedule gate — block plan entry until `/xp-schedule` promotes a frontier |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `post_tool_use.py` | Auto status/working_on, conflict detection |
 | **PostToolUse** | `Write\|Edit\|MultiEdit` | `lint_check.py` | Run project linter, inject errors as additionalContext |
 | **PostToolUse** | `Bash` | `bash_post_tool.py` | Commit bookkeeping (review cycle reset), test result parsing |
 | **PostToolUse** | `Skill\|Agent` | `review_cycle_done.py` | Set review cycle flags (simplify_done, quality_review_done) when review skills complete; emit canonical lifecycle events (simplify/quality-review/security-review/plan-review/assign/housekeeping). Nudges next step via `additionalContext`; injects PROCESS_GUIDE.md after `xp-housekeeper` completes |
+| **PostToolUse** | `Skill\|Agent` | `accept_terminal.py` | Drain the accept-in-flight marker on `/xp-accept`'s terminal dispatch (`/xp-schedule` or `/xp-sprint-review`), via exact-match allowlist |
 | **PostToolUse** | `ExitPlanMode` | `post_tool_exit_plan.py` | Write `.plan-awaiting-review` marker, capture plan file path, nudge `/xp-review-plan` |
 | **PostToolUse** | `AskUserQuestion` | `question_answered.py` | Record user answer to clarification question |
 | **PostToolUseFailure** | `Bash` | `bash_failure.py` | Capture failed test runs. `async: true` |
 | **PostToolUseFailure** | `AskUserQuestion` | `question_answered.py` | Record clarification when question is dismissed |
-| **SubagentStart** | | `subagent_start.py` | Tiered context injection (Explore: Intent+Constraints only, others: full SMM + process guide) + watermark |
+| **SubagentStart** | | `subagent_start.py` | Tiered context injection + `XP_VALUES.md` for every tier (Explore: Intent+Constraints; `xp-code-reviewer`/Plan/unknown: full SMM; generic catch-alls: SMM reference pointer; other `xp-*`: values only) |
 | **SubagentStop** | | `subagent_stop.py` | Record completion + conflict detection. Handles forked xp-* completions before the is_xp_agent skip: `_handle_housekeeping_done` (consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT markers, emit completion event — does NOT return context; SubagentStop `additionalContext` is routed to the finished subagent, not the parent), `_handle_sprint_review_done` (record sprint end + velocity), `_handle_close_reviewer_done` (consume CLOSE_CYCLE_ACTIVE), `_handle_plan_review_done` (write ASSIGN_PENDING marker + plan_reviewed gate event, returns None — the reviewer's own Next-step block tells the main agent to run `/xp-assign`). Writes `.plan-awaiting-review` marker file for Plan subagent. |
 | **Stop** | | `tdd_stop_gate.py` | Block if tests failing |
 | **Stop** | | `sprint_stop_gate.py` | Sprint lifecycle cascade (accept → review): blocks on in-progress + accept marker → run /xp-accept; sprint complete + no sprint_end event → run /xp-sprint-review |
@@ -137,16 +150,16 @@ Plugin subagents with full tool access. Each wrapped by a forked skill with `!` 
 | Subagent | Trigger | Method | Purpose |
 |---|---|---|---|
 | `xp-code-reviewer` | `/xp-quality-review` skill (inline) | Agent tool | Independent code review — code-review accountability, drift management, debt awareness, XP-lens review |
-| `xp-retrospective` | SessionStart | Nudge | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json` |
-| `xp-plan-reviewer` | SubagentStop (Plan) marker + PreToolUse nudge | Nudge | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
-| `xp-housekeeper` | `/xp-housekeeping` skill | Fork | Four-pillar SMM curation with LLM judgment |
+| `xp-retrospective` | `/xp-kickoff` Step 1 | Agent tool (synchronous) | Keep/Fix/Try analysis, session stats, debt escalation. Reads `.retro-input.json`; emits a seed retrospective on a fresh project |
+| `xp-plan-reviewer` | `/xp-review-plan` skill (forked) | Fork | Plan size, TDD ordering, decision conflicts. Writes assumption/question/decision events |
+| `xp-housekeeper` | `/xp-kickoff` Step 6 | Agent tool (synchronous) | Four-pillar SMM curation with LLM judgment |
 | `xp-sprint-reviewer` | `/xp-sprint-review` skill | Fork | Sprint review: what shipped vs planned, execution_plan.json milestone updates, velocity |
-| `xp-close-reviewer` | `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` | Fork | Holistic close-review at sprint/plan/free integration points (mode-aware) |
-| `xp-system-context` | `/xp-system-context` skill | Fork | Autonomous codebase analysis — product, architecture, constraints |
+| `xp-close-reviewer` | `/xp-story-close`, `/xp-sprint-close`, `/xp-plan-close`, `/xp-free-close` | Agent tool | Holistic close-review at story/sprint/plan/free integration points (mode-aware). The close skills are inline and spawn it — they are not themselves forked |
+| `xp-system-analyzer` | `/xp-system-context` skill | Fork | Autonomous codebase analysis — product, architecture, constraints. (The *skill* is `xp-system-context`; the agent file is `agents/xp-system-analyzer.md`) |
 
 ### Skills
 
-Forked skills delegate to a subagent above. Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent):
+Forked skills delegate to a subagent above. Inline skills run in the main agent for full tool access (AskUserQuestion, Bash, Agent). Exactly three skills carry `context: fork` — `/xp-review-plan`, `/xp-sprint-review`, `/xp-system-context`. The four close skills are **inline**: they run in the main agent and *spawn* `xp-close-reviewer` themselves. (Having a `scripts/preload.sh` does not make a skill forked — 15 skills have one.)
 - `/xp-kickoff` — orchestrator, sequences retro → work selection → housekeeping at session start
 - `/xp-work-selection` — sprint setup, work selection, retro Try items
 - `/xp-quality-review` — orchestrator: spawns `xp-code-reviewer` subagent for independent review (code-review accountability, drift, debt, XP-lens), resolves plan concerns inline
@@ -159,9 +172,9 @@ Forked skills delegate to a subagent above. Inline skills run in the main agent 
 - `/xp-sprint-close` — push sprint branch, fork close-reviewer, merge into target, cleanup
 - `/xp-plan-close` — push plan branch, fork close-reviewer, merge into primary, archive plan
 - `/xp-free-close` — push free branch, fork close-reviewer, merge into primary, cleanup
-- `scripts/close_common.py` — shared close pipeline (preflight, push, create-pr, merge subcommands) used by all four close skills above; eliminates the ~80% bash duplication that previously lived across SKILL.md files
+- `scripts/close_common.py` — shared close pipeline used by all four close skills above; eliminates the ~80% bash duplication that previously lived across SKILL.md files. Seven subcommands: `preflight`, `push`, `create-pr`, `hook-present`, `diff-command`, `close-review-gate`, `merge`
 
-XP values are covered by the process guide (injected at SubagentStart).
+`XP_VALUES.md` is injected directly at SubagentStart, for every tier. `PROCESS_GUIDE.md` is a separate payload with two callers, neither of them SubagentStart: `review_cycle_done.py` (after `xp-housekeeper` completes) and `session_start.py` (on the `compact` source only).
 
 ### Notifications
 
@@ -175,18 +188,19 @@ All subagent names start with `xp-`. Plugin name is `xp-agents`, so agent_type b
 
 | When | What's Injected |
 |---|---|
-| Session start | GUPP + skills only (NO SMM, NO process guide — deferred to kickoff) |
+| Session start | GUPP + `XP_VALUES.md` (NO SMM, NO process guide — deferred to kickoff) |
 | After housekeeping | Agent Reads curated SMM file directly (housekeeping step 8) |
 | After housekeeping | PROCESS_GUIDE.md via PostToolUse:Skill\|Agent (`review_cycle_done.py`) when `xp-housekeeper` completes |
 | Each user prompt | Prompt nuggets — new signal events since last prompt (watermark-based, ~50-100 tokens) |
 | Before Write/Edit | Conflict check (blocks), TDD order check, plan review gate — all file-based, zero event log reads |
-| Before Bash | Commit-gated review cycle (blocks until code-review/quality-review done; Tier 2/3 carry security), cd-into-worktree-git advisory. NO Bash file-modification gate — see line 107 (sprint-105 dropped it; trust+merge model) |
-| Subagent spawn | Tiered context: Explore→Intent+Constraints; xp-code-reviewer→full SMM; Plan/general-purpose→full SMM+process guide; Teammates→SMM+teammate guide+filtered stories; xp-plan-reviewer/xp-retrospective→full SMM+guide+sprint.json |
-| After compaction | Full SMM re-injection |
+| Before Bash | Tier 1 security patterns + staged lint, then the commit-gated review cycle (blocks until `quality_review_done`; defers on story cadence), cd-into-worktree-git advisory. NO Bash file-modification gate — see the PreToolUse:Bash row in the Hook Map (sprint-105 dropped it; trust+merge model) |
+| Subagent spawn | `XP_VALUES.md` for every tier, plus: Explore→Intent+Constraints; xp-code-reviewer/Plan/unknown→full SMM; general-purpose / workflow-subagent / claude→SMM reference pointer; xp-retrospective/xp-housekeeper→preload path strings; other forked xp-*→nothing extra. Teammates are not subagents and never reach this hook |
+| After compaction | Full SMM + PROCESS_GUIDE.md re-injection via SessionStart (`compact` source) |
 
 Injection order in SessionStart `additionalContext`:
 1. GUPP ("Resume immediately")
-2. Skills list
+2. `XP_VALUES.md`
+3. On the `compact` source only: rendered SMM, then `PROCESS_GUIDE.md`
 
 After the forked `xp-housekeeper` subagent finishes, the post-completion injection split is:
 
@@ -214,17 +228,21 @@ Critical conflicts → exit 2 (block). Non-critical → event log only.
 ### Session Start
 ```
 SessionStart → session_start.py: init SMM directory, write .needs-kickoff marker
-               inject GUPP + skills (NO SMM, NO process guide in context)
+               inject GUPP + XP_VALUES.md (NO SMM, NO process guide in context)
              → retrospective.py: prepare .retro-input.json
 
 User types   → kickoff_gate.py blocks: "Run /xp-kickoff"
              → User runs /xp-kickoff
 
 /xp-kickoff:
-             1. Retro (if .retro-input.json exists) → /xp-run-retrospective
-             2. Work selection (sprint setup, goals, question triage) → /xp-work-selection
-             3. Housekeeping → /xp-housekeeping (curates four-pillar SMM)
-             4. Clear .needs-kickoff marker
+             0. Prepare: system-context bootstrap, branching stage, orphan-branch triage
+             1. Retro (always) → xp-retrospective agent, synchronously
+             2. Session mode (free vs sprint)
+             3. Execution plan  → /xp-plan          (sprint mode, conditional)
+             4. Sprint start    → /xp-sprint-start  (sprint mode, conditional)
+             5. Work selection (goals, question triage) → /xp-work-selection
+             6. Housekeeping → xp-housekeeper agent (curates four-pillar SMM)
+             7. Render the curated SMM; .needs-kickoff cleared on housekeeper completion
 
 Next prompt  → Gates pass through (marker cleared)
              → Prompt nuggets inject new signal events
@@ -235,7 +253,8 @@ Next prompt  → Gates pass through (marker cleared)
 ```
 UserPrompt   → prompt_nugget.py: inject new signal events since last prompt
 PreToolUse   → pre_tool_write.py (Write/Edit): conflicts, TDD, plan review gate (all file-based)
-             → pre_tool_bash.py (Bash): commit triage gate, cd-into-worktree-git advisory
+             → pre_tool_bash.py (Bash): Tier 1 security scan, staged lint,
+                                        commit review gate, cd-into-worktree-git advisory
 Tool executes
 PostToolUse  → post_tool_use.py: auto status, conflicts (Write/Edit)
              → lint_check.py: linter (Write/Edit)
@@ -253,17 +272,23 @@ Stop         → tdd_stop_gate.py: block if tests failing
              → teammate_stop_gate.py: block teammates with uncommitted changes
 ```
 
-Note: Tier 2/3 LLM security review moved to `/xp-accept` and close-reviewer; per-commit gate enforces only `/code-review` and `/xp-quality-review` via `pre_tool_bash.py` + review cycle marker. See PreToolUse:Bash in Hook Map.
+Note: LLM security review is Tier 2 — `/security-review` at `/xp-{sprint,plan,free}-close` Step 4, over the cumulative close diff. `/xp-accept` and `/xp-story-close` never fire it (`xp-story-close/SKILL.md` Step 4 is literally "Security Review (skipped)"), because every story-close is dispatched inside an active sprint whose close already covers it. The per-commit gate enforces `/xp-quality-review` alone via `pre_tool_bash.py` + the review-cycle marker. See PreToolUse:Bash in the Hook Map and `SECURITY_REVIEW_DOCTRINE.md`.
 
 ### Subagent Lifecycle
 ```
-SubagentStart → subagent_start.py: tiered context injection + watermark
+SubagentStart → subagent_start.py: tiered injection; XP_VALUES.md on EVERY tier
                 Explore: Intent+Constraints only (~200 tokens)
                 xp-code-reviewer: full SMM (needs Constraints for drift management)
-                xp-plan-reviewer/xp-retrospective: full SMM + process guide + sprint.json
-                CLI teammates: use SessionStart path instead (XP Values + TEAMMATE_GUIDE + rendered SMM)
-                Default (Plan/general-purpose): full SMM + process guide
-                xp-* agents not in dispatch: skipped (use own preloads)
+                Default (Plan / unknown ad-hoc types): full SMM
+                general-purpose / workflow-subagent / claude: SMM reference pointer
+                  (a `smm_cli.py render` command line, not a render) and no
+                  sequential-discipline note — the one tier that omits it
+                xp-retrospective: SMM_DIR + RETRO_INPUT path strings
+                xp-housekeeper: SMM_DIR + CURATION_INPUT + work-selection block
+                Other xp-* forked agents: values only (data comes via preloads)
+                CLI teammates: never reach this hook — separate `claude -p`
+                  processes, served by SessionStart (XP Values + TEAMMATE_GUIDE
+                  + rendered SMM)
 SubagentStop  → subagent_stop.py: record completion, conflict detection
               → Forked-xp-* handlers (consume markers, emit lifecycle events):
                   housekeeping → consume KICKOFF + NEEDS_HOUSEKEEPING + NEEDS_SPRINT
@@ -310,11 +335,11 @@ Fail loud, never corrupt, always recoverable.
 | Scenario | Behavior |
 |---|---|
 | Malformed event | Materializer skips, emits concern |
-| Unknown event type | Rendered under "Unknown Events" |
+| Unknown event type | Rejected at write time — `validate_event` fails on any type outside `VALID_TYPES`, so it never reaches the log or the renderer |
 | SMM directory missing | Hooks pass through, next SessionStart recreates |
 | Materializer crash mid-write | Atomic write via tempfile + rename |
-| Lock timeout (>2s) | Append without lock, log warning |
-| Retrospective on <5 events | "Insufficient data" |
+| Lock timeout (`LOCK_TIMEOUT_SECONDS = 10`, override `XP_LOCK_TIMEOUT_SECONDS`) | `LockTimeoutError` is raised — **never** an unlocked append. Hook callers log-and-swallow it (`_common.append_safe` / `bulk_append_safe`, with a structured trace in `hook_errors.jsonl`) or suppress it (`session_end.py`), so the event is dropped rather than corrupting the log |
+| Retrospective with no prior session data | Runs anyway and emits a *seed* retrospective (Keep around adopting XP, Try items as skill suggestions, zero Fix). There is no "insufficient data" short-circuit — kickoff Step 1 never gates on `.retro-input.json` |
 | Schema validation failure | Append rejected, stderr error |
 | xp-agent subagent | Command hooks skip (recursion prevention) |
 
@@ -347,7 +372,7 @@ Only events before the curation watermark are eligible. Events after the waterma
 
 ## CLI Teammates
 
-CLI teammates are the **sprint-default parallel execution mode** for v2.0. When `/xp-assign` recommends parallel work for a sprint, it spawns CLI teammates (independent `claude -p` processes in git worktrees), not Claude Code's `Agent Teams` feature. Each teammate runs the full hook lifecycle (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd), writes its own commits with its own TDD + review cycle, and shares the same SMM as the lead.
+CLI teammates are the **sprint-default parallel execution mode**. When `/xp-schedule` selects parallel work for a frontier, `/xp-assign` spawns CLI teammates one story at a time (independent `claude -p` processes in git worktrees), not Claude Code's `Agent Teams` feature. Mode selection belongs to `/xp-schedule` and happens *before* planning — see §Frontier Scheduling below. Each teammate runs the full hook lifecycle (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd), writes its own commits with its own TDD + review cycle, and shares the same SMM as the lead.
 
 **When Agent Teams is preferred instead:** ad-hoc multi-agent research or analysis where teammates need to be co-tenant in a single Claude Code session — e.g., one agent researching while another summarizes for the user, with shared conversation context. CLI teammates can't share conversation state; Agent Teams can't isolate file domains in worktrees. Sprint-driven parallel implementation of stories with non-overlapping file domains is always CLI teammates; everything else stays in Agent Teams (or solo).
 
@@ -361,7 +386,12 @@ SMM at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` is shared across
 
 ### Teammate Detection and Enforcement
 
-Teammates are detected by `is_worktree_teammate()` — checks if the session's `cwd` contains a `worktree-story-` path segment (location-independent, since worktrees moved out of the repo to a sibling of the SMM dir). Each teammate is an independent `claude -p` CLI process in a git worktree with full hook lifecycle support.
+Teammates are detected by `is_worktree_teammate()`, which has **two legs**:
+
+1. **cwd leg** — the session's `cwd` (hook payload first, then the process cwd as a fallback) contains a `worktree-story-` path segment. Location-independent, since worktrees moved out of the repo to a sibling of the SMM dir.
+2. **env leg** — `XP_TEAMMATE_NAME` names a teammate, *and* `spawn_teammate`'s lifetime-scoped `.in-place-active-*` marker is live for that name under the resolved SMM dir. This leg exists for **in-place (solo-delegation) teammates**, whose cwd is the main checkout; without it they would be misread as the lead. `XP_TEAMMATE_NAME` is a documented leaky var, so the marker guard is load-bearing: a leaked env with no live marker is not a teammate, and with neither an `smm_dir` argument nor an explicit `SMM_DIR` the leg fails closed.
+
+The shared helper is `identity.in_place_teammate_name()`, which also backs `tdd_check._reader_scope`, `pre_tool_skill._is_live_teammate`, and `commit_event._resolve_story_id` — so every gate inherits the same guard. Each teammate is an independent `claude -p` CLI process with full hook lifecycle support.
 
 **Hooks that fire for teammates:** SessionStart, SessionEnd, Stop, PreToolUse, PostToolUse, UserPromptSubmit (all hooks fire — full session).
 **SessionStart path:** Injects XP Values + TEAMMATE_GUIDE.md + rendered SMM (no kickoff markers, no GUPP).
@@ -388,7 +418,7 @@ Flow:
 
 ## Enforcement vs. Agent Compliance
 
-**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, Write/Edit conflict detection (via `.coordination.json` in `pre_tool_write.py`; Bash file-mods are NOT gated — see sprint-105 decision in line 107 above; trust+merge handles cross-agent Bash damage at story-close), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — code-review and quality review enforced at commit time; Tier 2/3 LLM security review moved to `/xp-accept` and close-reviewer), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
+**Fully enforced (no agent compliance needed):** Prompt nugget injection, status/working_on tracking, Write/Edit conflict detection (via `.coordination.json` in `pre_tool_write.py`; Bash file-mods are NOT gated — see the sprint-105 decision in the PreToolUse:Bash row of the Hook Map; trust+merge handles cross-agent Bash damage at story-close), customer input logging, session bookkeeping, TDD stop gate (`tdd_stop_gate.py`), lint, commit-gated review cycle (`pre_tool_bash.py` + `markers.py` — `/xp-quality-review` is the gate, blocking at 2+ changed code files on commit cadence and deferring to `/xp-story-close` on story cadence; Tier 1 security patterns fire unconditionally, Tier 2 LLM `/security-review` runs at close), plan review nudge via `.plan-awaiting-review` marker, kickoff gate (UserPromptSubmit), ANSI stripping at write time, event log compaction.
 
 **Agent compliance needed (mitigated by process guide + subagent nudges):** Decision recording, event quality, judgment events (assumptions, questions, discoveries), final status at session end, invoking nudged subagents/skills (quality reviewer, plan reviewer, retrospective), running `/xp-kickoff` sub-skills (retro, goals, housekeeping) when orchestrator directs.
 
@@ -398,10 +428,10 @@ Resolution via `metadata: {"resolves": ["target-event-id"]}`. Questions resolved
 
 | Type | Resolution Pattern | Who Drives Closure | Active → Reference |
 |------|-------------------|-------------------|-------------------|
-| Goal | `metadata.resolves` | `/xp-housekeeping` | Unresolved in A1, completed in R8 |
-| Concern | `metadata.resolves` | `/xp-housekeeping` + agents mid-session | Unresolved in A4, resolved in R7 |
-| Debt | `metadata.resolves` | `/xp-housekeeping` + quality reviewer | Open in R6 (with aging), resolved omitted |
-| Decision | `metadata.resolves` (superseded) | `/xp-housekeeping` | Active in Constraints, superseded omitted |
+| Goal | `metadata.resolves` | `xp-housekeeper` | Unresolved in A1, completed in R8 |
+| Concern | `metadata.resolves` | `xp-housekeeper` + agents mid-session | Unresolved in A4, resolved in R7 |
+| Debt | `metadata.resolves` | `xp-housekeeper` + quality reviewer | Open in R6 (with aging), resolved omitted |
+| Decision | `metadata.resolves` (superseded) | `xp-housekeeper` | Active in Constraints, superseded omitted |
 | Question | `answer` event with `references` | `/xp-work-selection` | Blocking in A3, resolved in R3 |
 
 ### Kickoff Gate
@@ -411,7 +441,7 @@ Single gate: `kickoff_gate.py` (UserPromptSubmit). Blocks prompts until `/xp-kic
 ## Data Quality
 
 - **ANSI stripping**: `_append_impl.py` strips ANSI escape codes from `content` at write time
-- **Content truncation**: `materialize.py` truncates concern content to 500 chars
+- **Content truncation**: `materialize.py` truncates `customer_input` content to 300 chars in the housekeeping preload (`_CUSTOMER_INPUT_TRUNCATE_LIMIT`), flagging the summary with `content_truncated`. Summary-side only — the raw event is unchanged. At write time `event_schema.CONTENT_BUDGETS` bounds every type except `customer_input` and `commit` (both `None`), which are capped only by `MAX_CONTENT_LENGTH`. Budgets reject, they never truncate
 - **Concern deduplication**: `detect_conflicts()` checks existing unresolved concerns before generating new ones
 
 ## Design Principles

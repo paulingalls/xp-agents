@@ -2,7 +2,7 @@
 name: xp-sprint-review
 description: >-
   Review the completed sprint. Compares what shipped vs planned, updates
-  execution_plan.md milestones with delivered status, and records sprint
+  execution_plan.json milestones with delivered status, and records sprint
   velocity. Use when all stories are done or deferred.
 effort: high
 context: fork

@@ -26,7 +26,7 @@ class TestKickoffPreloadSprintAware(_IntegrationTestCase):
     """M8b: check_session_needs.sh outputs sprint marker and state info."""
 
     def test_outputs_needs_execution_plan_when_missing(self):
-        """No execution_plan.md — emit NEEDS_EXECUTION_PLAN flag."""
+        """No execution_plan.json — emit NEEDS_EXECUTION_PLAN flag."""
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0)
         self.assertIn("NEEDS_EXECUTION_PLAN", result.stdout)

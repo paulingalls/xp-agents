@@ -281,9 +281,10 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     parts: list[str] = []
 
-    # Commit gate: review cycle + tier-1 security + lint. Below the
-    # 3+ code-files threshold there is no per-commit security gate
-    # (close-skill Step 4 covers the cumulative diff at close).
+    # Commit gate: tier-1 security + lint (unconditional) then the review
+    # cycle, which arms at REVIEW_CYCLE_THRESHOLD changed code files. There
+    # is no per-commit LLM security gate at any file count — close-skill
+    # Step 4 covers the cumulative diff at close.
     if smm_dir is not None and git_commits.is_git_commit(command):
         # EVERY git read below runs in the repo the commit will land in, not in the
         # hook's own cwd. `git -C <worktree> commit` (the form this project tells

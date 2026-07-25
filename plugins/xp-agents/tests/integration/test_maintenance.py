@@ -252,7 +252,8 @@ class TestMigrateIntegration(_IntegrationTestCase):
 
 
 # TestLoadContext removed — load_context.sh deleted in M5 cleanup.
-# Context loading is now handled by kickoff_done.py (SMM + guide injection).
+# Context loading is now handled by review_cycle_done.py, which injects the
+# process guide when xp-housekeeper completes.
 
 
 class TestSaveSMMIntegration(_IntegrationTestCase):

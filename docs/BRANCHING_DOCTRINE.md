@@ -75,11 +75,11 @@ delivers all four production-discipline guarantees the plugin assumes:
 - Gates `main` and sprint-branch commits — `main` is PR-only; the
   sprint branch only accepts merges from story branches, not direct
   commits.
-- `/xp-accept` green → merges the story branch into the sprint
-  branch, deletes the story branch.
-- `/xp-sprint-review` milestone → `delivered` → opens a PR from the
-  sprint branch to `main`. PR merge happens outside the plugin
-  (human review + CI).
+- `/xp-accept` green → dispatches `/xp-story-close`, which merges the
+  story branch into the sprint branch and deletes it.
+- `/xp-sprint-review` flips the milestone to `delivered`;
+  `/xp-sprint-close` then pushes the sprint branch and opens the PR to
+  `main`. PR merge happens outside the plugin (human review + CI).
 
 ### Stage 3 — Release flow (supported, optional)
 
@@ -251,12 +251,17 @@ always user-namespaced to prevent collisions.
   upgrade that introduces one. This widens to the same user's older
   prefix, never to another user's.
 - **Branch shapes.**
-  - `<user>/story-NNN-<slug>`
+  - `<user>/story-NNN-<slug>` — including teammate branches. A
+    teammate does **not** get a branch shape of its own; it inherits
+    the spawning user's namespace and the ordinary story shape, with
+    the slug suffix optional (`identity._STORY_BRANCH_RE` accepts
+    both). Only the *worktree* carries the `worktree-story-NNN` name.
   - `<user>/sprint-NNN-<slug>`
+  - `<user>/plan-<slug>`
   - `<user>/free-YYYY-MM-DD-<slug>`
-  - `<user>/teammate-story-NNN` — replaces the bare
-    `teammate-story-NNN`; teammates inherit the spawning user's
-    namespace rather than the teammate's own git config.
+  - `<user>/scaffold` — one shared branch per
+    `/xp-scaffold-acceptance` invocation, surface-independent, so a
+    multi-surface loop lands on it rather than chaining.
 - **Rationale.** Two users creating `story-042` independently never
   collide on push. Reviewers see at a glance who originated a branch.
   Teammate branches stay visually grouped with their lead's work.
@@ -291,8 +296,8 @@ line of the commit message):
   bumps, config tweaks, housekeeping)
 
 A third prefix, `[sprint-direct]`, is also recognized by the gate
-but is reserved for the `/xp-accept` merge window — end users do
-not type it manually.
+but is reserved for the `/xp-story-close` merge window that
+`/xp-accept` dispatches — end users do not type it manually.
 
 The gate detects these prefixes, allows the commit, and records it as
 a `status` event labeled with the prefix. Silent direct-to-main commits
@@ -366,8 +371,8 @@ Both paths route through `/xp-system-context`, which writes the
 declaration via the `system_context_cli.py edit-branching` surface
 — end users do not edit the SMM JSON by hand, and there is no
 need to touch `branching_strategy` outside this skill. Stage 0 →
-Stage 2 migrations follow the same pattern via the kickoff prompt
-at Step 2.4.
+Stage 2 migrations follow the same pattern via `/xp-stage-migration`,
+invoked from kickoff **Step 0**.
 
 The plugin's role is the declaration: changing branch-protection
 rules, retargeting open PRs, and reserving `main` for releases are
@@ -408,14 +413,18 @@ auto-promoted to Stage 2 by `branching.py`; see Legacy / Migration.)
 - **`/xp-system-context`** — detects branching signals, proposes a
   stage, writes the "Branching Strategy" section, raises migration
   concerns for signal/declaration mismatches.
-- **`/xp-sprint-start`** — creates the sprint branch and the first
-  story branch off it. Sprint branches are mandatory under the
-  Stage 2 floor.
-- **`/xp-accept`** — on story green, merges the story branch into
-  the sprint branch, deletes the story branch.
-- **`/xp-sprint-review`** — on milestone flipping to `delivered`,
-  opens a PR from the sprint branch to the integration branch
-  (Stage 2: `main`; Stage 3: `develop` or `staging`).
+- **`/xp-sprint-start`** — creates the sprint branch. Sprint branches
+  are mandatory under the Stage 2 floor. It does **not** create the
+  first story branch: `/xp-schedule` JIT-creates it on a solo
+  frontier, and `/xp-assign` creates each teammate branch at spawn.
+- **`/xp-accept`** — on story green, dispatches `/xp-story-close`,
+  which merges the story branch into the sprint branch and deletes
+  it. Accept itself does not touch branches.
+- **`/xp-sprint-review`** — flips the milestone to `delivered` and
+  records velocity. It does not push or open a PR.
+- **`/xp-sprint-close`** — pushes the sprint branch (Step 2) and
+  opens the PR to the integration branch (Step 3; Stage 2: `main`,
+  Stage 3: `develop` or `staging`), then merges and cleans up.
 - **`/xp-free-close`** — pushes the free branch and opens a PR (or
   merges locally without `gh`). Used after any free session
   regardless of stage.
@@ -518,10 +527,11 @@ branches ready for review and merge appear on the remote. Without
 | `branching_strategy` schema validation | `plugins/xp-agents/smm/system_context_schema.py` |
 | Stage declaration surface | `plugins/xp-agents/smm/system_context_cli.py` (`edit-branching`) |
 | Stage detection | `plugins/xp-agents/agents/xp-system-analyzer.md` (Step 3.5) |
-| Sprint + story branch creation | `plugins/xp-agents/skills/xp-sprint-start/SKILL.md` |
+| Sprint branch creation | `plugins/xp-agents/skills/xp-sprint-start/SKILL.md` |
+| Story branch creation (solo JIT / teammate at spawn) | `plugins/xp-agents/skills/xp-schedule/SKILL.md`, `plugins/xp-agents/skills/xp-assign/SKILL.md` |
 | Plan branch creation + pre-existing detection | `plugins/xp-agents/skills/xp-plan/SKILL.md` |
-| Story branch merge / delete | `plugins/xp-agents/skills/xp-accept/SKILL.md` |
+| Story branch merge / delete | `plugins/xp-agents/skills/xp-story-close/SKILL.md` |
 
 Post-sprint branch lifecycle (sprint/plan branch cleanup beyond the
 per-story delete-on-accept) is designed separately in
-`docs/ideas/BRANCH_LIFECYCLE.md`.
+`docs/completed/BRANCH_LIFECYCLE.md`.
