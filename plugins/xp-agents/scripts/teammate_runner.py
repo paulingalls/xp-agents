@@ -97,7 +97,7 @@ def _project_dir(smm_dir: str | Path, sprint_id: str | None) -> Path:
     Teammate names (``worktree-story-001``) and story ids repeat across
     projects, so a flat ``/tmp/<name>.log`` or ``/tmp/prompt-<id>.txt`` collides
     when two xp-agents sessions in different projects spawn same-named teammates.
-    SMM lives at ``${CLAUDE_PLUGIN_DATA}/{project-id}/smm/``, so the SMM parent's
+    SMM lives at ``{data-root}/{project-id}/smm/``, so the SMM parent's
     name is a per-project token — namespace teammate files under it to keep them
     isolated while preserving /tmp's ephemerality and discoverability.
 

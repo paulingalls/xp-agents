@@ -5,13 +5,21 @@
 
 ## Problem
 
-Today a single `system_context.stack.test_command` (e.g. `pytest -n auto`) is
-used everywhere: lefthook pre-commit, the story-close auto-merge gate
-(condition 3), and sprint-close. Story-close runs **N times per sprint** (once
-per story); sprint-close runs **once**. Running the *entire* suite on every
-story-close — and every commit — is fine at this repo's ~1min, but does not
-scale to a real monorepo where the full matrix is minutes-to-tens-of-minutes.
-A story that touched one module still pays for the whole tree, every close.
+Today a single `system_context.stack.test_command` value (e.g. `pytest -n auto`)
+is the one command in play everywhere: the project's own pre-commit hook runner,
+the story-close auto-merge gate (condition 3), and the free-close auto-merge
+gate. Story-close runs **N times per sprint** (once per story). Running the
+*entire* suite on every story-close — and every commit — is fine on a small
+tree, but does not scale to a real monorepo where the full matrix is
+minutes-to-tens-of-minutes. A story that touched one module still pays for the
+whole tree, every close.
+
+**Correction against the tree:** `/xp-sprint-close` and `/xp-plan-close` do
+**not** read `test_command` at all — the only consumers are `/xp-story-close`,
+`/xp-free-close` (both via the auto-merge gate) and `/xp-sprint-start` (which
+builds each story's `acceptance_execution.command` from it). So the "thorough
+sprint-close" half of the idea below is not a re-scoping of an existing call
+site; it would be a **new** one.
 
 ## Idea
 
@@ -65,8 +73,9 @@ a project chooses it deliberately.
 ## Scope
 
 Milestone-sized: schema change (`system_context_schema`), close-gate routing
-(`close_common.py` condition-3 command selection by mode), the `file_domain ->
-surface` mapping + fail-closed fallback, and the honesty-invariant decision.
+(condition-3 command selection by mode — which today lives in skill prose plus
+the per-skill preload, NOT in `close_common.py`), the `file_domain -> surface`
+mapping + fail-closed fallback, and the honesty-invariant decision.
 Not a mid-sprint bolt-on. Plan it as its own milestone/spike.
 
 ## Related
@@ -74,4 +83,6 @@ Not a mid-sprint bolt-on. Plan it as its own milestone/spike.
 - `system_context.acceptance_surfaces` (existing surface model)
 - Per-story `acceptance_execution.command` (already lets a *story* scope its
   acceptance test — partial precedent)
-- Auto-merge gate condition 3 (`skills/xp-story-close`, `close_common.py`)
+- Auto-merge gate condition 3 — `skills/xp-story-close/SKILL.md` (Steps 5–6) plus
+  `skills/xp-story-close/scripts/preload.sh` (`emit_var TEST_COMMAND`);
+  `close_common.py` has no `test_command` reference

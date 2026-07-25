@@ -104,6 +104,42 @@ class TestSystemAnalyzerDetectsTestCommand(unittest.TestCase):
         )
 
 
+class TestSystemAnalyzerNamespaceInstruction(unittest.TestCase):
+    """`user_namespace` is now READ when naming branches, so the analyzer's
+    instruction for it must not clobber a prefix already in use.
+
+    While the field was inert, "derive it from the git email local-part" was
+    harmless. Now branch creation reads it: an update-mode run that overwrites
+    an in-use `<prefix>/...` with the email local-part renames every FUTURE
+    branch and orphans the existing ones — the same disagreement between the
+    recorded namespace and the real branches that reading the field was meant
+    to end, arriving from the writer's side.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.content = _read_system_analyzer_agent()
+
+    def test_template_prefers_the_prefix_already_in_use(self):
+        self.assertIn(
+            "prefix already in use",
+            self.content,
+            "Step 4's user_namespace instruction must tell the analyzer to "
+            "record the namespace already in use on existing branches (Step 3 "
+            "already runs `git branch -a`) before falling back to the git "
+            "email local-part — the field now drives branch creation",
+        )
+
+    def test_namespace_is_a_single_segment(self):
+        self.assertIn(
+            "no `/`",
+            self.content,
+            "Step 4's user_namespace instruction must state the value is a "
+            "single path segment; a slash-bearing namespace creates branches "
+            "the branch-name parsers cannot recognize",
+        )
+
+
 class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
     """Sync check: xp-system-analyzer.md's Step 4 JSON template budgets
     must match system_context_schema.FIELD_MAXLENGTH. Without this pin,

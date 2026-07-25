@@ -113,7 +113,7 @@ def create_story_branch(
     file to resolve a name would be moot work, and doing it unconditionally
     would break stage-0 inertness on a sprint.json that happens to be corrupt.
     """
-    user_ns = identity.user_namespace(cwd)
+    user_ns = identity.user_namespace(cwd, smm_dir)
     name = branch_name(user_ns, story_id, slug)
     if get_branching_stage(smm_dir) >= BRANCH_MIN_STAGE["story"]:
         # Below the floor no branch is cut at all (_create_or_resume_branch
@@ -221,7 +221,7 @@ def create_scaffold_branch(
     instead of ``sys.exit(1)``, so the scaffold pipeline can fold the
     failure into ``CommitResult(ok=False, reason=...)`` rather than die.
     """
-    user_ns = identity.user_namespace(cwd)
+    user_ns = identity.user_namespace(cwd, smm_dir)
     name = scaffold_branch_name(user_ns)
     if current_branch is None:
         current_branch = identity.get_current_branch(cwd)
@@ -262,7 +262,7 @@ def create_free_branch(
     design, free-branch protection activates at the floor to keep
     exploratory work off protected branches.
     """
-    user_ns = identity.user_namespace(cwd)
+    user_ns = identity.user_namespace(cwd, smm_dir)
     name = free_branch_name(user_ns, slug)
     if base is not None and get_branching_stage(smm_dir) >= BRANCH_MIN_STAGE["free"]:
         # Stage-gated for the same reason create_story_branch's is: below the
@@ -278,17 +278,40 @@ def create_free_branch(
     )
 
 
-def list_user_branches(cwd: str, prefix: str) -> list[str]:
-    """Return branches matching <user-ns>/<prefix>-*, excluding HEAD."""
-    user_ns = identity.user_namespace(cwd)
+def list_user_branches(cwd: str, prefix: str, smm_dir: Path | None = None) -> list[str]:
+    """Return branches matching <user-ns>/<prefix>-*, excluding HEAD.
+
+    ``smm_dir`` is where the namespace override is read from — pass the one the
+    caller holds. The patterns this builds must match what the WRITERS above
+    minted, and they read it from the SMM they were handed.
+
+    TWO patterns whenever a recorded override differs from the git identity,
+    for the same reason ``branch_resolution._slug_rebuilt_sprint_branches``
+    rebuilds two names: every branch cut before anything read the override
+    carries the GIT-derived prefix, so globbing only the override makes all of
+    a user's existing work vanish from kickoff's orphan triage and free-close
+    discovery on the very upgrade that introduces the override. Both consumers
+    only PRINT, so listing a branch that is genuinely yours costs nothing while
+    missing one hides work. Deduped and still namespaced — this widens to the
+    same user's older prefix, never to another user's, which is what the
+    namespacing is for.
+    """
+    namespaces = dict.fromkeys(
+        [identity.user_namespace(cwd, smm_dir), identity.git_user_namespace(cwd)]
+    )
     current = identity.get_current_branch(cwd)
-    pattern = f"{user_ns}/{prefix}-*"
-    return [b for b in match_local_branches(cwd, pattern) if b != current]
+    seen = dict.fromkeys(
+        b
+        for ns in namespaces
+        for b in match_local_branches(cwd, f"{ns}/{prefix}-*")
+        if b != current
+    )
+    return list(seen)
 
 
-def list_free_branches(cwd: str) -> list[str]:
+def list_free_branches(cwd: str, smm_dir: Path | None = None) -> list[str]:
     """Return free branches owned by the current user, excluding HEAD."""
-    return list_user_branches(cwd, "free")
+    return list_user_branches(cwd, "free", smm_dir)
 
 
 def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
@@ -299,7 +322,7 @@ def create_plan_branch(cwd: str, slug: str, smm_dir: Path) -> str | None:
     any prior slug drift is fixed idempotently. Mirrors the sprint
     primitive's atomic re-record. Returns None when stage < plan.
     """
-    user_ns = identity.user_namespace(cwd)
+    user_ns = identity.user_namespace(cwd, smm_dir)
     name = plan_branch_name(user_ns, slug)
     result = _create_or_resume_branch(
         cwd,

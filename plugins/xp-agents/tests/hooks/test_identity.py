@@ -4,6 +4,7 @@
 Covers: resolve_agent_id, is_worktree_teammate, get_current_branch, user_namespace.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -25,6 +26,7 @@ from _branching_fixtures import init_repo
 # not import conftest (see TestIsWorktreeTeammate.setUp — it must stand alone
 # under an isolated `python3 -m unittest hooks.test_identity`).
 from _in_place_helpers import release_in_place_holds
+from _sprint_fixtures import write_system_context
 
 
 class TestResolveAgentId(unittest.TestCase):
@@ -363,8 +365,145 @@ class TestUserNamespace(unittest.TestCase):
     def test_real_git_repo(self):
         with tempfile.TemporaryDirectory() as td:
             init_repo(td)
-            result = identity.user_namespace(td)
+            # An SMM dir with no system_context.json — pins the git-derived
+            # answer WITHOUT depending on whatever SMM the ambient environment
+            # resolves to. Omitting it made this test read the developer's real
+            # system_context (and fail under `python3 -m unittest discover`,
+            # which loads no conftest and so gets no redirected plugin-data
+            # root).
+            result = identity.user_namespace(td, smm_dir=Path(td))
             self.assertEqual(result, "test")
+
+
+class TestUserNamespaceFromSystemContext(unittest.TestCase):
+    """A recorded branching_strategy.user_namespace OVERRIDES the git-derived slug.
+
+    Before this, the recorded field was inert: system_context could say
+    ``paulingalls`` while every branch was created as ``ingallsp/...`` and
+    nothing reported the disagreement. The recorded value is user-editable
+    (``system_context_cli edit-branching-field``), so it is an override, and an
+    override that nothing reads is a lie.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.smm_dir = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def _write_ctx(self, **bs_extras: object) -> None:
+        """Fully-valid context via the shared fixture — a schema-invalid doc
+        makes the loader raise, which this code treats as "no override", so a
+        hand-rolled minimal doc would make every assertion below pass
+        vacuously."""
+        write_system_context(self.smm_dir, 2, **bs_extras)
+
+    def _git_says(self, email: str):
+        return patch(
+            "identity.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, stdout=f"{email}\n"),
+        )
+
+    def test_recorded_value_wins_over_git_email(self):
+        self._write_ctx(user_namespace="paulingalls")
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "paulingalls"
+            )
+
+    def test_absent_field_falls_back_to_git(self):
+        self._write_ctx()
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_no_system_context_falls_back_to_git(self):
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_empty_string_falls_back_to_git(self):
+        self._write_ctx(user_namespace="   ")
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_leading_dash_is_refused_and_falls_back(self):
+        """A namespace reaching `git branch` as argv must never start with `-`.
+
+        Same argv-injection guard integration_branch already carries: the value
+        is interpolated into a branch name handed to git, so a leading dash
+        would arrive as a FLAG.
+        """
+        self._write_ctx(user_namespace="--upload-pack=evil")
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_unusable_ref_characters_fall_back(self):
+        self._write_ctx(user_namespace="has spaces")
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_omitted_smm_dir_self_resolves_the_override(self):
+        """The 10 existing call sites pass no smm_dir and must STILL see the
+        override — branch readers (list_user_branches) and branch writers
+        (create_free_branch) both go through this path, and a reader that
+        disagreed with the writer would break kickoff's orphan triage.
+
+        SMM_DIR is pinned rather than left to init.sh derivation: unpinned,
+        this reads whatever SMM the ambient environment resolves to (the
+        developer's own, under `python3 -m unittest discover`).
+        """
+        self._write_ctx(user_namespace="paulingalls")
+        with (
+            patch.dict(os.environ, {"SMM_DIR": str(self.smm_dir)}),
+            self._git_says("ingallsp@example.com"),
+        ):
+            self.assertEqual(identity.user_namespace("/tmp"), "paulingalls")
+
+    def test_multi_segment_namespace_falls_back(self):
+        """A namespace is ONE segment: `team/paul` would create
+        `team/paul/free-…` branches that `is_free_branch` / `extract_story_id`
+        (both `^[^/]+/…`) cannot recognize, so free-close and story-close would
+        refuse the plugin's own branches. Dropped here, refused at write time.
+        """
+        self._write_ctx(user_namespace="team/paul")
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_schema_invalid_context_falls_back_instead_of_raising(self):
+        """A DELIBERATE tradeoff, pinned so it is not mistaken for an accident.
+
+        The override is read through the validating loader (which also carries
+        the symlink guard), so a system_context that fails schema validation
+        anywhere drops the namespace override rather than honoring just this
+        field. Branch naming must never raise, and git-derived is always a
+        valid answer. The cost: an unrelated invalid field silently changes the
+        branch prefix — acceptable only because a schema-invalid context is
+        already loudly broken everywhere else that reads it.
+        """
+        (self.smm_dir / "system_context.json").write_text(
+            json.dumps({"product": {"name": "t", "purpose": "t"}})
+        )
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
+
+    def test_corrupt_json_falls_back_instead_of_raising(self):
+        (self.smm_dir / "system_context.json").write_text("{not json")
+        with self._git_says("ingallsp@example.com"):
+            self.assertEqual(
+                identity.user_namespace("/tmp", smm_dir=self.smm_dir), "ingallsp"
+            )
 
 
 class TestGetCurrentBranch(unittest.TestCase):

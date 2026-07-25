@@ -9,6 +9,9 @@ load-lenient / save-strict split in the store.
 
 The store half is the load-bearing part: the check must be enforced at INPUT
 without hard-failing a project whose stored config predates it.
+
+`user_namespace` is governed by the same rule (plus a single-segment rule of its
+own) and shares the grandfather — see TestSaveGrandfathersTheStoredNamespace.
 """
 
 import json
@@ -60,6 +63,19 @@ class TestUsableGitRefName(unittest.TestCase):
         for name in ("main", "paul/story-005-x", "release/v1.2.3", "a_b.c-d"):
             with self.subTest(name=name):
                 self.assertTrue(usable_git_ref_name(name))
+
+    def test_rejects_a_leading_plus_but_keeps_an_interior_one(self) -> None:
+        """A leading `+` is the refspec force marker, not a name character.
+
+        These values reach `git push origin <branch>` (branching_core,
+        close_common), where `+main` means "force-push main over the remote".
+        Git itself accepts `+main` as a ref NAME, so only this predicate stands
+        between a stored value and that push. Interior `+` stays legal — it is
+        an ordinary branch character, and rejecting it would heal the value to
+        the release branch.
+        """
+        self.assertFalse(usable_git_ref_name("+main"))
+        self.assertTrue(usable_git_ref_name("main+dev"))
 
     def test_accepts_git_legal_names_the_naming_pattern_rejects(self) -> None:
         """The question here is "can git use this?", NOT "does this match the
@@ -214,6 +230,53 @@ class TestRendererMarksARejectedValue(unittest.TestCase):
         self.assertNotRegex(rendered.lower(), r"not usable|unusable")
 
 
+class TestRendererMarksARejectedNamespace(unittest.TestCase):
+    """Same split-brain, same treatment, for `user_namespace`.
+
+    Now that branch naming READS this field, a stored value the use-site drops
+    would otherwise be rendered as fact — the SMM telling the agent branches are
+    cut under `team/paul` while every branch is really cut under the git
+    identity. That is the disagreement reading the field exists to end.
+    """
+
+    def _render(self, value: object) -> str:
+        lines: list[str] = []
+        _render_branching_strategy(lines, {"stage": 2, "user_namespace": value})
+        return "\n".join(lines)
+
+    def test_unusable_value_is_shown_and_marked(self) -> None:
+        for value in ("team/paul", "-f", "has space"):
+            with self.subTest(value=value):
+                rendered = self._render(value)
+                self.assertIn(
+                    str(value), rendered, "the stored value must still be visible"
+                )
+                self.assertRegex(rendered.lower(), r"not usable|unusable")
+
+    def test_usable_value_is_rendered_plainly(self) -> None:
+        rendered = self._render("paul")
+        self.assertIn("paul", rendered)
+        self.assertNotRegex(rendered.lower(), r"not usable|unusable")
+
+    def test_blank_value_is_not_reported_as_broken(self) -> None:
+        """Blank is LEGAL — `user_namespace_error` accepts it, and it means
+        "derive from git identity", exactly like the absent field.
+
+        Marking it reports a valid configuration as broken, which either
+        provokes a fix for a non-problem or trains the reader to ignore the
+        marker in the case it was added for.
+        """
+        for value in ("", "   "):
+            with self.subTest(value=value):
+                rendered = self._render(value)
+                self.assertNotRegex(rendered.lower(), r"not usable|unusable")
+
+    def test_blank_value_renders_like_an_absent_one(self) -> None:
+        """No half-line either: `- **User Namespace:**` with nothing after it
+        is noise, and `integration_branch` already omits an empty value."""
+        self.assertNotIn("User Namespace", self._render(""))
+
+
 class _StoreTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self._td = tempfile.TemporaryDirectory()
@@ -302,7 +365,7 @@ class TestSaveGrandfatherIsNarrow(_StoreTestCase):
         integration_branch that happens to match disk must not switch it off
         for whatever else starts consulting it."""
         doc = self._grandfather("develop")
-        self.assertFalse(store_module._is_grandfathered_branch(self.path, doc))
+        self.assertFalse(store_module._is_grandfathered_ref_format(self.path, doc))
 
     def test_missing_on_disk_doc_yields_rejection_not_a_bypass(self) -> None:
         """THE fail-closed pin. A grandfather that fails open is not a
@@ -321,6 +384,61 @@ class TestSaveGrandfatherIsNarrow(_StoreTestCase):
         self.path.write_text(json.dumps(valid_doc()), encoding="utf-8")
         with self.assertRaises(ValueError):
             save_system_context(self.smm_dir, self._doc("-f"))
+
+
+class TestSaveGrandfathersTheStoredNamespace(_StoreTestCase):
+    """`user_namespace` joined `integration_branch` under the ref-format rule,
+    so it needs the same grandfather — for a sharper reason.
+
+    `branch_resolution._maybe_auto_promote` does load -> set stage -> save and
+    deliberately lets ValueError propagate ("schema/code-bug must crash loud").
+    It runs from `get_branching_stage`, which nearly every gate calls. Without a
+    grandfather, one stored namespace that predates the rule turns every stage
+    read into a crash — the over-rejection failure `usable_git_ref_name`'s
+    docstring records, reached through the other field.
+    """
+
+    def _ns_doc(self, user_namespace: object, **bs: object) -> dict:
+        return valid_doc(
+            branching_strategy={"stage": 1, "user_namespace": user_namespace, **bs}
+        )
+
+    def _stored_ns(self) -> object:
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        return raw["branching_strategy"]["user_namespace"]
+
+    def test_auto_promote_round_trip_over_a_stored_bad_namespace_succeeds(self) -> None:
+        doc = self._ns_doc("team/paul")
+        self.path.write_text(json.dumps(doc), encoding="utf-8")
+        loaded = load_system_context(self.smm_dir)
+        assert loaded is not None
+        loaded["branching_strategy"]["stage"] = 2
+        save_system_context(self.smm_dir, loaded)
+        self.assertEqual(self._stored_ns(), "team/paul")
+
+    def test_a_different_bad_namespace_is_still_rejected(self) -> None:
+        self.path.write_text(json.dumps(self._ns_doc("team/paul")), encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            save_system_context(self.smm_dir, self._ns_doc("--upload-pack=evil"))
+        self.assertIn("branching_strategy.user_namespace", str(ctx.exception))
+        self.assertEqual(self._stored_ns(), "team/paul", "the write must not land")
+
+    def test_a_bad_namespace_cannot_ride_a_grandfathered_branch(self) -> None:
+        """``enforce_ref_format`` is document-wide, so a grandfathered
+        integration_branch must not license a NEW bad namespace alongside it."""
+        stored = self._ns_doc("paul", integration_branch="-f")
+        self.path.write_text(json.dumps(stored), encoding="utf-8")
+        with self.assertRaises(ValueError) as ctx:
+            save_system_context(
+                self.smm_dir,
+                self._ns_doc("--upload-pack=evil", integration_branch="-f"),
+            )
+        self.assertIn("branching_strategy.user_namespace", str(ctx.exception))
+
+    def test_a_new_bad_namespace_alone_is_rejected(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            save_system_context(self.smm_dir, self._ns_doc("has space"))
+        self.assertIn("branching_strategy.user_namespace", str(ctx.exception))
 
 
 class TestCliValidateReportsStoredBadValues(_StoreTestCase):

@@ -3,7 +3,7 @@
 
 `_ClosePreloadCommonTests` covers the assertions every close-skill
 preload must satisfy: it emits SMM_DIR, CURRENT_BRANCH, GH_AVAILABLE,
-WORKTREE_CLEAN, and exits 0 even with a fresh CLAUDE_PLUGIN_DATA.
+WORKTREE_CLEAN, and exits 0 even with a fresh XP_AGENTS_DATA.
 Subclasses inherit the mixin plus `_IntegrationTestCase` and supply
 `_PRELOAD`. The TARGET_BRANCH assertion is skill-specific (sprint-close
 uses get-target, plan-close uses get-primary, free-close mirrors
@@ -176,14 +176,22 @@ class _ClosePreloadCommonTests(_MixinBase):
         )
 
     def test_exits_zero_with_unwritable_smm(self):
-        # Override CLAUDE_PLUGIN_DATA to a fresh empty dir so init.sh
-        # produces a different SMM path with no shared_mental_model.json.
-        # Preload should still emit its five lines and exit 0.
+        # Point XP_AGENTS_DATA at a fresh empty dir so init.sh derives a
+        # different SMM path. SMM_DIR must be emptied too: setUpClass pins it
+        # in _test_env, init.sh honors it verbatim, and the data-root override
+        # would otherwise be inert — the preload would just re-read the
+        # class's fully seeded SMM and this would assert nothing.
         with tempfile.TemporaryDirectory() as fresh_data:
             result = self._run_preload(
-                self._PRELOAD, extra_env={"CLAUDE_PLUGIN_DATA": fresh_data}
+                self._PRELOAD,
+                extra_env={"XP_AGENTS_DATA": fresh_data, "SMM_DIR": ""},
             )
-        self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            emitted = _extract_preload_var(result.stdout, "SMM_DIR")
+            self.assertTrue(
+                emitted and Path(emitted).is_relative_to(fresh_data),
+                f"override was inert: preload resolved {emitted}",
+            )
         for key in (
             "SMM_DIR",
             "CURRENT_BRANCH",

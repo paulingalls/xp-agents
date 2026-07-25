@@ -25,7 +25,7 @@ import conftest  # noqa: F401
 
 class TestProjectScopedLogDir(unittest.TestCase):
     """The project-id is the directory that owns the SMM tree — SMM lives at
-    ``${CLAUDE_PLUGIN_DATA}/{project-id}/smm/``, so ``smm_dir.parent.name``
+    ``{data-root}/{project-id}/smm/``, so ``smm_dir.parent.name``
     is the project-id. main() must route run_with_tee's log_dir there.
     """
 

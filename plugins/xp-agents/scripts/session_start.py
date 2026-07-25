@@ -2,7 +2,8 @@
 """SessionStart hook: initialize SMM, inject context.
 
 Handles all SessionStart sources (startup, resume, compact, clear).
-Ensures SMM exists and injects GUPP and skills as additionalContext.
+Ensures SMM exists and injects GUPP and XP_VALUES.md as additionalContext
+(plus the rendered SMM and PROCESS_GUIDE.md on the `compact` source).
 Sets .needs-kickoff marker on fresh starts (startup, clear).
 Retrospective triggering is handled separately by retrospective.py.
 """
@@ -22,6 +23,7 @@ import identity
 import markers
 import plugin_loader
 import smm_cli
+import smm_dir_resolve
 import smm_store
 import sprint_state
 import system_context_store
@@ -113,6 +115,43 @@ def _render_review_cadence(cadence: str) -> str:
     )
 
 
+# Generous, because this call is not always a path lookup: on the first
+# resolution after an upgrade init.sh copies the WHOLE SMM to the new data root
+# — twice, counting the pre-rename re-sync — and a process that loses that race
+# waits for the winner before answering. Undershooting costs the whole session
+# (no retrospective, no event log, no commit gate) on the one session where the
+# relocation happens; overshooting costs a slow start that a wedged init.sh
+# would have cost anyway. Still well inside the platform's own hook budget. The
+# manual tool (migrate_smm_root.py) allows more: a human is watching it.
+_INIT_SH_TIMEOUT_SECONDS = 30
+
+
+def _resolve_via_init_sh() -> Path | None:
+    """Resolve the SMM by running init.sh, or None if that fails.
+
+    Refuses to exec unless the script is owned by the current user. Shared with
+    the CLI entry point so that check lives in exactly one place — init.sh is
+    also what performs the one-time relocation off a host-managed root, so a
+    second caller must never reach it through an unguarded path.
+    """
+    plugin_root = plugin_loader.resolve_plugin_root()
+    init_script = plugin_root / "smm" / "init.sh"
+    if not (init_script.is_file() and init_script.stat().st_uid == os.getuid()):
+        return None
+    try:
+        result = subprocess.run(
+            ["bash", str(init_script)],
+            capture_output=True,
+            text=True,
+            timeout=_INIT_SH_TIMEOUT_SECONDS,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip())
+    return None
+
+
 def _run_teammate(smm_dir: Path | None) -> str | None:
     """Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers."""
     smm_dir = _common.try_validate_smm_dir(smm_dir)
@@ -137,8 +176,21 @@ def _run_teammate(smm_dir: Path | None) -> str | None:
     return "\n\n".join(parts) if parts else None
 
 
-def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
-    """Core session_start logic. Returns additionalContext string or None."""
+def run(
+    input_data: dict,
+    smm_dir: Path | None = None,
+    *,
+    already_resolved: bool = False,
+) -> str | None:
+    """Core session_start logic. Returns additionalContext string or None.
+
+    ``already_resolved`` says the caller has itself run the init.sh resolution
+    and ``smm_dir`` is its verbatim answer, ``None`` included. Retrying it here
+    would spend the whole budget a second time on the one case that most needs
+    a fast answer — a resolution that came back empty is overwhelmingly one
+    that timed out, and a fresh attempt has the same work to redo. In-process
+    callers that pass a dir directly leave this False and keep the fallback.
+    """
     # Recursion prevention
     if _common.is_xp_agent(input_data):
         return None
@@ -148,22 +200,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
 
     source = input_data.get("source", "")
 
-    if smm_dir is None or not smm_dir.exists():
-        plugin_root = plugin_loader.resolve_plugin_root()
-        init_script = plugin_root / "smm" / "init.sh"
-        # Refuse to exec unless the script is owned by the current user.
-        if init_script.is_file() and init_script.stat().st_uid == os.getuid():
-            try:
-                result = subprocess.run(
-                    ["bash", str(init_script)],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    smm_dir = Path(result.stdout.strip())
-            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-                pass
+    if not already_resolved and (smm_dir is None or not smm_dir.exists()):
+        smm_dir = _resolve_via_init_sh() or smm_dir
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
@@ -216,8 +254,8 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     if values:
         parts.append("\n\n" + values)
 
-    # PROCESS_GUIDE.md is injected by kickoff_done.py after /xp-kickoff
-    # completes, together with the fresh SMM.
+    # PROCESS_GUIDE.md is injected by review_cycle_done.py (PostToolUse:
+    # Skill|Agent) when xp-housekeeper completes, together with the fresh SMM.
 
     # Reinject SMM + process guide after compaction so the lead's
     # context retains project state and workflow rules.
@@ -250,19 +288,79 @@ def _get_version() -> str:
         return "?"
 
 
-def _system_message(source: str, version: str) -> str:
-    """SessionStart systemMessage; kickoff nudge only on fresh starts."""
+SMM_ROOT_ADVISORY = (
+    "NOTE: the shared mental model still lives under the host-managed plugin "
+    "data root, which 'claude plugin uninstall' deletes by default. It relocates "
+    "itself automatically, but only once no teammate worktree and no in-place "
+    "teammate remain — check for a stale one whose branch never merged. Run "
+    "'python3 {tool}' to see what is holding it."
+)
+
+
+def _advisory() -> str:
+    """The advisory with a copy-pasteable path to the manual tool.
+
+    Resolved at message time rather than hardcoded: the plugin cache is
+    versioned, so a literal path would name whichever release wrote it.
+    """
+    tool = plugin_loader.resolve_plugin_root() / "scripts" / "migrate_smm_root.py"
+    return SMM_ROOT_ADVISORY.format(tool=tool)
+
+
+def _system_message(source: str, version: str, smm_dir: Path | None = None) -> str:
+    """SessionStart systemMessage; kickoff nudge only on fresh starts.
+
+    The at-risk-root advisory rides here rather than in additionalContext for
+    two reasons. The USER is the one who has to act on it — the blocker is a
+    directory only they can retire. And relocation can stay declined
+    indefinitely: the liveness gate keys on a worktree directory existing, and
+    nothing removes one whose branch never merged, so a release note is not a
+    substitute. A line buried in a context blob is the silent-enforcement
+    pattern this change exists to end.
+    """
     base = f"XP agents (v{version}) active."
     if _is_fresh_start(source):
-        return f"{base} Run /xp-kickoff."
+        base = f"{base} Run /xp-kickoff."
+    if smm_dir is not None and smm_dir_resolve.is_under_plugin_managed_root(smm_dir):
+        return f"{base} {_advisory()}"
     return base
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """SessionStart entry point: resolve once, run, emit.
+
+    The resolution happens HERE rather than inside ``run`` so that one call
+    serves both the run and the at-risk-root advisory. It is not a path lookup
+    on the session that matters: init.sh performs the one-time relocation, a
+    whole-SMM copy, so a second round-trip would pay for that copy twice — and
+    restart it from scratch after a timeout, doubling the wait that made the
+    first attempt fail. ``already_resolved`` is what makes that true rather
+    than merely intended: it suppresses ``run``'s own fallback resolution, so
+    an empty answer here fails fast instead of being retried.
+
+    Skipped for the two branches that return without one. A nested xp- agent is
+    the recursion guard and does nothing at all. Teammates keep getting None,
+    exactly as ``run``'s own teammate branch does: handing one a resolved dir
+    would inject the full SMM render into every teammate's context, and the
+    advisory is addressed to the human at the lead session, who is the only one
+    who can act on it.
+    """
     input_data = _common.read_hook_input()
-    context = run(input_data)
+    resolves = not (
+        _common.is_xp_agent(input_data) or identity.is_worktree_teammate(input_data)
+    )
+    smm_dir = _resolve_via_init_sh() if resolves else None
+    context = run(input_data, smm_dir, already_resolved=resolves)
     if context is not None:
         version = _get_version()
         source = input_data.get("source", "")
-        _common.hook_output("SessionStart", context, _system_message(source, version))
+        _common.hook_output(
+            "SessionStart",
+            context,
+            _system_message(source, version, smm_dir),
+        )
+
+
+if __name__ == "__main__":
+    main()
     sys.exit(0)

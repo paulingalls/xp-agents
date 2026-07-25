@@ -31,13 +31,17 @@ These are two loops on two clocks. They do not block each other.
 ### Commit loop (TDD)
 
 ```
-red → green → /code-review → /xp-quality-review → commit
+red → green → /xp-quality-review → commit
 ```
 
 Runs constantly during implementation. Fast. Enforces correctness of the
-code we just wrote. (Security review is no longer a per-commit gate — it
-fires at the close boundary; see `SECURITY_REVIEW_DOCTRINE.md` for the
-tier model.)
+code we just wrote. `/xp-quality-review` is the whole per-commit gate,
+arming once 2+ code files have changed since the last review; the broad
+`/code-review` runs once at close, not per commit. On *story* cadence the
+gate defers instead of blocking and the review runs at `/xp-story-close`.
+(Security review is not a per-commit LLM gate either — Tier 1 patterns
+scan the staged diff at commit and Tier 2 `/security-review` fires at the
+close boundary; see `SECURITY_REVIEW_DOCTRINE.md` for the tier model.)
 
 ### Story loop (acceptance)
 
@@ -172,7 +176,7 @@ depends on external services (payment providers, OAuth, third-party
 APIs).
 
 - **Credentials live in the developer's environment**, not the repo.
-  `system_context.md` documents the required env vars and secret
+  `system_context.json` documents the required env vars and secret
   sources. `/xp-accept` fails fast if any are missing rather than
   running in a broken state.
 - **Hermetic is a direction, not a gate.** Acceptance can hit real
@@ -302,8 +306,8 @@ on "every story was individually done."
 - **`/xp-system-context`** — cites the surface table when deciding
   whether to raise concerns about missing acceptance layers. Documents
   present layers in a new "Acceptance Testing" section of
-  `system_context.md`.
-- **`/xp-plan`** — reads the acceptance section of `system_context.md`
+  `system_context.json`.
+- **`/xp-plan`** — reads the acceptance section of `system_context.json`
   when decomposing change requests into milestones. Milestones carry
   free-form, observable prose acceptance criteria shaped by what's
   achievable with the project's surfaces.

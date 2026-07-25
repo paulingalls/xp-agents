@@ -198,7 +198,7 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
 
         cls._plugin_data_dir = Path(tempfile.mkdtemp())
         cls._test_env = os.environ.copy()
-        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
+        cls._test_env["XP_AGENTS_DATA"] = str(cls._plugin_data_dir)
 
         init_sh = _PLUGIN_ROOT / "smm" / "init.sh"
         result = subprocess.run(
@@ -362,7 +362,7 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
     ) -> subprocess.CompletedProcess:
         """Run a hook script as a subprocess with JSON on stdin.
 
-        Uses the same CLAUDE_PLUGIN_DATA as setUp so scripts resolve
+        Uses the same XP_AGENTS_DATA as setUp so scripts resolve
         the same SMM path.
         """
         return subprocess.run(

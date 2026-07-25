@@ -114,7 +114,7 @@ class TestXpStoryClosePreloadSpaceInPath(unittest.TestCase):
 
         plugin_root = Path(__file__).parent.parent.parent
         self._test_env = os.environ.copy()
-        self._test_env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data)
+        self._test_env["XP_AGENTS_DATA"] = str(self._plugin_data)
         init_sh = plugin_root / "smm" / "init.sh"
         result = subprocess.run(
             ["bash", str(init_sh)],
@@ -191,7 +191,7 @@ class TestPreloadHonorsTeammateCwd(unittest.TestCase):
         init_repo(str(self.tmpdir))
 
         self._test_env = os.environ.copy()
-        self._test_env["CLAUDE_PLUGIN_DATA"] = str(self._plugin_data)
+        self._test_env["XP_AGENTS_DATA"] = str(self._plugin_data)
         # Strip leaks from a developer shell that would steer git or SMM.
         for var in ("TEAMMATE_CWD", "SMM_DIR", "GIT_DIR", "GIT_WORK_TREE"):
             self._test_env.pop(var, None)

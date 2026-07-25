@@ -42,7 +42,7 @@ If the preload shows **Deferred Stories from Previous Sprint**, these stories ca
 
 ---
 
-## Milestone-Based Planning (execution_plan.md)
+## Milestone-Based Planning (execution_plan.json)
 
 Use this flow when `EXECUTION_PLAN=<path>` is shown in the preload.
 
@@ -84,7 +84,7 @@ For each story:
 - **Unique ID**: `story-001`, `story-002`, etc.
 - **Title**: Clear, milestone-aligned name.
 - **Dependencies**: Other story IDs, or "none".
-- **Milestone**: `execution_plan.md §Milestone N`.
+- **Milestone**: `execution_plan.json §Milestone N`.
 - **Design Sources**: Direct refs to original design docs (from the milestone's Sources field) with section pointers.
 - **Context**: 2+ sentences of what THIS story uniquely does. **Do NOT copy text from milestone design_details or constraints — reference the milestone by number only.** Open: *"Milestone M-N does X (see execution_plan.json). This story handles..."* Budget: ≤800 chars.
 - **File Domain**: Files this story owns while it runs. Two stories may declare the same file only when they can never run at the same time — one transitively depends on the other. Stories with no dependency between them must have disjoint domains, or parallel teammates would step on each other; the sprint write refuses such a collision. A story building on an earlier story's file is normal: declare the dependency and share the path. A claim held by a done or deferred story never collides either — re-touching its file needs no dependency edge. Always include corresponding test files alongside source files. For investigation/research stories with no expected code changes, use `[]` to mark the story code-free and prevent false pipeline-gap noise.

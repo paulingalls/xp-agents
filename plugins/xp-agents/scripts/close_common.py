@@ -4,14 +4,10 @@
 Each XP close skill (sprint, plan, free, story) duplicated the same
 shell idioms for pre-flight checks, branch push, PR creation, and
 chained merge+push+delete. This module collapses those into one
-script with four subcommands the SKILL.md files invoke instead of
-inlining the bash:
-
-    close_common.py preflight --cwd PATH --current B --target B
-    close_common.py push      --cwd PATH --branch B
-    close_common.py create-pr --cwd PATH --base B --head B \\
-                              --title T --body B
-    close_common.py merge     --cwd PATH --source B --target B
+script with seven subcommands the SKILL.md files invoke instead of
+inlining the bash — `preflight`, `push`, `create-pr`, `hook-present`,
+`diff-command`, `close-review-gate`, `merge`. Run `--help` for each
+one's flags; the parser below is the authoritative list.
 
 Detection (no remote, no gh) is internal — callers pass branch names
 and let the script decide whether to skip. Orchestrator-only steps

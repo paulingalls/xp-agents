@@ -276,9 +276,9 @@ class TestMilestone6Integration(_IntegrationTestCase):
         self.assertEqual(result.returncode, 0)
         output = json.loads(result.stdout)
         ctx = output["hookSpecificOutput"]["additionalContext"]
-        # Guide moved to kickoff_done.py
+        # Guide moved to review_cycle_done.py (fires when xp-housekeeper ends)
         self.assertNotIn("Honesty Principle", ctx)
-        # Skills should still be present
+        # GUPP's kickoff nudge should still be present
         self.assertIn("xp-kickoff", ctx)
 
 

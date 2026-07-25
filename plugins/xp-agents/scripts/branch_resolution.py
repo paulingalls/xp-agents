@@ -333,19 +333,29 @@ def resolve_sprint_branch_name(
      real but incidental; the two above are the reasons.)
     """
     return _recorded_sprint_branch(cwd, smm_dir, sprint_id) or branch_name(
-        identity.user_namespace(cwd), sprint_id, slug
+        identity.user_namespace(cwd, smm_dir), sprint_id, slug
     )
 
 
-def _slug_rebuilt_sprint_branch(cwd: str, sprint: dict) -> str:
-    """The sprint branch name rebuilt from slugify(goal).
+def _slug_rebuilt_sprint_branches(cwd: str, sprint: dict, smm_dir: Path) -> list[str]:
+    """Sprint branch names rebuilt from slugify(goal), best candidate first.
 
-    The fallback candidate for sprints written before create_sprint_branch
-    recorded ``branch_name`` atomically. May or may not exist — callers verify.
+    The fallback for sprints written before create_sprint_branch recorded
+    ``branch_name`` atomically; they may not exist, so callers verify. TWO of
+    them whenever a recorded ``user_namespace`` override differs from the git
+    identity, and that is the point: the sprints this fallback exists for
+    predate the override being read by anything, so their branches carry the
+    GIT-derived prefix. Rebuilding only under the override turns a soft fallback
+    into a hard refusal — a None from `resolve_story_base` takes /xp-assign,
+    /xp-schedule, /xp-story-close and the branch-delete guard down on a sprint
+    that worked before the upgrade.
     """
-    return sprint_branch_name(
-        identity.user_namespace(cwd), sprint["sprint_id"], sprint["goal"]
+    namespaces = dict.fromkeys(
+        [identity.user_namespace(cwd, smm_dir), identity.git_user_namespace(cwd)]
     )
+    return [
+        sprint_branch_name(ns, sprint["sprint_id"], sprint["goal"]) for ns in namespaces
+    ]
 
 
 def resolve_story_base(smm_dir: Path, cwd: str) -> str | None:
@@ -357,11 +367,10 @@ def resolve_story_base(smm_dir: Path, cwd: str) -> str | None:
     a guess, and callers proceed normally.
 
     Returns None for exactly ONE state: a sprint EXISTS at stage >= 2, but
-    neither its recorded ``branch_name`` nor the name rebuilt from
-    slugify(goal) names a local branch. There IS a sprint branch we are
-    supposed to be based on, and we cannot find it. Any answer is a guess here
-    — and the guess the old code made was primary, i.e. the release branch.
-
+    neither its recorded ``branch_name`` nor any name rebuilt from slugify(goal)
+    (see ``_slug_rebuilt_sprint_branches``) is a local branch. There IS a sprint
+    branch we are supposed to be based on, and we cannot find it. Any answer is
+    a guess — and the guess the old code made was primary, the release branch.
     Scoping the None to that one state is deliberate: widen it and the PROBE /
     RESTORE callers (which are right to degrade) start failing too.
 
@@ -378,9 +387,14 @@ def resolve_story_base(smm_dir: Path, cwd: str) -> str | None:
     if sprint is None:
         return get_primary_branch(smm_dir)
 
-    return _verified_local(cwd, sprint.get("branch_name")) or _verified_local(
-        cwd, _slug_rebuilt_sprint_branch(cwd, sprint)
-    )
+    for candidate in (
+        sprint.get("branch_name"),
+        *_slug_rebuilt_sprint_branches(cwd, sprint, smm_dir),
+    ):
+        verified = _verified_local(cwd, candidate)
+        if verified is not None:
+            return verified
+    return None
 
 
 def get_story_base_branch(smm_dir: Path, cwd: str) -> str:
@@ -420,11 +434,13 @@ def get_story_base_branch_required(smm_dir: Path, cwd: str) -> str:
     # it to name the candidates we could not resolve.
     sprint = sprint_store.load_sprint_required(smm_dir)
     recorded = sprint.get("branch_name") or "(none recorded)"
-    rebuilt = _slug_rebuilt_sprint_branch(cwd, sprint)
+    rebuilt = ", ".join(
+        f"'{name}'" for name in _slug_rebuilt_sprint_branches(cwd, sprint, smm_dir)
+    )
     raise ValueError(
         f"Cannot resolve the story base branch for {sprint['sprint_id']}: "
-        f"neither the recorded branch '{recorded}' nor the name rebuilt from "
-        f"the sprint goal '{rebuilt}' exists locally. Refusing to fall back to "
+        f"neither the recorded branch '{recorded}' nor the name(s) rebuilt from "
+        f"the sprint goal ({rebuilt}) exist locally. Refusing to fall back to "
         f"'{get_primary_branch(smm_dir)}' — branching a story off the "
         f"integration branch (or merging one into it) is not what you asked "
         f"for. Fix: if it exists on a remote (sprint branches are pushed when "

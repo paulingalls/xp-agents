@@ -77,6 +77,129 @@ class TestNoSmmLeakOnFallback(_HookTestCase):
         )
 
 
+class TestInitShResolutionBudget(_HookTestCase):
+    """How long SessionStart lets init.sh take before giving up on the plugin.
+
+    The first resolution after an upgrade does not just print a path: it copies
+    the WHOLE SMM to the new data root, twice (initial copy plus the pre-rename
+    re-sync), inside this very call. A budget sized for a path lookup turns a
+    large or network-hosted SMM into "SMM init failed — xp-agents disabled" for
+    the entire session — no retrospective, no event log, no commit gate — on the
+    one session where the relocation was supposed to happen.
+    """
+
+    def _stub_plugin_root(self, body: str) -> Path:
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (root / "smm").mkdir()
+        (root / "smm" / "init.sh").write_text(f"#!/bin/bash\n{body}\n")
+        return root
+
+    def test_a_slow_first_resolution_is_waited_out(self):
+        import session_start
+
+        root = self._stub_plugin_root(f'sleep 6\nprintf "%s" "{self.smm_dir}"')
+        with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}):
+            self.assertEqual(session_start._resolve_via_init_sh(), self.smm_dir)
+
+    def test_a_hung_resolution_still_gives_up(self):
+        """The budget is larger, not gone: a wedged init.sh must not hang the
+        session start forever."""
+        import session_start
+
+        root = self._stub_plugin_root(f'sleep 30\nprintf "%s" "{self.smm_dir}"')
+        with (
+            patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": str(root)}),
+            patch.object(session_start, "_INIT_SH_TIMEOUT_SECONDS", 0.2),
+        ):
+            self.assertIsNone(session_start._resolve_via_init_sh())
+
+    def _main_with_resolution(self, resolved):
+        """Run main() with the init.sh resolution stubbed to ``resolved``.
+
+        Returns (resolve_mock, hook_output_mock).
+        """
+        import session_start
+
+        with (
+            patch.object(
+                session_start, "_resolve_via_init_sh", return_value=resolved
+            ) as resolve,
+            patch.object(
+                session_start._common,
+                "read_hook_input",
+                return_value={"session_id": "t", "source": "startup"},
+            ),
+            patch.object(session_start._common, "hook_output") as hook_output,
+        ):
+            session_start.main()
+        return resolve, hook_output
+
+    def test_the_entry_point_resolves_only_once(self):
+        """One resolution serves both the run and the advisory.
+
+        Not a micro-optimization: this call can perform the relocation, so a
+        second one pays for a whole-SMM copy twice.
+        """
+        resolve, hook_output = self._main_with_resolution(self.smm_dir)
+        self.assertEqual(resolve.call_count, 1)
+        hook_output.assert_called_once()
+
+    def test_a_failed_entry_point_resolution_is_not_retried(self):
+        """The timeout case is the one that must not double.
+
+        A resolution that returns nothing is overwhelmingly the one that timed
+        out, so retrying it inside ``run`` spends the budget twice — 60s inside
+        a hook that already gave up at 30 — and then fails anyway. Fail fast to
+        the disabled message instead.
+        """
+        resolve, hook_output = self._main_with_resolution(None)
+        self.assertEqual(resolve.call_count, 1)
+        self.assertIn("SMM init failed", hook_output.call_args.args[1])
+
+    def test_the_entry_point_does_not_resolve_for_a_teammate(self):
+        """A teammate's SessionStart deliberately runs with no SMM dir (handing
+        it one injects the whole SMM render into every teammate's context), and
+        the advisory is for the human at the lead session — so neither half
+        needs the resolution, and a teammate must not pay for one."""
+        import session_start
+
+        with (
+            patch.object(session_start, "_resolve_via_init_sh") as resolve,
+            patch.object(
+                session_start.identity, "is_worktree_teammate", return_value=True
+            ),
+            patch.object(
+                session_start._common,
+                "read_hook_input",
+                return_value={"session_id": "t", "source": "startup"},
+            ),
+            patch.object(session_start._common, "hook_output"),
+        ):
+            session_start.main()
+        resolve.assert_not_called()
+
+    def test_the_entry_point_does_not_resolve_for_a_nested_xp_agent(self):
+        """The recursion guard returns before anything reads the SMM."""
+        import session_start
+
+        with (
+            patch.object(session_start, "_resolve_via_init_sh") as resolve,
+            patch.object(
+                session_start._common,
+                "read_hook_input",
+                return_value={
+                    "session_id": "t",
+                    "source": "startup",
+                    "agent_type": "xp-code-reviewer",
+                },
+            ),
+            patch.object(session_start._common, "hook_output") as hook_output,
+        ):
+            session_start.main()
+        resolve.assert_not_called()
+        hook_output.assert_not_called()
+
+
 class TestSmmDirValidation(_HookTestCase):
     """Tests for _common.validate_smm_dir."""
 

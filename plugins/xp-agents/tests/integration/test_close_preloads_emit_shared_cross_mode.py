@@ -40,7 +40,7 @@ class TestAllClosePreloadsEmitCloseStartTs(unittest.TestCase):
 
     def _run_preload(self, preload_path: Path, smm_dir: Path) -> str:
         env = dict(os.environ)
-        env["CLAUDE_PLUGIN_DATA"] = str(smm_dir.parent.parent)
+        env["XP_AGENTS_DATA"] = str(smm_dir.parent.parent)
         env["SMM_DIR"] = str(smm_dir)
         result = subprocess.run(
             ["bash", str(preload_path)],

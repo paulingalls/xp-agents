@@ -67,7 +67,7 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 
 **Requirements:** Python 3.11+ on PATH. macOS or Linux. Zero external packages.
 
-**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees).
+**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored under `XP_AGENTS_DATA` (default `~/.xp-agents/data`, shared across worktrees).
 
 **For teams:** Add this to your project's `.claude/settings.json` so teammates can discover the plugin:
 
@@ -111,7 +111,7 @@ $ claude
 From here, the system takes over:
 - **Every user prompt** — prompt nuggets inject new signal events (concerns, decisions, discoveries) since last prompt (~50-100 tokens)
 - **Before every write** — conflict detection (via `.coordination.json`), TDD order check, plan-review gate (`/xp-review-plan`), and assign gate (`/xp-assign`, worktree teammates exempt)
-- **Before every commit** — review cycle gate (`/simplify` then `/xp-quality-review`) for code-changing commits; `[release]`/`[chore]`/`[sprint-direct]`-prefixed messages bypass for legitimate maintenance; security review at story (`/xp-accept`, Tier 2) and close (Tier 3) boundaries
+- **Before every commit** — review cycle gate (`/xp-quality-review`) once 2+ code files changed since the last review; on *story* cadence the gate defers instead, and the review runs at `/xp-story-close`. `[release]`/`[chore]`/`[sprint-direct]`-prefixed messages bypass for legitimate maintenance. Security is two-tier: a deterministic secret/pattern scan on the staged diff at every commit (Tier 1), and `/security-review` over the cumulative branch diff at close (Tier 2)
 - **After every write** — status auto-updated, linter runs
 - **After plan mode exits** — `PostToolUse:ExitPlanMode` nudges `/xp-review-plan` to extract assumptions, decisions, and risks
 - **At stop** — TDD gate blocks if tests failing
@@ -167,19 +167,26 @@ xp-agents uses two mechanisms: **command hooks** for deterministic enforcement (
 |---|---|---|
 | **UserPromptSubmit** | Prompt nuggets (new signal events since last prompt), customer input logging, kickoff gate | Communication, On-Site Customer |
 | **PreToolUse** (Write/Edit) | `working_on` conflict blocking (via `.coordination.json`), TDD order check, `.plan-awaiting-review` gate blocks writes until `/xp-review-plan` clears it, `.assign-pending` gate blocks writes until `/xp-assign` clears it (worktree teammates exempt) | TDD, Planning Game |
-| **PreToolUse** (Bash) | Commit-gated review cycle (simplify → quality review; Tier 1 patterns scan staged diffs), cd-into-worktree-git advisory. No Bash file-modification coordination gate — `pre_tool_write` covers Edit/Write; cross-agent Bash damage is caught at story-close merge. | Coding Standards, Refactoring |
+| **PreToolUse** (Bash) | Commit-gated review cycle (`/xp-quality-review`; Tier 1 secret/pattern scan on the staged diff), branch-protection advisories, cd-into-worktree-git advisory. No Bash file-modification coordination gate — `pre_tool_write` covers Edit/Write; cross-agent Bash damage is caught at story-close merge. | Coding Standards, Refactoring |
+| **PreToolUse** (Skill) | Prepare per-skill review guidance before a skill runs | Coding Standards |
+| **PreToolUse** (EnterPlanMode) | Schedule gate — blocks plan entry until `/xp-schedule` promotes a frontier | Planning Game |
 | **PostToolUse** (Write/Edit) | Auto status/working_on, conflict detection, lint check | Standup, Coding Standards |
-| **PostToolUse** (Bash) | Git commit size check, test result parsing (unittest/pytest/jest/go/swift/bun) | Small Releases, CI |
+| **PostToolUse** (Bash) | Git commit bookkeeping and size check, test result parsing (24 runners across Python, JS/TS, Go, Rust, Swift, JVM, Ruby, PHP, .NET, Dart, Elixir, C/C++) | Small Releases, CI |
 | **PostToolUse** (ExitPlanMode) | Write `.plan-awaiting-review` marker, nudge agent to run `/xp-review-plan` via additionalContext | Planning Game |
-| **PostToolUse** (Skill\|Agent) | Review cycle flag updates (simplify, quality review), forked-xp completion routing in `review_cycle_done.py` — process guide injection on housekeeper completion, `/xp-assign` task-creation nudge after assign, security-review continuation nudge | Coding Standards, Refactoring, Communication |
+| **PostToolUse** (Skill\|Agent) | Review cycle flag updates (`/code-review`, `/xp-quality-review`), forked-xp completion routing in `review_cycle_done.py` — process guide injection on housekeeper completion, `/xp-assign` task-creation nudge after assign, security-review continuation nudge; accept-marker drain | Coding Standards, Refactoring, Communication |
+| **PostToolUse** (AskUserQuestion) | Record the user's answer as an `answer` event | On-Site Customer |
 | **PostToolUseFailure** (Bash) | Test failure detection and recording | TDD, CI |
-| **SubagentStart** | Tiered context injection (Explore: Intent+Constraints, others: full SMM + process guide) | Collective Code Ownership |
+| **PostToolUseFailure** (AskUserQuestion) | Record the clarification when a question is dismissed | On-Site Customer |
+| **SubagentStart** | Tiered context injection + XP values (Explore: Intent+Constraints; `xp-code-reviewer`/Plan/unknown: full SMM; generic catch-alls: an SMM reference pointer; other `xp-*` agents: values only, plus preload paths for retrospective/housekeeper) | Collective Code Ownership |
 | **SubagentStop** (Plan) | Write `.plan-awaiting-review` marker (fallback for Plan subagent flow when PostToolUse:Agent doesn't fire) | Planning Game |
-| **SessionStart** | GUPP + skills injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
+| **SessionStart** | GUPP + XP values injection, retrospective data prep, `.needs-kickoff` marker | Retrospective, On-Site Customer |
 | **SessionEnd** | Session summary: unresolved items, working state, missing status flag + event log compaction | Honesty, Sustainable Pace |
 | **PreCompact** | Back up SMM state | Sustainable Pace |
 | **PostCompact** | Compact event log (age decisions, cap retros, prune resolved items) | Sustainable Pace |
-| **Stop** | Block if tests failing, block if housekeeping hasn't run, block if a close skill is mid-cycle (CLOSE_CYCLE_ACTIVE marker) | TDD, Feedback |
+| **Stop** | Six gates: tests failing, sprint lifecycle (accept → review), close-cycle mid-flight (CLOSE_CYCLE_ACTIVE marker), housekeeping not run, session-end checklist warning, teammate uncommitted/incomplete review cycle | TDD, Feedback |
+| **TeammateIdle** | TDD enforcement for an idle CLI teammate | TDD |
+| **TaskCompleted** | TDD enforcement when a teammate reports its task complete | TDD, Honesty |
+| **WorktreeCreate** | Set up the branch base for a teammate worktree | Collective Code Ownership |
 
 ### Token Budgets and Honesty Guards
 
@@ -203,7 +210,7 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | Skill | Purpose | When It Runs |
 |---|---|---|
 | `/xp-kickoff` | Session start orchestrator — sequences retro, work selection, housekeeping | Every session start |
-| `/xp-work-selection` | Triage open questions, retro Try items, and select session goals | Kickoff step 2 |
+| `/xp-work-selection` | Triage open questions, retro Try items, and select session goals | Kickoff step 5 |
 | `/xp-plan` | Execution planning — transforms design sources into ordered milestones with change zones | Before implementation |
 | `/xp-system-context` | Autonomous codebase analysis — produces system description, architecture, constraints | Before planning or on demand |
 | `/xp-sprint-start` | Decompose milestones into context-rich stories with file domains and interface contracts | After planning |
@@ -211,7 +218,7 @@ In both cases, `PreToolUse:Write|Edit` **blocks** all writes (except plan files 
 | `/xp-review-plan` | Plan review — checks size, TDD ordering, decision conflicts, records assumptions | After planning completes |
 | `/xp-assign` | Per-story: create the next un-spawned story's branch and spawn ONE CLI teammate (per-story plan→review→spawn loop, NOT a batch fan-out; mode already selected by `/xp-schedule`) | After `/xp-schedule` promotes the teammate batch and each story's plan is reviewed (one /xp-assign per story) |
 | `/xp-scaffold-acceptance` | Interactive scaffold of an acceptance test harness (pytest/playwright/bats/cargo/etc.) for a `system_context.json` surface | On demand when adding an automated AC surface |
-| `/xp-quality-review` | Post-simplify courage check — skipped recommendations, drift, debt | After `/simplify` |
+| `/xp-quality-review` | The per-increment review — spawns `xp-code-reviewer` for correctness, reuse, quality, efficiency, drift, and debt | Before each commit (commit cadence); at `/xp-story-close` on story cadence |
 | `/xp-accept` | Verify acceptance criteria, guide e2e testing, mark stories done or deferred | After implementation |
 | `/xp-story-close` | Per-accepted-story merge into the sprint base and cleanup — no promotion or branching of the next story (that's `/xp-schedule`, via `/xp-accept`'s post-loop) | Auto-invoked by `/xp-accept` per accepted story |
 | `/xp-sprint-review` | Review what shipped vs planned, update milestones, record velocity | When all stories are done or deferred |
@@ -227,9 +234,9 @@ These are subagents shipped by the plugin under `agents/`, not slash commands. T
 | Subagent | Purpose | Triggered By |
 |---|---|---|
 | `xp-retrospective` | Keep/Fix/Try analysis with XP values as lenses | `/xp-kickoff` step 1 (always; emits a seed retro on fresh projects) |
-| `xp-housekeeper` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | `/xp-kickoff` step 3 |
+| `xp-housekeeper` | Curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom) | `/xp-kickoff` step 6 |
 | `xp-plan-reviewer` | Plan-quality analysis — size, TDD ordering, milestone boundaries, decision conflicts | `/xp-review-plan` |
-| `xp-code-reviewer` | Independent code reviewer; holds `/simplify` accountable for skipped findings | `/xp-quality-review` |
+| `xp-code-reviewer` | Independent code reviewer — self-finds correctness per increment, or validates and fixes `/code-review`'s handed-in findings at close | `/xp-quality-review` |
 | `xp-sprint-reviewer` | Reviews what shipped vs planned; updates milestone delivery state | `/xp-sprint-review` |
 | `xp-close-reviewer` | Cross-cutting diff review of the full close source branch vs its merge target | `/xp-{free,sprint,plan,story}-close` |
 | `xp-system-analyzer` | Reads codebase + CLAUDE.md to produce `system_context.json` | `/xp-system-context` |
@@ -239,7 +246,7 @@ These are subagents shipped by the plugin under `agents/`, not slash commands. T
 xp-agents uses a broadcast event log visible to every agent — the main agent, all subagents, and all CLI teammates in parallel worktrees.
 
 ```
-${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
+${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 ├── events.jsonl              ← append-only log
 ├── shared_mental_model.json  ← curated four-pillar view, written by housekeeping
 ├── execution_plan.json       ← ordered milestones with change zones and design context
@@ -252,7 +259,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
 
-The SMM lives in `CLAUDE_PLUGIN_DATA` (`~/.claude/plugins/data/xp-agents-xp-agents/`), keyed by a hash of the git repo's common directory. This means CLI teammates in different git worktrees all share the same event log.
+The SMM lives at `$XP_AGENTS_DATA` (default `~/.xp-agents/data/`), keyed by a hash of the git repo's common directory. It is deliberately NOT under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default — an SMM there would be one uninstall away from silent loss. An SMM found under that older location is relocated for you, by COPY — the original is left in place, so nothing is lost if the copy is interrupted, and you can delete it once you are satisfied. While a teammate is live against the old location, relocation is **declined** and the session resolves in place instead — it is retried at the next session start, so a stale worktree whose branch never merged holds it back indefinitely. Run `python3 plugins/xp-agents/scripts/migrate_smm_root.py` to see what is holding it, then `--confirm --force` to relocate anyway once you have confirmed nothing is running. This means CLI teammates in different git worktrees all share the same event log.
 
 The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
 - **Intent** — project goals and active customer intents
@@ -262,7 +269,7 @@ The curated view uses a four-pillar model, written by housekeeping (LLM judgment
 
 Per-pillar size caps and resolution discipline live in [PROCESS_GUIDE.md §Pillars](plugins/xp-agents/PROCESS_GUIDE.md#pillars) — the single source of truth.
 
-Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn (Explore gets Intent+Constraints only, others get full SMM + process guide). The main agent gets the SMM during housekeeping and the process guide via PostToolUse:Skill hook.
+Context reaches agents through lightweight **prompt nuggets** at each user prompt (~50-100 tokens of new signal events) and tiered context injection at subagent spawn. Every tier gets `XP_VALUES.md`; on top of that, Explore gets Intent+Constraints only, `xp-code-reviewer` and unknown/ad-hoc types get the full SMM, generic catch-alls (`general-purpose`, `workflow-subagent`, `claude`) get a one-line pointer to render the SMM themselves, and the plugin's own forked `xp-*` agents get nothing extra (their data arrives via skill preloads). The main agent gets the SMM during housekeeping and the process guide via PostToolUse:Skill hook.
 
 Events are semantically typed — each carries different synchronization semantics:
 
@@ -287,7 +294,7 @@ Events are semantically typed — each carries different synchronization semanti
 At session start, if there's unanalyzed data from a previous session, the command hook prepares retrospective data and the kickoff orchestrator invokes the retrospective subagent. It uses all five XP values as analytical lenses:
 
 - **Keep**: What worked — grounded in specific events from the log
-- **Fix**: What needs improvement — Honesty: were status events truthful? Courage: were concerns raised? Simplicity: was anything over-engineered? Communication: were decisions broadcast? Respect: were conventions followed?
+- **Fix**: What needs improvement — Honesty: were assumptions stated and concerns proportional? Communication: were decisions recorded and questions answered? Courage: were hard problems addressed and bad decisions revisited? Simplicity: were conventions followed and plans right-sized? Feedback: were tests written first and review findings acted on?
 - **Try**: Behavioral experiments for this session — informed by Fix items
 
 The retrospective also analyzes **session stats** for plugin health: concern resolution rate, decision recording rate, security review coverage.
@@ -308,13 +315,13 @@ Sprint stories advance in **frontiers** — the set of `scheduled` stories whose
 
 **Solo** (sequential) — the lead executes one story at a time. Chosen when the frontier is a single story, or stories share file domains. `/xp-schedule` promotes the lowest-id story, JIT-creates its branch, and the lead enters plan mode for it. No `/xp-assign` step — the lead codes straight after plan review.
 
-**CLI Teammates** (parallel) — chosen when two or more frontier stories have non-overlapping file domains (the user confirms). `/xp-schedule` promotes the whole frontier as a teammate batch; the lead then loops per story: plan → `/xp-review-plan` → `/xp-assign` (which targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate in an isolated `claude -p` worktree). Each teammate has full autonomy: writes tests, implements, runs the review cycle, commits independently. Tier 2/3 security review fires at story acceptance and close. The lead merges each branch at `/xp-story-close`.
+**CLI Teammates** (parallel) — chosen when two or more frontier stories have non-overlapping file domains (the user confirms). `/xp-schedule` promotes the whole frontier as a teammate batch; the lead then loops per story: plan → `/xp-review-plan` → `/xp-assign` (which targets the lowest-id un-spawned story, creates its branch, and spawns ONE teammate in an isolated `claude -p` worktree). Each teammate has full autonomy: writes tests, implements, runs the review cycle, commits independently. Tier 1 pattern scanning fires on each teammate commit; Tier 2 `/security-review` fires once at the enclosing close. The lead merges each branch at `/xp-story-close`.
 
 After each story closes, `/xp-accept`'s post-loop calls `/xp-schedule` again for the next frontier — or dispatches `/xp-sprint-review` when none remain. `/xp-story-close` itself only merges and cleans up; it never promotes the next story.
 
-Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
+Because hooks are global and the SMM is stored under `XP_AGENTS_DATA` (shared across worktrees), every teammate automatically gets:
 
-- Tiered context injection at spawn (full SMM + process guide)
+- Full session context at spawn — teammates are independent `claude -p` processes, so they never hit SubagentStart; the SessionStart hook gives them XP values + `TEAMMATE_GUIDE.md` + the rendered SMM
 - `working_on` conflict detection across teammates
 - Commit-gated review cycle enforcement (same gates as solo)
 - Decisions and concerns visible to every other agent
@@ -338,7 +345,7 @@ brew install pipx                    # if not already installed
 pipx install pytest
 pipx inject pytest pytest-xdist      # parallel test execution
 
-# Run the full suite in parallel (~13s on 16 cores; ~4700 tests as of v3.1.25):
+# Run the full suite in parallel (~7,600 tests as of v5.0.0):
 pytest -n auto
 
 # Or sequentially via unittest (no pytest required, ~90s):
@@ -347,8 +354,8 @@ python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
 
 `lefthook` runs `pytest -n auto` on every commit. If `pytest` isn't on PATH, lefthook will fail loud — install it via the steps above, or set `LEFTHOOK=0 git commit ...` to bypass for an emergency.
 
-Run a single file: `pytest plugins/xp-agents/tests/hooks/test_session_start.py`.
-Run a single test: `pytest plugins/xp-agents/tests/hooks/test_session_start.py::TestSessionStart::test_clear_source_returns_context`.
+Run a single file: `pytest plugins/xp-agents/tests/hooks/test_session_start_core.py`.
+Run a single test: `pytest plugins/xp-agents/tests/hooks/test_session_start_core.py::TestSessionStart::test_clear_source_returns_context`.
 
 ---
 
@@ -370,7 +377,7 @@ xp-agents provides the coordination layer that Claude Code doesn't ship with: a 
 
 ## Honesty: The Foundational Value
 
-XP has five values: Communication, Feedback, Simplicity, Courage, and Respect. Honesty is the foundation that makes all five work.
+The five values xp-agents ships are Communication, Simplicity, Feedback, Courage, and **Honesty** — and when they conflict, the precedence is `Honesty > Courage > Simplicity > Feedback > Communication`. Honesty sits at the top because it is what makes the other four mean anything.
 
 A standup where agents report "everything is fine" when tests are failing is worse than no standup — it creates false confidence. A retrospective where no one raises problems produces comfortable fiction. The difference between honest and dishonest teams isn't incremental. It's multiplicative.
 
@@ -384,7 +391,7 @@ A standup where agents report "everything is fine" when tests are failing is wor
 xp-agents enforces honesty through data, not aspiration:
 
 - **Honesty signals in the retro** — the retrospective receives concrete sequence-based metrics: longest streak of code writes without a test run, code commits without a recorded security check at story/close boundaries, code-write-to-concern ratio, whether assumptions were stated, and whether a final status was recorded. The retro uses these to flag specific honesty gaps, not vague patterns.
-- **Quality review skill** — post-simplify courage check: were recommendations skipped? Drift management: do code changes contradict recorded decisions?
+- **Quality review skill** — courage check: were review findings skipped? Drift management: do code changes contradict recorded decisions?
 - **Conflict detector** — catches convention violations, superseded decisions, and unacknowledged contradictions
 - **Process guide** — XP behavioral rules injected after housekeeping for judgment calls hooks can't enforce
 
@@ -404,15 +411,15 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 
 | Practice | Enforcement | Mechanism |
 |---|---|---|
-| **TDD** | Deterministic: Stop hook blocks if tests are failing; TDD order check on every Write/Edit; unittest/pytest/jest/go/swift/bun/xcodebuild test results parsed from Bash output | Stop hook, PreToolUse:Write, PostToolUse:Bash |
-| **Pair Programming** | Quality review after `/simplify` — independent code reviewer checks courage, drift, and debt awareness | `/xp-quality-review`, `xp-code-reviewer` |
+| **TDD** | Deterministic: Stop hook blocks if tests are failing; TDD order check on every Write/Edit; test results parsed from Bash output for 24 runners across Python, JS/TS, Go, Rust, Swift, JVM, Ruby, PHP, .NET, Dart, Elixir, and C/C++ | Stop hook, PreToolUse:Write, PostToolUse:Bash |
+| **Pair Programming** | Per-increment quality review — an independent code reviewer self-finds correctness, then checks reuse, quality, efficiency, courage, drift, and debt awareness | `/xp-quality-review`, `xp-code-reviewer` |
 | **Planning Game** | Plan reviewer checks size, TDD ordering, milestone boundaries, decision conflicts. Three-layer marker enforcement: PostToolUse:ExitPlanMode and SubagentStop:Plan write the gate; PreToolUse:Write blocks until cleared | `/xp-review-plan`, `xp-plan-reviewer`, `/xp-work-selection` |
 | **Small Releases** | Deterministic: commit size check on `git commit` | PostToolUse:Bash |
 | **Coding Standards** | Lint after every write; convention tracking; cross-agent conflict detection; deterministic secret-pattern scan on staged diffs at commit | PostToolUse:Write, PreToolUse:Bash |
 | **Continuous Integration** | Test success and failure parsed from Bash output and PostToolUseFailure; Stop hook blocks on failing tests | PostToolUse:Bash, PostToolUseFailure:Bash, Stop hook |
-| **Refactoring** | Commit gate blocks until `/simplify` runs (when code files changed); `/xp-quality-review` then checks skipped recommendations. `[release]`/`[chore]`/`[sprint-direct]`-prefixed messages bypass for legitimate maintenance | PreToolUse:Bash, `/simplify`, `/xp-quality-review` |
-| **Simple Design** | Plan reviewer flags oversized plans; `/simplify` required at commit for code changes | `xp-plan-reviewer`, PreToolUse:Bash |
-| **Collective Code Ownership** | Prompt nuggets inject new signal events at each user prompt; tiered context at subagent spawn (Explore: Intent+Constraints, others: full SMM + process guide); CLI teammates share the same SMM across worktrees | UserPromptSubmit, SubagentStart |
+| **Refactoring** | Commit gate blocks until `/xp-quality-review` runs, once 2+ code files changed since the last review; on story cadence it defers to `/xp-story-close` instead. `[release]`/`[chore]`/`[sprint-direct]`-prefixed messages bypass for legitimate maintenance | PreToolUse:Bash, `/xp-quality-review` |
+| **Simple Design** | Plan reviewer flags oversized plans; `/xp-quality-review` required at commit for code changes | `xp-plan-reviewer`, PreToolUse:Bash |
+| **Collective Code Ownership** | Prompt nuggets inject new signal events at each user prompt; tiered context at subagent spawn (XP values everywhere, plus Intent+Constraints for Explore, full SMM for `xp-code-reviewer`/Plan, an SMM pointer for generic agents); CLI teammates share the same SMM across worktrees | UserPromptSubmit, SubagentStart |
 | **On-Site Customer** | Every user prompt logged as a `customer_input` event; work selection triages questions, Try items, and goals | UserPromptSubmit, `/xp-work-selection` |
 | **Retrospective** | Keep/Fix/Try at session start with XP values as analytical lenses; runs unconditionally (seed retro on fresh projects) | SessionStart, `xp-retrospective` |
 
@@ -423,8 +430,8 @@ Build additional reviewers — security, accessibility, domain-specific quality 
 | Prompt nugget (UserPromptSubmit) | 50-100 tokens | Every user prompt | Watermark-based, only new signal events |
 | SessionStart + kickoff | 2,000-5,000 tokens | Once per session | One-time cost (retro + goals + housekeeping) |
 | Retrospective subagent | 10,000-20,000 tokens | Once per session | Only when unanalyzed events exist |
-| `/simplify` at commit | 30,000-60,000 tokens | Once per commit with ≥3 code files | Threshold skips small changes |
-| `/xp-quality-review` at commit | 5,000-10,000 tokens | Once per commit after simplify | Focused: courage + drift + debt only |
+| `/xp-quality-review` at commit | 30,000-60,000 tokens | Once per commit with ≥2 changed code files | Threshold skips small changes; story cadence moves it to `/xp-story-close` |
+| `/code-review` at close | 30,000-60,000 tokens | Once per `/xp-{sprint,plan,free}-close` | Threshold-gated on the cumulative close diff |
 
 ### Debt Aging
 

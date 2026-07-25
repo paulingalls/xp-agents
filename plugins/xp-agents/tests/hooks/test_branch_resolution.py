@@ -94,6 +94,11 @@ class _ResolverTestCase(unittest.TestCase):
     """Real git repo + real SMM — a resolver's answer only means something
     against branches that actually exist."""
 
+    # Most cases here care about branch RESOLUTION, not about where the
+    # namespace came from, so it is pinned. Cases that exercise the namespace
+    # itself opt out and let the real derivation run.
+    _PATCH_NAMESPACE = True
+
     def setUp(self) -> None:
         self._td = tempfile.TemporaryDirectory()
         self._smm = tempfile.TemporaryDirectory()
@@ -102,9 +107,10 @@ class _ResolverTestCase(unittest.TestCase):
         self.cwd = self._td.name
         self.smm_dir = Path(self._smm.name)
         _bf.init_repo(self.cwd)
-        ns = patch("branch_resolution.identity.user_namespace", return_value="paul")
-        ns.start()
-        self.addCleanup(ns.stop)
+        if self._PATCH_NAMESPACE:
+            ns = patch("branch_resolution.identity.user_namespace", return_value="paul")
+            ns.start()
+            self.addCleanup(ns.stop)
 
     def _make_branch(self, name: str) -> None:
         subprocess.run(
@@ -330,6 +336,60 @@ class TestResolveStoryBaseFailsLoud(_ResolverTestCase):
         self.assertIsNone(self._resolve())
         with self.assertRaises(ValueError):
             self._required()
+
+
+class TestSlugRebuildSpansBothNamespaces(_ResolverTestCase):
+    """The slug rebuild must consider the GIT-derived namespace too.
+
+    That fallback exists for sprints written before ``create_sprint_branch``
+    recorded ``branch_name`` atomically — i.e. before a recorded
+    ``user_namespace`` was read by anything, so those branches carry the git
+    identity as their prefix. Rebuilding only under a recorded override turns
+    the soft fallback into a hard refusal: `resolve_story_base` returns None and
+    /xp-assign, /xp-schedule, /xp-story-close and the branch-delete guard all
+    start refusing on a sprint that worked before the upgrade.
+
+    The SMM dir is also what proves the override is read from the SMM the
+    CALLER named, not from whichever one this process's environment resolves.
+    """
+
+    _PATCH_NAMESPACE = False
+    # init_repo commits as test@example.com, so the git-derived namespace is
+    # "test" — the prefix a pre-override branch would carry.
+    _GIT_NS = "test"
+
+    def _seed_override(self) -> None:
+        _bf.write_system_context(self.smm_dir, stage=2, user_namespace="override")
+
+    def test_a_branch_under_the_recorded_override_is_found(self):
+        self._seed_override()
+        self._make_branch("override/sprint-042-ship-it")
+        self._seed_sprint()
+        self.assertEqual(self._resolve(), "override/sprint-042-ship-it")
+
+    def test_a_pre_override_branch_under_the_git_identity_is_found(self):
+        self._seed_override()
+        self._make_branch(f"{self._GIT_NS}/sprint-042-ship-it")
+        self._seed_sprint()
+        self.assertEqual(self._resolve(), f"{self._GIT_NS}/sprint-042-ship-it")
+
+    def test_the_override_is_preferred_when_both_exist(self):
+        self._seed_override()
+        self._make_branch("override/sprint-042-ship-it")
+        self._make_branch(f"{self._GIT_NS}/sprint-042-ship-it")
+        self._seed_sprint()
+        self.assertEqual(self._resolve(), "override/sprint-042-ship-it")
+
+    def test_the_refusal_names_every_candidate_it_tried(self):
+        """The message IS the product of the refusal: a user whose branch sits
+        under the other namespace has to be able to see that from it."""
+        self._seed_override()
+        self._seed_sprint()
+        with self.assertRaises(ValueError) as ctx:
+            self._required()
+        msg = str(ctx.exception)
+        self.assertIn("override/sprint-042-ship-it", msg)
+        self.assertIn(f"{self._GIT_NS}/sprint-042-ship-it", msg)
 
 
 class TestResolveStoryBaseCorruptSprint(_ResolverTestCase):

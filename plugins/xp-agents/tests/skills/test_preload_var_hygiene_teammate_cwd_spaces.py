@@ -52,7 +52,7 @@ def _init_spaced_repo(base: Path) -> "tuple[Path, Path, dict]":
         "XP_TEAMMATE_NAME",
     ):
         env.pop(var, None)
-    env["CLAUDE_PLUGIN_DATA"] = str(base / "plugin-data")
+    env["XP_AGENTS_DATA"] = str(base / "plugin-data")
     for args in (
         ["git", "init", "-b", "main"],
         ["git", "config", "user.email", "test@test.com"],

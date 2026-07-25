@@ -36,7 +36,7 @@ class _TempRepoTestCase(unittest.TestCase):
         cls.tmpdir = Path(tempfile.mkdtemp())
         cls._plugin_data_dir = Path(tempfile.mkdtemp())
         cls._test_env = os.environ.copy()
-        cls._test_env["CLAUDE_PLUGIN_DATA"] = str(cls._plugin_data_dir)
+        cls._test_env["XP_AGENTS_DATA"] = str(cls._plugin_data_dir)
         subprocess.run(
             ["git", "init", "-b", "main"],
             cwd=cls.tmpdir,
@@ -63,10 +63,22 @@ class _TempRepoTestCase(unittest.TestCase):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
 
     @classmethod
-    def _run_init(cls, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+    def _run_init(
+        cls,
+        extra_env: dict | None = None,
+        unset: tuple[str, ...] = (),
+    ) -> subprocess.CompletedProcess:
+        """Run init.sh in the class temp repo.
+
+        `unset` removes vars from the inherited env. `extra_env` can only
+        override, never remove — and setUpClass pins the SMM data root, so a
+        test asserting "this var is ABSENT" cannot express that without it.
+        """
         env = cls._test_env.copy()
         if extra_env:
             env.update(extra_env)
+        for var in unset:
+            env.pop(var, None)
         return subprocess.run(
             [str(cls._INIT_SH)],
             capture_output=True,

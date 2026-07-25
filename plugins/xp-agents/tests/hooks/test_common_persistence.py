@@ -8,10 +8,10 @@ Sibling groups: hook I/O (test_common_io.py), stdlib import policy
 (test_common_stdlib.py), event/arg bookkeeping (test_common_events.py).
 """
 
-import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -115,18 +115,25 @@ class TestGetValidatedSMMDir(_HookTestCase):
         result = _common.get_validated_smm_dir(Path("/nonexistent/smm"))
         self.assertIsNone(result)
 
-    def test_none_with_no_env_returns_none(self):
-        """None input without git repo returns None gracefully."""
+    def test_none_input_propagates_unresolvable_as_none(self):
+        """When resolution fails (no git repo), the composition returns None.
 
-        old = os.environ.pop("CLAUDE_PLUGIN_DATA", None)
-        try:
-            # In a temp dir without git, resolve_smm_dir returns None
-            result = _common.get_validated_smm_dir(None)
-            # May or may not resolve depending on CWD — just verify no crash
-            self.assertTrue(result is None or isinstance(result, Path))
-        finally:
-            if old is not None:
-                os.environ["CLAUDE_PLUGIN_DATA"] = old
+        Patches resolve_smm_dir rather than manipulating the data-root env:
+        _SMMTestCase.setUp pins SMM_DIR, which short-circuits resolution
+        before any data root is consulted, so an env-based version of this
+        test asserts nothing. `resolve_smm_dir` returning None outside a git
+        repo is covered directly by
+        test_append_safety.TestResolveSmmDir.test_returns_none_when_not_in_git_repo.
+        """
+        with patch.object(_common, "resolve_smm_dir", return_value=None):
+            self.assertIsNone(_common.get_validated_smm_dir(None))
+
+    def test_none_input_validates_the_resolved_dir(self):
+        """A resolved-but-invalid dir must not slip through unvalidated."""
+        with patch.object(
+            _common, "resolve_smm_dir", return_value=Path("/nonexistent/smm")
+        ):
+            self.assertIsNone(_common.get_validated_smm_dir(None))
 
 
 if __name__ == "__main__":

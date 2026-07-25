@@ -12,6 +12,7 @@ the leaked cases start with no ambient marker directory.
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import _common
 import identity
 import worktree
+from _in_place_helpers import release_in_place_holds
 from conftest import _HookTestCase
 
 _MAIN_CWD = {"cwd": "/home/user/project/src"}
@@ -70,6 +72,25 @@ class TestIsWorktreeTeammateMarkerGuard(_HookTestCase):
         """When smm_dir is not passed, it resolves from SMM_DIR env — a live
         marker under that dir → teammate (the real in-place-teammate path)."""
         worktree.claim_in_place_marker(self.smm_dir, _TEAMMATE)
+        with patch.dict(
+            os.environ,
+            {"XP_TEAMMATE_NAME": _TEAMMATE, "SMM_DIR": str(self.smm_dir)},
+            clear=False,
+        ):
+            self.assertTrue(identity.is_worktree_teammate(_MAIN_CWD))
+
+    def test_env_smm_dir_follows_a_relocation_pointer(self):
+        """The pinned handle addresses ONE tree, before and after a relocation.
+
+        SMM_DIR is pinned at spawn and the SMM can move under it. Every other
+        reader follows the forward pointer the relocation leaves behind, so this
+        marker lookup must too: reading the abandoned tree would keep answering
+        from a marker copy nobody clears, long after the teammate exited.
+        """
+        moved = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        worktree.claim_in_place_marker(moved, _TEAMMATE)
+        self.addCleanup(release_in_place_holds, moved)
+        (self.smm_dir / ".migrated-to").write_text(f"{moved}\n")
         with patch.dict(
             os.environ,
             {"XP_TEAMMATE_NAME": _TEAMMATE, "SMM_DIR": str(self.smm_dir)},

@@ -17,9 +17,14 @@ import sprint_store
 from sprint_schema import ACTIVE_STORY_STATUSES
 
 
-def list_story_branches(cwd: str) -> list[str]:
-    """Return story branches owned by the current user, excluding HEAD."""
-    return branching.list_user_branches(cwd, "story")
+def list_story_branches(cwd: str, smm_dir: Path | None = None) -> list[str]:
+    """Return story branches owned by the current user, excluding HEAD.
+
+    ``smm_dir`` locates the recorded namespace override the branch WRITERS
+    used; without it the pattern is built from whichever SMM this process
+    happens to resolve, which can miss every branch the plugin created.
+    """
+    return branching.list_user_branches(cwd, "story", smm_dir)
 
 
 def list_orphan_story_branches(cwd: str, smm_dir: Path) -> list[str]:
@@ -32,7 +37,7 @@ def list_orphan_story_branches(cwd: str, smm_dir: Path) -> list[str]:
     stay alive for /xp-accept's verification cycle and /xp-story-close's
     merge step and must NOT be flagged orphan.
     """
-    all_story = list_story_branches(cwd)
+    all_story = list_story_branches(cwd, smm_dir)
     if not all_story:
         return []
     sprint = sprint_store.load_sprint(smm_dir)

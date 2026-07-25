@@ -349,7 +349,7 @@ class TestResolveSmmDir(unittest.TestCase):
         target = self.tmpdir / "custom-smm"
         env = {
             "SMM_DIR": str(target),
-            "CLAUDE_PLUGIN_DATA": str(self.tmpdir / "plugin-data"),
+            "XP_AGENTS_DATA": str(self.tmpdir / "plugin-data"),
         }
         with mock.patch.dict(os.environ, env, clear=False):
             result = _append_impl.resolve_smm_dir()
@@ -358,13 +358,13 @@ class TestResolveSmmDir(unittest.TestCase):
     def test_empty_smm_dir_falls_through_to_derivation(self):
         """Empty SMM_DIR should not short-circuit."""
         plugin_data = self.tmpdir / "plugin-data"
-        env = {"SMM_DIR": "", "CLAUDE_PLUGIN_DATA": str(plugin_data)}
+        env = {"SMM_DIR": "", "XP_AGENTS_DATA": str(plugin_data)}
         with mock.patch.dict(os.environ, env, clear=False):
             result = _append_impl.resolve_smm_dir()
         self.assertIsNotNone(result)
         self.assertTrue(
             str(result).startswith(str(plugin_data)),
-            f"expected derived path under CLAUDE_PLUGIN_DATA, got {result}",
+            f"expected derived path under XP_AGENTS_DATA, got {result}",
         )
 
     def test_returns_none_when_not_in_git_repo(self):
@@ -386,7 +386,7 @@ class TestResolveSmmDir(unittest.TestCase):
         """When SMM_DIR is unset, the returned path matches what init.sh produces."""
         plugin_data = self.tmpdir / "plugin-data"
         env_overrides = {k: v for k, v in os.environ.items() if k != "SMM_DIR"} | {
-            "CLAUDE_PLUGIN_DATA": str(plugin_data)
+            "XP_AGENTS_DATA": str(plugin_data)
         }
 
         with mock.patch.dict(os.environ, env_overrides, clear=True):
@@ -396,6 +396,56 @@ class TestResolveSmmDir(unittest.TestCase):
             expected = completed.stdout.strip()
             result = _append_impl.resolve_smm_dir()
         self.assertEqual(str(result), expected)
+
+
+class TestResolveSmmDirFollowsMigrationPointer(unittest.TestCase):
+    """A pinned $SMM_DIR is followed one hop along `.migrated-to`.
+
+    A teammate (or any process spawned before a relocation) carries an ABSOLUTE
+    $SMM_DIR pinned at spawn. init.sh follows the forward pointer the relocation
+    leaves behind; Python must follow the same one, or the two halves of the
+    plugin write to two different trees for the rest of that process's life —
+    the preload scripts to the migrated SMM, every hook and append to the
+    abandoned one.
+    """
+
+    def setUp(self):
+        self.tmpdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.legacy = self.tmpdir / "legacy" / "smm"
+        self.legacy.mkdir(parents=True)
+        self.new = self.tmpdir / "new" / "smm"
+        self.new.mkdir(parents=True)
+
+    def _resolve(self) -> Path | None:
+        with mock.patch.dict(os.environ, {"SMM_DIR": str(self.legacy)}, clear=False):
+            return _append_impl.resolve_smm_dir()
+
+    def test_follows_the_pointer_to_the_migrated_tree(self):
+        (self.legacy / ".migrated-to").write_text(f"{self.new}\n")
+        self.assertEqual(self._resolve(), self.new)
+
+    def test_no_pointer_uses_the_pinned_path_verbatim(self):
+        self.assertEqual(self._resolve(), self.legacy)
+
+    def test_pointer_to_a_missing_directory_is_ignored(self):
+        """A relocation that was rolled back by hand must not strand every
+        resolution on a path that no longer exists."""
+        (self.legacy / ".migrated-to").write_text(str(self.tmpdir / "gone"))
+        self.assertEqual(self._resolve(), self.legacy)
+
+    def test_blank_pointer_is_ignored(self):
+        (self.legacy / ".migrated-to").write_text("   \n")
+        self.assertEqual(self._resolve(), self.legacy)
+
+    def test_only_one_hop_is_followed(self):
+        """A chain would mean two relocations raced, which the lock prevents;
+        following one blindly risks a cycle."""
+        third = self.tmpdir / "third" / "smm"
+        third.mkdir(parents=True)
+        (self.legacy / ".migrated-to").write_text(str(self.new))
+        (self.new / ".migrated-to").write_text(str(third))
+        self.assertEqual(self._resolve(), self.new)
 
 
 if __name__ == "__main__":

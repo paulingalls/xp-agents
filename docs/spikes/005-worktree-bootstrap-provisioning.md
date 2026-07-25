@@ -20,7 +20,7 @@ The record contradicted itself three ways, and none of the three cited a measure
 
 | Source | Claim |
 |---|---|
-| `worktree_bootstrap.py:77-83`, `CHANGELOG.md:80-87` | bare worktree **false-GREENs**; absence is "not reliably loud" |
+| `worktree_bootstrap.py:77-83`, `changelog_pre_v5.md` (v4.12.0) | bare worktree **false-GREENs**; absence is "not reliably loud" |
 | SMM risk `f9afab74c152` | lint gate **fails** on missing generated files |
 | Customer (2026-07-16) | it **false-REDs**; a weak agent gets stuck and never finishes |
 
