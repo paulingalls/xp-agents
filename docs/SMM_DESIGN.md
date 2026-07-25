@@ -149,9 +149,18 @@ Current instances: `session_history.json` and `adoption.json`.
 
 ### SMM_DIR resolution (separate from SMM)
 
-All scripts resolve the SMM directory via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` (single canonical source). The shell helper honors a `$SMM_DIR` environment override; otherwise it derives `{data-root}/{project-id}/smm/`, taking the first data root that is set: `$XP_AGENTS_DATA`, then `$CLAUDE_PLUGIN_DATA`, then `~/.claude/plugins/data/xp-agents-xp-agents`.
+All scripts resolve the SMM directory via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` (single canonical source). The shell helper honors a `$SMM_DIR` environment override; otherwise it derives `{data-root}/{project-id}/smm/` in three steps:
 
-- **`$XP_AGENTS_DATA` is the root to use for anything you want to keep** — `$CLAUDE_PLUGIN_DATA` resolves under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default (`--keep-data` opts out), taking the whole SMM with it. Setting `XP_AGENTS_DATA` puts the SMM somewhere no plugin lifecycle operation touches. Only the root changes; `{project-id}/smm/` is derived identically either way. Note that `init.sh` `chmod 700`s the root it derives under.
+1. **New root** — `${XP_AGENTS_DATA:-~/.xp-agents/data}`. If an SMM already exists there, use it.
+2. **Legacy discovery** — otherwise, and **only when `$XP_AGENTS_DATA` is unset**, look for an existing SMM under, in order, `$CLAUDE_PLUGIN_DATA` (when set), `~/.claude/plugins/data/xp-agents-xp-agents`, `~/.claude/plugins/data/xp-agents-inline`. First hit wins and is used **in place** — nothing is moved.
+3. **Fresh project** — no SMM anywhere, so create one under the new root.
+
+- **An explicitly set `$XP_AGENTS_DATA` is authoritative and skips discovery entirely.** Discovery exists for the upgrade path, where the variable is unset and a previous version left an SMM under a plugin-data root. Searching anyway when a caller named a root is both wrong (they said where) and unsafe: the search reaches the real `$HOME`, so it would resolve a live SMM from under a caller that had deliberately redirected the root. Redirection has to be hermetic or it is not redirection — that holds for CI, sandboxed and enterprise callers as much as for the test suite, which pins this variable for exactly that containment and, before this rule existed, had 19 tests resolve the developer's real SMM.
+
+- **`$CLAUDE_PLUGIN_DATA` is READ for discovery, never chosen for new SMMs.** It resolves under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default (`--keep-data` opts out), taking the whole SMM with it. The harness always sets that variable, so treating it as a preference would put every SMM back in the deletable directory.
+- **Legacy discovery is a LIST, not one path.** `$CLAUDE_PLUGIN_DATA` is absent in some hook processes, and a dev-mode install resolves the plugin id to `xp-agents-inline` where a marketplace install gives `xp-agents-xp-agents`. With a single candidate, a process that cannot see the legacy root would create an empty directory under the new root that then permanently reads as authoritative, stranding the real history.
+- Only the root varies; `{project-id}/smm/` is derived identically under any of them, which is what lets an SMM be relocated by copying one directory.
+- `init.sh` `chmod 700`s the root **only when it created it** — `XP_AGENTS_DATA` may name a directory the user already owns, and narrowing the mode of, say, `$HOME` is not ours to do. The SMM directory itself is always `chmod 700`.
 - **SMM is at user level, not project level** — every data root lives outside the working tree, so worktrees share the same SMM (intentional — it's the broadcast bus).
 - **Never hardcode SMM paths** — every script and hook calls `init.sh` (or accepts `--smm-dir DIR` from CLIs). Tests stand up a temp `SMM_DIR` env var and run scripts unmodified.
 

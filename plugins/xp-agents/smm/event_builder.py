@@ -267,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Optional SMM directory override (avoids CLAUDE_PLUGIN_DATA env var issues)
+    # Optional SMM directory override (avoids data-root env var issues)
     parser.add_argument(
         "--smm-dir", type=Path, help="SMM directory (auto-resolved if omitted)"
     )

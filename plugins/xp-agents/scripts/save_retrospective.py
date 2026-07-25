@@ -207,7 +207,7 @@ def main() -> None:
     parser.add_argument(
         "--smm-dir",
         type=Path,
-        help="SMM directory (auto-resolved from CLAUDE_PLUGIN_DATA if omitted)",
+        help="SMM directory (auto-resolved via init.sh if omitted)",
     )
     parser.add_argument(
         "--agent",

@@ -17,17 +17,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from conftest import _PLUGIN_ROOT, _TempRepoTestCase
 
-_REAL_PLUGIN_DATA_ROOT = (
-    Path.home() / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+# Every root a stray derivation could land in for real. A TUPLE, not one path:
+# `~/.xp-agents/data` became the default root, so a guard that knew only the
+# plugin-data root would silently stop catching litter — the failure mode being
+# that the guards keep passing while the suite writes to a live SMM.
+_REAL_DATA_ROOTS = (
+    Path.home() / ".claude" / "plugins" / "data" / "xp-agents-xp-agents",
+    Path.home() / ".claude" / "plugins" / "data" / "xp-agents-inline",
+    Path.home() / ".xp-agents" / "data",
 )
 
 
 def _is_real_root(path: str | Path | None) -> bool:
-    """True if path is the real plugin-data root or lives under it."""
+    """True if path is one of the real data roots or lives under one."""
     if not path:
         return False
     p = Path(path)
-    return p == _REAL_PLUGIN_DATA_ROOT or _REAL_PLUGIN_DATA_ROOT in p.parents
+    return any(p == root or root in p.parents for root in _REAL_DATA_ROOTS)
 
 
 class TestInit(_TempRepoTestCase):
@@ -189,8 +195,8 @@ class TestInitHonorsXpAgentsDataEnv(_TempRepoTestCase):
     Step 1 of moving the SMM out of the plugin-managed data directory: that
     directory is DELETED by `claude plugin uninstall` (see CHANGELOG), so the
     root has to become something no plugin lifecycle operation touches. This
-    class pins only the precedence — the default root and legacy discovery land
-    in later commits, so nothing resolved by an existing project changes yet.
+    class pins the precedence rules; TestDefaultRootAndLegacyDiscovery pins the
+    default root and discovery of an SMM already living under a legacy root.
     """
 
     def _legacy_only_env(self, legacy_root: Path) -> dict:
@@ -258,62 +264,64 @@ class TestInitHonorsXpAgentsDataEnv(_TempRepoTestCase):
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
         self.assertEqual(result.stdout.strip(), str(target))
 
-    def test_unset_leaves_existing_behavior_unchanged(self):
-        """Commit-1 safety property: with XP_AGENTS_DATA absent, every project
-        resolves exactly where it did before.
+    def test_unset_now_defaults_to_the_neutral_root(self):
+        """With XP_AGENTS_DATA absent, a project with no existing SMM lands at
+        the neutral default root.
+
+        This DELIBERATELY replaces commit 1's no-op property ("resolves exactly
+        where it did before"). Commit 1 scoped itself to precedence so it could
+        not move data; changing the default is the point of this commit, and the
+        contract change is visible here rather than hidden in a deletion.
 
         Must genuinely UNSET it — setUpClass pins XP_AGENTS_DATA as the suite's
         containment root, so `_run_init()` alone leaves it set and this would
         restate `test_xp_agents_data_is_used_when_set`.
         """
         legacy = self.tmpdir / "legacy-unset"
-        result = self._run_init(
-            extra_env=self._legacy_only_env(legacy), unset=("XP_AGENTS_DATA",)
-        )
+        env = self._legacy_only_env(legacy)
+        result = self._run_init(extra_env=env, unset=("XP_AGENTS_DATA",))
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
         derived = Path(result.stdout.strip())
+        # Nothing to discover under the legacy root, so the neutral default wins.
         self.assertTrue(
-            derived.is_relative_to(legacy),
-            f"expected {legacy}, got {derived}",
+            derived.is_relative_to(Path(env["HOME"]) / ".xp-agents" / "data"),
+            f"expected the neutral default root, got {derived}",
         )
+        self.assertFalse(derived.is_relative_to(legacy))
 
     def test_empty_xp_agents_data_falls_through(self):
-        """`:-` (not `-`) so an empty value falls through, same as unset.
-
-        Supplies its OWN CLAUDE_PLUGIN_DATA: with the session pin now on
-        XP_AGENTS_DATA, emptying it and relying on the ambient env would fall
-        through to a REAL root and litter it.
-        """
-        legacy = self.tmpdir / "legacy-fallthrough"
+        """`:-` (not `-`) so an empty value behaves as unset — landing at the
+        default root, since CLAUDE_PLUGIN_DATA is discovery-only."""
+        home = self.tmpdir / "home-empty"
+        home.mkdir(parents=True, exist_ok=True)
         result = self._run_init(
-            extra_env={"XP_AGENTS_DATA": "", **self._legacy_only_env(legacy)}
+            extra_env={"XP_AGENTS_DATA": "", "HOME": str(home)},
+            unset=("CLAUDE_PLUGIN_DATA",),
         )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
         derived = Path(result.stdout.strip())
         self.assertTrue(
-            derived.is_relative_to(legacy),
-            f"expected fallthrough to {legacy}, got {derived}",
+            derived.is_relative_to(home / ".xp-agents" / "data"),
+            f"expected default root, got {derived}",
         )
 
     def test_only_the_root_changes_not_the_project_id(self):
-        """`{project-id}/smm` must be identical under either root.
+        """`{project-id}/smm` must be identical under any root.
 
-        The later migration commits copy `<old-root>/<pid>/smm` to
-        `<new-root>/<pid>/smm`; that is only sound while the root is the
-        one and only thing XP_AGENTS_DATA changes. So the two arms must
-        resolve via the two DIFFERENT vars, not two values of the same one.
+        The later migration copies `<old>/<pid>/smm` to `<new>/<pid>/smm`, so a
+        root-dependent project-id would silently strand history. Two
+        XP_AGENTS_DATA roots, because the legacy var is discovery-only and
+        cannot be written to.
         """
-        root = self.tmpdir / "xp-data-suffix"
-        legacy = self.tmpdir / "legacy-suffix"
-        with_xp = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
-        without = self._run_init(
-            extra_env=self._legacy_only_env(legacy), unset=("XP_AGENTS_DATA",)
-        )
-        self.assertEqual(with_xp.returncode, 0, f"init.sh failed: {with_xp.stderr}")
-        self.assertEqual(without.returncode, 0, f"init.sh failed: {without.stderr}")
+        root_a = self.tmpdir / "root-a"
+        root_b = self.tmpdir / "root-b"
+        a = self._run_init(extra_env={"XP_AGENTS_DATA": str(root_a)})
+        b = self._run_init(extra_env={"XP_AGENTS_DATA": str(root_b)})
+        self.assertEqual(a.returncode, 0, f"init.sh failed: {a.stderr}")
+        self.assertEqual(b.returncode, 0, f"init.sh failed: {b.stderr}")
         self.assertEqual(
-            Path(with_xp.stdout.strip()).relative_to(root),
-            Path(without.stdout.strip()).relative_to(legacy),
+            Path(a.stdout.strip()).relative_to(root_a),
+            Path(b.stdout.strip()).relative_to(root_b),
         )
 
     def test_never_resolves_under_the_real_root(self):
@@ -394,6 +402,216 @@ class TestSeedSMM(_TempRepoTestCase):
         self.assertTrue(json_file.exists())
         self.assertTrue(md_file.exists())
         self.assertEqual(md_file.read_text(), "# Old markdown SMM\n")
+
+
+class TestDefaultRootAndLegacyDiscovery(_TempRepoTestCase):
+    """The default root is `~/.xp-agents/data`, and an SMM already living under
+    a plugin-managed root is DISCOVERED there rather than abandoned.
+
+    Without discovery, upgrading points every existing project at an empty new
+    root — which presents as a brand-new project with no history, the exact
+    silent loss this whole change exists to prevent.
+    """
+
+    def _fake_home(self, name: str) -> Path:
+        home = self.tmpdir / f"home-{name}"
+        home.mkdir(parents=True, exist_ok=True)
+        return home
+
+    def _project_id(self) -> str:
+        """The project-id init.sh derives for this repo.
+
+        Learned from a real derivation rather than re-deriving the hash here —
+        duplicating production's hashing in a test is how the two drift.
+        """
+        probe = self.tmpdir / "probe-root"
+        r = self._run_init(extra_env={"XP_AGENTS_DATA": str(probe)})
+        self.assertEqual(r.returncode, 0, f"probe failed: {r.stderr}")
+        return Path(r.stdout.strip()).parent.name
+
+    def _seed_legacy(self, root: Path) -> Path:
+        """Create a legacy SMM for this repo under `root`, return its path.
+
+        Built directly rather than via init.sh: legacy roots are DISCOVERY-only
+        now, so pointing init.sh at one no longer writes there — which is the
+        behavior these tests exist to pin.
+        """
+        seeded = root / self._project_id() / "smm"
+        (seeded / "retrospectives").mkdir(parents=True)
+        (seeded / "events.jsonl").touch()
+        return seeded
+
+    def test_default_root_is_xp_agents_data_under_home(self):
+        home = self._fake_home("default")
+        result = self._run_init(
+            extra_env={"HOME": str(home)},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = Path(result.stdout.strip())
+        self.assertTrue(
+            derived.is_relative_to(home / ".xp-agents" / "data"),
+            f"expected default under {home}/.xp-agents/data, got {derived}",
+        )
+
+    def test_legacy_claude_plugin_data_is_discovered(self):
+        legacy_root = self.tmpdir / "legacy-env-root"
+        seeded = self._seed_legacy(legacy_root)
+        home = self._fake_home("discover-env")
+        result = self._run_init(
+            extra_env={"CLAUDE_PLUGIN_DATA": str(legacy_root), "HOME": str(home)},
+            unset=("XP_AGENTS_DATA",),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(seeded))
+
+    def test_legacy_marketplace_default_is_discovered(self):
+        """CLAUDE_PLUGIN_DATA is absent in some hook processes, so the
+        marketplace default must be its own candidate."""
+        home = self._fake_home("marketplace")
+        legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+        seeded = self._seed_legacy(legacy_root)
+        result = self._run_init(
+            extra_env={"HOME": str(home)},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(seeded))
+
+    def test_legacy_inline_dev_default_is_discovered(self):
+        """Dev-mode installs resolve the plugin id to `xp-agents-inline`, so a
+        plugin developer's own SMM lives under a different root than a
+        marketplace user's."""
+        home = self._fake_home("inline")
+        legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-inline"
+        seeded = self._seed_legacy(legacy_root)
+        result = self._run_init(
+            extra_env={"HOME": str(home)},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(seeded))
+
+    def test_legacy_is_used_in_place_not_copied(self):
+        """Commit 3 discovers; it must not move or duplicate anything. The
+        copy lands in the next commit, behind a liveness gate."""
+        home = self._fake_home("inplace")
+        legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+        seeded = self._seed_legacy(legacy_root)
+        (seeded / "events.jsonl").write_text('{"marker":"legacy"}\n')
+
+        result = self._run_init(
+            extra_env={"HOME": str(home)},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.stdout.strip(), str(seeded))
+        self.assertEqual((seeded / "events.jsonl").read_text(), '{"marker":"legacy"}\n')
+        self.assertFalse(
+            (home / ".xp-agents").exists(),
+            "commit 3 must not create the new root when a legacy SMM is in use",
+        )
+
+    def test_explicit_xp_agents_data_skips_legacy_discovery(self):
+        """An explicitly named root is AUTHORITATIVE — no hunting elsewhere.
+
+        Discovery exists for the upgrade path, where XP_AGENTS_DATA is unset and
+        we must find an SMM the previous version left under a plugin-data root.
+        When a caller names a root, going looking anyway is both wrong (they
+        said where) and unsafe: the whole test suite pins this var, so
+        discovery would resolve the REAL repo's SMM under the developer's real
+        HOME for any test whose cwd is this repo. That happened — 19 tests
+        resolved a live SMM.
+        """
+        home = self._fake_home("explicit")
+        legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+        seeded = self._seed_legacy(legacy_root)
+        (seeded / "events.jsonl").write_text('{"marker":"legacy"}\n')
+        explicit = self.tmpdir / "explicit-root"
+
+        result = self._run_init(
+            extra_env={"XP_AGENTS_DATA": str(explicit), "HOME": str(home)}
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = Path(result.stdout.strip())
+        self.assertTrue(
+            derived.is_relative_to(explicit),
+            f"explicit root must win, got {derived}",
+        )
+        # And the legacy SMM is left completely alone.
+        self.assertEqual((seeded / "events.jsonl").read_text(), '{"marker":"legacy"}\n')
+
+    def test_new_root_wins_when_both_exist(self):
+        """An SMM at the DEFAULT root stops legacy discovery.
+
+        Exercised with XP_AGENTS_DATA unset, because that is the only path where
+        "both exist" is a real contest: an explicitly named root skips discovery
+        outright, so pinning it there would restate
+        `test_explicit_xp_agents_data_skips_legacy_discovery` and leave the
+        new-root-exists check itself untested. Verified by mutation — deleting
+        that check from init.sh left the whole file green before this test.
+
+        It is load-bearing for the migration commit: once a copy lands at the new
+        root, this is what stops every later process re-resolving the stale
+        legacy tree.
+        """
+        home = self._fake_home("both")
+        legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
+        legacy = self._seed_legacy(legacy_root)
+        (legacy / "events.jsonl").write_text('{"marker":"legacy"}\n')
+        new_smm = home / ".xp-agents" / "data" / self._project_id() / "smm"
+        new_smm.mkdir(parents=True)
+
+        result = self._run_init(
+            extra_env={"HOME": str(home)},
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(new_smm))
+        self.assertEqual((legacy / "events.jsonl").read_text(), '{"marker":"legacy"}\n')
+
+    def test_explicit_root_does_not_require_home(self):
+        """`nounset` + an unset $HOME must not break the explicit-root path.
+
+        The legacy candidate list interpolates $HOME, so building it before the
+        branch that reads it made `XP_AGENTS_DATA=<path>` with $HOME absent exit 1
+        on a list that path never consults — init.sh is the single resolver for
+        every script and hook, so that is total failure, not degradation. It
+        worked before the discovery change; bash short-circuits nested `:-`
+        defaults, so `${HOME}` was never expanded when the outer var was set.
+        """
+        root = self.tmpdir / "no-home-root"
+        result = self._run_init(
+            extra_env={"XP_AGENTS_DATA": str(root)}, unset=("HOME",)
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertTrue(Path(result.stdout.strip()).is_relative_to(root))
+
+    def test_preexisting_base_dir_is_not_chmodded(self):
+        """`XP_AGENTS_DATA=$HOME` must not chmod 700 the user's home.
+
+        BASE_DIR used to always be the plugin-owned data dir; it is now any
+        path the user names, and the whole point of the var is that they name
+        one. Only dirs init.sh CREATED may have their mode narrowed.
+        """
+        preexisting = self.tmpdir / "user-owned-root"
+        preexisting.mkdir(mode=0o755)
+        self.assertEqual(preexisting.stat().st_mode & 0o777, 0o755)
+
+        result = self._run_init(extra_env={"XP_AGENTS_DATA": str(preexisting)})
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(
+            preexisting.stat().st_mode & 0o777,
+            0o755,
+            "init.sh chmodded a data root it did not create",
+        )
+
+    def test_created_base_dir_is_chmodded_700(self):
+        """The narrowing still happens for roots we do create — dropping it
+        would leave a fresh SMM tree world-readable."""
+        fresh = self.tmpdir / "fresh-root" / "nested"
+        result = self._run_init(extra_env={"XP_AGENTS_DATA": str(fresh)})
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(fresh.stat().st_mode & 0o777, 0o700)
 
 
 class TestPluginDataIsolation(unittest.TestCase):

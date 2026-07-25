@@ -53,7 +53,7 @@ See https://code.claude.com/docs/en/hooks.md for full reference. Minimum-viable 
 
 ## SMM Path Resolution
 
-All scripts resolve via `init.sh` (single canonical source). Honors `$SMM_DIR` env override. SMM lives at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` — user level, not project level. Never hardcode paths.
+All scripts resolve via `init.sh` (single canonical source). Honors `$SMM_DIR` env override. SMM lives at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` — user level, not project level, and deliberately NOT under `${CLAUDE_PLUGIN_DATA}`, which `claude plugin uninstall` deletes by default. A pre-existing SMM under a legacy plugin-data root is discovered there rather than abandoned. Never hardcode paths.
 
 ## Hook Registration
 
@@ -102,7 +102,7 @@ Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), 
 ## Key Decisions (Don't Revisit)
 
 - Hooks-first — all XP agents are hook handlers
-- SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` (shared across worktrees)
+- SMM at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` (shared across worktrees; outside plugin-managed storage so no plugin lifecycle operation can delete it — reversed the original `${CLAUDE_PLUGIN_DATA}` decision, see CHANGELOG v4.20.0)
 - Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
 - Quality reviewer is post-simplify skill (courage + drift + debt)
 - Retrospective runs at session start, not session end

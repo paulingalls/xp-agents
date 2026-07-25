@@ -93,7 +93,7 @@ def worktree_path(name: str, cwd: str) -> Path:
     if base is not None:
         return base / name
     # LEGACY IN-REPO FALLBACK: {git_root}/.claude/worktrees/{name}. Fires only
-    # when the out-of-repo base is unresolvable (CLAUDE_PLUGIN_DATA unavailable);
+    # when the out-of-repo base is unresolvable (no SMM data root available);
     # a documented safe degradation, never a crash (AC3).
     root = resolve_git_root(cwd)
     if not root:

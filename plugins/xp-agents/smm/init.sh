@@ -32,19 +32,87 @@ if [[ -z "${SMM_DIR:-}" ]]; then
 
     PROJECT_ID=$(printf '%s' "$GIT_COMMON_DIR" | hash12)
 
-    # XP_AGENTS_DATA is the top-preference SMM data root, and the only one that
-    # is ours. CLAUDE_PLUGIN_DATA resolves to ~/.claude/plugins/data/{id}/, which
-    # `claude plugin uninstall` DELETES by default (--keep-data opts out) — so an
-    # SMM living there sits one uninstall away from silent loss. XP_AGENTS_DATA
-    # puts it somewhere no plugin lifecycle operation touches.
-    BASE_DIR="${XP_AGENTS_DATA:-${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/xp-agents-xp-agents}}"
+    # Where a NEW SMM goes. XP_AGENTS_DATA is ours and nothing else is a
+    # write preference: CLAUDE_PLUGIN_DATA resolves to
+    # ~/.claude/plugins/data/{id}/, which `claude plugin uninstall` DELETES by
+    # default (--keep-data opts out), so an SMM living there is one uninstall
+    # away from silent loss. The harness always sets that var, so honoring it as
+    # a preference would make this change a no-op for every real user.
+    # An explicitly named root is AUTHORITATIVE: when the caller says where the
+    # SMM goes, we do not go hunting under legacy roots. Discovery below exists
+    # for the UPGRADE path, where this var is unset and a previous version left
+    # an SMM under a plugin-data root — searching when a root was named is both
+    # wrong (they said where) and unsafe, because the search reaches the real
+    # $HOME and would resolve a live SMM from under a caller that had
+    # deliberately redirected the root.
+    if [[ -n "${XP_AGENTS_DATA:-}" ]]; then
+        NEW_BASE="${XP_AGENTS_DATA}"
+        DISCOVER_LEGACY=0
+    else
+        NEW_BASE="${HOME}/.xp-agents/data"
+        DISCOVER_LEGACY=1
+    fi
+
+    if [[ -d "${NEW_BASE}/${PROJECT_ID}/smm" ]] || [[ "${DISCOVER_LEGACY}" -eq 0 ]]; then
+        BASE_DIR="${NEW_BASE}"
+    else
+        # Where an EXISTING SMM might already be — discovery only, never a write
+        # target. A LIST, not one path: CLAUDE_PLUGIN_DATA is absent in some hook
+        # processes, and a dev-mode install resolves the plugin id to
+        # `xp-agents-inline` where a marketplace install gives
+        # `xp-agents-xp-agents`. With a single candidate, a process that cannot
+        # see the legacy root creates an EMPTY dir under NEW_BASE that then
+        # permanently reads as "already migrated" — stranding the real history.
+        # That is the silent loss this change exists to prevent, so the list is
+        # load-bearing.
+        #
+        # Built HERE, not at top level: `nounset` makes an unset $HOME fatal, and
+        # reaching this branch already proves $HOME is set (NEW_BASE derived from
+        # it above). At top level the same lines made `XP_AGENTS_DATA=... HOME
+        # unset` fail on a list that path never even reads.
+        LEGACY_CANDIDATES=()
+        if [[ -n "${CLAUDE_PLUGIN_DATA:-}" ]]; then
+            LEGACY_CANDIDATES+=("${CLAUDE_PLUGIN_DATA}")
+        fi
+        LEGACY_CANDIDATES+=("${HOME}/.claude/plugins/data/xp-agents-xp-agents")
+        LEGACY_CANDIDATES+=("${HOME}/.claude/plugins/data/xp-agents-inline")
+
+        BASE_DIR=""
+        for _candidate in "${LEGACY_CANDIDATES[@]}"; do
+            if [[ -d "${_candidate}/${PROJECT_ID}/smm" ]]; then
+                BASE_DIR="${_candidate}"
+                break
+            fi
+        done
+        # No SMM anywhere: a fresh project, which lands at the safe root.
+        if [[ -z "${BASE_DIR}" ]]; then
+            BASE_DIR="${NEW_BASE}"
+        fi
+    fi
     SMM_DIR="${BASE_DIR}/${PROJECT_ID}/smm"
 
+    # Was the root already there BEFORE we ran? Decides whether narrowing its
+    # mode is ours to do — see the chmod below.
+    BASE_PRE_EXISTED=0
+    if [[ -d "${BASE_DIR}" ]]; then
+        BASE_PRE_EXISTED=1
+    fi
+
     mkdir -p "${SMM_DIR}/retrospectives"
-    # Restrict the ancestor dirs we just created. Only safe inside this branch —
-    # if a caller provided SMM_DIR, BASE_DIR may be an unrelated inherited env
-    # var we must not touch.
-    chmod 700 "${BASE_DIR}" "${BASE_DIR}/${PROJECT_ID}"
+
+    # Narrow only what WE created. BASE_DIR used to always be the plugin-owned
+    # data dir; it is now any path the user names via XP_AGENTS_DATA, and the
+    # whole point of the var is that they name one — so `XP_AGENTS_DATA=$HOME`
+    # would otherwise chmod 700 their home directory. The project-id dir is
+    # always ours, so it is narrowed unconditionally.
+    #
+    # Intermediates that `mkdir -p` created (`~/a/b` given `~/a/b/c`) keep the
+    # default umask; the SMM dir itself is chmodded 700 below regardless, which
+    # is what actually protects the contents.
+    if [[ "${BASE_PRE_EXISTED}" -eq 0 ]]; then
+        chmod 700 "${BASE_DIR}"
+    fi
+    chmod 700 "${BASE_DIR}/${PROJECT_ID}"
 else
     mkdir -p "${SMM_DIR}/retrospectives"
 fi

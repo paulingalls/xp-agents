@@ -17,7 +17,7 @@ Each doctrine doc is the authoritative reference for its subsystem; design-histo
 ## SMM Storage
 
 ```
-${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
+${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 ├── events.jsonl              ← append-only, one JSON event per line
 ├── shared_mental_model.json   ← curated four-pillar view, written by housekeeping
 ├── .curation-watermark       ← last-curated event position (for housekeeping + compaction)
@@ -29,7 +29,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 └── retrospectives/                   ← Keep/Fix/Try session artifacts (.json)
 ```
 
-`CLAUDE_PLUGIN_DATA` is the plugin ecosystem's persistent data directory (defaults to `~/.claude/plugins/data/xp-agents-xp-agents/`). Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and Agent Team teammates.
+`XP_AGENTS_DATA` is the SMM data root (defaults to `~/.xp-agents/data/`). It is deliberately NOT `CLAUDE_PLUGIN_DATA`: that resolves under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default, so the project's memory would sit one uninstall away from silent loss. Legacy plugin-data roots are still READ so an SMM already there is discovered rather than abandoned. Per-project isolation via `project-id` derived from `git rev-parse --git-common-dir`. Shared across worktrees and teammates.
 
 ### Marker Write Locality
 
@@ -351,7 +351,7 @@ CLI teammates are the **sprint-default parallel execution mode** for v2.0. When 
 
 **When Agent Teams is preferred instead:** ad-hoc multi-agent research or analysis where teammates need to be co-tenant in a single Claude Code session — e.g., one agent researching while another summarizes for the user, with shared conversation context. CLI teammates can't share conversation state; Agent Teams can't isolate file domains in worktrees. Sprint-driven parallel implementation of stories with non-overlapping file domains is always CLI teammates; everything else stays in Agent Teams (or solo).
 
-SMM at `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global:
+SMM at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` is shared across all worktrees and teammates. Because hooks are global:
 
 - Every teammate gets prompt nuggets at each user prompt
 - Every teammate's code gets quality reviewer subagent nudges

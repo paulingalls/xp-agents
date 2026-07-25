@@ -67,7 +67,7 @@ claude --plugin-dir /path/to/xp-agents/plugins/xp-agents
 
 **Requirements:** Python 3.11+ on PATH. macOS or Linux. Zero external packages.
 
-**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees).
+**Scopes:** User scope makes xp-agents available on all your projects. Project scope shares it with your team via version control. Both work with CLI teammates — the SMM is stored under `XP_AGENTS_DATA` (default `~/.xp-agents/data`, shared across worktrees).
 
 **For teams:** Add this to your project's `.claude/settings.json` so teammates can discover the plugin:
 
@@ -239,7 +239,7 @@ These are subagents shipped by the plugin under `agents/`, not slash commands. T
 xp-agents uses a broadcast event log visible to every agent — the main agent, all subagents, and all CLI teammates in parallel worktrees.
 
 ```
-${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
+${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 ├── events.jsonl              ← append-only log
 ├── shared_mental_model.json  ← curated four-pillar view, written by housekeeping
 ├── execution_plan.json       ← ordered milestones with change zones and design context
@@ -252,7 +252,7 @@ ${CLAUDE_PLUGIN_DATA}/{project-id}/smm/
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
 
-The SMM lives in `CLAUDE_PLUGIN_DATA` (`~/.claude/plugins/data/xp-agents-xp-agents/`), keyed by a hash of the git repo's common directory. This means CLI teammates in different git worktrees all share the same event log.
+The SMM lives at `$XP_AGENTS_DATA` (default `~/.xp-agents/data/`), keyed by a hash of the git repo's common directory. It is deliberately NOT under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default — an SMM there would be one uninstall away from silent loss. An SMM already under that older location keeps being used from there. This means CLI teammates in different git worktrees all share the same event log.
 
 The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
 - **Intent** — project goals and active customer intents
@@ -312,7 +312,7 @@ Sprint stories advance in **frontiers** — the set of `scheduled` stories whose
 
 After each story closes, `/xp-accept`'s post-loop calls `/xp-schedule` again for the next frontier — or dispatches `/xp-sprint-review` when none remain. `/xp-story-close` itself only merges and cleans up; it never promotes the next story.
 
-Because hooks are global and the SMM is stored in `CLAUDE_PLUGIN_DATA` (shared across worktrees), every teammate automatically gets:
+Because hooks are global and the SMM is stored under `XP_AGENTS_DATA` (shared across worktrees), every teammate automatically gets:
 
 - Tiered context injection at spawn (full SMM + process guide)
 - `working_on` conflict detection across teammates
