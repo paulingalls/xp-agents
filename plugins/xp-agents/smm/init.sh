@@ -32,9 +32,12 @@ if [[ -z "${SMM_DIR:-}" ]]; then
 
     PROJECT_ID=$(printf '%s' "$GIT_COMMON_DIR" | hash12)
 
-    # Use CLAUDE_PLUGIN_DATA if available (standard plugin ecosystem path),
-    # fall back to the standard plugin data directory for marketplace installs.
-    BASE_DIR="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/xp-agents-xp-agents}"
+    # XP_AGENTS_DATA is the top-preference SMM data root, and the only one that
+    # is ours. CLAUDE_PLUGIN_DATA resolves to ~/.claude/plugins/data/{id}/, which
+    # `claude plugin uninstall` DELETES by default (--keep-data opts out) — so an
+    # SMM living there sits one uninstall away from silent loss. XP_AGENTS_DATA
+    # puts it somewhere no plugin lifecycle operation touches.
+    BASE_DIR="${XP_AGENTS_DATA:-${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/xp-agents-xp-agents}}"
     SMM_DIR="${BASE_DIR}/${PROJECT_ID}/smm"
 
     mkdir -p "${SMM_DIR}/retrospectives"

@@ -48,6 +48,16 @@ from pathlib import Path
 #   drift threshold. Tests that exercise that knob pass it explicitly
 #   via run_cli's extra_env; a stray export from a dev shell would
 #   silently flip the default-tolerance assertions in test_sprint_cli.
+# - XP_AGENTS_DATA: init.sh's top-preference SMM data root — it OUTRANKS the
+#   CLAUDE_PLUGIN_DATA pin installed below and the per-class pin in
+#   _TempRepoTestCase. It exists precisely so a user can export it from their
+#   shell, and plugin developers are users, so a leak is likely rather than
+#   theoretical: every test that derives an SMM would then litter that real
+#   root with one project-id dir per ephemeral temp repo (the regression
+#   TestPluginDataIsolation guards) and the precedence assertions in
+#   test_init.TestInitHonorsXpAgentsDataEnv would fail. Stripped, not pinned:
+#   with it absent, derivation falls back to the already-contained
+#   CLAUDE_PLUGIN_DATA pin.
 for _leaked_var in (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -56,6 +66,7 @@ for _leaked_var in (
     "SMM_DIR",
     "XP_TEAMMATE_NAME",
     "XP_FILE_DOMAIN_DRIFT_TOLERANCE",
+    "XP_AGENTS_DATA",
 ):
     os.environ.pop(_leaked_var, None)
 

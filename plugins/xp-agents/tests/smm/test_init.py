@@ -183,6 +183,100 @@ class TestInitHonorsSmmDirEnv(_TempRepoTestCase):
         )
 
 
+class TestInitHonorsXpAgentsDataEnv(_TempRepoTestCase):
+    """`XP_AGENTS_DATA` is the top-preference SMM data root.
+
+    Step 1 of moving the SMM out of the plugin-managed data directory: that
+    directory is DELETED by `claude plugin uninstall` (see CHANGELOG), so the
+    root has to become something no plugin lifecycle operation touches. This
+    class pins only the precedence — the default root and legacy discovery land
+    in later commits, so nothing resolved by an existing project changes yet.
+    """
+
+    def test_xp_agents_data_is_used_when_set(self):
+        root = self.tmpdir / "xp-data-root"
+        result = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = Path(result.stdout.strip())
+        self.assertTrue(
+            derived.is_relative_to(root),
+            f"expected derived path under {root}, got {derived}",
+        )
+        self.assertEqual(derived.name, "smm")
+
+    def test_xp_agents_data_outranks_claude_plugin_data(self):
+        """The whole point: the harness always sets CLAUDE_PLUGIN_DATA, so a
+        chain that lets it win would be a no-op for every real user."""
+        root = self.tmpdir / "xp-data-wins"
+        result = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = Path(result.stdout.strip())
+        self.assertTrue(derived.is_relative_to(root))
+        self.assertFalse(
+            derived.is_relative_to(self._plugin_data_dir),
+            "CLAUDE_PLUGIN_DATA must not win over XP_AGENTS_DATA",
+        )
+
+    def test_smm_dir_still_outranks_xp_agents_data(self):
+        """SMM_DIR stays the single canonical handle — it is how a teammate
+        spawner propagates the lead's SMM across a process boundary."""
+        target = self.tmpdir / "explicit-smm"
+        result = self._run_init(
+            extra_env={
+                "SMM_DIR": str(target),
+                "XP_AGENTS_DATA": str(self.tmpdir / "ignored-root"),
+            }
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(result.stdout.strip(), str(target))
+
+    def test_unset_leaves_existing_behavior_unchanged(self):
+        """Commit-1 safety property: with XP_AGENTS_DATA absent, every project
+        resolves exactly where it did before."""
+        result = self._run_init()
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = Path(result.stdout.strip())
+        self.assertTrue(
+            derived.is_relative_to(self._plugin_data_dir),
+            f"expected {self._plugin_data_dir}, got {derived}",
+        )
+
+    def test_empty_xp_agents_data_falls_through(self):
+        result = self._run_init(extra_env={"XP_AGENTS_DATA": ""})
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = Path(result.stdout.strip())
+        self.assertTrue(derived.is_relative_to(self._plugin_data_dir))
+
+    def test_only_the_root_changes_not_the_project_id(self):
+        """`{project-id}/smm` must be identical under either root.
+
+        The later migration commits copy `<old-root>/<pid>/smm` to
+        `<new-root>/<pid>/smm`; that is only sound while the root is the
+        one and only thing XP_AGENTS_DATA changes.
+        """
+        root = self.tmpdir / "xp-data-suffix"
+        with_xp = self._run_init(extra_env={"XP_AGENTS_DATA": str(root)})
+        without = self._run_init()
+        self.assertEqual(with_xp.returncode, 0, f"init.sh failed: {with_xp.stderr}")
+        self.assertEqual(without.returncode, 0, f"init.sh failed: {without.stderr}")
+        self.assertEqual(
+            Path(with_xp.stdout.strip()).relative_to(root),
+            Path(without.stdout.strip()).relative_to(self._plugin_data_dir),
+        )
+
+    def test_never_resolves_under_the_real_root(self):
+        result = self._run_init(
+            extra_env={"XP_AGENTS_DATA": str(self.tmpdir / "isolated")}
+        )
+        # Assert success first: a failed init.sh prints nothing, and
+        # _is_real_root("") is False, so the real assertion would pass
+        # vacuously on any breakage.
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        derived = result.stdout.strip()
+        self.assertTrue(derived, "init.sh must echo the resolved SMM dir")
+        self.assertFalse(_is_real_root(derived))
+
+
 class TestSeedSMM(_TempRepoTestCase):
     """Tests for seed_smm.py -- default SMM created by init.sh."""
 
@@ -261,6 +355,16 @@ class TestPluginDataIsolation(unittest.TestCase):
     would otherwise fall back to that real root, creating one project-id dir
     per ephemeral test git repo and leaving it behind.
     """
+
+    def test_xp_agents_data_is_stripped(self):
+        """XP_AGENTS_DATA outranks the CLAUDE_PLUGIN_DATA pin in init.sh, so
+        conftest must strip it — otherwise a dev who exports it (the var's
+        whole purpose) sends every derived test SMM into that real root."""
+        self.assertIsNone(
+            os.environ.get("XP_AGENTS_DATA"),
+            "conftest must strip XP_AGENTS_DATA; it outranks the "
+            "CLAUDE_PLUGIN_DATA test pin",
+        )
 
     def test_plugin_data_env_is_isolated_tempdir(self):
         pd = os.environ.get("CLAUDE_PLUGIN_DATA")

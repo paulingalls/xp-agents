@@ -149,9 +149,10 @@ Current instances: `session_history.json` and `adoption.json`.
 
 ### SMM_DIR resolution (separate from SMM)
 
-All scripts resolve the SMM directory via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` (single canonical source). The shell helper honors a `$SMM_DIR` environment override; otherwise it derives `${CLAUDE_PLUGIN_DATA}/{project-id}/smm/`.
+All scripts resolve the SMM directory via `${CLAUDE_PLUGIN_ROOT}/smm/init.sh` (single canonical source). The shell helper honors a `$SMM_DIR` environment override; otherwise it derives `{data-root}/{project-id}/smm/`, taking the first data root that is set: `$XP_AGENTS_DATA`, then `$CLAUDE_PLUGIN_DATA`, then `~/.claude/plugins/data/xp-agents-xp-agents`.
 
-- **SMM is at user level, not project level** — `${CLAUDE_PLUGIN_DATA}` lives outside the working tree, so worktrees share the same SMM (intentional — it's the broadcast bus).
+- **`$XP_AGENTS_DATA` is the root to use for anything you want to keep** — `$CLAUDE_PLUGIN_DATA` resolves under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default (`--keep-data` opts out), taking the whole SMM with it. Setting `XP_AGENTS_DATA` puts the SMM somewhere no plugin lifecycle operation touches. Only the root changes; `{project-id}/smm/` is derived identically either way. Note that `init.sh` `chmod 700`s the root it derives under.
+- **SMM is at user level, not project level** — every data root lives outside the working tree, so worktrees share the same SMM (intentional — it's the broadcast bus).
 - **Never hardcode SMM paths** — every script and hook calls `init.sh` (or accepts `--smm-dir DIR` from CLIs). Tests stand up a temp `SMM_DIR` env var and run scripts unmodified.
 
 ---
