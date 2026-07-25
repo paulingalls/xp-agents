@@ -64,6 +64,19 @@ class TestUsableGitRefName(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(usable_git_ref_name(name))
 
+    def test_rejects_a_leading_plus_but_keeps_an_interior_one(self) -> None:
+        """A leading `+` is the refspec force marker, not a name character.
+
+        These values reach `git push origin <branch>` (branching_core,
+        close_common), where `+main` means "force-push main over the remote".
+        Git itself accepts `+main` as a ref NAME, so only this predicate stands
+        between a stored value and that push. Interior `+` stays legal — it is
+        an ordinary branch character, and rejecting it would heal the value to
+        the release branch.
+        """
+        self.assertFalse(usable_git_ref_name("+main"))
+        self.assertTrue(usable_git_ref_name("main+dev"))
+
     def test_accepts_git_legal_names_the_naming_pattern_rejects(self) -> None:
         """The question here is "can git use this?", NOT "does this match the
         names we generate?" — two different jobs that shared one regex.
@@ -244,6 +257,24 @@ class TestRendererMarksARejectedNamespace(unittest.TestCase):
         rendered = self._render("paul")
         self.assertIn("paul", rendered)
         self.assertNotRegex(rendered.lower(), r"not usable|unusable")
+
+    def test_blank_value_is_not_reported_as_broken(self) -> None:
+        """Blank is LEGAL — `user_namespace_error` accepts it, and it means
+        "derive from git identity", exactly like the absent field.
+
+        Marking it reports a valid configuration as broken, which either
+        provokes a fix for a non-problem or trains the reader to ignore the
+        marker in the case it was added for.
+        """
+        for value in ("", "   "):
+            with self.subTest(value=value):
+                rendered = self._render(value)
+                self.assertNotRegex(rendered.lower(), r"not usable|unusable")
+
+    def test_blank_value_renders_like_an_absent_one(self) -> None:
+        """No half-line either: `- **User Namespace:**` with nothing after it
+        is noise, and `integration_branch` already omits an empty value."""
+        self.assertNotIn("User Namespace", self._render(""))
 
 
 class _StoreTestCase(unittest.TestCase):

@@ -223,18 +223,24 @@ def _render_branching_strategy(lines: list[str], bs: dict) -> None:
     lines.append("")
     stage = bs.get("stage", 0)
     lines.append(f"- **Stage:** {_STAGE_NAMES.get(stage, f'Stage {stage}')}")
-    if "user_namespace" in bs:
-        # Marked when the use site drops it, for the same reason
-        # integration_branch is (below): branch naming READS this field, so
-        # rendering a value that is not in force would tell the agent branches
-        # are cut under a prefix nothing actually uses.
+    # A blank value is LEGAL and means "derive from git identity" — the
+    # write-time validator accepts it — so it renders like an absent one rather
+    # than as a broken configuration. Anything else present is shown, and
+    # MARKED when the use site drops it, for the same reason integration_branch
+    # is (below): branch naming READS this field, so rendering a value that is
+    # not in force would tell the agent branches are cut under a prefix nothing
+    # actually uses.
+    ns_value = bs.get("user_namespace")
+    if isinstance(ns_value, str) and not ns_value.strip():
+        ns_value = None
+    if ns_value is not None:
         ns_mark = (
             ""
             if healed_user_namespace(bs) is not None
             else " — ⚠️ NOT USABLE as a branch-name segment; branch names fall"
             " back to the git identity"
         )
-        lines.append(f"- **User Namespace:** {bs['user_namespace']}{ns_mark}")
+        lines.append(f"- **User Namespace:** {ns_value}{ns_mark}")
     if bs.get("protected_branches"):
         branches = ", ".join(f"`{b}`" for b in bs["protected_branches"])
         lines.append(f"- **Protected Branches:** {branches}")

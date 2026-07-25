@@ -41,12 +41,39 @@ def now_iso() -> str:
 _INIT_SH = Path(__file__).parent / "init.sh"
 
 
+MIGRATION_POINTER = ".migrated-to"
+
+
+def _follow_migration_pointer(smm_dir: Path) -> Path:
+    """One hop along a ``.migrated-to`` pointer, else the input unchanged.
+
+    The Python half of init.sh's ``follow_migration_pointer``, and it has to
+    exist: a pinned $SMM_DIR skips init.sh entirely, so without this the shell
+    half of the plugin follows the relocation while every hook, append and
+    marker write keeps addressing the abandoned tree for the rest of that
+    process's life. The two halves must agree on one SMM.
+
+    One hop only, matching the shell: a chain would mean two relocations raced,
+    which the lock prevents, and following one blindly risks a cycle.
+    """
+    try:
+        target = (smm_dir / MIGRATION_POINTER).read_text().strip()
+    except OSError:
+        return smm_dir
+    if not target:
+        return smm_dir
+    candidate = Path(target)
+    return candidate if candidate.is_dir() else smm_dir
+
+
 def resolve_smm_dir() -> Path | None:
     """Return the SMM directory, or None if it can't be resolved.
 
     Honors $SMM_DIR env var as the single canonical handle — lets teammate
-    spawners propagate the lead's SMM across process boundaries. When unset,
-    delegates to ``_derive_smm_dir`` which runs init.sh.
+    spawners propagate the lead's SMM across process boundaries — but follows
+    a relocation pointer left at that path, because the handle was pinned at
+    spawn and the tree can have moved since. When unset, delegates to
+    ``_derive_smm_dir`` which runs init.sh (which follows the pointer itself).
 
     The env-var read happens on every call (cheap), so test isolation that
     pins SMM_DIR per test takes effect immediately. ``_derive_smm_dir`` is
@@ -57,7 +84,7 @@ def resolve_smm_dir() -> Path | None:
     """
     env_smm = os.environ.get("SMM_DIR", "").strip()
     if env_smm:
-        return Path(env_smm)
+        return _follow_migration_pointer(Path(env_smm))
     return _derive_smm_dir()
 
 
@@ -88,6 +115,27 @@ def plugin_managed_roots() -> list[Path]:
     return roots
 
 
+def named_data_root() -> Path | None:
+    """The data root the caller NAMED via ``XP_AGENTS_DATA``, if any.
+
+    Same variable, same precedence as init.sh, where naming a root switches off
+    legacy discovery and relocation entirely.
+    """
+    value = os.environ.get("XP_AGENTS_DATA", "").strip()
+    return Path(value) if value else None
+
+
+def _is_under(path: Path, root: Path | None) -> bool:
+    """Containment by path components, tolerant of an unresolvable root."""
+    if root is None:
+        return False
+    try:
+        path.relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
 def is_under_plugin_managed_root(smm_dir: Path) -> bool:
     """True when ``smm_dir`` still sits inside a host-managed data root.
 
@@ -99,18 +147,21 @@ def is_under_plugin_managed_root(smm_dir: Path) -> bool:
 
     Path containment, not string prefix — a sibling directory sharing a name
     prefix is not inside the root.
+
+    An explicitly-set ``XP_AGENTS_DATA`` wins over the risk list for anything
+    under it, mirroring init.sh: a named root is AUTHORITATIVE there — it skips
+    both discovery and relocation — so warning about one would produce an
+    advisory nothing can clear, naming a tool that resolves to the same path
+    and reports that relocation did not happen. Only the named root is exempt;
+    a handle pinned to some other managed root is still at risk.
     """
     try:
         resolved = smm_dir.resolve()
     except OSError:
         return False
-    for root in plugin_managed_roots():
-        try:
-            resolved.relative_to(root.resolve())
-        except (ValueError, OSError):
-            continue
-        return True
-    return False
+    if _is_under(resolved, named_data_root()):
+        return False
+    return any(_is_under(resolved, root) for root in plugin_managed_roots())
 
 
 def _derive_smm_dir() -> Path | None:

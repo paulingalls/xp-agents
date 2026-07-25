@@ -103,6 +103,25 @@ class TestIsUnderPluginManagedRoot(_AdvisoryCase):
             self._under(self.plugin_data / "xp-agents-xp-agents-backup" / "smm")
         )
 
+    def test_named_data_root_is_not_flagged_even_under_a_managed_root(self):
+        """An explicitly-set XP_AGENTS_DATA is the user's own choice of root,
+        and init.sh treats it as authoritative — it skips discovery AND
+        relocation entirely. Warning here produces an advisory nothing can
+        clear: the tool it names resolves to the same path and reports
+        "relocation did not happen".
+        """
+        named = self.plugin_data / "xp-agents-xp-agents"
+        self._set_env("XP_AGENTS_DATA", str(named))
+        self.assertFalse(self._under(named / "abc123" / "smm"))
+
+    def test_a_named_root_does_not_silence_a_different_managed_root(self):
+        """Only the root they NAMED is exempt. A teammate whose SMM handle was
+        pinned to a legacy tree is still at risk and must still be warned."""
+        self._set_env("XP_AGENTS_DATA", str(self.tmp / "elsewhere"))
+        self.assertTrue(
+            self._under(self.plugin_data / "xp-agents-xp-agents" / "abc123" / "smm")
+        )
+
     def test_missing_home_does_not_raise(self):
         """HOME is unset in some hook processes; the advisory is not worth an
         exception on the SessionStart path."""

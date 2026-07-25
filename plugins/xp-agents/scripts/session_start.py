@@ -114,6 +114,17 @@ def _render_review_cadence(cadence: str) -> str:
     )
 
 
+# Generous, because this call is not always a path lookup: on the first
+# resolution after an upgrade init.sh copies the WHOLE SMM to the new data root
+# — twice, counting the pre-rename re-sync — and a process that loses that race
+# waits for the winner before answering. Undershooting costs the whole session
+# (no retrospective, no event log, no commit gate) on the one session where the
+# relocation happens; overshooting costs a slow start that a wedged init.sh
+# would have cost anyway. Still well inside the platform's own hook budget. The
+# manual tool (migrate_smm_root.py) allows more: a human is watching it.
+_INIT_SH_TIMEOUT_SECONDS = 30
+
+
 def _resolve_via_init_sh() -> Path | None:
     """Resolve the SMM by running init.sh, or None if that fails.
 
@@ -131,7 +142,7 @@ def _resolve_via_init_sh() -> Path | None:
             ["bash", str(init_script)],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=_INIT_SH_TIMEOUT_SECONDS,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
@@ -301,19 +312,39 @@ def _system_message(source: str, version: str, smm_dir: Path | None = None) -> s
     return base
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """SessionStart entry point: resolve once, run, emit.
+
+    The resolution happens HERE rather than inside ``run`` so that one call
+    serves both the run and the at-risk-root advisory. It is not a path lookup
+    on the session that matters: init.sh performs the one-time relocation, a
+    whole-SMM copy, so a second round-trip would pay for that copy twice — and
+    restart it from scratch after a timeout, doubling the wait that made the
+    first attempt fail.
+
+    Skipped for the two branches that return without one. A nested xp- agent is
+    the recursion guard and does nothing at all. Teammates keep getting None,
+    exactly as ``run``'s own teammate branch does: handing one a resolved dir
+    would inject the full SMM render into every teammate's context, and the
+    advisory is addressed to the human at the lead session, who is the only one
+    who can act on it.
+    """
     input_data = _common.read_hook_input()
-    context = run(input_data)
+    resolves = not (
+        _common.is_xp_agent(input_data) or identity.is_worktree_teammate(input_data)
+    )
+    smm_dir = _resolve_via_init_sh() if resolves else None
+    context = run(input_data, smm_dir)
     if context is not None:
         version = _get_version()
         source = input_data.get("source", "")
-        # Second init.sh round-trip (~40ms, once per session, not per hook):
-        # run() resolves internally and does not hand the path back, and
-        # threading it out would change the teammate branch, which passes None
-        # today. Paid deliberately rather than widening this change.
         _common.hook_output(
             "SessionStart",
             context,
-            _system_message(source, version, _resolve_via_init_sh()),
+            _system_message(source, version, smm_dir),
         )
+
+
+if __name__ == "__main__":
+    main()
     sys.exit(0)

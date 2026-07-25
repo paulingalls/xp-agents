@@ -74,19 +74,19 @@ def _blank_base_refused(args: argparse.Namespace, cmd: str, resolves: str) -> bo
 def _cmd_create(args: argparse.Namespace) -> int:
     if _blank_base_refused(args, "create", "the story base from the sprint"):
         return 1
-    user_ns = branching.identity.user_namespace(args.cwd)
+    smm_dir = Path(args.smm_dir)
+    user_ns = branching.identity.user_namespace(args.cwd, smm_dir)
     name = branching.branch_name(user_ns, args.story, args.slug)
     # Mirror create_story_branch's recorded-branch resolution (same stage
     # guard) so a reslice-retitle that RESUMES the recorded branch is reported
     # as resumed:, not created: — parity with _cmd_create_sprint, which
     # resolves via resolve_sprint_branch_name for exactly this reason.
-    smm_dir = Path(args.smm_dir)
     if branching.get_branching_stage(smm_dir) >= branching.BRANCH_MIN_STAGE["story"]:
         name = branching._recorded_story_branch(args.cwd, smm_dir, args.story) or name
     existed = branching.branch_exists(args.cwd, name)
     try:
         result = branching.create_story_branch(
-            args.cwd, args.story, args.slug, Path(args.smm_dir), base=args.base
+            args.cwd, args.story, args.slug, smm_dir, base=args.base
         )
     except ValueError as exc:
         # An unresolvable story base (sprint at stage 2+ whose branch is gone).
@@ -175,7 +175,7 @@ def _cmd_extract_story_id(args: argparse.Namespace) -> int:
 
 def _cmd_create_plan(args: argparse.Namespace) -> int:
     smm_dir = Path(args.smm_dir)
-    user_ns = branching.identity.user_namespace(args.cwd)
+    user_ns = branching.identity.user_namespace(args.cwd, smm_dir)
     name = branching.plan_branch_name(user_ns, args.slug)
     existed = branching.branch_exists(args.cwd, name)
     result = branching.create_plan_branch(args.cwd, args.slug, smm_dir)
@@ -185,12 +185,13 @@ def _cmd_create_plan(args: argparse.Namespace) -> int:
 def _cmd_create_free(args: argparse.Namespace) -> int:
     if _blank_base_refused(args, "create-free", "the merge target"):
         return 1
-    user_ns = branching.identity.user_namespace(args.cwd)
+    smm_dir = Path(args.smm_dir)
+    user_ns = branching.identity.user_namespace(args.cwd, smm_dir)
     name = branching.free_branch_name(user_ns, args.slug)
     existed = branching.branch_exists(args.cwd, name)
     try:
         result = branching.create_free_branch(
-            args.cwd, args.slug, Path(args.smm_dir), base=args.base
+            args.cwd, args.slug, smm_dir, base=args.base
         )
     except ValueError as exc:
         # A `--base` git cannot resolve. Print it like `create` does, rather
@@ -201,7 +202,7 @@ def _cmd_create_free(args: argparse.Namespace) -> int:
 
 
 def _cmd_list_free(args: argparse.Namespace) -> int:
-    for b in branching.list_free_branches(args.cwd):
+    for b in branching.list_free_branches(args.cwd, Path(args.smm_dir)):
         print(b)
     return 0
 

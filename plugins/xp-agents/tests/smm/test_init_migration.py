@@ -14,6 +14,9 @@ Two properties dominate every test here:
 2. **Migration is declined, never forced.** A live teammate has its SMM_DIR
    pinned to an absolute path at spawn and cannot be redirected, so migrating
    out from under one splits the log. Declining is always safe; forcing is not.
+
+Locking, crash residue and concurrent invocations live in
+``test_init_migration_lock.py``, which reuses ``_MigrationCase`` from here.
 """
 
 import subprocess
@@ -326,107 +329,6 @@ class TestMigrateOverride(_MigrationCase):
         )
         self.assertEqual(result.stdout.strip(), str(legacy))
         self.assertFalse(self._new_smm(home).exists())
-
-
-class TestCrashResidue(_MigrationCase):
-    """A partial migration must never read as a complete one."""
-
-    def test_bare_project_id_dir_does_not_read_as_migrated(self):
-        home = self._home("bare")
-        legacy = self._seed_legacy(home)
-        # What a crash between mkdir and rename leaves behind.
-        (home / ".xp-agents" / "data" / self._project_id()).mkdir(parents=True)
-
-        result = self._migrate(home)
-        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
-        new = self._new_smm(home)
-        self.assertEqual((new / "events.jsonl").read_text(), '{"e":1}\n')
-        self.assertTrue(legacy.exists())
-
-    def test_leftover_temp_dir_does_not_block_migration(self):
-        home = self._home("temp")
-        self._seed_legacy(home)
-        project_dir = home / ".xp-agents" / "data" / self._project_id()
-        project_dir.mkdir(parents=True)
-        stale = project_dir / ".migrating.99999.stale"
-        stale.mkdir()
-        (stale / "half-copied.json").write_text("{}")
-
-        result = self._migrate(home)
-        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
-        new = self._new_smm(home)
-        self.assertEqual((new / "events.jsonl").read_text(), '{"e":1}\n')
-        # The temp name is pid-derived, so a stale one never collides and
-        # migration would succeed even if it were never cleaned up. Assert the
-        # cleanup itself, or this test passes with the cleanup deleted.
-        self.assertFalse(stale.exists(), "crashed-run residue must be reaped")
-
-    def test_dead_holder_lock_is_broken(self):
-        """A lock whose holder is gone must not deadlock the plugin forever."""
-        home = self._home("deadlock")
-        self._seed_legacy(home)
-        lock = home / ".xp-agents" / "data" / self._project_id() / ".migrate.lock"
-        lock.mkdir(parents=True)
-        # PID 1 is alive but is not us; use an implausible one that is not.
-        (lock / "pid").write_text("999999")
-
-        result = self._migrate(home)
-        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(self._new_smm(home)))
-        self.assertFalse(lock.exists(), "a broken lock must be cleaned up")
-
-
-class TestMigrationConcurrency(_MigrationCase):
-    def test_parallel_invocations_produce_exactly_one_migrated_smm(self):
-        """N processes hit the migrate branch at once at every session start —
-        SessionStart, several skill preloads and appends fire near-together,
-        and teammates run their own. This is the test that justifies the lock;
-        reasoning about it is not enough.
-        """
-        home = self._home("parallel")
-        legacy = self._seed_legacy(home, events='{"e":"orig"}\n')
-        env = dict(self._test_env)
-        env["HOME"] = str(home)
-        for var in ("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"):
-            env.pop(var, None)
-
-        procs = [
-            subprocess.Popen(
-                [str(self._INIT_SH)],
-                cwd=str(self.tmpdir),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            for _ in range(8)
-        ]
-        outs = []
-        for p in procs:
-            out, err = p.communicate(timeout=60)
-            self.assertEqual(p.returncode, 0, f"init.sh failed: {err}")
-            outs.append(out.strip())
-
-        new_smm = self._new_smm(home)
-        self.assertTrue(all(o for o in outs), "every invocation must print a path")
-        # Each printed either the migrated path or the legacy one it fell back
-        # to; none may print anything else, and none may be empty.
-        self.assertTrue(
-            set(outs) <= {str(new_smm), str(legacy)},
-            f"unexpected resolved paths: {set(outs)}",
-        )
-        self.assertEqual((new_smm / "events.jsonl").read_text(), '{"e":"orig"}\n')
-        residue = [
-            p.name for p in new_smm.parent.iterdir() if p.name.startswith(".migrat")
-        ]
-        self.assertEqual(residue, [], f"temp/lock residue left behind: {residue}")
-        # INSIDE the SMM too: `mv tmp dst` moves INTO dst when dst exists, so a
-        # loser that reached the rename after the winner finished would bury a
-        # whole duplicate SMM here rather than fail.
-        nested = [p.name for p in new_smm.iterdir() if p.name.startswith(".migrat")]
-        self.assertEqual(nested, [], f"a losing migration landed inside: {nested}")
 
 
 if __name__ == "__main__":

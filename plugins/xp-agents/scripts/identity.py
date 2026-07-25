@@ -142,7 +142,14 @@ def in_place_teammate_name(smm_dir: Path | None = None) -> str | None:
         env_dir = os.environ.get("SMM_DIR", "")
         if not env_dir:
             return None
-        smm_dir = Path(env_dir)
+        # Followed, not taken verbatim: the handle was pinned at spawn and a
+        # relocation may have moved the tree under it. Following the forward
+        # pointer is not derivation — it is the same handle, relocated — so the
+        # fail-closed rule above is intact, and this reader stays on the one
+        # tree every other reader and writer uses.
+        from smm_dir_resolve import _follow_migration_pointer
+
+        smm_dir = _follow_migration_pointer(Path(env_dir))
     # Deferred import: identity carries no sys.path shim of its own (its
     # module-level imports are stdlib-only) — a top-level `import _common`
     # would resolve only by the side effect of some other module having
@@ -276,7 +283,7 @@ def _recorded_user_namespace(smm_dir: Path | None) -> str | None:
 
 
 def user_namespace(cwd: str, smm_dir: Path | None = None) -> str:
-    """The branch-naming namespace: recorded override first, else git config.
+    """The branch-naming namespace: recorded override first, else git identity.
 
     A recorded ``branching_strategy.user_namespace`` WINS. It is user-editable
     via ``system_context_cli edit-branching-field``, so it is an override — and
@@ -286,12 +293,27 @@ def user_namespace(cwd: str, smm_dir: Path | None = None) -> str:
     segment the branch-name parsers could not read back) are ignored here and
     rejected at write time by ``user_namespace_error``.
 
-    Falling back: user.email local-part, then user.name, then "user".
+    *smm_dir* is where the override is read from. Pass it whenever the caller
+    holds one: omitted, this self-resolves, which answers from whatever SMM the
+    ambient environment resolves to rather than from the one the caller was
+    handed — a reader/writer disagreement about the prefix breaks kickoff's
+    orphan-branch triage, which is worse than either value being "wrong".
     """
     recorded = _recorded_user_namespace(smm_dir)
     if recorded is not None:
         return recorded
+    return git_user_namespace(cwd)
 
+
+def git_user_namespace(cwd: str) -> str:
+    """The namespace derived from git identity, ignoring any override.
+
+    user.email local-part, then user.name, then "user".
+
+    Public because it is also the namespace branches created BEFORE the
+    override was read carry — ``branch_resolution`` rebuilds legacy candidate
+    names under both.
+    """
     email = _git_config("user.email", cwd)
     if email and "@" in email:
         slug = _slugify(email.split("@")[0])

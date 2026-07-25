@@ -55,10 +55,16 @@ def usable_git_ref_name(value: object) -> TypeGuard[str]:
     invalid — that is the cross-language guardrail, reached through a value
     rather than through code.
 
-    So the rule is git's own, plus one addition: no leading `-`, because
-    `git checkout -f` discards local changes. That is an argv hazard git has
-    no opinion about, and it is why this predicate exists rather than a bare
-    `check-ref-format` shell-out (which would also cost a subprocess per call).
+    So the rule is git's own, plus two additions, both argv hazards git has no
+    opinion about — which is why this predicate exists rather than a bare
+    `check-ref-format` shell-out (which would also cost a subprocess per call):
+
+    * no leading `-`, because `git checkout -f` discards local changes;
+    * no leading `+`, because these values also reach REFSPEC position
+      (`git push origin <branch>`, branching_core / close_common), where a
+      leading `+` means FORCE — `+main` force-pushes main over the remote.
+      Only leading: `main+dev` is a perfectly ordinary branch name, and
+      rejecting it would silently retarget merges to the release branch.
 
     Lives beside the pattern because every value that pattern guards
     (plan.branch, sprint.branch_name, system_context's integration_branch)
@@ -66,7 +72,7 @@ def usable_git_ref_name(value: object) -> TypeGuard[str]:
     """
     if not isinstance(value, str) or not value:
         return False
-    if value.startswith("-"):  # reaches argv as a FLAG, not a ref
+    if value.startswith(("-", "+")):  # reaches argv as a FLAG / forced refspec
         return False
     if any(ch in _REF_FORBIDDEN_CHARS or ord(ch) < 0x20 for ch in value):
         return False

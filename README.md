@@ -252,7 +252,7 @@ ${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/
 └── retrospectives/           ← Keep/Fix/Try session artifacts
 ```
 
-The SMM lives at `$XP_AGENTS_DATA` (default `~/.xp-agents/data/`), keyed by a hash of the git repo's common directory. It is deliberately NOT under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default — an SMM there would be one uninstall away from silent loss. An SMM already under that older location keeps being used from there. This means CLI teammates in different git worktrees all share the same event log.
+The SMM lives at `$XP_AGENTS_DATA` (default `~/.xp-agents/data/`), keyed by a hash of the git repo's common directory. It is deliberately NOT under `~/.claude/plugins/data/`, which `claude plugin uninstall` deletes by default — an SMM there would be one uninstall away from silent loss. An SMM found under that older location is relocated for you, by COPY — the original is left in place, so nothing is lost if the copy is interrupted, and you can delete it once you are satisfied. Relocation waits while any teammate is live; `plugins/xp-agents/scripts/migrate_smm_root.py` reports what is holding it. This means CLI teammates in different git worktrees all share the same event log.
 
 The curated view uses a four-pillar model, written by housekeeping (LLM judgment):
 - **Intent** — project goals and active customer intents

@@ -57,6 +57,12 @@ teammates_are_live() {
     return 1
 }
 
+# How long a process that LOSES the migration lock waits for the winner, in
+# 0.1s ticks. Long enough for a local copy of a normal SMM, short enough that a
+# hook never looks hung: past it, the legacy tree is returned and the appends
+# made there after the winner's last re-sync are the price.
+MIGRATE_WAIT_TICKS=30
+
 # Copy a legacy SMM to the new root and echo the directory to use.
 #
 # NEVER moves and never deletes the source: an interrupted or wrong migration
@@ -65,7 +71,7 @@ teammates_are_live() {
 # would otherwise abort init.sh, and since this is the single resolver for every
 # script and hook, empty stdout degrades the WHOLE session to no-SMM.
 migrate_legacy_smm() {
-    local legacy="$1" new="$2" project_dir lock tmp holder
+    local legacy="$1" new="$2" project_dir lock tmp holder waited stale stale_pid
     project_dir="$(dirname "${new}")"
     lock="${project_dir}/.migrate.lock"
 
@@ -81,38 +87,82 @@ migrate_legacy_smm() {
     # Break a lock whose HOLDER IS GONE — liveness, not age. An age bound races
     # a slow copy on a network filesystem: the breaker becomes a second winner
     # and its `mv` lands the temp INSIDE the populated destination, because
-    # `mv dirA dirB` moves into dirB when dirB exists. That is also why `mkdir`
-    # is the claim primitive here and a rename is not.
-    if [[ -d "${lock}" ]]; then
-        holder="$(cat "${lock}/pid" 2>/dev/null || true)"
-        if [[ -z "${holder}" ]] || ! kill -0 "${holder}" 2>/dev/null; then
-            rm -rf "${lock}" 2>/dev/null || true
+    # `mv dirA dirB` moves into dirB when dirB exists.
+    #
+    # The claim is a SYMLINK whose TARGET IS THE HOLDER'S PID, not a directory
+    # with the pid written into it afterwards. Both `mkdir` and `ln -s` fail
+    # atomically when the name is taken, but a directory cannot carry its holder
+    # at the instant it appears — writing `lock/pid` is a SECOND step, and a
+    # racer reading the lock in between sees no holder, concludes the lock is
+    # stale and breaks a LIVE one. Two processes then migrate at once, each
+    # reaping the other's in-flight copy. `ln -s` publishes the name and the
+    # holder in one syscall, so that window does not exist. The target is a
+    # number rather than a path, so the link is always dangling: `-e` and `-d`
+    # are false for it, and `-L` is the only test that sees it.
+    if [[ -L "${lock}" ]]; then
+        holder="$(readlink "${lock}" 2>/dev/null || true)"
+        if [[ ! "${holder}" =~ ^[0-9]+$ ]] || ! kill -0 "${holder}" 2>/dev/null; then
+            rm -f "${lock}" 2>/dev/null || true
         fi
+    elif [[ -e "${lock}" ]]; then
+        # Anything else at that name — including the directory-shaped lock an
+        # OLDER version of this script wrote — names no holder we can verify.
+        # Reaping beats yielding forever: an unbreakable lock would pin the SMM
+        # in the deletable root permanently. The guarded `mv` below is what
+        # keeps a concurrent old-version run from corrupting the destination.
+        rm -rf "${lock}" 2>/dev/null || true
     fi
 
-    if ! mkdir "${lock}" 2>/dev/null; then
-        # Another process holds it. Use whichever tree exists now; falling back
-        # to legacy is safe precisely because the source is never deleted.
+    if ! ln -s "$$" "${lock}" 2>/dev/null; then
+        # Another process holds it. Do NOT settle for the legacy tree while that
+        # is true: the winner's last whole-tree re-sync happens BEFORE its
+        # rename, so anything appended to legacy after that instant never
+        # reaches the migrated SMM and is invisible to every later session.
+        # Wait for the winner — bounded, because an unbounded wait would hang
+        # every hook behind one slow copy, and legacy is still a usable answer.
+        waited=0
+        while [[ ! -d "${new}" ]] && [[ -L "${lock}" ]] &&
+            [[ "${waited}" -lt "${MIGRATE_WAIT_TICKS}" ]]; do
+            # Fractional first, so the common case is imperceptible; whole
+            # seconds where that is rejected. Neither may fail the script —
+            # `set -e` would abort init.sh, and empty stdout degrades the WHOLE
+            # session to no-SMM — so a system with no usable `sleep` at all
+            # just spends the ticks without waiting and falls back to legacy.
+            sleep 0.1 2>/dev/null || sleep 1 2>/dev/null || true
+            waited=$((waited + 1))
+        done
         if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
         return 0
     fi
-    printf '%s' "$$" >"${lock}/pid" 2>/dev/null || true
 
     # The destination was last seen absent by the CALLER, before this lock was
     # taken. A winner can have completed the whole migration in that window, so
     # yield to it rather than copying a tree we would only have to discard.
     if [[ -d "${new}" ]]; then
-        rm -rf "${lock}" 2>/dev/null || true
+        rm -f "${lock}" 2>/dev/null || true
         printf '%s' "${new}"
         return 0
     fi
 
-    # Holding the lock, so any other `.migrating.*` is residue from a crashed run.
-    rm -rf "${project_dir}"/.migrating.* 2>/dev/null || true
+    # Holding the lock, so any other `.migrating.*` is residue from a crashed
+    # run — EXCEPT one whose owner is still running. Reaped by the same liveness
+    # rule as the lock: deleting a copy another process is still writing makes
+    # it rename a TRUNCATED tree into place, and since completion is marked by
+    # the destination existing, every later session reads that truncation as
+    # the whole SMM.
+    for stale in "${project_dir}"/.migrating.*; do
+        [[ -e "${stale}" ]] || continue
+        stale_pid="${stale##*.}"
+        if [[ "${stale_pid}" =~ ^[0-9]+$ ]] && kill -0 "${stale_pid}" 2>/dev/null; then
+            continue
+        fi
+        rm -rf "${stale}" 2>/dev/null || true
+    done
     tmp="${project_dir}/.migrating.$$"
 
     if ! cp -R "${legacy}" "${tmp}" 2>/dev/null; then
-        rm -rf "${tmp}" "${lock}" 2>/dev/null || true
+        rm -rf "${tmp}" 2>/dev/null || true
+        rm -f "${lock}" 2>/dev/null || true
         printf '%s' "${legacy}"
         return 0
     fi
@@ -122,7 +172,8 @@ migrate_legacy_smm() {
     # session_history.json, .coordination.json and the gate markers too, and any
     # of them can change in the window above.
     if ! cp -R "${legacy}"/. "${tmp}"/ 2>/dev/null; then
-        rm -rf "${tmp}" "${lock}" 2>/dev/null || true
+        rm -rf "${tmp}" 2>/dev/null || true
+        rm -f "${lock}" 2>/dev/null || true
         printf '%s' "${legacy}"
         return 0
     fi
@@ -137,13 +188,14 @@ migrate_legacy_smm() {
     # dir must never read as migrated, or the result is an empty SMM and
     # invisible history.
     if [[ -d "${new}" ]] || ! mv "${tmp}" "${new}" 2>/dev/null; then
-        rm -rf "${tmp}" "${lock}" 2>/dev/null || true
+        rm -rf "${tmp}" 2>/dev/null || true
+        rm -f "${lock}" 2>/dev/null || true
         if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
         return 0
     fi
 
     printf '%s\n' "${new}" >"${legacy}/.migrated-to" 2>/dev/null || true
-    rm -rf "${lock}" 2>/dev/null || true
+    rm -f "${lock}" 2>/dev/null || true
     printf '%s' "${new}"
 }
 
