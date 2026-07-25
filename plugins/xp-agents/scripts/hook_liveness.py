@@ -271,6 +271,31 @@ def _describe(seconds: float) -> str:
     return f"{seconds / 3600:.1f}h"
 
 
+def _freshest_sibling(smm_dir: Path, now: float) -> float | None:
+    """Age of the youngest per-session heartbeat still inside the threshold.
+
+    None means no other session's hooks have run recently. Shared by the two
+    callers that need "is the runtime alive anywhere", which must reach the
+    same answer without sharing a verdict — absence and staleness are
+    different diagnoses even when the scan result is identical.
+    """
+    freshest: float | None = None
+    for path in smm_dir.glob(_SESSION_GLOB):
+        age = _sibling_age(smm_dir, path, now)
+        if age is not None and age < STALE_AFTER_SECONDS:
+            freshest = age if freshest is None else min(freshest, age)
+    return freshest
+
+
+def _live_on_freshness_alone(age: float) -> Liveness:
+    return Liveness(
+        True,
+        f"Hook runtime is live (last heartbeat {_describe(age)} ago; no "
+        "session id available here, so freshness is the only signal).",
+        CODE_LIVE,
+    )
+
+
 def _no_heartbeat_of_our_own(
     smm_dir: Path, session_id: str | None, now: float
 ) -> Liveness:
@@ -290,11 +315,7 @@ def _no_heartbeat_of_our_own(
     demonstrably running. Degrading to time-only means exactly this — any
     fresh heartbeat counts.
     """
-    freshest: float | None = None
-    for path in smm_dir.glob(_SESSION_GLOB):
-        age = _sibling_age(smm_dir, path, now)
-        if age is not None and age < STALE_AFTER_SECONDS:
-            freshest = age if freshest is None else min(freshest, age)
+    freshest = _freshest_sibling(smm_dir, now)
     if freshest is None:
         return Liveness(
             False,
@@ -302,12 +323,7 @@ def _no_heartbeat_of_our_own(
             CODE_NO_MARKER,
         )
     if session_id is None:
-        return Liveness(
-            True,
-            f"Hook runtime is live (last heartbeat {_describe(freshest)} ago; "
-            "no session id available here, so freshness is the only signal).",
-            CODE_LIVE,
-        )
+        return _live_on_freshness_alone(freshest)
     return Liveness(
         False,
         "No hook has run in this session, though another session's hooks ran "
@@ -340,6 +356,19 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
     age = _age_seconds(now, data.get("written_at"))
     if age is None:
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
+    if age >= STALE_AFTER_SECONDS and session_id is None:
+        # A stale SHARED marker is not the last word when we cannot name our
+        # own heartbeat: a hook handed a payload id writes a per-session file
+        # this reader can never address, so the shared one goes stale while
+        # hooks are demonstrably running. Same argument the absent path makes;
+        # it applied to both branches, and only one of them had it.
+        #
+        # Only the LIVE half is borrowed. Falling through to the absent-path
+        # verdict would report "no heartbeat has been recorded" about a
+        # heartbeat that plainly was — staleness keeps its own diagnosis.
+        fresh = _freshest_sibling(smm_dir, now)
+        if fresh is not None:
+            return _live_on_freshness_alone(fresh)
     if age >= STALE_AFTER_SECONDS:
         return Liveness(
             False,
