@@ -61,6 +61,58 @@ def resolve_smm_dir() -> Path | None:
     return _derive_smm_dir()
 
 
+_PLUGIN_MANAGED_DIR_NAMES = ("xp-agents-xp-agents", "xp-agents-inline")
+
+
+def plugin_managed_roots() -> list[Path]:
+    """Data roots the plugin host owns, and therefore deletes on uninstall.
+
+    Mirrors init.sh's legacy candidate list, in the same order and for the same
+    reason: the host names the root when it can, and the two defaults cover a
+    marketplace install and a dev-mode one, which resolve the plugin id
+    differently. Kept as a list rather than one path because the host does not
+    export the variable to every process.
+    """
+    roots: list[Path] = []
+    env_root = os.environ.get("CLAUDE_PLUGIN_DATA", "").strip()
+    if env_root:
+        roots.append(Path(env_root))
+    try:
+        home = Path.home()
+    except RuntimeError:
+        return roots
+    roots.extend(
+        home / ".claude" / "plugins" / "data" / name
+        for name in _PLUGIN_MANAGED_DIR_NAMES
+    )
+    return roots
+
+
+def is_under_plugin_managed_root(smm_dir: Path) -> bool:
+    """True when ``smm_dir`` still sits inside a host-managed data root.
+
+    A POSITIVE test against the roots that carry the risk, deliberately not a
+    negative test against the preferred root: a user who points the data-root
+    override or the SMM handle somewhere of their own choosing is not one
+    uninstall away from losing the project's memory, and must not be warned
+    every session as though they were.
+
+    Path containment, not string prefix — a sibling directory sharing a name
+    prefix is not inside the root.
+    """
+    try:
+        resolved = smm_dir.resolve()
+    except OSError:
+        return False
+    for root in plugin_managed_roots():
+        try:
+            resolved.relative_to(root.resolve())
+        except (ValueError, OSError):
+            continue
+        return True
+    return False
+
+
 def _derive_smm_dir() -> Path | None:
     """Run init.sh to derive SMM dir from project state."""
     try:

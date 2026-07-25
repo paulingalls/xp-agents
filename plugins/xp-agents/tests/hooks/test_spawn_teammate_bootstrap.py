@@ -416,8 +416,10 @@ class TestBootstrapRationaleNamesBothFailureModes(_BootstrapTestCase):
         )
 
     def test_changelog_drops_stale_false_green_only_framing(self):
-        changelog = Path(__file__).parent.parent.parent.parent.parent / "CHANGELOG.md"
-        text = changelog.read_text()
+        # The entry lives in the v4.x archive since the v5.0 cut split
+        # history out of CHANGELOG.md; the pin follows the entry.
+        repo_root = Path(__file__).parent.parent.parent.parent.parent
+        text = (repo_root / "changelog_pre_v5.md").read_text()
 
         self.assertNotIn(
             "not reliably loud",

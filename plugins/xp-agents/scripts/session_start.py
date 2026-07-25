@@ -22,6 +22,7 @@ import identity
 import markers
 import plugin_loader
 import smm_cli
+import smm_dir_resolve
 import smm_store
 import sprint_state
 import system_context_store
@@ -113,6 +114,32 @@ def _render_review_cadence(cadence: str) -> str:
     )
 
 
+def _resolve_via_init_sh() -> Path | None:
+    """Resolve the SMM by running init.sh, or None if that fails.
+
+    Refuses to exec unless the script is owned by the current user. Shared with
+    the CLI entry point so that check lives in exactly one place — init.sh is
+    also what performs the one-time relocation off a host-managed root, so a
+    second caller must never reach it through an unguarded path.
+    """
+    plugin_root = plugin_loader.resolve_plugin_root()
+    init_script = plugin_root / "smm" / "init.sh"
+    if not (init_script.is_file() and init_script.stat().st_uid == os.getuid()):
+        return None
+    try:
+        result = subprocess.run(
+            ["bash", str(init_script)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip())
+    return None
+
+
 def _run_teammate(smm_dir: Path | None) -> str | None:
     """Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers."""
     smm_dir = _common.try_validate_smm_dir(smm_dir)
@@ -149,21 +176,7 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     source = input_data.get("source", "")
 
     if smm_dir is None or not smm_dir.exists():
-        plugin_root = plugin_loader.resolve_plugin_root()
-        init_script = plugin_root / "smm" / "init.sh"
-        # Refuse to exec unless the script is owned by the current user.
-        if init_script.is_file() and init_script.stat().st_uid == os.getuid():
-            try:
-                result = subprocess.run(
-                    ["bash", str(init_script)],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    smm_dir = Path(result.stdout.strip())
-            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-                pass
+        smm_dir = _resolve_via_init_sh() or smm_dir
 
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
@@ -250,11 +263,30 @@ def _get_version() -> str:
         return "?"
 
 
-def _system_message(source: str, version: str) -> str:
-    """SessionStart systemMessage; kickoff nudge only on fresh starts."""
+SMM_ROOT_ADVISORY = (
+    "NOTE: the shared mental model still lives under the host-managed plugin "
+    "data root, which 'claude plugin uninstall' deletes by default. It relocates "
+    "itself automatically, but only once no teammate worktree and no in-place "
+    "teammate remain — check for a stale one whose branch never merged."
+)
+
+
+def _system_message(source: str, version: str, smm_dir: Path | None = None) -> str:
+    """SessionStart systemMessage; kickoff nudge only on fresh starts.
+
+    The at-risk-root advisory rides here rather than in additionalContext for
+    two reasons. The USER is the one who has to act on it — the blocker is a
+    directory only they can retire. And relocation can stay declined
+    indefinitely: the liveness gate keys on a worktree directory existing, and
+    nothing removes one whose branch never merged, so a release note is not a
+    substitute. A line buried in a context blob is the silent-enforcement
+    pattern this change exists to end.
+    """
     base = f"XP agents (v{version}) active."
     if _is_fresh_start(source):
-        return f"{base} Run /xp-kickoff."
+        base = f"{base} Run /xp-kickoff."
+    if smm_dir is not None and smm_dir_resolve.is_under_plugin_managed_root(smm_dir):
+        return f"{base} {SMM_ROOT_ADVISORY}"
     return base
 
 
@@ -264,5 +296,13 @@ if __name__ == "__main__":
     if context is not None:
         version = _get_version()
         source = input_data.get("source", "")
-        _common.hook_output("SessionStart", context, _system_message(source, version))
+        # Second init.sh round-trip (~40ms, once per session, not per hook):
+        # run() resolves internally and does not hand the path back, and
+        # threading it out would change the teammate branch, which passes None
+        # today. Paid deliberately rather than widening this change.
+        _common.hook_output(
+            "SessionStart",
+            context,
+            _system_message(source, version, _resolve_via_init_sh()),
+        )
     sys.exit(0)

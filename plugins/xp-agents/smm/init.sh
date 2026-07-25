@@ -14,6 +14,139 @@ hash12() {
     fi
 }
 
+# One hop along a `.migrated-to` pointer, if one is there. Echoes the input
+# unchanged otherwise, so this can wrap any resolved path.
+#
+# spawn_teammate exports SMM_DIR as an ABSOLUTE path and this script honors it
+# verbatim, so a process spawned just before a migration keeps resolving the old
+# tree for its whole life — its appends would land somewhere nothing reads again.
+# One hop only: a chain would mean two migrations raced, which the lock prevents,
+# and following one blindly risks a cycle.
+follow_migration_pointer() {
+    local dir="$1" target
+    if [[ -f "${dir}/.migrated-to" ]]; then
+        target="$(cat "${dir}/.migrated-to" 2>/dev/null || true)"
+        if [[ -n "${target}" ]] && [[ -d "${target}" ]]; then
+            printf '%s' "${target}"
+            return 0
+        fi
+    fi
+    printf '%s' "${dir}"
+}
+
+# Is any teammate live against this SMM? Migration must decline if so.
+#
+# TWO kinds, and checking only the first is the bug this exists to avoid:
+# worktree teammates own a dir under `{project-id}/worktrees/`, while in-place
+# teammates run in the MAIN checkout with no worktree dir at all and are tracked
+# by `.in-place-active-*` markers inside the SMM. Either way the teammate's
+# SMM_DIR was pinned at spawn and cannot be redirected, so relocating out from
+# under one splits the event log with no merge path.
+teammates_are_live() {
+    local legacy_smm="$1" project_dir marker
+    project_dir="$(dirname "${legacy_smm}")"
+    if [[ -d "${project_dir}/worktrees" ]] &&
+        [[ -n "$(ls -A "${project_dir}/worktrees" 2>/dev/null || true)" ]]; then
+        return 0
+    fi
+    for marker in "${legacy_smm}"/.in-place-active-*; do
+        if [[ -e "${marker}" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Copy a legacy SMM to the new root and echo the directory to use.
+#
+# NEVER moves and never deletes the source: an interrupted or wrong migration
+# then loses nothing, and every failure path below can fall back to the legacy
+# tree. Every step is guarded rather than allowed to fail the script — `set -e`
+# would otherwise abort init.sh, and since this is the single resolver for every
+# script and hook, empty stdout degrades the WHOLE session to no-SMM.
+migrate_legacy_smm() {
+    local legacy="$1" new="$2" project_dir lock tmp holder
+    project_dir="$(dirname "${new}")"
+    lock="${project_dir}/.migrate.lock"
+
+    # umask, not a later chmod: the temp copy of the WHOLE SMM lands in here
+    # before the project dir is narrowed at the end of init.sh, and the data
+    # root created on this path never reaches that chmod at all (it already
+    # exists by the time the mode check runs).
+    if ! (umask 077 && mkdir -p "${project_dir}") 2>/dev/null; then
+        printf '%s' "${legacy}"
+        return 0
+    fi
+
+    # Break a lock whose HOLDER IS GONE — liveness, not age. An age bound races
+    # a slow copy on a network filesystem: the breaker becomes a second winner
+    # and its `mv` lands the temp INSIDE the populated destination, because
+    # `mv dirA dirB` moves into dirB when dirB exists. That is also why `mkdir`
+    # is the claim primitive here and a rename is not.
+    if [[ -d "${lock}" ]]; then
+        holder="$(cat "${lock}/pid" 2>/dev/null || true)"
+        if [[ -z "${holder}" ]] || ! kill -0 "${holder}" 2>/dev/null; then
+            rm -rf "${lock}" 2>/dev/null || true
+        fi
+    fi
+
+    if ! mkdir "${lock}" 2>/dev/null; then
+        # Another process holds it. Use whichever tree exists now; falling back
+        # to legacy is safe precisely because the source is never deleted.
+        if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
+        return 0
+    fi
+    printf '%s' "$$" >"${lock}/pid" 2>/dev/null || true
+
+    # The destination was last seen absent by the CALLER, before this lock was
+    # taken. A winner can have completed the whole migration in that window, so
+    # yield to it rather than copying a tree we would only have to discard.
+    if [[ -d "${new}" ]]; then
+        rm -rf "${lock}" 2>/dev/null || true
+        printf '%s' "${new}"
+        return 0
+    fi
+
+    # Holding the lock, so any other `.migrating.*` is residue from a crashed run.
+    rm -rf "${project_dir}"/.migrating.* 2>/dev/null || true
+    tmp="${project_dir}/.migrating.$$"
+
+    if ! cp -R "${legacy}" "${tmp}" 2>/dev/null; then
+        rm -rf "${tmp}" "${lock}" 2>/dev/null || true
+        printf '%s' "${legacy}"
+        return 0
+    fi
+
+    # Re-sync the WHOLE tree before the rename, not just events.jsonl: a session
+    # start writes sprint.json, execution_plan.json, shared_mental_model.json,
+    # session_history.json, .coordination.json and the gate markers too, and any
+    # of them can change in the window above.
+    if ! cp -R "${legacy}"/. "${tmp}"/ 2>/dev/null; then
+        rm -rf "${tmp}" "${lock}" 2>/dev/null || true
+        printf '%s' "${legacy}"
+        return 0
+    fi
+
+    # Atomic claim — but ONLY while the destination is absent: `mv dirA dirB`
+    # moves INTO dirB when dirB exists, which would bury a full duplicate of the
+    # SMM inside the live one. The absence check above is not enough on its own,
+    # since the copy is not instantaneous, so re-check at the last moment and
+    # treat a destination that appeared as exactly what it is — a lost race,
+    # handled the same as a failed rename. Completion is marked by `smm/`
+    # existing, NOT by the project-id dir — a crash leaving a bare project-id
+    # dir must never read as migrated, or the result is an empty SMM and
+    # invisible history.
+    if [[ -d "${new}" ]] || ! mv "${tmp}" "${new}" 2>/dev/null; then
+        rm -rf "${tmp}" "${lock}" 2>/dev/null || true
+        if [[ -d "${new}" ]]; then printf '%s' "${new}"; else printf '%s' "${legacy}"; fi
+        return 0
+    fi
+
+    printf '%s\n' "${new}" >"${legacy}/.migrated-to" 2>/dev/null || true
+    rm -rf "${lock}" 2>/dev/null || true
+    printf '%s' "${new}"
+}
+
 # If SMM_DIR is already exported (e.g. by a teammate spawner), use it verbatim
 # and skip derivation. This is how the lead propagates its SMM to teammates.
 if [[ -z "${SMM_DIR:-}" ]]; then
@@ -87,6 +220,20 @@ if [[ -z "${SMM_DIR:-}" ]]; then
         # No SMM anywhere: a fresh project, which lands at the safe root.
         if [[ -z "${BASE_DIR}" ]]; then
             BASE_DIR="${NEW_BASE}"
+        else
+            # Found an SMM under a legacy root. Relocate it out of the
+            # plugin-managed directory that `claude plugin uninstall` deletes —
+            # unless a teammate is live against it, in which case using it in
+            # place is the only safe choice.
+            if ! teammates_are_live "${BASE_DIR}/${PROJECT_ID}/smm"; then
+                SMM_DIR="$(migrate_legacy_smm \
+                    "${BASE_DIR}/${PROJECT_ID}/smm" \
+                    "${NEW_BASE}/${PROJECT_ID}/smm")"
+                # migrate_legacy_smm echoes whichever tree to use — it falls back
+                # to legacy on any failure — so re-derive the root from it rather
+                # than assuming the copy succeeded.
+                BASE_DIR="$(dirname "$(dirname "${SMM_DIR}")")"
+            fi
         fi
     fi
     SMM_DIR="${BASE_DIR}/${PROJECT_ID}/smm"
@@ -114,6 +261,11 @@ if [[ -z "${SMM_DIR:-}" ]]; then
     fi
     chmod 700 "${BASE_DIR}/${PROJECT_ID}"
 else
+    # A caller-provided SMM_DIR is honored verbatim — EXCEPT that a migration
+    # may have moved the tree since this value was pinned at spawn. Following
+    # the pointer costs one stat and keeps a straggler's appends in the log
+    # everything else reads.
+    SMM_DIR="$(follow_migration_pointer "${SMM_DIR}")"
     mkdir -p "${SMM_DIR}/retrospectives"
 fi
 

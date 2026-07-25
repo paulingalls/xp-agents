@@ -102,7 +102,7 @@ Four suites: `tests/hooks/` (unit), `tests/integration/` (subprocess pipeline), 
 ## Key Decisions (Don't Revisit)
 
 - Hooks-first — all XP agents are hook handlers
-- SMM at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` (shared across worktrees; outside plugin-managed storage so no plugin lifecycle operation can delete it — reversed the original `${CLAUDE_PLUGIN_DATA}` decision, see CHANGELOG v4.20.0)
+- SMM at `${XP_AGENTS_DATA:-~/.xp-agents/data}/{project-id}/smm/` (shared across worktrees; outside plugin-managed storage so no plugin lifecycle operation can delete it — reversed the original `${CLAUDE_PLUGIN_DATA}` decision, see CHANGELOG v5.0.0)
 - Prompt nuggets deliver context at UserPromptSubmit, PostToolUse records to event log
 - Quality reviewer is post-simplify skill (courage + drift + debt)
 - Retrospective runs at session start, not session end

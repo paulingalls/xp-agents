@@ -429,16 +429,21 @@ class TestDefaultRootAndLegacyDiscovery(_TempRepoTestCase):
         self.assertEqual(r.returncode, 0, f"probe failed: {r.stderr}")
         return Path(r.stdout.strip()).parent.name
 
-    def _seed_legacy(self, root: Path) -> Path:
+    def _seed_legacy(self, root: Path, marker: str = "seeded") -> Path:
         """Create a legacy SMM for this repo under `root`, return its path.
 
-        Built directly rather than via init.sh: legacy roots are DISCOVERY-only
-        now, so pointing init.sh at one no longer writes there — which is the
-        behavior these tests exist to pin.
+        Built directly rather than via init.sh: legacy roots are DISCOVERY-only,
+        so pointing init.sh at one never writes there — which is the behavior
+        these tests exist to pin.
+
+        `marker` goes into events.jsonl so a test can prove WHICH candidate was
+        picked up. Once migration relocates the tree, path equality no longer
+        shows that, and a candidate-list test that cannot tell the candidates
+        apart is not testing the list.
         """
         seeded = root / self._project_id() / "smm"
         (seeded / "retrospectives").mkdir(parents=True)
-        (seeded / "events.jsonl").touch()
+        (seeded / "events.jsonl").write_text(f'{{"from":"{marker}"}}\n')
         return seeded
 
     def test_default_root_is_xp_agents_data_under_home(self):
@@ -456,27 +461,35 @@ class TestDefaultRootAndLegacyDiscovery(_TempRepoTestCase):
 
     def test_legacy_claude_plugin_data_is_discovered(self):
         legacy_root = self.tmpdir / "legacy-env-root"
-        seeded = self._seed_legacy(legacy_root)
+        seeded = self._seed_legacy(legacy_root, "env-candidate")
         home = self._fake_home("discover-env")
         result = self._run_init(
             extra_env={"CLAUDE_PLUGIN_DATA": str(legacy_root), "HOME": str(home)},
             unset=("XP_AGENTS_DATA",),
         )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(seeded))
+        resolved = Path(result.stdout.strip())
+        self.assertEqual(
+            (resolved / "events.jsonl").read_text(), '{"from":"env-candidate"}\n'
+        )
+        self.assertTrue(seeded.exists(), "the source must survive")
 
     def test_legacy_marketplace_default_is_discovered(self):
         """CLAUDE_PLUGIN_DATA is absent in some hook processes, so the
         marketplace default must be its own candidate."""
         home = self._fake_home("marketplace")
         legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
-        seeded = self._seed_legacy(legacy_root)
+        seeded = self._seed_legacy(legacy_root, "marketplace")
         result = self._run_init(
             extra_env={"HOME": str(home)},
             unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
         )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(seeded))
+        resolved = Path(result.stdout.strip())
+        self.assertEqual(
+            (resolved / "events.jsonl").read_text(), '{"from":"marketplace"}\n'
+        )
+        self.assertTrue(seeded.exists(), "the source must survive")
 
     def test_legacy_inline_dev_default_is_discovered(self):
         """Dev-mode installs resolve the plugin id to `xp-agents-inline`, so a
@@ -484,32 +497,39 @@ class TestDefaultRootAndLegacyDiscovery(_TempRepoTestCase):
         marketplace user's."""
         home = self._fake_home("inline")
         legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-inline"
-        seeded = self._seed_legacy(legacy_root)
+        seeded = self._seed_legacy(legacy_root, "inline-dev")
         result = self._run_init(
             extra_env={"HOME": str(home)},
             unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
         )
         self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
-        self.assertEqual(result.stdout.strip(), str(seeded))
+        resolved = Path(result.stdout.strip())
+        self.assertEqual(
+            (resolved / "events.jsonl").read_text(), '{"from":"inline-dev"}\n'
+        )
+        self.assertTrue(seeded.exists(), "the source must survive")
 
-    def test_legacy_is_used_in_place_not_copied(self):
-        """Commit 3 discovers; it must not move or duplicate anything. The
-        copy lands in the next commit, behind a liveness gate."""
-        home = self._fake_home("inplace")
+    def test_legacy_source_survives_relocation(self):
+        """Replaces commit 3's `test_legacy_is_used_in_place_not_copied`.
+
+        That test pinned "discovered, never copied", which was accurate while
+        migration did not exist. Migration COPIES — and the property that
+        actually matters is unchanged and now load-bearing: the source is never
+        deleted, so an interrupted or wrong relocation loses nothing.
+        """
+        home = self._fake_home("survives")
         legacy_root = home / ".claude" / "plugins" / "data" / "xp-agents-xp-agents"
-        seeded = self._seed_legacy(legacy_root)
-        (seeded / "events.jsonl").write_text('{"marker":"legacy"}\n')
+        seeded = self._seed_legacy(legacy_root, "original")
 
         result = self._run_init(
             extra_env={"HOME": str(home)},
             unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
         )
-        self.assertEqual(result.stdout.strip(), str(seeded))
-        self.assertEqual((seeded / "events.jsonl").read_text(), '{"marker":"legacy"}\n')
-        self.assertFalse(
-            (home / ".xp-agents").exists(),
-            "commit 3 must not create the new root when a legacy SMM is in use",
-        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        resolved = Path(result.stdout.strip())
+        self.assertTrue(resolved.is_relative_to(home / ".xp-agents" / "data"))
+        self.assertTrue(seeded.exists())
+        self.assertEqual((seeded / "events.jsonl").read_text(), '{"from":"original"}\n')
 
     def test_explicit_xp_agents_data_skips_legacy_discovery(self):
         """An explicitly named root is AUTHORITATIVE — no hunting elsewhere.
