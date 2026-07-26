@@ -19,6 +19,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -351,6 +352,79 @@ class TestTheEscapeHatch(_PreloadLivenessCase):
                 self.assertTrue(
                     out.startswith(REFUSAL_HEADER), f"{value!r}: {out[:80]}"
                 )
+
+
+class TestEveryPreloadInheritsTheCheck(_PreloadLivenessCase):
+    """"Some preload refuses" and "every preload refuses" are different claims.
+
+    The check earns its keep only if no skill can be reached around it, so the
+    assertion runs across the whole sourcing set rather than a representative.
+    """
+
+    def test_the_whole_preload_set_sources_the_base(self):
+        """Grounds the claim below in the mechanism that delivers it."""
+        for skill in discover_preload_scripts():
+            with self.subTest(skill=skill):
+                self.assertIn(
+                    "_preload_base.sh",
+                    _preload_script_path(skill).read_text(encoding="utf-8"),
+                )
+
+    def test_every_preload_refuses_with_no_heartbeat(self):
+        for skill in discover_preload_scripts():
+            with self.subTest(skill=skill):
+                out = self._run(skill, self._env(skill, bypass=False)).stdout
+                self.assertTrue(out.startswith(REFUSAL_HEADER), out[:160])
+
+
+class TestTheTeammatePath(_PreloadLivenessCase):
+    """A CLI teammate is its own session, and heartbeats are per-session.
+
+    So a teammate reads its OWN marker or none — it cannot borrow the lead's.
+    story-002 gives it one on every prompt. If that regresses, every teammate
+    skill refuses from turn one, which is far worse than the staleness ceiling
+    the escape hatch was scoped for.
+    """
+
+    def test_a_teammate_with_its_own_heartbeat_passes(self):
+        teammate_session = "teammate-session-with-a-beat"
+        hook_liveness.write_heartbeat(self.smm_dir, session_id=teammate_session)
+        out = self._run(
+            _REP,
+            self._env(
+                _REP,
+                bypass=False,
+                XP_SESSION_ID=teammate_session,
+                XP_TEAMMATE_NAME="alex",
+            ),
+        ).stdout
+        self.assertNotIn(REFUSAL_HEADER, out)
+
+    def test_a_teammate_cannot_borrow_the_leads_heartbeat(self):
+        """The signal is session-keyed, not machine-keyed — and says which.
+
+        A fresh heartbeat from another session proves the runtime works here but
+        is not running for US. Different fix from "nothing has run at all", so a
+        different message.
+        """
+        self._beat()  # the lead's session, fresh
+        teammate_session = "teammate-session-with-no-beat"
+        out = self._run(
+            _REP,
+            self._env(
+                _REP,
+                bypass=False,
+                XP_SESSION_ID=teammate_session,
+                XP_TEAMMATE_NAME="alex",
+            ),
+        ).stdout
+
+        with patch.dict(os.environ, {"XP_SESSION_ID": teammate_session}):
+            verdict = hook_liveness.check_liveness(self.smm_dir)
+
+        self.assertEqual(verdict.code, hook_liveness.CODE_SESSION_MISMATCH)
+        self.assertTrue(out.startswith(REFUSAL_HEADER), out[:160])
+        self.assertIn(verdict.reason, out)
 
 
 class TestLefthookMirrorsTheStrip(unittest.TestCase):
