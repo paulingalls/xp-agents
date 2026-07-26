@@ -1,4 +1,4 @@
-#!/bin/bash
+# shellcheck shell=bash
 # Refuse to hand a skill any context when the hook runtime is not live.
 #
 # When that runtime fails to load, every gate it enforces disappears and the

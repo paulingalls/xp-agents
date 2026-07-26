@@ -355,7 +355,7 @@ class TestTheEscapeHatch(_PreloadLivenessCase):
 
 
 class TestEveryPreloadInheritsTheCheck(_PreloadLivenessCase):
-    """"Some preload refuses" and "every preload refuses" are different claims.
+    """ "Some preload refuses" and "every preload refuses" are different claims.
 
     The check earns its keep only if no skill can be reached around it, so the
     assertion runs across the whole sourcing set rather than a representative.
@@ -440,9 +440,16 @@ class TestLefthookMirrorsTheStrip(unittest.TestCase):
         lefthook = (_PLUGIN_ROOT.parents[1] / "lefthook.yml").read_text(
             encoding="utf-8"
         )
-        for line in lefthook.splitlines():
-            if "pytest" not in line or "env -u" not in line:
-                continue
+        pytest_lines = [
+            line
+            for line in lefthook.splitlines()
+            if "pytest" in line and "env -u" in line
+        ]
+        # Without this the loop below is vacuous: reword the `run:` lines and
+        # the agreement check silently stops checking anything. Three today —
+        # pre-commit `tests`, pre-push `integration`, pre-push `perf`.
+        self.assertEqual(len(pytest_lines), 3, lefthook)
+        for line in pytest_lines:
             for name in hook_liveness.SESSION_ID_ENV_CANDIDATES:
                 with self.subTest(var=name, line=line.strip()[:40]):
                     self.assertIn(f"-u {name}", line)
