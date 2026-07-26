@@ -317,6 +317,42 @@ class TestStaleAndUndeterminedRefuseToo(_PreloadLivenessCase):
         self.assertNotIn(REFUSAL_HEADER, out)
 
 
+class TestTheEscapeHatch(_PreloadLivenessCase):
+    """A deliberate, self-advertised opt-out.
+
+    This does not reintroduce the failure the milestone is about. That failure
+    is enforcement vanishing SILENTLY; this vanishes only when someone sets a
+    variable the refusal itself named. It exists because of a known
+    false-refusal path: a headless teammate submits one prompt, so its
+    heartbeat is written once and it self-refuses past the staleness threshold
+    mid-run with no in-session recovery.
+    """
+
+    def test_the_bypass_produces_the_normal_output_with_no_heartbeat(self):
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+        bypassed = self._run(_REP, self._env(_REP, bypass=True)).stdout
+
+        self.assertTrue(refusal.startswith(REFUSAL_HEADER))
+        self.assertNotIn(REFUSAL_HEADER, bypassed)
+        self.assertNotEqual(bypassed, refusal)
+
+    def test_only_the_documented_value_bypasses(self):
+        """Fail closed on anything else — including the near-misses.
+
+        The banner names `=1`, so a reader who set something else is told the
+        exact form. Treating every non-empty value as truthy would let a
+        leftover `=0` disable the check silently.
+        """
+        for value in ("0", "", "true", "yes", "2", " 1"):
+            with self.subTest(value=value):
+                env = self._env(_REP, bypass=False)
+                env[_env_hygiene.SKIP_LIVENESS_ENV] = value
+                out = self._run(_REP, env).stdout
+                self.assertTrue(
+                    out.startswith(REFUSAL_HEADER), f"{value!r}: {out[:80]}"
+                )
+
+
 class TestLefthookMirrorsTheStrip(unittest.TestCase):
     """CLAUDE.md's two-place convention: `env -u` in lefthook.yml must match.
 
