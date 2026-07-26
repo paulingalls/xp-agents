@@ -295,6 +295,17 @@ def list_user_branches(cwd: str, prefix: str, smm_dir: Path | None = None) -> li
     missing one hides work. Deduped and still namespaced — this widens to the
     same user's older prefix, never to another user's, which is what the
     namespacing is for.
+
+    The two dedupes are not redundant; they buy different things.
+    ``namespaces`` collapses the common override==git case so the git call
+    happens ONCE instead of twice — a cost saving, not a correctness property.
+    ``seen`` is what makes "deduped" above true unconditionally. Today the two
+    globs are provably disjoint (``user_namespace`` rejects a second path
+    segment, so distinct namespaces differ in their first segment and no branch
+    can match both), which makes ``seen`` look dead — a list comprehension
+    passes every namespace test. It is kept anyway: the disjointness is
+    enforced in ``identity``, and this function should not silently start
+    emitting duplicates the day that validation is relaxed.
     """
     namespaces = dict.fromkeys(
         [identity.user_namespace(cwd, smm_dir), identity.git_user_namespace(cwd)]
