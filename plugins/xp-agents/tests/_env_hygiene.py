@@ -20,6 +20,39 @@ import os
 import shutil
 import tempfile
 
+# --- Session id -----------------------------------------------------------
+#
+# The hook-liveness heartbeat is keyed on the session id, so a suite that
+# resolves the DEVELOPER'S real id reads and writes that developer's live
+# marker. Nothing stripped a session id before this block existed: a preload
+# subprocess inherited whatever the surrounding harness exported.
+#
+# PIN the top-preference candidate, STRIP the rest. A pin on a lower one is
+# not containment — production consults the chain in order, so anything above
+# it wins. Named here rather than derived by importing the production module,
+# which would mean importing production code before this file has finished
+# containing the environment it reads. test_preload_liveness.py asserts these
+# two names still equal `hook_liveness.SESSION_ID_ENV_CANDIDATES` exactly, so
+# a new candidate cannot be added without this list following it.
+PINNED_SESSION_ID_VAR = "XP_SESSION_ID"
+STRIPPED_SESSION_ID_VARS = ("CLAUDE_CODE_SESSION_ID",)
+TEST_SESSION_ID = "xp-agents-test-session"
+
+# The preload liveness check's escape hatch, and the suite's containment for it.
+#
+# Six `_run_preload` definitions drive preloads, three of them SHADOWING the
+# base-class method with different signatures. Seeding a live heartbeat in one
+# covers a sixth of the surface, and a seventh runner would opt out by simply
+# not knowing it had to. Worse, the byte-budget path fails SILENTLY:
+# `assert_preload_under_budgets` collects only outputs OVER budget, and a short
+# refusal banner is under every budget — so the suite would go green while
+# measuring the refusal instead of the preload.
+#
+# So the bypass is pinned once, here, using the escape hatch the feature ships
+# anyway. The dedicated liveness suites unset it explicitly; that is where the
+# real behavior is exercised.
+SKIP_LIVENESS_ENV = "XP_SKIP_LIVENESS_CHECK"
+
 # Strip environment variables that would leak a parent shell's state into
 # test subprocesses.
 # - GIT_*: git sets these during commits/worktrees; inheriting them makes
@@ -60,8 +93,12 @@ for _leaked_var in (
     "XP_FILE_DOMAIN_DRIFT_TOLERANCE",
     "XP_AGENTS_DATA",
     "XP_SMM_MIGRATE",
+    *STRIPPED_SESSION_ID_VARS,
 ):
     os.environ.pop(_leaked_var, None)
+
+os.environ[PINNED_SESSION_ID_VAR] = TEST_SESSION_ID
+os.environ[SKIP_LIVENESS_ENV] = "1"
 
 # Pin XP_AGENTS_DATA to a throwaway dir for the whole test session. With
 # SMM_DIR stripped above, any production code that derives its SMM in-process
