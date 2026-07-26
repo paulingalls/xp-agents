@@ -13,8 +13,10 @@ instruction, not enforcement. These tests assert exactly that and no more.
 """
 
 import os
+import re
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -22,7 +24,72 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import _env_hygiene
 import hook_liveness
-from conftest import _PLUGIN_ROOT
+from _preload_fixtures import PRELOAD_FIXTURES
+from conftest import (
+    _PLUGIN_ROOT,
+    _IntegrationTestCase,
+    _preload_script_path,
+    discover_preload_scripts,
+)
+
+# Fields that differ between two runs of the SAME preload for reasons that have
+# nothing to do with the liveness check: `generate_id` mints a fresh close-cycle
+# id, `now_iso` stamps the wall clock, and `mktemp` picks a fresh suffix for each
+# render tempfile. Normalized on BOTH sides of every comparison, so anything the
+# check itself adds still shows up.
+_VOLATILE: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"(\.(?:smm|sprint|sprint-review-input|system-context)"
+            r"-?(?:rendered)?\.)[A-Za-z0-9]{6}"
+        ),
+        r"\1XXXXXX",
+    ),
+    (re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+00:00"), "<ts>"),
+    (re.compile(r"\b[0-9a-f]{12}\b"), "<id>"),
+)
+
+
+def _normalize(text: str) -> str:
+    for pattern, replacement in _VOLATILE:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+class _PreloadLivenessCase(_IntegrationTestCase):
+    """Drives real preload scripts with the suite-wide bypass explicitly OFF.
+
+    `_env_hygiene` pins the bypass ON for every other runner. This is the one
+    place that opts back out, which is what keeps the pin from hollowing out the
+    behavior it exists to contain.
+    """
+
+    def _env(self, skill: str, *, bypass: bool, **extra: str) -> dict[str, str]:
+        env = dict(self._test_env)
+        env.update(PRELOAD_FIXTURES[skill]())
+        if bypass:
+            env[_env_hygiene.SKIP_LIVENESS_ENV] = "1"
+        else:
+            env.pop(_env_hygiene.SKIP_LIVENESS_ENV, None)
+        env.update(extra)
+        return env
+
+    def _beat(self, *, age_seconds: float = 0.0) -> None:
+        """Record a heartbeat for the session the preload subprocess resolves."""
+        hook_liveness.write_heartbeat(
+            self.smm_dir,
+            session_id=_env_hygiene.TEST_SESSION_ID,
+            now=time.time() - age_seconds,
+        )
+
+    def _run(self, skill: str, env: dict[str, str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", str(_preload_script_path(skill))],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
 
 class TestSessionIdContainment(unittest.TestCase):
@@ -91,6 +158,28 @@ class TestSessionIdContainment(unittest.TestCase):
         behavior is exercised.
         """
         self.assertEqual(os.environ.get(_env_hygiene.SKIP_LIVENESS_ENV), "1")
+
+
+class TestALiveHeartbeatChangesNothing(_PreloadLivenessCase):
+    """The happy path must be byte-for-byte what it was before the check.
+
+    A gate on the shared base runs ahead of all 16 preloads, so a stray line on
+    the LIVE path is 16 regressions at once, in context windows the check has no
+    business touching. Every preload is compared, not a representative.
+    """
+
+    def test_output_is_identical_with_the_check_active(self):
+        for skill in discover_preload_scripts():
+            with self.subTest(skill=skill):
+                self._beat()
+                baseline = self._run(skill, self._env(skill, bypass=True))
+                checked = self._run(skill, self._env(skill, bypass=False))
+                self.assertEqual(
+                    _normalize(checked.stdout),
+                    _normalize(baseline.stdout),
+                    "a live heartbeat must leave preload stdout untouched",
+                )
+                self.assertEqual(checked.returncode, baseline.returncode)
 
 
 class TestLefthookMirrorsTheStrip(unittest.TestCase):
