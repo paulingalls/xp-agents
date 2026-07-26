@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import _env_hygiene
 import hook_liveness
+import markers
 from _preload_fixtures import PRELOAD_FIXTURES
 from conftest import (
     _PLUGIN_ROOT,
@@ -237,6 +238,83 @@ class TestRefusalWhenNoHeartbeatExists(_PreloadLivenessCase):
         """A preload's channel is stdout; a non-zero exit is a different failure
         for the caller to handle, and would mask the banner it needs to read."""
         self.assertEqual(self._run(_REP, self._env(_REP, bypass=False)).returncode, 0)
+
+
+class TestStaleAndUndeterminedRefuseToo(_PreloadLivenessCase):
+    """Absence is not the only way a runtime is untrustworthy.
+
+    A heartbeat can be too old (the runtime died partway through the session) or
+    unreadable (whether it is running cannot be determined). A check that cannot
+    see is not a check that passed, so both refuse — but they are different
+    diagnoses and must read differently.
+    """
+
+    def _heartbeat_path(self) -> Path:
+        return markers.marker_path(
+            self.smm_dir,
+            hook_liveness.heartbeat_marker(_env_hygiene.TEST_SESSION_ID),
+        )
+
+    def test_a_stale_heartbeat_refuses_the_same_way(self):
+        self._beat(age_seconds=hook_liveness.STALE_AFTER_SECONDS + 60)
+        verdict = hook_liveness.check_liveness(self.smm_dir)
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+
+        self.assertEqual(verdict.code, hook_liveness.CODE_STALE)
+        self.assertTrue(refusal.startswith(REFUSAL_HEADER), refusal[:200])
+        self.assertIn(verdict.reason, refusal)
+
+    def test_an_unreadable_heartbeat_refuses_with_its_own_message(self):
+        """Could-not-determine keeps its own wording — it supports no diagnosis."""
+        self._beat()
+        self._heartbeat_path().write_text("not json at all", encoding="utf-8")
+        verdict = hook_liveness.check_liveness(self.smm_dir)
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+
+        self.assertEqual(verdict.code, hook_liveness.CODE_UNREADABLE)
+        self.assertTrue(refusal.startswith(REFUSAL_HEADER), refusal[:200])
+        self.assertIn(verdict.reason, refusal)
+        self.assertIn("cannot be determined", refusal)
+        # It must NOT claim the runtime is absent — nothing established that.
+        self.assertNotIn("has been recorded", refusal)
+
+    def test_the_two_refusal_kinds_arrive_on_different_exit_codes(self):
+        """Why the shell refuses on every non-zero status, not just on 1."""
+        self._beat(age_seconds=hook_liveness.STALE_AFTER_SECONDS + 60)
+        self.assertEqual(self._status_exit_code(), hook_liveness.EXIT_NOT_LIVE)
+
+        self._heartbeat_path().write_text("not json at all", encoding="utf-8")
+        self.assertEqual(self._status_exit_code(), hook_liveness.EXIT_UNDETERMINED)
+
+    def _status_exit_code(self) -> int:
+        return subprocess.run(
+            [
+                "python3",
+                str(_PLUGIN_ROOT / "scripts" / "hook_liveness.py"),
+                "--smm-dir",
+                str(self.smm_dir),
+                "status",
+            ],
+            capture_output=True,
+            text=True,
+            env=self._test_env,
+        ).returncode
+
+    def test_an_unresolvable_smm_still_takes_the_existing_path(self):
+        """A different failure, and it must stay legible as one.
+
+        No shared model AT ALL is not a dead runtime, and the two have different
+        fixes. The base's own exit runs before this check and must keep winning.
+        """
+        blocker = self.tmpdir / "not-a-directory"
+        blocker.write_text("", encoding="utf-8")
+        env = self._env(_REP, bypass=False)
+        env.pop("SMM_DIR", None)
+        env["XP_AGENTS_DATA"] = str(blocker)
+
+        out = self._run(_REP, env).stdout
+        self.assertIn(SMM_UNAVAILABLE, out)
+        self.assertNotIn(REFUSAL_HEADER, out)
 
 
 class TestLefthookMirrorsTheStrip(unittest.TestCase):
