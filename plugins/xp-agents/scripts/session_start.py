@@ -45,20 +45,6 @@ GUPP_STARTUP = (
 )
 
 
-def _payload_session_id(input_data: dict) -> str | None:
-    """The session id the runtime handed us, or None to use the env chain.
-
-    `write_heartbeat` consults the candidate chain only for None. An empty
-    string or a non-str would skip that fallback and key a marker on the hash
-    of a value no reader ever addresses, so both normalise to None here.
-    Twinned with the same helper in user_prompt_log — two short functions
-    rather than a shared module, since the primitive they feed is owned
-    elsewhere and neither hook imports the other.
-    """
-    raw = input_data.get("session_id")
-    return (raw.strip() or None) if isinstance(raw, str) else None
-
-
 def _is_fresh_start(source: str) -> bool:
     """True when the SessionStart source represents a fresh start.
 
@@ -225,7 +211,9 @@ def run(
     # return early. Deliberately NOT gated on _is_fresh_start: a resume or a
     # compact is still a session whose hooks are live and whose preloads will
     # ask. Never raises; a drop is logged to hook_errors.jsonl.
-    hook_liveness.write_heartbeat(smm_dir, session_id=_payload_session_id(input_data))
+    hook_liveness.write_heartbeat(
+        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+    )
 
     # Sweep stale CLOSE_CYCLE_ACTIVE/ACCEPT markers only on fresh starts —
     # resume/compact mid-session may have a close-skill or /xp-accept in

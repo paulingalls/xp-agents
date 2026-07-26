@@ -16,20 +16,6 @@ import markers
 _MAX_PROMPT_LENGTH = 10_000
 
 
-def _payload_session_id(input_data: dict) -> str | None:
-    """The session id the runtime handed us, or None to use the env chain.
-
-    `write_heartbeat` consults the candidate chain only for None. An empty
-    string or a non-str would skip that fallback and key a marker on the hash
-    of a value no reader ever addresses, so both normalise to None here.
-    Twinned with the same helper in session_start — two short functions rather
-    than a shared module, since the primitive they feed is owned elsewhere and
-    neither hook imports the other.
-    """
-    raw = input_data.get("session_id")
-    return (raw.strip() or None) if isinstance(raw, str) else None
-
-
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Core UserPromptSubmit logic. Returns additionalContext or None."""
     if _common.is_xp_agent(input_data):
@@ -46,7 +32,9 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # records that the hook RAN, which is true either way. A task notification
     # is not customer input; the runtime still fired. Never raises; a drop is
     # logged to hook_errors.jsonl.
-    hook_liveness.write_heartbeat(smm_dir, session_id=_payload_session_id(input_data))
+    hook_liveness.write_heartbeat(
+        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+    )
 
     # User submitted a new prompt — any in-progress AskUserQuestion dialogue
     # is now resolved. Clear the marker so sprint_stop_gate resumes normal
