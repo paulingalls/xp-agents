@@ -255,7 +255,7 @@ def head_probe_target(
     return parse_effective_cwd(command, fallback, scan_target=scan_target)
 
 
-def dash_c_unreachable(command: str) -> bool:
+def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
     """True only when a `git -C <path>` names a repo we cannot even locate —
     the path is hidden behind an unexpanded shell variable or command
     substitution, so the hook sees the literal text, never its value.
@@ -266,12 +266,43 @@ def dash_c_unreachable(command: str) -> bool:
     we merely could not inspect. Only the hidden-variable case leaves genuine
     ambiguity between "landed somewhere we can't look" and "was rejected", and
     only that case justifies the worktree scan / unconfirmed-commit trace.
+
+    Which constructs actually expand depends on the QUOTING the path arrived in,
+    so the three capture groups are judged separately — treating them alike
+    misreports both directions, and once this predicate also gates a hard commit
+    block a false positive costs a refused commit:
+
+      * single-quoted -- the shell expands nothing. git receives the literal
+        text, aborts, nothing lands: never unreachable.
+      * double-quoted -- `$` and backtick expand; a leading `~` does NOT.
+      * bare          -- `$`, backtick, and a LEADING `~` all expand.
+
+    A `~` anywhere but the front (`/tmp/a~b`) is an ordinary literal character.
+
+    Known limit: the match reads ONE quoting form per `-C` token, so a token
+    that concatenates forms (`'/tmp/'"$WT"`) is judged by its first segment and
+    a trailing expansion reads as reachable — fail-open, the pre-change
+    behaviour. Tokenizing to close it costs more than the case is worth; no
+    agent-authored command mixes quoting on a single path.
+
+    Presence of the flag is decided on the QUOTE-STRIPPED command, exactly as
+    `head_probe_target` does: `git commit -m "prefer git -C $WT over cd"` has no
+    `-C` flag at all — the text lives in the message body — and must not be read
+    as one, or a commit that merely talks about `-C` is refused.
     """
+    if scan_target is None:
+        scan_target = git_commits.strip_quoted(command)
+    if not _HAS_GLOBAL_DASH_C_RE.search(scan_target):
+        return False
     m = _RAW_DASH_C_RE.search(command)
     if not m:
         return False
-    path = next((g for g in m.groups() if g), "")
-    return "$" in path or "`" in path
+    double_quoted, single_quoted, bare = m.groups()
+    if single_quoted:
+        return False
+    if double_quoted:
+        return "$" in double_quoted or "`" in double_quoted
+    return "$" in bare or "`" in bare or bare.startswith("~")
 
 
 def commit_repo_candidates(
@@ -325,7 +356,7 @@ def commit_repo_candidates(
     # (e.g. a pre-commit rejection in the main checkout) would fall through and
     # match a live worktree by coincidental HEAD subject, fabricating a commit
     # event against the worktree's unrelated hash.
-    if not dash_c_unreachable(command):
+    if not dash_c_unreachable(command, scan_target=scan_target):
         return
 
     # Only reached when the caller keeps iterating past the cheap candidates

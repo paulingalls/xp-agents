@@ -37,6 +37,60 @@ class TestCommitCommandDirectImport(unittest.TestCase):
     def test_dash_c_unreachable_false_for_literal_path(self):
         self.assertFalse(commit_command.dash_c_unreachable("git -C /tmp/repo commit"))
 
+    def test_dash_c_unreachable_true_for_unquoted_tilde(self):
+        """A BARE ~ is expanded by the shell, so git lands where the hook can't see."""
+        self.assertTrue(commit_command.dash_c_unreachable("git -C ~/wt commit"))
+
+    def test_dash_c_unreachable_false_for_quoted_tilde(self):
+        """Quoting defeats tilde expansion: git receives a literal `~/wt`, aborts,
+        and nothing lands — the same silent case as any other literal bad path."""
+        self.assertFalse(commit_command.dash_c_unreachable('git -C "~/wt" commit'))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C '~/wt' commit"))
+
+    def test_dash_c_unreachable_false_for_tilde_inside_path(self):
+        """Only a LEADING tilde expands; `/tmp/a~b` is an ordinary literal path."""
+        self.assertFalse(commit_command.dash_c_unreachable("git -C /tmp/a~b commit"))
+
+    def test_dash_c_unreachable_true_for_brace_and_substitution(self):
+        self.assertTrue(commit_command.dash_c_unreachable("git -C ${W} commit"))
+        self.assertTrue(commit_command.dash_c_unreachable("git -C $(pwd) commit"))
+
+    def test_dash_c_unreachable_false_for_single_quoted_variable(self):
+        """Single quotes suppress expansion entirely, so git gets a literal `$WT`
+        and aborts — the same must-stay-silent case as a literal bad path. Judged
+        by quoting, not by the mere presence of a `$`."""
+        self.assertFalse(commit_command.dash_c_unreachable("git -C '$WT' commit"))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C '$(pwd)' commit"))
+
+    def test_dash_c_unreachable_true_for_double_quoted_variable(self):
+        """Double quotes still expand `$` and backticks."""
+        self.assertTrue(commit_command.dash_c_unreachable('git -C "$WT" commit'))
+        self.assertTrue(commit_command.dash_c_unreachable('git -C "$(pwd)" commit'))
+
+    def test_dash_c_unreachable_false_when_only_the_message_mentions_dash_c(self):
+        """A commit whose MESSAGE talks about `git -C $VAR` carries no `-C` flag.
+        Presence is decided on the quote-stripped command, so documenting the
+        gate never trips it."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git commit -m "docs: prefer git -C $WT over cd"'
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git commit -m "docs: prefer git -C ~/wt over cd"'
+            )
+        )
+
+    def test_dash_c_unreachable_false_when_heredoc_body_mentions_dash_c(self):
+        """`strip_quoted` drops heredocs too — a commit body written on stdin
+        can discuss `-C` without being read as one."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git commit -F - <<'EOF'\ndocs: prefer git -C $WT\nEOF"
+            )
+        )
+
     def test_is_escape_hatch_commit_true(self):
         self.assertTrue(
             commit_command.is_escape_hatch_commit('git commit -m "[chore] tidy up"')
