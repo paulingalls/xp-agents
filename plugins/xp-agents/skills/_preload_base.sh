@@ -17,6 +17,12 @@ SMM_DIR=$("${PLUGIN_ROOT}/smm/init.sh" 2>/dev/null) || {
     exit 0
 }
 
+# Refuse when the hook runtime that enforces this project's gates is not
+# running. First thing after the SMM resolves and before any other output, so a
+# refusal replaces the preload's context rather than appending to it.
+# shellcheck source=_preload_liveness.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_preload_liveness.sh"
+
 # Sanitized-emission helpers (flat, emit_var, strip_framing, emit_path_var,
 # sanitize_tsv_block) live in a sibling module — extracted when this file
 # crossed the 500-line cap. Sourced here so every preload that sources
