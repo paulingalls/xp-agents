@@ -12,104 +12,27 @@ The implementations live in focused sibling modules to keep this file small:
 - `_hook_inputs.py` — canonical hook input dict factories
 - `_in_place_helpers.py` — real processes in known liveness states, for the
   in-place marker suites
+- `_env_hygiene.py` — the process-env strip + pins (applied on import; not
+  optional — see that module for what each one contains)
 - `_spawn_guard.py` — blocks any test from launching the real `claude` binary
   (installed on import; not optional — see that module for the incident)
 
 Sprint fixtures stay inline (single consumer set, ~70 lines).
 
-Module-level setup MUST run at conftest load (env strip, sys.path inserts) —
-do not move it. The conftest's directory is on sys.path by virtue of pytest /
-unittest discovery, which lets us import from sibling `_*.py` modules.
+Module-level setup MUST run at conftest load (the `_env_hygiene` import,
+sys.path inserts) — do not move it. The conftest's directory is on sys.path by
+virtue of pytest / unittest discovery, which lets us import from sibling
+`_*.py` modules.
 """
 
-import atexit
 import json
-import os
-import shutil
 import sys
-import tempfile
 from pathlib import Path
 
-# Strip environment variables that would leak a parent shell's state into
-# test subprocesses.
-# - GIT_*: git sets these during commits/worktrees; inheriting them makes
-#   subprocess calls target the parent repo instead of the temp repo.
-#   Known issue: pre-commit#3032, lefthook#1265.
-# - SMM_DIR: now honored by init.sh / _append_impl.resolve_smm_dir; a stray
-#   export from a dev shell would silently redirect every test's SMM writes.
-# - XP_TEAMMATE_NAME: set by the CLI teammate launcher and read by both
-#   identity.is_worktree_teammate (as a fallback when cwd lacks a worktree
-#   marker) and the SessionStart hook (to choose the teammate guide). When
-#   it leaks from a teammate shell into test subprocesses, ~50 hook /
-#   integration tests get True on "non-teammate" paths or assert against
-#   the wrong guide, breaking every teammate's pre-commit downstream.
-# - XP_FILE_DOMAIN_DRIFT_TOLERANCE: read by sprint_cli inside
-#   _cmd_validate_domain (per-invocation) to set the validate-domain
-#   drift threshold. Tests that exercise that knob pass it explicitly
-#   via run_cli's extra_env; a stray export from a dev shell would
-#   silently flip the default-tolerance assertions in test_sprint_cli.
-# - XP_AGENTS_DATA: init.sh's top-preference SMM data root. It exists precisely
-#   so a user can export it from their shell, and plugin developers are users,
-#   so a leak is likely rather than theoretical: every test that derives an SMM
-#   would litter that real root with one project-id dir per ephemeral temp repo
-#   (the regression TestPluginDataIsolation guards). Listed here to keep this
-#   registry complete, but the PIN below is what contains it: that assignment
-#   overwrites any leaked value, so this strip is belt to its braces.
-# - XP_SMM_MIGRATE: init.sh's relocation override. `off` suppresses relocation
-#   and `force` performs it despite the teammate-liveness gate, so a leaked
-#   value would either hide the migration tests' subject or drive it past the
-#   very guard those tests exist to pin. The migration suite sets it
-#   explicitly per case.
-for _leaked_var in (
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "SMM_DIR",
-    "XP_TEAMMATE_NAME",
-    "XP_FILE_DOMAIN_DRIFT_TOLERANCE",
-    "XP_AGENTS_DATA",
-    "XP_SMM_MIGRATE",
-):
-    os.environ.pop(_leaked_var, None)
-
-# Pin XP_AGENTS_DATA to a throwaway dir for the whole test session. With
-# SMM_DIR stripped above, any production code that derives its SMM in-process
-# (resolve_smm_dir -> _derive_smm_dir -> init.sh, which inherits os.environ)
-# would otherwise fall back to a REAL root and litter it with one project-id
-# dir per ephemeral test git repo. Redirecting keeps init.sh's per-repo
-# derivation semantics but lands everything under temp, cleaned up at
-# interpreter exit. Base classes that os.environ.copy() inherit this and then
-# override it with their own per-class temp, so this only affects paths that
-# don't set XP_AGENTS_DATA themselves.
-#
-# Pinned on the TOP-preference var, not CLAUDE_PLUGIN_DATA: a pin that anything
-# can outrank is not containment, and XP_AGENTS_DATA outranks it by design.
-_test_plugin_data = tempfile.mkdtemp(prefix="xp-agents-test-plugin-data-")
-os.environ["XP_AGENTS_DATA"] = _test_plugin_data
-atexit.register(shutil.rmtree, _test_plugin_data, ignore_errors=True)
-
-# Same redirect, same reason, for the teammate prompt/tee-log namespace. Anything
-# that drives a spawn mkdirs `<root>/<project-id>/<sprint-id>/` for real, and the
-# project id is derived from a throwaway temp SMM dir — so the suite minted a real
-# directory under the real, SHARED /tmp root and nothing removed it (668 stranded
-# dirs; ten suites across three base classes still mint one every run).
-#
-# A redirect, NOT a post-hoc rmtree of the token back out of the shared root: the
-# token is derived from whatever SMM dir a test happens to hold, so one leaked
-# SMM_DIR turns that sweep into `rm -rf` of a LIVE project's teammate logs. Here
-# the writes simply never land in the real root, which is the same containment
-# CLAUDE_PLUGIN_DATA gets above and needs no destructive step to hold.
-#
-# Honors an inherited value so a parent process can aim a child suite at a root it
-# can inspect — test_temp_dir_reaping does exactly that to prove spawns really do
-# mint namespaces here, rather than passing because nothing was created at all.
-_teammate_log_root = os.environ.get("XP_TEAMMATE_LOG_ROOT")
-if not _teammate_log_root:
-    _teammate_log_root = tempfile.mkdtemp(prefix="xp-agents-test-teammate-logs-")
-    atexit.register(shutil.rmtree, _teammate_log_root, ignore_errors=True)
-os.environ["XP_TEAMMATE_LOG_ROOT"] = _teammate_log_root
-
+# Imported for its SIDE EFFECT: strips the env vars a parent shell would leak
+# into test subprocesses, and pins the ones that must hold a known value. Must
+# run before anything reads os.environ — keep this import first.
+import _env_hygiene  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Path setup — allow importing production modules. _bases.py owns the
@@ -123,7 +46,7 @@ os.environ["XP_TEAMMATE_LOG_ROOT"] = _teammate_log_root
 # runs this suite and spawns another. It happened: ~20 billable, recursive,
 # orphaned agents. See _spawn_guard.py.
 # ---------------------------------------------------------------------------
-from _bases import (  # noqa: E402, F401
+from _bases import (  # noqa: F401
     _CADENCE_CLI_PY,
     _MARKERS_PY,
     _PLUGIN_ROOT,
@@ -136,7 +59,7 @@ from _bases import (  # noqa: E402, F401
     _TempRepoTestCase,
     cleanup_test_worktrees,
 )
-from _budget_helpers import (  # noqa: E402, F401
+from _budget_helpers import (  # noqa: F401
     _HISTORICAL_ID_RE,
     _LEAKY_GIT_ENV,
     _PRELOAD_SCRIPT_NAME_OVERRIDES,
@@ -155,21 +78,21 @@ from _budget_helpers import (  # noqa: E402, F401
     discover_emitter_scripts,
     discover_preload_scripts,
 )
-from _lint_fixtures import _LintTmpDirMixin, _mock_ruff_result  # noqa: E402, F401
-from _md_helpers import (  # noqa: E402, F401
+from _lint_fixtures import _LintTmpDirMixin, _mock_ruff_result  # noqa: F401
+from _md_helpers import (  # noqa: F401
     PROJECT_AGNOSTIC_FORBIDDEN_VOCAB,
     _slice,
     _split_frontmatter_body,
     assert_project_agnostic,
 )
-from _spawn_guard import RealAgentSpawnBlocked  # noqa: E402, F401
-from _stream_stdin_fixtures import _PipeStdinMixin  # noqa: E402, F401
-from _test_typing import _MixinBase  # noqa: E402, F401
-from _worktree_fixtures import _NormalizePathIdentityMixin  # noqa: E402, F401
+from _spawn_guard import RealAgentSpawnBlocked  # noqa: F401
+from _stream_stdin_fixtures import _PipeStdinMixin  # noqa: F401
+from _test_typing import _MixinBase  # noqa: F401
+from _worktree_fixtures import _NormalizePathIdentityMixin  # noqa: F401
 
 sys.path.insert(0, str(_SCRIPTS_DIR))
 sys.path.insert(0, str(_SMM_DIR))
-import _common  # noqa: E402
+import _common
 
 # Neutralize the ambient process-cwd leak (concern 464de40cd905), mirroring the
 # leaky-env strip above. When lefthook runs pytest inside a teammate worktree,
@@ -180,7 +103,7 @@ import _common  # noqa: E402
 # two process-cwd fallback tests patch identity._process_cwd to opt back in.
 # Module-level (not a pytest fixture) so it fires under both pytest and the
 # documented `python3 -m unittest` fallback runner.
-import identity  # noqa: E402
+import identity
 
 identity._process_cwd = lambda: ""
 
