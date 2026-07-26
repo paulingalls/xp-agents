@@ -50,6 +50,19 @@ _VOLATILE: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+# The refusal's own heading. It must not be confusable with the base's
+# pre-existing no-SMM-at-all exit: "there is no shared model here" and "the
+# shared model is here but the runtime maintaining it is dead" are different
+# failures with different fixes.
+REFUSAL_HEADER = "## Hook Runtime: not live"
+SMM_UNAVAILABLE = "## SMM State: unavailable"
+
+# One preload stands in for the shape assertions; the set-wide inheritance
+# assertion is its own test below, because "some preload refuses" and "every
+# preload refuses" are different claims.
+_REP = "xp-accept"
+
+
 def _normalize(text: str) -> str:
     for pattern, replacement in _VOLATILE:
         text = pattern.sub(replacement, text)
@@ -180,6 +193,50 @@ class TestALiveHeartbeatChangesNothing(_PreloadLivenessCase):
                     "a live heartbeat must leave preload stdout untouched",
                 )
                 self.assertEqual(checked.returncode, baseline.returncode)
+
+
+class TestRefusalWhenNoHeartbeatExists(_PreloadLivenessCase):
+    """The failure the whole milestone exists for: gates absent, nothing said."""
+
+    def test_the_banner_replaces_the_preload_output_entirely(self):
+        """Refusal is starvation plus instruction — the skill gets nothing."""
+        normal = self._run(_REP, self._env(_REP, bypass=True)).stdout
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+
+        self.assertTrue(refusal.startswith(REFUSAL_HEADER), refusal[:200])
+        survivors = [
+            line
+            for line in normal.splitlines()
+            if len(line.strip()) > 5 and line in refusal
+        ]
+        self.assertEqual(survivors, [], "the preload's normal output must be gone")
+
+    def test_the_message_names_the_likely_cause(self):
+        """Not "a file is missing" — the diagnosis a reader can act on.
+
+        Taken verbatim from the CLI, which already owns the verdict and its
+        wording. The shell must not re-derive either.
+        """
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+        verdict = hook_liveness.check_liveness(self.smm_dir)
+
+        self.assertEqual(verdict.code, hook_liveness.CODE_NO_MARKER)
+        self.assertIn(verdict.reason, refusal)
+        self.assertIn("not loaded", refusal)
+
+    def test_the_banner_names_the_escape_hatch(self):
+        """An opt-out the refusal does not name is not an opt-out."""
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+        self.assertIn(_env_hygiene.SKIP_LIVENESS_ENV, refusal)
+
+    def test_refusal_is_not_confusable_with_an_unresolvable_smm(self):
+        refusal = self._run(_REP, self._env(_REP, bypass=False)).stdout
+        self.assertNotIn(SMM_UNAVAILABLE, refusal)
+
+    def test_the_preload_still_exits_zero(self):
+        """A preload's channel is stdout; a non-zero exit is a different failure
+        for the caller to handle, and would mask the banner it needs to read."""
+        self.assertEqual(self._run(_REP, self._env(_REP, bypass=False)).returncode, 0)
 
 
 class TestLefthookMirrorsTheStrip(unittest.TestCase):
