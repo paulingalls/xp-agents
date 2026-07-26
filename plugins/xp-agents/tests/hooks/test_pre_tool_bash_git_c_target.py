@@ -118,6 +118,16 @@ class TestTheBlockDoesNotOverreach(_HookTestCase):
         """Quoting defeats tilde expansion — same literal-abort case."""
         self._run('git -C "~/wt" commit -m "x"', "/tmp")
 
+    @patch("commits.get_code_files_for_review", return_value=[])
+    @patch("commits.get_staged_files", return_value=[])
+    @patch("commits.get_staged_diff", return_value="")
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_message_that_merely_mentions_dash_c_still_proceeds(self, *_mocks):
+        """The commit that DOCUMENTS this gate carries no `-C` flag — the text
+        is message body. Blocking it would make the rule unwritable."""
+        with tempfile.TemporaryDirectory() as repo:
+            self._run('git commit -m "docs: prefer git -C $WT over cd"', repo)
+
 
 class TestTheBlockPreemptsEveryDownstreamGate(_HookTestCase):
     """The block must fire BEFORE the first git read, or the gates it protects
@@ -158,12 +168,32 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
     invocations. Shell files legitimately run `git -C "$VAR"` for reads
     (`skills/_preload_diff.sh` does), and comments that merely mention
     `git -C <path>` as a placeholder are not instructions.
+
+    Backslash continuations are joined first: a fenced block that wraps
+    `git -C "$WT"` onto a second line with a trailing backslash is the same
+    instruction, and scanning raw lines would let that form back in.
     """
 
     _COMMIT_SHAPED = re.compile(
         r"git\s+-C\s+(?P<path>\S+)[^\n]*?\bgit\s+-C\s+\S+\s+(?:commit|add)\b"
         r"|git\s+-C\s+(?P<solo>\S+)\s+(?:commit|add|stash|merge|push)\b"
     )
+
+    @staticmethod
+    def _logical_lines(text: str):
+        """(starting lineno, line) with `\\`-continued lines joined."""
+        pending: list[str] = []
+        start = 1
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if not pending:
+                start = lineno
+            if line.rstrip().endswith("\\"):
+                pending.append(line.rstrip()[:-1])
+                continue
+            yield start, " ".join(part.strip() for part in [*pending, line]).strip()
+            pending = []
+        if pending:
+            yield start, " ".join(part.strip() for part in pending).strip()
 
     def test_no_shipped_md_instructs_a_variable_dash_c_commit(self):
         plugin_root = Path(__file__).parent.parent.parent
@@ -172,8 +202,8 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
         for md in plugin_root.rglob("*.md"):
             if "/tests/" in str(md):
                 continue
-            for lineno, line in enumerate(
-                md.read_text(encoding="utf-8").splitlines(), 1
+            for lineno, line in self._logical_lines(
+                md.read_text(encoding="utf-8")
             ):
                 for m in self._COMMIT_SHAPED.finditer(line):
                     path = m.group("path") or m.group("solo") or ""
@@ -187,6 +217,30 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
             "shipped prose instructs a `git -C` commit the gate will refuse; "
             "substitute the literal absolute path:\n" + "\n".join(offenders),
         )
+
+    def _flagged(self, text: str) -> list[int]:
+        return [
+            lineno
+            for lineno, line in self._logical_lines(text)
+            for m in self._COMMIT_SHAPED.finditer(line)
+            if "$" in (m.group("path") or m.group("solo") or "")
+        ]
+
+    def test_the_pin_is_not_vacuous(self):
+        """It must flag the exact prose this story removed — on one line, and
+        wrapped across a continuation, which a raw-line scan would miss."""
+        self.assertEqual(
+            self._flagged("(`git -C ${TEAMMATE_CWD} add -A && git -C ${W} commit`)"),
+            [1],
+        )
+        self.assertEqual(
+            self._flagged('intro\ngit -C "$TEAMMATE_CWD" \\\n  commit -m "x"\n'), [2]
+        )
+
+    def test_the_pin_permits_the_placeholder_form(self):
+        """`<worktree-path>` is a placeholder the agent substitutes, not a
+        shell variable — flagging it would forbid writing the rule at all."""
+        self.assertEqual(self._flagged("`git -C <worktree-path> commit ...`"), [])
 
 
 if __name__ == "__main__":

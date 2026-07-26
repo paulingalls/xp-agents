@@ -67,6 +67,30 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         self.assertTrue(commit_command.dash_c_unreachable('git -C "$WT" commit'))
         self.assertTrue(commit_command.dash_c_unreachable('git -C "$(pwd)" commit'))
 
+    def test_dash_c_unreachable_false_when_only_the_message_mentions_dash_c(self):
+        """A commit whose MESSAGE talks about `git -C $VAR` carries no `-C` flag.
+        Presence is decided on the quote-stripped command, so documenting the
+        gate never trips it."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git commit -m "docs: prefer git -C $WT over cd"'
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git commit -m "docs: prefer git -C ~/wt over cd"'
+            )
+        )
+
+    def test_dash_c_unreachable_false_when_heredoc_body_mentions_dash_c(self):
+        """`strip_quoted` drops heredocs too — a commit body written on stdin
+        can discuss `-C` without being read as one."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git commit -F - <<'EOF'\ndocs: prefer git -C $WT\nEOF"
+            )
+        )
+
     def test_is_escape_hatch_commit_true(self):
         self.assertTrue(
             commit_command.is_escape_hatch_commit('git commit -m "[chore] tidy up"')
