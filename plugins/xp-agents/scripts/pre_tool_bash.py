@@ -62,7 +62,10 @@ _CD_WORKTREE_GIT_PATTERN = re.compile(
 _CD_WORKTREE_GIT_WARNING = (
     "Avoid `cd <worktree> && git ...` — it poisons the orchestrator's cwd, "
     "so the PostToolUse trailer-extract reads the wrong HEAD and "
-    "Resolves-Event auto-link silently breaks. Use `git -C <worktree> ...` instead."
+    "Resolves-Event auto-link silently breaks. Use "
+    "`git -C /abs/path/to/worktree ...` instead — a literal path, not a shell "
+    "variable: this hook cannot expand one, and a commit whose `-C` target it "
+    "cannot resolve is refused."
 )
 
 # Recognizing a mark-done INVOCATION lives with the gate it feeds
@@ -295,6 +298,27 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
         # unscanned bytes ship, and nothing says so. Parse the target once, here,
         # above the first read.
         effective_cwd = commits.parse_effective_cwd(command, cwd)
+
+        # ...but the parse can only resolve a path it can SEE. A `-C` target the
+        # shell would expand (`$WT`, `${W}`, `$(cmd)`, a bare `~`) reaches this
+        # hook as literal text, fails `is_dir()`, and falls back to `cwd` — so
+        # every gate below would read the CALLER's repo while the commit lands
+        # somewhere else. That fallback is silent in the worst direction: in a
+        # clean main checkout `git diff --cached` returns "", which is not None,
+        # so the fail-closed four lines down never fires and the tier-1 scan,
+        # the lint gate, and the review-cycle gate all no-op on an empty diff.
+        # Refuse instead — the only honest answer when the destination is
+        # unknowable. (PostToolUse can recover this case by matching HEAD's
+        # subject against the message; pre-commit there is no HEAD to match.)
+        if commits.dash_c_unreachable(command):
+            raise _common.BlockedError(
+                "Cannot determine which repo this commit lands in: `git -C` "
+                "names a path hidden behind a shell variable, command "
+                "substitution, or `~`. The security scan, lint gate, and branch "
+                "guard would all silently run against the wrong repo. Use a "
+                "literal absolute path.",
+                "Commit target repo unresolvable.",
+            )
 
         # Tier 1 fires before the review-cycle gate so deterministic
         # patterns block even when /code-review and /xp-quality-review are done.

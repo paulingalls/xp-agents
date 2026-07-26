@@ -232,9 +232,10 @@ the teammate path: a reviewer fix applied in Step 4.5b lands in the teammate
 worktree, and Step 7b then removes that worktree — so an uncommitted fix would
 be silently discarded. The merge refuses when `TEAMMATE_CWD` is a real worktree
 that is dirty, so the lead either commits the reviewer's fix
-(`git -C ${TEAMMATE_CWD} add -A && git -C ${TEAMMATE_CWD} commit -m ...` — `add
--A` also stages NEW files a `commit -am` would miss) or clears unrelated scratch
-(`git -C ${TEAMMATE_CWD} stash -u`) first. Empty for solo closes (the working
+(`git -C <abs-path> add -A && git -C <abs-path> commit -m ...` — `add -A` also
+stages NEW files a `commit -am` would miss) or clears unrelated scratch
+(`git -C <abs-path> stash -u`) first. Use the literal path — the gate refuses
+a `-C` it cannot resolve. Empty for solo closes (the working
 tree persists, nothing to lose), and a missing/invalid `TEAMMATE_CWD` — the
 check is skipped.
 
