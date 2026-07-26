@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import execution_plan_store
+import hook_liveness
 import identity
 import markers
 import plugin_loader
@@ -205,6 +206,14 @@ def run(
     smm_dir = _common.try_validate_smm_dir(smm_dir)
     if smm_dir is None:
         return "SMM init failed — xp-agents disabled."
+
+    # Record that the hook runtime is running, before anything that could
+    # return early. Deliberately NOT gated on _is_fresh_start: a resume or a
+    # compact is still a session whose hooks are live and whose preloads will
+    # ask. Never raises; a drop is logged to hook_errors.jsonl.
+    hook_liveness.write_heartbeat(
+        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+    )
 
     # Sweep stale CLOSE_CYCLE_ACTIVE/ACCEPT markers only on fresh starts —
     # resume/compact mid-session may have a close-skill or /xp-accept in

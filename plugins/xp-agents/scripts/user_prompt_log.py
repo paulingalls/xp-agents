@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import _common
+import hook_liveness
 import markers
 
 _MAX_PROMPT_LENGTH = 10_000
@@ -23,6 +24,17 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
+
+    # The PRIMARY hook-liveness write, and the only one a teammate gets: its
+    # prompt is its entry point, so this lands before it can invoke anything
+    # that would ask. Placed ahead of every early return below — those decide
+    # whether this particular prompt is worth LOGGING, while the heartbeat
+    # records that the hook RAN, which is true either way. A task notification
+    # is not customer input; the runtime still fired. Never raises; a drop is
+    # logged to hook_errors.jsonl.
+    hook_liveness.write_heartbeat(
+        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+    )
 
     # User submitted a new prompt — any in-progress AskUserQuestion dialogue
     # is now resolved. Clear the marker so sprint_stop_gate resumes normal

@@ -131,6 +131,25 @@ def resolve_session_id() -> str | None:
     return None
 
 
+def payload_session_id(input_data: dict) -> str | None:
+    """The session id a hook was handed, normalised for `write_heartbeat`.
+
+    `write_heartbeat` consults the candidate chain only for None. An empty
+    string or a non-str id would skip that fallback and key a marker on the
+    hash of a value no reader ever addresses — a heartbeat that exists on disk
+    and is invisible to every check, which is worse than none at all because
+    it also silences the reaper. Both normalise to None here.
+
+    Lives beside the primitive it feeds rather than in the hooks that call it:
+    the rule is a property of `write_heartbeat`'s contract, not of any one
+    hook, so every future writer gets the same normalisation instead of
+    re-deriving it. Takes the raw hook payload for the same reason
+    `identity.resolve_agent_id` does — that shape is the common currency.
+    """
+    raw = input_data.get("session_id")
+    return (raw.strip() or None) if isinstance(raw, str) else None
+
+
 def heartbeat_marker(session_id: str | None) -> markers.MarkerDef:
     """The heartbeat this session owns.
 
