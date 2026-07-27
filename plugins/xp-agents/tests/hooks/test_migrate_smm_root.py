@@ -185,13 +185,12 @@ class TestRelocation(_ToolCase):
     def test_confirm_relocates_past_a_crashed_runs_dead_lock(self):
         """A dead lock costs a SESSION a relocation, never this command.
 
-        init.sh frees a dead lock's name without claiming it — the break is a
-        read then a delete and cannot be made indivisible — so the very first
-        resolution after a crashed relocation deliberately answers with the
-        legacy tree and leaves the claim to the next one. A background session
-        just relocates next time. A one-shot command has no next time, so
-        without a retry here the tool reports "Relocation did not happen" and
-        exits 1 in precisely the situation that makes a user run it.
+        No resolver removes a lock any more: breaking one is a read then a
+        delete, and no shell primitive makes that pair indivisible, so init.sh
+        now leaves a dead lock alone and answers legacy every time. Clearing it
+        is this command's own job — supervised, one invocation, and it refuses on
+        a live holder. The clear itself is pinned in
+        tests/smm/test_migration_lock_never_broken.py; this is the CLI path.
         """
         home = self._home("deadlock")
         legacy = self._seed_legacy(home)
