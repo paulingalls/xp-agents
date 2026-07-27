@@ -262,10 +262,10 @@ def clear_stale_lock(lock: Path) -> int:
         actual = os.readlink(taken)
         if was_symlink and actual == expected:
             os.unlink(taken)
-            if holder_state(expected) is None:
-                held = f"it named no pid this tool can check ({expected!r})"
+            if holder_state(actual) is None:
+                held = f"it named no pid this tool can check ({actual!r})"
             else:
-                held = f"its holder (pid {expected}) was gone"
+                held = f"its holder (pid {actual}) was gone"
             print(f"Cleared the migration lock {lock}: {held}.")
             return 0
         # Not what was verified — a claim landed in the gap. Put it back:

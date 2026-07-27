@@ -37,13 +37,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import migrate_smm_root as tool
-from test_init_migration import _MigrationCase
-from test_init_migration_lock import DEAD_PID, _LockFixtures
+from test_init_migration_lock import DEAD_PID, _LockCase
 
 _TOOL = Path(__file__).parent.parent.parent / "scripts" / "migrate_smm_root.py"
 
 
-class TestInitNeverRemovesALock(_LockFixtures, _MigrationCase):
+class TestInitNeverRemovesALock(_LockCase):
     """The resolver's half: read the holder, never remove the lock.
 
     Two invariants bound every case here. init.sh must never emit empty stdout
@@ -130,7 +129,7 @@ class TestInitNeverRemovesALock(_LockFixtures, _MigrationCase):
         self.assertFalse(self._new_smm(home).exists(), "zero migrations may happen")
 
 
-class TestTheWaitIsSpentOnlyOnHoldersWorthWaitingFor(_LockFixtures, _MigrationCase):
+class TestTheWaitIsSpentOnlyOnHoldersWorthWaitingFor(_LockCase):
     """Who pays the MIGRATE_WAIT_SECONDS budget, now that nothing is broken.
 
     A dead SYMLINK lock leaves `-L` true, so falling through to the wait loop
@@ -335,7 +334,7 @@ class TestSupervisedClear(unittest.TestCase):
         self.assertIn("TWO MIGRATIONS MAY NOW BE IN FLIGHT", err)
 
 
-class TestSupervisedClearEndToEnd(_LockFixtures, _MigrationCase):
+class TestSupervisedClearEndToEnd(_LockCase):
     """The whole command: report, clear, relocate — in one invocation."""
 
     def _tool(self, home: Path, *args: str) -> subprocess.CompletedProcess:

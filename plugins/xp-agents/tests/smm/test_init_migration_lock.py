@@ -27,11 +27,14 @@ from test_init_migration import _MigrationCase
 DEAD_PID = "999999"
 
 
-class _LockFixtures:
-    """Lock scaffolding shared with ``test_migration_lock_never_broken.py``.
+class _LockCase(_MigrationCase):
+    """``_MigrationCase`` plus lock scaffolding.
 
-    Mixed into a ``_MigrationCase``, which is where the temp HOME and the
-    project id come from.
+    A base case rather than a mixin: every helper here needs the temp HOME, the
+    project id and the init.sh runner that ``_MigrationCase`` provides, and
+    subclassing it is what lets a type checker see them without a second copy of
+    the TYPE_CHECKING mixin shim (`tests/_test_typing._MixinBase`, pinned to a
+    single definition). Shared with ``test_migration_lock_never_broken.py``.
     """
 
     def _lock_path(self, home: Path) -> Path:
@@ -120,7 +123,7 @@ class _LockFixtures:
         return lock, holder
 
 
-class TestCrashResidue(_LockFixtures, _MigrationCase):
+class TestCrashResidue(_LockCase):
     """A partial migration must never read as a complete one."""
 
     def test_bare_project_id_dir_does_not_read_as_migrated(self):
@@ -253,7 +256,7 @@ class TestCrashResidue(_LockFixtures, _MigrationCase):
         )
 
 
-class TestMigrationLockYields(_LockFixtures, _MigrationCase):
+class TestMigrationLockYields(_LockCase):
     """What a process that LOSES the lock resolves to.
 
     Not the legacy tree if it can be helped: the winner's last whole-tree
@@ -328,7 +331,7 @@ class TestMigrationLockYields(_LockFixtures, _MigrationCase):
         )
 
 
-class TestMigrationConcurrency(_LockFixtures, _MigrationCase):
+class TestMigrationConcurrency(_LockCase):
     """Racing runs against a FREE lock name.
 
     The dead-lock-in-parallel case moved to
