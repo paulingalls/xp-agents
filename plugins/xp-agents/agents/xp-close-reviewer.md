@@ -101,9 +101,9 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
 
-`<CLOSE_CYCLE_ID>` comes from `## Close Cycle ID` (substitute the actual 12-hex value). Without it, these blocks still reach this cycle's abort-default count-concerns query (an untagged concern is counted, never dropped), but they also leak into every concurrent close-cycle's count instead of being isolated to this one.
+`<CLOSE_CYCLE_ID>` comes from `## Close Cycle ID` (substitute the actual 12-hex value). Without it a block leaks into every concurrent close-cycle's count instead of being isolated to this one — **and it is no longer guaranteed to reach this cycle's own abort-default count**: an untagged concern is dropped from a scoped count when every path it records lies outside the close diff. That exclusion is why the tag matters more than it used to. Tag it, and the block counts regardless of which files it names.
 
-**`--files` discipline:** every concern naming a source path MUST pass those paths via `--files`. The commit-auto-link hook matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`. Omit only for purely cross-cutting concerns with no file pin — default to including.
+**`--files` discipline:** every concern naming a source path MUST pass those paths via `--files`, spelled **repo-relative** (`<dir>/<sub>/<file>`, as the diff lists them). The commit-auto-link hook matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`, and a scoped merge-gate count reads the same list to judge relevance — so a bare filename or a wrong path costs more than a broken link. Omit only for purely cross-cutting concerns with no file pin — default to including.
 
 **Flag-style concerns MUST include `references=[root_id]`.** When a bullet flags an existing root issue (stale, divert, escape, superseded, convention-violation — common when the close diff weakens a prior decision), pass `--references '["<root_id>"]'`. The WEAK cascade in `smm/resolution.py` then closes the flag when the root resolves.
 

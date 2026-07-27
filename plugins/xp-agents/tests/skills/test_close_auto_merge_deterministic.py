@@ -29,6 +29,8 @@ _STORY_CLOSE = _PLUGIN_ROOT / "skills/xp-story-close/SKILL.md"
 _FREE_CLOSE = _PLUGIN_ROOT / "skills/xp-free-close/SKILL.md"
 _QUALITY_REVIEW = _PLUGIN_ROOT / "skills/xp-quality-review/SKILL.md"
 _CODE_REVIEWER = _PLUGIN_ROOT / "agents/xp-code-reviewer.md"
+_CLOSE_REVIEWER = _PLUGIN_ROOT / "agents/xp-close-reviewer.md"
+_SHARED_PIPELINE = _PLUGIN_ROOT / "scripts/_close_pipeline_shared.md"
 
 
 def _body(path: Path) -> str:
@@ -69,6 +71,55 @@ class TestCloseSkillsDeterministicConditionTwo(unittest.TestCase):
         vacuously because no close-reviewer ran on that path. Now a
         blocking finding is recorded as a tagged high concern instead."""
         self.assertNotIn("holds vacuously", self.story_close)
+
+
+class TestConcernCountIsScopedByCloseDiff(unittest.TestCase):
+    """Every site that counts concerns for a merge decision must pass the close
+    diff, or `--cycle-id` still counts an untagged concern about code this close
+    never touched (concern 3542ad2915df — story-003's clean close was pushed to
+    abort-recommended by an unrelated open defect in a sibling's domain).
+
+    The engine flag alone changes nothing observable, so this pin is the
+    load-bearing half: without it the engine suite would pass equally against
+    prose that never passes the flag.
+    """
+
+    # Cwd-independent by construction: `<TARGET_BRANCH>...<CURRENT_BRANCH>`, not
+    # `...HEAD`. At story-close the orchestrator's HEAD is the sprint branch, not
+    # the story branch (same invariant close_common.py's diff-command documents).
+    _EXPECTED_DIFF = "git diff --name-only <TARGET_BRANCH>...<CURRENT_BRANCH>"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sites = {
+            "story-close": _body(_STORY_CLOSE),
+            "free-close": _body(_FREE_CLOSE),
+            "shared-pipeline": _SHARED_PIPELINE.read_text(),
+        }
+
+    def test_every_count_concerns_site_passes_diff_paths(self):
+        for name, text in self.sites.items():
+            with self.subTest(site=name):
+                self.assertIn("count-concerns", text)
+                self.assertIn("--diff-paths -", text)
+
+    def test_every_site_pipes_the_cumulative_review_diff(self):
+        for name, text in self.sites.items():
+            with self.subTest(site=name):
+                self.assertIn(self._EXPECTED_DIFF, text)
+
+    def test_no_site_names_head_as_the_diff_head(self):
+        """`...HEAD` would silently review the wrong branch at story-close."""
+        for name, text in self.sites.items():
+            with self.subTest(site=name):
+                self.assertNotIn("--name-only <TARGET_BRANCH>...HEAD", text)
+
+    def test_close_reviewer_no_longer_promises_untagged_always_counts(self):
+        """The guarantee is now conditional. Agent prose asserting the old
+        unconditional version would be a lie the code no longer backs."""
+        body = _body(_CLOSE_REVIEWER)
+        self.assertNotIn("an untagged concern is counted, never dropped", body)
+        self.assertIn("--files", body)
 
 
 class TestQualityReviewClosesCycleIdThreading(unittest.TestCase):
