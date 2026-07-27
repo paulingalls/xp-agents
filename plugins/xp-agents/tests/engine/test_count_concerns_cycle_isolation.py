@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""`count-concerns --cycle-id --diff-paths` scopes a close gate by diff relevance.
+
+Concern 3542ad2915df: `--cycle-id` is meant to scope a merge gate's concern
+count to one close cycle, but an untagged concern matches on `--since-ts`
+alone and counts anyway. story-003's auto-merge was pushed to
+abort-recommended by 964426f13819 — an unrelated open lock defect recorded in
+the same window with no cycle tag.
+
+The remedy is NOT "drop untagged concerns": every concern in a real SMM is
+untagged (only the close reviewers stamp `close_cycle_id`), so that would
+return 0 for every gate. Instead the gate may exclude a concern only when it
+is PROVABLY about code this close does not touch — it names files and none of
+them intersect the close diff. Everything else still counts.
+
+These tests pin both directions: the narrowing, and every fail-closed default
+that keeps the narrowing from becoming a hole. The `--diff-paths`
+empty-or-unreadable case is the one way the conjunction could fail OPEN
+(vacuous "no entry intersects" against an empty set) — keep that test if the
+implementation is ever refactored.
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
+from conftest import _SMMTestCase, make_event, run_cli, write_events
+from event_schema import EVENT_TYPE_CONCERN, METADATA_KEY_CLOSE_CYCLE_ID
+
+_CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
+
+# This close cycle vs. a concurrent teammate's close cycle.
+_CYCLE = "aaaa11112222"
+_OTHER_CYCLE = "bbbb33334444"
+
+# The close window: WINDOW_START is the preload's CLOSE_START_TS, IN_WINDOW is
+# any event recorded after it (so --since-ts alone can never exclude it — the
+# whole point of the concern being fixed).
+_WINDOW_START = "2026-07-26T00:00:00+00:00"
+_IN_WINDOW = "2026-07-26T02:36:49+00:00"
+
+# This story's domain, standing in for a close diff.
+_DIFF = [
+    "plugins/xp-agents/smm/smm_count.py",
+    "plugins/xp-agents/tests/engine/test_count_concerns_cycle_isolation.py",
+]
+# A file outside it — 964426f13819's real `files` entry. Used as a STRING
+# only: a sibling story is deleting this path, and this fixture must not care.
+_OUTSIDE_DIFF = "plugins/xp-agents/smm/break_stale_lock.sh"
+
+
+def _concern(
+    severity: str = "high",
+    *,
+    files: list[str] | None = None,
+    cycle: str | None = None,
+    ts: str = _IN_WINDOW,
+) -> dict:
+    """Concern event inside the close window. `files=None` omits the key
+    entirely (the shape a concern raised without `--files` has)."""
+    metadata = {METADATA_KEY_CLOSE_CYCLE_ID: cycle} if cycle else {}
+    event = make_event(EVENT_TYPE_CONCERN, severity=severity, ts=ts, metadata=metadata)
+    if files is not None:
+        event["files"] = files
+    return event
+
+
+class _ScopedGateTestCase(_SMMTestCase):
+    """Shared plumbing: write concerns, run the gate query, read the count."""
+
+    def _count(self, extra_args: list[str], stdin_data: str | None = None) -> str:
+        result = run_cli(
+            _CLI,
+            ["count-concerns", "--severity", "high", *extra_args],
+            self.smm_dir,
+            stdin_data=stdin_data,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def _diff_file(self, paths: list[str]) -> Path:
+        """Write a `git diff --name-only` capture next to the temp SMM."""
+        path = self.smm_dir / "close-diff.txt"
+        path.write_text("".join(f"{p}\n" for p in paths))
+        return path
+
+    def _scoped(self, paths: list[str]) -> str:
+        """The real gate invocation: cycle + window + close diff."""
+        return self._count(
+            [
+                "--cycle-id",
+                _CYCLE,
+                "--since-ts",
+                _WINDOW_START,
+                "--diff-paths",
+                str(self._diff_file(paths)),
+            ]
+        )
+
+
+class TestUntaggedConcernsScopedByDiffRelevance(_ScopedGateTestCase):
+    def test_untagged_files_miss_the_diff_is_not_counted(self) -> None:
+        """The defect itself: an unrelated open concern must not abort this close."""
+        write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
+        self.assertEqual(self._scoped(_DIFF), "0")
+
+    def test_untagged_files_hit_the_diff_is_counted(self) -> None:
+        write_events(
+            self.events_file,
+            [_concern(files=["plugins/xp-agents/smm/smm_count.py"])],
+        )
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_untagged_with_one_hit_among_misses_is_counted(self) -> None:
+        """Relevance is ANY-intersects, not all — one touched file is enough."""
+        write_events(
+            self.events_file,
+            [_concern(files=[_OUTSIDE_DIFF, "plugins/xp-agents/smm/smm_count.py"])],
+        )
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_untagged_with_no_files_is_counted(self) -> None:
+        """Nothing proves it irrelevant, so the fail-closed floor holds."""
+        write_events(self.events_file, [_concern()])
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_untagged_with_empty_files_list_is_counted(self) -> None:
+        """`--files '[]'` is indistinguishable from no file pin at all."""
+        write_events(self.events_file, [_concern(files=[])])
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_directory_prefix_entry_counts_as_a_hit(self) -> None:
+        """A concern pinned at directory granularity covers files beneath it."""
+        write_events(self.events_file, [_concern(files=["plugins/xp-agents/smm"])])
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_directory_prefix_entry_outside_the_diff_is_not_counted(self) -> None:
+        write_events(self.events_file, [_concern(files=["plugins/xp-agents/hooks"])])
+        self.assertEqual(self._scoped(_DIFF), "0")
+
+    def test_slashless_entry_matches_by_basename(self) -> None:
+        """f4150aa2c518's real shape: `files:['pre_tool_bash.py']` where the
+        repo-relative path is plugins/xp-agents/scripts/pre_tool_bash.py.
+        Exact-plus-prefix matching alone can never intersect, so such a concern
+        would be excluded from EVERY close — a live fail-open."""
+        write_events(self.events_file, [_concern(files=["pre_tool_bash.py"])])
+        self.assertEqual(
+            self._scoped(["plugins/xp-agents/scripts/pre_tool_bash.py"]), "1"
+        )
+
+    def test_slashless_entry_whose_basename_is_absent_is_not_counted(self) -> None:
+        write_events(self.events_file, [_concern(files=["break_stale_lock.sh"])])
+        self.assertEqual(self._scoped(_DIFF), "0")
+
+    def test_leading_dot_slash_is_normalized_on_both_sides(self) -> None:
+        write_events(
+            self.events_file,
+            [_concern(files=["./plugins/xp-agents/smm/smm_count.py"])],
+        )
+        self.assertEqual(self._scoped(["./plugins/xp-agents/smm/smm_count.py"]), "1")
+
+    def test_non_string_files_entry_still_counts(self) -> None:
+        """Malformed `files` proves nothing — stay on the fail-closed floor."""
+        event = _concern(files=[_OUTSIDE_DIFF])
+        event["files"] = [_OUTSIDE_DIFF, 17]
+        write_events(self.events_file, [event])
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_blank_files_entry_still_counts(self) -> None:
+        write_events(self.events_file, [_concern(files=["   "])])
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+
+class TestTaggedConcernsUnaffected(_ScopedGateTestCase):
+    def test_this_cycles_tag_counts_even_when_files_miss_the_diff(self) -> None:
+        """A close reviewer's own Block is authoritative — its tag wins over
+        any file heuristic."""
+        write_events(
+            self.events_file,
+            [_concern(files=[_OUTSIDE_DIFF], cycle=_CYCLE)],
+        )
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_other_cycles_tag_is_not_counted(self) -> None:
+        write_events(
+            self.events_file,
+            [
+                _concern(
+                    files=["plugins/xp-agents/smm/smm_count.py"], cycle=_OTHER_CYCLE
+                )
+            ],
+        )
+        self.assertEqual(self._scoped(_DIFF), "0")
+
+
+class TestDiffPathsFailsClosed(_ScopedGateTestCase):
+    """`--diff-paths` that parses to an empty set must behave EXACTLY as if it
+    were never supplied. Without this the rule is fail-OPEN: "no entry
+    intersects" is vacuously true against an empty set, so every untagged
+    concern with `files` drops and the gate returns ~0.
+
+    Every branch here is reachable in the shipped prose: story-close's preload
+    emits STORY_BASE_UNRESOLVED=true when get-base refuses, a failed `git diff`
+    inside `$(...)` delivers empty stdin silently (no `pipefail` in the prose),
+    and an empty commit range prints nothing.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
+
+    def _empty_diff_paths_args(self, spec: str) -> list[str]:
+        return ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", spec]
+
+    def test_empty_file_counts_everything(self) -> None:
+        empty = self.smm_dir / "empty-diff.txt"
+        empty.write_text("")
+        self.assertEqual(self._count(self._empty_diff_paths_args(str(empty))), "1")
+
+    def test_whitespace_only_file_counts_everything(self) -> None:
+        blank = self.smm_dir / "blank-diff.txt"
+        blank.write_text("\n  \n\n")
+        self.assertEqual(self._count(self._empty_diff_paths_args(str(blank))), "1")
+
+    def test_missing_file_counts_everything(self) -> None:
+        missing = self.smm_dir / "no-such-diff.txt"
+        self.assertEqual(self._count(self._empty_diff_paths_args(str(missing))), "1")
+
+    def test_directory_instead_of_file_counts_everything(self) -> None:
+        self.assertEqual(
+            self._count(self._empty_diff_paths_args(str(self.smm_dir))), "1"
+        )
+
+    def test_empty_stdin_counts_everything(self) -> None:
+        self.assertEqual(
+            self._count(self._empty_diff_paths_args("-"), stdin_data=""), "1"
+        )
+
+    def test_empty_diff_paths_notes_the_degradation_on_stderr(self) -> None:
+        """Silently counting everything looks like the rule fired and found a
+        hit. The operator needs to see that the diff never arrived."""
+        empty = self.smm_dir / "empty-diff.txt"
+        empty.write_text("")
+        result = run_cli(
+            _CLI,
+            [
+                "count-concerns",
+                "--severity",
+                "high",
+                *self._empty_diff_paths_args(str(empty)),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--diff-paths", result.stderr)
+
+
+class TestDiffPathsFromStdin(_ScopedGateTestCase):
+    """A close diff can be long, so `-` reads it from stdin."""
+
+    def test_stdin_paths_exclude_an_irrelevant_concern(self) -> None:
+        write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
+        args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
+        self.assertEqual(
+            self._count(args, stdin_data="".join(f"{p}\n" for p in _DIFF)), "0"
+        )
+
+    def test_stdin_paths_keep_a_relevant_concern(self) -> None:
+        write_events(
+            self.events_file,
+            [_concern(files=["plugins/xp-agents/smm/smm_count.py"])],
+        )
+        args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
+        self.assertEqual(
+            self._count(args, stdin_data="".join(f"{p}\n" for p in _DIFF)), "1"
+        )
+
+
+class TestRuleIsOptIn(_ScopedGateTestCase):
+    """`--cycle-id`'s meaning narrows ONLY when `--diff-paths` is also supplied
+    and non-empty. Every other invocation counts exactly as it does today."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        write_events(
+            self.events_file,
+            [
+                _concern(files=[_OUTSIDE_DIFF]),
+                _concern(files=["plugins/xp-agents/smm/smm_count.py"]),
+                _concern(),
+            ],
+        )
+
+    def test_cycle_id_without_diff_paths_is_unchanged(self) -> None:
+        self.assertEqual(
+            self._count(["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START]), "3"
+        )
+
+    def test_diff_paths_without_cycle_id_is_unchanged(self) -> None:
+        self.assertEqual(
+            self._count(["--diff-paths", str(self._diff_file(_DIFF))]), "3"
+        )
+
+    def test_no_filters_is_unchanged(self) -> None:
+        self.assertEqual(self._count([]), "3")
+
+    def test_since_ts_still_bounds_pre_cycle_events(self) -> None:
+        write_events(
+            self.events_file,
+            [
+                _concern(files=["plugins/xp-agents/smm/smm_count.py"]),
+                _concern(
+                    files=["plugins/xp-agents/smm/smm_count.py"],
+                    ts="2026-07-20T00:00:00+00:00",
+                ),
+            ],
+        )
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+
+class TestMalformedLinesStillCount(_ScopedGateTestCase):
+    def test_unparseable_line_in_window_still_counts(self) -> None:
+        """An unparseable line has no readable `files`, so diff relevance can
+        never narrow the fail-closed floor (unchanged behavior)."""
+        self.events_file.write_text('{"id": "truncated", "ts": "2026-07-26T03:00:00+0')
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+
+class TestStoryThreeFalseAbortE2E(_ScopedGateTestCase):
+    """AC#8 — the exact scenario from concern 3542ad2915df.
+
+    story-003's close cycle ran clean, but 964426f13819 (an unrelated open lock
+    defect, severity high, untagged, recorded inside the close window, naming a
+    file in story-005's domain) pushed the auto-merge gate to
+    abort-recommended. With the close diff supplied, the gate stays at 0.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # 964426f13819's shape, plus the noise a live SMM carries in the same
+        # window: a resolved-elsewhere concern in another cycle and one with no
+        # file pin at all.
+        write_events(
+            self.events_file,
+            [
+                _concern(files=[_OUTSIDE_DIFF]),
+                _concern(files=["plugins/xp-agents/scripts/concern_conflicts.py"]),
+                _concern(files=["plugins/xp-agents/smm/init.sh"], cycle=_OTHER_CYCLE),
+            ],
+        )
+        self.story_003_diff = [
+            "plugins/xp-agents/scripts/preload_liveness.py",
+            "plugins/xp-agents/tests/hooks/test_preload_liveness.py",
+        ]
+
+    def test_gate_does_not_flip_to_abort_recommended(self) -> None:
+        self.assertEqual(self._scoped(self.story_003_diff), "0")
+
+    def test_gate_still_flips_when_the_concern_is_about_this_diff(self) -> None:
+        """The other half of the guarantee: narrowing must not disarm the gate
+        for a concern that IS about the code being merged."""
+        self.assertEqual(
+            self._scoped(
+                [*self.story_003_diff, "plugins/xp-agents/scripts/concern_conflicts.py"]
+            ),
+            "1",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
