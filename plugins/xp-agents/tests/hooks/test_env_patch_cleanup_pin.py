@@ -21,12 +21,19 @@ only in a position whose cleanup is bounded by the test method:
     with patch.dict(os.environ, ...):            safe -- exits in the body
     with (patch.dict(os.environ, ...), other()):  safe -- same, multi-item
     @patch.dict(os.environ, ...)                  safe -- scoped to the method
+    @patch.dict(os.environ, ...) on a class       safe -- mock's decorate_class
+    class T(TestCase):                            wraps each test* method
     def helper():
         return patch.dict(os.environ, ...)        safe -- caller's `with` bounds it
     self._p = patch.dict(os.environ, ...)          safe -- ONLY IF self._p.stop()
     # in setUp, self._p.start()                    is CALLED inside a tearDown
     # in tearDown, self._p.stop()                  in the same class
     anything else                                  FLAGGED
+
+The class-decorator row is per-test-method, not per-class: `decorate_class`
+wraps only attributes named `test*`, so `setUp`/`tearDown` do NOT see the
+patched values and the restore lands inside each test. The `self._p` row
+covers both `self._p = ...` and the annotated `self._p: X = ...` spelling.
 
 THE DISCRIMINATOR for the last safe row: `.stop()` must be *called* inside
 `tearDown`, not merely hand off `.stop` to `addCleanup` (`addCleanup` fires
@@ -53,7 +60,10 @@ KNOWN GAPS (booked as debt 8dffcbf90181, not fixed here): an aliased import
 (`from unittest.mock import patch as p`) evades `_is_patch_dict_attr`'s
 name check, and a helper defined in one module but called from another
 evades the within-module indirection pass. This pin is a floor, not total
-coverage.
+coverage. It is also not a total guard on the safe rows it does bless:
+unittest skips `tearDown` when `setUp` raises after `.start()`, so the
+setUp-start/tearDown-stop row accepts that one leak window (assumption
+37b2549e1a65).
 """
 
 import ast
@@ -61,6 +71,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TypeGuard, TypeVar
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -96,7 +107,10 @@ def _is_patch_dict_attr(func: ast.expr) -> bool:
 
 
 def _is_os_environ(node: ast.expr) -> bool:
-    """True for the `os.environ` expression."""
+    """True for the `os.environ` expression, or the equivalent `"os.environ"`
+    string target `patch.dict` resolves by import."""
+    if isinstance(node, ast.Constant):
+        return node.value == "os.environ"
     return (
         isinstance(node, ast.Attribute)
         and node.attr == "environ"
@@ -105,14 +119,22 @@ def _is_os_environ(node: ast.expr) -> bool:
     )
 
 
-def _is_env_patch_call(node: ast.AST) -> bool:
+def _patch_dict_target(call: ast.Call) -> ast.expr | None:
+    """The mapping `patch.dict` will patch: first positional, or `in_dict=`."""
+    if call.args:
+        return call.args[0]
+    for kw in call.keywords:
+        if kw.arg == "in_dict":
+            return kw.value
+    return None
+
+
+def _is_env_patch_call(node: ast.AST) -> TypeGuard[ast.Call]:
     """True for `patch.dict(os.environ, ...)` / `mock.patch.dict(os.environ, ...)`."""
-    return (
-        isinstance(node, ast.Call)
-        and _is_patch_dict_attr(node.func)
-        and bool(node.args)
-        and _is_os_environ(node.args[0])
-    )
+    if not (isinstance(node, ast.Call) and _is_patch_dict_attr(node.func)):
+        return False
+    target = _patch_dict_target(node)
+    return target is not None and _is_os_environ(target)
 
 
 def _build_parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
@@ -123,9 +145,14 @@ def _build_parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
     return parents
 
 
+_Node = TypeVar("_Node", bound=ast.AST)
+
+
 def _enclosing(
-    node: ast.AST, parents: dict[ast.AST, ast.AST], types: tuple[type, ...]
-) -> ast.AST | None:
+    node: ast.AST, parents: dict[ast.AST, ast.AST], types: tuple[type[_Node], ...]
+) -> _Node | None:
+    """Nearest ancestor of *node* that is one of *types* — typed as that node
+    class, so callers read `.body`/`.name` without an isinstance crutch."""
     cur = parents.get(node)
     while cur is not None:
         if isinstance(cur, types):
@@ -147,12 +174,25 @@ def _self_stop_call(node: ast.AST, attr_name: str) -> bool:
     )
 
 
+def _single_assign_target(parent: ast.AST | None, call: ast.Call) -> ast.expr | None:
+    """The lone target *call* is bound to, for `x = call` and `x: T = call`."""
+    if (
+        isinstance(parent, ast.Assign)
+        and len(parent.targets) == 1
+        and parent.value is call
+    ):
+        return parent.targets[0]
+    if isinstance(parent, ast.AnnAssign) and parent.value is call:
+        return parent.target
+    return None
+
+
 def _has_teardown_stop(
-    assign: ast.Assign, parents: dict[ast.AST, ast.AST], attr_name: str
+    node: ast.AST, parents: dict[ast.AST, ast.AST], attr_name: str
 ) -> bool:
-    """True if the class containing *assign* calls `self.<attr_name>.stop()`
+    """True if the class containing *node* calls `self.<attr_name>.stop()`
     inside a method literally named `tearDown`."""
-    cls = _enclosing(assign, parents, (ast.ClassDef,))
+    cls = _enclosing(node, parents, (ast.ClassDef,))
     if cls is None:
         return False
     for item in cls.body:
@@ -193,7 +233,7 @@ def _classify_call(
     if isinstance(parent, ast.withitem) and parent.context_expr is call:
         return None
 
-    if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+    if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and (
         call in parent.decorator_list
     ):
         return None
@@ -201,19 +241,15 @@ def _classify_call(
     if isinstance(parent, ast.Return) and parent.value is call:
         return None
 
-    if (
-        isinstance(parent, ast.Assign)
-        and len(parent.targets) == 1
-        and parent.value is call
-    ):
-        target = parent.targets[0]
+    target = _single_assign_target(parent, call)
+    if target is not None:
         if (
             isinstance(target, ast.Attribute)
             and isinstance(target.value, ast.Name)
             and target.value.id == "self"
         ):
             attr_name = target.attr
-            if _has_teardown_stop(parent, parents, attr_name):
+            if _has_teardown_stop(call, parents, attr_name):
                 return None
             return (
                 call.lineno,
@@ -321,7 +357,6 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
 
     violations: list[tuple[int, str]] = []
     for call in env_patch_calls:
-        assert isinstance(call, ast.Call)
         result = _classify_call(call, parents)
         if result is not None:
             violations.append(result)
@@ -455,6 +490,42 @@ class TestWalkerDetectsViolations(unittest.TestCase):
             violations = _scan_file(tmp)
             self.assertEqual(len(violations), 1)
 
+    def test_detects_string_target_spelling(self) -> None:
+        """`patch.dict("os.environ", ...)` is the same patch by a string mock
+        imports itself -- matching only the `os.environ` attribute node would
+        let the identical leak through under a different spelling."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_violation.py"
+            tmp.write_text(
+                "import unittest\n"
+                "from unittest.mock import patch\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_x(self):\n"
+                '        self.enterContext(patch.dict("os.environ", {"X": "1"}))\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("enterContext", violations[0][1])
+
+    def test_detects_in_dict_keyword_spelling(self) -> None:
+        """`patch.dict`'s mapping can be passed by keyword; reading only
+        `args[0]` would see no arguments at all and pass the file clean."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_violation.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from unittest.mock import patch\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_x(self):\n"
+                "        self.enterContext(\n"
+                '            patch.dict(in_dict=os.environ, values={"X": "1"})\n'
+                "        )\n"
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("enterContext", violations[0][1])
+
     def test_detects_entercontext_on_helper_returning_patcher(self) -> None:
         """AC#6: a helper whose returned patcher is passed to enterContext
         is flagged -- the helper's own `return` is safe on its own, but the
@@ -544,6 +615,67 @@ class TestWalkerIgnoresSafeShapes(unittest.TestCase):
                 "        pass\n"
             )
             self.assertEqual(_scan_file(tmp), [])
+
+    def test_ignores_class_level_decorator(self) -> None:
+        """mock's `decorate_class` wraps each `test*` method, so a class-level
+        `@patch.dict(os.environ, ...)` restores inside each test -- setUp and
+        tearDown never see the patched values. Flagging it would fail a safe
+        idiom with a message claiming it is not a decorator."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_clean.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from unittest.mock import patch\n"
+                '@patch.dict(os.environ, {"X": "1"})\n'
+                "class T(unittest.TestCase):\n"
+                "    def test_x(self):\n"
+                "        pass\n"
+            )
+            self.assertEqual(_scan_file(tmp), [])
+
+    def test_ignores_annotated_self_attr_with_teardown_stop(self) -> None:
+        """The safe self.<attr> row must survive an annotation: `self._p: X =`
+        parses as AnnAssign, not Assign, and matching only Assign would flag
+        the identical safe lifecycle."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_clean.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from typing import Any\n"
+                "from unittest.mock import patch\n"
+                "class T(unittest.TestCase):\n"
+                "    def setUp(self):\n"
+                '        self._p: Any = patch.dict(os.environ, {"X": "1"})\n'
+                "        self._p.start()\n"
+                "    def tearDown(self):\n"
+                "        self._p.stop()\n"
+                "    def test_x(self):\n"
+                "        pass\n"
+            )
+            self.assertEqual(_scan_file(tmp), [])
+
+    def test_flags_annotated_self_attr_without_teardown_stop(self) -> None:
+        """Negative control for the row above -- the annotation must not by
+        itself buy a pass."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_violation.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from typing import Any\n"
+                "from unittest.mock import patch\n"
+                "class T(unittest.TestCase):\n"
+                "    def setUp(self):\n"
+                '        self._p: Any = patch.dict(os.environ, {"X": "1"})\n'
+                "        self._p.start()\n"
+                "    def test_x(self):\n"
+                "        pass\n"
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("tearDown", violations[0][1])
 
     def test_ignores_helper_return_consumed_via_with(self) -> None:
         """Reconstructs test_tdd_gate_in_place_teammate.py's `_in_place_env`
