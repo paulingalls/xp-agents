@@ -38,12 +38,96 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import migrate_smm_root as tool
 from test_init_migration import _MigrationCase
-from test_init_migration_lock import _LockFixtures
+from test_init_migration_lock import DEAD_PID, _LockFixtures
 
 _TOOL = Path(__file__).parent.parent.parent / "scripts" / "migrate_smm_root.py"
 
-# A pid that cannot be live: above the maximum on both supported platforms.
-DEAD_PID = "999999"
+
+class TestInitNeverRemovesALock(_LockFixtures, _MigrationCase):
+    """The resolver's half: read the holder, never remove the lock.
+
+    Two invariants bound every case here. init.sh must never emit empty stdout
+    and must never fail — it is the single resolution boundary for every script
+    and hook, so an error degrades whole sessions to no-SMM. Declining to
+    relocate therefore still has to answer a usable tree.
+    """
+
+    def test_a_dead_lock_survives_one_run_unchanged(self):
+        home = self._home("survives-one")
+        legacy = self._seed_legacy(home)
+        lock = self._dead_lock(home)
+
+        result = self._migrate(home)
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertTrue(lock.is_symlink(), "the lock must survive")
+        self.assertEqual(os.readlink(lock), DEAD_PID, "and name the same holder")
+        self.assertEqual(result.stdout.strip(), str(legacy))
+        self.assertFalse(self._new_smm(home).exists(), "nothing may relocate")
+
+    def test_a_dead_lock_still_yields_a_usable_smm(self):
+        """Declining is not failing. The answer must be a directory that is
+        actually there, with the history in it."""
+        home = self._home("survives-usable")
+        legacy = self._seed_legacy(home)
+        self._dead_lock(home)
+
+        result = self._migrate(home)
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        answered = Path(result.stdout.strip())
+        self.assertEqual(answered, legacy)
+        self.assertTrue(answered.is_dir(), "the answer must be a real directory")
+        self.assertEqual((answered / "events.jsonl").read_text(), '{"e":1}\n')
+
+    def test_eight_racing_runs_leave_a_dead_lock_unchanged(self):
+        """The interleaving no read-then-delete break can rule out.
+
+        All eight processes read the SAME dead holder. When breaking was
+        automatic, the second breaker's delete landed on the first's fresh claim
+        and both went on to copy — and the final rename is a `[[ -d ]]` check one
+        syscall from the `mv`, so the loser of THAT buried its whole tree inside
+        the live SMM. Nobody breaks and nobody claims now, so two holders have
+        nothing to arise from: the observable proof is that no tree moved and no
+        temp copy was ever created.
+
+        This case is the end-to-end signal, carried over from
+        test_init_migration_lock.py where it used to flake.
+        """
+        home = self._home("survives-racing")
+        legacy = self._seed_legacy(home, events='{"e":"orig"}\n')
+        lock = self._dead_lock(home)
+
+        outs = self._parallel_init(home, 8)
+        self.assertEqual(outs, [str(legacy)] * 8, "every run must answer legacy")
+        self.assertTrue(lock.is_symlink(), "the lock must survive all eight")
+        self.assertEqual(os.readlink(lock), DEAD_PID)
+        self.assertFalse(self._new_smm(home).exists(), "zero migrations may happen")
+        self.assertEqual((legacy / "events.jsonl").read_text(), '{"e":"orig"}\n')
+        residue = sorted(p.name for p in lock.parent.iterdir() if p.name != lock.name)
+        self.assertEqual(residue, [], f"a run started migrating: {residue}")
+
+    def test_a_directory_shaped_lock_still_excludes_every_racer(self):
+        """`ln -s pid dir` puts the link INSIDE dir and SUCCEEDS.
+
+        So the claim cannot rest on `ln -s` alone: against the directory-shaped
+        lock an older version wrote, all eight racers would believe they claimed
+        it and copy at once — mutual exclusion gone, which is the two-holder
+        outcome by another door. Automatic breaking reaped this shape before the
+        claim and hid it, so removing the break is what makes it reachable.
+        """
+        home = self._home("dir-shaped-racing")
+        legacy = self._seed_legacy(home, events='{"e":"orig"}\n')
+        lock = self._lock_path(home)
+        lock.mkdir(parents=True)
+
+        outs = self._parallel_init(home, 8)
+        self.assertEqual(outs, [str(legacy)] * 8, "every run must answer legacy")
+        self.assertTrue(lock.is_dir(), "the lock must survive")
+        self.assertEqual(
+            sorted(p.name for p in lock.iterdir()),
+            [],
+            "a racer claimed by writing its link inside the lock directory",
+        )
+        self.assertFalse(self._new_smm(home).exists(), "zero migrations may happen")
 
 
 class TestSupervisedClear(unittest.TestCase):

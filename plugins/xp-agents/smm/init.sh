@@ -107,34 +107,40 @@ migrate_legacy_smm() {
         return 0
     fi
 
-    # Break a lock whose HOLDER IS GONE — liveness, not age. An age bound races
-    # a slow copy on a network filesystem: the breaker becomes a second winner
-    # and its `mv` lands the temp INSIDE the populated destination, because
-    # `mv dirA dirB` moves into dirB when dirB exists.
-    #
     # The claim is a SYMLINK whose TARGET IS THE HOLDER'S PID, not a directory
     # with the pid written into it afterwards. Both `mkdir` and `ln -s` fail
     # atomically when the name is taken, but a directory cannot carry its holder
     # at the instant it appears — writing `lock/pid` is a SECOND step, and a
-    # racer reading the lock in between sees no holder, concludes the lock is
-    # stale and breaks a LIVE one. `ln -s` publishes the name and the holder in
-    # one syscall, so that window does not exist. The target is a number rather
-    # than a path, so the link is always dangling: `-e` and `-d` are false for
-    # it, and `-L` is the only test that sees it.
+    # racer reading the lock in between sees no holder and concludes it is
+    # stale. `ln -s` publishes the name and the holder in one syscall, so that
+    # window does not exist. The target is a number rather than a path, so the
+    # link is always dangling: `-e` and `-d` are false for it, and `-L` is the
+    # only test that sees it.
     #
-    # Breaking one is its own primitive with its own single-winner proof —
-    # break_stale_lock.sh, pinned by tests/smm/test_break_stale_lock.py.
+    # A STALE lock is NOT broken here, or anywhere automatic. Breaking one is a
+    # read then a delete, and no shell primitive makes that pair indivisible:
+    # whichever way it is spelled (`rm`, or a `mv` aside), it acts on the NAME,
+    # so it can free a name a live process claimed in the gap. Two processes then
+    # hold, both copy, and the rename at the end of this function buries one
+    # whole tree inside the other. Seven attempts failed to close that; the
+    # eighth stops trying, because a resolver that runs in every hook is the
+    # worst possible place for an operation that needs supervision. Clearing a
+    # dead lock is a human-invoked command — `scripts/migrate_smm_root.py
+    # --confirm`, which reports what it clears and refuses on a live holder.
     #
-    # Exit 0 means THIS run broke a stale lock. It then stops: a breaker
-    # never goes on to claim, so two breakers can never both end up holding.
-    # Any other status falls through — a live holder loses the `ln -s` below
-    # and waits, and a free name is claimed.
-    if "$(dirname "${BASH_SOURCE[0]}")/break_stale_lock.sh" "${lock}"; then
-        answer_existing_smm "${legacy}" "${new}"
-        return 0
-    fi
-
-    if ! ln -s "$$" "${lock}" 2>/dev/null; then
+    # The cost, recorded rather than hidden: a crashed relocation's lock now
+    # blocks the automatic path indefinitely, and nothing says so until someone
+    # runs that command.
+    #
+    # `ln -s` is an atomic single-winner claim only while the name is free of a
+    # DIRECTORY: `ln -s pid dir` puts the link INSIDE dir and succeeds, so an
+    # older version's directory-shaped lock would let every racer believe it
+    # claimed and migrate at once — no mutual exclusion at all, which is the
+    # two-holder outcome by another door. Breaking used to reap that shape and
+    # hide it. So test for the name first: a READ, never a removal, and the
+    # `ln -s` below stays the atomic step for a genuinely free name.
+    if [[ -e "${lock}" ]] || [[ -L "${lock}" ]] ||
+        ! ln -s "$$" "${lock}" 2>/dev/null; then
         # Another process holds it. Do NOT settle for the legacy tree while that
         # is true: the winner's last whole-tree re-sync happens BEFORE its
         # rename, so anything appended to legacy after that instant never
