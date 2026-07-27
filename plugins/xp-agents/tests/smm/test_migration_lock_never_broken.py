@@ -130,6 +130,57 @@ class TestInitNeverRemovesALock(_LockFixtures, _MigrationCase):
         self.assertFalse(self._new_smm(home).exists(), "zero migrations may happen")
 
 
+class TestTheWaitIsSpentOnlyOnHoldersWorthWaitingFor(_LockFixtures, _MigrationCase):
+    """Who pays the MIGRATE_WAIT_SECONDS budget, now that nothing is broken.
+
+    A dead SYMLINK lock leaves `-L` true, so falling through to the wait loop
+    would spin the full budget before answering legacy — on every init.sh
+    invocation, which is every hook. That is a permanent tax, not an edge case,
+    which is why the verified-dead case short-circuits.
+
+    It short-circuits on VERIFIED-DEAD only. An unverifiable holder may be a live
+    migration mid-copy, and answering legacy early is how appends made after the
+    winner's last whole-tree re-sync get dropped — invisibly, in the very session
+    that upgraded. A needless 3s is much cheaper than silent event loss.
+    """
+
+    def test_a_verified_dead_holder_costs_nothing(self):
+        home = self._home("budget-dead")
+        legacy = self._seed_legacy(home)
+        self._dead_lock(home)
+
+        slept, result = self._slept_seconds(home)
+        self.assertEqual(slept, 0.0, "a verified corpse must not be waited for")
+        self.assertEqual(result.stdout.strip(), str(legacy))
+
+    def test_a_live_holder_is_waited_for(self):
+        home = self._home("budget-live")
+        legacy = self._seed_legacy(home)
+        self._hold_lock(home)
+
+        slept, result = self._slept_seconds(home)
+        self.assertAlmostEqual(slept, 3.0, places=6)
+        self.assertEqual(result.stdout.strip(), str(legacy))
+
+    def test_an_unverifiable_holder_is_waited_for_too(self):
+        """The case an earlier draft of this change collapsed into verified-dead.
+
+        A target that names no pid proves nothing about liveness, and the risk is
+        asymmetric: waiting 3s for a corpse wastes time, while not waiting for a
+        live migration drops every event appended after its last re-sync.
+        """
+        home = self._home("budget-unverifiable")
+        legacy = self._seed_legacy(home)
+        lock = self._lock_path(home)
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.symlink_to("not-a-pid")
+
+        slept, result = self._slept_seconds(home)
+        self.assertAlmostEqual(slept, 3.0, places=6)
+        self.assertEqual(result.stdout.strip(), str(legacy))
+        self.assertTrue(lock.is_symlink(), "and it is still not removed")
+
+
 class TestSupervisedClear(unittest.TestCase):
     """The clear primitive on its own.
 

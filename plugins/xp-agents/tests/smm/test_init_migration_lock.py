@@ -69,6 +69,46 @@ class _LockFixtures:
             outs.append(out.strip())
         return outs
 
+    def _sleep_shim(self, *, fractional_ok: bool) -> tuple[Path, Path]:
+        """A PATH-shimmed `sleep` that records its argument instead of waiting.
+
+        Returns (bin_dir, log). ``fractional_ok=False`` models the platforms
+        this loop's whole-second fallback exists for: a `sleep` that rejects a
+        fractional argument. The dir is keyed on the test method as well as the
+        flag, because the log APPENDS — two cases sharing one would sum each
+        other's ticks.
+        """
+        which = "frac" if fractional_ok else "whole"
+        bin_dir = self.tmpdir / f"shim-{self._testMethodName}-{which}"
+        bin_dir.mkdir(exist_ok=True)
+        log = bin_dir / "sleep.log"
+        reject = "" if fractional_ok else 'case "$1" in *.*) exit 1;; esac\n'
+        shim = bin_dir / "sleep"
+        shim.write_text(f'#!/bin/bash\n{reject}printf "%s\\n" "$1" >>"{log}"\n')
+        shim.chmod(0o755)
+        return bin_dir, log
+
+    def _slept_seconds(
+        self, home: Path, *, fractional_ok: bool = True
+    ) -> tuple[float, subprocess.CompletedProcess]:
+        """Run init.sh with a recording `sleep`; return (seconds, result).
+
+        Zero seconds means it never waited at all, which is a real answer and
+        not a missing log: a path that short-circuits must be able to prove it.
+        """
+        bin_dir, log = self._sleep_shim(fractional_ok=fractional_ok)
+        result = self._run_init(
+            extra_env={
+                "HOME": str(home),
+                "PATH": f"{bin_dir}:{self._test_env['PATH']}",
+            },
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        if not log.exists():
+            return 0.0, result
+        return sum(float(line) for line in log.read_text().split()), result
+
     def _hold_lock(self, home: Path) -> tuple[Path, subprocess.Popen]:
         """Claim the lock for a process that is genuinely alive."""
         holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -234,40 +274,16 @@ class TestMigrationLockYields(_LockFixtures, _MigrationCase):
         self.assertEqual(result.stdout.strip(), str(legacy))
         self.assertFalse(self._new_smm(home).exists())
 
-    def _sleep_shim(self, *, fractional_ok: bool) -> tuple[Path, Path]:
-        """A PATH-shimmed `sleep` that records its argument instead of waiting.
-
-        Returns (bin_dir, log). ``fractional_ok=False`` models the platforms
-        this loop's whole-second fallback exists for: a `sleep` that rejects a
-        fractional argument.
-        """
-        bin_dir = self.tmpdir / f"shim-{'frac' if fractional_ok else 'whole'}"
-        bin_dir.mkdir(exist_ok=True)
-        log = bin_dir / "sleep.log"
-        reject = "" if fractional_ok else 'case "$1" in *.*) exit 1;; esac\n'
-        shim = bin_dir / "sleep"
-        shim.write_text(f'#!/bin/bash\n{reject}printf "%s\\n" "$1" >>"{log}"\n')
-        shim.chmod(0o755)
-        return bin_dir, log
-
     def _wait_budget_seconds(self, *, fractional_ok: bool) -> float:
         """Total wall-clock seconds a lock loser would have slept."""
         home = self._home(f"budget-{'frac' if fractional_ok else 'whole'}")
         legacy = self._seed_legacy(home)
         self._hold_lock(home)
-        bin_dir, log = self._sleep_shim(fractional_ok=fractional_ok)
 
-        result = self._run_init(
-            extra_env={
-                "HOME": str(home),
-                "PATH": f"{bin_dir}:{self._test_env['PATH']}",
-            },
-            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
-        )
-        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        slept, result = self._slept_seconds(home, fractional_ok=fractional_ok)
         self.assertEqual(result.stdout.strip(), str(legacy))
-        self.assertTrue(log.exists(), "the loser must have entered the wait loop")
-        return sum(float(line) for line in log.read_text().split())
+        self.assertGreater(slept, 0, "the loser must have entered the wait loop")
+        return slept
 
     def test_the_wait_is_bounded_in_seconds_not_in_ticks(self):
         """The budget must not depend on whether `sleep` takes a fraction.

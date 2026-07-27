@@ -73,6 +73,25 @@ teammates_are_live() {
 # there after the winner's last re-sync are the price.
 MIGRATE_WAIT_SECONDS=3
 
+# Is the lock's holder VERIFIABLY gone? A READ, and the only thing anything
+# automatic is allowed to do with a lock it did not create.
+#
+# True demands all three: the name is a symlink, its target is a number, and no
+# process has that pid. Anything less is NOT a corpse — an unreadable or
+# non-numeric target may be a live migration mid-copy, and a caller that treats
+# it as dead stops waiting and answers the legacy tree, silently dropping every
+# event appended after the winner's last whole-tree re-sync.
+lock_holder_is_verified_dead() {
+    local lock="$1" holder
+    [[ -L "${lock}" ]] || return 1
+    holder="$(readlink "${lock}" 2>/dev/null || true)"
+    [[ "${holder}" =~ ^[0-9]+$ ]] || return 1
+    if kill -0 "${holder}" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
 # Echo the migrated tree when it is already there, else the legacy one.
 #
 # Every exit from migrate_legacy_smm that is NOT "this process completed the
@@ -108,10 +127,9 @@ migrate_legacy_smm() {
     fi
 
     # The claim is a SYMLINK whose TARGET IS THE HOLDER'S PID, not a directory
-    # with the pid written into it afterwards. Both `mkdir` and `ln -s` fail
-    # atomically when the name is taken, but a directory cannot carry its holder
-    # at the instant it appears — writing `lock/pid` is a SECOND step, and a
-    # racer reading the lock in between sees no holder and concludes it is
+    # with the pid written into it afterwards: a directory cannot carry its
+    # holder at the instant it appears — writing `lock/pid` is a SECOND step, and
+    # a racer reading the lock in between sees no holder and concludes it is
     # stale. `ln -s` publishes the name and the holder in one syscall, so that
     # window does not exist. The target is a number rather than a path, so the
     # link is always dangling: `-e` and `-d` are false for it, and `-L` is the
@@ -141,13 +159,32 @@ migrate_legacy_smm() {
     # `ln -s` below stays the atomic step for a genuinely free name.
     if [[ -e "${lock}" ]] || [[ -L "${lock}" ]] ||
         ! ln -s "$$" "${lock}" 2>/dev/null; then
-        # Another process holds it. Do NOT settle for the legacy tree while that
-        # is true: the winner's last whole-tree re-sync happens BEFORE its
-        # rename, so anything appended to legacy after that instant never
-        # reaches the migrated SMM and is invisible to every later session.
-        # Wait for the winner — bounded, because an unbounded wait would hang
-        # every hook behind one slow copy, and legacy is still a usable answer.
-        # One probe settles BOTH the granularity and the tick count, so the
+        # A holder we PROVED is gone is nothing to wait for. Answer now, and
+        # leave the lock exactly where it is for the supervised clear.
+        #
+        # This branch is not an optimization. A dead symlink lock keeps `-L`
+        # true, so the loop below would spin the whole MIGRATE_WAIT_SECONDS
+        # before answering — on every init.sh invocation, which is every hook,
+        # for as long as the lock is there. A permanent 3s tax on the session,
+        # not an edge case.
+        if lock_holder_is_verified_dead "${lock}"; then
+            answer_existing_smm "${legacy}" "${new}"
+            return 0
+        fi
+
+        # Anything else is waited for, INCLUDING a holder that cannot be
+        # verified (unreadable or non-numeric target) and the directory-shaped
+        # lock an older version wrote. Do NOT settle for the legacy tree while a
+        # migration may be underway: the winner's last whole-tree re-sync happens
+        # BEFORE its rename, so anything appended to legacy after that instant
+        # never reaches the migrated SMM and is invisible to every later session.
+        # A needless wait is much cheaper than silently dropping events. The
+        # directory shape costs only the probe below, since the loop's own `-L`
+        # test gives it zero iterations.
+        #
+        # Bounded, because an unbounded wait would hang every hook behind one
+        # slow copy and legacy is still a usable answer. One probe settles BOTH
+        # the granularity and the tick count, so the
         # wall-clock budget above holds on either kind of platform: fractional
         # where it is supported, so polling stays fine-grained; whole seconds
         # where it is rejected, with a tenth of the ticks. The probe is itself
