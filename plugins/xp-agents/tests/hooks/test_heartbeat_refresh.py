@@ -21,7 +21,6 @@ that matter most (a dead-site bug review already caught once for the
 dropped review_cycle_done.py candidate).
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -47,11 +46,6 @@ from conftest import (
     _make_skill_input,
     _make_write_input,
 )
-
-# A CLI teammate's cwd sits inside a `worktree-story-` worktree — mirrors the
-# marker test_pre_tool_skill.py already uses for the same detection leg.
-_TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
-
 
 class _RefreshTestCase(_HookTestCase):
     """Shared reads/writes against this session's own heartbeat marker."""
@@ -111,11 +105,11 @@ class TestBashPostToolRefreshesHeartbeat(_RefreshTestCase):
         self.assertFalse(self._wrote())
 
     def test_a_command_that_is_neither_commit_nor_test_run_still_writes(self):
-        """AC#4, the dead-site guard for this file. `is_xp_agent` is only
-        computed inside the commit branch today (:157) and inside the
-        post-test-run branch (:173) — a write reusing either would never
-        run for an ordinary command like this one. This is the case that
-        goes red if the write moves below either branch."""
+        """AC#4, the dead-site guard for this file. Apart from the heartbeat's
+        own guard, `is_xp_agent` is computed only inside the commit branch and
+        again just below it, ahead of test-run detection — a write reusing
+        either would never run for an ordinary command like this one. This is
+        the case that goes red if the write moves below either branch."""
         with patch.dict(os.environ, _env()):
             bash_post_tool.run(
                 _make_bash_input("ls -la", session_id=self.SESSION),
@@ -139,9 +133,9 @@ class TestPostToolUseRefreshesHeartbeat(_RefreshTestCase):
         self.assertGreaterEqual(data["written_at"], before)
 
     def test_xp_agent_writes_no_heartbeat(self):
-        """AC#3. This hook already returns early on is_xp_agent (:31), so the
-        write inherits the guard for free — asserted here rather than left
-        implicit."""
+        """AC#3. This hook already returns early on is_xp_agent, ahead of the
+        write, so the write inherits the guard for free — asserted here rather
+        than left implicit."""
         with patch.dict(os.environ, _env()):
             post_tool_use.run(
                 _make_write_input(
@@ -224,27 +218,18 @@ class TestPreToolSkillWritesOnBlockPaths(_IntegrationTestCase):
     """AC#4, the dead-site guard this story exists to prevent regressing.
 
     `pre_tool_skill.py`'s `__main__` can `sys.exit(0)` on the teammate-block
-    path (:184, pre-fix line numbers) WITHOUT ever calling `run()`. A write
-    placed inside `run()` — the obvious spot — would silently miss every
-    teammate invocation, which is exactly the population this refresh
-    source exists to serve. Driven as a real subprocess because the bug
-    lives in `__main__`'s call ORDER, which an in-process call to
-    `refresh_heartbeat` alone can't exercise.
+    path WITHOUT ever calling `run()`. A write placed inside `run()` — the
+    obvious spot — would silently miss every teammate invocation, which is
+    exactly the population this refresh source exists to serve. Driven as a
+    real subprocess because the bug lives in `__main__`'s call ORDER, which an
+    in-process call to `refresh_heartbeat` alone can't exercise.
     """
 
     SESSION = "sess-block-path"
 
-    def _hook_env(self) -> dict:
-        return {**self._env_with_plugin_root(), **_env()}
-
     def _run_pre_tool_skill(self, payload: dict) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            ["python3", str(self.scripts_dir / "pre_tool_skill.py")],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._hook_env(),
+        return self._run_script_with_env(
+            "pre_tool_skill.py", payload, {**self._env_with_plugin_root(), **_env()}
         )
 
     def test_teammate_block_path_still_writes_a_heartbeat(self):
