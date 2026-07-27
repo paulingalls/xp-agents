@@ -16,6 +16,7 @@ import _common
 import commits
 import concerns
 import git_commits
+import hook_liveness
 import identity
 import markers
 import test_attribution
@@ -131,6 +132,16 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
+
+    # Ahead of every branch below (commit handling, test-run detection, the
+    # ignored-command fallthrough): the write records that THIS hook ran, not
+    # that this particular command mattered. Its own plain guard — not
+    # `is_xp_agent_leak`, which is threaded into commit handling for a
+    # different purpose and is only computed inside the commit branch.
+    if not _common.is_xp_agent(input_data):
+        hook_liveness.write_heartbeat(
+            smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+        )
 
     tool_input = input_data.get("tool_input", {})
     tool_response = input_data.get("tool_response", {})

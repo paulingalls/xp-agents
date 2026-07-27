@@ -16,6 +16,7 @@ import append_validation
 import concerns
 import coordination
 import event_schema
+import hook_liveness
 import identity
 import worktree
 
@@ -34,6 +35,14 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     smm_dir = _common.get_validated_smm_dir(smm_dir)
     if smm_dir is None:
         return None
+
+    # Ahead of the file-path / agent-id early returns below: the write
+    # records that this hook RAN, which holds even for a tool call this
+    # hook otherwise has nothing to log. Guarded for free by the
+    # is_xp_agent return above, which already sits ahead of this line.
+    hook_liveness.write_heartbeat(
+        smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+    )
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
