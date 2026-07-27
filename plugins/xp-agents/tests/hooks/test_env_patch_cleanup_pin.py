@@ -38,11 +38,22 @@ this row exists to allow.
 Fail-closed by design: anything not matching an enumerated safe row is
 flagged, including shapes nobody has written yet.
 
-NOT YET COVERED (next commit): a helper that itself safely `return`s a
-`patch.dict(os.environ, ...)` can still be misused by its CALLER --
-`self.enterContext(helper())` re-introduces the exact bug through one layer
-of indirection. This file's `return` row treats the helper's own body as
-safe (correctly); the caller-side check lands separately.
+HELPER INDIRECTION. A local helper that itself `return`s a safe
+`patch.dict(os.environ, ...)` (safe by the `return` row above) can still be
+misused by its CALLER: `self.enterContext(helper())` re-introduces the exact
+bug through one layer of indirection. Catching this needs a within-module
+pass: collect names of functions that `return` an env patcher, then flag any
+`self.enterContext(...)`/`self.addCleanup(...)` call whose argument is a
+call to one of those names. One real helper in the tree today
+(`test_tdd_gate_in_place_teammate.py`'s `_in_place_env`) is consumed safely,
+via `with self._in_place_env():`, in the same module -- so within-module
+scope is sufficient; nothing here resolves a helper imported from elsewhere.
+
+KNOWN GAPS (booked as debt 8dffcbf90181, not fixed here): an aliased import
+(`from unittest.mock import patch as p`) evades `_is_patch_dict_attr`'s
+name check, and a helper defined in one module but called from another
+evades the within-module indirection pass. This pin is a floor, not total
+coverage.
 """
 
 import ast
@@ -239,6 +250,61 @@ def _classify_call(
     )
 
 
+def _helper_names_returning_env_patch(
+    env_patch_calls: list[ast.Call], parents: dict[ast.AST, ast.AST]
+) -> set[str]:
+    """Names of functions/methods whose body directly `return`s a
+    `patch.dict(os.environ, ...)` call."""
+    names: set[str] = set()
+    for call in env_patch_calls:
+        parent = parents.get(call)
+        if isinstance(parent, ast.Return) and parent.value is call:
+            func = _enclosing(call, parents, (ast.FunctionDef, ast.AsyncFunctionDef))
+            if func is not None:
+                names.add(func.name)
+    return names
+
+
+def _helper_indirection_violations(
+    tree: ast.AST, helper_names: set[str]
+) -> list[tuple[int, str]]:
+    """Flag `self.enterContext(helper())` / `self.addCleanup(helper())` where
+    `helper` is a name bound (by `return`) to an env patcher."""
+    if not helper_names:
+        return []
+    violations: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if not (isinstance(node.func.value, ast.Name) and node.func.value.id == "self"):
+            continue
+        if node.func.attr not in ("enterContext", "addCleanup"):
+            continue
+        for arg in node.args:
+            if not isinstance(arg, ast.Call):
+                continue
+            callee = arg.func
+            name: str | None = None
+            if isinstance(callee, ast.Name):
+                name = callee.id
+            elif (
+                isinstance(callee, ast.Attribute)
+                and isinstance(callee.value, ast.Name)
+                and callee.value.id == "self"
+            ):
+                name = callee.attr
+            if name in helper_names:
+                violations.append(
+                    (
+                        node.lineno,
+                        f"{node.func.attr}({name}()) -- {name} returns a "
+                        f"patch.dict(os.environ, ...) patcher whose cleanup "
+                        f"escapes the test method through this indirection",
+                    )
+                )
+    return violations
+
+
 def _scan_file(path: Path) -> list[tuple[int, str]]:
     """Return (lineno, reason) violations for one file. Empty = clean.
 
@@ -259,6 +325,9 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
         result = _classify_call(call, parents)
         if result is not None:
             violations.append(result)
+
+    helper_names = _helper_names_returning_env_patch(env_patch_calls, parents)
+    violations.extend(_helper_indirection_violations(tree, helper_names))
 
     return sorted(violations)
 
@@ -385,6 +454,28 @@ class TestWalkerDetectsViolations(unittest.TestCase):
             )
             violations = _scan_file(tmp)
             self.assertEqual(len(violations), 1)
+
+    def test_detects_entercontext_on_helper_returning_patcher(self) -> None:
+        """AC#6: a helper whose returned patcher is passed to enterContext
+        is flagged -- the helper's own `return` is safe on its own, but the
+        caller's indirection through enterContext is not."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_violation.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from unittest.mock import patch\n"
+                "class T(unittest.TestCase):\n"
+                "    def _env_patch(self):\n"
+                '        return patch.dict(os.environ, {"X": "1"})\n'
+                "    def test_x(self):\n"
+                "        self.enterContext(self._env_patch())\n"
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            lineno, reason = violations[0]
+            self.assertEqual(lineno, 8)
+            self.assertIn("_env_patch", reason)
 
     def test_ignores_patch_dict_on_other_mapping(self) -> None:
         """patch.dict(some_other_dict, ...) is out of scope entirely."""
