@@ -17,6 +17,7 @@ These tests pin the prose shape so a future edit can't silently
 reintroduce the old non-deterministic check or the vacuous-gap gap.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -97,16 +98,29 @@ class TestConcernCountIsScopedByCloseDiff(unittest.TestCase):
             "shared-pipeline": _SHARED_PIPELINE.read_text(),
         }
 
+    @staticmethod
+    def _count_concerns_command(text: str) -> str:
+        """The fenced command block(s) that compute HIGH_CONCERN_COUNT.
+
+        Pinning the flag against the whole document would pass on the
+        explanatory paragraph alone — every site also NAMES `--diff-paths -` in
+        the prose beside its block, so dropping the flag from the command itself
+        would leave the substring behind and the pin green.
+        """
+        blocks = re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
+        return "\n".join(b for b in blocks if "count-concerns" in b)
+
     def test_every_count_concerns_site_passes_diff_paths(self):
         for name, text in self.sites.items():
             with self.subTest(site=name):
-                self.assertIn("count-concerns", text)
-                self.assertIn("--diff-paths -", text)
+                command = self._count_concerns_command(text)
+                self.assertTrue(command, "no fenced count-concerns command found")
+                self.assertIn("--diff-paths -", command)
 
     def test_every_site_pipes_the_cumulative_review_diff(self):
         for name, text in self.sites.items():
             with self.subTest(site=name):
-                self.assertIn(self._EXPECTED_DIFF, text)
+                self.assertIn(self._EXPECTED_DIFF, self._count_concerns_command(text))
 
     def test_no_site_names_head_as_the_diff_head(self):
         """`...HEAD` would silently review the wrong branch at story-close."""

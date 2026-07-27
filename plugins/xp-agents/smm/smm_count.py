@@ -221,16 +221,22 @@ def _load_diff_paths(spec: str | None) -> set[str]:
     """Parse newline-separated repo-relative paths from a file, or stdin ("-").
 
     Returns an EMPTY set for every degraded case — no spec, unreadable path,
-    blank content — because empty and absent MUST behave identically at the
-    call site (see _cmd_count_concerns). Swallowing the read error here is safe
-    only because of that: the caller notes the degradation on stderr and falls
-    back to counting everything.
+    undecodable bytes, blank content — because empty and absent MUST behave
+    identically at the call site (see _cmd_count_concerns). Swallowing the read
+    error here is safe only because of that: the caller notes the degradation on
+    stderr and falls back to counting everything.
+
+    UnicodeDecodeError is caught for the same reason OSError is: a path list a
+    non-UTF-8 filename made undecodable must degrade to counting everything, not
+    crash the gate query into an empty `$(...)` capture. Discarding the whole
+    list beats decoding it lossily — a mangled path silently matches nothing,
+    which is the fail-OPEN direction.
     """
     if not spec:
         return set()
     try:
         raw = sys.stdin.read() if spec == "-" else Path(spec).read_text()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return set()
     return {p for p in (_normalize_repo_path(line) for line in raw.splitlines()) if p}
 
@@ -257,13 +263,27 @@ def _intersects_diff(entry: str, diff_paths: set[str]) -> bool:
     return any(path.rsplit("/", 1)[-1] == entry for path in diff_paths)
 
 
+def _is_repo_relative(path: str) -> bool:
+    """False for an entry that cannot be COMPARED to a repo-relative diff path.
+
+    An absolute (`/…`, `~/…`) or parent-escaping (`../…`) entry names its file in
+    the wrong vocabulary: `git diff --name-only` always emits repo-relative
+    paths, so such an entry can never match one, and exact-plus-prefix matching
+    would read that as PROOF of irrelevance and drop the concern from every
+    scoped gate. It is unreadable evidence, like a blank or non-string entry —
+    the same class the slash-less basename fallback covers from the other side.
+    """
+    return not path.startswith(("/", "~")) and ".." not in path.split("/")
+
+
 def _provably_outside_diff(event: dict, diff_paths: set[str]) -> bool:
     """True IFF the concern names files and NONE of them intersect the close diff.
 
     Every early False is a fail-closed default. No `files` (or an empty list)
-    proves nothing about relevance. A non-string or blank entry is unreadable
-    evidence, not absent evidence, so it too keeps the concern on the floor.
-    Only a fully-readable file list that misses the diff entirely is proof.
+    proves nothing about relevance. A non-string, blank, or non-repo-relative
+    entry is unreadable evidence, not absent evidence, so it too keeps the
+    concern on the floor. Only a fully-readable, fully-comparable file list that
+    misses the diff entirely is proof.
 
     Caller must have established diff_paths is non-empty — against an empty set
     "no entry intersects" is vacuously true, which is the one way the rule fails
@@ -276,7 +296,9 @@ def _provably_outside_diff(event: dict, diff_paths: set[str]) -> bool:
         if not isinstance(entry, str):
             return False
         normalized = _normalize_repo_path(entry)
-        if not normalized or _intersects_diff(normalized, diff_paths):
+        if not normalized or not _is_repo_relative(normalized):
+            return False
+        if _intersects_diff(normalized, diff_paths):
             return False
     return True
 

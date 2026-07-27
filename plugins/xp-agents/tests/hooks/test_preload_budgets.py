@@ -39,11 +39,12 @@ from conftest import (
 # The four close preloads are the exception: each `cat`s the shared
 # close-pipeline reference, so a char added there costs 4x and the wave-2 trim
 # stories set these to the next hundred above measured rather than the 1.125
-# headroom, deliberately keeping the trim pressure on. Bumped 7800 -> 8300 and
-# 7900 -> 8400 when the shared Step 6 abort-default gained the close-diff pipe
+# headroom, deliberately keeping the trim pressure on. Bumped 7800/7900 -> 8300
+# when the shared Step 6 abort-default gained the close-diff pipe
 # (`count-concerns --diff-paths -`), so an unrelated open concern filed in the
 # same window can no longer abort a clean close. The added paragraph was
 # re-trimmed to five lines first; the per-mode SKILLs carry a one-liner each.
+# Measured at that bump: free 8237, plan 8223, sprint 8242, story 8295.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 100,
     "xp-assign": 300,
@@ -58,7 +59,7 @@ PRELOAD_BUDGETS: dict[str, int] = {
     "xp-sprint-close": 8300,
     "xp-sprint-review": 100,
     "xp-sprint-start": 100,
-    "xp-story-close": 8400,
+    "xp-story-close": 8300,
     "xp-system-context": 100,
     "xp-work-selection": 100,
 }

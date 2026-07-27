@@ -163,6 +163,25 @@ class TestUntaggedConcernsScopedByDiffRelevance(_ScopedGateTestCase):
         )
         self.assertEqual(self._scoped(["./plugins/xp-agents/smm/smm_count.py"]), "1")
 
+    def test_absolute_path_entry_still_counts(self) -> None:
+        """An absolute entry names its file in a vocabulary `git diff
+        --name-only` never emits, so exact-plus-prefix matching can never match
+        it — reading that as proof of irrelevance would drop the concern from
+        every scoped gate even when it names a file the close DOES touch."""
+        write_events(
+            self.events_file,
+            [_concern(files=["/Users/dev/repo/plugins/xp-agents/smm/smm_count.py"])],
+        )
+        self.assertEqual(self._scoped(_DIFF), "1")
+
+    def test_parent_escaping_entry_still_counts(self) -> None:
+        """Same class, recorded from a subdirectory instead of the repo root."""
+        write_events(
+            self.events_file,
+            [_concern(files=["../plugins/xp-agents/smm/smm_count.py"])],
+        )
+        self.assertEqual(self._scoped(_DIFF), "1")
+
     def test_non_string_files_entry_still_counts(self) -> None:
         """Malformed `files` proves nothing — stay on the fail-closed floor."""
         event = _concern(files=[_OUTSIDE_DIFF])
@@ -234,6 +253,14 @@ class TestDiffPathsFailsClosed(_ScopedGateTestCase):
         self.assertEqual(
             self._count(self._empty_diff_paths_args(str(self.smm_dir))), "1"
         )
+
+    def test_undecodable_file_counts_everything(self) -> None:
+        """A non-UTF-8 filename in the path list must degrade to counting, not
+        raise — the gate captures stdout in `$(...)`, so a traceback becomes an
+        empty count the calling `[ "$N" -gt 0 ]` test cannot read."""
+        binary = self.smm_dir / "binary-diff.txt"
+        binary.write_bytes(b"plugins/xp-agents/caf\xe9.py\n")
+        self.assertEqual(self._count(self._empty_diff_paths_args(str(binary))), "1")
 
     def test_empty_stdin_counts_everything(self) -> None:
         self.assertEqual(
