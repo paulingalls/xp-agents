@@ -24,6 +24,28 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 from test_init_migration import _MigrationCase
 
 
+class _LockFixtures:
+    """Lock scaffolding shared with ``test_migration_lock_never_broken.py``.
+
+    Mixed into a ``_MigrationCase``, which is where the temp HOME and the
+    project id come from.
+    """
+
+    def _lock_path(self, home: Path) -> Path:
+        """Where init.sh claims the migration lock for this HOME's new root."""
+        return home / ".xp-agents" / "data" / self._project_id() / ".migrate.lock"
+
+    def _hold_lock(self, home: Path) -> tuple[Path, subprocess.Popen]:
+        """Claim the lock for a process that is genuinely alive."""
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        lock = self._lock_path(home)
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.symlink_to(str(holder.pid))
+        return lock, holder
+
+
 class TestCrashResidue(_MigrationCase):
     """A partial migration must never read as a complete one."""
 
@@ -161,7 +183,7 @@ class TestCrashResidue(_MigrationCase):
         )
 
 
-class TestMigrationLockYields(_MigrationCase):
+class TestMigrationLockYields(_LockFixtures, _MigrationCase):
     """What a process that LOSES the lock resolves to.
 
     Not the legacy tree if it can be helped: the winner's last whole-tree
@@ -169,16 +191,6 @@ class TestMigrationLockYields(_MigrationCase):
     after that instant is absent from the migrated SMM and invisible to every
     later session — the session that performed the upgrade would show a gap.
     """
-
-    def _hold_lock(self, home: Path) -> tuple[Path, subprocess.Popen]:
-        """Claim the lock for a process that is genuinely alive."""
-        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
-        self.addCleanup(holder.wait)
-        self.addCleanup(holder.kill)
-        lock = home / ".xp-agents" / "data" / self._project_id() / ".migrate.lock"
-        lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.symlink_to(str(holder.pid))
-        return lock, holder
 
     def test_a_live_holders_lock_is_not_broken(self):
         home = self._home("live-lock")
