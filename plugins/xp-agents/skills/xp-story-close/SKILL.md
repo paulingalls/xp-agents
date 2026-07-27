@@ -193,10 +193,14 @@ Step 6 `AskUserQuestion` and proceed to Step 7 when ALL hold:
    Test `[ "$ASK_COUNT" -gt 0 ]` → fall through to shared Step 6.
 2. No open high-severity concern recorded during Step 4.5:
    ```bash
-   HIGH_CONCERN_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
-     --smm-dir <SMM_DIR> count-concerns \
+   HIGH_CONCERN_COUNT=$(git diff --name-only <TARGET_BRANCH>...<CURRENT_BRANCH> \
+     | python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-concerns --diff-paths - \
      --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
+   `--diff-paths -` drops an untagged concern whose recorded files this close
+   never touches; an empty or unreadable diff counts everything (fail closed).
+   Name both branches — on the teammate path your HEAD is the sprint branch.
    Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to shared Step 6.
 3. Preload emitted a non-empty `TEST_COMMAND=...` AND running it after
    all Step 5c fixes landed exits 0.

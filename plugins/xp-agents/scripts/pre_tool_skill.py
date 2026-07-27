@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
+import hook_liveness
 import identity
 import sprint_state
 import sprint_store
@@ -161,6 +162,35 @@ def accept_evidence_block_reason(
     return None if has_closing else _ACCEPT_EVIDENCE_BLOCK
 
 
+def refresh_heartbeat(input_data: dict, smm_dir: Path | None = None) -> None:
+    """Refresh the hook-liveness heartbeat ahead of every `__main__` branch.
+
+    `__main__` can `sys.exit(0)` on the teammate-block path or the
+    accept-evidence-block path without ever calling `run()`, so a write
+    placed inside `run()` would miss both. This is the site: it runs before
+    the skill's own preload reads the marker, which is what lets a
+    long-running teammate's stale heartbeat self-rescue on its next skill
+    call. Never raises — `write_heartbeat` swallows its own failures.
+
+    Resolves its OWN dir and does not hand the result to the gates below,
+    against `_common.resolve_smm_dir`'s general "resolve once and thread"
+    advice. `teammate_block_reason` reaches `identity.in_place_teammate_name`,
+    which deliberately refuses init.sh derivation and accepts only an explicit
+    ``SMM_DIR``: threading a derived dir in would let a live in-place marker
+    for a LEAKED ``XP_TEAMMATE_NAME`` misidentify the lead as a teammate and
+    lock it out of every lead-owned skill. A heartbeat write grants no
+    authority, so it can derive freely; the gate cannot.
+    """
+    if _common.is_xp_agent(input_data):
+        return
+    resolved_smm_dir = _common.get_validated_smm_dir(smm_dir)
+    if resolved_smm_dir is None:
+        return
+    hook_liveness.write_heartbeat(
+        resolved_smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+    )
+
+
 def run(input_data: dict, **_kwargs) -> str | None:
     """Inject guidance before skills run."""
     if _common.is_xp_agent(input_data):
@@ -178,6 +208,7 @@ def run(input_data: dict, **_kwargs) -> str | None:
 
 if __name__ == "__main__":
     input_data = _common.read_hook_input()
+    refresh_heartbeat(input_data)
     block = teammate_block_reason(input_data)
     if block:
         _common.block_output(block, "Lead-owned skill blocked for CLI teammate.")
