@@ -135,8 +135,8 @@ class TestPrepareReviewData(_HookTestCase):
             "sprint_id",
             "goal",
             "velocity",
-            "sprint_md_path",
-            "execution_plan_md_path",
+            "sprint_path",
+            "execution_plan_path",
             "milestone",
         )
         for key in expected:
@@ -144,6 +144,9 @@ class TestPrepareReviewData(_HookTestCase):
         # Should NOT have embedded content
         self.assertNotIn("sprint_md", result)
         self.assertNotIn("product_spec_md", result)
+        # Should NOT carry the old .md-suffixed key names
+        self.assertNotIn("sprint_md_path", result)
+        self.assertNotIn("execution_plan_md_path", result)
 
     def test_no_sprint_returns_none(self):
         """No sprint.json -> None."""
@@ -196,25 +199,25 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertEqual(result["goal"], "Build auth system")
 
     def test_execution_plan_path_set(self):
-        """execution_plan.json exists -> execution_plan_md_path is non-empty."""
+        """execution_plan.json exists -> execution_plan_path is non-empty."""
         (self.smm_dir / "execution_plan.json").write_text("{}")
         result = self._run_with(SPRINT_MIXED)
-        path = result["execution_plan_md_path"]
+        path = result["execution_plan_path"]
         self.assertTrue(path)
         self.assertTrue(Path(path).is_file())
 
     def test_missing_execution_plan_empty_path(self):
-        """No execution_plan.json -> execution_plan_md_path=''."""
+        """No execution_plan.json -> execution_plan_path=''."""
         result = self._run_with(SPRINT_MIXED)
-        self.assertEqual(result["execution_plan_md_path"], "")
+        self.assertEqual(result["execution_plan_path"], "")
 
     def test_execution_plan_symlink_empty_path(self):
-        """execution_plan.json is symlink -> execution_plan_md_path=''."""
+        """execution_plan.json is symlink -> execution_plan_path=''."""
         target = self.smm_dir / "_fake_target.json"
         target.write_text("{}")
         (self.smm_dir / "execution_plan.json").symlink_to(target)
         result = self._run_with(SPRINT_MIXED)
-        self.assertEqual(result["execution_plan_md_path"], "")
+        self.assertEqual(result["execution_plan_path"], "")
 
     def test_milestone_populated_from_sprint(self):
         """Sprint with Milestone header -> milestone key populated."""
@@ -226,10 +229,10 @@ class TestPrepareReviewData(_HookTestCase):
         result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["milestone"], "")
 
-    def test_execution_plan_md_path_key_always_present(self):
-        """execution_plan_md_path always present as key in output."""
+    def test_execution_plan_path_key_always_present(self):
+        """execution_plan_path always present as key in output."""
         result = self._run_with(SPRINT_MIXED)
-        self.assertIn("execution_plan_md_path", result)
+        self.assertIn("execution_plan_path", result)
 
 
 # ===========================================================================

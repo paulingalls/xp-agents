@@ -49,8 +49,8 @@ def run(smm_dir: Path, target_path: Path) -> dict | None:
         "stories_by_status": counts,
         "velocity": velocity,
         "milestone": sprint_data.get("milestone", ""),
-        "sprint_md_path": str(smm_dir / "sprint.json"),
-        "execution_plan_md_path": plan_str,
+        "sprint_path": str(smm_dir / "sprint.json"),
+        "execution_plan_path": plan_str,
     }
 
     _common.write_json_atomic(target_path, review_input)
