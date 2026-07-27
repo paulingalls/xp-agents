@@ -9,18 +9,27 @@ The property under test throughout is that the loser of a race must never be
 able to damage the winner, and that a process which cannot migrate must still
 resolve SOMETHING: empty stdout from init.sh degrades the whole session to
 no-SMM.
+
+The lock's NAME and SHAPE are pinned here too, against the reader in
+`scripts/migrate_smm_root.py`: this is where the helper that encodes them lives,
+and every other case fabricates the lock rather than watching init.sh claim one.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
+import migrate_smm_root as tool
 from test_init_migration import _MigrationCase
 
 # A pid that cannot be live: above the maximum on both supported platforms.
@@ -368,6 +377,85 @@ class TestMigrationConcurrency(_LockCase):
         # whole duplicate SMM here rather than fail.
         nested = [p.name for p in new_smm.iterdir() if p.name.startswith(".migrat")]
         self.assertEqual(nested, [], f"a losing migration landed inside: {nested}")
+
+
+class TestTheLockNameAndShapeAreOneContract(_LockCase):
+    """Two files now have to agree on the lock, so pin BOTH sides of it.
+
+    init.sh writes the claim and the tool reads it. Nothing else reconciles
+    them: if init.sh moved the name, or claimed a directory instead of a symlink
+    naming its pid, the tool would find "residue from an older version" at the
+    name a LIVE migration holds and clear it — and every other case in these two
+    lock suites would still pass, because they all fabricate the lock themselves.
+    """
+
+    def _cp_shim(self, lock: Path) -> tuple[Path, Path]:
+        """A PATH-shimmed `cp` that records the lock's shape, then really copies.
+
+        The claim exists only between the `ln -s` and the release, and the copy
+        is what happens in between — so shimming `cp` is the one way to observe
+        it from outside. The real `cp` is resolved HERE, before the shim dir is
+        on PATH, so the shim cannot find itself.
+        """
+        real_cp = shutil.which("cp")
+        self.assertIsNotNone(real_cp, "no cp on PATH to shim")
+        bin_dir = self.tmpdir / f"cpshim-{self._testMethodName}"
+        bin_dir.mkdir(exist_ok=True)
+        log = bin_dir / "shape.log"
+        shim = bin_dir / "cp"
+        shim.write_text(
+            "#!/bin/bash\n"
+            f'if [[ -L "{lock}" ]]; then\n'
+            f'    printf "symlink %s\\n" "$(readlink "{lock}")" >>"{log}"\n'
+            f'elif [[ -d "{lock}" ]]; then printf "dir\\n" >>"{log}"\n'
+            f'elif [[ -e "{lock}" ]]; then printf "file\\n" >>"{log}"\n'
+            f'else printf "absent\\n" >>"{log}"\n'
+            "fi\n"
+            f'exec "{real_cp}" "$@"\n'
+        )
+        shim.chmod(0o755)
+        return bin_dir, log
+
+    def test_the_claim_init_sh_writes_is_the_one_the_tool_reads(self):
+        home = self._home("lock-contract")
+        legacy = self._seed_legacy(home)
+        lock = self._lock_path(home)
+        bin_dir, log = self._cp_shim(lock)
+
+        result = self._run_init(
+            extra_env={
+                "HOME": str(home),
+                "PATH": f"{bin_dir}:{self._test_env['PATH']}",
+            },
+            unset=("XP_AGENTS_DATA", "CLAUDE_PLUGIN_DATA"),
+        )
+        self.assertEqual(result.returncode, 0, f"init.sh failed: {result.stderr}")
+        self.assertEqual(
+            result.stdout.strip(),
+            str(self._new_smm(home)),
+            "the migration must actually have run for the claim to be observed",
+        )
+
+        shapes = log.read_text().splitlines() if log.exists() else []
+        self.assertTrue(shapes, "the copy never ran, so nothing observed the claim")
+        for shape in shapes:
+            kind, _, target = shape.partition(" ")
+            self.assertEqual(kind, "symlink", f"the claim was not a symlink: {shape}")
+            # A pid, in the form `holder_state` and init.sh's `^[0-9]+$` agree on.
+            self.assertTrue(
+                target.isascii() and target.isdigit(),
+                f"the claim must name a pid, not {target!r}",
+            )
+            self.assertIsNotNone(
+                tool.holder_state(target),
+                f"the tool must be able to verify liveness of {target!r}",
+            )
+
+        # And the tool computes that same name from where the SMM was found.
+        env = {k: v for k, v in os.environ.items() if k != "XP_AGENTS_DATA"}
+        env["HOME"] = str(home)
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(tool.lock_path_for(legacy), lock)
 
 
 if __name__ == "__main__":

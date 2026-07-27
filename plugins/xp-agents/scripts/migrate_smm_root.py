@@ -151,16 +151,27 @@ def holder_state(target: str) -> bool | None:
 
     Three answers, not two: an unverifiable target is not a corpse, and the
     callers treat it differently from one they proved dead.
+
+    ASCII digits only, exactly what init.sh's `^[0-9]+$` accepts: the two sides
+    must agree on what counts as a pid, or one waits for a holder the other
+    clears. `str.isdigit` alone is wider — true for superscripts, which `int()`
+    then rejects, making the guard itself the traceback.
     """
-    if not target.isdigit() or int(target) <= 0:
+    if not (target.isascii() and target.isdigit()) or int(target) <= 0:
         return None
     try:
         os.kill(int(target), 0)
     except ProcessLookupError:
         return False
-    except (OSError, OverflowError):
-        # EPERM (the process exists but is not ours) and an unusable pid both
-        # mean "not proven dead", which must read as held.
+    except OverflowError:
+        # Too big for a C int, so not a pid this tool can check — and NOT
+        # "running": init.sh's `kill -0` rejects the same value and stops
+        # waiting for it, so reporting a holder here would leave a lock no side
+        # waits for and this command refuses to clear.
+        return None
+    except OSError:
+        # EPERM: the process EXISTS and is simply not ours. Not proven dead, so
+        # it reads as held.
         return True
     return True
 
@@ -178,7 +189,14 @@ def _report_lock(lock: Path) -> None:
     if not lock.is_symlink():
         print("  lock holder: none — not a symlink, so residue from an older version")
         return
-    target = os.readlink(lock)
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        # Gone between the two syscalls — a concurrent clear, or the holder
+        # finishing and releasing. Reporting must not traceback over a lock
+        # that stopped existing while being described.
+        print("  lock holder: released while reporting — re-run to see the state")
+        return
     match holder_state(target):
         case None:
             print(f"  lock holder: {target!r} — names no pid, liveness unverifiable")

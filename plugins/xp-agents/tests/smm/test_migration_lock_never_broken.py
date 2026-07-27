@@ -237,6 +237,37 @@ class TestSupervisedClear(unittest.TestCase):
         self.assertFalse(self.lock.is_symlink())
         self.assertIn("no pid", out)
 
+    def test_a_unicode_digit_target_is_not_read_as_a_pid(self):
+        """What counts as a pid must be what init.sh's `^[0-9]+$` counts.
+
+        `str.isdigit` is wider than that: it is true for superscripts, which
+        `int()` then REJECTS — so the pid guard itself was the traceback — and
+        for other-script digits, which `int()` accepts as a pid init.sh would
+        never have written. Either way the two sides must agree, or one waits
+        for a holder the other clears.
+        """
+        self.assertIsNone(tool.holder_state("²"), "superscript two")
+        self.assertIsNone(tool.holder_state("٣"), "Arabic-Indic three")
+        self.lock.symlink_to("²")
+        code, out, _ = self._clear()
+        self.assertEqual(code, 0)
+        self.assertIn("no pid", out)
+
+    def test_an_oversized_pid_is_unverifiable_not_running(self):
+        """A number too big for a C int is not a holder, and must not read as one.
+
+        `os.kill` raises OverflowError there, and folding that in with EPERM
+        reported "its holder is running" for a pid that cannot exist — refusing
+        to clear a lock init.sh's own `kill -0` rejects and does not wait for.
+        Nothing would then clear it and nothing would wait for it.
+        """
+        self.assertIsNone(tool.holder_state("9" * 30))
+        self.lock.symlink_to("9" * 30)
+        code, out, _ = self._clear()
+        self.assertEqual(code, 0)
+        self.assertFalse(self.lock.is_symlink())
+        self.assertIn("no pid", out)
+
     def test_a_directory_shaped_lock_is_cleared_and_its_contents_named(self):
         """The shape an older init.sh wrote. Nothing removes it automatically
         now, which makes it the one shape that would block relocation forever."""
@@ -350,12 +381,6 @@ class TestSupervisedClearEndToEnd(_LockCase):
             cwd=str(self.tmpdir),
             env=env,
         )
-
-    def _dead_lock(self, home: Path) -> Path:
-        lock = self._lock_path(home)
-        lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.symlink_to(DEAD_PID)
-        return lock
 
     def test_the_report_names_the_lock_and_its_holder(self):
         """A lock nothing removes on its own is invisible until someone looks —

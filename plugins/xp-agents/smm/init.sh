@@ -172,15 +172,24 @@ migrate_legacy_smm() {
             return 0
         fi
 
-        # Anything else is waited for, INCLUDING a holder that cannot be
-        # verified (unreadable or non-numeric target) and the directory-shaped
-        # lock an older version wrote. Do NOT settle for the legacy tree while a
-        # migration may be underway: the winner's last whole-tree re-sync happens
-        # BEFORE its rename, so anything appended to legacy after that instant
-        # never reaches the migrated SMM and is invisible to every later session.
-        # A needless wait is much cheaper than silently dropping events. The
-        # directory shape costs only the probe below, since the loop's own `-L`
-        # test gives it zero iterations.
+        # Any other SYMLINK is waited for, INCLUDING a holder that cannot be
+        # verified (unreadable or non-numeric target). Do NOT settle for the
+        # legacy tree while a migration may be underway: the winner's last
+        # whole-tree re-sync happens BEFORE its rename, so anything appended to
+        # legacy after that instant never reaches the migrated SMM and is
+        # invisible to every later session. A needless wait is much cheaper than
+        # silently dropping events.
+        #
+        # A NON-symlink is not waited for at all — the loop's own `-L` test gives
+        # the directory-shaped lock an older version wrote zero iterations, so it
+        # costs only the probe below and answers legacy at once. Stated plainly
+        # rather than dressed up as a wait: it is only reachable when two
+        # DIFFERENT versions of this script run against one SMM, where the
+        # exposure is the event-drop above and not a second holder (the `-e` test
+        # still keeps this run from claiming). Making it wait would instead put a
+        # permanent MIGRATE_WAIT_SECONDS on every hook for as long as a crashed
+        # old version's directory sits there, which is the tax the branch above
+        # exists to avoid.
         #
         # Bounded, because an unbounded wait would hang every hook behind one
         # slow copy and legacy is still a usable answer. One probe settles BOTH
