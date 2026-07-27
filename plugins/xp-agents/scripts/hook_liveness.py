@@ -50,8 +50,11 @@ SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
 #
 # Be honest about what that costs. With session-id matching carrying the
 # precision, this leg's only remaining job is catching a runtime that dies
-# MID-session, and at four hours it will not catch that quickly. Tightening
-# it needs a refresh source with a higher frequency than one-per-prompt.
+# MID-session, and at four hours it will not catch that quickly. The
+# higher-frequency refresh source that tightening once waited on now exists —
+# every Bash, every file write and every skill call refreshes this — so what
+# still holds the threshold open is a session sitting IDLE between prompts,
+# not a shortage of signal while it works.
 STALE_AFTER_SECONDS = 4 * 60 * 60
 
 CODE_LIVE = "live"
