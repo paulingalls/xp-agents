@@ -50,8 +50,13 @@ SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
 #
 # Be honest about what that costs. With session-id matching carrying the
 # precision, this leg's only remaining job is catching a runtime that dies
-# MID-session, and at four hours it will not catch that quickly. Tightening
-# it needs a refresh source with a higher frequency than one-per-prompt.
+# MID-session, and at four hours it will not catch that quickly. A
+# higher-frequency refresh source now exists — every Bash, every
+# Write/Edit/MultiEdit and every Skill call refreshes this — but it does not
+# yet cover the tool surface: Read/Grep/Glob have no PostToolUse handler, so a
+# long read-only stretch still ages out while hooks are demonstrably running.
+# Tightening therefore waits on two things, not one: closing that gap, and a
+# session sitting IDLE between prompts.
 STALE_AFTER_SECONDS = 4 * 60 * 60
 
 CODE_LIVE = "live"

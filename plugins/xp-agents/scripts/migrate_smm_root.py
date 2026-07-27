@@ -8,24 +8,35 @@ branch never merged, so a single abandoned story pins the SMM in the directory
 `claude plugin uninstall` deletes. Only a human can tell an abandoned worktree
 from a running teammate, which is what this tool is for.
 
-It deliberately does NOT implement relocation. Copying, locking, the whole-tree
-re-sync and the forward pointer live in `init.sh`, the one boundary every reader
-and writer passes through; a second implementation here would be a second set of
-race conditions. The tool reports state and drives init.sh through
+RELOCATION is still not implemented here. Copying, the whole-tree re-sync and
+the forward pointer live in `init.sh`, the one boundary every reader and writer
+passes through; the tool only reports state and drives init.sh through
 `XP_SMM_MIGRATE`.
+
+Lock CLEARING is the exception, and it lives here on purpose: a resolver must
+never remove a lock it did not create. Breaking one is a read then a delete, no
+shell primitive makes that pair indivisible, and an automatic breaker therefore
+ran N-at-a-time at every session start. Moving it here does NOT make two holders
+impossible — taking the name aside frees it, so a racer can claim it in the gap
+and the no-clobber restore then fails. What changes is that the outcome stays
+recoverable and loud (nothing is deleted, and the tool says so and exits
+non-zero), and that the exposure is one deliberate human invocation instead of
+every hook. That residual is the "second set of race conditions" this docstring
+used to predict; see `clear_stale_lock`.
 
 Reporting resolves through init.sh with relocation suppressed, so it never moves
 anything. It is not a pure read: resolution seeds any missing default files, the
 same way opening a session does. Nothing about WHERE the SMM lives changes.
 
     migrate_smm_root.py                  # report; relocates nothing
-    migrate_smm_root.py --confirm        # relocate, if nothing looks live
+    migrate_smm_root.py --confirm        # clear a DEAD lock, then relocate
     migrate_smm_root.py --confirm --force  # relocate anyway (read the report first)
 """
 
 import argparse
 import contextlib
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +48,14 @@ import smm_dir_resolve
 
 _INIT_SH = Path(__file__).parent.parent / "smm" / "init.sh"
 _IN_PLACE_GLOB = ".in-place-active-*"
+
+# The lock contract, pinned here because two files now have to agree on it:
+# init.sh claims this name BESIDE the project's `smm/` directory, and the claim
+# is a SYMLINK whose target is the holder's pid (`ln -s "$$"` in init.sh's
+# migrate_legacy_smm) — one syscall publishes the name and the holder together,
+# so a lock is never observable without its holder. Anything else at that name is
+# residue from an older version of init.sh by construction.
+_LOCK_NAME = ".migrate.lock"
 
 
 def _run_init(mode: str | None) -> Path | None:
@@ -122,12 +141,197 @@ def destination_for(current: Path) -> Path:
     return root / current.parent.name / "smm"
 
 
-def _report(current: Path, at_risk: bool, signals: list[str]) -> None:
+def lock_path_for(current: Path) -> Path:
+    """The migration lock init.sh would claim to relocate out of ``current``."""
+    return destination_for(current).parent / _LOCK_NAME
+
+
+def holder_state(target: str) -> bool | None:
+    """Is the pid a lock names running? None when the target names no pid.
+
+    Three answers, not two: an unverifiable target is not a corpse, and the
+    callers treat it differently from one they proved dead.
+
+    ASCII digits only, exactly what init.sh's `^[0-9]+$` accepts: the two sides
+    must agree on what counts as a pid, or one waits for a holder the other
+    clears. `str.isdigit` alone is wider — true for superscripts, which `int()`
+    then rejects, making the guard itself the traceback.
+    """
+    if not (target.isascii() and target.isdigit()) or int(target) <= 0:
+        return None
+    try:
+        os.kill(int(target), 0)
+    except ProcessLookupError:
+        return False
+    except OverflowError:
+        # Too big for a C int, so not a pid this tool can check — and NOT
+        # "running": init.sh's `kill -0` rejects the same value and stops
+        # waiting for it, so reporting a holder here would leave a lock no side
+        # waits for and this command refuses to clear.
+        return None
+    except OSError:
+        # EPERM: the process EXISTS and is simply not ours. Not proven dead, so
+        # it reads as held.
+        return True
+    return True
+
+
+def _report_lock(lock: Path) -> None:
+    """Name the lock and its holder — nothing else makes a dead one visible.
+
+    No resolver removes a lock any more, so a crashed relocation's lock blocks
+    every session's automatic attempt until a human looks. This is where they
+    look.
+    """
+    if not lock.is_symlink() and not lock.exists():
+        return
+    print(f"  lock:        {lock}")
+    if not lock.is_symlink():
+        print("  lock holder: none — not a symlink, so residue from an older version")
+        return
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        # Gone between the two syscalls — a concurrent clear, or the holder
+        # finishing and releasing. Reporting must not traceback over a lock
+        # that stopped existing while being described.
+        print("  lock holder: released while reporting — re-run to see the state")
+        return
+    match holder_state(target):
+        case None:
+            print(f"  lock holder: {target!r} — names no pid, liveness unverifiable")
+        case True:
+            print(f"  lock holder: pid {target} — RUNNING, a migration may be underway")
+        case False:
+            print(f"  lock holder: pid {target} — not running; --confirm clears it")
+
+
+def _preserve_taken(lock: Path, taken: Path, held: str) -> int:
+    """Refuse, leaving what was taken where a human can put it back.
+
+    Deleting here is the entire defect this replaces: what we hold may be a
+    claim a LIVE process made in the gap between the readlink and the rename,
+    and its owner is already copying. So nothing is removed, and the message
+    says plainly that two migrations may be in flight.
+    """
+    print(
+        f"Refusing to clear {lock}: it was taken aside and could not be put "
+        "back, because another claim now occupies the name.",
+        file=sys.stderr,
+    )
+    print(f"  taken aside: {taken} (holds {held})", file=sys.stderr)
+    print(
+        "TWO MIGRATIONS MAY NOW BE IN FLIGHT — the claim above and whatever "
+        "holds the lock name. Nothing was deleted. Let both finish, check the "
+        "SMM, then remove the file above by hand.",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def clear_stale_lock(lock: Path) -> int:
+    """Clear a migration lock whose holder is gone. 0 means the name is free.
+
+    Take-then-inspect, never read-then-delete. `os.rename` is an atomic
+    single-winner take, so of N callers exactly one ends up holding what was at
+    that name and there is no second delete left to land on somebody's live
+    claim. The readlink is still a SEPARATE syscall from the rename, so what was
+    taken is not necessarily what was verified — hence the inspection after.
+
+    This does NOT make two holders impossible. Taking the name aside FREES it,
+    and a racer can claim it in that gap; the no-clobber restore then fails and
+    two processes believe they hold the lock. That outcome is left RECOVERABLE
+    instead of papered over — see `_preserve_taken`. There is deliberately no
+    atexit, no try/finally and no trap that removes the taken file: a cleanup
+    trap on exactly this path is what made the automatic breaker delete live
+    claims.
+    """
+    if not lock.is_symlink() and not lock.exists():
+        return 0
+
+    was_symlink = lock.is_symlink()
+    try:
+        expected = os.readlink(lock) if was_symlink else None
+    except OSError:
+        # Gone between the two syscalls — another invocation of this command
+        # cleared it. The name is free, which is all the caller asked about.
+        return 0
+    if expected is not None and holder_state(expected):
+        print(
+            f"Refusing to clear {lock}: its holder (pid {expected}) is running, "
+            "so a migration may be underway. --force overrides the "
+            "teammate-liveness signal, never lock ownership.",
+            file=sys.stderr,
+        )
+        return 1
+
+    taken = lock.with_name(f"{lock.name}.clearing.{os.getpid()}")
+    try:
+        os.rename(lock, taken)
+    except OSError as exc:
+        print(
+            f"Refusing to clear {lock}: could not take it aside ({exc}). "
+            "Something else got to the name first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if taken.is_symlink():
+        actual = os.readlink(taken)
+        if was_symlink and actual == expected:
+            os.unlink(taken)
+            if holder_state(actual) is None:
+                held = f"it named no pid this tool can check ({actual!r})"
+            else:
+                held = f"its holder (pid {actual}) was gone"
+            print(f"Cleared the migration lock {lock}: {held}.")
+            return 0
+        # Not what was verified — a claim landed in the gap. Put it back:
+        # os.symlink refuses an occupied name, so a newer claim wins over the
+        # restore and one is never clobbered.
+        try:
+            os.symlink(actual, lock)
+        except OSError:
+            return _preserve_taken(lock, taken, f"pid {actual}")
+        os.unlink(taken)
+        print(
+            f"Refusing to clear {lock}: a claim naming pid {actual} appeared "
+            "while it was being cleared. It has been put back.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if was_symlink:
+        # A symlink was recorded and something else was taken. Restoring it
+        # would mean clobbering whatever is at the name now, so preserve it.
+        return _preserve_taken(lock, taken, "no holder this tool can read")
+
+    # A non-symlink is residue by construction (see _LOCK_NAME). Nothing removes
+    # one automatically any more, which makes it the one shape that would block
+    # relocation forever — clearing it deliberately is what this command is for.
+    if taken.is_dir():
+        contents = ", ".join(sorted(p.name for p in taken.iterdir())) or "nothing"
+        shutil.rmtree(taken)
+        print(
+            f"Cleared the migration lock {lock}: a directory containing "
+            f"{contents} — residue from an older version."
+        )
+    else:
+        os.unlink(taken)
+        print(
+            f"Cleared the migration lock {lock}: a plain file — residue from an "
+            "older version."
+        )
+    return 0
+
+
+def _report(current: Path, at_risk: bool, signals: list[str], lock: Path) -> None:
     files, size = _tree_stats(current)
     print("SMM relocation")
     print(f"  current:     {current}")
     print(f"  destination: {destination_for(current)}")
     print(f"  contents:    {files} files, {_human(size)}")
+    _report_lock(lock)
     if at_risk:
         print(
             "  at risk:     YES — this root is deleted by "
@@ -217,7 +421,10 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="relocate even when a teammate looks live (implies --confirm)",
+        help=(
+            "relocate even when a teammate looks live (implies --confirm); it "
+            "does NOT clear a lock whose holder is still running"
+        ),
     )
     args = parser.parse_args(argv)
     confirm = args.confirm or args.force
@@ -237,7 +444,8 @@ def run(argv: list[str] | None = None) -> int:
 
     at_risk = smm_dir_resolve.is_under_plugin_managed_root(current)
     signals = live_signals(current)
-    _report(current, at_risk, signals)
+    lock = lock_path_for(current)
+    _report(current, at_risk, signals, lock)
 
     if not at_risk:
         print()
@@ -261,20 +469,15 @@ def run(argv: list[str] | None = None) -> int:
         print(f"--force: relocating despite {len(signals)} live-teammate signal(s).")
     source = current
     mode = "force" if args.force else None
+    # A crashed relocation's lock blocks every session's automatic attempt and
+    # nothing removes it on its own any more, so clearing it is the reason this
+    # command exists. It refuses on a live holder regardless of --force.
+    cleared = clear_stale_lock(lock)
+    if cleared != 0:
+        return cleared
     moved = _run_init(mode)
     if moved is None:
         return 2
-    if moved == source:
-        # A run that meets a crashed run's dead lock frees the name and stops
-        # there BY DESIGN — breaking a lock and claiming it cannot be made one
-        # indivisible step in a shell, so the claim is left to the next run.
-        # For a session that is one session later; for a one-shot command it
-        # would be "nothing happened" and exit 1, in exactly the situation
-        # (a crashed relocation) that makes someone reach for this tool. Take
-        # the next run here. Once only — a second no-op is a real refusal.
-        moved = _run_init(mode)
-        if moved is None:
-            return 2
     if moved == source:
         print("Relocation did not happen; the SMM is still at the old location.")
         return 1

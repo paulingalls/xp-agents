@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The two hooks that write the hook-liveness heartbeat.
+"""The two SESSION-BOUNDARY hooks that write the hook-liveness heartbeat.
 
 The marker primitive is tested in test_hook_heartbeat_marker.py /
 test_hook_heartbeat_liveness.py. This suite pins the WRITERS: which hooks
@@ -9,6 +9,10 @@ refresh it, on which paths, and with which session id.
 before it can invoke anything, teammates included. `SessionStart` is the
 lead's head start, so the very first preload of a session already has a
 verdict to read.
+
+These two are not the only writers: the tool-use refresh sites that keep a
+long-running session's heartbeat alive BETWEEN prompts are pinned in
+test_heartbeat_refresh.py.
 """
 
 import os
