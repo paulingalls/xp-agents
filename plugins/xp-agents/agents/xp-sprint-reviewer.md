@@ -23,7 +23,7 @@ Summarize: goal achieved? Stories delivered vs planned, velocity (`delivered/pla
 
 ## Step 2b: Milestone Acceptance Gate
 
-If `execution_plan_path` and `milestone` are both non-empty, read `execution_plan.json` and find the milestone matching the sprint's `milestone` field. Check for `acceptance_execution` on that milestone:
+If `execution_plan_path` and `milestone` are both non-empty, read the file at `execution_plan_path` and find the milestone matching the sprint's `milestone` field. Check for `acceptance_execution` on that milestone:
 
 **If `acceptance_execution` exists:**
 - Run `setup` (if present) then `command` via Bash
@@ -43,7 +43,7 @@ Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --sprint --smm-d
 
 If `execution_plan_path` and `milestone` are both non-empty:
 
-1. Read execution_plan.json to identify the milestone number
+1. Read the file at `execution_plan_path` to identify the milestone number
 2. Mark delivered:
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> \
