@@ -42,11 +42,8 @@ xp-assign runs it has promoted the batch to `in-progress` with
 
 **Parallelism shape:** earlier teammates run asynchronously while the
 lead plans the next story (the Bash `run_in_background=true`). The
-precedence is **plan → SPAWN → accept**: on a task-notification, spawn
-any story that is already planned, reviewed and un-spawned before
-accepting the teammate that just finished — only accept immediately
-when nothing is left to spawn. Accepts and spawns still interleave
-(they're not serialized), but spawning never waits on an accept, or the
+precedence is **plan → SPAWN → accept** — spelled out in Step 5, which
+is where it is actionable. Spawning never waits on an accept, or the
 background sits empty for a whole close cycle.
 
 ## Pre-flight
@@ -166,7 +163,7 @@ EXECUTOR_EFFORT=$(echo "$STORY_JSON" | python3 -c "import json,sys; d=json.load(
 `--effort` below when non-empty, guarded by that script's fail-safe; absent → no
 `--effort`.
 
-`executor_model` (story-002 schema slot) is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below. When absent (null or missing field), no `--model` flag is passed (the spawned teammate inherits the orchestrator's model). The three-step shape (capture → non-empty check → parse-with-error-trap) surfaces every failure mode: non-zero exit (step 1), empty stdout on exit 0 (step 2), and malformed JSON / unexpected shape (step 3). A silent empty `$EXECUTOR_MODEL` would otherwise drift the spawn to the orchestrator's tier when the story actually specified one.
+`executor_model` is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below; when absent, no `--model` flag is passed (orchestrator tier). Each of the three steps traps its own failure mode because a silent empty `$EXECUTOR_MODEL` would drift the spawn to the orchestrator's tier when the story actually specified one.
 
 ## Step 2: Create the story branch (Stage 1+)
 
@@ -221,7 +218,11 @@ separate Bash call anyway. The teammate has no prior context. Include:
   `branch_name`, NOT the sprint-level one). Copy it; do not shorten it to the
   story id, re-slug it, or prettify it.
 - **SMM Directory** — `SMM_DIR=<path>`
-- TDD + review cycle instructions
+- TDD instructions, plus the review cycle for `REVIEW_CADENCE` (the preload
+  emits the session's cadence — write THAT one, never both). Under `story`,
+  say the per-commit gate defers and the review runs once at
+  `/xp-story-close`; a teammate told to review per commit there pays for a
+  duplicate cycle.
 
 **The branch is a hard gate, not a nicety.** The spawn refuses any prompt that
 does not contain the `--branch` string, and exits non-zero without spawning.
@@ -262,7 +263,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
 
-Single Bash call with `run_in_background=true` — not a parallel batch. The teammate runs asynchronously; this skill returns immediately.
+Single Bash call with `run_in_background=true` — not a parallel batch; the skill returns immediately.
 
 **Solo in-place variant (`MODE=solo` spawn).** Skip Step 2 (the solo branch
 exists). Spawn **in the main checkout**: add `--in-place`, drop
@@ -287,12 +288,11 @@ path).
 
 **Surface the live forensic log (both variants).** Right after launching the
 background spawn, tell the lead where to watch the teammate mid-flight. The
-`.log` is line-flushed live during the run (`run_with_tee`), so `tail -F` shows
-progress and diagnoses a stall in real time — unlike the task output, which
-stays ~empty until exit. Use `tail -F` (not `-f`): the background spawn creates
-the log a few seconds in, and `-F` waits for the file to appear instead of
-erroring on a not-yet-created path. Query the exact path (single source of
-truth, matches the tee's own log) and surface it:
+`.log` is line-flushed live (`run_with_tee`), so `tail -F` shows progress and
+diagnoses a stall in real time — unlike the task output, which stays ~empty
+until exit. Use `-F`, not `-f`: the log only appears a few seconds in, and `-F`
+waits for it instead of erroring on a not-yet-created path. Query the exact
+path (single source of truth) and surface it:
 
 ```bash
 LOG_PATH=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py \
@@ -305,7 +305,7 @@ echo "Teammate running in background. Watch it live / diagnose a stall: tail -F 
 The Bash above runs with `run_in_background=true`. You'll receive a `task-notification` when the teammate exits.
 
 **Surface the teammate's exit to the user when the notification fires** — don't silently move on:
-- **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin, so this file stays ~empty during the run, then holds one of two shapes: **on success**, one summary line naming the **report file path** (`Report: <path> | Branch: <branch> | Cost: $<n>`); **on a no-result failure**, several diagnostic lines plus a saved-artifact path — open that artifact for the full capture. For anything mid-flight (progress, a stall), tail the live forensic `.log` at `$LOG_PATH` from Step 4 instead — that is the file the tee writes live.
+- **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin, so this file stays ~empty during the run, then holds one of two shapes: **on success**, one summary line naming the **report file path** (`Report: <path> | Branch: <branch> | Cost: $<n>`); **on a no-result failure**, several diagnostic lines plus a saved-artifact path — open that artifact for the full capture. For anything mid-flight, tail the live `.log` at `$LOG_PATH` from Step 4 instead.
 - **Then open the report file** for the structured what-shipped narrative — this is what /xp-accept and the eventual retro need; don't skip it.
 - **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
 - **If exit was 0** — apply the pipeline's precedence rule before touching `/xp-accept`: if any story is planned, reviewed and un-spawned, spawn it FIRST, then accept `$TARGET`. If there is nothing left to spawn, accept `$TARGET` immediately — the rule is precedence, not a reason to delay the accept; an exhausted spawn frontier must never stall acceptance. Either way `$TARGET` gets its `/xp-accept` (verify + close) on this notification, before sibling stories pile up unaccepted.

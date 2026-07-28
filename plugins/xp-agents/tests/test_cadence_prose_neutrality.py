@@ -30,6 +30,7 @@ Rules 1 and 2 were observed red against this same file before their fixes
 landed (6 failures) and arrive with them.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -63,6 +64,64 @@ class TestGuideCadenceNeutrality(unittest.TestCase):
         cadence rewrite must not quietly turn it into self-review."""
         self.assertIn("/xp-quality-review", self.review_cycle)
         self.assertIn("xp-code-reviewer", self.review_cycle)
+
+    def test_does_not_assert_a_per_commit_review_unconditionally(self):
+        """The bare "Before each commit: /xp-quality-review" instruction is
+        wrong for half the sessions — it must be conditioned on the cadence."""
+        self.assertNotRegex(
+            self.review_cycle,
+            r"(?i)before each commit:\s*`?/xp-quality-review",
+            "TEAMMATE_GUIDE.md asserts a per-commit review cycle unconditionally",
+        )
+
+    def test_names_both_cadences_and_where_story_cadence_reviews(self):
+        self.assertRegex(self.review_cycle, r"(?i)commit cadence")
+        self.assertRegex(self.review_cycle, r"(?i)story cadence")
+        self.assertIn("/xp-story-close", self.review_cycle)
+
+    def test_points_at_the_live_gate_rather_than_the_prose(self):
+        """The commit gate reports the cadence in force, so a teammate reads
+        live state instead of trusting a guide written before the choice."""
+        self.assertRegex(
+            self.review_cycle,
+            r"(?is)gate.{0,120}cadence|cadence.{0,120}gate",
+            "TEAMMATE_GUIDE.md does not point at the commit gate for the "
+            "cadence in force",
+        )
+
+
+class TestAssignPromptCadenceVar(unittest.TestCase):
+    """The lead's teammate prompt gets the cadence from the preload, not a guess."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.body = _ASSIGN.read_text(encoding="utf-8")
+        cls.preload = (
+            _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
+        ).read_text(encoding="utf-8")
+
+    def test_preload_emits_the_review_cadence(self):
+        """A deterministic source: `_get_review_cadence` (already shared by the
+        story-close and quality-review preloads), emitted as a KEY=value var."""
+        self.assertIn("_get_review_cadence", self.preload)
+        self.assertIn("REVIEW_CADENCE=", self.preload)
+
+    def test_prompt_content_bullet_names_the_cadence_var(self):
+        """The review-cycle bullet in Step 3's include-list must direct the lead
+        at the emitted var. "Write the cadence the session set" is otherwise
+        unactionable and the lead guesses — which is how a sibling story got a
+        duplicate review cycle."""
+        bullets = [
+            line
+            for line in self.body.splitlines()
+            if re.search(r"(?i)review.cycle", line) and line.lstrip().startswith("-")
+        ]
+        self.assertTrue(bullets, "no review-cycle bullet in the include-list")
+        self.assertTrue(
+            any("REVIEW_CADENCE" in line for line in bullets),
+            "the review-cycle prompt bullet does not name REVIEW_CADENCE:\n"
+            + "\n".join(bullets),
+        )
 
 
 class TestSpawnFlagConditionalForwarding(unittest.TestCase):
