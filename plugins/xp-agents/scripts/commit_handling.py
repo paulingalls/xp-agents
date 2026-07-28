@@ -179,10 +179,26 @@ def _handle_commit(
         head = commits.get_head_commit_hash(probe_cwd)
         if head:
             events, _ = _common.load_events_with_resolutions(smm_dir)
-            if not _commit_hash_recorded(events, head) and not _head_trace_recorded(
-                events, head
-            ):
-                _record_head_moved_trace(smm_dir, command, agent_id, head)
+            if not _commit_hash_recorded(events, head):
+                # Try to rebuild the event git can still prove, so a
+                # Resolves-Event trailer on this commit is not silently
+                # dropped. The trace is the fallback for the cases the
+                # rebuild will not claim (ambiguous HEAD, unreadable body) —
+                # one observation per commit, never both. The rebuild is
+                # gated on the commit-hash dedup ALONE: a hash that already
+                # carries a trace, from an earlier attempt whose body read
+                # failed, must stay rebuildable.
+                rebuilt = commit_emit.rebuild_at_head(
+                    smm_dir,
+                    agent_id,
+                    probe_cwd,
+                    command,
+                    head,
+                    events=events,
+                    is_xp_agent_leak=is_xp_agent_leak,
+                )
+                if not rebuilt and not _head_trace_recorded(events, head):
+                    _record_head_moved_trace(smm_dir, command, agent_id, head)
         return None
 
     msg = commits.parse_commit_message(response_text)
