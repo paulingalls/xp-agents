@@ -38,7 +38,11 @@ import hook_liveness
 import marker_names
 import markers
 from _heartbeat_fixtures import heartbeat_payload
-from _preload_fixtures import PRELOAD_FIXTURES
+
+# The refusal heading is a shared constant, imported rather than spelled again:
+# a hardcoded prefix here would silently stop matching the day the banner is
+# reworded, and the assertions below would pass by never matching.
+from _preload_fixtures import PRELOAD_FIXTURES, REFUSAL_HEADER
 from conftest import (
     _IntegrationTestCase,
     _make_agent_input,
@@ -48,11 +52,6 @@ from conftest import (
     discover_preload_scripts,
 )
 from event_schema import event_action
-
-# The refusal heading is story-003's constant, imported rather than spelled
-# again: a hardcoded prefix here would silently stop matching the day the
-# banner is reworded, and the assertions below would pass by never matching.
-from skills.test_preload_liveness import REFUSAL_HEADER
 
 # One preload stands in for the whole set. "every preload inherits the check"
 # is story-003's claim (TestEveryPreloadInheritsTheCheck) and is not restated

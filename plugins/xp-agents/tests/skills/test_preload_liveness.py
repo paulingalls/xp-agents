@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import _env_hygiene
 import hook_liveness
 import markers
-from _preload_fixtures import PRELOAD_FIXTURES
+from _preload_fixtures import PRELOAD_FIXTURES, REFUSAL_HEADER
 from conftest import (
     _PLUGIN_ROOT,
     _IntegrationTestCase,
@@ -52,11 +52,11 @@ _VOLATILE: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-# The refusal's own heading. It must not be confusable with the base's
-# pre-existing no-SMM-at-all exit: "there is no shared model here" and "the
-# shared model is here but the runtime maintaining it is dead" are different
-# failures with different fixes.
-REFUSAL_HEADER = "## Hook Runtime: not live"
+# The refusal's own heading lives in `_preload_fixtures` (imported above) —
+# two suites assert against it. Its counterpart, the base's pre-existing
+# no-SMM-at-all exit, is used only here: the two must stay distinguishable,
+# because "there is no shared model here" and "the shared model is here but the
+# runtime maintaining it is dead" are different failures with different fixes.
 SMM_UNAVAILABLE = "## SMM State: unavailable"
 
 # One preload stands in for the shape assertions; the set-wide inheritance
