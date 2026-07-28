@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Direct-import tests for scripts/commit_command.py.
 
-Exhaustive coverage of these behaviors already lives in test_commits.py,
-which reaches them through commits.py's re-export. These tests pin that
-commit_command is independently importable and behaves correctly when
-imported directly, not merely through the re-export.
+Two jobs. It pins that commit_command is independently importable and behaves
+correctly when imported directly, not merely through commits.py's re-export;
+and it is the unit home for the module's own predicates — `parse_effective_cwd`
+and `dash_c_unreachable` case-by-case. The behaviour those predicates drive
+(what the commit gate blocks) is pinned end-to-end in
+test_pre_tool_bash_git_c_target.py instead.
 """
 
 import sys
@@ -31,11 +33,193 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         result = commit_command.parse_effective_cwd("git status", "/fallback")
         self.assertEqual(result, "/fallback")
 
+    def test_parse_effective_cwd_relative_dash_c_resolves_against_fallback(self):
+        """A RELATIVE literal `-C` path must keep resolving exactly as it does
+        today, against the caller's cwd.
+
+        Green before and after the fail-closed refusal landed — a pin on
+        existing behaviour, not a red step. It is here because the refusal
+        (`dash_c_unreachable`) keys on shell constructs, and the cheapest way to
+        get that wrong is to widen it into a blanket "anything not absolute is
+        unresolvable". The absolute case is covered above; a relative path
+        reaches a DIFFERENT branch of `_resolve` (the `Path(fallback) / path`
+        join), so absolute coverage alone would not catch that widening.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "wt").mkdir()
+            result = commit_command.parse_effective_cwd(
+                "git -C wt commit -m 'msg'", tmp
+            )
+            self.assertEqual(result, str(Path(tmp) / "wt"))
+
+    def test_relative_dash_c_is_not_treated_as_unreachable(self):
+        """The other half: a relative literal path carries no shell construct,
+        so the commit gate must let it proceed rather than refuse it."""
+        self.assertFalse(commit_command.dash_c_unreachable("git -C wt commit"))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C ./wt commit"))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C ../sibling commit"))
+
     def test_dash_c_unreachable_true_for_variable(self):
         self.assertTrue(commit_command.dash_c_unreachable('git -C "$WT" commit'))
 
     def test_dash_c_unreachable_false_for_literal_path(self):
         self.assertFalse(commit_command.dash_c_unreachable("git -C /tmp/repo commit"))
+
+    def test_dash_c_unreachable_true_for_unquoted_tilde(self):
+        """A BARE ~ is expanded by the shell, so git lands where the hook can't see."""
+        self.assertTrue(commit_command.dash_c_unreachable("git -C ~/wt commit"))
+
+    def test_dash_c_unreachable_false_for_quoted_tilde(self):
+        """Quoting defeats tilde expansion: git receives a literal `~/wt`, aborts,
+        and nothing lands — the same silent case as any other literal bad path."""
+        self.assertFalse(commit_command.dash_c_unreachable('git -C "~/wt" commit'))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C '~/wt' commit"))
+
+    def test_dash_c_unreachable_false_for_tilde_inside_path(self):
+        """Only a LEADING tilde expands; `/tmp/a~b` is an ordinary literal path."""
+        self.assertFalse(commit_command.dash_c_unreachable("git -C /tmp/a~b commit"))
+
+    def test_dash_c_unreachable_true_for_unquoted_glob(self):
+        """An UNQUOTED glob expands too, and unlike a bad literal it does not
+        abort: the shell hands git a real directory while the hook still sees
+        the pattern, `is_dir()` fails, and every gate reads the caller's repo.
+        Same bypass as `$WT`, so the same refusal."""
+        self.assertTrue(commit_command.dash_c_unreachable("git -C wt* commit"))
+        self.assertTrue(
+            commit_command.dash_c_unreachable("git -C ../worktree-story-1?? commit")
+        )
+        self.assertTrue(commit_command.dash_c_unreachable("git -C /tmp/w[12] commit"))
+
+    def test_dash_c_unreachable_false_for_quoted_glob(self):
+        """Quoting suppresses globbing, so git receives the literal pattern and
+        aborts — nothing lands, nothing to fail closed over."""
+        self.assertFalse(commit_command.dash_c_unreachable('git -C "wt*" commit'))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C 'wt*' commit"))
+
+    def test_dash_c_unreachable_true_for_brace_and_substitution(self):
+        self.assertTrue(commit_command.dash_c_unreachable("git -C ${W} commit"))
+        self.assertTrue(commit_command.dash_c_unreachable("git -C $(pwd) commit"))
+
+    def test_dash_c_unreachable_false_for_single_quoted_variable(self):
+        """Single quotes suppress expansion entirely, so git gets a literal `$WT`
+        and aborts — the same must-stay-silent case as a literal bad path. Judged
+        by quoting, not by the mere presence of a `$`."""
+        self.assertFalse(commit_command.dash_c_unreachable("git -C '$WT' commit"))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C '$(pwd)' commit"))
+
+    def test_dash_c_unreachable_true_for_double_quoted_variable(self):
+        """Double quotes still expand `$` and backticks."""
+        self.assertTrue(commit_command.dash_c_unreachable('git -C "$WT" commit'))
+        self.assertTrue(commit_command.dash_c_unreachable('git -C "$(pwd)" commit'))
+
+    def test_dash_c_unreachable_false_when_only_the_message_mentions_dash_c(self):
+        """A commit whose MESSAGE talks about `git -C $VAR` carries no `-C` flag.
+        Presence is decided on the quote-stripped command, so documenting the
+        gate never trips it."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git commit -m "docs: prefer git -C $WT over cd"'
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git commit -m "docs: prefer git -C ~/wt over cd"'
+            )
+        )
+
+    def test_dash_c_unreachable_true_when_a_LATER_token_is_hidden(self):
+        """The bypass: stage in a literal repo, commit in a hidden one.
+
+        Reading only the FIRST `-C` match judged `/literal` — no shell
+        construct, so reachable — while `parse_effective_cwd` resolved the LAST
+        one and every gate scanned the repo the commit never landed in. Nothing
+        here can attribute a `-C` to the `commit` word, so ANY unreachable
+        target means the destination is unknowable.
+        """
+        self.assertTrue(
+            commit_command.dash_c_unreachable(
+                'git -C /Users/me/repo add -A && git -C "$WT" commit -m "fix"'
+            )
+        )
+        self.assertTrue(
+            commit_command.dash_c_unreachable(
+                "git -C /Users/me/repo add -A && git -C ~/wt commit -m 'fix'"
+            )
+        )
+        self.assertTrue(
+            commit_command.dash_c_unreachable(
+                "git -C /a add -A; git -C /b diff; git -C $(pwd) commit -m 'x'"
+            )
+        )
+
+    def test_dash_c_unreachable_false_when_every_token_is_literal(self):
+        """The other half: a chain of literal targets must still not be refused."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git -C /Users/me/repo add -A && git -C /Users/me/repo commit -m 'fix'"
+            )
+        )
+
+    def test_a_real_dash_c_plus_a_message_that_mentions_one_is_not_refused(self):
+        """Per-token scanning must not read the MESSAGE as a second token.
+
+        This repo's own commit messages discuss `git -C "$WT"` constantly, and
+        `-C /literal commit -m "…$WT…"` is the shape that would be refused if
+        the scan ran over the raw command instead of the offset-preserving mask.
+        """
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git -C /Users/me/repo commit -m "docs: prefer git -C $WT over cd"'
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git -C /Users/me/repo commit -F - <<'EOF'\ndocs: git -C ~/wt\nEOF"
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git -C /Users/me/repo commit -m "escaped \\"git -C $WT\\" quote"'
+            )
+        )
+
+    def test_dash_c_unreachable_false_when_heredoc_body_mentions_dash_c(self):
+        """`strip_quoted` drops heredocs too — a commit body written on stdin
+        can discuss `-C` without being read as one."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git commit -F - <<'EOF'\ndocs: prefer git -C $WT\nEOF"
+            )
+        )
+
+    def test_head_probe_target_agrees_with_parse_effective_cwd_on_which_dash_c(self):
+        """Both functions answer "which repo did this command target", and a
+        compound command made them answer different ends of it.
+
+        `parse_effective_cwd` takes the LAST validated `-C`; the probe took the
+        FIRST match, so `git -C /a add && git -C /b commit` was probed in /a. If
+        an earlier commit had advanced /a's HEAD, that fabricates the head-moved
+        trace the "not a dir -> None" arm is careful never to fabricate.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a", Path(tmp) / "b"
+            a.mkdir()
+            b.mkdir()
+            command = f"git -C {a} add -A && git -C {b} commit -m 'msg'"
+            self.assertEqual(
+                commit_command.head_probe_target(command, tmp),
+                commit_command.parse_effective_cwd(command, tmp),
+            )
+            self.assertEqual(commit_command.head_probe_target(command, tmp), str(b))
+
+    def test_head_probe_target_ignores_a_dash_c_inside_the_message(self):
+        """The probe reads the LAST token, so the mask is what keeps a message
+        body from becoming the target it reads."""
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            real.mkdir()
+            command = f'git -C {real} commit -m "prefer git -C /elsewhere over cd"'
+            self.assertEqual(commit_command.head_probe_target(command, tmp), str(real))
 
     def test_is_escape_hatch_commit_true(self):
         self.assertTrue(

@@ -80,6 +80,59 @@ class TestMarkerPath(_HookTestCase):
 
 
 # ---------------------------------------------------------------------------
+# session_marker
+# ---------------------------------------------------------------------------
+
+
+class TestSessionMarker(unittest.TestCase):
+    """The naming rule both session-keyed markers share.
+
+    It is a path-safety rule — a session id is untrusted input that would
+    otherwise steer a path — so it is pinned here, once, rather than in each
+    consumer.
+    """
+
+    def test_a_session_id_never_reaches_the_filename(self):
+        marker = markers.session_marker(".m", "../../etc/passwd\n")
+        self.assertRegex(marker.name, r"^\.m-[0-9a-f]{12}$")
+
+    def test_distinct_ids_get_distinct_markers(self):
+        self.assertNotEqual(
+            markers.session_marker(".m", "a").name,
+            markers.session_marker(".m", "b").name,
+        )
+
+    def test_the_same_id_resolves_stably(self):
+        # Writer and reader are different processes; an unstable name would
+        # make every read miss.
+        self.assertEqual(
+            markers.session_marker(".m", "a").name,
+            markers.session_marker(".m", "a").name,
+        )
+
+    def test_no_usable_id_falls_back_to_the_shared_name(self):
+        # A blank or non-str id must NOT key a marker on the hash of a value no
+        # reader ever addresses: that file would exist on disk, be invisible to
+        # every check, and outlive the sweep that reaps suffixed siblings.
+        for value in (None, "", "   ", 17, [], {}):
+            with self.subTest(value=value):
+                self.assertEqual(markers.session_marker(".m", value).name, ".m")
+
+    def test_surrounding_whitespace_does_not_fork_the_name(self):
+        self.assertEqual(
+            markers.session_marker(".m", " a ").name,
+            markers.session_marker(".m", "a").name,
+        )
+
+    def test_result_is_a_json_marker(self):
+        for value in ("a", None):
+            with self.subTest(value=value):
+                marker = markers.session_marker(".m", value)
+                self.assertEqual(marker.content_type, "json")
+                self.assertFalse(marker.agent_scoped)
+
+
+# ---------------------------------------------------------------------------
 # marker_exists
 # ---------------------------------------------------------------------------
 

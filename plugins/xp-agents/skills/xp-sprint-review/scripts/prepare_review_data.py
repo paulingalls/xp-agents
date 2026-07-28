@@ -17,7 +17,10 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
 import _common  # noqa: E402
+import execution_plan_store  # noqa: E402
 import sprint_store  # noqa: E402
+from execution_plan_schema import PLAN_FILENAME  # noqa: E402
+from sprint_schema import SPRINT_FILENAME  # noqa: E402
 
 
 def run(smm_dir: Path, target_path: Path) -> dict | None:
@@ -30,14 +33,19 @@ def run(smm_dir: Path, target_path: Path) -> dict | None:
     if sprint_data is None or not sprint_data["sprint_id"]:
         return None
 
-    # Execution plan path — agent uses plan_cli.py to update status
-    plan_path = smm_dir / "execution_plan.json"
-    plan_str = ""
+    # Execution plan path — agent uses plan_cli.py to update status.
+    # plan_exists() owns the exists-and-not-a-symlink rule, but it is NOT total:
+    # `Path.exists` and `Path.is_symlink` propagate EACCES on every interpreter
+    # before 3.14, whose ignore list is only ENOENT/ENOTDIR/EBADF/ELOOP. One
+    # sudo'd run leaving the SMM dir root-owned is enough, and an unreadable
+    # plan must degrade to "no plan" rather than traceback the whole preload.
+    # `migration_lock.lock_state` documents the same stdlib behaviour; an
+    # earlier comment here claimed the opposite.
     try:
-        if plan_path.exists() and not plan_path.is_symlink():
-            plan_str = str(plan_path)
+        plan_present = execution_plan_store.plan_exists(smm_dir)
     except OSError:
-        pass
+        plan_present = False
+    plan_str = str(smm_dir / PLAN_FILENAME) if plan_present else ""
 
     counts = sprint_store.count_by_status(sprint_data)
     velocity = sprint_store.compute_velocity(sprint_data)
@@ -49,8 +57,8 @@ def run(smm_dir: Path, target_path: Path) -> dict | None:
         "stories_by_status": counts,
         "velocity": velocity,
         "milestone": sprint_data.get("milestone", ""),
-        "sprint_md_path": str(smm_dir / "sprint.json"),
-        "execution_plan_md_path": plan_str,
+        "sprint_path": str(smm_dir / SPRINT_FILENAME),
+        "execution_plan_path": plan_str,
     }
 
     _common.write_json_atomic(target_path, review_input)

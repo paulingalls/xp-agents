@@ -389,6 +389,72 @@ class TestLenientFileDomainParsing(unittest.TestCase):
         )
         self.assertEqual(result, {"scripts/auth.py"})
 
+    def test_single_ascii_hyphen_separator_strips_description(self):
+        """' - ' is the third authoring deviation, and it used to fail SILENTLY.
+
+        An unrecognized separator does not error — it makes the WHOLE entry the
+        path, so the declared file matches nothing and `validate-domain` reports
+        drift on a file that is plainly declared. That is worse than a crash: it
+        reads as a real finding. Hit twice in one session hand-writing two
+        stories' domains (concern dd9ddb62ec3f).
+        """
+        result = triage.extract_file_domain_paths(
+            ["scripts/auth.py - refactor the token path"],
+            candidate_files=["scripts/auth.py"],
+        )
+        self.assertEqual(result, {"scripts/auth.py"})
+
+    def test_single_hyphen_with_comma_joined_paths(self):
+        result = triage.extract_file_domain_paths(
+            ["a.py, b.py - shared refactor"],
+            candidate_files=["a.py", "b.py", "c.py"],
+        )
+        self.assertEqual(result, {"a.py", "b.py"})
+
+    def test_single_hyphen_preserves_glob(self):
+        result = triage.extract_file_domain_paths(
+            ["tests/hooks/*.py - migrated tests"],
+            candidate_files=["tests/hooks/test_a.py", "scripts/foo.py"],
+        )
+        self.assertEqual(result, {"tests/hooks/test_a.py"})
+
+    def test_hyphen_inside_a_path_is_not_a_separator(self):
+        """The separator is space-hyphen-space. A hyphen in a filename carries
+        no surrounding spaces, so hyphenated paths — which are everywhere in
+        this repo — must survive untouched."""
+        for entry, expected in (
+            ("scripts/pre-commit-hook.py", "scripts/pre-commit-hook.py"),
+            ("scripts/pre-commit-hook.py - install it", "scripts/pre-commit-hook.py"),
+            ("some-dir/some-file.py — desc", "some-dir/some-file.py"),
+        ):
+            with self.subTest(entry=entry):
+                result = triage.extract_file_domain_paths(
+                    [entry], candidate_files=[expected]
+                )
+                self.assertEqual(result, {expected})
+
+    def test_earliest_separator_still_wins_across_all_three_forms(self):
+        """Adding a third separator must not let a later one win. A description
+        that itself contains ' -- ' or an em dash after a ' - ' would otherwise
+        drag prose into the path."""
+        result = triage.extract_file_domain_paths(
+            ["scripts/auth.py - rework -- see notes — really"],
+            candidate_files=["scripts/auth.py"],
+        )
+        self.assertEqual(result, {"scripts/auth.py"})
+        result = triage.extract_file_domain_paths(
+            ["scripts/auth.py -- rework - see notes"],
+            candidate_files=["scripts/auth.py"],
+        )
+        self.assertEqual(result, {"scripts/auth.py"})
+
+    def test_a_trailing_hyphen_with_no_description_yields_the_path(self):
+        """`path -` (nothing after) must not yield an empty path set."""
+        result = triage.extract_file_domain_paths(
+            ["scripts/auth.py -"], candidate_files=["scripts/auth.py"]
+        )
+        self.assertEqual(result, {"scripts/auth.py"})
+
 
 if __name__ == "__main__":
     unittest.main()

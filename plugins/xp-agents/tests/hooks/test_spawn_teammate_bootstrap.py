@@ -334,6 +334,69 @@ class TestChildEnvSmmDirIsResolved(_BootstrapTestCase):
         self.assertEqual(Path(seen), self.smm_dir.resolve())
 
 
+class TestChildEnvDropsOurSessionId(_BootstrapTestCase):
+    """A teammate is its own session and must not inherit the lead's id.
+
+    `os.environ.copy()` carried it, and the liveness signal is session-keyed:
+    writers key the marker on the id the harness hands each hook, the preload
+    check keys it on these environment variables. A teammate carrying OUR id
+    therefore reads a marker its own hooks never write — it either passes on the
+    LEAD's heartbeat while its own runtime is broken, or refuses every skill
+    preload once the lead goes idle while its hooks are demonstrably running.
+    """
+
+    def _child_env(self) -> dict[str, str]:
+        import tempfile
+        from unittest.mock import patch
+
+        captured: dict[str, dict[str, str]] = {}
+
+        def capture_run(cmd, *args, **kwargs):
+            captured["env"] = kwargs["env"]
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_run),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-bootstrap",
+                        "--smm-dir",
+                        str(self.smm_dir),
+                        "--prompt-file",
+                        prompt_path,
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+        return captured["env"]
+
+    def test_every_session_id_candidate_is_dropped(self):
+        import os as _os
+        from unittest.mock import patch
+
+        import hook_liveness
+
+        candidates = hook_liveness.SESSION_ID_ENV_CANDIDATES
+        leaked = dict.fromkeys(candidates, "the-leads-session")
+        with patch.dict(_os.environ, leaked):
+            env = self._child_env()
+        for var in hook_liveness.SESSION_ID_ENV_CANDIDATES:
+            with self.subTest(var=var):
+                self.assertNotIn(var, env)
+
+    def test_the_teammate_name_and_smm_dir_still_reach_the_child(self):
+        """The drop must not become a general env scrub."""
+        env = self._child_env()
+        self.assertEqual(env["XP_TEAMMATE_NAME"], "worktree-story-bootstrap")
+        self.assertEqual(Path(env["SMM_DIR"]), self.smm_dir.resolve())
+
+
 class TestMainProvisionsTheWorktree(_BootstrapTestCase):
     """The production wiring: a real `spawn_teammate` run must bootstrap.
 

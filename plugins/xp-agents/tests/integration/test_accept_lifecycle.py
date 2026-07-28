@@ -329,7 +329,15 @@ class TestAcceptMainCheckoutWireup(unittest.TestCase):
         # The critical nuance: a fix committed in the detached main checkout is
         # orphaned on restore, so fixes land in the teammate worktree (git -C),
         # then re-prepare picks up the new tip.
-        self.assertIn("git -C <worktree-path>", self.text)
+        #
+        # `<literal-...>`, not `<worktree-path>`: v5.1.0's commit gate refuses a
+        # `-C` target it cannot resolve, so a lead who substituted `"$WT"` here
+        # met a refusal this prose never mentioned. The placeholder carries the
+        # rule, and the sentence after it states the consequence.
+        self.assertIn("git -C <literal-worktree-path>", self.text)
+        # Whitespace-collapsed: the clause is prose and wraps wherever the
+        # paragraph reflows, so pinning it verbatim would pin a line break.
+        self.assertIn("unresolvable `-C` is refused", " ".join(self.text.split()))
         self.assertIn("re-prepare", self.text.lower())
 
 

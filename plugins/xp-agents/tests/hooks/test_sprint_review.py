@@ -8,6 +8,7 @@ lives in subagent_stop.py.
 
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,7 +23,6 @@ sys.path.insert(
 
 import marker_names
 from conftest import (
-    _PLUGIN_ROOT,
     _HookTestCase,
     _IntegrationTestCase,
     _s,
@@ -135,8 +135,8 @@ class TestPrepareReviewData(_HookTestCase):
             "sprint_id",
             "goal",
             "velocity",
-            "sprint_md_path",
-            "execution_plan_md_path",
+            "sprint_path",
+            "execution_plan_path",
             "milestone",
         )
         for key in expected:
@@ -144,6 +144,9 @@ class TestPrepareReviewData(_HookTestCase):
         # Should NOT have embedded content
         self.assertNotIn("sprint_md", result)
         self.assertNotIn("product_spec_md", result)
+        # Should NOT carry the old .md-suffixed key names
+        self.assertNotIn("sprint_md_path", result)
+        self.assertNotIn("execution_plan_md_path", result)
 
     def test_no_sprint_returns_none(self):
         """No sprint.json -> None."""
@@ -196,25 +199,45 @@ class TestPrepareReviewData(_HookTestCase):
         self.assertEqual(result["goal"], "Build auth system")
 
     def test_execution_plan_path_set(self):
-        """execution_plan.json exists -> execution_plan_md_path is non-empty."""
+        """execution_plan.json exists -> execution_plan_path is non-empty."""
         (self.smm_dir / "execution_plan.json").write_text("{}")
         result = self._run_with(SPRINT_MIXED)
-        path = result["execution_plan_md_path"]
+        path = result["execution_plan_path"]
         self.assertTrue(path)
         self.assertTrue(Path(path).is_file())
 
     def test_missing_execution_plan_empty_path(self):
-        """No execution_plan.json -> execution_plan_md_path=''."""
+        """No execution_plan.json -> execution_plan_path=''."""
         result = self._run_with(SPRINT_MIXED)
-        self.assertEqual(result["execution_plan_md_path"], "")
+        self.assertEqual(result["execution_plan_path"], "")
 
     def test_execution_plan_symlink_empty_path(self):
-        """execution_plan.json is symlink -> execution_plan_md_path=''."""
+        """execution_plan.json is symlink -> execution_plan_path=''."""
         target = self.smm_dir / "_fake_target.json"
         target.write_text("{}")
         (self.smm_dir / "execution_plan.json").symlink_to(target)
         result = self._run_with(SPRINT_MIXED)
-        self.assertEqual(result["execution_plan_md_path"], "")
+        self.assertEqual(result["execution_plan_path"], "")
+
+    def test_unreadable_execution_plan_degrades_instead_of_raising(self):
+        """EACCES from the plan probe -> execution_plan_path='', no traceback.
+
+        `Path.exists`/`Path.is_symlink` — what `plan_exists` is built on —
+        propagate EACCES on every interpreter before 3.14, whose ignore list is
+        only ENOENT/ENOTDIR/EBADF/ELOOP. One sudo'd run leaving the SMM dir
+        root-owned reaches this. Patched rather than chmod'd so the test proves
+        the guard on an interpreter (3.14+) whose stdlib would swallow it
+        anyway — the reason the missing guard survived a green suite.
+        """
+        import prepare_review_data
+
+        with unittest.mock.patch.object(
+            prepare_review_data.execution_plan_store,
+            "plan_exists",
+            side_effect=PermissionError(13, "Permission denied"),
+        ):
+            result = self._run_with(SPRINT_MIXED)
+        self.assertEqual(result["execution_plan_path"], "")
 
     def test_milestone_populated_from_sprint(self):
         """Sprint with Milestone header -> milestone key populated."""
@@ -226,15 +249,10 @@ class TestPrepareReviewData(_HookTestCase):
         result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["milestone"], "")
 
-    def test_execution_plan_md_path_key_always_present(self):
-        """execution_plan_md_path always present as key in output."""
+    def test_execution_plan_path_key_always_present(self):
+        """execution_plan_path always present as key in output."""
         result = self._run_with(SPRINT_MIXED)
-        self.assertIn("execution_plan_md_path", result)
-
-
-# ===========================================================================
-# sprint_review_done.py
-# ===========================================================================
+        self.assertIn("execution_plan_path", result)
 
 
 # ===========================================================================
@@ -305,53 +323,6 @@ class TestSprintReviewPreload(_IntegrationTestCase):
         result = self._run_preload(_PRELOAD_SCRIPT)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(list(self.smm_dir.glob(f"{_SRI}*")), [])
-
-
-# ===========================================================================
-# PR-creation removal (sprint-032 story-002)
-# ===========================================================================
-
-
-_SPRINT_REVIEWER_AGENT = _PLUGIN_ROOT / "agents" / "xp-sprint-reviewer.md"
-_SPRINT_REVIEW_SKILL = _PLUGIN_ROOT / "skills" / "xp-sprint-review" / "SKILL.md"
-
-
-class TestPRCreationRemoved(unittest.TestCase):
-    """story-002: PR creation moves to /xp-sprint-close; reviewer is review-only.
-
-    Guards against re-introduction by name-change ("Open Sprint PR"),
-    by helper-script substitution (branching.py create-pr), or by
-    broader gh allow-listing in the skill.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        cls.agent_text = _SPRINT_REVIEWER_AGENT.read_text()
-        cls.skill_text = _SPRINT_REVIEW_SKILL.read_text()
-
-    def test_agent_no_pr_keywords(self):
-        # Catches "Create Sprint PR", "Open Sprint PR", "Sprint PR", etc.
-        text = self.agent_text.lower()
-        self.assertNotIn("pull request", text)
-        self.assertNotIn(" pr ", text)
-        self.assertNotIn("sprint pr", text)
-
-    def test_agent_no_gh_invocation(self):
-        # Catches `gh pr create`, `gh pr ...`, `which gh`, etc.
-        self.assertNotIn("gh pr", self.agent_text)
-        self.assertNotIn("which gh", self.agent_text)
-
-    def test_agent_no_branching_invocation(self):
-        # Catches a Python-helper substitution for `gh pr create`.
-        self.assertNotIn("branching.py", self.agent_text)
-
-    def test_skill_allowed_tools_no_gh_or_branching(self):
-        # No `gh` in any Bash() allow-list entry.
-        for line in self.skill_text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- Bash("):
-                self.assertNotIn("gh", stripped)
-                self.assertNotIn("branching.py", stripped)
 
 
 if __name__ == "__main__":

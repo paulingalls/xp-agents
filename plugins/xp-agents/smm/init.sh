@@ -73,6 +73,25 @@ teammates_are_live() {
 # there after the winner's last re-sync are the price.
 MIGRATE_WAIT_SECONDS=3
 
+# Is the lock's holder VERIFIABLY gone? A READ, and the only thing anything
+# automatic is allowed to do with a lock it did not create.
+#
+# True demands all three: the name is a symlink, its target is a number, and no
+# process has that pid. Anything less is NOT a corpse — an unreadable or
+# non-numeric target may be a live migration mid-copy, and a caller that treats
+# it as dead stops waiting and answers the legacy tree, silently dropping every
+# event appended after the winner's last whole-tree re-sync.
+lock_holder_is_verified_dead() {
+    local lock="$1" holder
+    [[ -L "${lock}" ]] || return 1
+    holder="$(readlink "${lock}" 2>/dev/null || true)"
+    [[ "${holder}" =~ ^[0-9]+$ ]] || return 1
+    if kill -0 "${holder}" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
 # Echo the migrated tree when it is already there, else the legacy one.
 #
 # Every exit from migrate_legacy_smm that is NOT "this process completed the
@@ -93,7 +112,7 @@ answer_existing_smm() {
 # would otherwise abort init.sh, and since this is the single resolver for every
 # script and hook, empty stdout degrades the WHOLE session to no-SMM.
 migrate_legacy_smm() {
-    local legacy="$1" new="$2" project_dir lock tmp holder stale stale_pid
+    local legacy="$1" new="$2" project_dir lock tmp stale stale_pid
     local tick ticks waited
     project_dir="$(dirname "${new}")"
     lock="${project_dir}/.migrate.lock"
@@ -107,69 +126,74 @@ migrate_legacy_smm() {
         return 0
     fi
 
-    # Break a lock whose HOLDER IS GONE — liveness, not age. An age bound races
-    # a slow copy on a network filesystem: the breaker becomes a second winner
-    # and its `mv` lands the temp INSIDE the populated destination, because
-    # `mv dirA dirB` moves into dirB when dirB exists.
-    #
     # The claim is a SYMLINK whose TARGET IS THE HOLDER'S PID, not a directory
-    # with the pid written into it afterwards. Both `mkdir` and `ln -s` fail
-    # atomically when the name is taken, but a directory cannot carry its holder
-    # at the instant it appears — writing `lock/pid` is a SECOND step, and a
-    # racer reading the lock in between sees no holder, concludes the lock is
-    # stale and breaks a LIVE one. `ln -s` publishes the name and the holder in
-    # one syscall, so that window does not exist. The target is a number rather
-    # than a path, so the link is always dangling: `-e` and `-d` are false for
-    # it, and `-L` is the only test that sees it.
+    # with the pid written into it afterwards: a directory cannot carry its
+    # holder at the instant it appears — writing `lock/pid` is a SECOND step, and
+    # a racer reading the lock in between sees no holder and concludes it is
+    # stale. `ln -s` publishes the name and the holder in one syscall, so that
+    # window does not exist. The target is a number rather than a path, so the
+    # link is always dangling: `-e` and `-d` are false for it, and `-L` is the
+    # only test that sees it.
     #
-    # BREAKING one, though, is a read then a delete, and no shell primitive
-    # makes that pair indivisible: two processes can read the SAME dead holder,
-    # and the second one's delete lands on the FIRST one's fresh claim. (`mv`
-    # instead of `rm` does not help — it acts on the NAME, so it takes the live
-    # claim just the same.) Both then hold, both copy, and the final rename is
-    # a `[[ -d ]]` check one syscall away from the `mv`, so the loser of that
-    # buries a whole duplicate tree INSIDE the live SMM.
+    # A STALE lock is NOT broken here, or anywhere automatic. Breaking one is a
+    # read then a delete, and no shell primitive makes that pair indivisible:
+    # whichever way it is spelled (`rm`, or a `mv` aside), it acts on the NAME,
+    # so it can free a name a live process claimed in the gap. Two processes then
+    # hold, both copy, and the rename at the end of this function buries one
+    # whole tree inside the other. Seven attempts failed to close that; the
+    # eighth stops trying, because a resolver that runs in every hook is the
+    # worst possible place for an operation that needs supervision. Clearing a
+    # dead lock is a human-invoked command — `scripts/migrate_smm_root.py
+    # --confirm`, which reports what it clears and refuses on a live holder.
     #
-    # So a run that breaks a lock frees the name and stops there — it does not
-    # go on to claim it. A breaker never holds, so two breakers cannot both end
-    # up holding, and the next run finds the name free and claims it
-    # atomically. The cost is relocating one session later, which this design
-    # already accepts wholesale (it declines outright while a teammate is live)
-    # — and a dead lock only exists because a previous migration crashed.
+    # The cost, recorded rather than hidden: a crashed relocation's lock now
+    # blocks the automatic path indefinitely, and nothing says so until someone
+    # runs that command.
     #
-    # This NARROWS the window rather than closing it: the `rm` below is still
-    # unconditional, so a break can be overtaken (another run frees the name
-    # first, a third claims it, and this delete lands on that claim) — two
-    # adjacent syscalls wide, where it used to span the whole liveness check.
-    # What bounds the damage is everything downstream: the source tree is never
-    # deleted, in-flight temps are reaped by liveness and not by ownership, and
-    # the rename is guarded by a destination check. A second migrator that gets
-    # past all three leaves a stray copy inside the new tree — not a loss.
-    if [[ -L "${lock}" ]]; then
-        holder="$(readlink "${lock}" 2>/dev/null || true)"
-        if [[ ! "${holder}" =~ ^[0-9]+$ ]] || ! kill -0 "${holder}" 2>/dev/null; then
-            rm -f "${lock}" 2>/dev/null || true
+    # `ln -s` is an atomic single-winner claim only while the name is free of a
+    # DIRECTORY: `ln -s pid dir` puts the link INSIDE dir and succeeds, so an
+    # older version's directory-shaped lock would let every racer believe it
+    # claimed and migrate at once — no mutual exclusion at all, which is the
+    # two-holder outcome by another door. Breaking used to reap that shape and
+    # hide it. So test for the name first: a READ, never a removal, and the
+    # `ln -s` below stays the atomic step for a genuinely free name.
+    if [[ -e "${lock}" ]] || [[ -L "${lock}" ]] ||
+        ! ln -s "$$" "${lock}" 2>/dev/null; then
+        # A holder we PROVED is gone is nothing to wait for. Answer now, and
+        # leave the lock exactly where it is for the supervised clear.
+        #
+        # This branch is not an optimization. A dead symlink lock keeps `-L`
+        # true, so the loop below would spin the whole MIGRATE_WAIT_SECONDS
+        # before answering — on every init.sh invocation, which is every hook,
+        # for as long as the lock is there. A permanent 3s tax on the session,
+        # not an edge case.
+        if lock_holder_is_verified_dead "${lock}"; then
             answer_existing_smm "${legacy}" "${new}"
             return 0
         fi
-    elif [[ -e "${lock}" ]]; then
-        # Anything else at that name — including the directory-shaped lock an
-        # OLDER version of this script wrote — names no holder we can verify.
-        # Reaping beats yielding forever: an unbreakable lock would pin the SMM
-        # in the deletable root permanently.
-        rm -rf "${lock}" 2>/dev/null || true
-        answer_existing_smm "${legacy}" "${new}"
-        return 0
-    fi
 
-    if ! ln -s "$$" "${lock}" 2>/dev/null; then
-        # Another process holds it. Do NOT settle for the legacy tree while that
-        # is true: the winner's last whole-tree re-sync happens BEFORE its
-        # rename, so anything appended to legacy after that instant never
-        # reaches the migrated SMM and is invisible to every later session.
-        # Wait for the winner — bounded, because an unbounded wait would hang
-        # every hook behind one slow copy, and legacy is still a usable answer.
-        # One probe settles BOTH the granularity and the tick count, so the
+        # Any other SYMLINK is waited for, INCLUDING a holder that cannot be
+        # verified (unreadable or non-numeric target). Do NOT settle for the
+        # legacy tree while a migration may be underway: the winner's last
+        # whole-tree re-sync happens BEFORE its rename, so anything appended to
+        # legacy after that instant never reaches the migrated SMM and is
+        # invisible to every later session. A needless wait is much cheaper than
+        # silently dropping events.
+        #
+        # A NON-symlink is not waited for at all — the loop's own `-L` test gives
+        # the directory-shaped lock an older version wrote zero iterations, so it
+        # costs only the probe below and answers legacy at once. Stated plainly
+        # rather than dressed up as a wait: it is only reachable when two
+        # DIFFERENT versions of this script run against one SMM, where the
+        # exposure is the event-drop above and not a second holder (the `-e` test
+        # still keeps this run from claiming). Making it wait would instead put a
+        # permanent MIGRATE_WAIT_SECONDS on every hook for as long as a crashed
+        # old version's directory sits there, which is the tax the branch above
+        # exists to avoid.
+        #
+        # Bounded, because an unbounded wait would hang every hook behind one
+        # slow copy and legacy is still a usable answer. One probe settles BOTH
+        # the granularity and the tick count, so the
         # wall-clock budget above holds on either kind of platform: fractional
         # where it is supported, so polling stays fine-grained; whole seconds
         # where it is rejected, with a tenth of the ticks. The probe is itself

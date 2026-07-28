@@ -193,10 +193,14 @@ Step 6 `AskUserQuestion` and proceed to Step 7 when ALL hold:
    Test `[ "$ASK_COUNT" -gt 0 ]` → fall through to shared Step 6.
 2. No open high-severity concern recorded during Step 4.5:
    ```bash
-   HIGH_CONCERN_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
-     --smm-dir <SMM_DIR> count-concerns \
+   HIGH_CONCERN_COUNT=$(git diff --name-only <TARGET_BRANCH>...<CURRENT_BRANCH> \
+     | python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+     --smm-dir <SMM_DIR> count-concerns --diff-paths - \
      --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
+   `--diff-paths -` drops an untagged concern whose recorded files this close
+   never touches; an empty or unreadable diff counts everything (fail closed).
+   Name both branches — on the teammate path your HEAD is the sprint branch.
    Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to shared Step 6.
 3. Preload emitted a non-empty `TEST_COMMAND=...` AND running it after
    all Step 5c fixes landed exits 0.
@@ -232,9 +236,10 @@ the teammate path: a reviewer fix applied in Step 4.5b lands in the teammate
 worktree, and Step 7b then removes that worktree — so an uncommitted fix would
 be silently discarded. The merge refuses when `TEAMMATE_CWD` is a real worktree
 that is dirty, so the lead either commits the reviewer's fix
-(`git -C ${TEAMMATE_CWD} add -A && git -C ${TEAMMATE_CWD} commit -m ...` — `add
--A` also stages NEW files a `commit -am` would miss) or clears unrelated scratch
-(`git -C ${TEAMMATE_CWD} stash -u`) first. Empty for solo closes (the working
+(`git -C <abs-path> add -A && git -C <abs-path> commit -m ...` — `add -A` also
+stages NEW files a `commit -am` would miss) or clears unrelated scratch
+(`git -C <abs-path> stash -u`) first. Use the literal path — the gate refuses
+a `-C` it cannot resolve. Empty for solo closes (the working
 tree persists, nothing to lose), and a missing/invalid `TEAMMATE_CWD` — the
 check is skipped.
 

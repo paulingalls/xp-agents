@@ -105,6 +105,7 @@ in the fix commit body:**
 > with `git -C <worktree-path> commit ...` — never `cd <wt> && git
 > commit && cd -`. The cd-back fires before the trailer-extract hook,
 > so the hook reads the wrong HEAD and the auto-link silently breaks.
+> Substitute the path literally; an unresolvable `-C` is refused.
 
 - `lint` → `ruff format && ruff check --fix`, re-test
 - `test_failure` → read the test runner output, edit at named file:line, re-run
@@ -157,8 +158,9 @@ Use `AskUserQuestion`: "Merge into ${TARGET_BRANCH}" or
 concern in this close cycle:
 
 ```bash
-HIGH_CONCERN_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
-  --smm-dir <SMM_DIR> count-concerns \
+HIGH_CONCERN_COUNT=$(git diff --name-only <TARGET_BRANCH>...<CURRENT_BRANCH> \
+  | python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
+  --smm-dir <SMM_DIR> count-concerns --diff-paths - \
   --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
 ```
 
@@ -166,6 +168,13 @@ If `> 0`, list "Abort — fix concerns first" FIRST with "(Recommended)"
 appended. The user can still pick Merge to override. When 0, keep
 default ordering (Merge first). `<SMM_DIR>`, `<CLOSE_CYCLE_ID>`,
 `<CLOSE_START_TS>` come from the preload above.
+
+Pipe the diff verbatim. `--diff-paths -` drops an untagged concern whose
+recorded files all lie outside the diff — the log is shared across
+worktrees, so one filed in this window may be about untouched code.
+Nothing else is dropped; an empty or unreadable diff counts everything
+(fail closed). Name both branches, not `HEAD` — the range must not
+depend on your cwd.
 
 If the user picks abort, stop here. Branch and PR stay intact.
 

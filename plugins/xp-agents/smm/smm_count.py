@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import concern_relevance
 from append_validation import parse_jsonl
 from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import (
@@ -202,6 +203,26 @@ def _is_transient_test_concern(event: dict) -> bool:
     return metadata.get("action") == CONCERN_ACTION_TRANSIENT_TEST
 
 
+def _repo_root(spec: str | None) -> Path | None:
+    """Where recorded concern paths are resolved to prove they EXIST.
+
+    `--repo-root` when given, else the process cwd — the close gate pipes
+    `git diff --name-only` from the repo it is closing, so its cwd is that
+    repo (or a worktree of it, where the same tracked paths resolve).
+
+    None when cwd itself cannot be read (a deleted working directory raises
+    OSError). The caller then skips the narrowing entirely and counts
+    everything: with no root, no path can be proved present, and a rule that
+    cannot see must not drop anything.
+    """
+    if spec:
+        return Path(spec)
+    try:
+        return Path.cwd()
+    except OSError:
+        return None
+
+
 def _cmd_count_concerns(args: argparse.Namespace) -> int:
     """Count OPEN type==concern events filtered by severity, cycle-id, since-ts.
 
@@ -218,9 +239,33 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
     precedes --since-ts, in which case it is excluded (see
     _provably_out_of_window; concern a11e9132e5bc).
 
+    With --cycle-id AND a non-empty --diff-paths, an UNTAGGED concern that is
+    provably about code this close does not touch is excluded (see
+    concern_relevance.provably_outside_diff; concern 3542ad2915df). Without both
+    flags the count is byte-identical to the un-scoped one — the narrowing is
+    opt-in.
+
     Sync pointer: story-close/free-close auto-merge conditions 1 & 2
     (SKILL.md) rely on this fail-closed behavior.
     """
+    # Read --diff-paths BEFORE the existence check so a `git diff | ...` producer
+    # is never left writing into an unread pipe on the missing-SMM path.
+    diff_paths = concern_relevance.load_diff_paths(args.diff_paths)
+    repo_root = _repo_root(args.repo_root)
+    if diff_paths and repo_root is None:
+        print(
+            "count-concerns: no repo root is readable (cwd is gone and "
+            "--repo-root was not given); counting every concern in scope, "
+            "exactly as if --diff-paths were absent (fail closed)",
+            file=sys.stderr,
+        )
+    if args.diff_paths and not diff_paths:
+        print(
+            f"count-concerns: --diff-paths {args.diff_paths} was empty or "
+            "unreadable; counting every concern in scope, exactly as if the "
+            "flag were absent (fail closed)",
+            file=sys.stderr,
+        )
     events_path = Path(args.smm_dir) / "events.jsonl"
     if not events_path.exists():
         print(0)
@@ -251,6 +296,28 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
         # auto-resolves-on-green, since the marker is stamped by exactly
         # the producers whose concerns bash_post_tool clears on green.
         if args.cycle_id and tag is None and _is_transient_test_concern(event):
+            continue
+        # Second untagged carve-out, same shape as the one above: exclude by
+        # PROVABLE IRRELEVANCE, never by absence of a tag. The invariant —
+        # excluded-from-scoped-gate IFF the concern names files that all EXIST
+        # in the working tree and none of which intersect the close diff, i.e.
+        # it is provably about OTHER code that is present and untouched
+        # (concern 3542ad2915df; story-003's clean close was pushed to
+        # abort-recommended by 964426f13819, an unrelated open lock defect in a
+        # sibling's domain recorded in the same --since-ts window).
+        #
+        # Do NOT collapse this conjunction. Each clause is a fail-closed
+        # default, and `diff_paths` being non-empty is the load-bearing one:
+        # against an empty set provably_outside_diff is vacuously true for
+        # every concern with files, so dropping that clause turns the whole
+        # gate off whenever the caller's `git diff` came back empty.
+        if (
+            args.cycle_id
+            and diff_paths
+            and repo_root is not None
+            and tag is None
+            and concern_relevance.provably_outside_diff(event, diff_paths, repo_root)
+        ):
             continue
         count += 1
     # Only re-walk the raw text to recover the exact unparseable lines when
@@ -328,7 +395,28 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
         "with a DIFFERENT cycle id, so a concurrent close-cycle's tagged "
         "events do not leak in. An event WITHOUT the key is counted (fails "
         "closed rather than dropping it) — pair with --since-ts to bound "
-        "untagged events.",
+        "untagged events, and with --diff-paths to drop the untagged ones "
+        "provably about code this close does not touch.",
+    )
+    cc_p.add_argument(
+        "--diff-paths",
+        default=None,
+        metavar="PATH",
+        help="File of newline-separated repo-relative paths in the close diff "
+        "(`-` reads stdin) — e.g. `git diff --name-only <review-base>...HEAD`. "
+        "Only meaningful WITH --cycle-id: an untagged concern whose `files` all "
+        "EXIST and all lie outside the diff is then excluded. Empty or "
+        "unreadable behaves exactly as if absent (counts everything) and notes "
+        "so on stderr.",
+    )
+    cc_p.add_argument(
+        "--repo-root",
+        default=None,
+        metavar="PATH",
+        help="Where a concern's recorded paths are resolved to prove they "
+        "exist (default: cwd). A path that does not exist is NOT proof of "
+        "irrelevance — a review naming a file nobody wrote (a missing test) "
+        "must still count. Only meaningful WITH --cycle-id and --diff-paths.",
     )
     cc_p.add_argument(
         "--since-ts",

@@ -23,10 +23,15 @@ from conftest import (
 )
 
 SKILL_BUDGETS: dict[str, int] = {
-    "xp-accept": 15310,
+    "xp-accept": 15400,
     "xp-assign": 21020,
     "xp-end-session": 6440,
-    "xp-free-close": 8590,
+    # Bumped 8590 -> 8750: auto-merge condition 2 now pipes the close diff into
+    # count-concerns via --diff-paths, plus the one-paragraph rule (what gets
+    # dropped, and that an empty diff counts everything). Re-trimmed that
+    # paragraph to a single sentence first; the full rationale lives once in
+    # the shared close-pipeline reference, which the preload injects alongside.
+    "xp-free-close": 8750,
     "xp-kickoff": 9020,
     # Bumped 10030 -> 10230: the skill gained an authored field (`schedules`)
     # and the writer path that reaches it (edit-milestone), and step 9 now states
@@ -46,7 +51,15 @@ SKILL_BUDGETS: dict[str, int] = {
     # count-concerns read (mirrors condition 1's count-classifications) and
     # Step 4.5b gained the close-cycle-id threading clause. Re-trimmed
     # surrounding prose to the minimum first.
-    "xp-story-close": 12450,
+    #
+    # Bumped 12450 -> 12770: condition 2 now pipes the close diff into
+    # count-concerns via --diff-paths, so an unrelated open concern filed in the
+    # same window can no longer abort a clean close. The pipe plus the
+    # three-line rule (what gets dropped, why HEAD is wrong here) does not fit
+    # in the 21 chars that were left. Re-trimmed the note to three lines first —
+    # the full rationale lives once in the shared close-pipeline reference,
+    # which the preload injects alongside this skill.
+    "xp-story-close": 12770,
     "xp-system-context": 1250,
     "xp-work-selection": 8820,
 }

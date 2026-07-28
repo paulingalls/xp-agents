@@ -18,9 +18,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+import migrate_smm_root as tool
+import migration_lock
 from conftest import _TempRepoTestCase
 
 _SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "migrate_smm_root.py"
+
+
+class TestLockReaderReExportedByIdentity(unittest.TestCase):
+    """`migration_lock` holds the lock-state reader; the tool re-exports it BY
+    IDENTITY so every existing `tool.holder_state` / `tool.lock_path_for`
+    reference — including the two pinned purity-proof suites in tests/smm/ —
+    resolves unchanged. A copy would satisfy behaviour but break identity."""
+
+    def test_holder_state_is_the_same_function_object(self):
+        self.assertIs(tool.holder_state, migration_lock.holder_state)
+
+    def test_lock_path_for_is_the_same_function_object(self):
+        self.assertIs(tool.lock_path_for, migration_lock.lock_path_for)
+
+    def test_destination_for_is_the_same_function_object(self):
+        self.assertIs(tool.destination_for, migration_lock.destination_for)
 
 
 class _ToolCase(_TempRepoTestCase):
@@ -185,13 +203,12 @@ class TestRelocation(_ToolCase):
     def test_confirm_relocates_past_a_crashed_runs_dead_lock(self):
         """A dead lock costs a SESSION a relocation, never this command.
 
-        init.sh frees a dead lock's name without claiming it — the break is a
-        read then a delete and cannot be made indivisible — so the very first
-        resolution after a crashed relocation deliberately answers with the
-        legacy tree and leaves the claim to the next one. A background session
-        just relocates next time. A one-shot command has no next time, so
-        without a retry here the tool reports "Relocation did not happen" and
-        exits 1 in precisely the situation that makes a user run it.
+        No resolver removes a lock any more: breaking one is a read then a
+        delete, and no shell primitive makes that pair indivisible, so init.sh
+        now leaves a dead lock alone and answers legacy every time. Clearing it
+        is this command's own job — supervised, one invocation, and it refuses on
+        a live holder. The clear itself is pinned in
+        tests/smm/test_migration_lock_never_broken.py; this is the CLI path.
         """
         home = self._home("deadlock")
         legacy = self._seed_legacy(home)
@@ -254,6 +271,43 @@ class TestRelocation(_ToolCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("at risk:     no", again.stdout)
         self.assertIn("Nothing to do", again.stdout)
+
+
+class TestReportNamesTheRemedy(_ToolCase):
+    """Two lock shapes never self-release — nothing removes them
+    automatically — so the report describing them must say what does:
+    --confirm. Today it names the remedy for a dead holder but not for these.
+
+    Asserts against the ``lock holder:`` line specifically, not the whole
+    stdout — the dry-run footer always says "Re-run with --confirm", which
+    would make a bare ``assertIn("--confirm", result.stdout)`` pass whether or
+    not the lock line itself names anything.
+    """
+
+    def _lock_holder_line(self, stdout: str) -> str:
+        return next(
+            line for line in stdout.splitlines() if line.startswith("  lock holder:")
+        )
+
+    def test_non_symlink_lock_names_confirm(self):
+        home = self._home("residue-report")
+        self._seed_legacy(home)
+        lock = self._new_smm(home).parent / ".migrate.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text("residue from an older init.sh")
+        result = self._tool(home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--confirm", self._lock_holder_line(result.stdout))
+
+    def test_unverifiable_holder_names_confirm(self):
+        home = self._home("unverifiable-report")
+        self._seed_legacy(home)
+        lock = self._new_smm(home).parent / ".migrate.lock"
+        lock.parent.mkdir(parents=True)
+        lock.symlink_to("not-a-pid")
+        result = self._tool(home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--confirm", self._lock_holder_line(result.stdout))
 
 
 if __name__ == "__main__":

@@ -35,21 +35,36 @@ from conftest import (
 )
 
 # ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
+#
+# The four close preloads are the exception: each `cat`s the shared
+# close-pipeline reference, so a char added there costs 4x and the wave-2 trim
+# stories set these to the next hundred above measured rather than the 1.125
+# headroom, deliberately keeping the trim pressure on. Bumped 7800/7900 -> 8300
+# when the shared Step 6 abort-default gained the close-diff pipe
+# (`count-concerns --diff-paths -`), so an unrelated open concern filed in the
+# same window can no longer abort a clean close. The added paragraph was
+# re-trimmed to five lines first; the per-mode SKILLs carry a one-liner each.
+# Measured at that bump: free 8237, plan 8223, sprint 8242, story 8295.
+# Bumped 8300 -> 8400 when the shared Step 5c worktree-commit note gained the
+# literal-path rule: the hard `-C` refusal shipped in v5.1.0 was taught in one
+# of four places, and not the one a teammate reads, so a lead following this
+# block hit a refusal the block never mentioned. One line, four preloads.
+# Measured at that bump: free 8303, plan 8289, sprint 8308, story 8361.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 100,
     "xp-assign": 300,
     "xp-end-session": 200,
-    "xp-free-close": 7800,
+    "xp-free-close": 8400,
     "xp-kickoff": 200,
     "xp-plan": 100,
-    "xp-plan-close": 7800,
+    "xp-plan-close": 8400,
     "xp-quality-review": 300,
     "xp-review-plan": 100,
     "xp-schedule": 200,
-    "xp-sprint-close": 7800,
+    "xp-sprint-close": 8400,
     "xp-sprint-review": 100,
     "xp-sprint-start": 100,
-    "xp-story-close": 7900,
+    "xp-story-close": 8400,
     "xp-system-context": 100,
     "xp-work-selection": 100,
 }

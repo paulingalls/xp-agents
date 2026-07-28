@@ -2,6 +2,139 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.1.0 — Gates that refuse instead of going quiet
+
+**One change will interrupt an existing habit, so it goes first: `git -C "$VAR"
+commit` is now refused.** Use a literal path. The reason is the theme of the whole
+release — every gate here previously had a way of appearing to work while doing
+nothing.
+
+### The commit gate no longer scans the wrong repository
+
+A PreToolUse hook only ever sees raw command text. When a `git -C` target hid
+behind something the shell would expand — `$WT`, `${W}`, `$(cmd)`, a bare `~`, or an
+unquoted glob — the hook could not resolve it, fell back to the caller's directory,
+and every gate below then read the **wrong** repo. That failed in the worst possible
+direction: in a clean main checkout `git diff --cached` returns an empty string
+rather than an error, so the tier-1 secret scan had nothing to scan, the lint gate
+had no files to group, and the review-cycle gate saw zero code files. Unlinted and
+unscanned bytes shipped and nothing said so. Only the branch guard was audible,
+which is why this first surfaced as a cosmetic warning rather than as the
+security-gate bypass it was.
+
+Such a commit is now refused, with a message naming the shape it refused and the
+remedy. The glob case is the one worth understanding: every other unresolvable shape
+makes git abort, so nothing lands and the silence is harmless — but a glob that
+*matches* hands git a real repository while the hook still sees the pattern.
+Accepted cost, stated plainly: a literal directory name containing `*`, `?` or `[`
+is now refused too.
+
+**Every** `-C` in the command is judged, not just the first — a chain that stages
+in one repo and commits in another (`git -C /literal add -A && git -C "$WT"
+commit`) otherwise slipped past the refusal while the gates below still resolved
+the *last* target. Nothing in raw command text can attribute a `-C` to the
+`commit` word specifically, so the second accepted cost is the mirror image:
+`git -C /repo commit && git -C "$OTHER" log` is refused for a `-C` that commits
+nothing. The remedy is the same either way — use literal paths.
+
+Relative literal paths keep resolving exactly as before.
+
+### A stalled relocation says so
+
+v5.0.0 relocates the shared mental model off the host-managed plugin-data root,
+guarded by a lock. No resolver breaks that lock automatically any more — seven
+attempts at automatic breaking all corrupted data, because breaking is a read then a
+delete and no shell primitive makes that pair indivisible. The cost was that a
+**crashed** relocation's lock blocked the automatic path indefinitely: every later
+session quietly answered the legacy tree, leaving the project's memory in the
+directory `claude plugin uninstall` deletes, permanently, with nothing saying so.
+
+A session now tells you, and tells you *which* stuck it is, because the remedy
+differs:
+
+| What the lock looks like | What you are told |
+|---|---|
+| no lock at all | nothing is said; relocation happens on its own |
+| its holder is still running | a relocation is in progress; you are pointed at the read-only report, never at a clear |
+| its holder is gone | it is stalled, and `--confirm` will clear it |
+| it is residue from an older version, naming no checkable holder | it is blocked and not automatically verifiable — run the report, then clear |
+| the lock cannot be READ at all — an unsearchable destination directory, one `sudo` run away | it is unprobeable: you are told the state could not be established, and specifically NOT that relocation happens automatically |
+
+Two of the five withhold the clear: a holder proved *running*, and a lock nothing
+could probe. Guessing at a live holder is the mistake the seven earlier attempts made,
+and a state that could not be established must not borrow the wording of one that
+was — "it relocates itself automatically" is a claim, and it is false whenever the
+probe failed.
+
+### Hook liveness: a runtime that never loaded now gets refused
+
+If the hook runtime fails to load, every gate it enforces disappears and the session
+looks entirely normal — nothing is blocked and nothing is said. The check that would
+report this cannot itself be a hook. It is now a preload check, which runs at
+instruction time and therefore still runs when the thing it tests is broken.
+
+Hooks record a heartbeat at session start, on every prompt, and from tool use, so a
+working session refreshes far inside the staleness threshold. A session whose runtime
+never loaded has no heartbeat at all, and the next skill invocation refuses
+immediately, withholding its context rather than proceeding with gates that would go
+unenforced. `XP_SKIP_LIVENESS_CHECK=1` proceeds anyway, for a runtime you know is
+broken and cannot fix yet.
+
+**What this does not yet catch promptly, stated because the distinction decides
+whether you can rely on it: a runtime that loaded and then STOPPED.** Every refresh
+source is itself a hook, so once they stop firing the last heartbeat merely ages, and
+the check reads live until it crosses the four-hour staleness threshold. Inside that
+window gates go unenforced and nothing says so — the same silence, on a longer fuse.
+Catching it sooner needs a refresh source that is not a hook, which this release does
+not have.
+
+### Kickoff no longer asks you to wait for something already running
+
+The housekeeping gate blocked session end whenever housekeeping was outstanding, and
+that marker was cleared only on completion. Since Agent-tool subagents are
+backgrounded, "running right now" read identically to "never invoked" — so the gate
+told you to invoke an agent that was already in flight, and the only way to comply
+was to sit and wait.
+
+It now distinguishes the two, on a per-session record with a short freshness window.
+In flight and fresh: end the turn, and resume when the completion notification
+arrives. Never invoked, or a record that has gone stale: still blocked, with
+different wording so you re-invoke rather than wait again. A housekeeper that
+*fails* rather than completing no longer counts as done — the consume is gated on
+its finalize step having actually run.
+
+### The close gate's concern count stops dropping the wrong things
+
+The merge gate counts high-severity concerns so a real problem aborts a close. It
+now excludes only concerns provably about code the close did not touch, so a
+concurrent teammate's unrelated defect can no longer abort a clean close — while an
+empty or unreadable diff still counts everything.
+
+### Also
+
+One user-visible change that belongs to no section above: a `file_domain` entry may
+now end its path list with a single spaced hyphen (`src/thing.py - why it is here`),
+not only an em-dash or `--`. An entry that used to report drift resolves correctly.
+The cost is stated because it is a truncation, not a rejection: a declared path that
+itself contains `" - "` now keeps only the part before it.
+
+Internal, but they change what future releases can promise: the commit-gate block is
+extracted from the PreToolUse handler so its ordering is pinned rather than
+incidental; the superseded-decision detector now checks every earlier decision on a
+topic rather than only the adjacent one, which closes a false *positive* rather than a
+fail-open; the two fail-opens this release actually closes are in the close-gate
+relevance path, where a non-repo-relative `files` entry read as proof of irrelevance
+and a `UnicodeDecodeError` crashed the diff-path load; a test pin that had been
+silently scanning less than it claimed now fails loud; and the migration lock reader is
+one module both the resolver and the supervised tool share.
+
+Two things this release deliberately does **not** do, recorded rather than hidden. An
+append that lands during the one-time SMM relocation copy can still be lost —
+sub-second, once per project, and already partly covered by a pre-rename re-sync.
+And on a harness that supports PreToolUse but not the post-tool or stop families, the
+liveness check can read live off the write immediately preceding it; that fix would
+reverse behaviour shipped here, so it is deferred rather than rushed.
+
 ## v5.0.0 — The SMM moves out of the deletable directory
 
 **Two breaking changes ship in this release: the SMM's default location, and

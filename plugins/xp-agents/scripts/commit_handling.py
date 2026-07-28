@@ -156,7 +156,7 @@ def _handle_commit(
         # could not inspect — a `-C` path hidden behind an unexpanded shell
         # variable. A literal `-C` path that doesn't exist is a git failure
         # (no commit anywhere), so dash_c_unreachable returns False for it.
-        if commits.dash_c_unreachable(command):
+        if commits.dash_c_unreachable(command, scan_target=scan_target):
             _record_unconfirmed_commit(smm_dir, command, agent_id)
             return None
         # Repo was reachable, but HEAD's subject didn't match and stdout carried

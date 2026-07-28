@@ -152,7 +152,7 @@ Wait for it to complete.
 
 Invoke the `xp-housekeeper` agent via the Agent tool (`subagent_type=xp-agents:xp-housekeeper`). This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom). **Kickoff is not complete until housekeeping finishes.**
 
-**Do NOT run housekeeping in the background — pass `run_in_background:false` to the Agent tool.** The harness backgrounds Agent-tool subagents by default; without the explicit flag the Stop housekeeping gate races. Wait for the subagent to complete before proceeding to Step 7.
+**Do NOT run housekeeping in the background — pass `run_in_background:false` to the Agent tool.** The harness backgrounds Agent-tool subagents by default. Without it the Stop gate allows a housekeeper that started minutes ago, then tells you to re-invoke — so ending the turn is safe, but the flag is what actually finishes kickoff. Wait for the subagent to complete before Step 7.
 
 If the user said "skip" at any earlier step, still run housekeeping.
 
