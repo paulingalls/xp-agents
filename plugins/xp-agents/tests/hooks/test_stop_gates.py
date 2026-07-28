@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import markers
 from conftest import _HookTestCase, _make_stop_input, make_event
 from event_schema import (
     EVENT_TYPE_CONCERN,
@@ -437,55 +436,9 @@ class TestFindLastTestSignal(_HookTestCase):
         self.assertEqual(find_last_test_signal(events), "pass")
 
 
-# ===========================================================================
-# Housekeeping Stop Gate
-# ===========================================================================
-
-
-class TestHousekeepingStopGate(_HookTestCase):
-    """Tests for housekeeping_stop_gate.py Stop command hook."""
-
-    def setUp(self):
-        super().setUp()
-        import housekeeping_stop_gate
-
-        self.mod = housekeeping_stop_gate
-
-    def test_xp_agent_skips(self):
-        markers.marker_write(self.smm_dir, markers.NEEDS_HOUSEKEEPING, "kickoff")
-        inp = _make_stop_input(agent_type="xp-housekeeper")
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_no_marker_allows_stop(self):
-        inp = _make_stop_input()
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_marker_present_blocks_stop(self):
-        markers.marker_write(self.smm_dir, markers.NEEDS_HOUSEKEEPING, "kickoff")
-        inp = _make_stop_input()
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        assert result is not None
-        self.assertIn("housekeeping", result.lower())
-
-    def test_marker_with_asking_user_defers(self):
-        markers.marker_write(self.smm_dir, markers.NEEDS_HOUSEKEEPING, "kickoff")
-        markers.marker_write(self.smm_dir, markers.ASKING_USER, "1")
-        inp = _make_stop_input()
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
-
-    def test_no_smm_dir_degrades(self):
-        inp = _make_stop_input()
-        result = self.mod.run(inp, smm_dir=Path("/nonexistent/smm"))
-        self.assertIsNone(result)
-
-    def test_stop_hook_active_skips(self):
-        markers.marker_write(self.smm_dir, markers.NEEDS_HOUSEKEEPING, "kickoff")
-        inp = _make_stop_input(stop_hook_active=True)
-        result = self.mod.run(inp, smm_dir=self.smm_dir)
-        self.assertIsNone(result)
+# The housekeeping Stop gate is tested in test_housekeeping_stop_gate.py — it
+# grew a three-state in-flight check and earned a dedicated file, so the
+# duplicate class that used to sit here was removed rather than left to drift.
 
 
 if __name__ == "__main__":

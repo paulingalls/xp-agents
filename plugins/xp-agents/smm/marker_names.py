@@ -23,6 +23,11 @@ NEEDS_EXECUTION_PLAN = ".needs-execution-plan"
 NEEDS_SYSTEM_CONTEXT = ".needs-system-context"
 ASSIGN_PENDING = ".assign-pending"
 NEEDS_HOUSEKEEPING = ".needs-housekeeping"
+# Written when the housekeeper subagent STARTS, consumed when it stops. Lets
+# the Stop gate tell "running right now" from "never invoked" — the harness
+# backgrounds Agent-tool subagents, so without it the two look identical.
+# Session-suffixed in the HOOK_HEARTBEAT style; see housekeeping_flight.marker.
+HOUSEKEEPING_IN_FLIGHT = ".housekeeping-in-flight"
 CLOSE_CYCLE_ACTIVE = ".close-cycle-active"
 LINT_WARNED = ".lint-warned"
 REVIEW_CADENCE = ".review-cadence"

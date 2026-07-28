@@ -172,10 +172,15 @@ def _is_retro_adoption(event: dict) -> bool:
 
 def _inject_housekeeper(smm: dict, smm_dir: Path, input_data: dict) -> list[str]:
     """xp-housekeeper: write curation input + inject paths + work-selection block."""
+    # Lazy: this tier is one of several, and `housekeeping_flight` pulls in
+    # `markers` — ~4ms of import that every OTHER subagent type would pay for
+    # a record only the housekeeper ever writes.
+    import housekeeping_flight
     import materialize
 
     curation_path = smm_dir / marker_names.CURATION_INPUT
     _common.write_json_atomic(curation_path, materialize.prepare_curation_data(smm_dir))
+    housekeeping_flight.record_start(smm_dir, input_data)
 
     parts = [f"SMM_DIR={smm_dir}\nCURATION_INPUT={curation_path}"]
     work_selection = _gather_work_selection_events(smm_dir)
