@@ -25,8 +25,6 @@ cited rather than repeated. This file adds the two things no story owns:
 the cross-turn composition proof, and the completion-hook write site.
 """
 
-import json
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -43,11 +41,13 @@ from _heartbeat_fixtures import heartbeat_payload
 from _preload_fixtures import PRELOAD_FIXTURES
 from conftest import (
     _IntegrationTestCase,
+    _make_agent_input,
     _make_bash_input,
     _make_write_input,
     _preload_script_path,
     discover_preload_scripts,
 )
+from event_schema import event_action
 
 # The refusal heading is story-003's constant, imported rather than spelled
 # again: a hardcoded prefix here would silently stop matching the day the
@@ -70,12 +70,19 @@ class _LivenessE2ECase(_IntegrationTestCase):
 
     SESSION = "capstone-e2e-session"
 
-    def _env(self, **extra: str) -> dict:
+    def _env(self) -> dict:
+        """The overlay both base runners merge ONTO `_test_env`.
+
+        The bypass is set to "" rather than popped: an override can only add
+        to `_test_env`, where `_env_hygiene` pinned it to "1", and popping
+        from this dict would leave the pin standing. "" is a real opt-out —
+        story-003's `test_only_the_documented_value_bypasses` pins that only
+        the literal "1" disables the check.
+        """
         env = self._env_with_plugin_root()
         env.update(PRELOAD_FIXTURES[_PRELOAD_SKILL]())
         env[_env_hygiene.PINNED_SESSION_ID_VAR] = self.SESSION
-        env.pop(_env_hygiene.SKIP_LIVENESS_ENV, None)
-        env.update(extra)
+        env[_env_hygiene.SKIP_LIVENESS_ENV] = ""
         return env
 
     def _preload(self) -> str:
@@ -86,33 +93,14 @@ class _LivenessE2ECase(_IntegrationTestCase):
         nothing else — every "the normal output survived" assertion against
         it would be vacuous by construction.
         """
-        result = subprocess.run(
-            ["bash", str(_preload_script_path(_PRELOAD_SKILL))],
-            cwd=self.tmpdir,
-            capture_output=True,
-            text=True,
-            env=self._env(),
-        )
+        result = self._run_preload(_preload_script_path(_PRELOAD_SKILL), self._env())
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
-    def _hook(self, script: str, payload: dict) -> subprocess.CompletedProcess:
+    def _hook(self, script: str, payload: dict) -> None:
         """Run a hook entry point as the platform does: own process, JSON in."""
-        result = subprocess.run(
-            ["python3", str(self.scripts_dir / script)],
-            input=json.dumps(payload),
-            capture_output=True,
-            text=True,
-            cwd=self.tmpdir,
-            env=self._env(),
-        )
+        result = self._run_script_with_env(script, payload, self._env())
         self.assertEqual(result.returncode, 0, result.stderr)
-        return result
-
-    def _our_marker_name(self) -> str:
-        return markers.marker_path(
-            self.smm_dir, hook_liveness.heartbeat_marker(self.SESSION)
-        ).name
 
     def _assert_only_our_marker(self, when: str) -> None:
         """The SMM under test holds this session's heartbeat and no other.
@@ -124,18 +112,22 @@ class _LivenessE2ECase(_IntegrationTestCase):
         would turn the whole suite green for the wrong reason. This repo has
         shipped vacuous pins twice; assert the premise instead of assuming it.
         """
+        ours = markers.marker_path(
+            self.smm_dir, hook_liveness.heartbeat_marker(self.SESSION)
+        )
         glob = f"{marker_names.HOOK_HEARTBEAT}*"
         found = sorted(p.name for p in self.smm_dir.glob(glob))
         self.assertEqual(
             found,
-            [self._our_marker_name()],
+            [ours.name],
             f"{when}: a heartbeat this test did not write could carry the verdict",
         )
 
     def _written_at(self) -> float:
-        data = heartbeat_payload(self.smm_dir, self.SESSION)
-        self.assertIsInstance(data, dict, "no heartbeat for the session under test")
-        assert isinstance(data, dict)
+        data = self._assert_not_none(
+            heartbeat_payload(self.smm_dir, self.SESSION),
+            "no heartbeat for the session under test",
+        )
         return data["written_at"]
 
 
@@ -218,3 +210,76 @@ class TestTheWriterCadenceClearsTheThreshold(_LivenessE2ECase):
                 self.assertNotIn(REFUSAL_HEADER, out, f"{script}: preload refused")
                 self.assertTrue(out.strip(), f"{script}: preload emitted nothing")
                 self._assert_only_our_marker(f"after {script}")
+
+
+class TestTheCompletionHookRefreshesTheHeartbeat(_LivenessE2ECase):
+    """AC#5 + AC#6 — the PostToolUse:Skill|Agent completion site.
+
+    Be honest about the reach. `hooks/hooks.json` registers PreToolUse for
+    `Skill` ONLY, while PostToolUse is `Skill|Agent`. So an `Agent` dispatch
+    has no pre-write at all: an orchestrating lead that spawns subagents
+    without touching bash or the filesystem gets no refresh from that
+    activity. Thin but non-empty, and that is the population this site
+    reaches — not "every completion now keeps a session alive".
+
+    No live bug is being fixed either. `review_cycle_done.py` had no
+    heartbeat write because story-006 dropped that candidate deliberately;
+    the concern described a plan, not shipped dead code.
+    """
+
+    # Not on `_TARGET_BY_NAME` — the hook must skip it, which is precisely
+    # why it is the right subject for "the write is not gated on the target".
+    _OFF_ALLOWLIST = "general-purpose"
+
+    def _completion(self, subagent_type: str, **overrides) -> None:
+        self._hook(
+            "review_cycle_done.py",
+            _make_agent_input(
+                subagent_type,
+                session_id=self.SESSION,
+                cwd=str(self.tmpdir),
+                **overrides,
+            ),
+        )
+
+    def test_a_completion_outside_the_allowlist_refreshes_the_heartbeat(self):
+        """AC#5. `run()` returns at `_detect_target` before the SMM is even
+        resolved, so a write placed after resolution would fire only for the
+        six allowlisted targets — dead as placed for everything else."""
+        self._completion(self._OFF_ALLOWLIST)
+        self.assertIsNotNone(heartbeat_payload(self.smm_dir, self.SESSION))
+        self._assert_only_our_marker("after an off-allowlist completion")
+        self.assertNotIn(REFUSAL_HEADER, self._preload())
+
+    def test_an_xp_subagent_completion_seen_from_a_main_session_refreshes(self):
+        """The guard's subject is WHO IS EXECUTING (`agent_type`), not who
+        just completed (`tool_input.subagent_type`).
+
+        Taking the second, tempting reading would exclude every xp- subagent
+        completion observed from a main session — most of them — leaving this
+        site almost no population and quietly defeating AC#5.
+        """
+        self._completion("xp-code-reviewer")
+        self.assertIsNotNone(heartbeat_payload(self.smm_dir, self.SESSION))
+
+    def test_a_target_the_hook_must_skip_still_skips(self):
+        """AC#6. Both absences — one alone is half a proof. The write sits
+        ahead of `_detect_target`, and `target is None` must still return
+        before any flag or lifecycle work."""
+        self._completion(self._OFF_ALLOWLIST)
+        self.assertFalse(
+            markers.marker_exists(self.smm_dir, markers.REVIEW_CYCLE, "main"),
+            "an off-allowlist completion set a review flag",
+        )
+        self.assertEqual(
+            [e for e in self._read_events() if event_action(e)],
+            [],
+            "an off-allowlist completion appended a lifecycle event",
+        )
+
+    def test_an_xp_agent_completion_writes_no_heartbeat(self):
+        """The recursion guard, mirrored from bash_post_tool.py. Paired with
+        the positive cases above — alone it would pass against a hook that
+        writes nothing at all."""
+        self._completion(self._OFF_ALLOWLIST, agent_type="xp-code-reviewer")
+        self.assertIsNone(heartbeat_payload(self.smm_dir, self.SESSION))

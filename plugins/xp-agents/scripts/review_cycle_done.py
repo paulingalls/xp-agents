@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import _common
 import event_schema
+import hook_liveness
 import identity
 import markers
 import plugin_loader
@@ -151,6 +152,20 @@ def _emit_action_event(smm_dir: Path, action: str, content: str, agent_id: str) 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     """Set review cycle flags and emit canonical lifecycle events."""
+    smm_dir = _common.get_validated_smm_dir(smm_dir)
+    if smm_dir is None:
+        return None
+
+    # Ahead of `_detect_target` below, and the reason the SMM resolution moved
+    # up here with it: the write records that THIS hook ran, not that this
+    # particular completion mattered. `_common.is_xp_agent` reads `agent_type`
+    # — who is EXECUTING — exactly as bash_post_tool.py does, not
+    # `tool_input.subagent_type`, which names who just completed.
+    if not _common.is_xp_agent(input_data):
+        hook_liveness.write_heartbeat(
+            smm_dir, session_id=hook_liveness.payload_session_id(input_data)
+        )
+
     tool_input = input_data.get("tool_input", {})
     # Skill carries target in tool_input.skill; Agent in tool_input.subagent_type.
     # Detection runs BEFORE recursion-prevention so /security-review can be
@@ -164,10 +179,6 @@ def run(input_data: dict, smm_dir: Path | None = None) -> str | None:
     # Recursion-prevention: xp-* agents don't trigger flag-setting or lifecycle
     # events on themselves. /security-review is excepted (see comment above).
     if _common.is_xp_agent(input_data) and target != _TARGET_SECURITY_REVIEW:
-        return None
-
-    smm_dir = _common.get_validated_smm_dir(smm_dir)
-    if smm_dir is None:
         return None
 
     agent_id = identity.resolve_agent_id(input_data)
