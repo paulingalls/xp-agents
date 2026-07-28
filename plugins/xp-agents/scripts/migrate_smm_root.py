@@ -134,7 +134,10 @@ def _report_lock(lock: Path) -> None:
         return
     print(f"  lock:        {lock}")
     if not lock.is_symlink():
-        print("  lock holder: none — not a symlink, so residue from an older version")
+        print(
+            "  lock holder: none — not a symlink, so residue from an older "
+            "version; --confirm clears it"
+        )
         return
     try:
         target = os.readlink(lock)
@@ -146,7 +149,10 @@ def _report_lock(lock: Path) -> None:
         return
     match holder_state(target):
         case None:
-            print(f"  lock holder: {target!r} — names no pid, liveness unverifiable")
+            print(
+                f"  lock holder: {target!r} — names no pid, liveness "
+                "unverifiable; --confirm clears it"
+            )
         case True:
             print(f"  lock holder: pid {target} — RUNNING, a migration may be underway")
         case False:

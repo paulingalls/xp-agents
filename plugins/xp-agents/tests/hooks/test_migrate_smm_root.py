@@ -273,5 +273,42 @@ class TestRelocation(_ToolCase):
         self.assertIn("Nothing to do", again.stdout)
 
 
+class TestReportNamesTheRemedy(_ToolCase):
+    """Two lock shapes never self-release — nothing removes them
+    automatically — so the report describing them must say what does:
+    --confirm. Today it names the remedy for a dead holder but not for these.
+
+    Asserts against the ``lock holder:`` line specifically, not the whole
+    stdout — the dry-run footer always says "Re-run with --confirm", which
+    would make a bare ``assertIn("--confirm", result.stdout)`` pass whether or
+    not the lock line itself names anything.
+    """
+
+    def _lock_holder_line(self, stdout: str) -> str:
+        return next(
+            line for line in stdout.splitlines() if line.startswith("  lock holder:")
+        )
+
+    def test_non_symlink_lock_names_confirm(self):
+        home = self._home("residue-report")
+        self._seed_legacy(home)
+        lock = self._new_smm(home).parent / ".migrate.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text("residue from an older init.sh")
+        result = self._tool(home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--confirm", self._lock_holder_line(result.stdout))
+
+    def test_unverifiable_holder_names_confirm(self):
+        home = self._home("unverifiable-report")
+        self._seed_legacy(home)
+        lock = self._new_smm(home).parent / ".migrate.lock"
+        lock.parent.mkdir(parents=True)
+        lock.symlink_to("not-a-pid")
+        result = self._tool(home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--confirm", self._lock_holder_line(result.stdout))
+
+
 if __name__ == "__main__":
     unittest.main()
