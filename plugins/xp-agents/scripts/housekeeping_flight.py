@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
 import markers
+import session_markers
 
 # How long a started housekeeper is believed to still be working.
 #
@@ -61,11 +62,14 @@ def marker(session_id: object) -> markers.MarkerDef:
     the same project id. An SMM-global record left by another session would
     read as this one's, and the gate would pass on someone else's work.
 
-    `markers.session_marker` owns the naming rule (hash an untrusted id rather
-    than sanitise it; no id means the shared marker) — the same rule the hook
-    liveness heartbeat is named by. What is local here is only WHICH base name.
+    `session_markers.session_marker` owns the naming rule (hash an untrusted
+    id rather than sanitise it; no id means the shared marker) — the same rule
+    the hook liveness heartbeat is named by. What is local here is only WHICH
+    base name.
     """
-    return markers.session_marker(marker_names.HOUSEKEEPING_IN_FLIGHT, session_id)
+    return session_markers.session_marker(
+        marker_names.HOUSEKEEPING_IN_FLIGHT, session_id
+    )
 
 
 def record_start(smm_dir: Path, input_data: dict) -> None:
@@ -125,7 +129,7 @@ def state(smm_dir: Path, input_data: dict, now: float | None = None) -> str:
     record = markers.marker_read(smm_dir, marker(input_data.get("session_id")))
     if not isinstance(record, dict):
         return ABSENT
-    age = markers.marker_age_seconds(
+    age = session_markers.marker_age_seconds(
         time.time() if now is None else now, record.get(_STARTED_AT)
     )
     if age is not None and 0 <= age < STALE_AFTER_SECONDS:
@@ -159,7 +163,7 @@ def sweep_orphan_records(smm_dir: Path, now: float | None = None) -> None:
             continue
         record = markers.marker_read(smm_dir, markers.MarkerDef(path.name, "json"))
         age = (
-            markers.marker_age_seconds(stamp, record.get(_STARTED_AT))
+            session_markers.marker_age_seconds(stamp, record.get(_STARTED_AT))
             if isinstance(record, dict)
             else None
         )

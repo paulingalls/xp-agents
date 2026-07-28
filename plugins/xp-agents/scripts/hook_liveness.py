@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 import marker_names
 import markers
 import plugin_loader
+import session_markers
 
 # ---------------------------------------------------------------------------
 # Signals
@@ -173,12 +174,13 @@ def payload_session_id(input_data: dict) -> str | None:
 def heartbeat_marker(session_id: str | None) -> markers.MarkerDef:
     """The heartbeat this session owns.
 
-    `markers.session_marker` owns the naming rule — hash the untrusted id
-    rather than sanitise it, and resolve no-id to the unsuffixed shared marker,
-    which the reaping glob deliberately does not match. Shared with the
-    housekeeping in-flight record, the only other session-keyed marker.
+    `session_markers.session_marker` owns the naming rule — hash the
+    untrusted id rather than sanitise it, and resolve no-id to the unsuffixed
+    shared marker, which the reaping glob deliberately does not match. Shared
+    with the housekeeping in-flight record, the only other session-keyed
+    marker.
     """
-    return markers.session_marker(marker_names.HOOK_HEARTBEAT, session_id)
+    return session_markers.session_marker(marker_names.HOOK_HEARTBEAT, session_id)
 
 
 def _within_window(age: float | None) -> bool:
@@ -224,7 +226,7 @@ def _sibling_age(smm_dir: Path, path: Path, now: float) -> float | None:
     data = markers.marker_read(smm_dir, markers.MarkerDef(path.name, "json"))
     if not isinstance(data, dict):
         return None
-    return markers.marker_age_seconds(now, data.get("written_at"))
+    return session_markers.marker_age_seconds(now, data.get("written_at"))
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +380,7 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
             return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
         return _no_heartbeat_of_our_own(smm_dir, session_id, now)
 
-    age = markers.marker_age_seconds(now, data.get("written_at"))
+    age = session_markers.marker_age_seconds(now, data.get("written_at"))
     if age is None or age < -FUTURE_SKEW_GRACE_SECONDS:
         # A timestamp that far ahead of us is not a heartbeat we can age, so it
         # is the same claim as a corrupt one: present, unreadable, no verdict.

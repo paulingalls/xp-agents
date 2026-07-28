@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
+import session_markers
 from conftest import _HookTestCase
 
 
@@ -109,18 +110,18 @@ class TestTeammateConfigSweep(_HookTestCase):
     """TEAMMATE_CONFIG is swept on fresh SessionStart."""
 
     def test_registered_in_stale_session_markers(self):
-        self.assertIn(markers.TEAMMATE_CONFIG, markers._STALE_SESSION_MARKERS)
+        self.assertIn(markers.TEAMMATE_CONFIG, session_markers._STALE_SESSION_MARKERS)
 
     def test_write_then_sweep_removes_marker(self):
         markers.write_teammate_config(self.smm_dir, "sonnet")
         self.assertTrue(markers.marker_exists(self.smm_dir, markers.TEAMMATE_CONFIG))
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.TEAMMATE_CONFIG))
 
     def test_failsafe_after_sweep(self):
         """After sweep the absent marker fail-safes to inherit."""
         markers.write_teammate_config(self.smm_dir, "off")
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         result = markers.read_teammate_config(self.smm_dir)
         self.assertEqual(result, {"enabled": True, "default_model": None})
 

@@ -29,6 +29,7 @@ import housekeeping_stop_gate
 import marker_names
 import markers
 import materialize
+import session_markers
 import subagent_start
 import subagent_stop
 from _hook_inputs import _make_stop_input
@@ -380,14 +381,14 @@ class TestSessionBoundarySweep(_GateTestCase):
 
     def test_sweep_clears_suffixed_records_from_dead_sessions(self):
         self.write_record(session_id=_OTHER_SESSION)
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertFalse(self.record_path(_OTHER_SESSION).exists())
 
     def test_sweep_clears_the_unsuffixed_record(self):
         markers.marker_write(
             self.smm_dir, markers.HOUSEKEEPING_IN_FLIGHT, {"started_at": 1.0}
         )
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertFalse(
             markers.marker_exists(self.smm_dir, markers.HOUSEKEEPING_IN_FLIGHT)
         )
@@ -399,7 +400,7 @@ class TestSessionBoundarySweep(_GateTestCase):
         housekeeper over the one still running: the already-running-reads-as-
         never-invoked bug the per-session record was introduced to end."""
         self.write_record(session_id=_OTHER_SESSION, started_at=time.time() - 1.0)
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertTrue(self.record_path(_OTHER_SESSION).exists())
 
     def test_sweep_keeps_a_FRESH_unsuffixed_record(self):
@@ -410,7 +411,7 @@ class TestSessionBoundarySweep(_GateTestCase):
             markers.HOUSEKEEPING_IN_FLIGHT,
             {"started_at": time.time() - 1.0},
         )
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertTrue(
             markers.marker_exists(self.smm_dir, markers.HOUSEKEEPING_IN_FLIGHT)
         )
@@ -418,14 +419,14 @@ class TestSessionBoundarySweep(_GateTestCase):
     def test_a_live_sessions_gate_still_reads_FRESH_after_another_sweep(self):
         """The consequence, end to end: window A's gate stays quiet."""
         self.write_record(session_id=_SESSION, started_at=time.time() - 1.0)
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertIsNone(self.gate(now=time.time()))
 
     def test_sweep_clears_a_future_dated_record(self):
         """Unageable is not fresh — same bounds `state` applies, so a clock
         step or a millisecond timestamp cannot make a record unsweepable."""
         self.write_record(session_id=_OTHER_SESSION, started_at=time.time() + 10_000)
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertFalse(self.record_path(_OTHER_SESSION).exists())
 
 
@@ -443,7 +444,9 @@ class TestMarkerConstant(unittest.TestCase):
         boundary, but through `housekeeping_flight.sweep_orphan_records` rather
         than the unconditional `_STALE_SESSION_MARKERS` list, because unlike
         every marker on that list it can belong to another live session."""
-        self.assertNotIn(markers.HOUSEKEEPING_IN_FLIGHT, markers._STALE_SESSION_MARKERS)
+        self.assertNotIn(
+            markers.HOUSEKEEPING_IN_FLIGHT, session_markers._STALE_SESSION_MARKERS
+        )
         self.assertTrue(callable(housekeeping_flight.sweep_orphan_records))
 
 

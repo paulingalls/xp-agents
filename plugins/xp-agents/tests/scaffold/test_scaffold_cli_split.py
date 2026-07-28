@@ -32,6 +32,11 @@ _SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 _SCAFFOLD_CLI = _SCRIPTS_DIR / "scaffold_cli.py"
 _SCAFFOLD_CLI_APPLY = _SCRIPTS_DIR / "scaffold_cli_apply.py"
 
+# The recorded sub-cap is 450, not 499: "just under 500" is the mechanism that
+# produced this debt four times, so the pin has to bite before the hard cap.
+# Same threshold as tests/hooks/test_session_markers.py.
+_LINE_SUB_CAP = 450
+
 
 class TestScaffoldCliSplit(unittest.TestCase):
     def test_apply_module_importable(self) -> None:
@@ -65,26 +70,33 @@ class TestScaffoldCliSplit(unittest.TestCase):
                     f"scaffold_cli_apply (re-export, not a local copy)",
                 )
 
-    def test_scaffold_cli_under_500_lines(self) -> None:
+    def test_scaffold_cli_under_the_sub_cap(self) -> None:
         """The whole point of the split — keep scaffold_cli under the budget."""
-        line_count = sum(1 for _ in _SCAFFOLD_CLI.read_text().splitlines())
-        self.assertLess(
-            line_count,
-            500,
-            f"scaffold_cli.py is {line_count} lines — extract more into "
-            f"scaffold_cli_apply.py",
+        self._assert_under_sub_cap(
+            _SCAFFOLD_CLI, "extract more into scaffold_cli_apply"
         )
 
-    def test_scaffold_cli_apply_under_500_lines(self) -> None:
+    def test_scaffold_cli_apply_under_the_sub_cap(self) -> None:
         """Symmetric budget — extracting into a sibling that itself busts the
         budget would just defer the next split. Both modules earn their keep
-        only if both stay under 500 lines."""
-        line_count = sum(1 for _ in _SCAFFOLD_CLI_APPLY.read_text().splitlines())
-        self.assertLess(
+        only if both stay under the cap."""
+        self._assert_under_sub_cap(
+            _SCAFFOLD_CLI_APPLY,
+            "extract a cohesive group of phases into a third module",
+        )
+
+    def _assert_under_sub_cap(self, path: Path, remedy: str) -> None:
+        line_count = len(path.read_text().splitlines())
+        # Non-vacuity: a zero-line read satisfies any cap, so an emptied file
+        # or a wrong path fails here rather than passing silently.
+        self.assertGreater(
+            line_count, 0, f"scanned no lines of {path.name} — pin is vacuous"
+        )
+        self.assertLessEqual(
             line_count,
-            500,
-            f"scaffold_cli_apply.py is {line_count} lines — extract a "
-            f"cohesive group of phases into a third module",
+            _LINE_SUB_CAP,
+            f"{path.name} is {line_count} lines, over the {_LINE_SUB_CAP} "
+            f"sub-cap — {remedy}",
         )
 
 

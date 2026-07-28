@@ -2,6 +2,9 @@
 """Tests for scripts/markers.py — core marker CRUD and constants.
 
 Review cycle, render markers, and agent cleanup in test_markers_review.py.
+The per-session marker lifecycle (`session_marker`, `marker_age_seconds`, the
+SessionStart sweep set) moved to scripts/session_markers.py; its tests, and
+the pin on the split, are in test_session_markers.py.
 """
 
 import json
@@ -15,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import markers
+import session_markers
 from conftest import _HookTestCase
 
 # ---------------------------------------------------------------------------
@@ -77,59 +81,6 @@ class TestMarkerPath(_HookTestCase):
         for m in (markers.TDD_TRACKER, markers.REVIEW_CYCLE):
             path = markers.marker_path(self.smm_dir, m, "main")
             self.assertTrue(path.name.startswith("."))
-
-
-# ---------------------------------------------------------------------------
-# session_marker
-# ---------------------------------------------------------------------------
-
-
-class TestSessionMarker(unittest.TestCase):
-    """The naming rule both session-keyed markers share.
-
-    It is a path-safety rule — a session id is untrusted input that would
-    otherwise steer a path — so it is pinned here, once, rather than in each
-    consumer.
-    """
-
-    def test_a_session_id_never_reaches_the_filename(self):
-        marker = markers.session_marker(".m", "../../etc/passwd\n")
-        self.assertRegex(marker.name, r"^\.m-[0-9a-f]{12}$")
-
-    def test_distinct_ids_get_distinct_markers(self):
-        self.assertNotEqual(
-            markers.session_marker(".m", "a").name,
-            markers.session_marker(".m", "b").name,
-        )
-
-    def test_the_same_id_resolves_stably(self):
-        # Writer and reader are different processes; an unstable name would
-        # make every read miss.
-        self.assertEqual(
-            markers.session_marker(".m", "a").name,
-            markers.session_marker(".m", "a").name,
-        )
-
-    def test_no_usable_id_falls_back_to_the_shared_name(self):
-        # A blank or non-str id must NOT key a marker on the hash of a value no
-        # reader ever addresses: that file would exist on disk, be invisible to
-        # every check, and outlive the sweep that reaps suffixed siblings.
-        for value in (None, "", "   ", 17, [], {}):
-            with self.subTest(value=value):
-                self.assertEqual(markers.session_marker(".m", value).name, ".m")
-
-    def test_surrounding_whitespace_does_not_fork_the_name(self):
-        self.assertEqual(
-            markers.session_marker(".m", " a ").name,
-            markers.session_marker(".m", "a").name,
-        )
-
-    def test_result_is_a_json_marker(self):
-        for value in ("a", None):
-            with self.subTest(value=value):
-                marker = markers.session_marker(".m", value)
-                self.assertEqual(marker.content_type, "json")
-                self.assertFalse(marker.agent_scoped)
 
 
 # ---------------------------------------------------------------------------
@@ -349,9 +300,9 @@ class TestAcceptInFlightMarker(_HookTestCase):
     def test_swept_as_stale_session_marker(self):
         import markers
 
-        self.assertIn(markers.ACCEPT_IN_FLIGHT, markers._STALE_SESSION_MARKERS)
+        self.assertIn(markers.ACCEPT_IN_FLIGHT, session_markers._STALE_SESSION_MARKERS)
         markers.marker_write(self.smm_dir, markers.ACCEPT_IN_FLIGHT, "1")
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertFalse(markers.marker_exists(self.smm_dir, markers.ACCEPT_IN_FLIGHT))
 
 
@@ -420,7 +371,7 @@ class TestWarnOnce(_HookTestCase):
         # would silently latch into permanent-warn.
         self.assertIn(
             markers.SISTER_TEST_LAYOUT_WARN,
-            markers._STALE_SESSION_MARKERS,
+            session_markers._STALE_SESSION_MARKERS,
         )
 
     def test_severity_override(self):
