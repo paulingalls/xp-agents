@@ -94,12 +94,25 @@ class TestGuideCadenceNeutrality(unittest.TestCase):
 
     def test_points_at_the_live_gate_rather_than_the_prose(self):
         """The commit gate reports the cadence in force, so a teammate reads
-        live state instead of trusting a guide written before the choice."""
+        live state instead of trusting a guide written before the choice.
+
+        A proximity match (`gate` within 120 chars of `cadence`) is vacuous
+        here — the story-cadence clause above already contains "cadence the
+        per-commit gate defers", so deleting the pointer sentence left the pin
+        green. Pin the two halves of the pointer instead: the gate REPORTS the
+        cadence, and the teammate is told not to assume one.
+        """
         self.assertRegex(
             self.review_cycle,
-            r"(?is)gate.{0,120}cadence|cadence.{0,120}gate",
-            "TEAMMATE_GUIDE.md does not point at the commit gate for the "
+            r"(?is)gate\s+\S+\s+the\s+cadence",
+            "TEAMMATE_GUIDE.md does not say the commit gate reports the "
             "cadence in force",
+        )
+        self.assertRegex(
+            self.review_cycle,
+            r"(?i)do(n't| not) assume",
+            "TEAMMATE_GUIDE.md does not tell the teammate to read the live "
+            "cadence rather than assume one",
         )
 
 

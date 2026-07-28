@@ -14,7 +14,7 @@ You implement your assigned story independently. You run in one of two contexts 
 
 ## Review Cycle
 
-Review cadence (commit | story) is set for the session: in commit cadence run `/xp-quality-review` before each commit; in story cadence the per-commit gate defers and `/xp-quality-review` runs at `/xp-story-close` on the cumulative diff. The commit gate names the cadence in force — read it, don't assume. Either way it spawns the independent `xp-code-reviewer`, which self-finds correctness plus reuse, quality, efficiency, courage, drift and debt. The broad `/code-review` (Workflow tool) is sprint-close only.
+Review cadence (commit | story) is set for the session: in commit cadence run `/xp-quality-review` before each commit; in story cadence the per-commit gate defers and `/xp-quality-review` runs at the lead's `/xp-story-close` on the cumulative diff. The commit gate names the cadence in force — read it, don't assume. Either way it spawns the independent `xp-code-reviewer`, which self-finds correctness plus reuse, quality, efficiency, courage, drift and debt. The broad `/code-review` (Workflow tool) is sprint-close only.
 
 Security: a deterministic secret/pattern scan on staged diffs at commit; `/security-review` at close.
 
