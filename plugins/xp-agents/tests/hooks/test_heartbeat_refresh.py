@@ -12,13 +12,17 @@ long-running teammate keeps a live verdict:
 - `post_tool_use.py`    — PostToolUse:Write|Edit|MultiEdit, every edit
 - `pre_tool_skill.py`   — PreToolUse:Skill, before the skill's own preload
 
+A fourth tool-use site — `review_cycle_done.py`, PostToolUse:Skill|Agent —
+landed later (story-004) and is pinned in
+tests/integration/test_hook_liveness_e2e.py, not here.
+
 Marker mechanics are tested in test_hook_heartbeat_marker.py /
 test_hook_heartbeat_liveness.py; the writer PATTERN is tested in
 test_heartbeat_writers.py. This suite is about PLACEMENT: each write must
 sit on a code path every invocation reaches, ahead of that hook's own early
 returns — a write that records "this event mattered" would miss the cases
-that matter most (a dead-site bug review already caught once for the
-dropped review_cycle_done.py candidate).
+that matter most (a dead-site bug review already caught once, on the
+review_cycle_done.py candidate story-006 deferred).
 """
 
 import os

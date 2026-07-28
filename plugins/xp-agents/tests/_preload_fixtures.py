@@ -29,6 +29,19 @@ def _no_env() -> dict:
     return {}
 
 
+# The liveness refusal's own heading, as `skills/_preload_liveness.sh` echoes
+# it. It must not be confusable with the base's pre-existing no-SMM-at-all exit:
+# "there is no shared model here" and "the shared model is here but the runtime
+# maintaining it is dead" are different failures with different fixes.
+#
+# Anchored in this shared module rather than in whichever suite spelled it
+# first: two suites now assert against it, and importing a `test_*` module for a
+# constant makes pytest execute that file under a second module name. No
+# separate pin against the shell fragment is needed — every consumer asserts it
+# against REAL preload stdout, so a reworded banner goes red there.
+REFUSAL_HEADER = "## Hook Runtime: not live"
+
+
 PRELOAD_FIXTURES: dict[str, PreloadBuilder] = {
     "xp-accept": _no_env,
     "xp-assign": _no_env,
