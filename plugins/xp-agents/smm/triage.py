@@ -15,25 +15,36 @@ import event_schema
 import glob_translator
 
 _EM_DASH = "—"
-# The convention is "path — description" (em-dash), but " -- " (ASCII) is a
-# common deviation. Both end the path portion; a leaked description once
-# crashed a hook by feeding prose to the glob compiler.
-_ASCII_DESC_SEP = " -- "
+# The convention is "path — description" (em-dash); ASCII " -- " and " - " are
+# both common deviations. All three end the path portion. A leaked description
+# once crashed a hook by feeding prose to the glob compiler — and an
+# UNRECOGNIZED separator is worse than a crash, because it fails silently: the
+# whole entry becomes the path, the declared file matches nothing, and
+# `validate-domain` reports drift on a file that is plainly declared. The single
+# hyphen was the form that did that (concern dd9ddb62ec3f).
+#
+# ASCII separators require a LEADING space and must be followed by whitespace or
+# end-of-entry, so a hyphen inside a filename (`pre-commit-hook.py`) is never a
+# separator. `--` precedes `-` in the alternation so the longer form wins where
+# both could match. The em dash keeps its bare search — it needs no surrounding
+# spaces and cannot occur inside a path.
+_ASCII_DESC_SEP_RE = re.compile(r"\s(?:--|-)(?=\s|$)")
 
 
 def entry_to_paths(entry: str) -> list[str]:
     """Split one file_domain entry into its declared path(s).
 
-    An entry is "path — description", "path -- description", or just
-    "path"; multiple paths may be comma-joined ("a.ts, b.ts — ..."). The
-    description (after the earliest em-dash or ASCII ' -- ' separator) is
-    stripped before splitting on commas, so a comma inside the description
-    never spawns a phantom path. Returns cleaned, non-empty path strings.
+    An entry is "path — description", "path -- description",
+    "path - description", or just "path"; multiple paths may be comma-joined
+    ("a.ts, b.ts — ..."). The description (after the earliest separator of any
+    of the three forms) is stripped before splitting on commas, so a comma
+    inside the description never spawns a phantom path. Returns cleaned,
+    non-empty path strings.
     """
     seps = [entry.index(_EM_DASH)] if _EM_DASH in entry else []
-    ascii_idx = entry.find(_ASCII_DESC_SEP)
-    if ascii_idx != -1:
-        seps.append(ascii_idx)
+    ascii_match = _ASCII_DESC_SEP_RE.search(entry)
+    if ascii_match is not None:
+        seps.append(ascii_match.start())
     head = entry[: min(seps)] if seps else entry  # earliest separator wins
     return [p.strip() for p in head.split(",") if p.strip()]
 
@@ -110,8 +121,9 @@ def extract_file_domain_paths(
     """Extract file paths from file_domain entries, expanding any globs.
 
     Entries are "path — description" (em-dash convention), "path --
-    description" (common ASCII deviation), or just "path"; several paths
-    may be comma-joined in one entry. See `entry_to_paths`. When a path
+    description" or "path - description" (both common ASCII deviations), or
+    just "path"; several paths may be comma-joined in one entry. See
+    `entry_to_paths`. When a path
     contains glob metacharacters (`*`, `?`, `[...]`) the entry expands to
     matching files: against `candidate_files` via fnmatch-style regex when
     provided
