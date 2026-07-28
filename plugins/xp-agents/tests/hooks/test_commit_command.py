@@ -31,6 +31,32 @@ class TestCommitCommandDirectImport(unittest.TestCase):
         result = commit_command.parse_effective_cwd("git status", "/fallback")
         self.assertEqual(result, "/fallback")
 
+    def test_parse_effective_cwd_relative_dash_c_resolves_against_fallback(self):
+        """A RELATIVE literal `-C` path must keep resolving exactly as it does
+        today, against the caller's cwd.
+
+        Green before and after the fail-closed refusal landed — a pin on
+        existing behaviour, not a red step. It is here because the refusal
+        (`dash_c_unreachable`) keys on shell constructs, and the cheapest way to
+        get that wrong is to widen it into a blanket "anything not absolute is
+        unresolvable". The absolute case is covered above; a relative path
+        reaches a DIFFERENT branch of `_resolve` (the `Path(fallback) / path`
+        join), so absolute coverage alone would not catch that widening.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "wt").mkdir()
+            result = commit_command.parse_effective_cwd(
+                "git -C wt commit -m 'msg'", tmp
+            )
+            self.assertEqual(result, str(Path(tmp) / "wt"))
+
+    def test_relative_dash_c_is_not_treated_as_unreachable(self):
+        """The other half: a relative literal path carries no shell construct,
+        so the commit gate must let it proceed rather than refuse it."""
+        self.assertFalse(commit_command.dash_c_unreachable("git -C wt commit"))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C ./wt commit"))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C ../sibling commit"))
+
     def test_dash_c_unreachable_true_for_variable(self):
         self.assertTrue(commit_command.dash_c_unreachable('git -C "$WT" commit'))
 
