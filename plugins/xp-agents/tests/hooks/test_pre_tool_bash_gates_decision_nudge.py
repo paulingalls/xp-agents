@@ -155,7 +155,7 @@ class TestPreToolBashDecisionOpenQuestions(_HookTestCase):
 class TestPreToolBashDecisionSameTopic(_HookTestCase):
     """Decision-time nudge: when emitting on a topic with an existing
     unresolved decision, suggest metadata.supersedes/.resolves. Mirrors
-    the same-topic check in concerns.py's superseded-decision detector
+    the same-topic check in concern_conflicts.py's superseded-decision detector
     but fires PRE-write so the agent can declare supersedence inline.
     """
 
