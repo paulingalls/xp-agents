@@ -105,5 +105,5 @@ Briefly summarize what was fixed, what was deferred as debt, and what was alread
 
 - **Independence is the point.** The xp-code-reviewer subagent has fresh context — it didn't write the code. Trust its judgment.
 - **Courage over comfort.** If the subagent flags a finding as valid, default to applying the fix.
-- **Run the preload's `TEST_COMMAND`** after any changes to verify nothing breaks. If it is empty this project declared none — say so and let the customer set `stack.test_command` (`system_context_cli.py edit-stack-field test_command`) rather than guessing a runner.
+- **Run the preload's `TEST_COMMAND`** after any changes to verify nothing breaks. If it is empty this project declared none — say so rather than guessing a runner, and give the customer the setter verbatim: `printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command`.
 - If the subagent reports all code is clean, record the summary and move on.

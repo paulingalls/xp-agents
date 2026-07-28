@@ -44,19 +44,31 @@ is itself a green check certifying something untrue, which is the failure these
 pins exist to kill. So, precisely:
 
 * The vocabulary is `linter_tables.LINTER_COMMANDS` — which holds **check**
-  linters — plus `_FORMATTERS` below, because that table has no format/fix
-  column. Anything in neither list is invisible here: a new formatter, a type
-  checker (`mypy`, `tsc`), a build tool. The durable fix is a format/fix column
-  in `linter_tables` so this pin can read one list; see `_FORMATTERS`.
+  linters, and only the seventeen the plugin bothers to DETECT — plus
+  `_FORMATTERS` and `_UNDETECTED_CHECKERS` below. Anything in none of the three
+  is invisible here: a build tool, a task runner, a linter nobody has added
+  (`vale`, `hadolint`, `sqlfluff`). The durable fix is a format/fix column in
+  `linter_tables` so this pin can read one list; see `_FORMATTERS`.
 * It reads literal tool names only. "Run the Python formatter" or "run black"
   written as prose without the backticked token may still slip past, and an
   instruction that is language-specific in meaning but names no tool
   ("re-run the type checker on the changed .py files") is out of reach entirely.
-* Leg 2 sees only `Bash(...)` entries in shipped frontmatter. A language
-  assumption expressed in a skill's *body* is leg 1's problem, and one expressed
-  in hook registration or a script is neither pin's.
+* Leg 2 reads only a `- Bash(...)` block-sequence entry, one per line. A
+  flow-style `allowed-tools: [Bash(...), Read]`, or a body containing its own
+  `)`, parses as nothing and is NOT scanned — `TestScanIsNotVacuous`'s
+  twenty-grant floor is the backstop, and it only catches a tree-wide rewrite,
+  not one file's. A language assumption expressed in a skill's *body* is leg 1's
+  problem, and one expressed in hook registration or a script is neither pin's.
+* Leg 2 has no `lang-ok` hatch: its permit-list IS the hatch. A genuinely new
+  host utility, or a grant-shaped line inside a shipped example, is legitimized
+  by extending `_HOST_COMMANDS` / `_PLUGIN_OWNED` here — deliberately, in one
+  place — not by annotating the site.
 * Tests are not scanned, by either leg. They never ship, so they are free to be
   Python-specific — the same carve-out the code-side pin makes.
+
+Both matchers are mutation-proved against synthetic offenders in the sibling
+`test_shipped_prose_language_agnostic_matchers.py`; this module owns only the
+assertions over the real tree.
 """
 
 import re
@@ -103,13 +115,41 @@ _FORMATTERS = frozenset(
     }
 )
 
-TOOL_VOCABULARY = frozenset(LINTER_COMMANDS) | _FORMATTERS
+# Check tools `LINTER_COMMANDS` omits. That table is not a catalogue of linters —
+# it is the list the plugin knows how to DETECT and run, seventeen entries. A
+# tool absent from it is exactly as language-binding in shipped prose as one
+# present: `pylint` in a remedy tells a Rust project to run a Python linter just
+# as `ruff` did. Type checkers sit here too — "re-run mypy" is the same leak in a
+# different register. Same lifecycle as `_FORMATTERS`: fold into `linter_tables`
+# if the plugin ever detects these, delete from here then.
+_UNDETECTED_CHECKERS = frozenset(
+    {
+        "pylint",
+        "pycodestyle",
+        "pyflakes",
+        "bandit",
+        "mypy",
+        "pyright",
+        "stylelint",
+        "biome",
+        "oxlint",
+        "tsc",
+        "shellcheck",
+        "hlint",
+        "cppcheck",
+        "go vet",  # not bare `vet`: an English verb this prose uses ("vet a finding")
+    }
+)
+
+TOOL_VOCABULARY = frozenset(LINTER_COMMANDS) | _FORMATTERS | _UNDETECTED_CHECKERS
 
 # `<!-- lang-ok: reason -->`, reason non-empty.
 _HATCH_RE = re.compile(r"<!--\s*lang-ok:\s*(?P<reason>[^>]*?)\s*-->")
 
-# A `Bash(...)` entry in an `allowed-tools` block.
-_GRANT_RE = re.compile(r"^\s*-\s*Bash\((?P<body>[^)]*)\)\s*$")
+# A `Bash(...)` entry in an `allowed-tools` block. A trailing `#` comment is
+# tolerated so annotating a grant cannot hide it from leg 2 — the shapes leg 2
+# still cannot parse are named in LIMITS above.
+_GRANT_RE = re.compile(r"^\s*-\s*Bash\((?P<body>[^)]*)\)\s*(?:#.*)?$")
 
 # What a grant is ALLOWED to name. A permit-list, so an unrecognised grant fails
 # closed rather than being silently tolerated.
@@ -121,6 +161,11 @@ _GRANT_RE = re.compile(r"^\s*-\s*Bash\((?P<body>[^)]*)\)\s*$")
 # `python3 -m unittest *` is `-m`: it resolves a module from the ENVIRONMENT,
 # which is the user's project, not the plugin. Plugin path or `-c` = our code;
 # `-m` = their toolchain. That is why `-m` appears in no permitted form below.
+#
+# Matched as a PREFIX of the grant's target (see `_names_plugin_path`), not as a
+# substring of the whole body: a substring search would permit
+# `python3 -m pytest */skills/*/scripts/*`, letting a plugin path appearing as an
+# ARGUMENT smuggle the user's runner past the discriminator.
 _PLUGIN_OWNED = (
     "*/scripts/",
     "*/smm/",
@@ -170,13 +215,20 @@ def find_prose_tool_names(
     lines = text.splitlines()
     hits: list[tuple[int, str]] = []
     for index, line in enumerate(lines):
+        if _hatched(lines, index):
+            continue
         for tool in sorted(vocabulary):
-            if not re.search(rf"(?<![\w-]){re.escape(tool)}(?![\w-])", line):
-                continue
-            if _hatched(lines, index):
-                continue
-            hits.append((index + 1, tool))
+            if re.search(rf"(?<![\w-]){re.escape(tool)}(?![\w-])", line):
+                hits.append((index + 1, tool))
     return hits
+
+
+def _names_plugin_path(body: str) -> bool:
+    """True when the grant's TARGET — its first word after an optional `python3`
+    runtime prefix — is a plugin-owned path."""
+    prefix = "python3 "
+    target = body[len(prefix) :] if body.startswith(prefix) else body
+    return target.startswith(_PLUGIN_OWNED)
 
 
 def find_offending_grants(text: str) -> list[tuple[int, str]]:
@@ -187,7 +239,7 @@ def find_offending_grants(text: str) -> list[tuple[int, str]]:
         if not match:
             continue
         body = match.group("body").strip()
-        if any(owned in body for owned in _PLUGIN_OWNED):
+        if _names_plugin_path(body):
             continue
         if body.startswith(_PLUGIN_INLINE) or body.startswith(_HOST_COMMANDS):
             continue
@@ -246,7 +298,9 @@ class TestShippedGrantsNameNoUserRunner(unittest.TestCase):
             "a shipped Bash(...) grant names something other than a "
             "plugin-owned path or a host VCS command. A grant naming the "
             "project's test runner or linter assumes its language, and is "
-            "inert for every other one:\n"
+            "inert for every other one. If the grant is genuinely a host "
+            "utility, add it to _HOST_COMMANDS rather than loosening the "
+            "match:\n"
             + "\n".join(
                 f"  {path}:{line} grants `{body}`"
                 for path, offending in sorted(offenders.items())
@@ -287,6 +341,15 @@ class TestScanIsNotVacuous(unittest.TestCase):
         self.assertNotIn("gofmt", LINTER_COMMANDS)
         self.assertIn("gofmt", TOOL_VOCABULARY)
 
+    def test_vocabulary_covers_checkers_the_table_does_not_detect(self) -> None:
+        """The second blind spot: the table is the seventeen linters the plugin
+        DETECTS, not a catalogue. A checker outside it binds shipped prose to one
+        language exactly as `ruff` did."""
+        for tool in ("pylint", "mypy", "shellcheck"):
+            with self.subTest(tool=tool):
+                self.assertNotIn(tool, LINTER_COMMANDS)
+                self.assertIn(tool, TOOL_VOCABULARY)
+
     def test_grant_scan_reads_a_real_grant_surface(self) -> None:
         """Leg 2's own non-vacuity: frontmatter is actually being parsed."""
         groups = shipped_prose_to_scan(PLUGIN_ROOT)
@@ -311,75 +374,6 @@ def _all_grants(text: str) -> list[tuple[int, str]]:
         for index, line in enumerate(text.splitlines())
         if (match := _GRANT_RE.match(line))
     ]
-
-
-class TestDetectionActuallyWorks(unittest.TestCase):
-    """Mutation proof, in-suite. Four vacuous pins were found in one sprint;
-    a pin asserting a property nothing exercises is how that keeps happening.
-    Both legs are green over the real tree once the fix lands, so a synthetic
-    offender is the only thing that can prove the matchers fire at all."""
-
-    def test_a_single_tool_instruction_is_flagged(self) -> None:
-        hits = find_prose_tool_names("- `ruff format` before staging\n")
-        self.assertEqual(hits, [(1, "ruff")])
-
-    def test_a_multi_word_tool_is_matched_whole(self) -> None:
-        self.assertEqual(
-            find_prose_tool_names("run `cargo fmt` first\n"), [(1, "cargo fmt")]
-        )
-
-    def test_a_tool_inside_a_longer_word_is_not_flagged(self) -> None:
-        """`ruff` must not fire on `scruffy`, or the pin gets disabled."""
-        self.assertEqual(find_prose_tool_names("a scruffy diff, blackened\n"), [])
-
-    def test_agnostic_prose_is_not_flagged(self) -> None:
-        self.assertEqual(
-            find_prose_tool_names("- Run the project's formatter before staging\n"),
-            [],
-        )
-
-    def test_the_hatch_exempts_a_named_tool(self) -> None:
-        text = "listing linters <!-- lang-ok: documents the detection table -->\n"
-        self.assertEqual(find_prose_tool_names(text), [])
-
-    def test_the_hatch_on_the_line_above_exempts(self) -> None:
-        text = "<!-- lang-ok: table of every detected linter -->\n| `ruff` | .py |\n"
-        self.assertEqual(find_prose_tool_names(text), [])
-
-    def test_an_empty_hatch_reason_does_not_exempt(self) -> None:
-        """A bare marker is a shrug, not a justification."""
-        self.assertEqual(
-            find_prose_tool_names("`ruff` <!-- lang-ok: -->\n"), [(1, "ruff")]
-        )
-
-    def test_a_user_runner_grant_is_flagged(self) -> None:
-        self.assertEqual(
-            find_offending_grants("  - Bash(python3 -m unittest *)\n"),
-            [(1, "python3 -m unittest *")],
-        )
-
-    def test_plugin_owned_and_host_grants_are_exempt(self) -> None:
-        text = (
-            "  - Bash(python3 */smm/sprint_cli.py *)\n"
-            "  - Bash(*/append.sh *)\n"
-            "  - Bash(*/init.sh)\n"
-            "  - Bash(*/skills/*/scripts/*)\n"
-            "  - Bash(git push *)\n"
-            "  - Bash(gh pr *)\n"
-            "  - Bash(printf *)\n"
-        )
-        self.assertEqual(find_offending_grants(text), [])
-
-    def test_the_plugins_own_inline_runtime_is_exempt_but_dash_m_is_not(self) -> None:
-        """`python3` is not the signal — `-m` is. `-c` runs the plugin's own code;
-        `-m` resolves a module from the environment, which is the user's project.
-        Both were live in the tree, and conflating them would have forced a real
-        grant to be deleted or a real leak to be tolerated."""
-        self.assertEqual(find_offending_grants("  - Bash(python3 -c *datetime*)\n"), [])
-        self.assertEqual(
-            find_offending_grants("  - Bash(python3 -m pytest *)\n"),
-            [(1, "python3 -m pytest *")],
-        )
 
 
 if __name__ == "__main__":

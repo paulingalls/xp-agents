@@ -48,7 +48,11 @@ echo "MODE=${MODE}"
 # other language. Reuses find_test_command (the close preloads' helper) rather
 # than a second lookup; empty when stack.test_command is unset, and the skill
 # says what to do then instead of guessing a runner.
-echo "TEST_COMMAND=$(find_test_command)"
+# Emitted through emit_var, like the three sibling callers: the value is
+# author-supplied (system_context.stack.test_command), so a newline in it would
+# forge a second KEY=value line and could shadow the MODE / CLOSE_DIFF_UNAVAILABLE
+# lines this same preload emits.
+emit_var TEST_COMMAND "$(find_test_command)"
 echo ""
 
 # Diff scope. Default: the staged/working diff (review runs before the commit).
