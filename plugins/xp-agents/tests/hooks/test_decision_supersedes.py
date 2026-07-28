@@ -128,6 +128,22 @@ class TestDecisionSupersedesNonAdjacent(_HookTestCase):
         found = concerns.detect_conflicts([d1, d2, d3], "main")
         self.assertEqual(len(self._superseded(found)), 1)
 
+    def test_absent_id_key_on_earlier_decision_does_not_raise(self):
+        """The guard subscripts `d["id"]` after testing `(d.get("id") or "")`,
+        so an earlier decision missing the key entirely relies on short-circuit
+        order. Pin both halves: no KeyError, and still flags."""
+        d1 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use Postgres")
+        del d1["id"]
+        d2 = make_event(EVENT_TYPE_DECISION, topic="db", content="Use MySQL")
+        d3 = make_event(
+            EVENT_TYPE_DECISION,
+            topic="db",
+            content="Use SQLite",
+            metadata={METADATA_KEY_SUPERSEDES: ["some-unrelated-id"]},
+        )
+        found = concerns.detect_conflicts([d1, d2, d3], "main")
+        self.assertEqual(len(self._superseded(found)), 1)
+
     def test_short_prefix_ambiguity_still_suppresses_intended_case(self):
         """_declares_supersession is bidirectionally prefix-tolerant with no
         ambiguity guard (unlike resolution.resolve_prefix, which returns None
