@@ -302,9 +302,7 @@ class TestPostCommitEffectiveCwd(_HookTestCase):
                 patch("commits.get_head_commit_hash", return_value="abc"),
                 patch("commits.get_committed_files", return_value=["a.py"]),
                 patch("commits.get_commit_message_body", return_value="msg"),
-                patch(
-                    "commit_handling._resolve_story_id", return_value=None
-                ) as story_spy,
+                patch("commit_event._resolve_story_id", return_value=None) as story_spy,
             ):
                 bash_post_tool.run(
                     _make_bash_input(
