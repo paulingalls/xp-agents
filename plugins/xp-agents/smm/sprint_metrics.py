@@ -67,11 +67,20 @@ def next_sprint_id(smm_dir: Path) -> str:
 
     Default: 'sprint-001' if no history exists anywhere.
     """
-    from sprint_store import load_sprint
+    from sprint_store import SprintCorruptError, load_sprint
 
     ids: set[str] = set()
 
-    sprint = load_sprint(smm_dir)
+    try:
+        sprint = load_sprint(smm_dir)
+    except (SprintCorruptError, OSError):
+        # A corrupt or symlinked LIVE sprint must not abort the scan. The
+        # archives and sprint-start events still hold real history, and this
+        # function's whole promise is that the counter never regresses — but
+        # every caller wraps it in `|| echo "sprint-001"`, so raising here
+        # re-issues an id an archived sprint already used, colliding sprint
+        # identity in metrics and in `_archived_sprint_ids`.
+        sprint = None
     if sprint is not None and sprint["sprint_id"]:
         ids.add(sprint["sprint_id"])
     ids.update(_archived_sprint_ids(smm_dir))

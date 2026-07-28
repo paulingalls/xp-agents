@@ -38,7 +38,7 @@ If the preload output above shows **ERROR**, explain the problem to the user and
 
 ## Deferred Story Carryover
 
-If the preload shows **Deferred Stories from Previous Sprint**, these stories carry forward. Include them in the new sprint with their original acceptance criteria. Present them separately when confirming scope.
+If the preload shows **Deferred Stories from Previous Sprint**, these stories carry forward. Copy each `STORY:` id's `acceptance_criteria` and `file_domain` from the `SOURCE:` path it names — no CLI returns them once archived. Present them separately when confirming scope. A `WARNING:` line means the list is incomplete, not empty.
 
 ---
 

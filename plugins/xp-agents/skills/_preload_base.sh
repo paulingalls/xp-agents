@@ -342,6 +342,21 @@ sprint_list_stories() {
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-stories "$@" 2>/dev/null
 }
 
+# Deferred stories to carry into the next sprint. Archive-aware: sprint-close
+# MOVES sprint.json, so by sprint-start there is no live file to read. Emits
+# `SOURCE: <path>` (where full story definitions live), `WARNING: <reason>`, and
+# `STORY: <id>: <title> [<status>]` lines; the command prints its own advisories
+# to stdout precisely because this helper discards stderr.
+#
+# Fail-soft, because under `set -e` a bare command substitution would abort the
+# whole preload — but NOT silently: a bare `|| true` would turn any unanticipated
+# nonzero exit back into an empty block with no signal, which is the exact bug
+# this reader was written to end.
+sprint_list_carryover() {
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-carryover 2>/dev/null \
+        || echo "WARNING: the carry-over reader failed; deferred stories from the previous sprint may be missing from this list."
+}
+
 # Next sprint ID (increments current, falls back to sprint-001).
 sprint_next_id() {
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" next-id 2>/dev/null || echo "sprint-001"
