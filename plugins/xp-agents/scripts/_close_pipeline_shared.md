@@ -176,7 +176,22 @@ Nothing else is dropped; an empty or unreadable diff counts everything
 (fail closed). Name both branches, not `HEAD` — the range must not
 depend on your cwd.
 
-If the user picks abort, stop here. Branch and PR stay intact.
+If the user picks abort, stop here — after Step 6b. Branch and PR stay
+intact.
 
 If the preload included a `### HOOK_GUIDANCE` section, follow it
 before confirming the merge.
+
+### Step 6b: Release the cycle id
+
+On **both** paths — merge and abort — right after the Step 6 decision:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \
+  --smm-dir <SMM_DIR> consume CLOSE_CYCLE_ID
+```
+
+Concerns appended while it exists are tagged with this cycle. Left
+behind, it tags ones raised after the close ended, and the next close's
+`--cycle-id` count then EXCLUDES those. Safe to re-run or run absent.
+

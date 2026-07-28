@@ -76,5 +76,60 @@ class TestAllClosePreloadsEmitCloseStartTs(unittest.TestCase):
                 )
 
 
+class TestEveryClosePreloadCarriesTheCycleIdRelease(unittest.TestCase):
+    """Every close mode must be told to release its cycle-id marker.
+
+    The preload writes the id and the appender reads it to tag concerns raised
+    during the cycle. The SessionStart sweep is only the abandonment backstop:
+    IN-session, a marker left behind outlives its close, so later concerns get
+    the finished cycle's id — and because the next close mints a DIFFERENT id,
+    the Step 6 count then EXCLUDES them. Several closes per session is the
+    normal case, so the consume is required, not tidiness.
+
+    One leg in the shared pipeline covers all four modes, which is exactly why
+    this is asserted across all four rather than per mode: a consume that
+    reached only three would leave one mode silently mis-scoping.
+    """
+
+    _RELEASE_CALL = "consume CLOSE_CYCLE_ID"
+
+    def test_every_close_preload_emits_the_release_step(self):
+        driver = TestAllClosePreloadsEmitCloseStartTs()
+        for mode, preload in _ALL_CLOSE_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = driver._make_smm()
+                stdout = driver._run_preload(preload, smm)
+                self.assertIn(
+                    self._RELEASE_CALL,
+                    stdout,
+                    f"{mode}-close must be instructed to consume the "
+                    f"cycle-id marker at the end of the cycle",
+                )
+                self.assertIn(
+                    "markers.py",
+                    stdout,
+                    f"{mode}-close's release step must drive the marker CLI "
+                    f"rather than deleting a path by hand",
+                )
+
+    def test_the_release_runs_on_the_abort_path_too(self):
+        shared = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
+        text = shared.read_text()
+        release_idx = text.find(self._RELEASE_CALL)
+        self.assertGreater(release_idx, -1, "shared pipeline must release the id")
+        # The abort branch ends the close without merging, and a cycle that
+        # ended is a cycle whose id must stop tagging concerns — the abandoned
+        # close is exactly when a stale id does the most damage, since the
+        # operator stays in the session to fix what the gate found.
+        instruction = text[release_idx - 600 : release_idx + 600].lower()
+        self.assertIn(
+            "abort",
+            instruction,
+            "the release step must say it also runs when the user aborts — "
+            "otherwise an aborted close leaves its id tagging every later "
+            "concern in the session",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
