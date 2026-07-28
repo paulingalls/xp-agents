@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from archive import archive_json
-from sprint_schema import SPRINT_FILENAME
+from sprint_schema import SPRINT_FILENAME, validate_sprint
 
 _ARCHIVE_GLOB = "sprint_*.json"
 
@@ -44,11 +44,19 @@ def _newest_first(path: Path) -> tuple[str, int]:
 
 
 def load_latest(smm_dir: Path) -> dict | None:
-    """The newest READABLE archived sprint, or None when there is none.
+    """The newest USABLE archived sprint, or None when there is none.
 
-    Skips an unreadable or non-object archive rather than stopping at it: a
+    Skips an unreadable or schema-invalid archive rather than stopping at it: a
     truncated newest file must not hide a usable predecessor, because the
     caller's alternative is not "try again" but "carry nothing forward".
+
+    Validation is the same `validate_sprint` the live loader uses, not a bare
+    `isinstance(data, dict)` — every caller goes on to index `sprint["stories"]`
+    and `story["status"]`, so a parseable-but-shapeless object only moves the
+    failure downstream into a KeyError, which a preload's `2>/dev/null` turns
+    right back into the silent empty list this reader exists to prevent.
+    Budget enforcement is off: an archive is a historical record, and refusing
+    to read one because it outgrew today's limit would lose real carry-over.
     """
     sprints_dir = smm_dir / "sprints"
     if not sprints_dir.is_dir():
@@ -64,6 +72,9 @@ def load_latest(smm_dir: Path) -> dict | None:
             data = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
-        if isinstance(data, dict):
-            return data
+        if not isinstance(data, dict):
+            continue
+        if validate_sprint(data, enforce_budget=False):
+            continue
+        return data
     return None

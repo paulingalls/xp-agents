@@ -117,10 +117,24 @@ def _cmd_list_carryover(args: argparse.Namespace) -> int:
     archive, so a story already carried forward is never offered twice.
 
     Always exits 0, printing nothing when there is nothing: a first-ever
-    sprint-start has neither file and that is not an error.
+    sprint-start has neither file and that is not an error. `load_sprint`
+    RAISES on a corrupt or symlinked sprint.json, and the preload helper sends
+    stderr to /dev/null — so an unguarded traceback here would arrive as an
+    empty list with nothing said, which is the bug wearing a different hat.
+    Caught, named on stderr, and NOT retried against the archive.
     """
     if store.sprint_exists(args.smm_dir):
-        sprint = store.load_sprint(args.smm_dir)
+        try:
+            sprint = store.load_sprint(args.smm_dir)
+        except (store.SprintCorruptError, OSError) as exc:
+            print(
+                f"list-carryover: sprint.json is present but unusable ({exc}); "
+                "carrying nothing forward. An older sprint's deferred stories "
+                "are NOT substituted — this sprint may already have taken "
+                "them on.",
+                file=sys.stderr,
+            )
+            return 0
     else:
         sprint = sprint_archive.load_latest(args.smm_dir)
     if sprint is None:

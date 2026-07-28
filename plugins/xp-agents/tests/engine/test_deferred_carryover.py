@@ -98,6 +98,40 @@ class TestLatestArchivedSprint(_SMMTestCase):
         (self.smm_dir / "sprints" / "sprint_20260101T000000.json").write_text("nope")
         self.assertIsNone(sprint_archive.load_latest(self.smm_dir))
 
+    def test_a_json_object_that_is_not_a_sprint_is_skipped(self):
+        """Parseable JSON is not the same as a usable sprint.
+
+        `list_stories` indexes `sprint["stories"]` and `s["status"]`, so
+        returning any old dict here moves the failure downstream into a
+        KeyError that the preload's `2>/dev/null` turns back into the silent
+        empty list this whole fix exists to end. Schema-validate instead.
+        """
+        import sprint_archive
+
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(_sprint_with(("story-005", "deferred")))
+        )
+        sprint_archive.archive(self.smm_dir)
+        (self.smm_dir / "sprints" / "sprint_29991231T235959.json").write_text(
+            json.dumps({"sprint_id": "sprint-999", "stories": [{"nope": True}]})
+        )
+        loaded = sprint_archive.load_latest(self.smm_dir)
+        assert loaded is not None
+        self.assertEqual(
+            loaded["sprint_id"],
+            "sprint-001",
+            "a schema-invalid newest archive must not hide a valid predecessor",
+        )
+
+    def test_stories_not_a_list_is_skipped(self):
+        import sprint_archive
+
+        (self.smm_dir / "sprints").mkdir()
+        (self.smm_dir / "sprints" / "sprint_20260101T000000.json").write_text(
+            json.dumps({"sprint_id": "sprint-001", "stories": "not-a-list"})
+        )
+        self.assertIsNone(sprint_archive.load_latest(self.smm_dir))
+
 
 class TestCarryoverCommand(_SMMTestCase):
     """`sprint_cli.py list-carryover` — the single reader the preload uses."""
@@ -173,6 +207,36 @@ class TestCarryoverCommand(_SMMTestCase):
         rc, out = self._run()
         self.assertEqual(rc, 0, "a first-ever sprint-start must not see an error")
         self.assertEqual(out.strip(), "")
+
+    def test_a_corrupt_live_sprint_does_not_traceback(self):
+        """`store.load_sprint` RAISES on a corrupt or symlinked sprint.json.
+
+        Unguarded, that traceback reaches the preload helper's `2>/dev/null`
+        and becomes an empty carry-over list with nothing said — the same
+        silence as the bug. Exit 0 with no stdout, and say why on stderr.
+        """
+        (self.smm_dir / "sprint.json").write_text("{ not json")
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), "")
+
+    def test_a_corrupt_live_sprint_does_not_fall_back_to_the_archive(self):
+        """Absence is the trigger, not unreadability.
+
+        Falling back here would print a PREVIOUS sprint's deferred stories
+        while the current sprint.json is merely damaged — inventing carry-over
+        for a sprint that may already have taken those stories on.
+        """
+        import sprint_archive
+
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(_sprint_with(("story-014", "deferred")))
+        )
+        sprint_archive.archive(self.smm_dir)
+        (self.smm_dir / "sprint.json").write_text("{ not json")
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("story-014", out)
 
     def test_archived_sprint_with_no_deferred_prints_nothing(self):
         import sprint_archive
