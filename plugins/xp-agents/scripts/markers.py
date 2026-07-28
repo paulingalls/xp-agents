@@ -158,8 +158,9 @@ def warn_once(
 
     Replaces the hand-rolled marker_exists / append_concern / marker_write
     dance in sprint_save._warn_sister_skip_once. The caller pre-registers
-    `marker` in `_STALE_SESSION_MARKERS` so SessionStart sweeps it — that
-    re-arming is what makes the "once per session" semantics honest.
+    `marker` in `session_markers._STALE_SESSION_MARKERS` so SessionStart
+    sweeps it — that re-arming is what makes the "once per session"
+    semantics honest.
 
     Errors are suppressed: recording a warn must never cascade into the
     caller's main operation failing. Returns True if the concern fired,

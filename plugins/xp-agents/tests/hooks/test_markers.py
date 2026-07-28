@@ -2,6 +2,9 @@
 """Tests for scripts/markers.py — core marker CRUD and constants.
 
 Review cycle, render markers, and agent cleanup in test_markers_review.py.
+The per-session marker lifecycle (`session_marker`, `marker_age_seconds`, the
+SessionStart sweep set) moved to scripts/session_markers.py; its tests, and
+the pin on the split, are in test_session_markers.py.
 """
 
 import json
@@ -78,96 +81,6 @@ class TestMarkerPath(_HookTestCase):
         for m in (markers.TDD_TRACKER, markers.REVIEW_CYCLE):
             path = markers.marker_path(self.smm_dir, m, "main")
             self.assertTrue(path.name.startswith("."))
-
-
-# ---------------------------------------------------------------------------
-# session_marker
-# ---------------------------------------------------------------------------
-
-
-class TestSessionMarker(unittest.TestCase):
-    """The naming rule both session-keyed markers share.
-
-    It is a path-safety rule — a session id is untrusted input that would
-    otherwise steer a path — so it is pinned here, once, rather than in each
-    consumer.
-    """
-
-    def test_a_session_id_never_reaches_the_filename(self):
-        marker = session_markers.session_marker(".m", "../../etc/passwd\n")
-        self.assertRegex(marker.name, r"^\.m-[0-9a-f]{12}$")
-
-    def test_distinct_ids_get_distinct_markers(self):
-        self.assertNotEqual(
-            session_markers.session_marker(".m", "a").name,
-            session_markers.session_marker(".m", "b").name,
-        )
-
-    def test_the_same_id_resolves_stably(self):
-        # Writer and reader are different processes; an unstable name would
-        # make every read miss.
-        self.assertEqual(
-            session_markers.session_marker(".m", "a").name,
-            session_markers.session_marker(".m", "a").name,
-        )
-
-    def test_no_usable_id_falls_back_to_the_shared_name(self):
-        # A blank or non-str id must NOT key a marker on the hash of a value no
-        # reader ever addresses: that file would exist on disk, be invisible to
-        # every check, and outlive the sweep that reaps suffixed siblings.
-        for value in (None, "", "   ", 17, [], {}):
-            with self.subTest(value=value):
-                self.assertEqual(session_markers.session_marker(".m", value).name, ".m")
-
-    def test_surrounding_whitespace_does_not_fork_the_name(self):
-        self.assertEqual(
-            session_markers.session_marker(".m", " a ").name,
-            session_markers.session_marker(".m", "a").name,
-        )
-
-    def test_result_is_a_json_marker(self):
-        for value in ("a", None):
-            with self.subTest(value=value):
-                marker = session_markers.session_marker(".m", value)
-                self.assertEqual(marker.content_type, "json")
-                self.assertFalse(marker.agent_scoped)
-
-
-# ---------------------------------------------------------------------------
-# marker_age_seconds
-#
-# Characterization tests: `marker_age_seconds` had zero direct tests before
-# this move — it was reached only through hook_liveness and
-# housekeeping_flight — so these pass by design on the first run. They are
-# not a red phase and they do not catch a bug; they are the instrument that
-# makes the extraction to session_markers.py provable.
-# ---------------------------------------------------------------------------
-
-
-class TestMarkerAgeSeconds(unittest.TestCase):
-    """The four branches documented in the function's own docstring."""
-
-    def test_boolean_timestamp_is_rejected(self):
-        # bool is an int subclass, so a bare isinstance check would admit it.
-        self.assertIsNone(session_markers.marker_age_seconds(1000.0, True))
-        self.assertIsNone(session_markers.marker_age_seconds(1000.0, False))
-
-    def test_non_finite_timestamp_is_rejected(self):
-        # json.loads admits NaN/Infinity by default, and neither compares
-        # True against a staleness threshold, so a fail-closed caller would
-        # otherwise read a corrupt marker as fresh.
-        self.assertIsNone(session_markers.marker_age_seconds(1000.0, float("nan")))
-        self.assertIsNone(session_markers.marker_age_seconds(1000.0, float("inf")))
-        self.assertIsNone(session_markers.marker_age_seconds(1000.0, float("-inf")))
-
-    def test_out_of_range_int_returns_none(self):
-        # Too large to become a float: OverflowError, not a raised exception.
-        self.assertIsNone(session_markers.marker_age_seconds(1000.0, 10**400))
-
-    def test_negative_age_is_returned_as_is(self):
-        # Callers own the bounds; this helper does not clamp a future
-        # timestamp to zero.
-        self.assertEqual(session_markers.marker_age_seconds(1000.0, 1500.0), -500.0)
 
 
 # ---------------------------------------------------------------------------

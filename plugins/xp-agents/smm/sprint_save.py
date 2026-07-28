@@ -207,8 +207,8 @@ def _warn_sister_skip_once(smm_dir: Path, reason: str) -> None:
     Delegates to markers.warn_once for the marker-gated append; that
     primitive enforces the canonical markers API (symlink protection)
     and is the single place future warn-once needs should land.
-    SISTER_TEST_LAYOUT_WARN is registered in _STALE_SESSION_MARKERS so
-    SessionStart re-arms the warn."""
+    SISTER_TEST_LAYOUT_WARN is registered in
+    session_markers._STALE_SESSION_MARKERS so SessionStart re-arms the warn."""
     agent_id = identity.resolve_agent_id_from_cwd(os.getcwd())
     markers.warn_once(
         smm_dir,
