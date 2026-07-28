@@ -42,6 +42,13 @@ emit_path_var TEAMMATE_CWD "${TEAMMATE_CWD:-}"
 MODE=$(python3 "${PLUGIN_ROOT}/skills/xp-quality-review/scripts/review_mode.py" \
     --smm-dir "$SMM_DIR" --cwd "${TEAMMATE_CWD:-.}" 2>/dev/null || echo "self-find")
 echo "MODE=${MODE}"
+# The project's own test command, so "re-run the tests after fixing" names
+# something. Step 4 used to lean on a shipped `Bash(python3 -m unittest *)`
+# grant, which assumed the project's tests were Python's and was inert for every
+# other language. Reuses find_test_command (the close preloads' helper) rather
+# than a second lookup; empty when stack.test_command is unset, and the skill
+# says what to do then instead of guessing a runner.
+echo "TEST_COMMAND=$(find_test_command)"
 echo ""
 
 # Diff scope. Default: the staged/working diff (review runs before the commit).
