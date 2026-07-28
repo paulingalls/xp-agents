@@ -21,6 +21,7 @@ import execution_plan_store
 import hook_liveness
 import identity
 import markers
+import migration_lock
 import plugin_loader
 import smm_cli
 import smm_dir_resolve
@@ -284,23 +285,69 @@ def run(
 # ---------------------------------------------------------------------------
 
 
-SMM_ROOT_ADVISORY = (
+_AT_RISK_PREFIX = (
     "NOTE: the shared mental model still lives under the host-managed plugin "
-    "data root, which 'claude plugin uninstall' deletes by default. It relocates "
-    "itself automatically, but only once no teammate worktree and no in-place "
-    "teammate remain — check for a stale one whose branch never merged. Run "
-    "'python3 {tool}' to see what is holding it."
+    "data root, which 'claude plugin uninstall' deletes by default."
+)
+
+# One per migration_lock.LockState arm, named for its REMEDY.
+#
+# "in-progress" (holder proved RUNNING) is the one state that must not name
+# --confirm: guessing at a live holder is the automatic-breaker mistake this
+# story exists to avoid. "stalled" (holder proved dead) is the one state that
+# names --confirm directly. "blocked" covers both shapes that never
+# self-release on their own (an unverifiable holder, and non-symlink residue)
+# and points at the read-only report first, since liveness there was never
+# established.
+_FREE_ADVISORY = _AT_RISK_PREFIX + (
+    " It relocates itself automatically, but only once no teammate worktree "
+    "and no in-place teammate remain — check for a stale one whose branch "
+    "never merged. Run 'python3 {tool}' to see what is holding it."
+)
+
+_STALLED_ADVISORY = _AT_RISK_PREFIX + (
+    " A prior relocation is stalled — its lock's holder is no longer "
+    "running. Run 'python3 {tool} --confirm' to clear it."
+)
+
+_IN_PROGRESS_ADVISORY = _AT_RISK_PREFIX + (
+    " A relocation looks to be in progress — its lock's holder is running. "
+    "Run 'python3 {tool}' to see who holds it before doing anything else."
+)
+
+_BLOCKED_ADVISORY = _AT_RISK_PREFIX + (
+    " Its relocation lock is blocked and not automatically verifiable. Run "
+    "'python3 {tool}' to see what is holding it, then rerun with --confirm "
+    "to clear it."
 )
 
 
-def _advisory() -> str:
-    """The advisory with a copy-pasteable path to the manual tool.
+def _tool_path() -> Path:
+    """Copy-pasteable path to the manual tool, resolved at message time.
 
-    Resolved at message time rather than hardcoded: the plugin cache is
-    versioned, so a literal path would name whichever release wrote it.
+    Not hardcoded: the plugin cache is versioned, so a literal path would
+    name whichever release wrote it.
     """
-    tool = plugin_loader.resolve_plugin_root() / "scripts" / "migrate_smm_root.py"
-    return SMM_ROOT_ADVISORY.format(tool=tool)
+    return plugin_loader.resolve_plugin_root() / "scripts" / "migrate_smm_root.py"
+
+
+def _lock_advisory(state: migration_lock.LockState) -> str:
+    """The at-risk-root advisory template for ``state``, named for its remedy.
+
+    A ``match`` over the ``Literal`` ``LockState`` rather than a dict lookup
+    with a ``None`` fallback: pyright's exhaustiveness check then catches a
+    missed arm if a fifth state is ever added, instead of silently falling
+    back to the "free" message.
+    """
+    match state:
+        case "free":
+            return _FREE_ADVISORY
+        case "stalled":
+            return _STALLED_ADVISORY
+        case "in-progress":
+            return _IN_PROGRESS_ADVISORY
+        case "blocked":
+            return _BLOCKED_ADVISORY
 
 
 def _system_message(source: str, version: str, smm_dir: Path | None = None) -> str:
@@ -313,12 +360,18 @@ def _system_message(source: str, version: str, smm_dir: Path | None = None) -> s
     nothing removes one whose branch never merged, so a release note is not a
     substitute. A line buried in a context blob is the silent-enforcement
     pattern this change exists to end.
+
+    Known limit, not a bug: this only runs on the lead path (see ``main``) —
+    a teammate's SMM_DIR is pinned at spawn and it cannot relocate anything,
+    and relocation declines while any teammate is live, so only the lead
+    session can act on what this says.
     """
     base = f"XP agents (v{version}) active."
     if _is_fresh_start(source):
         base = f"{base} Run /xp-kickoff."
     if smm_dir is not None and smm_dir_resolve.is_under_plugin_managed_root(smm_dir):
-        return f"{base} {_advisory()}"
+        template = _lock_advisory(migration_lock.lock_state(smm_dir))
+        return f"{base} {template.format(tool=_tool_path())}"
     return base
 
 
