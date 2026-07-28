@@ -40,6 +40,7 @@ from sprint_cli_mutate import (
 from sprint_cli_query import (
     _cmd_count,
     _cmd_count_status,
+    _cmd_list_carryover,
     _cmd_list_stories,
     _cmd_next_id,
     _cmd_render,
@@ -356,6 +357,11 @@ def main() -> None:
     )
 
     sub.add_parser("archive", help="Archive sprint to sprints/ folder")
+    sub.add_parser(
+        "list-carryover",
+        help="Deferred stories to carry into the next sprint; falls back to "
+        "the newest archived sprint when sprint.json has been archived away",
+    )
 
     ftd_p = sub.add_parser(
         "find-transitive-dependents",
@@ -396,6 +402,7 @@ def main() -> None:
         "find-transitive-dependents": _cmd_find_transitive_dependents,
         "validate-domain": _cmd_validate_domain,
         "archive": _cmd_archive,
+        "list-carryover": _cmd_list_carryover,
     }
 
     sys.exit(dispatch[args.command](args))

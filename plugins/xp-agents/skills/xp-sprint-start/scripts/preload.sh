@@ -29,12 +29,15 @@ check_system_context
 # runner (see xp-story-close's preload.sh for the identical pattern).
 emit_var TEST_COMMAND "$(find_test_command)"
 
-deferred_count=$(sprint_count_status deferred)
-if [ "$deferred_count" -gt 0 ]; then
+# One read, not a count-then-list pair: sprint-close archives sprint.json away,
+# so this has to consult the newest archive, and two reads of a moving target
+# can disagree about whether there is anything to show.
+carryover=$(sprint_list_carryover)
+if [ -n "$carryover" ]; then
     echo ""
-    echo "## Deferred Stories from Previous Sprint (${deferred_count})"
+    echo "## Deferred Stories from Previous Sprint ($(printf '%s\n' "$carryover" | wc -l | tr -d ' '))"
     echo ""
-    sprint_list_stories --status deferred
+    printf '%s\n' "$carryover"
 fi
 
 echo ""

@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import sprint_archive
 import sprint_render as render
 import sprint_store as store
 import triage
@@ -96,6 +97,35 @@ def _cmd_list_stories(args: argparse.Namespace) -> int:
     status = getattr(args, "status", None)
     stories = store.list_stories(sprint, status=status)
     for s in stories:
+        print(f"{s['id']}: {s['title']} [{s['status']}]")
+    return 0
+
+
+def _cmd_list_carryover(args: argparse.Namespace) -> int:
+    """Deferred stories to carry into the NEXT sprint, archive-aware.
+
+    `/xp-sprint-close --archive-sprint` MOVES sprint.json into sprints/, so by
+    the time `/xp-sprint-start` runs there is no live file to read deferred
+    stories from — which silently emptied the carry-over list in exactly the
+    window it exists for, and left sprint-start's "include deferred stories
+    from the previous sprint" instruction with no data behind it.
+
+    So: read the live sprint when the FILE is there, else the newest archive.
+    Keyed on absence, not on unreadability — a corrupt live sprint.json must
+    surface as the empty list it is rather than resurrecting an older sprint's
+    stories under a new sprint's name. A live sprint always shadows the
+    archive, so a story already carried forward is never offered twice.
+
+    Always exits 0, printing nothing when there is nothing: a first-ever
+    sprint-start has neither file and that is not an error.
+    """
+    if store.sprint_exists(args.smm_dir):
+        sprint = store.load_sprint(args.smm_dir)
+    else:
+        sprint = sprint_archive.load_latest(args.smm_dir)
+    if sprint is None:
+        return 0
+    for s in store.list_stories(sprint, status="deferred"):
         print(f"{s['id']}: {s['title']} [{s['status']}]")
     return 0
 
