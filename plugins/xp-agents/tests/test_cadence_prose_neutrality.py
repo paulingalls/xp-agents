@@ -43,6 +43,19 @@ _GUIDE = _PLUGIN_ROOT / "TEAMMATE_GUIDE.md"
 _ASSIGN = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
 _SEED = _PLUGIN_ROOT / "smm" / "seed_smm.py"
 
+# `${NAME:+...}` — bash-only "expand only if set and non-empty".
+_BASH_ONLY_ALT_RE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:\+")
+
+
+def _shipped_prose() -> list[Path]:
+    """Every shipped markdown surface: guides, agents, skills, shared templates."""
+    files: list[Path] = []
+    files += sorted(_PLUGIN_ROOT.glob("*.md"))
+    files += sorted(_PLUGIN_ROOT.glob("agents/*.md"))
+    files += sorted(_PLUGIN_ROOT.glob("skills/*/*.md"))
+    files += sorted((_PLUGIN_ROOT / "scripts").rglob("*.md"))
+    return [f for f in files if f.is_file()]
+
 
 def _rel(path: Path) -> str:
     return str(path.relative_to(_PLUGIN_ROOT))
@@ -126,6 +139,27 @@ class TestAssignPromptCadenceVar(unittest.TestCase):
 
 class TestSpawnFlagConditionalForwarding(unittest.TestCase):
     """The forwarding RULE outlives the snippet that used to carry it."""
+
+    def test_no_bash_only_conditional_expansion_in_shipped_prose(self):
+        """`${VAR:+--flag "$VAR"}` is portable inside a bash script, NOT in
+        prose an agent pastes into the user's login shell: zsh — the macOS
+        default — does not word-split the expansion, so argparse receives one
+        argv element `--model sonnet` and rejects it. Verified live: a spawn
+        died on exit 1 this way. It only fires when a tier is set, so it hides
+        in every untiered run."""
+        violations: list[str] = []
+        for path in _shipped_prose():
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if _BASH_ONLY_ALT_RE.search(line):
+                    violations.append(f"{_rel(path)}:{lineno}: {line.strip()}")
+        self.assertEqual(
+            violations,
+            [],
+            "bash-only ${VAR:+...} form in shipped prose — zsh passes it as a "
+            "single argv element and argparse rejects it:\n" + "\n".join(violations),
+        )
 
     def test_conditional_forwarding_rule_survives_for_both_flags(self):
         """Load-bearing counterweight to the portability pin: the RULE (forward

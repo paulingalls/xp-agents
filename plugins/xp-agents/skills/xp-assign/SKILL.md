@@ -137,8 +137,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir ${SMM_DIR} \
   --metadata '{"action": "tier_override", "story_id": "'"$TARGET"'", "picked": "<tier>", "recommended": "<tier>"}'
 ```
 
-`metadata.action` is `tier_override` — the contract the override-audit analysis
-reads. The matching branches (1, 3, 4, 6) write no override event.
+The matching branches (1, 3, 4, 6) write no override event.
 
 **Solo spawn = in-place.** A `MODE=teammate` spawn runs Steps 2–4 (worktree); a
 `MODE=solo` spawn runs in the main checkout (Step 4 in-place variant),
@@ -248,22 +247,21 @@ TDD/review/commit gates, no SMM event recording). `${CLAUDE_PLUGIN_ROOT}`
 resolves to the lead's live plugin dir, so the teammate runs the same
 plugin version as the lead.
 
-If `$EXECUTOR_MODEL` is non-empty, append `--model "$EXECUTOR_MODEL"`; if
-`$EXECUTOR_EFFORT` is non-empty, append `--effort "$EXECUTOR_EFFORT"` (the
-spawn fail-safes when the tier can't support the level).
+If `$EXECUTOR_MODEL` is non-empty, append `--model "$EXECUTOR_MODEL"` to the
+command below; if `$EXECUTOR_EFFORT` is non-empty, append
+`--effort "$EXECUTOR_EFFORT"`. Append them as literal words — a
+conditional-expansion one-liner is bash-only and mis-parses under zsh.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET" \
   --smm-dir ${SMM_DIR} \
   --story-id "$TARGET" --branch <story-branch> \
-  --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
-  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} \
-  ${EXECUTOR_EFFORT:+--effort "$EXECUTOR_EFFORT"} 2>&1 \
+  --plugin-dir ${CLAUDE_PLUGIN_ROOT} 2>&1 \
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
 
-Single Bash call with `run_in_background=true` — not a parallel batch; the skill returns immediately.
+Single Bash call with `run_in_background=true` — not a parallel batch.
 
 **Solo in-place variant (`MODE=solo` spawn).** Skip Step 2 (the solo branch
 exists). Spawn **in the main checkout**: add `--in-place`, drop
@@ -274,9 +272,7 @@ keys on it):
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET" \
   --smm-dir ${SMM_DIR} \
   --story-id "$TARGET" --in-place \
-  --plugin-dir ${CLAUDE_PLUGIN_ROOT} \
-  ${EXECUTOR_MODEL:+--model "$EXECUTOR_MODEL"} \
-  ${EXECUTOR_EFFORT:+--effort "$EXECUTOR_EFFORT"} 2>&1 \
+  --plugin-dir ${CLAUDE_PLUGIN_ROOT} 2>&1 \
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
