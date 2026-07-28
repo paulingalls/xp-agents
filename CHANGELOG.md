@@ -2,6 +2,108 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.1.0 — Gates that refuse instead of going quiet
+
+**One change will interrupt an existing habit, so it goes first: `git -C "$VAR"
+commit` is now refused.** Use a literal path. The reason is the theme of the whole
+release — every gate here previously had a way of appearing to work while doing
+nothing.
+
+### The commit gate no longer scans the wrong repository
+
+A PreToolUse hook only ever sees raw command text. When a `git -C` target hid
+behind something the shell would expand — `$WT`, `${W}`, `$(cmd)`, a bare `~`, or an
+unquoted glob — the hook could not resolve it, fell back to the caller's directory,
+and every gate below then read the **wrong** repo. That failed in the worst possible
+direction: in a clean main checkout `git diff --cached` returns an empty string
+rather than an error, so the tier-1 secret scan had nothing to scan, the lint gate
+had no files to group, and the review-cycle gate saw zero code files. Unlinted and
+unscanned bytes shipped and nothing said so. Only the branch guard was audible,
+which is why this first surfaced as a cosmetic warning rather than as the
+security-gate bypass it was.
+
+Such a commit is now refused, with a message naming the shape it refused and the
+remedy. The glob case is the one worth understanding: every other unresolvable shape
+makes git abort, so nothing lands and the silence is harmless — but a glob that
+*matches* hands git a real repository while the hook still sees the pattern.
+Accepted cost, stated plainly: a literal directory name containing `*`, `?` or `[`
+is now refused too.
+
+Relative literal paths keep resolving exactly as before.
+
+### A stalled relocation says so
+
+v5.0.0 relocates the shared mental model off the host-managed plugin-data root,
+guarded by a lock. No resolver breaks that lock automatically any more — seven
+attempts at automatic breaking all corrupted data, because breaking is a read then a
+delete and no shell primitive makes that pair indivisible. The cost was that a
+**crashed** relocation's lock blocked the automatic path indefinitely: every later
+session quietly answered the legacy tree, leaving the project's memory in the
+directory `claude plugin uninstall` deletes, permanently, with nothing saying so.
+
+A session now tells you, and tells you *which* stuck it is, because the remedy
+differs:
+
+| What the lock looks like | What you are told |
+|---|---|
+| its holder is still running | a relocation is in progress; you are pointed at the read-only report, never at a clear |
+| its holder is gone | it is stalled, and `--confirm` will clear it |
+| its holder cannot be checked, or it is residue from an older version | it is blocked and not automatically verifiable — run the report, then clear |
+
+Only a holder proved *running* withholds the clear. Guessing at a live holder is the
+mistake the seven earlier attempts made.
+
+### Hook liveness: a session whose runtime stopped now gets refused
+
+If the hook runtime fails to load, every gate it enforces disappears and the session
+looks entirely normal — nothing is blocked and nothing is said. The check that would
+report this cannot itself be a hook. It is now a preload check, which runs at
+instruction time and therefore still runs when the thing it tests is broken.
+
+Hooks record a heartbeat at session start, on every prompt, and from tool use, so a
+working session refreshes far inside the staleness threshold. When the runtime
+stops, the next skill invocation refuses and withholds its context rather than
+proceeding with gates that would go unenforced. `XP_SKIP_LIVENESS_CHECK=1` proceeds
+anyway, for a runtime you know is broken and cannot fix yet.
+
+### Kickoff no longer asks you to wait for something already running
+
+The housekeeping gate blocked session end whenever housekeeping was outstanding, and
+that marker was cleared only on completion. Since Agent-tool subagents are
+backgrounded, "running right now" read identically to "never invoked" — so the gate
+told you to invoke an agent that was already in flight, and the only way to comply
+was to sit and wait.
+
+It now distinguishes the two, on a per-session record with a short freshness window.
+In flight and fresh: end the turn, and resume when the completion notification
+arrives. Never invoked, or a record that has gone stale: still blocked, with
+different wording so you re-invoke rather than wait again. A housekeeper that
+*fails* rather than completing no longer counts as done — the consume is gated on
+its finalize step having actually run.
+
+### The close gate's concern count stops dropping the wrong things
+
+The merge gate counts high-severity concerns so a real problem aborts a close. It
+now excludes only concerns provably about code the close did not touch, so a
+concurrent teammate's unrelated defect can no longer abort a clean close — while an
+empty or unreadable diff still counts everything.
+
+### Also
+
+Internal, but they change what future releases can promise: the commit-gate block is
+extracted from the PreToolUse handler so its ordering is pinned rather than
+incidental; the superseded-decision detector now checks every earlier decision on a
+topic rather than only the adjacent one, and two of its fail-opens are closed; a test
+pin that had been silently scanning less than it claimed now fails loud; and the
+migration lock reader is one module both the resolver and the supervised tool share.
+
+Two things this release deliberately does **not** do, recorded rather than hidden. An
+append that lands during the one-time SMM relocation copy can still be lost —
+sub-second, once per project, and already partly covered by a pre-rename re-sync.
+And on a harness that supports PreToolUse but not the post-tool or stop families, the
+liveness check can read live off the write immediately preceding it; that fix would
+reverse behaviour shipped here, so it is deferred rather than rushed.
+
 ## v5.0.0 — The SMM moves out of the deletable directory
 
 **Two breaking changes ship in this release: the SMM's default location, and
