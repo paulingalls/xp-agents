@@ -10,10 +10,12 @@ survive a session boundary.
 import math
 from pathlib import Path
 
+import session_scope
 from markers import (
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     CLOSE_CYCLE_ACTIVE,
+    CLOSE_CYCLE_ID,
     SISTER_TEST_LAYOUT_WARN,
     TEAMMATE_CONFIG,
     MarkerDef,
@@ -24,23 +26,19 @@ from markers import (
 def session_marker(base_name: str, session_id: object) -> MarkerDef:
     """The JSON marker one session owns, or the shared one when it has no id.
 
-    One home for a path-safety rule used by both session-keyed markers
-    (liveness heartbeat, housekeeping in-flight): a session id is untrusted
-    input that would otherwise steer a path, so it is hashed rather than
-    sanitised — no escaping rule to get wrong — and the raw id goes in the
-    payload, where the diagnostic survives. Anything that is not a non-blank
-    string resolves to the unsuffixed shared marker: the time-only check such a
-    host was always going to get, rather than a file keyed on the hash of a
-    value no reader addresses, invisible to every check and outliving the sweep
-    that reaps it. `hashlib` is lazy because every hook imports this module, it
-    pulls in a C extension (~3ms cold), and only these two markers need it.
-    """
-    import hashlib
+    The naming rule itself is `session_scope.scoped_name` — a session id is
+    untrusted input that would otherwise steer a path, so it is hashed rather
+    than sanitised, and the raw id goes in the payload where the diagnostic
+    survives. It lives in `smm/` because the close-cycle-id marker resolves the
+    same rule from the appender's pre-write path, which cannot import
+    `scripts/`; one home means the two cannot drift.
 
-    if isinstance(session_id, str) and session_id.strip():
-        digest = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:12]
-        return MarkerDef(f"{base_name}-{digest}", "json")
-    return MarkerDef(base_name, "json")
+    This helper adds only the JSON content type, which is what the two
+    session-keyed records here (liveness heartbeat, housekeeping in-flight)
+    need: anything that is not a non-blank string resolves to the unsuffixed
+    shared marker — the time-only check such a host was always going to get.
+    """
+    return MarkerDef(session_scope.scoped_name(base_name, session_id), "json")
 
 
 def marker_age_seconds(now: float, written_at: object) -> float | None:
@@ -85,8 +83,20 @@ def marker_age_seconds(now: float, written_at: object) -> float | None:
 # /xp-accept is abandoned before its terminal dispatch (/xp-schedule or
 # /xp-sprint-review completion, where accept_terminal drains it). This sweep
 # is the abandonment backstop.
+#
+# CLOSE_CYCLE_ID is the one entry that is session-SCOPED, and it is here for a
+# different reason from the rest. Scoping already stops a previous session's id
+# being read by this one — its filename is unaddressable from here — but on a
+# host that exposes no session id at all, both sessions resolve the SAME
+# unsuffixed file, and a leaked id there is worse than no id: a later close
+# mints a different one, so the gate would EXCLUDE the concerns tagged with the
+# dead cycle. That shared file is what this sweeps. Another session's suffixed
+# marker is untouched by construction (this consumes only the name our own
+# environment resolves) and must be: it can belong to a teammate's close that
+# is still running against this shared SMM.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ACTIVE,
+    CLOSE_CYCLE_ID,
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     SISTER_TEST_LAYOUT_WARN,

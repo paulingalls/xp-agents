@@ -2,9 +2,27 @@
 """Stop command hook: close-cycle gate.
 
 Blocks Stop while a close skill is mid-cycle (CLOSE_CYCLE_ACTIVE marker
-present), nudging the agent to invoke xp-close-reviewer next. The marker
-is written by close skills before /security-review runs and consumed by
-subagent_stop.py when xp-close-reviewer completes.
+present), nudging the agent to invoke xp-close-reviewer next. The marker is
+written by the three closes that run /security-review — sprint, plan and free —
+before that review runs, and consumed by subagent_stop.py when
+xp-close-reviewer completes.
+
+xp-story-close is deliberately OUTSIDE this gate, and the asymmetry is not an
+oversight to correct. Two reasons, either sufficient: it skips Step 4 entirely
+(the enclosing sprint-close covers its diff, so the block message's
+/security-review and /code-review steps do not apply to it), and under story
+cadence its review path is the full per-story review cycle, which does not fork
+xp-close-reviewer — the only thing that releases this gate. Arming it there
+would block until the marker aged past
+`_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC` and then record a high-severity
+"close abandoned" concern against a close that ran exactly the review it was
+supposed to. `_BYPASS_RECOVERY` naming /xp-{sprint,plan,free}-close is correct
+as written for the same reason.
+
+Story-close still has a cycle IDENTITY — every close mode writes its cycle id
+to a separate marker, which the appender reads to tag concerns. That marker
+arms no gate; the two are deliberately distinct files (see
+marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —

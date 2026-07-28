@@ -36,6 +36,16 @@ echo "CLOSE_START_TS=$(now_iso)"
 CLOSE_CYCLE_ID=$(generate_id)
 echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
 emit_close_started_event sprint "${CLOSE_CYCLE_ID}"
+# Persist the id where a LATER process can read it. The echo above reaches the
+# LLM only, and a concern raised mid-close is appended by a separate process —
+# without the marker the merge gate is back to inferring which concerns belong
+# to this close from the `files` they happened to record.
+#
+# write_marker ends in `2>/dev/null || true`, so a failed write is SILENT. That
+# degrades safely rather than being guaranteed: no id on disk means no stamp,
+# and an unstamped concern is still counted by the gate under the shipped
+# files-relevance rule. It is never the reason a close fails to start.
+write_marker CLOSE_CYCLE_ID "${CLOSE_CYCLE_ID}"
 emit_system_context_rendered_for close-reviewer
 # Arm the close-cycle Stop gate deterministically — prose-driven write
 # was unreliable when the LLM skipped or reordered the invocation.

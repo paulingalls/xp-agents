@@ -18,6 +18,7 @@ from typing import Literal
 sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import marker_names
+import session_scope
 import tier_wire
 from _append_impl import write_json_atomic, write_text_atomic
 from append_validation import validate_agent_id
@@ -34,6 +35,13 @@ class MarkerDef:
     name: str
     content_type: Literal["text", "json"]
     agent_scoped: bool = False
+    # One file per session rather than one per SMM dir. The SMM is shared
+    # across worktrees and windows, so a single file would be
+    # last-writer-wins between concurrent sessions. Resolved from the
+    # environment at every call (never cached — the answer depends on
+    # os.environ), so a marker written by one session is unaddressable to
+    # another rather than silently clobbered.
+    session_scoped: bool = False
 
     def filename(self, agent_id: str = "") -> str:
         """Return the concrete filename, substituting agent_id if scoped."""
@@ -42,6 +50,10 @@ class MarkerDef:
                 raise ValueError("agent_id required for agent-scoped marker")
             validate_agent_id(agent_id)
             return self.name.format(agent_id=agent_id)
+        if self.session_scoped:
+            return session_scope.scoped_name(
+                self.name, session_scope.resolve_session_id()
+            )
         return self.name
 
 
@@ -61,6 +73,11 @@ ASKING_USER = MarkerDef(marker_names.ASKING_USER, "text")
 ASSIGN_PENDING = MarkerDef(marker_names.ASSIGN_PENDING, "text")
 NEEDS_HOUSEKEEPING = MarkerDef(marker_names.NEEDS_HOUSEKEEPING, "text")
 CLOSE_CYCLE_ACTIVE = MarkerDef(marker_names.CLOSE_CYCLE_ACTIVE, "text")
+# The running close's id, written by all four close preloads and read by the
+# appender's pre-write path to tag concerns. Text, not json: the shell
+# `write_marker` wrapper every preload uses passes a string, and a json
+# marker's TypeError would vanish inside its `2>/dev/null || true`.
+CLOSE_CYCLE_ID = MarkerDef(marker_names.CLOSE_CYCLE_ID, "text", session_scoped=True)
 REVIEW_CADENCE = MarkerDef(marker_names.REVIEW_CADENCE, "text")
 SISTER_TEST_LAYOUT_WARN = MarkerDef(marker_names.SISTER_TEST_LAYOUT_WARN, "text")
 TEAMMATE_CONFIG = MarkerDef(marker_names.TEAMMATE_CONFIG, "json")
@@ -366,7 +383,12 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 # hook-driven (accept_terminal clears it on accept's terminal /xp-schedule or
 # /xp-sprint-review dispatch; the SessionStart sweep is the backstop) — no prose
 # consume step, but it stays allowlisted because the preload still arms it here.
-_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE", "ACCEPT_IN_FLIGHT"})
+# CLOSE_CYCLE_ID: written by the close preloads (through `write_marker`, which
+# carries content the CLI's `write` cannot), consumed by the shared
+# close-pipeline prose at the end of the cycle — that consume step is why it is
+# allowlisted. Writing it via `write` would store an EMPTY id, which reads as
+# "no cycle" everywhere downstream.
+_CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE", "ACCEPT_IN_FLIGHT", "CLOSE_CYCLE_ID"})
 
 
 def main(argv: list[str] | None = None) -> int:

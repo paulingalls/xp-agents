@@ -15,6 +15,7 @@ from pathlib import Path
 
 import markers
 from _close_fixtures import _ClosePreloadCommonTests
+from conftest import _extract_preload_var
 from event_metadata import STATUS_ACTION_CLOSE_STARTED
 
 
@@ -432,6 +433,30 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "preload must emit CLOSE_CYCLE_ID=<12-hex> for the Step 5c "
             "audit-trail close_cycle_id metadata field "
             "(concern 1cf66a58205d)",
+        )
+
+    def test_persists_the_close_cycle_id_to_its_marker(self):
+        # Emitting the id into stdout tells the LLM what this cycle is called;
+        # it tells the APPENDER nothing. A concern raised mid-close is written
+        # by a separate process, so the id has to reach disk — otherwise the
+        # merge gate is back to inferring relevance from the `files` a concern
+        # happened to record. All four modes, since all four gate on the count.
+        #
+        # The write happens in the preload SCRIPT, not in prose: a prose-driven
+        # marker write was already the observed failure mode for
+        # CLOSE_CYCLE_ACTIVE (the LLM skipped or reordered it).
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        emitted = _extract_preload_var(result.stdout, "CLOSE_CYCLE_ID")
+        self.assertIsNotNone(emitted, "preload must emit CLOSE_CYCLE_ID")
+        stored = markers.marker_read(self.smm_dir, markers.CLOSE_CYCLE_ID)
+        self.assertEqual(
+            stored,
+            emitted,
+            "the id on disk must be the SAME id the preload emitted — the "
+            "close skill stamps reviewer findings with the emitted value and "
+            "the appender stamps everything else with the stored one, so two "
+            "ids would split one close cycle into two the gate cannot join",
         )
 
 

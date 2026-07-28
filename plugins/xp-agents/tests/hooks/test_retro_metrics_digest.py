@@ -222,9 +222,10 @@ class TestDroppedTriesRecent(unittest.TestCase):
 class TestSecurityCloseRan(unittest.TestCase):
     """digest.security_close_ran flags whether a security-bearing close
     (sprint/free/plan) actually ran in this session — sourced from the
-    close_started status event emitted by each security-bearing
-    close-skill preload. Story-close has no Step 4 security review and
-    does NOT emit close_started; its events MUST NOT flip the gate.
+    close_started status event every close-skill preload emits. Story-close
+    has no Step 4 security review, so the flag keys on metadata.close_mode,
+    NOT on the event's presence: a story close_started (and a reviewer concern
+    carrying close_mode="story") MUST NOT flip the gate.
     """
 
     @staticmethod
@@ -269,10 +270,11 @@ class TestSecurityCloseRan(unittest.TestCase):
         self.assertTrue(digest["security_close_ran"])
 
     def test_false_on_story_close_only(self):
-        """Story-close emits no close_started event. Concern events from
-        xp-close-reviewer that happen to carry close_mode='story' MUST
-        NOT flip the gate either — the rule is scoped to the security-
-        bearing close modes.
+        """Story-close DOES emit close_started, with close_mode='story' — the
+        mode is what excludes it, not the event's absence, so the story-close
+        event itself is in this list. Concern events from xp-close-reviewer
+        that carry close_mode='story' MUST NOT flip the gate either — the rule
+        is scoped to the security-bearing close modes.
         """
         import resolution
         import retro_metrics
@@ -284,7 +286,10 @@ class TestSecurityCloseRan(unittest.TestCase):
             files=["scripts/x.py"],
             metadata={"close_cycle_id": "cycle-abc", "close_mode": "story"},
         )
-        events = [story_reviewer_concern]
+        events = [
+            self._close_started("story", "2026-04-20T09:00:00+00:00"),
+            story_reviewer_concern,
+        ]
         resolutions = resolution.compute_resolutions(events)
         digest = retro_metrics._build_retro_digest(events, 0, resolutions)
         self.assertFalse(digest["security_close_ran"])

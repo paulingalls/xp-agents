@@ -29,6 +29,14 @@ NEEDS_HOUSEKEEPING = ".needs-housekeeping"
 # Session-suffixed in the HOOK_HEARTBEAT style; see housekeeping_flight.marker.
 HOUSEKEEPING_IN_FLIGHT = ".housekeeping-in-flight"
 CLOSE_CYCLE_ACTIVE = ".close-cycle-active"
+# The id of the close cycle running right now, written by every close preload
+# and read by the appender to tag concerns with the close they were raised
+# during. SEPARATE from CLOSE_CYCLE_ACTIVE on purpose: that one arms a Stop
+# gate and only three of the four close modes write it, whereas identity is
+# needed by all four. Session-suffixed (see session_scope.scoped_name) because
+# the SMM dir is shared across worktrees and two concurrent closes must not
+# read each other's id.
+CLOSE_CYCLE_ID = ".close-cycle-id"
 LINT_WARNED = ".lint-warned"
 REVIEW_CADENCE = ".review-cadence"
 SPRINT_RETRO_INPUT = ".sprint-retro-input.json"
