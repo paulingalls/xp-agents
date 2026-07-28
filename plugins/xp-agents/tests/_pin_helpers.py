@@ -60,6 +60,30 @@ def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
     return paths
 
 
+def shipped_prose_to_scan(plugin_root: Path) -> dict[str, list[Path]]:
+    """Every shipped PROSE surface under *plugin_root*, grouped by its glob.
+
+    The counterpart to `shipped_files_to_scan`: that one answers "which shipped
+    code runs in a user's project", this one answers "which shipped text is
+    injected into a user's session". Guides, agent definitions, skill bodies and
+    the close-pipeline reference all reach the reader verbatim, so a Python-only
+    instruction in any of them is the same assumption a Python-only predicate
+    makes in code.
+
+    Grouped, not flattened, because a floor over the total cannot see one group
+    empty out: `scripts/*.md` matches exactly ONE file, so a rename would drop
+    that whole surface while a tree-wide count still looked healthy. Callers
+    assert per group.
+    """
+    groups = {
+        "root guides": sorted(plugin_root.glob("*.md")),
+        "agents": sorted((plugin_root / "agents").glob("*.md")),
+        "skills": sorted(plugin_root.glob("skills/*/SKILL.md")),
+        "scripts prose": sorted((plugin_root / "scripts").glob("*.md")),
+    }
+    return {name: paths for name, paths in groups.items()}
+
+
 def rel(path: Path, repo_root: Path) -> str:
     """Repo-relative path with forward slashes — stable across platforms."""
     return str(path.relative_to(repo_root)).replace("\\", "/")
