@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import hook_liveness
 import marker_names
 import markers
+import session_markers
 from _heartbeat_fixtures import env as _env
 from conftest import _HookTestCase
 
@@ -44,10 +45,10 @@ class TestHeartbeatMarkerDefinition(_HookTestCase):
         no-session-id marker CAN be added to it, and that is the regression
         worth pinning.
         """
-        self.assertNotIn(markers.HOOK_HEARTBEAT, markers._STALE_SESSION_MARKERS)
+        self.assertNotIn(markers.HOOK_HEARTBEAT, session_markers._STALE_SESSION_MARKERS)
         with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
             hook_liveness.write_heartbeat(self.smm_dir)
-        markers.sweep_stale_session_markers(self.smm_dir)
+        session_markers.sweep_stale_session_markers(self.smm_dir)
         self.assertTrue(
             markers.marker_exists(
                 self.smm_dir, hook_liveness.heartbeat_marker("sess-a")

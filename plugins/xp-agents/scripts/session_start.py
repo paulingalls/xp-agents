@@ -23,6 +23,7 @@ import identity
 import markers
 import migration_lock
 import plugin_loader
+import session_markers
 import smm_cli
 import smm_dir_resolve
 import smm_store
@@ -220,7 +221,7 @@ def run(
     # resume/compact mid-session may have a close-skill or /xp-accept in
     # flight that legitimately holds them.
     if _is_fresh_start(source):
-        markers.sweep_stale_session_markers(smm_dir)
+        session_markers.sweep_stale_session_markers(smm_dir)
         # Cadence is session-scoped: a fresh start resets to the careful
         # 'commit' default so a prior session's 'story' choice never leaks.
         # resume/compact (continuations) fall through and preserve it.

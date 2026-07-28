@@ -461,7 +461,7 @@ def run(data: dict, smm_dir: Path) -> None:
         # Third-line fallback for a STALE marker, not the clearer. `.accept` is
         # normally consumed unconditionally by xp-accept's preload
         # (`consume_marker ACCEPT`), and swept at fresh SessionStart via
-        # `markers._STALE_SESSION_MARKERS`. This only catches a marker that
+        # `session_markers._STALE_SESSION_MARKERS`. This only catches a marker that
         # outlived both — `run()` is reached solely from the structural
         # mutations named in the module docstring, so it fires at sprint
         # creation with a previous cycle's marker still on disk.
