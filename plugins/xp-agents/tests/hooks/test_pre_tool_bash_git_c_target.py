@@ -3,8 +3,9 @@
 
 `parse_effective_cwd` resolves a `-C` path with `is_dir()`, but a PreToolUse hook
 only ever sees RAW command text. When the path hides behind a shell construct the
-shell would expand (`$WT`, `${W}`, `$(cmd)`, a bare `~`), the parse silently
-returns the CALLER's cwd — and every gate below then reads the wrong repo:
+shell would expand (`$WT`, `${W}`, `$(cmd)`, a bare `~`, an unquoted glob), the
+parse silently returns the CALLER's cwd — and every gate below then reads the
+wrong repo:
 
     tier-1 secret scan  ->  `git diff --cached` returns "" -> `if diff:` is falsy
     staged lint gate    ->  no staged files -> no groups
@@ -69,6 +70,14 @@ class TestUnresolvableDashCFailsClosed(_HookTestCase):
     @patch("git_commits.is_git_commit", return_value=True)
     def test_bare_tilde_is_blocked(self, *_mocks):
         self._assert_blocked('git -C ~/wt commit -m "x"')
+
+    @patch("git_commits.is_git_commit", return_value=True)
+    def test_unquoted_glob_is_blocked(self, *_mocks):
+        """The one expansion that does NOT abort on failure: the shell resolves
+        `worktree-story-015-*` to a real repo and git commits there, while the
+        hook only ever sees the pattern. Letting it through is the bypass, not
+        the safe literal-abort case."""
+        self._assert_blocked('git -C ../worktree-story-015-* commit -m "x"')
 
     @patch("git_commits.is_git_commit", return_value=True)
     def test_block_names_the_actionable_fix(self, *_mocks):
@@ -202,9 +211,7 @@ class TestShippedProseNeverMandatesABlockedForm(unittest.TestCase):
         for md in plugin_root.rglob("*.md"):
             if "/tests/" in str(md):
                 continue
-            for lineno, line in self._logical_lines(
-                md.read_text(encoding="utf-8")
-            ):
+            for lineno, line in self._logical_lines(md.read_text(encoding="utf-8")):
                 for m in self._COMMIT_SHAPED.finditer(line):
                     path = m.group("path") or m.group("solo") or ""
                     if "$" in path or path.lstrip("`\"'").startswith("~"):

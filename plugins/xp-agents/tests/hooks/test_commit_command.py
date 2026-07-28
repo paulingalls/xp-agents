@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Direct-import tests for scripts/commit_command.py.
 
-Exhaustive coverage of these behaviors already lives in test_commits.py,
-which reaches them through commits.py's re-export. These tests pin that
-commit_command is independently importable and behaves correctly when
-imported directly, not merely through the re-export.
+Two jobs. It pins that commit_command is independently importable and behaves
+correctly when imported directly, not merely through commits.py's re-export;
+and it is the unit home for the module's own predicates — `parse_effective_cwd`
+and `dash_c_unreachable` case-by-case. The behaviour those predicates drive
+(what the commit gate blocks) is pinned end-to-end in
+test_pre_tool_bash_git_c_target.py instead.
 """
 
 import sys
@@ -76,6 +78,23 @@ class TestCommitCommandDirectImport(unittest.TestCase):
     def test_dash_c_unreachable_false_for_tilde_inside_path(self):
         """Only a LEADING tilde expands; `/tmp/a~b` is an ordinary literal path."""
         self.assertFalse(commit_command.dash_c_unreachable("git -C /tmp/a~b commit"))
+
+    def test_dash_c_unreachable_true_for_unquoted_glob(self):
+        """An UNQUOTED glob expands too, and unlike a bad literal it does not
+        abort: the shell hands git a real directory while the hook still sees
+        the pattern, `is_dir()` fails, and every gate reads the caller's repo.
+        Same bypass as `$WT`, so the same refusal."""
+        self.assertTrue(commit_command.dash_c_unreachable("git -C wt* commit"))
+        self.assertTrue(
+            commit_command.dash_c_unreachable("git -C ../worktree-story-1?? commit")
+        )
+        self.assertTrue(commit_command.dash_c_unreachable("git -C /tmp/w[12] commit"))
+
+    def test_dash_c_unreachable_false_for_quoted_glob(self):
+        """Quoting suppresses globbing, so git receives the literal pattern and
+        aborts — nothing lands, nothing to fail closed over."""
+        self.assertFalse(commit_command.dash_c_unreachable('git -C "wt*" commit'))
+        self.assertFalse(commit_command.dash_c_unreachable("git -C 'wt*' commit"))
 
     def test_dash_c_unreachable_true_for_brace_and_substitution(self):
         self.assertTrue(commit_command.dash_c_unreachable("git -C ${W} commit"))

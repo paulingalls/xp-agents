@@ -106,7 +106,7 @@ def commit_gate_parts(
     effective_cwd = commits.parse_effective_cwd(command, cwd)
 
     # ...but the parse can only resolve a path it can SEE. A `-C` target the
-    # shell would expand (`$WT`, `${W}`, `$(cmd)`, a bare `~`) reaches this
+    # shell would expand (`$WT`, `${W}`, `$(cmd)`, a bare `~`, a glob) reaches this
     # hook as literal text, fails `is_dir()`, and falls back to `cwd` — so
     # every gate below would read the CALLER's repo while the commit lands
     # somewhere else. That fallback is silent in the worst direction: in a
@@ -120,7 +120,7 @@ def commit_gate_parts(
         raise _common.BlockedError(
             "Cannot determine which repo this commit lands in: `git -C` "
             "names a path hidden behind a shell variable, command "
-            "substitution, or `~`. The security scan, lint gate, and branch "
+            "substitution, `~`, or a glob. The security scan, lint gate, and branch "
             "guard would all silently run against the wrong repo. Use a "
             "literal absolute path.",
             "Commit target repo unresolvable.",

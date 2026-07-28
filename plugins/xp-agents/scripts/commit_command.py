@@ -274,10 +274,19 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
 
       * single-quoted -- the shell expands nothing. git receives the literal
         text, aborts, nothing lands: never unreachable.
-      * double-quoted -- `$` and backtick expand; a leading `~` does NOT.
-      * bare          -- `$`, backtick, and a LEADING `~` all expand.
+      * double-quoted -- `$` and backtick expand; a leading `~` and glob
+        metacharacters do NOT.
+      * bare          -- `$`, backtick, a LEADING `~`, and a glob (`*?[`) all
+        expand.
 
     A `~` anywhere but the front (`/tmp/a~b`) is an ordinary literal character.
+
+    A bare glob is the one form whose failure mode is NOT the safe abort: when
+    it matches, the shell hands git a real directory and the commit lands, while
+    the hook still sees the pattern, `is_dir()` fails, and every gate reads the
+    caller's repo — the same bypass as `$WT`. The cost is a refused commit for a
+    literal directory name that contains `*`, `?`, or `[`; under the fail-closed
+    doctrine an actionable refusal beats an unscanned commit.
 
     Known limit: the match reads ONE quoting form per `-C` token, so a token
     that concatenates forms (`'/tmp/'"$WT"`) is judged by its first segment and
@@ -302,7 +311,12 @@ def dash_c_unreachable(command: str, *, scan_target: str | None = None) -> bool:
         return False
     if double_quoted:
         return "$" in double_quoted or "`" in double_quoted
-    return "$" in bare or "`" in bare or bare.startswith("~")
+    return (
+        "$" in bare
+        or "`" in bare
+        or bare.startswith("~")
+        or any(ch in bare for ch in "*?[")
+    )
 
 
 def commit_repo_candidates(
