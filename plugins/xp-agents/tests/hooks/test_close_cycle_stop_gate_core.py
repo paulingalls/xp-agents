@@ -362,6 +362,68 @@ class TestCloseCycleStopGate(_HookTestCase):
         self.assertIsNone(result)
 
 
+class TestGateCoversOnlyTheSecurityBearingCloses(_HookTestCase):
+    """Which closes this gate is FOR, pinned so the gap is not "fixed".
+
+    The gate's block message tells the agent to run a security review and the
+    broad code review, and its only release is evidence that the branch-close
+    reviewer ran. Story-close does neither: it skips the security review (the
+    enclosing sprint-close covers its diff), and under story cadence its review
+    path is the full per-story review cycle, which never forks that reviewer.
+
+    So story-close's preload deliberately does not arm this gate. Read without
+    this pin, that looks like an oversight next to the other three preloads —
+    and "fixing" it would arm a gate that could never release: it would block
+    until the marker aged out, then record a high-severity "close abandoned"
+    concern against a close that ran exactly the review it was supposed to.
+    """
+
+    _MODES = ("sprint", "plan", "free")
+
+    def _preload(self, mode: str) -> str:
+        return (
+            Path(__file__).parents[2]
+            / "skills"
+            / f"xp-{mode}-close"
+            / "scripts"
+            / "preload.sh"
+        ).read_text()
+
+    def test_story_close_does_not_arm_the_gate(self):
+        self.assertNotIn(
+            "write_marker CLOSE_CYCLE_ACTIVE",
+            self._preload("story"),
+            "story-close must NOT arm the close-cycle Stop gate: the gate's "
+            "only release is a branch-close-reviewer completion, which the "
+            "story review path deliberately does not produce, so the gate "
+            "would block until the marker aged out and then record a false "
+            "abandonment concern",
+        )
+
+    def test_the_other_three_closes_do_arm_it(self):
+        for mode in self._MODES:
+            with self.subTest(mode=mode):
+                self.assertIn("write_marker CLOSE_CYCLE_ACTIVE", self._preload(mode))
+
+    def test_the_recovery_message_names_exactly_those_three(self):
+        """`_BYPASS_RECOVERY` already names /xp-{sprint,plan,free}-close and is
+        correct as written — this pins it against a well-meant edit that adds
+        story to the list for symmetry with the other close skills."""
+        import close_cycle_stop_gate
+
+        recovery = close_cycle_stop_gate._BYPASS_RECOVERY
+        self.assertIn("{sprint,plan,free}", recovery)
+        self.assertNotIn("story", recovery)
+
+    def test_the_docstring_says_which_closes_are_covered(self):
+        """The prose a future reader consults before touching the gap above."""
+        import close_cycle_stop_gate
+
+        doc = (close_cycle_stop_gate.__doc__ or "").lower()
+        self.assertIn("story", doc)
+        self.assertIn("security", doc)
+
+
 class TestCloseCycleStopGateRegistration(HooksJsonTestCase):
     """Hook is registered in hooks.json Stop array between sprint_stop_gate
     and housekeeping_stop_gate."""
