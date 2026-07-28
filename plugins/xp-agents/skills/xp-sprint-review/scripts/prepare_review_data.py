@@ -17,7 +17,10 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 
 import _common  # noqa: E402
+import execution_plan_store  # noqa: E402
 import sprint_store  # noqa: E402
+from execution_plan_schema import PLAN_FILENAME  # noqa: E402
+from sprint_schema import SPRINT_FILENAME  # noqa: E402
 
 
 def run(smm_dir: Path, target_path: Path) -> dict | None:
@@ -30,14 +33,14 @@ def run(smm_dir: Path, target_path: Path) -> dict | None:
     if sprint_data is None or not sprint_data["sprint_id"]:
         return None
 
-    # Execution plan path — agent uses plan_cli.py to update status
-    plan_path = smm_dir / "execution_plan.json"
-    plan_str = ""
-    try:
-        if plan_path.exists() and not plan_path.is_symlink():
-            plan_str = str(plan_path)
-    except OSError:
-        pass
+    # Execution plan path — agent uses plan_cli.py to update status.
+    # plan_exists() owns the exists-and-not-a-symlink rule; Path.exists()
+    # and Path.is_symlink() already swallow OSError, so no guard is needed.
+    plan_str = (
+        str(smm_dir / PLAN_FILENAME)
+        if execution_plan_store.plan_exists(smm_dir)
+        else ""
+    )
 
     counts = sprint_store.count_by_status(sprint_data)
     velocity = sprint_store.compute_velocity(sprint_data)
@@ -49,8 +52,8 @@ def run(smm_dir: Path, target_path: Path) -> dict | None:
         "stories_by_status": counts,
         "velocity": velocity,
         "milestone": sprint_data.get("milestone", ""),
-        "sprint_md_path": str(smm_dir / "sprint.json"),
-        "execution_plan_md_path": plan_str,
+        "sprint_path": str(smm_dir / SPRINT_FILENAME),
+        "execution_plan_path": plan_str,
     }
 
     _common.write_json_atomic(target_path, review_input)
