@@ -18,9 +18,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+import migrate_smm_root as tool
+import migration_lock
 from conftest import _TempRepoTestCase
 
 _SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "migrate_smm_root.py"
+
+
+class TestLockReaderReExportedByIdentity(unittest.TestCase):
+    """`migration_lock` holds the lock-state reader; the tool re-exports it BY
+    IDENTITY so every existing `tool.holder_state` / `tool.lock_path_for`
+    reference — including the two pinned purity-proof suites in tests/smm/ —
+    resolves unchanged. A copy would satisfy behaviour but break identity."""
+
+    def test_holder_state_is_the_same_function_object(self):
+        self.assertIs(tool.holder_state, migration_lock.holder_state)
+
+    def test_lock_path_for_is_the_same_function_object(self):
+        self.assertIs(tool.lock_path_for, migration_lock.lock_path_for)
+
+    def test_destination_for_is_the_same_function_object(self):
+        self.assertIs(tool.destination_for, migration_lock.destination_for)
 
 
 class _ToolCase(_TempRepoTestCase):
