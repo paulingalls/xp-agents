@@ -326,14 +326,21 @@ def detect_conflicts(
             continue
         prev_pos, prev_dec = decs[-2]
         curr_pos, curr_dec = decs[-1]
+        prev_id = prev_dec.get("id", "")
 
         # Explicit override: curr decision's metadata declares it supersedes/
-        # resolves the prior decision (see _declares_supersession). `resolves`
-        # triggers the cascade auto-closer (STRONG link), so flagging the prior
-        # as unresolved would contradict the link hierarchy.
+        # resolves ANY earlier same-topic decision (see _declares_supersession),
+        # not just the immediately-prior one. `resolves` triggers the cascade
+        # auto-closer (STRONG link), so flagging an earlier decision as
+        # unresolved would contradict the link hierarchy. The `(d.get("id") or
+        # "")` guard is required: _declares_supersession(meta, "") is
+        # vacuously True (empty-string startswith), so an earlier decision
+        # with a missing/empty id must never be treated as superseded.
         meta = curr_dec.get("metadata", {})
-        prev_id = prev_dec.get("id", "")
-        if prev_id and _declares_supersession(meta, prev_id):
+        if any(
+            (d.get("id") or "") and _declares_supersession(meta, d["id"])
+            for _, d in decs[:-1]
+        ):
             continue
 
         # Binary search: any concern position in (prev_pos, curr_pos)?

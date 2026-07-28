@@ -6,11 +6,11 @@
 - **Simplicity**: Simplest thing that works. Deliver what was asked before adding extras.
 - **Feedback**: Fix what `/xp-quality-review` flags. Tests are production code.
 - **Courage**: Make the tough call. Use the better way; flag the old with a concern.
-- **Honesty**: Record decisions, assumptions, and concerns in the SMM. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes`.
+- **Honesty**: Record decisions, assumptions, and concerns in the SMM. Honor collective decisions; never silently override — record a concern or set `metadata.supersedes` on the reversing decision.
 
 ## Sequential Discipline
 
-The harness batches independent tool calls in parallel; XP flows are step-gated and sequential. Inside any xp skill, run one step per turn — make the call, observe, then decide the next. Batching a gated step with the next races unsettled state, and one failure cancels the whole batch.
+The harness batches independent tool calls in parallel; XP flows are step-gated and sequential. Run one step per turn — make the call, observe, then decide the next. Batching a gated step with the next races unsettled state, and one failure cancels the whole batch.
 
 - Never place an `AskUserQuestion` and the action that consumes its answer in the same block — the action runs against a guessed answer.
 - Never spawn the same subagent more than once; duplicates collide on shared preload/marker state.
