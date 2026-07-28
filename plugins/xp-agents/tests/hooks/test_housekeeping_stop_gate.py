@@ -15,6 +15,7 @@ Staleness is seeded with an explicit past timestamp, never with `sleep`.
 
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -138,6 +139,21 @@ class TestInFlightStale(_GateTestCase):
         self.write_record(started_at=NOW - housekeeping_flight.STALE_AFTER_SECONDS)
         self.assertEqual(self.gate(), housekeeping_stop_gate._STALE_MESSAGE)
 
+    def test_a_future_timestamp_is_stale_not_fresh(self):
+        # The window needs a LOWER bound too. A future stamp ages negative, and
+        # an upper-bound-only check calls that fresh for the rest of the
+        # session — the gate would pass every turn and curation would be
+        # skipped in silence. Milliseconds where seconds were meant is the
+        # cheapest way to produce one; a backwards clock step is the other.
+        for label, started_at in (
+            ("milliseconds", NOW * 1000),
+            ("one day ahead", NOW + 86400),
+            ("a hair ahead", NOW + 0.5),
+        ):
+            with self.subTest(started_at=label):
+                self.write_record(started_at=started_at)
+                self.assertEqual(self.gate(), housekeeping_stop_gate._STALE_MESSAGE)
+
 
 class TestMalformedRecord(_GateTestCase):
     """The two malformed shapes block with DIFFERENT messages.
@@ -203,7 +219,17 @@ class TestRealSubagentStartRoundTrip(_GateTestCase):
     against a `subagent_start.py` that writes nothing. That tests
     reachability, not behaviour. This is the case that is red before the
     change and green after.
+
+    The real writer stamps the real clock, so these read with the real clock
+    too. Reading a real write against the frozen NOW dates the record decades
+    in the FUTURE, which a lower-bounded window correctly calls stale — the
+    gate would then be judged on a timestamp no writer could produce.
     """
+
+    def gate(self, session_id: str = _SESSION, now: float | None = None, **overrides):
+        return super().gate(
+            session_id, time.time() if now is None else now, **overrides
+        )
 
     def test_gate_passes_after_a_real_subagent_start(self):
         self.start_housekeeper()

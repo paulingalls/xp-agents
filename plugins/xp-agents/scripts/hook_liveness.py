@@ -13,8 +13,6 @@ refresh the marker and the preload that consumes the verdict live
 elsewhere.
 """
 
-import hashlib
-import math
 import os
 import sys
 import time
@@ -158,19 +156,12 @@ def payload_session_id(input_data: dict) -> str | None:
 def heartbeat_marker(session_id: str | None) -> markers.MarkerDef:
     """The heartbeat this session owns.
 
-    A session id is untrusted input that would otherwise steer a path, so it
-    is hashed rather than sanitised — no escaping rule to get wrong, and a
-    fixed-length name whatever the host spells its ids like. The raw id still
-    goes inside the payload, so the diagnostic is not lost.
-
-    `None` (no id discoverable) resolves to the unsuffixed shared marker. Such
-    a host gets the time-only check it was always going to get, and the glob
-    that reaps per-session files does not match it.
+    `markers.session_marker` owns the naming rule — hash the untrusted id
+    rather than sanitise it, and resolve no-id to the unsuffixed shared marker,
+    which the reaping glob deliberately does not match. Shared with the
+    housekeeping in-flight record, the only other session-keyed marker.
     """
-    if session_id is None:
-        return markers.HOOK_HEARTBEAT
-    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12]
-    return markers.MarkerDef(f"{marker_names.HOOK_HEARTBEAT}-{digest}", "json")
+    return markers.session_marker(marker_names.HOOK_HEARTBEAT, session_id)
 
 
 def _reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
@@ -206,7 +197,7 @@ def _sibling_age(smm_dir: Path, path: Path, now: float) -> float | None:
     data = markers.marker_read(smm_dir, markers.MarkerDef(path.name, "json"))
     if not isinstance(data, dict):
         return None
-    return _age_seconds(now, data.get("written_at"))
+    return markers.marker_age_seconds(now, data.get("written_at"))
 
 
 # ---------------------------------------------------------------------------
@@ -264,27 +255,6 @@ def write_heartbeat(
 # ---------------------------------------------------------------------------
 # Predicate
 # ---------------------------------------------------------------------------
-
-
-def _age_seconds(now: float, written_at: object) -> float | None:
-    """Heartbeat age, or None when the timestamp is not a usable number.
-
-    Three ways a JSON number gets past a bare isinstance check, and on a
-    fail-CLOSED predicate two of them fail OPEN: `bool` is an `int`
-    subclass; `NaN` and `Infinity` are values `json.loads` accepts by
-    default, and neither compares True against the staleness threshold, so
-    a corrupt marker would read as live. An out-of-range int overflows the
-    float conversion outright, which raises rather than returning a verdict.
-    """
-    if not isinstance(written_at, (int, float)) or isinstance(written_at, bool):
-        return None
-    try:
-        value = float(written_at)
-    except OverflowError:
-        return None
-    if not math.isfinite(value):
-        return None
-    return now - value
 
 
 def _describe(seconds: float) -> str:
@@ -377,7 +347,7 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
             return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
         return _no_heartbeat_of_our_own(smm_dir, session_id, now)
 
-    age = _age_seconds(now, data.get("written_at"))
+    age = markers.marker_age_seconds(now, data.get("written_at"))
     if age is None:
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
     if age >= STALE_AFTER_SECONDS and session_id is None:

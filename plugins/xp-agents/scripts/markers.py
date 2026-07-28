@@ -82,24 +82,44 @@ def marker_path(smm_dir: Path, marker: MarkerDef, agent_id: str = "") -> Path:
     return smm_dir / marker.filename(agent_id)
 
 
+def session_marker(base_name: str, session_id: object) -> MarkerDef:
+    """The JSON marker one session owns, or the shared one when it has no id.
+
+    One home for a path-safety rule used by both session-keyed markers
+    (liveness heartbeat, housekeeping in-flight): a session id is untrusted
+    input that would otherwise steer a path, so it is hashed rather than
+    sanitised — no escaping rule to get wrong — and the raw id goes in the
+    payload, where the diagnostic survives. Anything that is not a non-blank
+    string resolves to the unsuffixed shared marker: the time-only check such a
+    host was always going to get, rather than a file keyed on the hash of a
+    value no reader addresses, invisible to every check and outliving the sweep
+    that reaps it. `hashlib` is lazy because every hook imports this module, it
+    pulls in a C extension (~3ms cold), and only these two markers need it.
+    """
+    import hashlib
+
+    if isinstance(session_id, str) and session_id.strip():
+        digest = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:12]
+        return MarkerDef(f"{base_name}-{digest}", "json")
+    return MarkerDef(base_name, "json")
+
+
 def marker_age_seconds(now: float, written_at: object) -> float | None:
     """Age of a JSON marker's timestamp, or None when it is not usable.
 
-    Duplicated from `hook_liveness._age_seconds`, which enforces the same
-    fail-closed rule. It lives HERE because `hook_liveness` already imports
-    this module, so this is the home the two can later collapse onto — that
-    edit belongs to whoever owns `hook_liveness` next. Change one, change both
-    until then.
+    The single home for the rule, shared by `hook_liveness` and
+    `housekeeping_flight`. Callers own the BOUNDS: a negative age (a future
+    timestamp) comes back as-is, because the housekeeping gate must reject it
+    (passing forever is its worst outcome) while the heartbeat tolerates it
+    (false-refusing a working session is its worst).
 
     Three ways a JSON number gets past a bare isinstance check, and on a
     fail-CLOSED caller two of them fail OPEN: `bool` is an `int` subclass;
     `NaN` and `Infinity` are values `json.loads` accepts by default, and
     neither compares True against a staleness threshold, so a corrupt marker
     would read as fresh. An out-of-range int overflows the float conversion
-    outright, which raises rather than returning a verdict.
-
-    None means "cannot age this", which every caller must treat as expired
-    rather than as young.
+    outright, which raises rather than returning a verdict. So None means
+    "cannot age this", which every caller must treat as expired, not as young.
     """
     if not isinstance(written_at, (int, float)) or isinstance(written_at, bool):
         return None

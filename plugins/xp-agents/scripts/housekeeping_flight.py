@@ -21,7 +21,6 @@ curation never happens and nothing ever says so. Past the window the gate
 blocks again, with different wording, and the lead re-invokes.
 """
 
-import hashlib
 import sys
 import time
 from pathlib import Path
@@ -61,25 +60,11 @@ def marker(session_id: object) -> markers.MarkerDef:
     the same project id. An SMM-global record left by another session would
     read as this one's, and the gate would pass on someone else's work.
 
-    The id is hashed rather than sanitised — it is untrusted input that would
-    otherwise steer a path, and hashing needs no escaping rule to get wrong.
-    The raw id still goes inside the payload, so the diagnostic survives.
-
-    Anything that is not a non-blank string (absent, empty, non-str) resolves
-    to the unsuffixed shared marker: such a host gets the time-only check it
-    was always going to get, rather than a record keyed on the hash of a value
-    no reader ever addresses.
-
-    Mirrors `hook_liveness.heartbeat_marker`, which is the same rule for a
-    different marker. Folding the two onto one helper needs an edit to that
-    module, which a parallel story owns — see the recorded debt.
+    `markers.session_marker` owns the naming rule (hash an untrusted id rather
+    than sanitise it; no id means the shared marker) — the same rule the hook
+    liveness heartbeat is named by. What is local here is only WHICH base name.
     """
-    if isinstance(session_id, str) and session_id.strip():
-        digest = hashlib.sha256(session_id.strip().encode("utf-8")).hexdigest()[:12]
-        return markers.MarkerDef(
-            f"{marker_names.HOUSEKEEPING_IN_FLIGHT}-{digest}", "json"
-        )
-    return markers.HOUSEKEEPING_IN_FLIGHT
+    return markers.session_marker(marker_names.HOUSEKEEPING_IN_FLIGHT, session_id)
 
 
 def record_start(smm_dir: Path, input_data: dict) -> None:
@@ -127,6 +112,14 @@ def state(smm_dir: Path, input_data: dict, now: float | None = None) -> str:
     Corrupt JSON is different. `marker_read` collapses it to None, which lands
     on ABSENT, because a record we cannot parse tells us nothing about whether
     one was ever written.
+
+    The window is bounded at BOTH ends. A timestamp in the future ages
+    negative, and `age < STALE_AFTER_SECONDS` alone would call that fresh
+    forever — the gate would pass every turn for the rest of the session and
+    curation would be skipped in silence, which is the failure this module
+    exists to prevent. A millisecond timestamp where seconds were meant is the
+    cheapest way to get there; a clock stepping backwards is the other. Neither
+    is a record we can age, so both are STALE.
     """
     record = markers.marker_read(smm_dir, marker(input_data.get("session_id")))
     if not isinstance(record, dict):
@@ -134,7 +127,7 @@ def state(smm_dir: Path, input_data: dict, now: float | None = None) -> str:
     age = markers.marker_age_seconds(
         time.time() if now is None else now, record.get(_STARTED_AT)
     )
-    if age is not None and age < STALE_AFTER_SECONDS:
+    if age is not None and 0 <= age < STALE_AFTER_SECONDS:
         return FRESH
     return STALE
 
