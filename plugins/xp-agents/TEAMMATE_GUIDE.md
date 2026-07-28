@@ -24,7 +24,7 @@ Your work is sequential — do one action, observe its result, then proceed. Bat
 
 ## Commit Conventions
 
-- `ruff format` before staging
+- Run the project's formatter before staging
 - Commit messages explain *why*, not *what*
 - When a commit closes a recorded SMM item (a `concern`, `debt`, `question`, `decision`, …), add a `Resolves-Event: <12-hex-id>[, <id>...]` trailer at the bottom of the commit body. The PostToolUse hook extracts IDs into `metadata.resolves`.
 - Commit from a worktree with `git -C <literal-path>`, never `cd <wt> && git commit && cd -` (the cd-back beats the trailer-extract hook, breaking the link). An unresolvable `-C` is refused.

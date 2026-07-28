@@ -107,7 +107,7 @@ in the fix commit body:**
 > so the hook reads the wrong HEAD and the auto-link silently breaks.
 > Substitute the path literally; an unresolvable `-C` is refused.
 
-- `lint` → `ruff format && ruff check --fix`, re-test
+- `lint` → run the project's formatter and linter in fix mode, re-test
 - `test_failure` → read the test runner output, edit at named file:line, re-run
 - `ac_coverage` (missing assertion / weak / partial AC / brittle /
   ambiguous) → add the assertion or doc named in the concern
