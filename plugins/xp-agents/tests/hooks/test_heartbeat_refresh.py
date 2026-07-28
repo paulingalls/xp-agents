@@ -39,6 +39,7 @@ import markers
 import post_tool_use
 import pre_tool_skill
 from _heartbeat_fixtures import env as _env
+from _heartbeat_fixtures import heartbeat_payload
 from conftest import (
     _HookTestCase,
     _IntegrationTestCase,
@@ -46,6 +47,7 @@ from conftest import (
     _make_skill_input,
     _make_write_input,
 )
+
 
 class _RefreshTestCase(_HookTestCase):
     """Shared reads/writes against this session's own heartbeat marker."""
@@ -70,9 +72,7 @@ class _RefreshTestCase(_HookTestCase):
         )
 
     def _payload(self, session_id: str | None = None) -> dict | None:
-        return markers.marker_read(
-            self.smm_dir, hook_liveness.heartbeat_marker(session_id or self.SESSION)
-        )
+        return heartbeat_payload(self.smm_dir, session_id or self.SESSION)
 
 
 class TestBashPostToolRefreshesHeartbeat(_RefreshTestCase):

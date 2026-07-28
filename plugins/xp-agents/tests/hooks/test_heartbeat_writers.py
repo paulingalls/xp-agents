@@ -31,6 +31,7 @@ import markers
 import session_start
 import user_prompt_log
 from _heartbeat_fixtures import env as _env
+from _heartbeat_fixtures import heartbeat_payload
 from conftest import _HookTestCase
 
 
@@ -42,9 +43,7 @@ class _HeartbeatWriterTestCase(_HookTestCase):
     """
 
     def _payload(self, session_id: str) -> dict | None:
-        return markers.marker_read(
-            self.smm_dir, hook_liveness.heartbeat_marker(session_id)
-        )
+        return heartbeat_payload(self.smm_dir, session_id)
 
     def _wrote(self, session_id: str) -> bool:
         return markers.marker_exists(
