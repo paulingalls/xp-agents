@@ -34,10 +34,12 @@ emit_var TEST_COMMAND "$(find_test_command)"
 # can disagree about whether there is anything to show.
 carryover=$(sprint_list_carryover)
 if [ -n "$carryover" ]; then
-    # Count STORY lines only. `wc -l` over the whole block would count the
-    # SOURCE:/WARNING: lines as stories, and a story title is only schema-checked
-    # as a string — the count must come from a shape a title cannot forge.
-    carryover_count=$(printf '%s\n' "$carryover" | grep -c '^story-' || true)
+    # Count STORY: lines only. `wc -l` over the whole block would count the
+    # SOURCE:/WARNING: lines as stories, and counting `^story-` keyed on the
+    # DATA: an id is only schema-checked as a string, so it both missed an id
+    # shaped differently and counted a line a forged id had smuggled in. The
+    # prefix is emitted by us, and the command collapses each record to one line.
+    carryover_count=$(printf '%s\n' "$carryover" | grep -c '^STORY: ' || true)
     echo ""
     echo "## Deferred Stories from Previous Sprint (${carryover_count})"
     echo ""

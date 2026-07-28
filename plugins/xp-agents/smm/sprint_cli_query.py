@@ -103,6 +103,11 @@ def _cmd_list_stories(args: argparse.Namespace) -> int:
 
 CARRYOVER_WARN_PREFIX = "WARNING:"
 CARRYOVER_SOURCE_PREFIX = "SOURCE:"
+# Story lines carry their OWN prefix rather than being recognised by their id.
+# `story.id` is only schema-checked as `str`, so counting `^story-` both missed
+# an id shaped differently (heading read "(0)" over a listed story) and counted
+# a forged line an id had smuggled in. The prefix is ours, not the data's.
+CARRYOVER_STORY_PREFIX = "STORY:"
 
 
 def _warn_carryover(message: str) -> None:
@@ -119,12 +124,15 @@ def _warn_carryover(message: str) -> None:
 
 
 def _one_line(text: str) -> str:
-    """Collapse whitespace so one story is always exactly one line.
+    """Collapse whitespace so one record is always exactly one line.
 
-    `story.title` is only schema-checked as `str` and is LLM-authored, so a
-    newline in it would both inflate the caller's line count and let a title
-    forge a `KEY=value` preload line of its own. Same hazard `emit_var` guards
-    for customer-set values.
+    Applied to the ASSEMBLED line, not to one field: `id`, `title` and `status`
+    are each only schema-checked as `str` and all are LLM-authored, so any of
+    them can carry a newline. An earlier version collapsed `title` alone, and a
+    review reproduced the same forgery through `id` — a fake `SOURCE:` path, an
+    extra story line, and an injected `KEY=value` preload variable. Sanitising
+    the whole line makes the field boundary irrelevant. Same hazard `emit_var`
+    guards for customer-set values.
     """
     return " ".join(text.split())
 
@@ -151,9 +159,14 @@ def _cmd_list_carryover(args: argparse.Namespace) -> int:
     not "nothing to carry" is announced on stdout with a WARNING prefix.
     """
     live = args.smm_dir / SPRINT_FILENAME
-    live_present = live.exists() or live.is_symlink()
-    sprint = None
-    if live_present:
+    sprint: dict | None = None
+    # Where the full definitions live. `render-stories`/`get-story` read the
+    # live file and fail once it is archived, so without this the skill is told
+    # to reuse each story's original acceptance criteria and file_domain with no
+    # way to read either — and it fabricates them instead.
+    source: Path | None = None
+    if live.exists() or live.is_symlink():
+        source = live
         try:
             sprint = store.load_sprint(args.smm_dir)
         except (store.SprintCorruptError, OSError) as exc:
@@ -165,7 +178,7 @@ def _cmd_list_carryover(args: argparse.Namespace) -> int:
             return 0
     else:
         try:
-            sprint = sprint_archive.load_latest(args.smm_dir)
+            found = sprint_archive.load_latest(args.smm_dir)
         except sprint_archive.UnusableArchiveError as exc:
             _warn_carryover(
                 f"the previous sprint's archive is unusable ({exc}); carrying "
@@ -173,19 +186,17 @@ def _cmd_list_carryover(args: argparse.Namespace) -> int:
                 "substituted, since its deferred stories may already be done."
             )
             return 0
-    if sprint is None:
+        if found is not None:
+            source, sprint = found
+    if sprint is None or source is None:
         return 0
     deferred = store.list_stories(sprint, status="deferred")
     if not deferred:
         return 0
-    # Where the full definitions live. `render-stories`/`get-story` read the
-    # live file and fail once it is archived, so without this the skill is told
-    # to reuse each story's original acceptance criteria and file_domain with no
-    # way to read either — and it fabricates them instead.
-    source = live if live_present else sprint_archive.newest_path(args.smm_dir)
     print(f"{CARRYOVER_SOURCE_PREFIX} {source}")
     for s in deferred:
-        print(f"{s['id']}: {_one_line(str(s['title']))} [{s['status']}]")
+        line = f"{s['id']}: {s['title']} [{s['status']}]"
+        print(f"{CARRYOVER_STORY_PREFIX} {_one_line(line)}")
     return 0
 
 

@@ -10,13 +10,14 @@ what `archive()` names is what `load_latest()` has to find again.
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
 from archive import archive_json
 from sprint_schema import SPRINT_FILENAME, validate_sprint
 
-_ARCHIVE_GLOB = "sprint_*.json"
+_ARCHIVE_SUFFIX = ".json"
 
 # Exactly what `archive_json` writes: `sprint_<YYYYMMDD>T<HHMMSS>[-N]`. The glob
 # alone is too loose to ORDER by — a hand-dropped `sprint_backup.json` sorts
@@ -58,29 +59,41 @@ def _sort_key(match: re.Match[str]) -> tuple[str, int]:
 def newest_path(smm_dir: Path) -> Path | None:
     """Path of the most recently archived sprint, or None if there is none.
 
-    Public because the carry-over reader has to TELL the caller where the
-    stories came from: an archived sprint holds each story's acceptance
-    criteria and file_domain, and nothing else can reach them once sprint.json
-    has been moved away.
+    None means "no archive exists". A `sprints/` that exists but cannot be
+    LISTED raises `UnusableArchiveError` instead: returning None there would
+    make an unreadable directory indistinguishable from an empty one, and the
+    caller's whole job is to never report "nothing to carry" when it does not
+    know that.
     """
     sprints_dir = smm_dir / "sprints"
-    if not sprints_dir.is_dir():
-        return None
     try:
-        named = [
-            (m, p)
-            for p in sprints_dir.glob(_ARCHIVE_GLOB)
-            if (m := _ARCHIVE_NAME_RE.match(p.stem)) is not None
-        ]
-    except OSError:
-        return None
+        if not sprints_dir.is_dir():
+            return None
+        # os.listdir, NOT Path.glob: pathlib's globber SWALLOWS PermissionError
+        # internally, so an unreadable directory came back as an empty match and
+        # this function reported "no archive" for one it simply could not read —
+        # the silent-empty failure it is here to prevent. listdir raises.
+        entries = os.listdir(sprints_dir)
+    except OSError as exc:
+        raise UnusableArchiveError(f"cannot list {sprints_dir}: {exc}") from exc
+    named = [
+        (m, sprints_dir / name)
+        for name in entries
+        if name.endswith(_ARCHIVE_SUFFIX)
+        and (m := _ARCHIVE_NAME_RE.match(name[: -len(_ARCHIVE_SUFFIX)])) is not None
+    ]
     if not named:
         return None
     return max(named, key=lambda pair: _sort_key(pair[0]))[1]
 
 
-def load_latest(smm_dir: Path) -> dict | None:
-    """The newest archived sprint, or None when there is no archive at all.
+def load_latest(smm_dir: Path) -> tuple[Path, dict] | None:
+    """The newest archived sprint AND its path, or None when there is none.
+
+    Returns both because every caller needs both and a second lookup can
+    disagree with the first: the SMM is shared across worktrees, so an archive
+    landing between two calls would let the reported path name a different
+    sprint than the stories returned. One read, one answer.
 
     Raises `UnusableArchiveError` when the newest archive is present but
     unreadable or schema-invalid. It deliberately does NOT fall back to the one
@@ -117,7 +130,6 @@ def load_latest(smm_dir: Path) -> dict | None:
         raise UnusableArchiveError(f"{path.name} does not hold a sprint object")
     errors = validate_sprint(data, enforce_budget=False)
     if errors:
-        raise UnusableArchiveError(
-            f"{path.name} is schema-invalid: {'; '.join(errors)}"
-        )
-    return data
+        joined = "; ".join(errors)
+        raise UnusableArchiveError(f"{path.name} is schema-invalid: {joined}")
+    return path, data
