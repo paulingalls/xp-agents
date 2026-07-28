@@ -290,13 +290,7 @@ _AT_RISK_PREFIX = (
     "data root, which 'claude plugin uninstall' deletes by default."
 )
 
-SMM_ROOT_ADVISORY = _AT_RISK_PREFIX + (
-    " It relocates itself automatically, but only once no teammate worktree "
-    "and no in-place teammate remain — check for a stale one whose branch "
-    "never merged. Run 'python3 {tool}' to see what is holding it."
-)
-
-# Named for their REMEDY, matching migration_lock.LockState.
+# One per migration_lock.LockState arm, named for its REMEDY.
 #
 # "in-progress" (holder proved RUNNING) is the one state that must not name
 # --confirm: guessing at a live holder is the automatic-breaker mistake this
@@ -305,6 +299,12 @@ SMM_ROOT_ADVISORY = _AT_RISK_PREFIX + (
 # self-release on their own (an unverifiable holder, and non-symlink residue)
 # and points at the read-only report first, since liveness there was never
 # established.
+_FREE_ADVISORY = _AT_RISK_PREFIX + (
+    " It relocates itself automatically, but only once no teammate worktree "
+    "and no in-place teammate remain — check for a stale one whose branch "
+    "never merged. Run 'python3 {tool}' to see what is holding it."
+)
+
 _STALLED_ADVISORY = _AT_RISK_PREFIX + (
     " A prior relocation is stalled — its lock's holder is no longer "
     "running. Run 'python3 {tool} --confirm' to clear it."
@@ -341,7 +341,7 @@ def _lock_advisory(state: migration_lock.LockState) -> str:
     """
     match state:
         case "free":
-            return SMM_ROOT_ADVISORY
+            return _FREE_ADVISORY
         case "stalled":
             return _STALLED_ADVISORY
         case "in-progress":

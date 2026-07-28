@@ -74,11 +74,28 @@ LockState = Literal["free", "stalled", "in-progress", "blocked"]
 def lock_state(smm_dir: Path) -> LockState:
     """The lock guarding relocation out of ``smm_dir``, named for its REMEDY.
 
-    Total: never raises. Two things a hook process cannot rely on: ``os.
-    readlink`` can raise where ``Path.is_symlink`` already swallowed the same
-    race, and ``destination_for`` calls ``Path.home()``, which raises
-    ``RuntimeError`` with no resolvable home — written for a human-run CLI
-    where that could not happen, and now reached on every session.
+    Total: never raises, because it runs on every session start and a
+    traceback here costs the user the whole SessionStart payload, not just the
+    advisory. Three things a hook process cannot rely on, all written for a
+    human-run CLI where they could not happen:
+
+    * ``destination_for`` calls ``Path.home()``, which raises ``RuntimeError``
+      with no resolvable home.
+    * ``os.readlink`` raises on a lock that vanishes after ``is_symlink``
+      already answered.
+    * ``Path.is_symlink`` and ``Path.exists`` themselves PROPAGATE EACCES on
+      every interpreter before 3.14 (``lstat`` + an ignore list of
+      ENOENT/ENOTDIR/EBADF/ELOOP), so an unsearchable destination directory —
+      one sudo'd run leaving it root-owned is enough — raises out of what
+      reads like a total predicate. Only 3.14's rewrite onto
+      ``os.path.islink`` swallows it, which is why a suite that passes on the
+      newest interpreter proves nothing here.
+
+    Every one of them lands on ``free``: the state cannot be established, and
+    ``free`` is the verdict that keeps the plain at-risk wording instead of
+    naming a remedy that would fail for the same reason the probe did. Matches
+    ``smm_dir_resolve.is_under_plugin_managed_root``, which degrades on
+    ``OSError`` the same way.
 
     ``Literal``, not ``str``: four magic strings feeding the ``match/case``
     below with no exhaustiveness check is how a fifth state or a typo becomes
@@ -94,16 +111,10 @@ def lock_state(smm_dir: Path) -> LockState:
     """
     try:
         lock = lock_path_for(smm_dir)
-    except RuntimeError:
-        return "free"
-    if not lock.is_symlink():
-        return "blocked" if lock.exists() else "free"
-    try:
+        if not lock.is_symlink():
+            return "blocked" if lock.exists() else "free"
         target = os.readlink(lock)
-    except OSError:
-        # Gone between the two syscalls — a concurrent clear, or the holder
-        # finishing and releasing. The name is free, which is all a verdict
-        # needs to say.
+    except (RuntimeError, OSError):
         return "free"
     match holder_state(target):
         case None:

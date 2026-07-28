@@ -66,6 +66,21 @@ class _AdvisoryCase(unittest.TestCase):
         else:
             os.environ[name] = value
 
+    def _legacy_smm(self, install_dir_name: str) -> Path:
+        legacy = self.plugin_data / install_dir_name / "abc123" / "smm"
+        legacy.mkdir(parents=True)
+        return legacy
+
+    def _lock(self) -> Path:
+        """The lock beside the DESTINATION project dir, not beside the SMM
+        (init.sh: `project_dir="$(dirname "${new}")"` where `new` is the
+        destination). `XP_AGENTS_DATA` is unset in setUp, so `destination_for`
+        resolves under `Path.home()`, and the project id matches
+        `_legacy_smm`'s hardcoded "abc123"."""
+        lock = self.home / ".xp-agents" / "data" / "abc123" / ".migrate.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        return lock
+
 
 class TestIsUnderPluginManagedRoot(_AdvisoryCase):
     """The predicate is a POSITIVE test against the roots that carry the
@@ -152,11 +167,6 @@ class TestSessionStartAdvisory(_AdvisoryCase):
     10KB context blob is the silent-enforcement pattern this release exists to
     end."""
 
-    def _legacy_smm(self, install_dir_name: str) -> Path:
-        legacy = self.plugin_data / install_dir_name / "abc123" / "smm"
-        legacy.mkdir(parents=True)
-        return legacy
-
     def test_advisory_present_when_smm_is_under_plugin_managed_root(self):
         import session_start
 
@@ -218,18 +228,8 @@ class TestSessionStartAdvisory(_AdvisoryCase):
         self.assertIn("uninstall", msg)
         self.assertIn("9.9.9", msg)
 
-    def _lock(self) -> Path:
-        """The lock beside the DESTINATION project dir, not beside the SMM
-        (init.sh: `project_dir="$(dirname "${new}")"` where `new` is the
-        destination). `XP_AGENTS_DATA` is unset in `_AdvisoryCase.setUp`, so
-        `destination_for` resolves under `Path.home()`, and the project id
-        matches `_legacy_smm`'s hardcoded "abc123"."""
-        lock = self.home / ".xp-agents" / "data" / "abc123" / ".migrate.lock"
-        lock.parent.mkdir(parents=True, exist_ok=True)
-        return lock
 
-
-class TestSessionStartAdvisoryByLockState(TestSessionStartAdvisory):
+class TestSessionStartAdvisoryByLockState(_AdvisoryCase):
     """A crashed relocation's lock never self-releases on its own — see
     `plugins/xp-agents/smm/init.sh:138-151`. So the same at-risk-root advisory
     that fires today for "no lock yet" must differentiate by remedy once a
@@ -295,9 +295,9 @@ class TestSessionStartAdvisoryByLockState(TestSessionStartAdvisory):
 
     def test_no_lock_at_all_keeps_todays_wording(self):
         """Proves the new lock branches did not swallow the existing
-        no-lock-yet path — the five pre-existing cases in the base class
-        exercise this too, but explicitly excluding "stalled"/"in
-        progress"/"blocked" here pins that they are genuinely absent."""
+        no-lock-yet path — `TestSessionStartAdvisory` exercises that wording
+        too, but explicitly excluding "stalled"/"in progress"/"blocked" here
+        pins that they are genuinely absent."""
         import session_start
 
         legacy = self._legacy_smm("xp-agents-xp-agents")
@@ -321,13 +321,11 @@ class TestSessionStartAdvisoryByLockState(TestSessionStartAdvisory):
         self.assertNotIn("stalled", msg)
 
 
-class TestLockStateNeverRaises(TestSessionStartAdvisory):
+class TestLockStateNeverRaises(_AdvisoryCase):
     """Total: `lock_state` must return a verdict instead of raising and
-    taking out the whole SessionStart systemMessage. Two independent legs —
-    both needed, each guards a different call that can raise.
-
-    Subclasses `TestSessionStartAdvisory` rather than `_AdvisoryCase` directly
-    to reuse its `_legacy_smm`/`_lock` helpers instead of redeclaring them.
+    taking out the whole SessionStart systemMessage. One leg per call that can
+    raise — they are separate syscalls with separate failure modes, so no one
+    of them covers another.
     """
 
     def test_a_readlink_race_does_not_raise(self):
@@ -351,6 +349,45 @@ class TestLockStateNeverRaises(TestSessionStartAdvisory):
 
         legacy = self._legacy_smm("xp-agents-xp-agents")
         with mock.patch("migration_lock.Path.home", side_effect=RuntimeError):
+            self.assertEqual(migration_lock.lock_state(legacy), "free")
+
+    def test_an_unsearchable_destination_dir_does_not_raise(self):
+        """`Path.is_symlink()` PROPAGATES EACCES on every interpreter before
+        3.14 — 3.11/3.12/3.13 go through `lstat()` + `_ignore_error`, whose
+        ignore list is ENOENT/ENOTDIR/EBADF/ELOOP and does NOT include
+        EACCES; only 3.14's rewrite onto `os.path.islink` swallows it. So a
+        destination project dir this session cannot search (one sudo'd run
+        leaving it root-owned is enough) tracebacks out of `_system_message`
+        and costs the user the WHOLE SessionStart payload, not just the
+        advisory.
+
+        Patched rather than chmod-ed on purpose: a real chmod pins this only
+        on the three interpreters that raise, and passes vacuously on the one
+        a developer is most likely to be running.
+        """
+        import migration_lock
+
+        legacy = self._legacy_smm("xp-agents-xp-agents")
+        with mock.patch(
+            "migration_lock.Path.is_symlink",
+            side_effect=PermissionError(13, "Permission denied"),
+        ):
+            self.assertEqual(migration_lock.lock_state(legacy), "free")
+
+    def test_an_unsearchable_dir_under_a_non_symlink_does_not_raise(self):
+        """`Path.exists()` is a SECOND probe with the same pre-3.14 EACCES
+        behaviour, reached only once `is_symlink()` has already answered
+        False — so it needs its own leg, not coverage by the one above."""
+        import migration_lock
+
+        legacy = self._legacy_smm("xp-agents-xp-agents")
+        with (
+            mock.patch("migration_lock.Path.is_symlink", return_value=False),
+            mock.patch(
+                "migration_lock.Path.exists",
+                side_effect=PermissionError(13, "Permission denied"),
+            ),
+        ):
             self.assertEqual(migration_lock.lock_state(legacy), "free")
 
 
