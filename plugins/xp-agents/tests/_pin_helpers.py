@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Shared infrastructure for AST-walking vocabulary pins.
+"""Shared file-discovery infrastructure for the doctrinal/vocabulary pins.
 
 Sister pins (`test_event_vocabulary_pin.py`,
 `test_assertequal_vocabulary_pin.py`) duplicated `_files_to_scan`,
-`_rel`, and the path constants. Promote here so future pins (a third
-expected) reuse the same scan surface and rel-path convention.
+`_rel`, and the path constants. Promote here so future pins reuse the same
+scan surfaces and rel-path convention. `shipped_prose_to_scan` serves the
+prose-side pin (`test_shipped_prose_language_agnostic.py`), which does no AST
+walking at all — the shared thing is the surface, not the walker.
 
-Each pin keeps its own `_scan_file(path) -> list[tuple]` because the
-violation shapes differ (make_event-call+dict-literal vs
-assertEqual/assertNotEqual+type-subscript). The pin owns its detection
-walker; this helper owns the file-discovery boilerplate.
+Each pin keeps its own detection pass because the violation shapes differ
+(make_event-call+dict-literal, assertEqual+type-subscript, a tool name in a
+line of Markdown). The pin owns detection; this helper owns discovery.
 """
 
 from pathlib import Path
@@ -58,6 +59,34 @@ def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
             continue
         paths.extend(sorted(root.rglob("*.py")))
     return paths
+
+
+def shipped_prose_to_scan(plugin_root: Path) -> dict[str, list[Path]]:
+    """Every shipped PROSE surface under *plugin_root*, grouped by its glob.
+
+    The counterpart to `shipped_files_to_scan`: that one answers "which shipped
+    code runs in a user's project", this one answers "which shipped text is
+    injected into a user's session". Guides, agent definitions, skill bodies and
+    the close-pipeline reference all reach the reader verbatim, so a Python-only
+    instruction in any of them is the same assumption a Python-only predicate
+    makes in code.
+
+    Grouped, not flattened, because a floor over the total cannot see one group
+    empty out: `scripts/*.md` matches exactly ONE file, so a rename would drop
+    that whole surface while a tree-wide count still looked healthy. Callers
+    assert per group.
+
+    The skills glob is `skills/*/*.md`, not `skills/*/SKILL.md`: a skill's
+    reference doc ships and is injected exactly like its body, so narrowing to
+    the body would leave a shipped prose surface invisible the day one is added.
+    Today the two globs match the same files.
+    """
+    return {
+        "root guides": sorted(plugin_root.glob("*.md")),
+        "agents": sorted((plugin_root / "agents").glob("*.md")),
+        "skills": sorted(plugin_root.glob("skills/*/*.md")),
+        "scripts prose": sorted((plugin_root / "scripts").glob("*.md")),
+    }
 
 
 def rel(path: Path, repo_root: Path) -> str:

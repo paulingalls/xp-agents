@@ -17,7 +17,6 @@ allowed-tools:
   - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
-  - Bash(python3 -m unittest *)
 ---
 
 !`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
@@ -88,7 +87,7 @@ If no open plan concerns are listed in the preload, skip this step.
 
 Review the xp-code-reviewer's summary. For each finding:
 
-- **Fix directly** (preferred — courage). Edit files to address the issue. Run tests afterward.
+- **Fix directly** (preferred — courage). Edit files to address the issue, then re-run the preload's `TEST_COMMAND`.
 - **Fix overlapping open concerns now (COURAGE-FIX).** If an open plan-review or close-reviewer concern's `files` overlap the diff you're already touching, fix it now while the file is open — file overlap is in scope, no re-litigation. Don't defer to "MAYBE ADDRESSED" triage at close time. Resolve via the `Resolves-Event:` trailer in the same commit.
 - **Already recorded** by subagent via append.sh — no further action needed.
 - **Record as debt** if fix is too large for this review:
@@ -106,5 +105,5 @@ Briefly summarize what was fixed, what was deferred as debt, and what was alread
 
 - **Independence is the point.** The xp-code-reviewer subagent has fresh context — it didn't write the code. Trust its judgment.
 - **Courage over comfort.** If the subagent flags a finding as valid, default to applying the fix.
-- **Run tests** after any changes to verify nothing breaks.
+- **Run the preload's `TEST_COMMAND`** after any changes to verify nothing breaks. If it is empty this project declared none — say so rather than guessing a runner, and give the customer the setter verbatim: `printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command`.
 - If the subagent reports all code is clean, record the summary and move on.
