@@ -2,6 +2,38 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.1.1 — Deferred stories survive the sprint archive
+
+A sprint's deferred stories are the work you decided to keep, not drop. They were
+being lost at the moment they mattered.
+
+`/xp-sprint-close` archives `sprint.json` by MOVING it into `sprints/`, and
+`/xp-sprint-start` read the carry-over list from that live file — so between the
+two skills the list was always empty, and sprint-start's own instruction to
+include the previous sprint's deferred stories had no data behind it. The helper
+sent errors to `/dev/null`, so it read as "nothing deferred" rather than as a
+failure. Measured on a real project: four deferred stories before the archive,
+zero after. Nothing was destroyed — the stories sat in `sprints/sprint_*.json` —
+but nothing read them back.
+
+The carry-over list now comes from one archive-aware reader: the live sprint when
+that file is present, the newest archive otherwise. It also names the file the
+stories came from, because once a sprint is archived no command returns a story's
+acceptance criteria or file domain, and a planner told to reuse them with no way
+to read them writes new ones instead.
+
+Two refusals worth knowing about, because both choose an empty list over a
+plausible one:
+
+- If the newest archive is unreadable, **the one before it is not substituted.**
+  Its deferred stories may already be finished, so offering them recreates
+  completed work while the real leftovers go unmentioned.
+- If the live `sprint.json` is present but corrupt or symlinked, nothing is
+  carried and the archive is not consulted. A damaged current sprint is not
+  evidence about the previous one.
+
+Either way you get a stated reason, not silence.
+
 ## v5.1.0 — Gates that refuse instead of going quiet
 
 **One change will interrupt an existing habit, so it goes first: `git -C "$VAR"
