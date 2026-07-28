@@ -130,6 +130,24 @@ def _handle_housekeeping_done(smm_dir: Path, input_data: dict) -> None:
     if target_routing.strip_our_namespace(agent_type) != _HOUSEKEEPER_BARE:
         return None
 
+    import housekeeping_flight
+
+    # Retire the in-flight record whatever the outcome, then decide from what
+    # it held whether this run actually curated.
+    record = housekeeping_flight.consume(smm_dir, input_data)
+    if not housekeeping_flight.finalized(smm_dir, record):
+        # Leave NEEDS_HOUSEKEEPING armed so the gate blocks with its
+        # never-invoked message and the lead starts a fresh housekeeper.
+        failed = _common.make_event(
+            _common.STATUS,
+            _HOUSEKEEPING_DONE_AGENT_ID,
+            "Housekeeper stopped but did not finalize curation — the curation "
+            "watermark never moved. Housekeeping still needs to run.",
+            working_on=[],
+        )
+        _common.append_safe(smm_dir, failed)
+        return None
+
     markers.marker_consume(smm_dir, markers.KICKOFF)
     markers.marker_consume(smm_dir, markers.NEEDS_HOUSEKEEPING)
 

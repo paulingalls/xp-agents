@@ -10,6 +10,7 @@ accept a MarkerDef to determine file name and content strategy.
 
 import contextlib
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +66,7 @@ REVIEW_CADENCE = MarkerDef(marker_names.REVIEW_CADENCE, "text")
 SISTER_TEST_LAYOUT_WARN = MarkerDef(marker_names.SISTER_TEST_LAYOUT_WARN, "text")
 TEAMMATE_CONFIG = MarkerDef(marker_names.TEAMMATE_CONFIG, "json")
 HOOK_HEARTBEAT = MarkerDef(marker_names.HOOK_HEARTBEAT, "json")
+HOUSEKEEPING_IN_FLIGHT = MarkerDef(marker_names.HOUSEKEEPING_IN_FLIGHT, "json")
 TDD_TRACKER = MarkerDef(".tdd-{agent_id}.json", "json", agent_scoped=True)
 REVIEW_CYCLE = MarkerDef(".review-cycle-{agent_id}.json", "json", agent_scoped=True)
 QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=True)
@@ -78,6 +80,36 @@ QUESTION_NUDGED = MarkerDef(marker_names.QUESTION_NUDGED, "json", agent_scoped=T
 def marker_path(smm_dir: Path, marker: MarkerDef, agent_id: str = "") -> Path:
     """Return the full path to a marker file."""
     return smm_dir / marker.filename(agent_id)
+
+
+def marker_age_seconds(now: float, written_at: object) -> float | None:
+    """Age of a JSON marker's timestamp, or None when it is not usable.
+
+    Duplicated from `hook_liveness._age_seconds`, which enforces the same
+    fail-closed rule. It lives HERE because `hook_liveness` already imports
+    this module, so this is the home the two can later collapse onto — that
+    edit belongs to whoever owns `hook_liveness` next. Change one, change both
+    until then.
+
+    Three ways a JSON number gets past a bare isinstance check, and on a
+    fail-CLOSED caller two of them fail OPEN: `bool` is an `int` subclass;
+    `NaN` and `Infinity` are values `json.loads` accepts by default, and
+    neither compares True against a staleness threshold, so a corrupt marker
+    would read as fresh. An out-of-range int overflows the float conversion
+    outright, which raises rather than returning a verdict.
+
+    None means "cannot age this", which every caller must treat as expired
+    rather than as young.
+    """
+    if not isinstance(written_at, (int, float)) or isinstance(written_at, bool):
+        return None
+    try:
+        value = float(written_at)
+    except OverflowError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return now - value
 
 
 def marker_exists(smm_dir: Path, marker: MarkerDef, agent_id: str = "") -> bool:
@@ -342,13 +374,26 @@ def write_teammate_config(smm_dir: Path, token: str) -> None:
 # /xp-accept is abandoned before its terminal dispatch (/xp-schedule or
 # /xp-sprint-review completion, where accept_terminal drains it). This sweep
 # is the abandonment backstop.
+#
+# HOUSEKEEPING_IN_FLIGHT is correct housekeeping here but is NOT the
+# housekeeping gate's backstop: this sweep is gated to fresh-start
+# SessionStart, and the abandonment that gate reads happens mid-session. Only
+# its freshness window protects that case.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ACTIVE,
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     SISTER_TEST_LAYOUT_WARN,
     TEAMMATE_CONFIG,
+    HOUSEKEEPING_IN_FLIGHT,
 )
+
+# Swept markers that are also written under a per-session `-<digest>` suffix.
+# Consuming only the bare name would leave one orphan file per session that
+# died between the write and its consume — which is precisely the case the
+# housekeeping gate exists to detect, so those orphans are the common ones,
+# not the rare ones.
+_SESSION_SUFFIXED_SWEEP: tuple[MarkerDef, ...] = (HOUSEKEEPING_IN_FLIGHT,)
 
 
 def sweep_stale_session_markers(smm_dir: Path) -> None:
@@ -360,6 +405,10 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     """
     for marker in _STALE_SESSION_MARKERS:
         marker_consume(smm_dir, marker)
+    for marker in _SESSION_SUFFIXED_SWEEP:
+        for path in smm_dir.glob(f"{marker.name}-*"):
+            with contextlib.suppress(OSError):
+                path.unlink()
 
 
 # ---------------------------------------------------------------------------
