@@ -21,6 +21,7 @@ curation never happens and nothing ever says so. Past the window the gate
 blocks again, with different wording, and the lead re-invokes.
 """
 
+import contextlib
 import sys
 import time
 from pathlib import Path
@@ -130,6 +131,42 @@ def state(smm_dir: Path, input_data: dict, now: float | None = None) -> str:
     if age is not None and 0 <= age < STALE_AFTER_SECONDS:
         return FRESH
     return STALE
+
+
+def sweep_orphan_records(smm_dir: Path, now: float | None = None) -> None:
+    """Delete in-flight records no session can still be working under.
+
+    Called from the SessionStart marker sweep, which is why FRESHNESS is
+    checked rather than just the name. The SMM is shared: a second window on
+    the same repo resolves the same project id, so this glob sees records that
+    belong to OTHER sessions, and one of them may have a housekeeper running
+    right now. Deleting that record makes its owner's next Stop read ABSENT —
+    "nobody ever invoked it" — and the lead spawns a second housekeeper over
+    the one still running, which is the exact confusion the per-session record
+    was introduced to end.
+
+    So only a record past its own window goes, on the same bounds `state`
+    uses: an unageable or future timestamp is not evidence of freshness. Same
+    rule, and for the same reason, as `hook_liveness._reap_stale_siblings` —
+    different field, different window, so the two are cross-referenced rather
+    than shared.
+
+    Never raises; a marker that vanishes under us is already swept.
+    """
+    stamp = time.time() if now is None else now
+    for path in smm_dir.glob(f"{marker_names.HOUSEKEEPING_IN_FLIGHT}*"):
+        if path.is_symlink():
+            continue
+        record = markers.marker_read(smm_dir, markers.MarkerDef(path.name, "json"))
+        age = (
+            markers.marker_age_seconds(stamp, record.get(_STARTED_AT))
+            if isinstance(record, dict)
+            else None
+        )
+        if age is not None and 0 <= age < STALE_AFTER_SECONDS:
+            continue
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def consume(smm_dir: Path, input_data: dict) -> str | dict | None:

@@ -57,6 +57,23 @@ SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
 # session sitting IDLE between prompts.
 STALE_AFTER_SECONDS = 4 * 60 * 60
 
+# How far in the FUTURE a heartbeat's timestamp may sit and still be believed.
+#
+# The window is bounded at both ends, for the same reason the housekeeping
+# in-flight record's is: `age >= STALE_AFTER_SECONDS` alone reads a negative age
+# as fresh FOREVER, so one wall-clock step backwards (NTP correction, VM
+# snapshot restore, a resume with a bad RTC) or a millisecond timestamp where
+# seconds were meant would report "live" for the rest of the session even after
+# the runtime died — the silent unenforcement this module exists to detect.
+#
+# It is a tolerance rather than a hard `0 <= age` because refusing a working
+# session is the failure that gets a check switched off, and a heartbeat is
+# rewritten by the next Bash, Write/Edit or Skill call: if the runtime is alive
+# a future timestamp self-heals within one tool call, so the refusal only
+# persists when the runtime is genuinely gone. A minute absorbs ordinary slew
+# without absorbing either failure above.
+FUTURE_SKEW_GRACE_SECONDS = 60
+
 CODE_LIVE = "live"
 CODE_NO_MARKER = "no-marker"
 CODE_SESSION_MISMATCH = "session-mismatch"
@@ -164,6 +181,17 @@ def heartbeat_marker(session_id: str | None) -> markers.MarkerDef:
     return markers.session_marker(marker_names.HOOK_HEARTBEAT, session_id)
 
 
+def _within_window(age: float | None) -> bool:
+    """True only for an age that is usable AND inside the window at BOTH ends.
+
+    One home for the bounds, so the three scans that ask "is this heartbeat
+    still good" cannot drift apart. None (unageable) and a timestamp further
+    ahead than the skew grace are both "not evidence of freshness" — see
+    FUTURE_SKEW_GRACE_SECONDS for why the far end is bounded at all.
+    """
+    return age is not None and -FUTURE_SKEW_GRACE_SECONDS <= age < STALE_AFTER_SECONDS
+
+
 def _reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
     """Delete other sessions' expired heartbeats. Best-effort, never raises.
 
@@ -179,8 +207,7 @@ def _reap_stale_siblings(smm_dir: Path, keep: Path, now: float) -> None:
         if path == keep or path.is_symlink():
             continue
         try:
-            age = _sibling_age(smm_dir, path, now)
-            if age is not None and age < STALE_AFTER_SECONDS:
+            if _within_window(_sibling_age(smm_dir, path, now)):
                 continue
             path.unlink()
         except OSError:
@@ -258,6 +285,9 @@ def write_heartbeat(
 
 
 def _describe(seconds: float) -> str:
+    # Clamped: an age inside the skew grace can be slightly negative, and
+    # "last heartbeat -3s ago" reads as a bug in the report.
+    seconds = max(seconds, 0.0)
     if seconds < 90:
         return f"{seconds:.0f}s"
     if seconds < 5400:
@@ -276,8 +306,9 @@ def _freshest_sibling(smm_dir: Path, now: float) -> float | None:
     freshest: float | None = None
     for path in smm_dir.glob(_SESSION_GLOB):
         age = _sibling_age(smm_dir, path, now)
-        if age is not None and age < STALE_AFTER_SECONDS:
-            freshest = age if freshest is None else min(freshest, age)
+        if age is None or not _within_window(age):
+            continue
+        freshest = age if freshest is None else min(freshest, age)
     return freshest
 
 
@@ -348,7 +379,10 @@ def check_liveness(smm_dir: Path, *, now: float | None = None) -> Liveness:
         return _no_heartbeat_of_our_own(smm_dir, session_id, now)
 
     age = markers.marker_age_seconds(now, data.get("written_at"))
-    if age is None:
+    if age is None or age < -FUTURE_SKEW_GRACE_SECONDS:
+        # A timestamp that far ahead of us is not a heartbeat we can age, so it
+        # is the same claim as a corrupt one: present, unreadable, no verdict.
+        # Left alone it would read as fresh forever (see the constant).
         return Liveness(False, _UNREADABLE_REASON, CODE_UNREADABLE)
     if age >= STALE_AFTER_SECONDS and session_id is None:
         # A stale SHARED marker is not the last word when we cannot name our

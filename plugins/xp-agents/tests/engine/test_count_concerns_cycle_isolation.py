@@ -20,6 +20,7 @@ empty-or-unreadable case is the one way the conjunction could fail OPEN
 implementation is ever refactored.
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -70,12 +71,32 @@ def _concern(
 
 
 class _ScopedGateTestCase(_SMMTestCase):
-    """Shared plumbing: write concerns, run the gate query, read the count."""
+    """Shared plumbing: write concerns, run the gate query, read the count.
+
+    `--repo-root` points at a synthetic working tree rather than this repo, so
+    no fixture depends on a real file surviving a sibling story's deletions.
+    `_scoped` MATERIALIZES every path the written concerns record, because
+    outside-the-diff is proof of irrelevance only for a file that is there and
+    simply untouched — a path that does not exist keeps its concern counted
+    (`TestAbsentPathsAreNotProofOfIrrelevance` pins the other direction).
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.repo_root = self.smm_dir / "fake-repo"
+        self.repo_root.mkdir()
 
     def _count(self, extra_args: list[str], stdin_data: str | None = None) -> str:
         result = run_cli(
             _CLI,
-            ["count-concerns", "--severity", "high", *extra_args],
+            [
+                "count-concerns",
+                "--severity",
+                "high",
+                "--repo-root",
+                str(self.repo_root),
+                *extra_args,
+            ],
             self.smm_dir,
             stdin_data=stdin_data,
         )
@@ -88,8 +109,28 @@ class _ScopedGateTestCase(_SMMTestCase):
         path.write_text("".join(f"{p}\n" for p in paths))
         return path
 
-    def _scoped(self, paths: list[str]) -> str:
+    def _materialize_recorded_files(self) -> None:
+        """Create every repo-relative path the written concerns name."""
+        for line in self.events_file.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # deliberately-corrupt fixtures record no files
+            for entry in event.get("files") or []:
+                if not isinstance(entry, str) or not entry.strip():
+                    continue
+                path = self.repo_root / entry.strip()
+                if ".." in path.parts or entry.strip().startswith(("/", "~")):
+                    continue
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+
+    def _scoped(self, paths: list[str], *, materialize: bool = True) -> str:
         """The real gate invocation: cycle + window + close diff."""
+        if materialize:
+            self._materialize_recorded_files()
         return self._count(
             [
                 "--cycle-id",
@@ -291,6 +332,7 @@ class TestDiffPathsFromStdin(_ScopedGateTestCase):
 
     def test_stdin_paths_exclude_an_irrelevant_concern(self) -> None:
         write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
+        self._materialize_recorded_files()
         args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
         self.assertEqual(
             self._count(args, stdin_data="".join(f"{p}\n" for p in _DIFF)), "0"
@@ -347,6 +389,70 @@ class TestRuleIsOptIn(_ScopedGateTestCase):
             ],
         )
         self.assertEqual(self._scoped(_DIFF), "1")
+
+
+class TestAbsentPathsAreNotProofOfIrrelevance(_ScopedGateTestCase):
+    """A path missing from the working tree is the WEAKEST possible evidence of
+    irrelevance, and under diff-comparison alone it was the strongest.
+
+    The commonest reason a review names a file that is in no diff is that the
+    file was never written — "no acceptance test exists for the new gate",
+    recorded against the test nobody added. That path cannot appear in
+    `git diff --name-only` precisely BECAUSE the work was skipped, so comparing
+    against the diff alone read the absence of the work as proof the finding did
+    not matter and dropped the one concern that should have stopped the merge.
+    """
+
+    def test_untagged_concern_naming_a_file_that_does_not_exist_counts(self) -> None:
+        write_events(
+            self.events_file,
+            [_concern(files=["plugins/xp-agents/tests/hooks/test_new_gate.py"])],
+        )
+        self.assertEqual(self._scoped(_DIFF, materialize=False), "1")
+
+    def test_one_absent_path_among_present_ones_counts(self) -> None:
+        """All-or-nothing: the rule needs every entry readable AND present."""
+        write_events(
+            self.events_file,
+            [_concern(files=[_OUTSIDE_DIFF, "tests/hooks/test_never_written.py"])],
+        )
+        (self.repo_root / _OUTSIDE_DIFF).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo_root / _OUTSIDE_DIFF).touch()
+        self.assertEqual(self._scoped(_DIFF, materialize=False), "1")
+
+    def test_a_present_untouched_file_is_still_excluded(self) -> None:
+        """The feature itself must survive the narrowing: a file that EXISTS and
+        is outside the diff is still provably other code."""
+        write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
+        self.assertEqual(self._scoped(_DIFF), "0")
+
+    def test_a_present_directory_entry_outside_the_diff_is_still_excluded(self) -> None:
+        write_events(self.events_file, [_concern(files=["plugins/xp-agents/hooks"])])
+        (self.repo_root / "plugins/xp-agents/hooks").mkdir(parents=True)
+        self.assertEqual(self._scoped(_DIFF, materialize=False), "0")
+
+    def test_default_repo_root_is_the_cwd(self) -> None:
+        """No --repo-root: paths resolve against the process cwd, which for the
+        shipped gate is the repo it pipes `git diff` from. Pinned because the
+        default is what every prose call site actually uses."""
+        write_events(self.events_file, [_concern(files=["no/such/path/anywhere.py"])])
+        result = run_cli(
+            _CLI,
+            [
+                "count-concerns",
+                "--severity",
+                "high",
+                "--cycle-id",
+                _CYCLE,
+                "--since-ts",
+                _WINDOW_START,
+                "--diff-paths",
+                str(self._diff_file(_DIFF)),
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "1")
 
 
 class TestMalformedLinesStillCount(_ScopedGateTestCase):

@@ -127,6 +127,62 @@ class TestCommitCommandDirectImport(unittest.TestCase):
             )
         )
 
+    def test_dash_c_unreachable_true_when_a_LATER_token_is_hidden(self):
+        """The bypass: stage in a literal repo, commit in a hidden one.
+
+        Reading only the FIRST `-C` match judged `/literal` — no shell
+        construct, so reachable — while `parse_effective_cwd` resolved the LAST
+        one and every gate scanned the repo the commit never landed in. Nothing
+        here can attribute a `-C` to the `commit` word, so ANY unreachable
+        target means the destination is unknowable.
+        """
+        self.assertTrue(
+            commit_command.dash_c_unreachable(
+                'git -C /Users/me/repo add -A && git -C "$WT" commit -m "fix"'
+            )
+        )
+        self.assertTrue(
+            commit_command.dash_c_unreachable(
+                "git -C /Users/me/repo add -A && git -C ~/wt commit -m 'fix'"
+            )
+        )
+        self.assertTrue(
+            commit_command.dash_c_unreachable(
+                "git -C /a add -A; git -C /b diff; git -C $(pwd) commit -m 'x'"
+            )
+        )
+
+    def test_dash_c_unreachable_false_when_every_token_is_literal(self):
+        """The other half: a chain of literal targets must still not be refused."""
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git -C /Users/me/repo add -A && git -C /Users/me/repo commit -m 'fix'"
+            )
+        )
+
+    def test_a_real_dash_c_plus_a_message_that_mentions_one_is_not_refused(self):
+        """Per-token scanning must not read the MESSAGE as a second token.
+
+        This repo's own commit messages discuss `git -C "$WT"` constantly, and
+        `-C /literal commit -m "…$WT…"` is the shape that would be refused if
+        the scan ran over the raw command instead of the offset-preserving mask.
+        """
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git -C /Users/me/repo commit -m "docs: prefer git -C $WT over cd"'
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                "git -C /Users/me/repo commit -F - <<'EOF'\ndocs: git -C ~/wt\nEOF"
+            )
+        )
+        self.assertFalse(
+            commit_command.dash_c_unreachable(
+                'git -C /Users/me/repo commit -m "escaped \\"git -C $WT\\" quote"'
+            )
+        )
+
     def test_dash_c_unreachable_false_when_heredoc_body_mentions_dash_c(self):
         """`strip_quoted` drops heredocs too — a commit body written on stdin
         can discuss `-C` without being read as one."""
@@ -135,6 +191,35 @@ class TestCommitCommandDirectImport(unittest.TestCase):
                 "git commit -F - <<'EOF'\ndocs: prefer git -C $WT\nEOF"
             )
         )
+
+    def test_head_probe_target_agrees_with_parse_effective_cwd_on_which_dash_c(self):
+        """Both functions answer "which repo did this command target", and a
+        compound command made them answer different ends of it.
+
+        `parse_effective_cwd` takes the LAST validated `-C`; the probe took the
+        FIRST match, so `git -C /a add && git -C /b commit` was probed in /a. If
+        an earlier commit had advanced /a's HEAD, that fabricates the head-moved
+        trace the "not a dir -> None" arm is careful never to fabricate.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a", Path(tmp) / "b"
+            a.mkdir()
+            b.mkdir()
+            command = f"git -C {a} add -A && git -C {b} commit -m 'msg'"
+            self.assertEqual(
+                commit_command.head_probe_target(command, tmp),
+                commit_command.parse_effective_cwd(command, tmp),
+            )
+            self.assertEqual(commit_command.head_probe_target(command, tmp), str(b))
+
+    def test_head_probe_target_ignores_a_dash_c_inside_the_message(self):
+        """The probe reads the LAST token, so the mask is what keeps a message
+        body from becoming the target it reads."""
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            real.mkdir()
+            command = f'git -C {real} commit -m "prefer git -C /elsewhere over cd"'
+            self.assertEqual(commit_command.head_probe_target(command, tmp), str(real))
 
     def test_is_escape_hatch_commit_true(self):
         self.assertTrue(

@@ -371,6 +371,11 @@ class TestSessionBoundarySweep(_GateTestCase):
     A session that dies between SubagentStart and SubagentStop never runs its
     own consume — and that is the common case here, not the rare one, since it
     is the very failure this gate was built to notice.
+
+    But the glob spans EVERY session's record, and the SMM is shared: a second
+    window on the same repo resolves the same project id. So the sweep is
+    bounded by freshness, exactly as `hook_liveness._reap_stale_siblings` is —
+    a record still inside its window may have a housekeeper running behind it.
     """
 
     def test_sweep_clears_suffixed_records_from_dead_sessions(self):
@@ -387,6 +392,42 @@ class TestSessionBoundarySweep(_GateTestCase):
             markers.marker_exists(self.smm_dir, markers.HOUSEKEEPING_IN_FLIGHT)
         )
 
+    def test_sweep_keeps_a_FRESH_record_owned_by_another_live_session(self):
+        """A second window's SessionStart must not retire a running
+        housekeeper's record. Deleting it makes the owner's next Stop read
+        ABSENT — "nobody ever invoked it" — so the lead spawns a second
+        housekeeper over the one still running: the already-running-reads-as-
+        never-invoked bug the per-session record was introduced to end."""
+        self.write_record(session_id=_OTHER_SESSION, started_at=time.time() - 1.0)
+        markers.sweep_stale_session_markers(self.smm_dir)
+        self.assertTrue(self.record_path(_OTHER_SESSION).exists())
+
+    def test_sweep_keeps_a_FRESH_unsuffixed_record(self):
+        """Same rule for the no-session-id fallback record: a host that exposes
+        no session id still has one live housekeeper behind it."""
+        markers.marker_write(
+            self.smm_dir,
+            markers.HOUSEKEEPING_IN_FLIGHT,
+            {"started_at": time.time() - 1.0},
+        )
+        markers.sweep_stale_session_markers(self.smm_dir)
+        self.assertTrue(
+            markers.marker_exists(self.smm_dir, markers.HOUSEKEEPING_IN_FLIGHT)
+        )
+
+    def test_a_live_sessions_gate_still_reads_FRESH_after_another_sweep(self):
+        """The consequence, end to end: window A's gate stays quiet."""
+        self.write_record(session_id=_SESSION, started_at=time.time() - 1.0)
+        markers.sweep_stale_session_markers(self.smm_dir)
+        self.assertIsNone(self.gate(now=time.time()))
+
+    def test_sweep_clears_a_future_dated_record(self):
+        """Unageable is not fresh — same bounds `state` applies, so a clock
+        step or a millisecond timestamp cannot make a record unsweepable."""
+        self.write_record(session_id=_OTHER_SESSION, started_at=time.time() + 10_000)
+        markers.sweep_stale_session_markers(self.smm_dir)
+        self.assertFalse(self.record_path(_OTHER_SESSION).exists())
+
 
 class TestMarkerConstant(unittest.TestCase):
     """The new constant follows the dotfile convention its siblings do."""
@@ -398,7 +439,12 @@ class TestMarkerConstant(unittest.TestCase):
         self.assertNotIn(" ", value)
 
     def test_registered_for_the_session_boundary_sweep(self):
-        self.assertIn(markers.HOUSEKEEPING_IN_FLIGHT, markers._STALE_SESSION_MARKERS)
+        """Behaviour, not membership: the record IS swept at the session
+        boundary, but through `housekeeping_flight.sweep_orphan_records` rather
+        than the unconditional `_STALE_SESSION_MARKERS` list, because unlike
+        every marker on that list it can belong to another live session."""
+        self.assertNotIn(markers.HOUSEKEEPING_IN_FLIGHT, markers._STALE_SESSION_MARKERS)
+        self.assertTrue(callable(housekeeping_flight.sweep_orphan_records))
 
 
 class TestFreshnessWindowIsBounded(unittest.TestCase):

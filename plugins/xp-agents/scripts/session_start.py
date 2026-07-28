@@ -321,6 +321,16 @@ _BLOCKED_ADVISORY = _AT_RISK_PREFIX + (
     "to clear it."
 )
 
+# "unprobeable" must NOT borrow the free wording: relocation does not resolve
+# itself here, and the reason it cannot be read is usually also the reason it
+# cannot proceed (a root-owned destination from one sudo'd run).
+_UNPROBEABLE_ADVISORY = _AT_RISK_PREFIX + (
+    " Whether a relocation lock is present could not be determined — its "
+    "destination is unreadable, which one 'sudo' run is enough to cause. "
+    "Relocation stays blocked until that is fixed: check ownership of the "
+    "destination, then run 'python3 {tool}' to inspect."
+)
+
 
 def _tool_path() -> Path:
     """Copy-pasteable path to the manual tool, resolved at message time.
@@ -348,6 +358,8 @@ def _lock_advisory(state: migration_lock.LockState) -> str:
             return _IN_PROGRESS_ADVISORY
         case "blocked":
             return _BLOCKED_ADVISORY
+        case "unprobeable":
+            return _UNPROBEABLE_ADVISORY
 
 
 def _system_message(source: str, version: str, smm_dir: Path | None = None) -> str:

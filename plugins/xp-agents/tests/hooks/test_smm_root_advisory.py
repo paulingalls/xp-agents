@@ -326,18 +326,34 @@ class TestLockStateNeverRaises(_AdvisoryCase):
     taking out the whole SessionStart systemMessage. One leg per call that can
     raise — they are separate syscalls with separate failure modes, so no one
     of them covers another.
+
+    A failed probe answers `unprobeable`, NOT `free`. `free` carries a claim
+    ("it relocates itself automatically") that is false precisely when the
+    probe failed: the commonest cause is a root-owned destination from one
+    sudo'd run, which also blocks the relocation init.sh would otherwise do.
+    Answering `free` printed a remedy that would fail for the same reason the
+    probe did, and left the user never pointed at `--confirm`.
     """
 
-    def test_a_readlink_race_does_not_raise(self):
-        """`Path.is_symlink()` swallows a lock that vanishes between the two
-        checks; `os.readlink` does not — it raises OSError on the same race.
-        `lock_state` must absorb that, not propagate it."""
+    def test_a_vanished_lock_is_free(self):
+        """The one probe failure that IS free: the lock was released between
+        `is_symlink` and `readlink`, so ENOENT means gone, not unreadable."""
         import migration_lock
 
         legacy = self._legacy_smm("xp-agents-xp-agents")
         self._lock().symlink_to("999999")
-        with mock.patch("os.readlink", side_effect=OSError("gone")):
+        with mock.patch("os.readlink", side_effect=FileNotFoundError(2, "gone")):
             self.assertEqual(migration_lock.lock_state(legacy), "free")
+
+    def test_an_unreadable_readlink_is_unprobeable(self):
+        """Any OTHER readlink failure (EACCES, EIO) says nothing about whether
+        a lock is there, so it must not be reported as absent."""
+        import migration_lock
+
+        legacy = self._legacy_smm("xp-agents-xp-agents")
+        self._lock().symlink_to("999999")
+        with mock.patch("os.readlink", side_effect=PermissionError(13, "denied")):
+            self.assertEqual(migration_lock.lock_state(legacy), "unprobeable")
 
     def test_an_unresolvable_home_does_not_raise(self):
         """`lock_state` -> `lock_path_for` -> `destination_for` calls
@@ -349,7 +365,7 @@ class TestLockStateNeverRaises(_AdvisoryCase):
 
         legacy = self._legacy_smm("xp-agents-xp-agents")
         with mock.patch("migration_lock.Path.home", side_effect=RuntimeError):
-            self.assertEqual(migration_lock.lock_state(legacy), "free")
+            self.assertEqual(migration_lock.lock_state(legacy), "unprobeable")
 
     def test_an_unsearchable_destination_dir_does_not_raise(self):
         """`Path.is_symlink()` PROPAGATES EACCES on every interpreter before
@@ -372,7 +388,7 @@ class TestLockStateNeverRaises(_AdvisoryCase):
             "migration_lock.Path.is_symlink",
             side_effect=PermissionError(13, "Permission denied"),
         ):
-            self.assertEqual(migration_lock.lock_state(legacy), "free")
+            self.assertEqual(migration_lock.lock_state(legacy), "unprobeable")
 
     def test_an_unsearchable_dir_under_a_non_symlink_does_not_raise(self):
         """`Path.exists()` is a SECOND probe with the same pre-3.14 EACCES
@@ -388,7 +404,25 @@ class TestLockStateNeverRaises(_AdvisoryCase):
                 side_effect=PermissionError(13, "Permission denied"),
             ),
         ):
-            self.assertEqual(migration_lock.lock_state(legacy), "free")
+            self.assertEqual(migration_lock.lock_state(legacy), "unprobeable")
+
+    def test_an_unprobeable_lock_does_not_promise_automatic_relocation(self):
+        """The consequence at the surface. init.sh never breaks a lock on its
+        own, so telling a user whose destination is root-owned to wait for an
+        automatic relocation is a false statement that leaves the SMM under the
+        root `claude plugin uninstall` deletes."""
+        import session_start
+
+        legacy = self._legacy_smm("xp-agents-xp-agents")
+        with mock.patch(
+            "migration_lock.Path.is_symlink",
+            side_effect=PermissionError(13, "Permission denied"),
+        ):
+            msg = session_start._system_message("startup", "9.9.9", legacy)
+        self.assertIn("uninstall", msg)
+        self.assertNotIn("relocates itself automatically", msg)
+        self.assertIn("could not be determined", msg)
+        self.assertIn("migrate_smm_root.py", msg)
 
 
 if __name__ == "__main__":

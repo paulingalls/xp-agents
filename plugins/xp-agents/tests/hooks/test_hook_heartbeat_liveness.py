@@ -85,6 +85,22 @@ class TestConcurrentSessionsShareOneSmm(_HookTestCase):
         names = [p.name for p in Path(self.smm_dir).glob(".hook-heartbeat-*")]
         self.assertEqual(len(names), 2, names)
 
+    def test_a_far_future_sibling_is_reaped_and_vouches_for_nobody(self):
+        """A sibling dated far ahead is not evidence of a live runtime.
+
+        Both sibling scans share one bounds helper for this: unreaped it would
+        accumulate forever, and worse, a session with no discoverable id would
+        borrow it as "live on freshness alone" permanently.
+        """
+        self._write_as("clock-ahead", self.NOW + 10 * hook_liveness.STALE_AFTER_SECONDS)
+        with patch.dict(os.environ, _env()):
+            borrowed = hook_liveness.check_liveness(self.smm_dir, now=self.NOW)
+        self.assertFalse(borrowed.live, borrowed.reason)
+
+        self._write_as("me", self.NOW)
+        names = [p.name for p in Path(self.smm_dir).glob(".hook-heartbeat-*")]
+        self.assertEqual(len(names), 1, names)
+
     def test_the_shared_no_id_marker_is_not_reaped_by_a_per_session_write(self):
         """The reap glob must never widen to `.hook-heartbeat*`.
 

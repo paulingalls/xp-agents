@@ -29,6 +29,14 @@ makes git abort, so nothing lands and the silence is harmless — but a glob tha
 Accepted cost, stated plainly: a literal directory name containing `*`, `?` or `[`
 is now refused too.
 
+**Every** `-C` in the command is judged, not just the first — a chain that stages
+in one repo and commits in another (`git -C /literal add -A && git -C "$WT"
+commit`) otherwise slipped past the refusal while the gates below still resolved
+the *last* target. Nothing in raw command text can attribute a `-C` to the
+`commit` word specifically, so the second accepted cost is the mirror image:
+`git -C /repo commit && git -C "$OTHER" log` is refused for a `-C` that commits
+nothing. The remedy is the same either way — use literal paths.
+
 Relative literal paths keep resolving exactly as before.
 
 ### A stalled relocation says so

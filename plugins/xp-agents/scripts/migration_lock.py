@@ -68,7 +68,7 @@ def holder_state(target: str) -> bool | None:
     return True
 
 
-LockState = Literal["free", "stalled", "in-progress", "blocked"]
+LockState = Literal["free", "stalled", "in-progress", "blocked", "unprobeable"]
 
 
 def lock_state(smm_dir: Path) -> LockState:
@@ -91,14 +91,18 @@ def lock_state(smm_dir: Path) -> LockState:
       ``os.path.islink`` swallows it, which is why a suite that passes on the
       newest interpreter proves nothing here.
 
-    Every one of them lands on ``free``: the state cannot be established, and
-    ``free`` is the verdict that keeps the plain at-risk wording instead of
-    naming a remedy that would fail for the same reason the probe did. Matches
-    ``smm_dir_resolve.is_under_plugin_managed_root``, which degrades on
-    ``OSError`` the same way.
+    A failed probe is its OWN state, ``unprobeable``, not ``free``. ``free``
+    now carries a claim — "it relocates itself automatically" — and that claim
+    is FALSE whenever the probe failed: one ``sudo claude`` run leaving the
+    destination root-owned with a crashed relocation's lock in it raises
+    EACCES here, and init.sh never breaks a lock on its own, so relocation is
+    blocked indefinitely while the advisory says to wait it out. A state that
+    cannot be established must not borrow the wording of one that was. The
+    ONE exception is a lock that vanished between ``is_symlink`` and
+    ``readlink``: gone IS free, and that race resolves in the safe direction.
 
-    ``Literal``, not ``str``: four magic strings feeding the ``match/case``
-    below with no exhaustiveness check is how a fifth state or a typo becomes
+    ``Literal``, not ``str``: five magic strings feeding the ``match/case``
+    below with no exhaustiveness check is how a sixth state or a typo becomes
     a silently-missed branch.
 
     ``in-progress`` (a holder proved RUNNING) is the only state that must not
@@ -114,8 +118,11 @@ def lock_state(smm_dir: Path) -> LockState:
         if not lock.is_symlink():
             return "blocked" if lock.exists() else "free"
         target = os.readlink(lock)
-    except (RuntimeError, OSError):
+    except FileNotFoundError:
+        # The lock was released between the two syscalls. Gone is free.
         return "free"
+    except (RuntimeError, OSError):
+        return "unprobeable"
     match holder_state(target):
         case None:
             return "blocked"

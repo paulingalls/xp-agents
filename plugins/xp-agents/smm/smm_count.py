@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
+import concern_relevance
 from append_validation import parse_jsonl
 from event_metadata import CONCERN_ACTION_TRANSIENT_TEST
 from event_schema import (
@@ -202,105 +203,24 @@ def _is_transient_test_concern(event: dict) -> bool:
     return metadata.get("action") == CONCERN_ACTION_TRANSIENT_TEST
 
 
-def _normalize_repo_path(raw: str) -> str:
-    """Normalise a repo-relative path for comparison — PURE STRING work.
+def _repo_root(spec: str | None) -> Path | None:
+    """Where recorded concern paths are resolved to prove they EXIST.
 
-    Deliberately NOT `scripts/worktree.py`'s normalize_path: that one shells out
-    to git per call and resolves against cwd. This runs once per (recorded file,
-    diff path) pair, has no repo to resolve against, and must stay language- and
-    filesystem-agnostic (it compares bytes, never syntax or file types). The
-    small duplication is the price of those three properties.
+    `--repo-root` when given, else the process cwd — the close gate pipes
+    `git diff --name-only` from the repo it is closing, so its cwd is that
+    repo (or a worktree of it, where the same tracked paths resolve).
+
+    None when cwd itself cannot be read (a deleted working directory raises
+    OSError). The caller then skips the narrowing entirely and counts
+    everything: with no root, no path can be proved present, and a rule that
+    cannot see must not drop anything.
     """
-    path = raw.strip().rstrip("/")
-    while path.startswith("./"):
-        path = path[2:]
-    return path
-
-
-def _load_diff_paths(spec: str | None) -> set[str]:
-    """Parse newline-separated repo-relative paths from a file, or stdin ("-").
-
-    Returns an EMPTY set for every degraded case — no spec, unreadable path,
-    undecodable bytes, blank content — because empty and absent MUST behave
-    identically at the call site (see _cmd_count_concerns). Swallowing the read
-    error here is safe only because of that: the caller notes the degradation on
-    stderr and falls back to counting everything.
-
-    UnicodeDecodeError is caught for the same reason OSError is: a path list a
-    non-UTF-8 filename made undecodable must degrade to counting everything, not
-    crash the gate query into an empty `$(...)` capture. Discarding the whole
-    list beats decoding it lossily — a mangled path silently matches nothing,
-    which is the fail-OPEN direction.
-    """
-    if not spec:
-        return set()
+    if spec:
+        return Path(spec)
     try:
-        raw = sys.stdin.read() if spec == "-" else Path(spec).read_text()
-    except (OSError, UnicodeDecodeError):
-        return set()
-    return {p for p in (_normalize_repo_path(line) for line in raw.splitlines()) if p}
-
-
-def _intersects_diff(entry: str, diff_paths: set[str]) -> bool:
-    """True when a concern's recorded path names something in the close diff.
-
-    Exact match, or *entry* is a DIRECTORY PREFIX of a diff path — a concern
-    pinned at directory granularity covers the files beneath it. No globbing.
-
-    An entry containing no "/" also matches any diff path's BASENAME.
-    Non-repo-relative entries exist in real logs (`files:['pre_tool_bash.py']`
-    for plugins/xp-agents/scripts/pre_tool_bash.py), and under exact-plus-prefix
-    alone such an entry could never intersect ANY diff — so its concern would be
-    excluded from EVERY scoped gate. The fallback errs toward counting.
-    """
-    if entry in diff_paths:
-        return True
-    prefix = entry + "/"
-    if any(path.startswith(prefix) for path in diff_paths):
-        return True
-    if "/" in entry:
-        return False
-    return any(path.rsplit("/", 1)[-1] == entry for path in diff_paths)
-
-
-def _is_repo_relative(path: str) -> bool:
-    """False for an entry that cannot be COMPARED to a repo-relative diff path.
-
-    An absolute (`/…`, `~/…`) or parent-escaping (`../…`) entry names its file in
-    the wrong vocabulary: `git diff --name-only` always emits repo-relative
-    paths, so such an entry can never match one, and exact-plus-prefix matching
-    would read that as PROOF of irrelevance and drop the concern from every
-    scoped gate. It is unreadable evidence, like a blank or non-string entry —
-    the same class the slash-less basename fallback covers from the other side.
-    """
-    return not path.startswith(("/", "~")) and ".." not in path.split("/")
-
-
-def _provably_outside_diff(event: dict, diff_paths: set[str]) -> bool:
-    """True IFF the concern names files and NONE of them intersect the close diff.
-
-    Every early False is a fail-closed default. No `files` (or an empty list)
-    proves nothing about relevance. A non-string, blank, or non-repo-relative
-    entry is unreadable evidence, not absent evidence, so it too keeps the
-    concern on the floor. Only a fully-readable, fully-comparable file list that
-    misses the diff entirely is proof.
-
-    Caller must have established diff_paths is non-empty — against an empty set
-    "no entry intersects" is vacuously true, which is the one way the rule fails
-    OPEN.
-    """
-    files = event.get("files")
-    if not isinstance(files, list) or not files:
-        return False
-    for entry in files:
-        if not isinstance(entry, str):
-            return False
-        normalized = _normalize_repo_path(entry)
-        if not normalized or not _is_repo_relative(normalized):
-            return False
-        if _intersects_diff(normalized, diff_paths):
-            return False
-    return True
+        return Path.cwd()
+    except OSError:
+        return None
 
 
 def _cmd_count_concerns(args: argparse.Namespace) -> int:
@@ -321,15 +241,24 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
 
     With --cycle-id AND a non-empty --diff-paths, an UNTAGGED concern that is
     provably about code this close does not touch is excluded (see
-    _provably_outside_diff; concern 3542ad2915df). Without both flags the count
-    is byte-identical to the un-scoped one — the narrowing is opt-in.
+    concern_relevance.provably_outside_diff; concern 3542ad2915df). Without both
+    flags the count is byte-identical to the un-scoped one — the narrowing is
+    opt-in.
 
     Sync pointer: story-close/free-close auto-merge conditions 1 & 2
     (SKILL.md) rely on this fail-closed behavior.
     """
     # Read --diff-paths BEFORE the existence check so a `git diff | ...` producer
     # is never left writing into an unread pipe on the missing-SMM path.
-    diff_paths = _load_diff_paths(args.diff_paths)
+    diff_paths = concern_relevance.load_diff_paths(args.diff_paths)
+    repo_root = _repo_root(args.repo_root)
+    if diff_paths and repo_root is None:
+        print(
+            "count-concerns: no repo root is readable (cwd is gone and "
+            "--repo-root was not given); counting every concern in scope, "
+            "exactly as if --diff-paths were absent (fail closed)",
+            file=sys.stderr,
+        )
     if args.diff_paths and not diff_paths:
         print(
             f"count-concerns: --diff-paths {args.diff_paths} was empty or "
@@ -370,22 +299,24 @@ def _cmd_count_concerns(args: argparse.Namespace) -> int:
             continue
         # Second untagged carve-out, same shape as the one above: exclude by
         # PROVABLE IRRELEVANCE, never by absence of a tag. The invariant —
-        # excluded-from-scoped-gate IFF the concern names files and none of them
-        # intersect the close diff, i.e. it is provably about code this close
-        # does not touch (concern 3542ad2915df; story-003's clean close was
-        # pushed to abort-recommended by 964426f13819, an unrelated open lock
-        # defect in a sibling's domain recorded in the same --since-ts window).
+        # excluded-from-scoped-gate IFF the concern names files that all EXIST
+        # in the working tree and none of which intersect the close diff, i.e.
+        # it is provably about OTHER code that is present and untouched
+        # (concern 3542ad2915df; story-003's clean close was pushed to
+        # abort-recommended by 964426f13819, an unrelated open lock defect in a
+        # sibling's domain recorded in the same --since-ts window).
         #
         # Do NOT collapse this conjunction. Each clause is a fail-closed
         # default, and `diff_paths` being non-empty is the load-bearing one:
-        # against an empty set _provably_outside_diff is vacuously true for
+        # against an empty set provably_outside_diff is vacuously true for
         # every concern with files, so dropping that clause turns the whole
         # gate off whenever the caller's `git diff` came back empty.
         if (
             args.cycle_id
             and diff_paths
+            and repo_root is not None
             and tag is None
-            and _provably_outside_diff(event, diff_paths)
+            and concern_relevance.provably_outside_diff(event, diff_paths, repo_root)
         ):
             continue
         count += 1
@@ -473,9 +404,19 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
         metavar="PATH",
         help="File of newline-separated repo-relative paths in the close diff "
         "(`-` reads stdin) — e.g. `git diff --name-only <review-base>...HEAD`. "
-        "Only meaningful WITH --cycle-id: an untagged concern whose `files` are "
-        "all outside the diff is then excluded. Empty or unreadable behaves "
-        "exactly as if absent (counts everything) and notes so on stderr.",
+        "Only meaningful WITH --cycle-id: an untagged concern whose `files` all "
+        "EXIST and all lie outside the diff is then excluded. Empty or "
+        "unreadable behaves exactly as if absent (counts everything) and notes "
+        "so on stderr.",
+    )
+    cc_p.add_argument(
+        "--repo-root",
+        default=None,
+        metavar="PATH",
+        help="Where a concern's recorded paths are resolved to prove they "
+        "exist (default: cwd). A path that does not exist is NOT proof of "
+        "irrelevance — a review naming a file nobody wrote (a missing test) "
+        "must still count. Only meaningful WITH --cycle-id and --diff-paths.",
     )
     cc_p.add_argument(
         "--since-ts",

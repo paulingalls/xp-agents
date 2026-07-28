@@ -32,6 +32,7 @@ import worktree  # isort: split
 
 import branch_lifecycle
 import branch_resolution
+import hook_liveness
 import identity
 import in_place_marker
 import sprint_store
@@ -331,6 +332,20 @@ def main(argv: list[str] | None = None) -> None:
     # handing the agent behind it a different one is a split brain.
     env["SMM_DIR"] = str(Path(args.smm_dir).resolve())
     env[identity._XP_TEAMMATE_ENV] = name
+
+    # The child is its own SESSION, so it must not inherit ours. The liveness
+    # heartbeat is keyed on the session id: writers key it on the id the harness
+    # hands each hook, while the preload check keys it on these variables — so a
+    # teammate carrying OUR id reads a marker its own hooks never write. Both
+    # outcomes are wrong and neither is visible: it passes the check on the
+    # LEAD's heartbeat even when its own hook runtime failed to load (on the tier
+    # that runs unsupervised), or, once we have been idle past the threshold,
+    # every one of its skill preloads refuses and withholds all context while its
+    # hooks are demonstrably running. Dropping them leaves the child's own
+    # harness free to export its real id; if it exports none, the documented
+    # time-only fallback applies, which is a weaker check rather than a wrong one.
+    for session_var in hook_liveness.SESSION_ID_ENV_CANDIDATES:
+        env.pop(session_var, None)
 
     # In-place teammates share the main checkout, so their cwd carries no
     # worktree path marker — commit_handling recovers the name from the leaky

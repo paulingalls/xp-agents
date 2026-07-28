@@ -218,6 +218,36 @@ class TestAgeBoundary(_HookTestCase):
         """Loose on purpose: a check that false-refuses gets switched off."""
         self.assertGreaterEqual(hook_liveness.STALE_AFTER_SECONDS, 4 * 60 * 60)
 
+    def test_a_far_future_timestamp_is_not_live(self):
+        """The window is bounded at BOTH ends.
+
+        `age >= STALE_AFTER_SECONDS` alone reads a NEGATIVE age as fresh
+        forever, so one wall-clock step backwards (NTP correction, VM snapshot
+        restore) or a millisecond timestamp where seconds were meant would
+        report "live" for the rest of the session — even after the runtime died,
+        which is the silent unenforcement this module exists to detect. The
+        housekeeping in-flight record bounds the same shared helper for exactly
+        this reason; this leg had it only at the old end.
+        """
+        result = self._at(-(hook_liveness.FUTURE_SKEW_GRACE_SECONDS + 1))
+        self.assertFalse(result.live, result.reason)
+        self.assertEqual(result.code, hook_liveness.CODE_UNREADABLE)
+
+    def test_a_millisecond_timestamp_is_not_live(self):
+        """The cheapest real way to land a future timestamp."""
+        with patch.dict(os.environ, _env(CLAUDE_CODE_SESSION_ID="sess-a")):
+            hook_liveness.write_heartbeat(self.smm_dir, now=self.NOW * 1000)
+            result = hook_liveness.check_liveness(self.smm_dir, now=self.NOW)
+        self.assertFalse(result.live, result.reason)
+
+    def test_ordinary_clock_slew_is_still_live(self):
+        """The cost is bounded on purpose: refusing a working session is the
+        failure that gets a liveness check switched off, and a heartbeat inside
+        the grace is rewritten by the session's next tool call anyway."""
+        result = self._at(-(hook_liveness.FUTURE_SKEW_GRACE_SECONDS - 1))
+        self.assertTrue(result.live, result.reason)
+        self.assertNotIn("-", result.reason.split("heartbeat ")[-1])
+
 
 class TestPredicateOnUnusableMarker(_HookTestCase):
     """`marker_read` already returns None for a symlink and for corrupt

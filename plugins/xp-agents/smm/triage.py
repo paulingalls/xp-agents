@@ -28,6 +28,16 @@ _EM_DASH = "—"
 # separator. `--` precedes `-` in the alternation so the longer form wins where
 # both could match. The em dash keeps its bare search — it needs no surrounding
 # spaces and cannot occur inside a path.
+#
+# Residual ambiguity, stated rather than papered over: a path that itself
+# contains a SPACED hyphen (`docs/design - notes.md`) is truncated at it, and no
+# string rule can separate that from `path - description` — the grammar is
+# genuinely ambiguous, and every discriminator tried (word count after the
+# separator, an extension test) breaks a shape at least as common as the one it
+# rescues. Both readings fail the SAME way when wrong (the declared file matches
+# nothing and `validate-domain` reports drift on it), so this keeps the reading
+# that is orders of magnitude more frequent in a code repo. Quote the em dash
+# form, or avoid " - " in a declared path, to get the other one.
 _ASCII_DESC_SEP_RE = re.compile(r"\s(?:--|-)(?=\s|$)")
 
 

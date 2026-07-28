@@ -109,9 +109,12 @@ def marker_age_seconds(now: float, written_at: object) -> float | None:
 
     The single home for the rule, shared by `hook_liveness` and
     `housekeeping_flight`. Callers own the BOUNDS: a negative age (a future
-    timestamp) comes back as-is, because the housekeeping gate must reject it
-    (passing forever is its worst outcome) while the heartbeat tolerates it
-    (false-refusing a working session is its worst).
+    timestamp) comes back as-is, and BOTH callers bound it, because
+    `age < threshold` alone reads a negative age as fresh forever. They differ
+    only in how much future they tolerate first — the housekeeping gate none
+    (`0 <= age`), the heartbeat a minute of clock slew
+    (`hook_liveness.FUTURE_SKEW_GRACE_SECONDS`), since false-refusing a working
+    session is the failure that gets a liveness check switched off.
 
     Three ways a JSON number gets past a bare isinstance check, and on a
     fail-CLOSED caller two of them fail OPEN: `bool` is an `int` subclass;
@@ -394,26 +397,13 @@ def write_teammate_config(smm_dir: Path, token: str) -> None:
 # /xp-accept is abandoned before its terminal dispatch (/xp-schedule or
 # /xp-sprint-review completion, where accept_terminal drains it). This sweep
 # is the abandonment backstop.
-#
-# HOUSEKEEPING_IN_FLIGHT is correct housekeeping here but is NOT the
-# housekeeping gate's backstop: this sweep is gated to fresh-start
-# SessionStart, and the abandonment that gate reads happens mid-session. Only
-# its freshness window protects that case.
 _STALE_SESSION_MARKERS: tuple[MarkerDef, ...] = (
     CLOSE_CYCLE_ACTIVE,
     ACCEPT,
     ACCEPT_IN_FLIGHT,
     SISTER_TEST_LAYOUT_WARN,
     TEAMMATE_CONFIG,
-    HOUSEKEEPING_IN_FLIGHT,
 )
-
-# Swept markers that are also written under a per-session `-<digest>` suffix.
-# Consuming only the bare name would leave one orphan file per session that
-# died between the write and its consume — which is precisely the case the
-# housekeeping gate exists to detect, so those orphans are the common ones,
-# not the rare ones.
-_SESSION_SUFFIXED_SWEEP: tuple[MarkerDef, ...] = (HOUSEKEEPING_IN_FLIGHT,)
 
 
 def sweep_stale_session_markers(smm_dir: Path) -> None:
@@ -422,13 +412,21 @@ def sweep_stale_session_markers(smm_dir: Path) -> None:
     Caller must gate to fresh-start SessionStart sources only — resume
     and compact are mid-session continuations where these markers may
     be load-bearing for in-flight close-skills or pending /xp-accept.
+
+    Every marker above is unconditionally consumed because none of them can
+    belong to another LIVE session. The housekeeping in-flight record can: the
+    SMM is shared across windows and worktrees, so its orphans are swept by
+    `housekeeping_flight.sweep_orphan_records`, which keeps a record that is
+    still inside its freshness window. That module owns the record's field
+    names and its window, and imports this one — hence the lazy import, the
+    same shape `warn_once` uses to reach `concerns`.
     """
     for marker in _STALE_SESSION_MARKERS:
         marker_consume(smm_dir, marker)
-    for marker in _SESSION_SUFFIXED_SWEEP:
-        for path in smm_dir.glob(f"{marker.name}-*"):
-            with contextlib.suppress(OSError):
-                path.unlink()
+
+    import housekeeping_flight
+
+    housekeeping_flight.sweep_orphan_records(smm_dir)
 
 
 # ---------------------------------------------------------------------------
