@@ -34,13 +34,18 @@ def run(smm_dir: Path, target_path: Path) -> dict | None:
         return None
 
     # Execution plan path — agent uses plan_cli.py to update status.
-    # plan_exists() owns the exists-and-not-a-symlink rule; Path.exists()
-    # and Path.is_symlink() already swallow OSError, so no guard is needed.
-    plan_str = (
-        str(smm_dir / PLAN_FILENAME)
-        if execution_plan_store.plan_exists(smm_dir)
-        else ""
-    )
+    # plan_exists() owns the exists-and-not-a-symlink rule, but it is NOT total:
+    # `Path.exists` and `Path.is_symlink` propagate EACCES on every interpreter
+    # before 3.14, whose ignore list is only ENOENT/ENOTDIR/EBADF/ELOOP. One
+    # sudo'd run leaving the SMM dir root-owned is enough, and an unreadable
+    # plan must degrade to "no plan" rather than traceback the whole preload.
+    # `migration_lock.lock_state` documents the same stdlib behaviour; an
+    # earlier comment here claimed the opposite.
+    try:
+        plan_present = execution_plan_store.plan_exists(smm_dir)
+    except OSError:
+        plan_present = False
+    plan_str = str(smm_dir / PLAN_FILENAME) if plan_present else ""
 
     counts = sprint_store.count_by_status(sprint_data)
     velocity = sprint_store.compute_velocity(sprint_data)

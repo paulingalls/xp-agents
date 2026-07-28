@@ -48,6 +48,15 @@ def holder_state(target: str) -> bool | None:
     must agree on what counts as a pid, or one waits for a holder the other
     clears. `str.isdigit` alone is wider — true for superscripts, which `int()`
     then rejects, making the guard itself the traceback.
+
+    One value the two sides classify differently, and it changes nothing: `0`
+    passes init.sh's regex and `kill -0 0` SUCCEEDS there, because it signals
+    the caller's own process group rather than a process — so init.sh reads "not
+    verifiably dead" while this returns None ("no pid"). Both outcomes lead to
+    the same place: init.sh never breaks a lock it did not create, so it waits
+    and answers the legacy tree, and the advisory built on None tells the user
+    to clear it by hand. Agreement on the VERDICT is what the invariant needs;
+    a lock naming pid 0 is corrupt residue either way.
     """
     if not (target.isascii() and target.isdigit()) or int(target) <= 0:
         return None

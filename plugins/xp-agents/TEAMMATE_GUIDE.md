@@ -29,7 +29,7 @@ The harness tells you to batch independent tool calls in parallel. As a single-s
 - One logical change per commit; `ruff format` before staging
 - Commit messages explain *why*, not *what*
 - When a commit closes a recorded SMM item (`debt`, `concern`, `question`, `goal`, `assumption`, `decision`), add a `Resolves-Event: <12-hex-id>[, <id>...]` trailer at the bottom of the commit body. The PostToolUse hook extracts IDs into `metadata.resolves`.
-- Use `git -C <worktree>` to commit from a worktree — never `cd <wt> && git commit && cd -` (the cd-back fires before the trailer-extract hook, breaking the auto-link).
+- Commit from a worktree with `git -C <literal-path>`, never `cd <wt> && git commit && cd -` (the cd-back beats the trailer-extract hook, breaking the link). An unresolvable `-C` is refused.
 - Run `verify_acceptance.py --story <id>` before flipping a story to `reviewing` — it executes every `acceptance_execution` command in order and exits non-zero on the first red.
 
 ## File Domain

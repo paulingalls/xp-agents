@@ -8,6 +8,7 @@ lives in subagent_stop.py.
 
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -216,6 +217,26 @@ class TestPrepareReviewData(_HookTestCase):
         target.write_text("{}")
         (self.smm_dir / "execution_plan.json").symlink_to(target)
         result = self._run_with(SPRINT_MIXED)
+        self.assertEqual(result["execution_plan_path"], "")
+
+    def test_unreadable_execution_plan_degrades_instead_of_raising(self):
+        """EACCES from the plan probe -> execution_plan_path='', no traceback.
+
+        `Path.exists`/`Path.is_symlink` — what `plan_exists` is built on —
+        propagate EACCES on every interpreter before 3.14, whose ignore list is
+        only ENOENT/ENOTDIR/EBADF/ELOOP. One sudo'd run leaving the SMM dir
+        root-owned reaches this. Patched rather than chmod'd so the test proves
+        the guard on an interpreter (3.14+) whose stdlib would swallow it
+        anyway — the reason the missing guard survived a green suite.
+        """
+        import prepare_review_data
+
+        with unittest.mock.patch.object(
+            prepare_review_data.execution_plan_store,
+            "plan_exists",
+            side_effect=PermissionError(13, "Permission denied"),
+        ):
+            result = self._run_with(SPRINT_MIXED)
         self.assertEqual(result["execution_plan_path"], "")
 
     def test_milestone_populated_from_sprint(self):

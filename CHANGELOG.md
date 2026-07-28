@@ -54,14 +54,19 @@ differs:
 
 | What the lock looks like | What you are told |
 |---|---|
+| no lock at all | nothing is said; relocation happens on its own |
 | its holder is still running | a relocation is in progress; you are pointed at the read-only report, never at a clear |
 | its holder is gone | it is stalled, and `--confirm` will clear it |
-| its holder cannot be checked, or it is residue from an older version | it is blocked and not automatically verifiable — run the report, then clear |
+| it is residue from an older version, naming no checkable holder | it is blocked and not automatically verifiable — run the report, then clear |
+| the lock cannot be READ at all — an unsearchable destination directory, one `sudo` run away | it is unprobeable: you are told the state could not be established, and specifically NOT that relocation happens automatically |
 
-Only a holder proved *running* withholds the clear. Guessing at a live holder is the
-mistake the seven earlier attempts made.
+Two of the five withhold the clear: a holder proved *running*, and a lock nothing
+could probe. Guessing at a live holder is the mistake the seven earlier attempts made,
+and a state that could not be established must not borrow the wording of one that
+was — "it relocates itself automatically" is a claim, and it is false whenever the
+probe failed.
 
-### Hook liveness: a session whose runtime stopped now gets refused
+### Hook liveness: a runtime that never loaded now gets refused
 
 If the hook runtime fails to load, every gate it enforces disappears and the session
 looks entirely normal — nothing is blocked and nothing is said. The check that would
@@ -69,10 +74,19 @@ report this cannot itself be a hook. It is now a preload check, which runs at
 instruction time and therefore still runs when the thing it tests is broken.
 
 Hooks record a heartbeat at session start, on every prompt, and from tool use, so a
-working session refreshes far inside the staleness threshold. When the runtime
-stops, the next skill invocation refuses and withholds its context rather than
-proceeding with gates that would go unenforced. `XP_SKIP_LIVENESS_CHECK=1` proceeds
-anyway, for a runtime you know is broken and cannot fix yet.
+working session refreshes far inside the staleness threshold. A session whose runtime
+never loaded has no heartbeat at all, and the next skill invocation refuses
+immediately, withholding its context rather than proceeding with gates that would go
+unenforced. `XP_SKIP_LIVENESS_CHECK=1` proceeds anyway, for a runtime you know is
+broken and cannot fix yet.
+
+**What this does not yet catch promptly, stated because the distinction decides
+whether you can rely on it: a runtime that loaded and then STOPPED.** Every refresh
+source is itself a hook, so once they stop firing the last heartbeat merely ages, and
+the check reads live until it crosses the four-hour staleness threshold. Inside that
+window gates go unenforced and nothing says so — the same silence, on a longer fuse.
+Catching it sooner needs a refresh source that is not a hook, which this release does
+not have.
 
 ### Kickoff no longer asks you to wait for something already running
 
@@ -98,12 +112,21 @@ empty or unreadable diff still counts everything.
 
 ### Also
 
+One user-visible change that belongs to no section above: a `file_domain` entry may
+now end its path list with a single spaced hyphen (`src/thing.py - why it is here`),
+not only an em-dash or `--`. An entry that used to report drift resolves correctly.
+The cost is stated because it is a truncation, not a rejection: a declared path that
+itself contains `" - "` now keeps only the part before it.
+
 Internal, but they change what future releases can promise: the commit-gate block is
 extracted from the PreToolUse handler so its ordering is pinned rather than
 incidental; the superseded-decision detector now checks every earlier decision on a
-topic rather than only the adjacent one, and two of its fail-opens are closed; a test
-pin that had been silently scanning less than it claimed now fails loud; and the
-migration lock reader is one module both the resolver and the supervised tool share.
+topic rather than only the adjacent one, which closes a false *positive* rather than a
+fail-open; the two fail-opens this release actually closes are in the close-gate
+relevance path, where a non-repo-relative `files` entry read as proof of irrelevance
+and a `UnicodeDecodeError` crashed the diff-path load; a test pin that had been
+silently scanning less than it claimed now fails loud; and the migration lock reader is
+one module both the resolver and the supervised tool share.
 
 Two things this release deliberately does **not** do, recorded rather than hidden. An
 append that lands during the one-time SMM relocation copy can still be lost —
