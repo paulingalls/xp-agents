@@ -13,7 +13,6 @@ refresh the marker and the preload that consumes the verdict live
 elsewhere.
 """
 
-import os
 import sys
 import time
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ import marker_names
 import markers
 import plugin_loader
 import session_markers
+import session_scope
 
 # ---------------------------------------------------------------------------
 # Signals
@@ -35,13 +35,14 @@ import session_markers
 # must not be mistaken for the guarantee: only an id comparison can tell a
 # session where hooks ran from one where they silently did not.
 #
-# Ordered candidates, first non-empty wins. A second host is a new entry here,
-# not a redesign. Own-variable first so a host we do not yet know about can be
-# taught by exporting one value.
-SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = (
-    "XP_SESSION_ID",
-    "CLAUDE_CODE_SESSION_ID",
-)
+# Ordered candidates, first non-empty wins. A second host is a new entry, not a
+# redesign — but the entry goes in `smm/session_scope.py`, which is where the
+# chain now lives: session-scoped marker filenames resolve the same chain from
+# the appender's pre-write path, and that path cannot import `scripts/`. Two
+# copies would let a new host be taught to the heartbeat while every scoped
+# marker silently degraded to its shared name. Re-exported here because callers
+# and tests address it through this module.
+SESSION_ID_ENV_CANDIDATES: tuple[str, ...] = session_scope.SESSION_ID_ENV_CANDIDATES
 
 # How long a heartbeat stays trustworthy. Four hours is deliberately loose:
 # it must never refuse a user who stepped away between prompts, because a
@@ -144,12 +145,12 @@ def resolve_session_id() -> str | None:
     None means "no id is discoverable here", not "no session" — the
     predicate degrades to a time-only check rather than refusing, so an
     unfamiliar host is never bricked for want of a variable name.
+
+    Delegates to `session_scope`, which owns the chain: the same resolution
+    picks the filename of every session-scoped marker, and one of those is
+    read from the appender's pre-write path.
     """
-    for name in SESSION_ID_ENV_CANDIDATES:
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    return None
+    return session_scope.resolve_session_id()
 
 
 def payload_session_id(input_data: dict) -> str | None:
