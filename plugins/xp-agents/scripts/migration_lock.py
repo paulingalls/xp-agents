@@ -11,6 +11,7 @@ resolves unchanged.
 
 import os
 from pathlib import Path
+from typing import Literal
 
 # The lock contract, pinned here because two files now have to agree on it:
 # init.sh claims this name BESIDE the project's `smm/` directory, and the claim
@@ -65,3 +66,49 @@ def holder_state(target: str) -> bool | None:
         # it reads as held.
         return True
     return True
+
+
+LockState = Literal["free", "stalled", "in-progress", "blocked"]
+
+
+def lock_state(smm_dir: Path) -> LockState:
+    """The lock guarding relocation out of ``smm_dir``, named for its REMEDY.
+
+    Total: never raises. Two things a hook process cannot rely on: ``os.
+    readlink`` can raise where ``Path.is_symlink`` already swallowed the same
+    race, and ``destination_for`` calls ``Path.home()``, which raises
+    ``RuntimeError`` with no resolvable home — written for a human-run CLI
+    where that could not happen, and now reached on every session.
+
+    ``Literal``, not ``str``: four magic strings feeding the ``match/case``
+    below with no exhaustiveness check is how a fifth state or a typo becomes
+    a silently-missed branch.
+
+    ``in-progress`` (a holder proved RUNNING) is the only state that must not
+    suggest ``--confirm`` — guessing at a live holder is the automatic-breaker
+    mistake this module exists to avoid. ``blocked`` covers both shapes that
+    never self-release on their own (an unverifiable holder, and non-symlink
+    residue) because they share the same remedy: the supervised report, then
+    ``--confirm``. Only a holder proved dead (``stalled``) names ``--confirm``
+    directly.
+    """
+    try:
+        lock = lock_path_for(smm_dir)
+    except RuntimeError:
+        return "free"
+    if not lock.is_symlink():
+        return "blocked" if lock.exists() else "free"
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        # Gone between the two syscalls — a concurrent clear, or the holder
+        # finishing and releasing. The name is free, which is all a verdict
+        # needs to say.
+        return "free"
+    match holder_state(target):
+        case None:
+            return "blocked"
+        case True:
+            return "in-progress"
+        case False:
+            return "stalled"
