@@ -133,6 +133,43 @@ class TestSessionMarker(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# marker_age_seconds
+#
+# Characterization tests: `marker_age_seconds` had zero direct tests before
+# this move — it was reached only through hook_liveness and
+# housekeeping_flight — so these pass by design on the first run. They are
+# not a red phase and they do not catch a bug; they are the instrument that
+# makes the extraction to session_markers.py provable.
+# ---------------------------------------------------------------------------
+
+
+class TestMarkerAgeSeconds(unittest.TestCase):
+    """The four branches documented in the function's own docstring."""
+
+    def test_boolean_timestamp_is_rejected(self):
+        # bool is an int subclass, so a bare isinstance check would admit it.
+        self.assertIsNone(markers.marker_age_seconds(1000.0, True))
+        self.assertIsNone(markers.marker_age_seconds(1000.0, False))
+
+    def test_non_finite_timestamp_is_rejected(self):
+        # json.loads admits NaN/Infinity by default, and neither compares
+        # True against a staleness threshold, so a fail-closed caller would
+        # otherwise read a corrupt marker as fresh.
+        self.assertIsNone(markers.marker_age_seconds(1000.0, float("nan")))
+        self.assertIsNone(markers.marker_age_seconds(1000.0, float("inf")))
+        self.assertIsNone(markers.marker_age_seconds(1000.0, float("-inf")))
+
+    def test_out_of_range_int_returns_none(self):
+        # Too large to become a float: OverflowError, not a raised exception.
+        self.assertIsNone(markers.marker_age_seconds(1000.0, 10**400))
+
+    def test_negative_age_is_returned_as_is(self):
+        # Callers own the bounds; this helper does not clamp a future
+        # timestamp to zero.
+        self.assertEqual(markers.marker_age_seconds(1000.0, 1500.0), -500.0)
+
+
+# ---------------------------------------------------------------------------
 # marker_exists
 # ---------------------------------------------------------------------------
 
