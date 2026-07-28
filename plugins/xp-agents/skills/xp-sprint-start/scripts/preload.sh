@@ -34,8 +34,12 @@ emit_var TEST_COMMAND "$(find_test_command)"
 # can disagree about whether there is anything to show.
 carryover=$(sprint_list_carryover)
 if [ -n "$carryover" ]; then
+    # Count STORY lines only. `wc -l` over the whole block would count the
+    # SOURCE:/WARNING: lines as stories, and a story title is only schema-checked
+    # as a string — the count must come from a shape a title cannot forge.
+    carryover_count=$(printf '%s\n' "$carryover" | grep -c '^story-' || true)
     echo ""
-    echo "## Deferred Stories from Previous Sprint ($(printf '%s\n' "$carryover" | wc -l | tr -d ' '))"
+    echo "## Deferred Stories from Previous Sprint (${carryover_count})"
     echo ""
     printf '%s\n' "$carryover"
 fi

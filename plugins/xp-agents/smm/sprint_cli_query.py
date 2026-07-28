@@ -21,7 +21,7 @@ import sprint_archive
 import sprint_render as render
 import sprint_store as store
 import triage
-from sprint_schema import VALID_STORY_STATUSES
+from sprint_schema import SPRINT_FILENAME, VALID_STORY_STATUSES
 
 # Sorted to keep output stable across runs (frozenset iteration order is
 # not guaranteed). Mirrors sprint_cli.py's own _STATUS_CHOICES — kept as
@@ -101,6 +101,34 @@ def _cmd_list_stories(args: argparse.Namespace) -> int:
     return 0
 
 
+CARRYOVER_WARN_PREFIX = "WARNING:"
+CARRYOVER_SOURCE_PREFIX = "SOURCE:"
+
+
+def _warn_carryover(message: str) -> None:
+    """Say it where the only production caller can actually hear it.
+
+    The preload helper runs this under `2>/dev/null`, so a stderr-only warning
+    reaches nobody and the customer sees an empty carry-over list with no
+    signal — the same silence this command exists to end. Both streams: stdout
+    so it survives into the preload's context, stderr for a human at a shell.
+    The prefix is what lets the preload tell an advisory from a story line.
+    """
+    print(f"{CARRYOVER_WARN_PREFIX} {message}")
+    print(f"list-carryover: {message}", file=sys.stderr)
+
+
+def _one_line(text: str) -> str:
+    """Collapse whitespace so one story is always exactly one line.
+
+    `story.title` is only schema-checked as `str` and is LLM-authored, so a
+    newline in it would both inflate the caller's line count and let a title
+    forge a `KEY=value` preload line of its own. Same hazard `emit_var` guards
+    for customer-set values.
+    """
+    return " ".join(text.split())
+
+
 def _cmd_list_carryover(args: argparse.Namespace) -> int:
     """Deferred stories to carry into the NEXT sprint, archive-aware.
 
@@ -110,37 +138,54 @@ def _cmd_list_carryover(args: argparse.Namespace) -> int:
     window it exists for, and left sprint-start's "include deferred stories
     from the previous sprint" instruction with no data behind it.
 
-    So: read the live sprint when the FILE is there, else the newest archive.
-    Keyed on absence, not on unreadability — a corrupt live sprint.json must
-    surface as the empty list it is rather than resurrecting an older sprint's
-    stories under a new sprint's name. A live sprint always shadows the
-    archive, so a story already carried forward is never offered twice.
+    A live sprint always SHADOWS the archive, so a story already carried
+    forward is never offered twice. "Live" means the path is there at all,
+    including a symlink: `store.sprint_exists` deliberately reports a symlink as
+    absent (it is a refusal, not a probe), and keying on it sent a
+    symlinked-but-valid sprint down the archive branch — resurrecting an older
+    sprint's stories, the exact outcome this guard exists to prevent.
 
-    Always exits 0, printing nothing when there is nothing: a first-ever
-    sprint-start has neither file and that is not an error. `load_sprint`
-    RAISES on a corrupt or symlinked sprint.json, and the preload helper sends
-    stderr to /dev/null — so an unguarded traceback here would arrive as an
-    empty list with nothing said, which is the bug wearing a different hat.
-    Caught, named on stderr, and NOT retried against the archive.
+    Always exits 0. Nothing to carry is not an error (a first-ever sprint-start
+    has neither file), and a nonzero exit would abort the calling preload under
+    `set -e` before it emits the rest of its variables. Every failure that is
+    not "nothing to carry" is announced on stdout with a WARNING prefix.
     """
-    if store.sprint_exists(args.smm_dir):
+    live = args.smm_dir / SPRINT_FILENAME
+    live_present = live.exists() or live.is_symlink()
+    sprint = None
+    if live_present:
         try:
             sprint = store.load_sprint(args.smm_dir)
         except (store.SprintCorruptError, OSError) as exc:
-            print(
-                f"list-carryover: sprint.json is present but unusable ({exc}); "
-                "carrying nothing forward. An older sprint's deferred stories "
-                "are NOT substituted — this sprint may already have taken "
-                "them on.",
-                file=sys.stderr,
+            _warn_carryover(
+                f"sprint.json is present but unusable ({exc}); carrying nothing "
+                "forward. An older sprint's deferred stories are NOT "
+                "substituted — this sprint may already have taken them on."
             )
             return 0
     else:
-        sprint = sprint_archive.load_latest(args.smm_dir)
+        try:
+            sprint = sprint_archive.load_latest(args.smm_dir)
+        except sprint_archive.UnusableArchiveError as exc:
+            _warn_carryover(
+                f"the previous sprint's archive is unusable ({exc}); carrying "
+                "nothing forward. An OLDER archive is deliberately not "
+                "substituted, since its deferred stories may already be done."
+            )
+            return 0
     if sprint is None:
         return 0
-    for s in store.list_stories(sprint, status="deferred"):
-        print(f"{s['id']}: {s['title']} [{s['status']}]")
+    deferred = store.list_stories(sprint, status="deferred")
+    if not deferred:
+        return 0
+    # Where the full definitions live. `render-stories`/`get-story` read the
+    # live file and fail once it is archived, so without this the skill is told
+    # to reuse each story's original acceptance criteria and file_domain with no
+    # way to read either — and it fabricates them instead.
+    source = live if live_present else sprint_archive.newest_path(args.smm_dir)
+    print(f"{CARRYOVER_SOURCE_PREFIX} {source}")
+    for s in deferred:
+        print(f"{s['id']}: {_one_line(str(s['title']))} [{s['status']}]")
     return 0
 
 

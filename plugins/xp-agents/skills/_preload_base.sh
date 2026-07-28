@@ -343,9 +343,13 @@ sprint_list_stories() {
 }
 
 # Deferred stories to carry into the next sprint. Archive-aware: sprint-close
-# MOVES sprint.json, so by sprint-start there is no live file to read.
+# MOVES sprint.json, so by sprint-start there is no live file to read. Emits
+# `SOURCE: <path>` (where full story definitions live) and `WARNING: <reason>`
+# lines alongside the stories; the command prints its own advisories to stdout
+# precisely because this helper discards stderr. Fail-soft like its siblings:
+# under `set -e` a bare command substitution would abort the whole preload.
 sprint_list_carryover() {
-    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-carryover 2>/dev/null
+    python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-carryover 2>/dev/null || true
 }
 
 # Next sprint ID (increments current, falls back to sprint-001).
