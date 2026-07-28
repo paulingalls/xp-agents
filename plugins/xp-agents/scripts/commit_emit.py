@@ -9,10 +9,11 @@ attribution, free-branch tagging and cadence stamping. Copying it is how the
 third emitter (`merge_commit_event.append_merge_commit_event`) already drifted
 three ways, so it lives here once and both callers use it.
 
-Placement: deliberately NOT `commit_event.py` (404 lines — this sequence plus
-its signature would push it past the 450 sub-cap) and NOT `commit_handling.py`
-(392 lines, which would land near 470 once the rebuild sits beside it). A third
-module keeps every file under the cap and gives the sequence a name.
+Placement: deliberately NOT `commit_event.py` (404 lines) and NOT
+`commit_handling.py` (392 before this extraction, 378 after). This module's own
+264 lines would push either host well past the 450-line sub-cap that
+`tests/hooks/test_commit_event_rebuild.py` pins, so a third module keeps every
+file under it and gives the sequence a name.
 
 `build_commit_event`'s scope is event CONSTRUCTION only. The success path's
 other post-commit effects — commit-size concern, lint resolution,
@@ -188,11 +189,25 @@ def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
     if facts is None:
         return False
     committer_ts, parent_count, reflog_action = facts
-    if time.time() - committer_ts > HEAD_REBUILD_MAX_AGE_SECONDS:
+    # Bounded at BOTH ends. `now - ts > MAX` alone reads a FUTURE committer date
+    # as maximally fresh, so clock skew on the committing host would defeat this
+    # guard outright rather than trip it. The housekeeping gate bounds the same
+    # helper the same way (`0 <= age`); no grace window here, because unlike a
+    # heartbeat a false refusal costs only the trace we recorded before.
+    age = time.time() - committer_ts
+    if not 0 <= age <= HEAD_REBUILD_MAX_AGE_SECONDS:
         return False
     if parent_count > 1:
         return False
-    return reflog_action is None or reflog_action in _COMMIT_REFLOG_ACTIONS
+    # Absence VETOES rather than degrading to allow. Degrading left the widest
+    # residual fabrication path: with `core.logAllRefUpdates` off, an amend or a
+    # reset/ff-merge onto a fresh unrecorded commit, then a failed unreadable
+    # commit, satisfies every other guard and records an event for a commit this
+    # command did not make — whose trailer then resolves real ids on false
+    # evidence. Vetoing costs those repos only the trace they already got before
+    # this story, so it is not a regression there; the asymmetry is lopsided.
+    # Matches the recorded fail-closed doctrine for an unresolvable `git -C`.
+    return reflog_action in _COMMIT_REFLOG_ACTIONS
 
 
 def rebuild_at_head(

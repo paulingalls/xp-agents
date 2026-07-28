@@ -118,6 +118,19 @@ class _RebuildTestCase(_HookTestCase):
     def head_timestamp(self) -> str:
         return self.git("show", "-s", "--format=%ct", "HEAD")
 
+    def erase_reflog(self) -> None:
+        """Leave `git reflog -1` with nothing to report.
+
+        The WHOLE `.git/logs` tree, not just `logs/HEAD`: with HEAD's own log
+        gone git resolves `HEAD` to the current branch and reads
+        `logs/refs/heads/<branch>` instead, so removing one file leaves the
+        action still readable (measured: a merge still reported `merge side`)
+        and the no-opinion arm never runs. `core.logAllRefUpdates` off then
+        keeps the next git call from recreating them.
+        """
+        self.git("config", "core.logAllRefUpdates", "false")
+        shutil.rmtree(self.repo / ".git" / "logs")
+
     def run_hook(self, command: str, stdout: str = "", **overrides):
         return bash_post_tool.run(
             _make_bash_input(
@@ -251,17 +264,33 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
         self.assertEqual(self.commit_events(), [])
         self.assertEqual(len(self.concerns()), 1)
 
-    def test_young_merge_head_is_not_a_plain_commit(self):
-        """AC-7: a manual `git merge` emits no event of its own, so a fresh
-        merge HEAD looks exactly like an unrecorded commit. Recording it
-        would take the WHOLE merged branch as `files`, untagged, into the
-        resolves-link-rate denominator."""
+    def _merge_a_side_branch(self) -> None:
+        """Leave HEAD on a fresh two-parent `--no-ff` merge commit."""
         self.commit("feat: mainline")
         base = self.git("rev-parse", "HEAD~1")
         self.git("checkout", "-q", "-b", "side", base)
         self.commit("feat: side work", path="src/side.py")
         self.git("checkout", "-q", "main")
         self.git("merge", "-q", "--no-ff", "-m", "Merge side", "side")
+
+    def test_young_merge_head_is_not_a_plain_commit(self):
+        """AC-7: a manual `git merge` emits no event of its own, so a fresh
+        merge HEAD looks exactly like an unrecorded commit. Recording it
+        would take the WHOLE merged branch as `files`, untagged, into the
+        resolves-link-rate denominator."""
+        self._merge_a_side_branch()
+        self.run_hook(_UNREADABLE_F)
+        self.assertEqual(self.commit_events(), [])
+        self.assertEqual(len(self.concerns()), 1)
+
+    def test_merge_head_is_refused_on_the_parent_count_alone(self):
+        """The parent-count guard, isolated. With a reflog present the case
+        above is vetoed by the `merge` action before parent count is ever
+        load-bearing — deleting the parent check left that test green. Take
+        the reflog away (the degrade-to-allow path) and the count is the
+        ONLY signal separating a two-parent merge from a landed commit."""
+        self._merge_a_side_branch()
+        self.erase_reflog()
         self.run_hook(_UNREADABLE_F)
         self.assertEqual(self.commit_events(), [])
         self.assertEqual(len(self.concerns()), 1)
@@ -298,14 +327,39 @@ class TestAmbiguousHeadIsNotClaimed(_RebuildTestCase):
         self.assertEqual(self.commit_events(), [])
         self.assertEqual(len(self.concerns()), 1)
 
-    def test_missing_reflog_falls_back_to_the_timestamp(self):
-        """`core.logAllRefUpdates` can be off, and a fresh clone has no
-        reflog at all. Absence must read as "no opinion", not as a veto —
-        otherwise the fix does nothing on the repos that lack it."""
+    def test_missing_reflog_vetoes_the_rebuild(self):
+        """`core.logAllRefUpdates` can be off (bare repos, and anyone who set
+        it), and `git reflog expire` empties the log. Absence VETOES.
+
+        Degrading to allow was the widest residual fabrication path: with no
+        reflog, an amend or a reset/ff-merge onto a fresh unrecorded commit
+        followed by a failed unreadable commit satisfies freshness, parent count
+        and unreadability, and records an event for a commit this command did
+        not make — whose trailer then resolves real ids on false evidence.
+
+        Vetoing costs a reflog-less repo only the trace it already got before
+        this story existed, so it is not a regression there. The asymmetry is
+        lopsided, and it matches the recorded fail-closed doctrine for an
+        unresolvable `git -C` target.
+
+        NOT a fresh clone, which does have a reflog: `git clone` writes a
+        `clone: from <url>` HEAD entry, so that case is vetoed on the action."""
         self.commit("feat: x")
-        (self.repo / ".git" / "logs" / "HEAD").unlink()
+        self.erase_reflog()
         self.run_hook(_UNREADABLE_F)
-        self.assertEqual(len(self.commit_events()), 1)
+        self.assertEqual(len(self.commit_events()), 0)
+
+    def test_future_committer_date_is_not_maximally_fresh(self):
+        """A future committer timestamp must not read as fresh.
+
+        `now - ts > MAX` alone is one-sided: a clock-skewed committing host
+        yields a negative age, which compares under any positive bound and so
+        defeats the freshness guard outright rather than tripping it. Bounding
+        at both ends (`0 <= age <= MAX`) is how the housekeeping gate reads the
+        same helper. Negative `age_seconds` forward-dates the commit."""
+        self.commit("feat: x", age_seconds=-7200)
+        self.run_hook(_UNREADABLE_F)
+        self.assertEqual(len(self.commit_events()), 0)
 
 
 class TestRebuildGateIsHashOnly(_RebuildTestCase):
