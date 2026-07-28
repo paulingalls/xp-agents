@@ -105,6 +105,7 @@ in the fix commit body:**
 > with `git -C <worktree-path> commit ...` — never `cd <wt> && git
 > commit && cd -`. The cd-back fires before the trailer-extract hook,
 > so the hook reads the wrong HEAD and the auto-link silently breaks.
+> Substitute the path literally; an unresolvable `-C` is refused.
 
 - `lint` → `ruff format && ruff check --fix`, re-test
 - `test_failure` → read the test runner output, edit at named file:line, re-run

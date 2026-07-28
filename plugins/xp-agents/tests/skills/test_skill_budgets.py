@@ -23,7 +23,7 @@ from conftest import (
 )
 
 SKILL_BUDGETS: dict[str, int] = {
-    "xp-accept": 15310,
+    "xp-accept": 15400,
     "xp-assign": 21020,
     "xp-end-session": 6440,
     # Bumped 8590 -> 8750: auto-merge condition 2 now pipes the close diff into

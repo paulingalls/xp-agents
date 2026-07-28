@@ -143,9 +143,10 @@ confirmation prompt** — the green exit IS the confirmation, and
 the base, so you are NOT on the detached tip — never commit a fix there
 (orphaned on restore). Revert to `in-progress` (Step 1.0's revert), then
 fix in the teammate **worktree**, committing from the orchestrator with
-`git -C <worktree-path> commit ...` — never `cd <worktree> && git commit
-&& cd -` (the cd-back fires before the PostToolUse trailer-extract hook
-reads HEAD, breaking `Resolves-Event:` auto-links). If invoking
+`git -C <literal-worktree-path> commit ...` — never `cd <worktree> && git
+commit && cd -` (the cd-back fires before the PostToolUse trailer-extract
+hook reads HEAD, breaking `Resolves-Event:` auto-links). An unresolvable
+`-C` is refused. If invoking
 `/xp-quality-review`, set `TEAMMATE_CWD=<worktree-path>`. Then
 **re-prepare** (loop to prepare) — the new tip has the fix.
 
