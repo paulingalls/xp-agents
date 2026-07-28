@@ -69,12 +69,30 @@ def read_close_cycle_id(smm_dir: Path) -> str | None:
 
     Fails closed on every branch. Absent, empty, unreadable, a symlink (which
     could name a file outside the SMM dir — the same refusal
-    `markers.marker_read` makes) or not a well-formed id all return None, and
-    None means the concern keeps exactly the behaviour it has today.
+    `markers.marker_read` makes), not a well-formed id, or **not scopable to
+    one session at all** return None, and None means the concern keeps exactly
+    the behaviour it has today.
+
+    That last branch is a deliberate refusal, not a degradation. Where no host
+    variable carries a session id, `scoped_name` resolves every session to the
+    one unsuffixed file — so reading it could tag a concern with the NEIGHBOUR
+    close's id, and `smm_count` excludes a concern whose tag is present and
+    unequal to the cycle being gated. Untagged concerns fall back to the
+    shipped files-relevance rule, so such a host keeps precisely what it has;
+    a borrowed tag would cost it the gate. Tagging is therefore off there, and
+    says so whenever a close has actually armed itself.
     """
-    path = smm_dir / session_scope.scoped_name(
-        marker_names.CLOSE_CYCLE_ID, session_scope.resolve_session_id()
-    )
+    session_id = session_scope.resolve_session_id()
+    path = smm_dir / session_scope.scoped_name(marker_names.CLOSE_CYCLE_ID, session_id)
+    if session_id is None:
+        # Quiet unless a close armed one: no close running is the normal state
+        # for most of a session, and narrating the refusal on every concern all
+        # session would train the operator to ignore the line that matters.
+        if path.is_symlink() or path.exists():
+            return _unusable_marker(
+                path, "cannot be scoped to a session (this host exports no session id)"
+            )
+        return None
     if path.is_symlink():
         return _unusable_marker(path, "is a symlink")
     try:
