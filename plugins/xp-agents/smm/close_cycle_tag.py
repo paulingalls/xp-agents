@@ -121,17 +121,25 @@ def stamp(smm_dir: Path, event: dict) -> None:
     not a decision, though — `smm_count` excludes any concern whose tag is
     present and unequal to the gated cycle, so an empty tag would drop the
     concern from EVERY close; replacing it can only move it back into a count.
+
+    A `metadata` that is present but not an object is left ALONE, not replaced:
+    this runs before validation, and `validate_event` owns that message
+    ("Field 'metadata' must be an object"). Reading it would raise here — a
+    traceback in place of the diagnostic — and replacing it would drop what the
+    caller supplied and let the malformed event validate.
     """
     if event.get("type") != EVENT_TYPE_CONCERN:
         return
     metadata = event.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return
     explicit = metadata.get(METADATA_KEY_CLOSE_CYCLE_ID) if metadata else None
     if isinstance(explicit, str) and explicit.strip():
         return
     cycle_id = read_close_cycle_id(smm_dir)
     if cycle_id is None:
         return
-    if not isinstance(metadata, dict):
+    if metadata is None:
         metadata = {}
         event["metadata"] = metadata
     metadata[METADATA_KEY_CLOSE_CYCLE_ID] = cycle_id

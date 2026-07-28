@@ -168,6 +168,23 @@ class TestExplicitTagWins(_AppendTestCase):
         self.assertEqual(self._tag_of(event), _CYCLE)
         self.assertEqual((event.get("metadata") or {}).get("kind"), "security")
 
+    def test_metadata_that_is_not_an_object_still_gets_its_own_diagnostic(self) -> None:
+        """The stamp runs BEFORE validation, so it must not read a `metadata`
+        it has not proved is an object: a traceback would replace the message
+        validation already has for this, and substituting `{}` would drop what
+        the caller supplied and let the malformed event through."""
+        self._arm(_CYCLE)
+        rc, stderr = self._append(
+            "--type", "concern",
+            "--agent", "main",
+            "--severity", "high",
+            "--content", "a concern whose metadata is a list",
+            "--metadata", json.dumps(["close_cycle_id"]),
+        )  # fmt: skip
+        self.assertEqual(rc, 1)
+        self.assertIn("must be an object", stderr)
+        self.assertNotIn("Traceback", stderr)
+
     def test_a_blank_explicit_tag_is_not_treated_as_a_decision(self) -> None:
         """A blank tag is not a correct tag: `smm_count` excludes any concern
         whose tag is present and unequal to the cycle being gated, so an empty

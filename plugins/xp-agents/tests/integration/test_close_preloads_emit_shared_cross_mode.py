@@ -112,23 +112,40 @@ class TestEveryClosePreloadCarriesTheCycleIdRelease(unittest.TestCase):
                     f"rather than deleting a path by hand",
                 )
 
-    def test_the_release_runs_on_the_abort_path_too(self):
-        shared = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
-        text = shared.read_text()
+    def test_the_release_runs_on_every_exit_from_the_close(self):
+        """Scoped to the release step's OWN section, not a window around it.
+
+        A character window reaches Step 6's "If the user picks abort, stop
+        here", so it passes with this step's own both-paths sentence deleted —
+        it pins the neighbour's prose, not the instruction under test.
+
+        The non-merge exits are where a stale id does the most damage: on abort
+        the operator stays in the session to fix what the gate found, and the
+        auto-merge gate (story-close, free-close) skips the Step 6 prompt this
+        step follows, so it has to be told that skipping the prompt does not
+        skip the release.
+        """
+        step = self._release_step_section()
+        self.assertIn(self._RELEASE_CALL, step, "the release step must be here")
+        for exit_path in ("abort", "auto-merge"):
+            with self.subTest(exit_path=exit_path):
+                self.assertIn(
+                    exit_path,
+                    step.lower(),
+                    f"the release step must name the {exit_path} exit — "
+                    "otherwise that path leaves the id tagging every later "
+                    "concern in the session",
+                )
+
+    def _release_step_section(self) -> str:
+        """The release step's markdown section: its heading to the next one."""
+        text = (_PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md").read_text()
         release_idx = text.find(self._RELEASE_CALL)
         self.assertGreater(release_idx, -1, "shared pipeline must release the id")
-        # The abort branch ends the close without merging, and a cycle that
-        # ended is a cycle whose id must stop tagging concerns — the abandoned
-        # close is exactly when a stale id does the most damage, since the
-        # operator stays in the session to fix what the gate found.
-        instruction = text[release_idx - 600 : release_idx + 600].lower()
-        self.assertIn(
-            "abort",
-            instruction,
-            "the release step must say it also runs when the user aborts — "
-            "otherwise an aborted close leaves its id tagging every later "
-            "concern in the session",
-        )
+        start = text.rfind("\n### ", 0, release_idx)
+        self.assertGreater(start, -1, "the release step must sit under a heading")
+        end = text.find("\n### ", start + 1)
+        return text[start : end if end > -1 else len(text)]
 
 
 if __name__ == "__main__":

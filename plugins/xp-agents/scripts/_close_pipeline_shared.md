@@ -184,7 +184,8 @@ before confirming the merge.
 
 ### Step 6b: Release the cycle id
 
-On **both** paths — merge and abort — right after the Step 6 decision:
+On **every** exit — merge, auto-merge, abort — right after Step 6.
+A mode whose gate skips the Step 6 prompt still runs this:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \
