@@ -118,7 +118,29 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 # cannot forge a line that shadows the VERIFY_DEFERRED gate emitted below.
 emit_var TEST_COMMAND "$(find_test_command)"
 echo "CLOSE_START_TS=$(now_iso)"
-echo "CLOSE_CYCLE_ID=$(generate_id)"
+# Assign-then-use, not `echo "$(generate_id)"`: the id has to be reusable by
+# the two consumers below, and generating it inside the echo left nothing for
+# either of them.
+CLOSE_CYCLE_ID=$(generate_id)
+echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
+# Persist the id where a LATER process can read it. The echo above reaches the
+# LLM only, and a concern raised mid-close is appended by a separate process —
+# without the marker the merge gate is back to inferring which concerns belong
+# to this close from the `files` they happened to record.
+#
+# write_marker ends in `2>/dev/null || true`, so a failed write is SILENT. That
+# degrades safely rather than being guaranteed: no id on disk means no stamp,
+# and an unstamped concern is still counted by the gate under the shipped
+# files-relevance rule. It is never the reason a close fails to start.
+write_marker CLOSE_CYCLE_ID "${CLOSE_CYCLE_ID}"
+# Record the cycle in the log too. Story-close is deliberately NOT a
+# security-bearing close (no Step 4 /security-review — the enclosing
+# sprint-close covers this diff), and it stays outside that family here:
+# retro_metrics scopes the security_checks=0 rule on metadata.close_mode, and
+# `story` is not one of the modes it counts. Emitting the event is what makes
+# the cycle auditable after the marker is swept; it claims nothing about
+# security.
+emit_close_started_event story "${CLOSE_CYCLE_ID}"
 
 # Verify-touch gate: declared acceptance-test paths no commit on
 # base..HEAD touched, plus whether a [verify-deferred] commit defers
