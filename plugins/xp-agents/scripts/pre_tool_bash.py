@@ -28,7 +28,10 @@ import story_done_gate
 from event_schema import METADATA_KEY_RESOLVES, METADATA_KEY_SUPERSEDES
 
 # The gate entry point; canonical home is pre_tool_bash_branch_delete (moved
-# there to keep this module under the 500-line cap).
+# there to keep this module under the 500-line cap). A local alias, not a
+# compatibility shim: `run` below calls it by this short name. Nothing outside
+# this file reaches a moved symbol through `pre_tool_bash`, which is why the
+# commit-gate module carries no alias at all.
 _unmerged_story_branch_delete_block = (
     pre_tool_bash_branch_delete._unmerged_story_branch_delete_block
 )
@@ -144,8 +147,8 @@ def _decision_metadata_declares_supersedence(metadata_value: str) -> bool:
     The supersession nudge fires only when the planner has NOT declared
     supersedence yet — either key (supersedes for flag-suppression, or
     resolves for cascade-closure) counts as a declaration. Mirrors the
-    skip-condition in concerns.py's superseded-decision detector, which
-    treats both keys as supersedence declarations.
+    skip-condition in concern_conflicts.py's superseded-decision detector,
+    which treats both keys as supersedence declarations.
     """
     parsed = _parse_metadata_dict(metadata_value)
     if not parsed:
@@ -197,15 +200,6 @@ def _same_topic_decisions_context(
         return None
     header = _SAME_TOPIC_HEADER_TEMPLATE.format(topic=topic)
     return header + "\n" + "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Unmerged story-branch delete refusal
-# ---------------------------------------------------------------------------
-# Moved to pre_tool_bash_branch_delete.py (500-line cap); re-exported above via
-# the module-level alias so `pre_tool_bash.X IS pre_tool_bash_branch_delete.X`
-# for every moved symbol and existing mock.patch("...pre_tool_bash.X") sites
-# keep working with zero edits.
 
 
 # ---------------------------------------------------------------------------

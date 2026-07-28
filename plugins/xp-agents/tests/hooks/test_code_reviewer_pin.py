@@ -13,7 +13,7 @@ directives the agent must carry every review:
 2. **Nudge type=decision when a commit introduces a new pattern.** When the
    diff introduces a new architectural pattern, the reviewer must prompt a
    `decision` event so future plan-reviewers detect supersession via the
-   pattern #5 (`concerns.py` superseded-decision detector) cycle.
+   pattern #5 (`concern_conflicts.py` superseded-decision detector) cycle.
 
 Pinning these in the BODY (not frontmatter) ensures the agent prompt itself
 carries the directives at review time. Frontmatter `description` text could
