@@ -17,9 +17,13 @@ working. bash_post_tool imports the entry points it actually calls in
 The [verify-deferred] marker parsing + verify-path bookkeeping lives in the
 sibling `verify_deferred` module (extracted to keep this file under the
 500-line cap); `_handle_commit` reuses it for the post-commit debt event.
+
+The body-to-event sequence itself (trailer extraction, Co-Authored-By strip,
+unlinkable-trailer advisory, sprint load, story attribution, free-branch and
+cadence tagging) lives in `commit_emit.build_commit_event` — a second caller
+needs it verbatim, and copying it is how the merge emitter drifted.
 """
 
-import re
 import sys
 from pathlib import Path
 
@@ -29,11 +33,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import code_files
 import commit_command
+import commit_emit
 import commits
-import identity
 import lint_resolution
 import markers
-import resolution
 from event_schema import METADATA_KEY_COMMIT_HASH
 from pre_tool_write import is_test_file
 from verify_deferred import (
@@ -176,10 +179,26 @@ def _handle_commit(
         head = commits.get_head_commit_hash(probe_cwd)
         if head:
             events, _ = _common.load_events_with_resolutions(smm_dir)
-            if not _commit_hash_recorded(events, head) and not _head_trace_recorded(
-                events, head
-            ):
-                _record_head_moved_trace(smm_dir, command, agent_id, head)
+            if not _commit_hash_recorded(events, head):
+                # Try to rebuild the event git can still prove, so a
+                # Resolves-Event trailer on this commit is not silently
+                # dropped. The trace is the fallback for the cases the
+                # rebuild will not claim (ambiguous HEAD, unreadable body) —
+                # one observation per commit, never both. The rebuild is
+                # gated on the commit-hash dedup ALONE: a hash that already
+                # carries a trace, from an earlier attempt whose body read
+                # failed, must stay rebuildable.
+                rebuilt = commit_emit.rebuild_at_head(
+                    smm_dir,
+                    agent_id,
+                    probe_cwd,
+                    command,
+                    head,
+                    events=events,
+                    is_xp_agent_leak=is_xp_agent_leak,
+                )
+                if not rebuilt and not _head_trace_recorded(events, head):
+                    _record_head_moved_trace(smm_dir, command, agent_id, head)
         return None
 
     msg = commits.parse_commit_message(response_text)
@@ -200,66 +219,33 @@ def _handle_commit(
     if commit_hash and _commit_hash_recorded(events, commit_hash):
         return None
 
-    raw_body = raw_body or msg
-    if not raw_body:
-        return None
-    resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
-    body = re.sub(r"\n+\s*Co-Authored-By:.*$", "", body, flags=re.DOTALL).strip()
-
-    # A trailer naming an id absent from the live log resolves nothing.
-    # `resolve_prefix` is a lookup over the events it is handed, so an archived
-    # or mistyped target no-ops in silence. Record the commit either way — a
-    # dangling id is harmless — but surface the ids that will not link.
-    #
-    # `known` must be the SAME index the resolver consults: top-level event ids
-    # PLUS nested retrospective try-item ids (a trailer can close a retro Try).
-    # Membership is an exact-id test: `extract_resolves_trailer` already
-    # validated every id to exactly 12 hex (EVENT_ID_RE), and event ids are
-    # exactly 12 hex too, so no id is ever a strict prefix of another — the
-    # prefix-scan branch resolve_prefix keeps for short ids is unreachable here.
-    if resolves:
-        known = resolution.resolvable_event_ids(events)
-        unknown = [rid for rid in resolves if rid not in known]
-        if unknown:
-            _record_unlinkable_trailer(smm_dir, agent_id, unknown)
-
-    import branching
-    import sprint_store
-
-    sprint = sprint_store.load_sprint(smm_dir)
-
-    story_id = _resolve_story_id(
-        smm_dir, effective_cwd, committed_files, sprint=sprint, message=body
-    )
-
-    # Tag commits emitted on a free branch — honored by
-    # retro_metrics._compute_resolves_link_rate as a conditional-include
-    # filter (counts only when the commit carries a Resolves trailer).
-    # get_current_branch returns "" on git failure; is_free_branch("") is
-    # False (safe-fail: untagged commit drops into the denominator).
-    is_free_session = branching.is_free_branch(
-        identity.get_current_branch(effective_cwd)
-    )
-
     # Stamp the active review cadence so retro metrics can tell a story-cadence
     # commit (review deferred to /xp-story-close) from a commit-cadence one.
+    # Read here rather than inside the builder: `_check_qr_linkage` below needs
+    # the same value, and one read serves both.
     review_cadence = markers.read_review_cadence(smm_dir)
 
-    pending: list[dict] = [
-        make_commit_event(
-            agent_id,
-            body,
-            commit_hash=commit_hash,
-            files=committed_files,
-            code_file_count=code_file_count,
-            story_id=story_id,
-            sprint_id=sprint["sprint_id"] if sprint is not None else None,
-            resolves=resolves,
-            has_resolves_trailer=has_trailer,
-            is_free_session=is_free_session,
-            review_cadence=review_cadence,
-        )
-    ]
+    event = commit_emit.build_commit_event(
+        smm_dir,
+        agent_id,
+        effective_cwd,
+        raw_body or msg,
+        commit_hash,
+        events=events,
+        committed_files=committed_files,
+        code_file_count=code_file_count,
+        review_cadence=review_cadence,
+    )
+    if event is None:
+        return None
+
+    pending: list[dict] = [event]
+
+    # `body` (trailer-stripped, Co-Authored-By-stripped) and `story_id` are what
+    # the builder already derived and stored on the event; read them back off it
+    # rather than re-deriving them for the verify-deferred block below.
+    body = event["content"]
+    story_id = event["metadata"].get("story_id")
 
     file_count = len(committed_files)
     if file_count >= COMMIT_SIZE_THRESHOLD:
