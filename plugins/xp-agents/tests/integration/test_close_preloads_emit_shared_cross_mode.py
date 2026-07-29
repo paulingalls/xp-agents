@@ -76,5 +76,77 @@ class TestAllClosePreloadsEmitCloseStartTs(unittest.TestCase):
                 )
 
 
+class TestEveryClosePreloadCarriesTheCycleIdRelease(unittest.TestCase):
+    """Every close mode must be told to release its cycle-id marker.
+
+    The preload writes the id and the appender reads it to tag concerns raised
+    during the cycle. The SessionStart sweep is only the abandonment backstop:
+    IN-session, a marker left behind outlives its close, so later concerns get
+    the finished cycle's id — and because the next close mints a DIFFERENT id,
+    the Step 6 count then EXCLUDES them. Several closes per session is the
+    normal case, so the consume is required, not tidiness.
+
+    One leg in the shared pipeline covers all four modes, which is exactly why
+    this is asserted across all four rather than per mode: a consume that
+    reached only three would leave one mode silently mis-scoping.
+    """
+
+    _RELEASE_CALL = "consume CLOSE_CYCLE_ID"
+
+    def test_every_close_preload_emits_the_release_step(self):
+        driver = TestAllClosePreloadsEmitCloseStartTs()
+        for mode, preload in _ALL_CLOSE_PRELOADS.items():
+            with self.subTest(mode=mode):
+                smm = driver._make_smm()
+                stdout = driver._run_preload(preload, smm)
+                self.assertIn(
+                    self._RELEASE_CALL,
+                    stdout,
+                    f"{mode}-close must be instructed to consume the "
+                    f"cycle-id marker at the end of the cycle",
+                )
+                self.assertIn(
+                    "markers.py",
+                    stdout,
+                    f"{mode}-close's release step must drive the marker CLI "
+                    f"rather than deleting a path by hand",
+                )
+
+    def test_the_release_runs_on_every_exit_from_the_close(self):
+        """Scoped to the release step's OWN section, not a window around it.
+
+        A character window reaches Step 6's "If the user picks abort, stop
+        here", so it passes with this step's own both-paths sentence deleted —
+        it pins the neighbour's prose, not the instruction under test.
+
+        The non-merge exits are where a stale id does the most damage: on abort
+        the operator stays in the session to fix what the gate found, and the
+        auto-merge gate (story-close, free-close) skips the Step 6 prompt this
+        step follows, so it has to be told that skipping the prompt does not
+        skip the release.
+        """
+        step = self._release_step_section()
+        self.assertIn(self._RELEASE_CALL, step, "the release step must be here")
+        for exit_path in ("abort", "auto-merge"):
+            with self.subTest(exit_path=exit_path):
+                self.assertIn(
+                    exit_path,
+                    step.lower(),
+                    f"the release step must name the {exit_path} exit — "
+                    "otherwise that path leaves the id tagging every later "
+                    "concern in the session",
+                )
+
+    def _release_step_section(self) -> str:
+        """The release step's markdown section: its heading to the next one."""
+        text = (_PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md").read_text()
+        release_idx = text.find(self._RELEASE_CALL)
+        self.assertGreater(release_idx, -1, "shared pipeline must release the id")
+        start = text.rfind("\n### ", 0, release_idx)
+        self.assertGreater(start, -1, "the release step must sit under a heading")
+        end = text.find("\n### ", start + 1)
+        return text[start : end if end > -1 else len(text)]
+
+
 if __name__ == "__main__":
     unittest.main()

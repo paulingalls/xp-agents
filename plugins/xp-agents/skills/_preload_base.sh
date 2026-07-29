@@ -192,13 +192,18 @@ now_iso() {
     python3 -c "import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat())"
 }
 
-# Emit a close_started status event for the security-bearing close
-# modes (sprint/free/plan). Sourced by retro_metrics.security_close_ran
-# to detect that a close skill with a Step 4 security review actually
-# ran this session, independent of whether /security-review fired or
-# reviewer concerns landed. Story-close does NOT call this — its
-# preload omits the helper, so story-close-only sessions correctly
-# leave security_close_ran=False.
+# Emit a close_started status event naming the close mode. ALL FOUR close
+# preloads call this — story-close included, so its cycle stays auditable
+# after the marker is swept.
+#
+# The mode is what carries the security meaning, NOT the presence of the call:
+# retro_metrics.security_close_ran counts this event only for the modes that
+# run a Step 4 security review (sprint/free/plan), so a story-close-only
+# session correctly leaves security_close_ran=False. Adding `story` to that
+# set is what would break it. A second consumer scopes on the mode the same
+# way — see close_cycle_stop_gate._GATE_ARMING_CLOSE_MODES, whose set answers
+# a different question (which closes arm the Stop-gate marker) and happens to
+# hold the same three modes.
 #
 # stdout is suppressed (returned event id is preload noise), but stderr
 # is intentionally left visible: this event gates the security-checks=0

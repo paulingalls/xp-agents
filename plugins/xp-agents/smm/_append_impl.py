@@ -23,6 +23,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+# Tags a concern with the close cycle it was raised during — called from
+# `main()` only, never from `append_event`. See its module docstring.
+import close_cycle_tag
+
 # ---------------------------------------------------------------------------
 # Event schema (re-exported from event_schema.py)
 # ---------------------------------------------------------------------------
@@ -422,6 +426,11 @@ def main() -> None:
 
     # Build event
     event = build_event(args)
+
+    # Tag a concern with the close cycle that is running, BEFORE validation: a
+    # stamped event that would not validate must never reach the log. CLI path
+    # only — see close_cycle_tag's docstring for why not `append_event`.
+    close_cycle_tag.stamp(smm_dir, event)
 
     # Validate
     errors = validate_event(event)

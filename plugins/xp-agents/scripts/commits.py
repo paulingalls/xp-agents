@@ -212,6 +212,38 @@ def get_head_commit_hash(cwd: str) -> str | None:
     return _run_git(["git", "rev-parse", "HEAD"], cwd)
 
 
+def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None:
+    """How `rev` came to be: ``(committer ts, parent count, reflog action)``.
+
+    One question — "did a commit just land here?" — so one reader, even
+    though it takes two git calls. None when git cannot describe `rev` at all.
+
+    `%ct`, not `%at`: a rebase or patch import preserves the AUTHOR date,
+    while the committer date is when this history actually appeared. `%P`
+    gives parents, so >1 marks a merge.
+
+    The reflog action is `%gs`'s leading word, lowercased — `commit`,
+    `commit (amend)`, `rebase (pick)`, `merge side`, `reset` — the only signal
+    telling committing apart from the other ways HEAD reaches a young
+    single-parent commit. None means UNAVAILABLE (no reflog, or its newest
+    entry names another object) — never *permitted*: its one caller vetoes on
+    absence, because allowing there fabricated events for commits the command
+    never made. Do not restore the draft that called absence NO OPINION.
+    """
+    out = _run_git(["git", "show", "-s", "--format=%ct%x1f%P", rev], cwd)
+    if not out:
+        return None
+    timestamp, _, parents = out.partition("\x1f")
+    try:
+        facts = (int(timestamp), len(parents.split()))
+    except ValueError:
+        return None
+    entry = _run_git(["git", "reflog", "-1", "--format=%H%x1f%gs"], cwd) or ""
+    logged_rev, _, subject = entry.partition("\x1f")
+    action = subject.split(":", 1)[0].strip().lower() if logged_rev == rev else None
+    return (*facts, action or None)
+
+
 def merged_range_bodies(cwd: str, merge_hash: str) -> str:
     """Concatenated `%B` bodies of the commits a `--no-ff` merge brought in.
 
@@ -407,6 +439,7 @@ __all__ = [
     "get_staged_files",
     "get_uncommitted_code_files",
     "get_uncommitted_files",
+    "head_landing_facts",
     "is_escape_hatch_commit",
     "is_escape_hatch_message",
     "merged_range_bodies",

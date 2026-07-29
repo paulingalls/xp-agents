@@ -372,9 +372,29 @@ class TestTeammateGuideContent(unittest.TestCase):
         """Guide includes event recording via append.sh."""
         self.assertIn("append.sh", self.guide)
 
+    def test_names_the_flag_a_decision_cannot_append_without(self):
+        """`--topic` is a hard schema requirement for `decision` with no
+        default: append exits non-zero without it. A teammate's append.sh calls
+        are fire-and-forget, so the decision is simply never recorded and
+        nothing says so. "Run --help" does not save a teammate that never
+        reads it, and this is the only per-flag requirement the guide's own
+        template can violate."""
+        self.assertIn("--topic", self.guide)
+
     def test_has_commit_conventions(self):
-        """Guide includes commit conventions."""
-        self.assertIn("ruff format", self.guide)
+        """Guide includes commit conventions.
+
+        Asserted by the section and the one convention that is genuinely
+        plugin-specific, NOT by a tool name. This used to pin the literal
+        `ruff format` — which made a Python formatter load-bearing in a guide
+        injected into projects of any language, while proving nothing about the
+        section's stated purpose. No `assertNotIn` for the old tool either: that
+        would re-create the single-tool grep, and
+        tests/test_shipped_prose_language_agnostic.py owns the rule for every
+        shipped surface at once.
+        """
+        self.assertIn("## Commit Conventions", self.guide)
+        self.assertIn("Resolves-Event", self.guide)
 
     def test_no_plan_mode(self):
         """Guide does NOT mention plan mode or kickoff."""

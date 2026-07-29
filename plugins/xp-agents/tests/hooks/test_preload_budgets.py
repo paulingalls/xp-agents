@@ -50,21 +50,30 @@ from conftest import (
 # of four places, and not the one a teammate reads, so a lead following this
 # block hit a refusal the block never mentioned. One line, four preloads.
 # Measured at that bump: free 8303, plan 8289, sprint 8308, story 8361.
+# Bumped 8400 -> 8900 for shared Step 6b, which releases the close-cycle id
+# marker. Not prose that could live in one mode's SKILL.md: the marker is what
+# tags concerns with the close they were raised during, and an id left behind
+# tags concerns raised AFTER its close ended — which the next close's
+# `--cycle-id` count then excludes, dropping a concern the gate should have
+# counted. Every mode gates on that count, so every mode needs the release.
+# Written at four lines plus the command (a first draft at ~1100 chars was cut
+# to ~440 before this bump was taken).
+# Measured at that bump: free 8746, plan 8732, sprint 8751, story 8804.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 100,
     "xp-assign": 300,
     "xp-end-session": 200,
-    "xp-free-close": 8400,
+    "xp-free-close": 8900,
     "xp-kickoff": 200,
     "xp-plan": 100,
-    "xp-plan-close": 8400,
+    "xp-plan-close": 8900,
     "xp-quality-review": 300,
     "xp-review-plan": 100,
     "xp-schedule": 200,
-    "xp-sprint-close": 8400,
+    "xp-sprint-close": 8900,
     "xp-sprint-review": 100,
     "xp-sprint-start": 100,
-    "xp-story-close": 8400,
+    "xp-story-close": 8900,
     "xp-system-context": 100,
     "xp-work-selection": 100,
 }

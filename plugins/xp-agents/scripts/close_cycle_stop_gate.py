@@ -2,9 +2,27 @@
 """Stop command hook: close-cycle gate.
 
 Blocks Stop while a close skill is mid-cycle (CLOSE_CYCLE_ACTIVE marker
-present), nudging the agent to invoke xp-close-reviewer next. The marker
-is written by close skills before /security-review runs and consumed by
-subagent_stop.py when xp-close-reviewer completes.
+present), nudging the agent to invoke xp-close-reviewer next. The marker is
+written by the three closes that run /security-review — sprint, plan and free —
+before that review runs, and consumed by subagent_stop.py when
+xp-close-reviewer completes.
+
+xp-story-close is deliberately OUTSIDE this gate, and the asymmetry is not an
+oversight to correct. Two reasons, either sufficient: it skips Step 4 entirely
+(the enclosing sprint-close covers its diff, so the block message's
+/security-review and /code-review steps do not apply to it), and under story
+cadence its review path is the full per-story review cycle, which does not fork
+xp-close-reviewer — the only thing that releases this gate. Arming it there
+would block until the marker aged past
+`_CLOSE_CYCLE_ABANDONMENT_TIMEOUT_SEC` and then record a high-severity
+"close abandoned" concern against a close that ran exactly the review it was
+supposed to. `_BYPASS_RECOVERY` naming /xp-{sprint,plan,free}-close is correct
+as written for the same reason.
+
+Story-close still has a cycle IDENTITY — every close mode writes its cycle id
+to a separate marker, which the appender reads to tag concerns. That marker
+arms no gate; the two are deliberately distinct files (see
+marker_names.CLOSE_CYCLE_ID).
 
 Defers on ASKING_USER so AskUserQuestion dialogues complete cleanly.
 Also defers during the close /code-review's async Step 4b window —
@@ -117,31 +135,59 @@ def _marker_age_under(smm_dir: Path, threshold_sec: int) -> bool:
     return age < threshold_sec
 
 
+# The close modes whose preload ARMS this gate — the only ones whose
+# close_started can anchor its release. Every close mode emits close_started,
+# story-close included, so an unfiltered scan lets the lead's own next
+# story-close move the anchor past this cycle's reviewer completion: the
+# release then never fires and the aged bypass records a FALSE "reviewer never
+# ran" concern. Same three modes retro_metrics scopes its security rule to, for
+# a related but distinct reason (that one asks which closes run a security
+# review; this one asks which arm a marker), so they are not shared.
+_GATE_ARMING_CLOSE_MODES = frozenset({"sprint", "plan", "free"})
+
+
+def _anchors_this_gate(event: dict) -> bool:
+    """Is this a close_started from a close that armed this gate?
+
+    A mode PRESENT and outside the arming set is skipped: by construction its
+    preload writes no marker, so it cannot be the cycle being gated. An
+    absent/blank mode still anchors — fail closed, because skipping it moves
+    the anchor BACKWARD and only makes a release likelier.
+    """
+    if event_schema.event_action(event) != event_schema.STATUS_ACTION_CLOSE_STARTED:
+        return False
+    mode = (event.get("metadata") or {}).get(event_schema.METADATA_KEY_CLOSE_MODE)
+    if not isinstance(mode, str) or not mode.strip():
+        return True
+    return mode in _GATE_ARMING_CLOSE_MODES
+
+
 def reviewer_completed_this_cycle(
     smm_dir: Path, events: list[dict] | None = None
 ) -> bool:
     """True when xp-close-reviewer emitted a subagent_complete event AFTER the
-    latest close_started in the log — evidence a reviewer RAN this cycle.
+    latest gate-arming close_started in the log — evidence a reviewer RAN this
+    cycle.
 
     The marker (CLOSE_CYCLE_ACTIVE) is written at close START, so its presence
     proves only that a close started, never that a reviewer ran. This reads the
     real lifecycle fact instead: subagent_stop._handle_close_reviewer_done emits
     the standard subagent_complete event when the close-reviewer stops. Ordering
     is by log/append position (mirroring retro_metrics' close-started scan) — no
-    timestamp math; close_started is the current-cycle anchor.
+    timestamp math; the anchor is the latest close_started from a mode that arms
+    this gate (`_anchors_this_gate`).
 
     Fails CLOSED: a corrupt/failed event read (or any exception) is treated as
     'no evidence' → the caller keeps blocking. Never raises into the Stop hook.
     """
     event_action = event_schema.event_action
-    close_started = event_schema.STATUS_ACTION_CLOSE_STARTED
     subagent_complete = event_schema.STATUS_ACTION_SUBAGENT_COMPLETE
     try:
         if events is None:
             events, _ = _common.load_events_with_resolutions(smm_dir)
         last_close_started = -1
         for i, event in enumerate(events):
-            if event_action(event) == close_started:
+            if _anchors_this_gate(event):
                 last_close_started = i
         if last_close_started < 0:
             return False

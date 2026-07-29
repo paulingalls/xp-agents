@@ -8,6 +8,12 @@ echo "SMM_DIR=${SMM_DIR}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 echo "SMM_FILE=$(smm_render_to_tempfile)"
 
+# The teammate prompt must state the session's review cadence, or the lead
+# guesses and the teammate runs a per-commit review cycle a story-cadence
+# session already defers. Same reader as the story-close and quality-review
+# preloads; fail-safes to 'commit'.
+echo "REVIEW_CADENCE=$(_get_review_cadence)"
+
 if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
 fi

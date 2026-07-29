@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 import markers
+import retro_metrics
 from _bases import _PLUGIN_ROOT
 from _close_preloads_helpers import _close_started_events, _SharedPreloadAssertions
 from conftest import _extract_preload_var, _IntegrationTestCase
@@ -79,24 +80,51 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
             "story-close preload must not emit RUN_FULL_CODE_REVIEW",
         )
 
-    def test_does_not_emit_close_started_event(self):
-        # Inverse-pin: story-close has no Step 4 security review, so its
-        # preload MUST NOT emit a close_started event. Sourced by
-        # retro_metrics.security_close_ran to scope the security_checks=0
-        # Courage rule to security-bearing close modes only.
-        source = self._PRELOAD.read_text()
-        self.assertNotIn(
-            "emit_close_started_event",
-            source,
-            "story-close preload must NOT emit close_started",
-        )
+    def test_emits_close_started_event_story(self):
+        # story-close records its cycle in the log like every other mode: the
+        # id it writes to the marker is only on disk until the SessionStart
+        # sweep, and a close cycle that left no trace cannot be audited after
+        # the fact.
+        #
+        # This test replaced an inverse-pin ("story-close must NOT emit
+        # close_started"). The invariant that pin was really protecting is
+        # asserted directly below instead — the mode field, not the event's
+        # absence, is what keeps the security rule honest.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
+        cycle_id = _extract_preload_var(result.stdout, "CLOSE_CYCLE_ID")
         events = _close_started_events(self.smm_dir)
         self.assertEqual(
-            events,
-            [],
-            f"story-close preload must not emit close_started events, got {events!r}",
+            len(events), 1, f"expected 1 close_started event, got {events!r}"
+        )
+        metadata = events[0].get("metadata") or {}
+        self.assertEqual(metadata.get("close_mode"), "story")
+        self.assertEqual(metadata.get("close_cycle_id"), cycle_id)
+
+    def test_close_started_does_not_claim_a_security_review_ran(self):
+        # The load-bearing half of the pin above. `security_close_ran` scopes
+        # the retro's security_checks=0 Courage rule to the close modes that
+        # actually run /security-review, and story-close is not one of them —
+        # the enclosing sprint-close covers its diff. The scoping keys on
+        # metadata.close_mode, so a story-close close_started must never be
+        # counted as a security-bearing close.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(
+            "story",
+            retro_metrics._SECURITY_CLOSE_MODES,
+            "story-close does not run /security-review; adding it to the "
+            "security-bearing modes would silence the security_checks=0 rule "
+            "for every story-close-only session",
+        )
+        events = _close_started_events(self.smm_dir)
+        self.assertTrue(
+            all(
+                (e.get("metadata") or {}).get("close_mode")
+                not in retro_metrics._SECURITY_CLOSE_MODES
+                for e in events
+            ),
+            f"story-close must not emit a security-bearing close_mode: {events!r}",
         )
 
 

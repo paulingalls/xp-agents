@@ -15,6 +15,7 @@ from pathlib import Path
 
 import markers
 from _close_fixtures import _ClosePreloadCommonTests
+from conftest import _extract_preload_var
 from event_metadata import STATUS_ACTION_CLOSE_STARTED
 
 
@@ -287,25 +288,31 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
                     f"Step 5c ask-user bucket must list `{category}`",
                 )
 
-    def test_step5c_lint_action_pins_ruff_command(self):
-        # Per concern af53fd5e37d0: category names are pinned but action
-        # verbs aren't. A silent rewrite of `ruff format && ruff check
-        # --fix` to something different (e.g., dropping --fix or swapping
-        # to a different formatter) would never fail a test. Pin both
-        # halves of the lint verb so any rewrite forces a deliberate
-        # test edit.
+    def test_step5c_lint_action_pins_project_agnostic_verb(self):
+        # Category names are pinned but action verbs aren't, so a silent rewrite
+        # of the lint verb would never fail a test. That reasoning still holds —
+        # only the verb being pinned changed.
+        #
+        # This pin used to require the literal `ruff format` and `ruff check
+        # --fix`. Naming ONE language's formatter in a file all four close skills
+        # emit told every project, whatever it is written in, to run a Python
+        # tool — and the pin is what held it there. The verb now names the
+        # project's own formatter and linter, matching the register of the
+        # test_failure row below, which had this right all along.
+        #
+        # Both halves are still pinned (formatter AND linter, plus the fix
+        # intent), so dropping one still forces a deliberate test edit.
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            "ruff format",
-            result.stdout,
-            "Step 5c lint action must pin `ruff format` (concern af53fd5e37d0)",
-        )
-        self.assertIn(
-            "ruff check --fix",
-            result.stdout,
-            "Step 5c lint action must pin `ruff check --fix` (concern af53fd5e37d0)",
-        )
+        for phrase in ("the project's formatter and linter", "fix mode"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(
+                    phrase,
+                    result.stdout,
+                    f"Step 5c lint action must pin {phrase!r} — a language-"
+                    "specific tool name here ships a Python assumption to every "
+                    "project (see tests/test_shipped_prose_language_agnostic.py)",
+                )
 
     def test_step5c_test_failure_action_pins_runner_output_phrase(self):
         # The test_failure verb walks the LLM through "read the test
@@ -320,9 +327,8 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
         self.assertIn(
             "test runner output",
             result.stdout,
-            "Step 5c test_failure verb must pin generic 'test runner output' "
-            "(concern af53fd5e37d0); naming a specific runner would break "
-            "plugin-genericness",
+            "Step 5c test_failure verb must pin generic 'test runner output'; "
+            "naming a specific runner would break plugin-genericness",
         )
 
     def test_emits_step5c_default_to_ask(self):
@@ -432,6 +438,30 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "preload must emit CLOSE_CYCLE_ID=<12-hex> for the Step 5c "
             "audit-trail close_cycle_id metadata field "
             "(concern 1cf66a58205d)",
+        )
+
+    def test_persists_the_close_cycle_id_to_its_marker(self):
+        # Emitting the id into stdout tells the LLM what this cycle is called;
+        # it tells the APPENDER nothing. A concern raised mid-close is written
+        # by a separate process, so the id has to reach disk — otherwise the
+        # merge gate is back to inferring relevance from the `files` a concern
+        # happened to record. All four modes, since all four gate on the count.
+        #
+        # The write happens in the preload SCRIPT, not in prose: a prose-driven
+        # marker write was already the observed failure mode for
+        # CLOSE_CYCLE_ACTIVE (the LLM skipped or reordered it).
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        emitted = _extract_preload_var(result.stdout, "CLOSE_CYCLE_ID")
+        self.assertIsNotNone(emitted, "preload must emit CLOSE_CYCLE_ID")
+        stored = markers.marker_read(self.smm_dir, markers.CLOSE_CYCLE_ID)
+        self.assertEqual(
+            stored,
+            emitted,
+            "the id on disk must be the SAME id the preload emitted — the "
+            "close skill stamps reviewer findings with the emitted value and "
+            "the appender stamps everything else with the stored one, so two "
+            "ids would split one close cycle into two the gate cannot join",
         )
 
 

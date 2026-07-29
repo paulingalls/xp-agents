@@ -77,7 +77,7 @@ class TestSessionStartCustomerNudge(_HookTestCase):
 class TestSessionStartStaleMarkerSweep(_HookTestCase):
     """SessionStart sweeps stuck markers from prior sessions (story-005).
 
-    See ``markers._STALE_SESSION_MARKERS`` for the marker set and the leak
+    See ``session_markers._STALE_SESSION_MARKERS`` for the marker set and the leak
     sources that motivate the sweep.
     """
 
