@@ -103,11 +103,11 @@ Agent(
 )
 ```
 
-## Steps 5–6: Apply shared close-pipeline reference
+## Steps 5–6b: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by
+The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by
 the preload at the top of this context — see
-`scripts/_close_pipeline_shared.md` for the source. Apply those three
+`scripts/_close_pipeline_shared.md` for the source. Apply those four
 steps in order after Step 4.5, then continue with Step 7 below.
 
 **Sprint-close addendum to Step 6:** if the user aborts at the shared Step 6 prompt, the sprint stays unarchived — Step 7 below only runs on a confirmed merge.

@@ -176,6 +176,29 @@ class TestMarkerCli(_HookTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(path.is_file())
 
+    def test_cli_refuses_to_write_an_empty_id(self) -> None:
+        """The CLI's `write` carries no content, and an EMPTY id is worse than
+        no marker: the appender's reader then reports a present-but-unusable
+        marker on stderr for EVERY concern for the rest of the session — the
+        loud line reserved for an armed-but-broken close, fired continuously
+        until the operator learns to ignore it. The preloads write this marker
+        through the shell helper that can carry the id; the CLI drives the
+        consume only, so it must refuse the write rather than arm that noise.
+        """
+        result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ID"], self.smm_dir)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(
+            markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ID).exists()
+        )
+
+    def test_cli_still_writes_the_markers_a_preload_arms_this_way(self) -> None:
+        """Non-vacuity: the refusal is per-marker, not a disabled `write`."""
+        result = run_cli(_MARKERS_PY, ["write", "CLOSE_CYCLE_ACTIVE"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            markers.marker_path(self.smm_dir, markers.CLOSE_CYCLE_ACTIVE).exists()
+        )
+
     def test_cli_consume_of_an_absent_marker_is_quiet(self) -> None:
         """The consume runs on both the merge and the abort path, and may run
         twice — it must never turn a finished close into an error."""

@@ -241,10 +241,12 @@ def _handle_commit(
 
     pending: list[dict] = [event]
 
-    # `body` (trailer-stripped, Co-Authored-By-stripped) and `story_id` are what
-    # the builder already derived and stored on the event; read them back off it
-    # rather than re-deriving them for the verify-deferred block below.
-    body = event["content"]
+    # `story_id` is what the builder already derived and stored on the event, so
+    # it is read back off it. `body` is NOT: `make_event` strips a trailing
+    # `[refs: <id>]` span from `content` and routes its ids, so the stored
+    # content is a derived value. The verify-deferred block below needs the
+    # body the builder parsed, which is what `parse_commit_body` returns.
+    body = commit_emit.parse_commit_body(raw_body or msg)[1]
     story_id = event["metadata"].get("story_id")
 
     file_count = len(committed_files)

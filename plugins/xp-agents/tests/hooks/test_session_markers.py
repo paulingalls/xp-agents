@@ -9,6 +9,8 @@ test_teammate_config.py). What is pinned here is the naming rule, the aging
 rule, the split itself, and the size cap the split exists to hold.
 """
 
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -167,6 +169,25 @@ class TestMarkersSplit(unittest.TestCase):
                     f"session_markers.{name} is missing — every call site "
                     f"resolves it there",
                 )
+
+    def test_the_module_imports_with_only_scripts_on_the_path(self):
+        """Every sibling under `scripts/` puts `smm/` on `sys.path` itself
+        (markers, hook_liveness, housekeeping_flight, commit_emit), because a
+        hook that cannot import cannot degrade gracefully to exit 0. Relying on
+        the importer to have done it makes the next hook that follows the
+        convention die at import time.
+
+        A subprocess, not an import here: this module is already imported at
+        the top of the file with `smm/` on the path, so an in-process check
+        could never see the failure.
+        """
+        result = subprocess.run(
+            [sys.executable, "-c", "import session_markers"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_SCRIPTS_DIR)},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_both_modules_stay_under_the_sub_cap(self):
         for name in _CAPPED_MODULES:

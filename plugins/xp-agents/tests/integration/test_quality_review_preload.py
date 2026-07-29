@@ -21,6 +21,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
@@ -45,7 +46,19 @@ def _extract_var(stdout: str, name: str) -> str | None:
 
 
 class _RunsQRPreload:
-    """Shared subprocess runner for the two preload test classes below."""
+    """Shared subprocess runner for the two preload test classes below.
+
+    Forward-declares the fixture attrs it borrows, the same way
+    `_close_fixtures._ClosePreloadCommonTests` does: they are supplied by the
+    `_IntegrationTestCase` each subclass also inherits, and without the
+    declaration pyright (a pre-commit gate) cannot see them on the bare mixin.
+    Under TYPE_CHECKING so they never shadow the parent's real values via the
+    runtime MRO.
+    """
+
+    if TYPE_CHECKING:
+        _test_env: dict[str, str]
+        tmpdir: Path
 
     def _run_preload(
         self, env_overrides: dict | None = None

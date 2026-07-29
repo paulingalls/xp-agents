@@ -2,9 +2,14 @@
 """Bash-command parsing helpers for git commit detection.
 
 Extracted from commits.py to stay under the 500-line cap. Holds the
-effective-cwd resolver, commit-message extraction, escape-hatch tag
-detection, and the repo-candidate scanner used to confirm which repo a
-`git commit` actually landed in.
+effective-cwd resolver, the `-C` target/reachability judgements, and the
+repo-candidate scanner used to confirm which repo a `git commit` actually
+landed in.
+
+Message recovery and escape-hatch tags moved on to `commit_message.py` — see
+its docstring for why the quoting a message arrived in needed room here that
+this file did not have. Both are re-exported at the bottom so the historical
+import paths keep resolving.
 """
 
 import contextlib
@@ -108,98 +113,6 @@ def parse_effective_cwd(
             return resolved
 
     return fallback
-
-
-_HEREDOC_MSG_RE = re.compile(
-    r"-m\s+\"\$\(cat\s+<<'?\w+'?\n(.*?)\n\w+\n\)\"",
-    re.DOTALL,
-)
-_SIMPLE_MSG_RE = re.compile(
-    r"""-m\s+(?:"((?:[^"\\]|\\.)*)"|'([^']*)')""",
-)
-
-
-# `-F -` / `--file -` reads the message from stdin, which in practice is a
-# heredoc appended to the command. Capture the heredoc body so the commit can
-# still be confirmed when `-q` suppresses git's `[branch hash]` stdout line.
-_STDIN_FLAG_RE = re.compile(r"(?:^|\s)(?:-F|--file)(?:=|\s+)-(?=\s|$)")
-
-# Two patterns, chosen by which form opened the heredoc — a conditional
-# backreference would be less clear and each form is independently testable.
-# `[^\n]*` after the delimiter admits a trailing redirect, pipe, or chained
-# command on the opening line (all legal shell after a heredoc delimiter).
-# `(?=\n|$)` makes the closing delimiter own its line, so a body line that
-# merely STARTS WITH the delimiter word (a prefix, not the delimiter itself)
-# is not mistaken for the close. Group numbering is (1)=delimiter, (2)=body
-# in both, matching bash's own termination rules measured directly: plain
-# `<<` terminates only at column 0 (no leading whitespace tolerated); `<<-`
-# terminates on leading TABS only, never spaces.
-_STDIN_HEREDOC_RE = re.compile(r"<<\s*'?(\w+)'?[^\n]*\n(.*?)\n\1(?=\n|$)", re.DOTALL)
-_STDIN_HEREDOC_DASH_RE = re.compile(
-    r"<<-\s*'?(\w+)'?[^\n]*\n(.*?)\n\t*\1(?=\n|$)", re.DOTALL
-)
-_FILE_FLAG_RE = re.compile(
-    r"""(?:^|\s)(?:-F|--file)(?:=|\s+)(?!-\s|-$)(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))"""
-)
-
-
-def _find_stdin_heredoc_body(command: str, start: int) -> str | None:
-    """Return the stdin heredoc body introduced at or after `start`.
-
-    Tries both the plain and `<<-` patterns and keeps whichever matches
-    earliest — the two are mutually exclusive at the syntax level (a literal
-    `<<-` can never satisfy the plain pattern's `(\\w+)` right after `<<`,
-    since `-` is not a word character), so only one can ever match a given
-    heredoc occurrence. `<<-` also strips leading tabs from EVERY body line
-    (not just the closing delimiter line), so the extracted message matches
-    what git actually stored rather than the raw indented source text.
-    """
-    plain = _STDIN_HEREDOC_RE.search(command, start)
-    dash = _STDIN_HEREDOC_DASH_RE.search(command, start)
-    if dash and (plain is None or dash.start() < plain.start()):
-        return "\n".join(line.lstrip("\t") for line in dash.group(2).split("\n"))
-    if plain:
-        return plain.group(2)
-    return None
-
-
-def extract_commit_message(command: str) -> str | None:
-    """Extract the commit message a git command supplies.
-
-    Handles `-m` (simple and `"$(cat <<EOF …)"` heredoc forms), `-F -` /
-    `--file -` with a heredoc body on stdin, and `-F <path>` when the file is
-    still readable. Returns None when no message can be recovered.
-
-    `-F` support is load-bearing for the commit-confirmation fallback: with
-    `-q`, git prints no `[branch hash]` line, so comparing this message against
-    HEAD's body is the only signal that the commit actually landed. Parsing
-    only `-m` silently dropped every `-F`-bodied commit from the event log.
-    """
-    heredoc = _HEREDOC_MSG_RE.search(command)
-    if heredoc:
-        return heredoc.group(1)
-    m = _SIMPLE_MSG_RE.search(command)
-    if m:
-        return m.group(1) if m.group(1) is not None else m.group(2)
-    stdin_flag = _STDIN_FLAG_RE.search(command)
-    if stdin_flag:
-        # Bind to the heredoc introduced AFTER `-F -`, not merely the first in
-        # the command. A compound line can open an earlier, unrelated heredoc
-        # (e.g. `cat <<CFG ... CFG` writing a config file) whose body is not the
-        # commit message; searching from the flag's end skips past it to the
-        # one actually feeding this commit's stdin.
-        return _find_stdin_heredoc_body(command, stdin_flag.end())
-    file_flag = _FILE_FLAG_RE.search(command)
-    if file_flag:
-        # The message file may already be gone by PostToolUse time; a missing
-        # file is not a failure, just an unrecoverable message. `errors=
-        # "replace"` keeps a non-UTF-8 commit message (e.g. latin-1 bytes)
-        # from raising UnicodeDecodeError — a decode error is NOT an OSError,
-        # so it would otherwise escape the suppress and crash the hook.
-        path = next(g for g in file_flag.groups() if g)
-        with contextlib.suppress(OSError):
-            return Path(path).read_text(errors="replace")
-    return None
 
 
 # Matches `-C <path>` on the RAW command, before strip_quoted removes quoted
@@ -474,18 +387,13 @@ def commit_repo_candidates(
             yield from _emit(wt_path)
 
 
-_ESCAPE_HATCH_RE = re.compile(r"^\[(release|chore|sprint-direct)\]", re.IGNORECASE)
-
-
-def is_escape_hatch_message(message: str | None) -> bool:
-    """True if a commit message opens with an escape-hatch tag
-    ([release]/[chore]/[sprint-direct]). These bypass the review-cycle gate,
-    so they neither require a review at commit time nor count toward the
-    retro's review-required denominator."""
-    if message is None:
-        return False
-    return bool(_ESCAPE_HATCH_RE.match(message))
-
-
-def is_escape_hatch_commit(command: str) -> bool:
-    return is_escape_hatch_message(extract_commit_message(command))
+# Message recovery and the escape-hatch tags live in `commit_message` (moved
+# there when the quoting-aware recovery needed room this file did not have).
+# Re-exported so the historical `from commit_command import ...` /
+# `from commits import ...` paths keep resolving.
+from commit_message import (  # noqa: E402,F401  intentional mid-file re-export
+    extract_commit_message,
+    is_escape_hatch_commit,
+    is_escape_hatch_message,
+    recover_commit_message,
+)

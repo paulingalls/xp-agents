@@ -79,6 +79,25 @@ class TestVerifyDeferredDebt(_HookTestCase):
         self.assertNotIn("Co-Authored-By", debts[0]["content"])
         self.assertNotIn("Resolves-Event", debts[0]["content"])
 
+    def test_rationale_ending_in_a_refs_span_keeps_its_link(self):
+        """The rationale must be parsed from the body the BUILDER derived, not
+        from the commit event's stored `content`.
+
+        `_common.make_event` runs `event_builder.extract_refs_suffix` on
+        content: a trailing `[refs: <id>]` span is removed and its ids routed
+        into the event's links. So the event's content is NOT the
+        trailer-stripped body any more, and reading it back drops the span
+        before the debt is built — the debt then records no link to the id the
+        author named.
+        """
+        self._save_in_progress_story()
+        debts = self._commit(
+            "[verify-deferred] deadline [refs: a1b2c3d4e5f6]", ["tests/x.py"]
+        )
+        self.assertEqual(len(debts), 1)
+        self.assertEqual(debts[0].get("references"), ["a1b2c3d4e5f6"])
+        self.assertIn("deadline", debts[0]["content"])
+
     def test_plain_commit_records_no_debt(self):
         self._save_in_progress_story()
         debts = self._commit("ordinary work", ["tests/x.py"])

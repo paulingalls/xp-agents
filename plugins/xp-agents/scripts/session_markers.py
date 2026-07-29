@@ -8,7 +8,15 @@ survive a session boundary.
 """
 
 import math
+import sys
 from pathlib import Path
+
+# Own both legs of the path, as every sibling under `scripts/` does: a module
+# that leans on its importer having done it dies at import for the next hook
+# that follows the convention, and a hook that cannot import cannot degrade
+# gracefully to exit 0.
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 import session_scope
 from markers import (

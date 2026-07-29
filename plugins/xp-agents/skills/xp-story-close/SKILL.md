@@ -173,14 +173,14 @@ Do not fork `xp-close-reviewer` here — the quality review subsumes it; the
 broad multi-agent code review runs at sprint close. A blocking finding is
 tagged as a high concern for condition 2 below to consume.
 
-## Steps 5–6: Apply shared close-pipeline reference
+## Steps 5–6b: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, 6) is emitted by the
-preload — see `scripts/_close_pipeline_shared.md`. Apply in order after
-Step 4.5, then continue with Step 7.
+The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by
+the preload — see `scripts/_close_pipeline_shared.md`. Apply in order
+after Step 4.5, then continue with Step 7.
 
 **Story-close override for Step 6 (auto-merge gate):** skip the shared
-Step 6 `AskUserQuestion` and proceed to Step 7 when ALL hold:
+Step 6 `AskUserQuestion` (Step 6b still runs) when ALL hold:
 
 1. Step 5c queued zero ask-user items, verified via:
    ```bash

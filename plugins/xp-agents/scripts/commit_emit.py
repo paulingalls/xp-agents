@@ -34,12 +34,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import code_files
 import commit_event
+import commit_message
 import commits
 import identity
 import markers
 import resolution
 
-__all__ = ["HEAD_REBUILD_MAX_AGE_SECONDS", "build_commit_event", "rebuild_at_head"]
+__all__ = [
+    "HEAD_REBUILD_MAX_AGE_SECONDS",
+    "build_commit_event",
+    "parse_commit_body",
+    "rebuild_at_head",
+]
 
 _COAUTHOR_TRAILER_RE = re.compile(r"\n+\s*Co-Authored-By:.*$", re.DOTALL)
 
@@ -53,7 +59,8 @@ _COAUTHOR_TRAILER_RE = re.compile(r"\n+\s*Co-Authored-By:.*$", re.DOTALL)
 HEAD_REBUILD_MAX_AGE_SECONDS = 600
 
 # An unexpanded shell expansion left in the message the hook recovered:
-# `$VAR`, `${VAR}`, `$(...)`, or a backtick substitution.
+# `$VAR`, `${VAR}`, `$(...)`, or a backtick substitution. Only meaningful on a
+# message form the shell EXPANDS — see `_message_unreadable_from_command`.
 _UNEXPANDED_RE = re.compile(r"\$[({\w]|`")
 
 # Reflog actions that mean "this HEAD was produced by committing". `%gs` spells
@@ -62,6 +69,24 @@ _UNEXPANDED_RE = re.compile(r"\$[({\w]|`")
 # may already carry an event — and `rebase`/`merge`/`reset`/`cherry-pick` are
 # not this command's work at all.
 _COMMIT_REFLOG_ACTIONS = frozenset({"commit", "commit (initial)"})
+
+
+def parse_commit_body(raw_body: str | None) -> tuple[list[str], str, bool]:
+    """`(resolves ids, the body an event's content is BUILT from, has_trailer)`.
+
+    The derivation the event carries: `Resolves-Event:` trailers removed (their
+    ids returned instead) and the Co-Authored-By block stripped.
+
+    Public because a caller that needs this string must NOT read it back off
+    the built event: `_common.make_event` runs `extract_refs_suffix` on
+    `content`, which removes a trailing `[refs: <id>]` span and routes its ids,
+    so `event["content"]` is a DERIVED value and not this one. One home for the
+    rule keeps the two in step.
+    """
+    if not raw_body:
+        return [], "", False
+    resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
+    return resolves, _COAUTHOR_TRAILER_RE.sub("", body).strip(), has_trailer
 
 
 def build_commit_event(
@@ -90,8 +115,7 @@ def build_commit_event(
     """
     if not raw_body:
         return None
-    resolves, body, has_trailer = commits.extract_resolves_trailer(raw_body)
-    body = _COAUTHOR_TRAILER_RE.sub("", body).strip()
+    resolves, body, has_trailer = parse_commit_body(raw_body)
 
     # A trailer naming an id absent from the live log resolves nothing.
     # `resolve_prefix` is a lookup over the events it is handed, so an archived
@@ -157,11 +181,18 @@ def _message_unreadable_from_command(command: str) -> bool:
     would fabricate a commit this command never made and honor a trailer off
     somebody else's message, resolving events on false evidence. That is a
     worse fail-open than the dropped trailer being fixed.
+
+    So the scan applies ONLY to a form the shell expands. A `$` or a backtick
+    inside a single-quoted `-m`, a `<<'EOF'` heredoc, or a `-F <path>` body is
+    a literal character git stored verbatim — reading it as an unresolved
+    expansion armed the rebuild for ordinary subjects (this repo's own
+    routinely contain backticks) and fabricated exactly the event the
+    paragraph above refuses.
     """
-    message = commits.extract_commit_message(command)
+    message, expands = commit_message.recover_commit_message(command)
     if not message:
         return True
-    return bool(_UNEXPANDED_RE.search(message))
+    return expands and bool(_UNEXPANDED_RE.search(message))
 
 
 def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:

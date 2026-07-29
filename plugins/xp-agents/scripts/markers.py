@@ -386,9 +386,13 @@ def cleanup_agent_markers(smm_dir: Path, agent_id: str) -> None:
 # CLOSE_CYCLE_ID: written by the close preloads (through `write_marker`, which
 # carries content the CLI's `write` cannot), consumed by the shared
 # close-pipeline prose at the end of the cycle — that consume step is why it is
-# allowlisted. Writing it via `write` would store an EMPTY id, which reads as
-# "no cycle" everywhere downstream.
+# allowlisted. CONSUME ONLY: `write` stores an empty id, and an empty id is
+# worse than no marker. The appender's reader treats a marker that exists but
+# yields no id as an armed-but-broken close and says so on stderr for EVERY
+# concern that follows — the loud line that matters, fired continuously until
+# the operator learns to ignore it.
 _CLI_ALLOWLIST = frozenset({"CLOSE_CYCLE_ACTIVE", "ACCEPT_IN_FLIGHT", "CLOSE_CYCLE_ID"})
+_CLI_CONSUME_ONLY = frozenset({"CLOSE_CYCLE_ID"})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -405,6 +409,16 @@ def main(argv: list[str] | None = None) -> int:
         help="MarkerDef constant name (CLI-allowlisted markers only)",
     )
     args = parser.parse_args(argv)
+
+    # `choices` cannot express "this name only for that action", so the
+    # per-action refusal lands here. parser.error exits non-zero with the
+    # message — a silent no-op would leave the caller believing it armed
+    # something.
+    if args.action == "write" and args.name in _CLI_CONSUME_ONLY:
+        parser.error(
+            f"{args.name} is consume-only via this CLI: `write` would store an "
+            f"empty value, which reads as a broken record downstream"
+        )
 
     # argparse choices=_CLI_ALLOWLIST has already rejected unknown
     # names — getattr is guaranteed to resolve a MarkerDef constant

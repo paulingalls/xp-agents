@@ -86,11 +86,11 @@ Agent(
 )
 ```
 
-## Steps 5–6: Apply shared close-pipeline reference
+## Steps 5–6b: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, and 6) is emitted by the preload at the top of this context — see `scripts/_close_pipeline_shared.md` for the source. Apply those three steps in order after Step 4.5, then continue with Step 7 below.
+The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by the preload at the top of this context — see `scripts/_close_pipeline_shared.md` for the source. Apply those four steps in order after Step 4.5, then continue with Step 7 below.
 
-**Free-close override for Step 6 (auto-merge gate):** if ALL of these hold, skip the shared Step 6's `AskUserQuestion` and proceed directly to Step 7:
+**Free-close override for Step 6 (auto-merge gate):** if ALL of these hold, skip the shared Step 6's `AskUserQuestion` (Step 6b still runs):
 
 1. Step 5c queued zero ask-user items. Verify via the canonical structured filter:
    ```bash
