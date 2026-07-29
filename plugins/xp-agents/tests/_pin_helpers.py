@@ -14,7 +14,9 @@ line of Markdown). The pin owns detection; this helper owns discovery.
 """
 
 import ast
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 # The shipped Python surface, relative to plugins/xp-agents/. `hooks/` is
 # absent on purpose: it holds hooks.json and no Python at all.
@@ -104,6 +106,30 @@ def parse_files(
         except SyntaxError as exc:
             failures.append((path, str(exc)))
     return trees, failures
+
+
+_Violation = TypeVar("_Violation")
+
+
+def scan_root(
+    paths: list[Path],
+    scan_tree: Callable[[ast.AST], list[_Violation]],
+) -> tuple[dict[Path, list[_Violation]], list[tuple[Path, str]]]:
+    """Run *scan_tree* over every parseable path in *paths*.
+
+    Returns (violations keyed by path, parse-failures). A file that fails to
+    parse appears ONLY in the second list -- it is never folded into the first
+    as if it had been proven clean. Each pin still owns its own `scan_tree`;
+    what is shared is the parse/partition step, which was identical in all
+    three sister pins.
+    """
+    trees, parse_failures = parse_files(paths)
+    violations: dict[Path, list[_Violation]] = {}
+    for path, tree in trees:
+        found = scan_tree(tree)
+        if found:
+            violations[path] = found
+    return violations, parse_failures
 
 
 def shipped_files_to_scan(plugin_root: Path) -> list[Path]:

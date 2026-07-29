@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
-from _pin_helpers import parse_files, scan_shortfalls
+from _pin_helpers import parse_files, scan_root, scan_shortfalls
 from _pin_helpers import rel as _rel_impl
 from event_schema import VALID_TYPES
 
@@ -136,17 +136,10 @@ def _scan_root(
 ) -> tuple[dict[Path, list[tuple[int, str, str]]], list[tuple[Path, str]]]:
     """Scan every file `files_to_scan` admits under *root*.
 
-    Returns (violations keyed by absolute path, parse-failures). A file
-    that fails to parse appears ONLY in the second list -- it is never
-    folded into the first as if it had been proven clean.
+    Returns (violations keyed by absolute path, parse-failures) -- see
+    `_pin_helpers.scan_root` for the split, which the sister pins share.
     """
-    trees, parse_failures = parse_files(_files_to_scan(root))
-    violations: dict[Path, list[tuple[int, str, str]]] = {}
-    for path, tree in trees:
-        file_violations = _scan_tree(tree)
-        if file_violations:
-            violations[path] = file_violations
-    return violations, parse_failures
+    return scan_root(_files_to_scan(root), _scan_tree)
 
 
 def _count_type_assertion_sites_in_tree(tree: ast.AST) -> int:
@@ -340,6 +333,26 @@ class TestPinIsNotVacuous(unittest.TestCase):
                 f"detection shape may have gone blind"
             ),
         )
+
+    def test_scan_root_reports_a_violation_in_a_non_name_shaped_module(self) -> None:
+        """Discovery and detection compose: a violation inside a module
+        matching none of the legacy test_*/_*/conftest.py shapes (the
+        shared-test-base class that used to be invisible) reaches the
+        violations dict. `test_files_to_scan_includes_non_name_shaped_modules`
+        in the sister pin proves discovery alone; this proves the pin
+        actually REPORTS what discovery now admits."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "shared_test_base.py").write_text(
+                "import unittest\n"
+                "class SharedBase(unittest.TestCase):\n"
+                "    def check(self, event):\n"
+                '        self.assertEqual(event["type"], "concern")\n'
+            )
+            violations, parse_failures = _scan_root(root)
+            self.assertEqual(parse_failures, [])
+            self.assertEqual([p.name for p in violations], ["shared_test_base.py"])
+            self.assertEqual(violations[root / "shared_test_base.py"][0][1], "concern")
 
     def test_pin_fails_loudly_on_an_unparsable_file(self) -> None:
         """A file the scan cannot parse must be reported as its own

@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
-from _pin_helpers import parse_files, scan_shortfalls
+from _pin_helpers import parse_files, scan_root, scan_shortfalls
 from _pin_helpers import rel as _rel_impl
 from event_schema import VALID_TYPES
 
@@ -161,17 +161,10 @@ def _scan_root(
 ) -> tuple[dict[Path, list[tuple[int, str, str]]], list[tuple[Path, str]]]:
     """Scan every file `files_to_scan` admits under *root*.
 
-    Returns (violations keyed by absolute path, parse-failures). A file
-    that fails to parse appears ONLY in the second list -- it is never
-    folded into the first as if it had been proven clean.
+    Returns (violations keyed by absolute path, parse-failures) -- see
+    `_pin_helpers.scan_root` for the split, which the sister pins share.
     """
-    trees, parse_failures = parse_files(_files_to_scan(root))
-    violations: dict[Path, list[tuple[int, str, str]]] = {}
-    for path, tree in trees:
-        file_violations = _scan_tree(tree)
-        if file_violations:
-            violations[path] = file_violations
-    return violations, parse_failures
+    return scan_root(_files_to_scan(root), _scan_tree)
 
 
 def _count_event_type_sites_in_tree(tree: ast.AST) -> int:

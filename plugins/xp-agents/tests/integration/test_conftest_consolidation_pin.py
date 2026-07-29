@@ -38,8 +38,11 @@ from _pin_helpers import files_to_scan
 _TESTS_DIR = Path(__file__).parent.parent
 _SCAFFOLD_DIR = _TESTS_DIR / "scaffold"
 
-# Candidate test files (test_*.py + _*.py + conftest.py), scaffold/
-# excluded because that suite is intentionally isolated.
+# Every .py file under tests/ (story-001 dropped `files_to_scan`'s
+# test_*/_*/conftest.py name filter, so shared test-base modules and
+# `__init__.py` are candidates too — strictly more places a duplicate
+# definition can hide). scaffold/ excluded: that suite is intentionally
+# isolated.
 _CANDIDATES: list[Path] = [
     p
     for p in files_to_scan(_TESTS_DIR, Path(__file__))
