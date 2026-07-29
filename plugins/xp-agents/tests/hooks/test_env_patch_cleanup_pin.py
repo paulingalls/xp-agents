@@ -56,11 +56,18 @@ call to one of those names. One real helper in the tree today
 via `with self._in_place_env():`, in the same module -- so within-module
 scope is sufficient; nothing here resolves a helper imported from elsewhere.
 
-KNOWN GAPS (booked as debt 8dffcbf90181, not fixed here): an aliased import
-(`from unittest.mock import patch as p`) evades `_is_patch_dict_attr`'s
-name check, and a helper defined in one module but called from another
-evades the within-module indirection pass. This pin is a floor, not total
-coverage. It is also not a total guard on the safe rows it does bless:
+ALIASED IMPORTS are handled: `_patch_name_aliases` collects every local name
+bound to `patch` by an `import from unittest.mock`/`mock`, so
+`from unittest.mock import patch as p` then `p.dict(os.environ, ...)` is
+matched. The matcher is not keyed on the literal name.
+
+KNOWN GAPS (the remainder of debt 8dffcbf90181): a helper defined in one
+module but called from another evades the within-module indirection pass --
+deferred to the story that splits this file, because detecting it needs
+whole-tree state outside any matcher. Plain rebinding (`p = patch`) also
+stays invisible: alias collection reads import statements, not assignments.
+This pin is a floor, not total coverage. It is also not a total guard on
+the safe rows it does bless:
 unittest skips `tearDown` when `setUp` raises after `.start()`, so the
 setUp-start/tearDown-stop row accepts that one leak window (assumption
 37b2549e1a65).
@@ -76,6 +83,7 @@ from typing import TypeGuard, TypeVar
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
+from _pin_helpers import parse_files, scan_root, scan_shortfalls
 from _pin_helpers import rel as _rel_impl
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
@@ -96,12 +104,31 @@ ALLOWLIST: dict[str, str] = {}
 # ---------------------------------------------------------------------------
 
 
-def _is_patch_dict_attr(func: ast.expr) -> bool:
-    """True for the callee of `patch.dict(...)` or `mock.patch.dict(...)`."""
+def _patch_name_aliases(tree: ast.AST) -> set[str]:
+    """Find every local name that binds to `unittest.mock.patch` via import.
+
+    Catches `from unittest.mock import patch as p` so a later `p.dict(...)`
+    call is matched. Always includes the canonical name `patch`.
+    """
+    aliases = {"patch"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in (
+            "unittest.mock",
+            "mock",
+        ):
+            for alias in node.names:
+                if alias.name == "patch":
+                    aliases.add(alias.asname or alias.name)
+    return aliases
+
+
+def _is_patch_dict_attr(func: ast.expr, patch_aliases: set[str]) -> bool:
+    """True for the callee of `patch.dict(...)` (any import alias of
+    `patch`) or `mock.patch.dict(...)`."""
     if not (isinstance(func, ast.Attribute) and func.attr == "dict"):
         return False
     base = func.value
-    if isinstance(base, ast.Name) and base.id == "patch":
+    if isinstance(base, ast.Name) and base.id in patch_aliases:
         return True
     return isinstance(base, ast.Attribute) and base.attr == "patch"
 
@@ -129,9 +156,12 @@ def _patch_dict_target(call: ast.Call) -> ast.expr | None:
     return None
 
 
-def _is_env_patch_call(node: ast.AST) -> TypeGuard[ast.Call]:
-    """True for `patch.dict(os.environ, ...)` / `mock.patch.dict(os.environ, ...)`."""
-    if not (isinstance(node, ast.Call) and _is_patch_dict_attr(node.func)):
+def _is_env_patch_call(node: ast.AST, patch_aliases: set[str]) -> TypeGuard[ast.Call]:
+    """True for `patch.dict(os.environ, ...)` / `mock.patch.dict(os.environ, ...)`,
+    under any import alias of `patch` collected in *patch_aliases*."""
+    if not (
+        isinstance(node, ast.Call) and _is_patch_dict_attr(node.func, patch_aliases)
+    ):
         return False
     target = _patch_dict_target(node)
     return target is not None and _is_os_environ(target)
@@ -341,19 +371,13 @@ def _helper_indirection_violations(
     return violations
 
 
-def _scan_file(path: Path) -> list[tuple[int, str]]:
-    """Return (lineno, reason) violations for one file. Empty = clean.
-
-    Syntax errors return [] -- they're a different bug class.
-    """
-    src = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return []
-
+def _scan_tree(tree: ast.AST) -> list[tuple[int, str]]:
+    """Return (lineno, reason) violations for one already-parsed tree."""
     parents = _build_parent_map(tree)
-    env_patch_calls = [n for n in ast.walk(tree) if _is_env_patch_call(n)]
+    patch_aliases = _patch_name_aliases(tree)
+    env_patch_calls = [
+        n for n in ast.walk(tree) if _is_env_patch_call(n, patch_aliases)
+    ]
 
     violations: list[tuple[int, str]] = []
     for call in env_patch_calls:
@@ -365,6 +389,27 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     violations.extend(_helper_indirection_violations(tree, helper_names))
 
     return sorted(violations)
+
+
+def _scan_file(path: Path) -> list[tuple[int, str]]:
+    """Return (lineno, reason) violations for one file. Empty = clean.
+
+    A SyntaxError propagates -- a file this cannot parse is a different
+    signal than "clean" and must not be reported as either (see
+    `_scan_root`, which callers scanning a whole tree should use instead).
+    """
+    return _scan_tree(ast.parse(path.read_text(encoding="utf-8")))
+
+
+def _scan_root(
+    root: Path,
+) -> tuple[dict[Path, list[tuple[int, str]]], list[tuple[Path, str]]]:
+    """Scan every file `files_to_scan` admits under *root*.
+
+    Returns (violations keyed by absolute path, parse-failures) -- see
+    `_pin_helpers.scan_root` for the split, which the sister pins share.
+    """
+    return scan_root(_files_to_scan(root), _scan_tree)
 
 
 def _rel(path: Path) -> str:
@@ -384,14 +429,20 @@ class TestEnvPatchCleanupPin(unittest.TestCase):
     """No unbounded patch.dict(os.environ, ...) cleanup in tests/."""
 
     def test_no_env_patch_cleanup_leaks_in_tests(self) -> None:
-        violations: dict[str, list[tuple[int, str]]] = {}
-        for py_file in _files_to_scan(TESTS_ROOT):
-            rel = _rel(py_file)
-            if rel in ALLOWLIST:
-                continue
-            file_violations = _scan_file(py_file)
-            if file_violations:
-                violations[rel] = file_violations
+        violations_by_path, parse_failures = _scan_root(TESTS_ROOT)
+
+        if parse_failures:
+            lines = [f"  {_rel(p)}: {err}" for p, err in sorted(parse_failures)]
+            self.fail(
+                f"{len(parse_failures)} file(s) failed to parse -- the scan "
+                f"cannot prove them clean:\n" + "\n".join(lines)
+            )
+
+        violations = {
+            _rel(p): vs
+            for p, vs in violations_by_path.items()
+            if _rel(p) not in ALLOWLIST
+        }
 
         if violations:
             lines = [
@@ -560,6 +611,26 @@ class TestWalkerDetectsViolations(unittest.TestCase):
                 '        self.enterContext(patch.dict({"a": "1"}, {"a": "2"}))\n'
             )
             self.assertEqual(_scan_file(tmp), [])
+
+    def test_detects_aliased_patch_import(self) -> None:
+        """`from unittest.mock import patch as p` then `p.dict(os.environ,
+        ...)` is flagged -- the matcher must not be keyed on the literal
+        name `patch`."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_violation.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from unittest.mock import patch as p\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_x(self):\n"
+                '        self.enterContext(p.dict(os.environ, {"X": "1"}))\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            lineno, reason = violations[0]
+            self.assertEqual(lineno, 6)
+            self.assertIn("enterContext", reason)
 
 
 # ---------------------------------------------------------------------------
@@ -785,15 +856,51 @@ class TestPinIsNotVacuous(unittest.TestCase):
             ),
         )
 
+    def test_scan_has_no_shortfalls(self) -> None:
+        shortfalls = scan_shortfalls(
+            _files_to_scan(TESTS_ROOT),
+            TESTS_ROOT,
+            min_files=400,
+            exclude_self=Path(__file__),
+        )
+        self.assertEqual(shortfalls, [])
+
+    def test_scan_shortfalls_names_a_deliberately_narrowed_scan(self) -> None:
+        """Red proof for `scan_shortfalls` itself -- the real tree cannot
+        witness this leg post-widening (the legacy set is a subset of the
+        widened one by construction), so this hand-narrows the input."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_a.py").write_text("# test\n")
+            (root / "test_b.py").write_text("# test\n")
+            full_scan = [root / "test_a.py", root / "test_b.py"]
+            self.assertEqual(scan_shortfalls(full_scan, root, min_files=0), [])
+
+            narrowed = [root / "test_a.py"]
+            shortfalls = scan_shortfalls(narrowed, root, min_files=0)
+            self.assertEqual(len(shortfalls), 1)
+            self.assertIn("test_b.py", shortfalls[0])
+
+    def test_scan_shortfalls_flags_a_low_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_a.py").write_text("# test\n")
+            scanned = [root / "test_a.py"]
+            shortfalls = scan_shortfalls(scanned, root, min_files=5)
+            self.assertEqual(len(shortfalls), 1)
+            self.assertIn("expected at least 5", shortfalls[0])
+
     def test_scan_examines_a_nontrivial_number_of_call_sites(self) -> None:
+        trees, parse_failures = parse_files(_files_to_scan(TESTS_ROOT))
+        self.assertEqual(
+            parse_failures,
+            [],
+            msg=f"{len(parse_failures)} file(s) failed to parse: {parse_failures}",
+        )
         total = 0
-        for py_file in _files_to_scan(TESTS_ROOT):
-            src = py_file.read_text(encoding="utf-8")
-            try:
-                tree = ast.parse(src)
-            except SyntaxError:
-                continue
-            total += sum(1 for n in ast.walk(tree) if _is_env_patch_call(n))
+        for _, tree in trees:
+            aliases = _patch_name_aliases(tree)
+            total += sum(1 for n in ast.walk(tree) if _is_env_patch_call(n, aliases))
         self.assertGreaterEqual(
             total,
             100,
@@ -810,6 +917,21 @@ class TestPinIsNotVacuous(unittest.TestCase):
         rels = [_rel(p) for p in _files_to_scan(TESTS_ROOT)]
         self.assertTrue(rels)
         self.assertTrue(all("/tests/" in r for r in rels))
+
+    def test_pin_fails_loudly_on_an_unparsable_file(self) -> None:
+        """A file the scan cannot parse must be reported as its own
+        signal -- neither a violation nor silently clean. This is a
+        genuine red test only because `_scan_root` takes a root
+        parameter: the module-constant-only loop this replaces could
+        never be pointed at a temp dir to prove it."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_broken.py").write_text("def broken(:\n")
+            violations, parse_failures = _scan_root(root)
+            self.assertEqual(violations, {})
+            self.assertEqual(len(parse_failures), 1)
+            failed_path, _err = parse_failures[0]
+            self.assertEqual(failed_path.name, "test_broken.py")
 
     def test_pin_can_actually_fail(self) -> None:
         """The main pin test asserts zero violations on the real tree, which

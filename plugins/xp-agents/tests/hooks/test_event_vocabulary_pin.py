@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
+from _pin_helpers import parse_files, scan_root, scan_shortfalls
 from _pin_helpers import rel as _rel_impl
 from event_schema import VALID_TYPES
 
@@ -92,18 +93,11 @@ def _fixture_module_names(tree: ast.AST) -> set[str]:
     return names
 
 
-def _scan_file(path: Path) -> list[tuple[int, str, str]]:
-    """Return (lineno, value, kind) violations for one file.
+def _scan_tree(tree: ast.AST) -> list[tuple[int, str, str]]:
+    """Return (lineno, value, kind) violations for one already-parsed tree.
 
     Kinds: `make_event-call`, `dict-literal`. Empty list = clean.
-    Syntax errors return [] — they're a different bug class.
     """
-    src = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return []
-
     aliases = _make_event_call_aliases(tree)
     fixture_modules = _fixture_module_names(tree)
     violations: list[tuple[int, str, str]] = []
@@ -152,6 +146,56 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
     return violations
 
 
+def _scan_file(path: Path) -> list[tuple[int, str, str]]:
+    """Return (lineno, value, kind) violations for one file. Empty = clean.
+
+    A SyntaxError propagates -- a file this cannot parse is a different
+    signal than "clean" (see `_scan_root`, which scanning-a-tree callers
+    should use instead).
+    """
+    return _scan_tree(ast.parse(path.read_text(encoding="utf-8")))
+
+
+def _scan_root(
+    root: Path,
+) -> tuple[dict[Path, list[tuple[int, str, str]]], list[tuple[Path, str]]]:
+    """Scan every file `files_to_scan` admits under *root*.
+
+    Returns (violations keyed by absolute path, parse-failures) -- see
+    `_pin_helpers.scan_root` for the split, which the sister pins share.
+    """
+    return scan_root(_files_to_scan(root), _scan_tree)
+
+
+def _count_event_type_sites_in_tree(tree: ast.AST) -> int:
+    """Count make_event calls (any first arg) plus dict `"type"` literals
+    (any string value) -- the population this pin draws from, for the
+    non-vacuity floor. Broader than `_scan_tree`'s VALID_TYPES_SET filter
+    on purpose: most sites here are canonical, not violations."""
+    aliases = _make_event_call_aliases(tree)
+    fixture_modules = _fixture_module_names(tree)
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            match node.func:
+                case ast.Name(id=name) if name in aliases:
+                    count += 1
+                case ast.Attribute(attr="make_event", value=ast.Name(id=mod)) if (
+                    mod in fixture_modules
+                ):
+                    count += 1
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "type"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ):
+                    count += 1
+    return count
+
+
 def _rel(path: Path) -> str:
     return _rel_impl(path, REPO_ROOT)
 
@@ -169,14 +213,20 @@ class TestEventVocabularyPin(unittest.TestCase):
     """
 
     def test_no_bare_event_type_literals_in_tests(self) -> None:
-        violations: dict[str, list[tuple[int, str, str]]] = {}
-        for py_file in _files_to_scan(TESTS_ROOT):
-            rel = _rel(py_file)
-            if rel in ALLOWLIST:
-                continue
-            file_violations = _scan_file(py_file)
-            if file_violations:
-                violations[rel] = file_violations
+        violations_by_path, parse_failures = _scan_root(TESTS_ROOT)
+
+        if parse_failures:
+            lines = [f"  {_rel(p)}: {err}" for p, err in sorted(parse_failures)]
+            self.fail(
+                f"{len(parse_failures)} file(s) failed to parse -- the scan "
+                f"cannot prove them clean:\n" + "\n".join(lines)
+            )
+
+        violations = {
+            _rel(p): vs
+            for p, vs in violations_by_path.items()
+            if _rel(p) not in ALLOWLIST
+        }
 
         if violations:
             lines = [
@@ -370,17 +420,34 @@ class TestEventVocabularyPin(unittest.TestCase):
             self.assertIn("_close_fixtures.py", scanned)
             self.assertIn("test_a.py", scanned)
 
-    def test_files_to_scan_excludes_dunder_init(self) -> None:
-        """`__init__.py` is excluded from the `_*.py` glob — package
-        markers don't carry event-type literals and would create noise.
+    def test_files_to_scan_includes_dunder_init(self) -> None:
+        """`__init__.py` is now INCLUDED -- story-001 removed the name-shape
+        carve-out (name-shape filtering itself is gone; every .py file is
+        admitted). Excluding `__init__.py` was a name-shape exemption
+        living inside the very change whose point was ending name-shape
+        exemptions -- the same hole in miniature. Every real `__init__.py`
+        in the tree today is 0 bytes, so including them costs nothing, but
+        one with content later is no longer silently exempt.
         """
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "__init__.py").write_text("")
             (root / "_helper.py").write_text("# helper\n")
             scanned = {p.name for p in _files_to_scan(root)}
-            self.assertNotIn("__init__.py", scanned)
+            self.assertIn("__init__.py", scanned)
             self.assertIn("_helper.py", scanned)
+
+    def test_files_to_scan_includes_non_name_shaped_modules(self) -> None:
+        """A module matching none of the legacy test_*/_*/conftest.py
+        shapes (e.g. a shared test-base module like
+        tests/engine/sister_test_base.py) is scanned -- `files_to_scan`
+        admits every .py file now, not just name-shaped ones.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "shared_test_base.py").write_text("# shared base\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertIn("shared_test_base.py", scanned)
 
     def test_files_to_scan_includes_conftest_at_any_depth(self) -> None:
         """`conftest.py` files must be included at any depth — pytest
@@ -460,6 +527,50 @@ class TestEventVocabularyPin(unittest.TestCase):
             )
             violations = _scan_file(tmp)
             self.assertEqual(violations, [])
+
+
+class TestPinIsNotVacuous(unittest.TestCase):
+    """See test_env_patch_cleanup_pin.py's TestPinIsNotVacuous -- same
+    guardrail against a scan that reports clean because it could not look."""
+
+    def test_scan_has_no_shortfalls(self) -> None:
+        shortfalls = scan_shortfalls(
+            _files_to_scan(TESTS_ROOT),
+            TESTS_ROOT,
+            min_files=400,
+            exclude_self=Path(__file__),
+        )
+        self.assertEqual(shortfalls, [])
+
+    def test_scan_examines_a_nontrivial_number_of_event_type_sites(self) -> None:
+        trees, parse_failures = parse_files(_files_to_scan(TESTS_ROOT))
+        self.assertEqual(
+            parse_failures,
+            [],
+            msg=f"{len(parse_failures)} file(s) failed to parse: {parse_failures}",
+        )
+        total = sum(_count_event_type_sites_in_tree(tree) for _, tree in trees)
+        self.assertGreaterEqual(
+            total,
+            1000,
+            msg=(
+                f"only {total} event-type sites found -- the "
+                f"detection shape may have gone blind"
+            ),
+        )
+
+    def test_pin_fails_loudly_on_an_unparsable_file(self) -> None:
+        """A file the scan cannot parse must be reported as its own
+        signal -- neither a violation nor silently clean. Genuinely red
+        only because `_scan_root` takes a root parameter."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_broken.py").write_text("def broken(:\n")
+            violations, parse_failures = _scan_root(root)
+            self.assertEqual(violations, {})
+            self.assertEqual(len(parse_failures), 1)
+            failed_path, _err = parse_failures[0]
+            self.assertEqual(failed_path.name, "test_broken.py")
 
 
 if __name__ == "__main__":
