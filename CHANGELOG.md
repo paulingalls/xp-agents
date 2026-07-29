@@ -2,6 +2,67 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.2.0 — The close gate stops guessing, and stops assuming Python
+
+**If your project is not written in Python, one thing changes for the better
+immediately:** the teammate guide no longer tells every teammate to run `ruff
+format` before staging, and the close pipeline's `lint` remedy no longer says
+`ruff format && ruff check --fix`. Both now point at your project's own formatter
+and linter. The plugin already detects eighteen linters; the prose was
+contradicting its own machinery, and telling a Rust or TypeScript project to run
+a Python tool. A skill also carried a `Bash(python3 -m unittest *)` grant that
+could never match `cargo test` or `npm test` — it bought those projects nothing
+and implied their tests were Python's.
+
+Two new pins keep it that way: one over shipped prose, one over the `Bash(...)`
+grants in skill and agent frontmatter. They are honest about what they cannot
+see, and both are proved against synthetic offenders rather than trusted because
+they are green.
+
+**The merge gate now knows which concerns are about your close.** Before merging,
+a close counts open high-severity concerns — and it worked out which ones were
+relevant by intersecting the file list a concern recorded with the close's diff.
+That list is written by whoever raised the concern, so a stale or wrong path
+silently EXCLUDED a concern from the one gate that exists not to miss it.
+Concerns raised while a close is running are now tagged with that close at the
+moment they are written, and the gate reads the tag.
+
+Three refusals in that tagging, because a wrong tag is worse than no tag (a wrong
+one hides a concern from every gate; no tag leaves it counted under the old
+file-relevance rule):
+
+- A marker that exists but cannot be used — empty, malformed, unreadable, or a
+  symlink — tags nothing, and says so on stderr. Silence there would look
+  identical to no close running.
+- Where no session id can be discovered, the plugin **refuses to tag at all**
+  rather than reading a marker every session on the host would share. Borrowing a
+  neighbour's tag would cost that host the gate; not tagging costs it nothing it
+  had.
+- Concerns written by hooks stay untagged deliberately. The gate carves transient
+  test-failure concerns out by their tag being absent, so tagging them would let
+  one teammate's red test abort another's clean close.
+
+**A commit whose message we cannot read is now recorded, not dropped.** When the
+parser could not recover a commit's message, the commit was traced but no event
+was written — and any `Resolves-Event:` trailer in it was lost, so the item it
+closed stayed open. The event is now rebuilt from `HEAD`.
+
+That rebuild only fires when it can prove the commit is the one that just landed:
+fresh, single-parent, and confirmed by the reflog. **A missing reflog vetoes it**
+rather than waving it through — degrading to allow left a path that recorded an
+event, and resolved real ids, for a commit the command never made. And the
+"unreadable" test now judges a message by the quoting it arrived in rather than by
+scanning its text: a backtick or `$` inside single quotes is literal, and treating
+those as unreadable made ordinary commit subjects look unrecoverable.
+
+**Teammate guide corrections.** The review-cycle instruction now names both
+cadences instead of asserting the per-commit one, so a teammate under per-story
+cadence no longer pays a duplicate review. Tiered teammate spawns no longer use a
+bash-only expansion that yields a single argument under zsh — the macOS default —
+which failed the spawn outright. And the guide says again that a `decision` needs
+`--topic` (the append fails without it) and that a `concern` should carry
+`--files`, since that list is what scopes an untagged concern to a close.
+
 ## v5.1.1 — Deferred stories survive the sprint archive
 
 A sprint's deferred stories are the work you decided to keep, not drop. They were
