@@ -225,10 +225,10 @@ def head_landing_facts(cwd: str, rev: str) -> tuple[int, int, str | None] | None
     The reflog action is `%gs`'s leading word, lowercased — `commit`,
     `commit (amend)`, `rebase (pick)`, `merge side`, `reset` — the only signal
     telling committing apart from the other ways HEAD reaches a young
-    single-parent commit. None (no reflog, or its newest entry names another
-    object) means NO OPINION: `core.logAllRefUpdates` can be off and `git gc`
-    can empty the log, so a caller reading absence as a veto would disable the
-    signal on exactly the repos unable to supply it.
+    single-parent commit. None means UNAVAILABLE (no reflog, or its newest
+    entry names another object) — never *permitted*: its one caller vetoes on
+    absence, because allowing there fabricated events for commits the command
+    never made. Do not restore the draft that called absence NO OPINION.
     """
     out = _run_git(["git", "show", "-s", "--format=%ct%x1f%P", rev], cwd)
     if not out:

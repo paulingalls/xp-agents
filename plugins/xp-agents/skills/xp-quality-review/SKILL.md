@@ -14,6 +14,7 @@ allowed-tools:
   - Glob
   - Agent
   - Skill
+  - Bash
   - Bash(*/skills/*/scripts/*)
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

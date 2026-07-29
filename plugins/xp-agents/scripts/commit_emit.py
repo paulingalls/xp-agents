@@ -9,11 +9,13 @@ attribution, free-branch tagging and cadence stamping. Copying it is how the
 third emitter (`merge_commit_event.append_merge_commit_event`) already drifted
 three ways, so it lives here once and both callers use it.
 
-Placement: deliberately NOT `commit_event.py` (404 lines) and NOT
-`commit_handling.py` (392 before this extraction, 378 after). This module's own
-264 lines would push either host well past the 450-line sub-cap that
+Placement: deliberately NOT `commit_event.py` and NOT `commit_handling.py`.
+This module's own size would push either host past the 450-line sub-cap that
 `tests/hooks/test_commit_event_rebuild.py` pins, so a third module keeps every
-file under it and gives the sequence a name.
+file under it and gives the sequence a name. Deliberately no line counts here:
+the first draft quoted three, and the close-cycle fixes falsified all three
+within the same sprint. `wc -l` is the source of truth; a docstring that
+restates it is a second one that silently goes stale.
 
 `build_commit_event`'s scope is event CONSTRUCTION only. The success path's
 other post-commit effects — commit-size concern, lint resolution,
@@ -212,9 +214,11 @@ def _head_is_a_freshly_landed_commit(cwd: str, commit_hash: str) -> bool:
       resolves-link-rate denominator this story exists to improve.
     * **Reflog says `commit`.** Freshness and parent count both pass for a
       `rebase (pick)`, a `commit --amend` and a `reset` onto a young commit,
-      none of which this command produced. Only the reflog separates them —
-      so where it exists it is consulted, and where it does not (see
-      `head_landing_facts`) the first two signals stand alone.
+      none of which this command produced. Only the reflog separates them, so
+      its ABSENCE vetoes rather than letting the first two signals stand alone
+      — see the fail-closed reasoning at the return below. An earlier draft did
+      degrade to allow there, and that was the widest remaining fabrication
+      path.
     """
     facts = commits.head_landing_facts(cwd, commit_hash)
     if facts is None:

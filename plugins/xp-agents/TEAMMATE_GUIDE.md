@@ -49,7 +49,7 @@ It will not pause you — blocking gates do not apply to teammates, and only the
 
 ## Event Recording
 
-Record decisions, assumptions, and concerns to the SMM via `${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> --type <T> --agent <id> --content "..."`. A `decision` also needs `--topic <slug>` or the append fails. Run `append.sh --help` for the full type list, flag set and budgets.
+Record decisions, assumptions, and concerns to the SMM via `${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> --type <T> --agent <id> --content "..."`. A `decision` also needs `--topic <slug>` or the append fails. Give a `concern` `--files` too: the close gate scopes an untagged concern by whether those paths are in the diff, so an omitted list can drop it from the gate. Run `append.sh --help` for the full type list, flag set and budgets.
 
 ## When Done
 
