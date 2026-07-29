@@ -13,6 +13,7 @@ Each pin keeps its own detection pass because the violation shapes differ
 line of Markdown). The pin owns detection; this helper owns discovery.
 """
 
+import ast
 from pathlib import Path
 
 # The shipped Python surface, relative to plugins/xp-agents/. `hooks/` is
@@ -87,6 +88,25 @@ def scan_shortfalls(
             f"only {len(scanned)} files scanned, expected at least {min_files}"
         )
     return shortfalls
+
+
+def parse_files(
+    paths: list[Path],
+) -> tuple[list[tuple[Path, ast.AST]], list[tuple[Path, str]]]:
+    """Parse every path in *paths*; split into successes and failures.
+
+    A file that fails to parse is captured as `(path, str(error))` in the
+    second list rather than swallowed -- callers report it as its own
+    signal, distinct from "clean" (no violations found in the first list).
+    """
+    trees: list[tuple[Path, ast.AST]] = []
+    failures: list[tuple[Path, str]] = []
+    for path in paths:
+        try:
+            trees.append((path, ast.parse(path.read_text(encoding="utf-8"))))
+        except SyntaxError as exc:
+            failures.append((path, str(exc)))
+    return trees, failures
 
 
 def shipped_files_to_scan(plugin_root: Path) -> list[Path]:

@@ -27,8 +27,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
+from _pin_helpers import parse_files, scan_shortfalls
 from _pin_helpers import rel as _rel_impl
-from _pin_helpers import scan_shortfalls
 from event_schema import VALID_TYPES
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
@@ -86,18 +86,10 @@ def _is_type_subscript(node: ast.expr) -> bool:
     )
 
 
-def _scan_file(path: Path) -> list[tuple[int, str, str]]:
-    """Return (lineno, value, method) violations for one file.
-
-    Method is `assertEqual` or `assertNotEqual`. Empty list = clean.
-    Syntax errors return [] — they're a different bug class.
+def _scan_tree(tree: ast.AST) -> list[tuple[int, str, str]]:
+    """Return (lineno, value, method) violations for one already-parsed
+    tree. Method is `assertEqual` or `assertNotEqual`. Empty list = clean.
     """
-    src = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return []
-
     violations: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
@@ -129,15 +121,38 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
     return violations
 
 
-def _count_type_assertion_sites(path: Path) -> int:
+def _scan_file(path: Path) -> list[tuple[int, str, str]]:
+    """Return (lineno, value, method) violations for one file. Empty = clean.
+
+    A SyntaxError propagates -- a file this cannot parse is a different
+    signal than "clean" (see `_scan_root`, which scanning-a-tree callers
+    should use instead).
+    """
+    return _scan_tree(ast.parse(path.read_text(encoding="utf-8")))
+
+
+def _scan_root(
+    root: Path,
+) -> tuple[dict[Path, list[tuple[int, str, str]]], list[tuple[Path, str]]]:
+    """Scan every file `files_to_scan` admits under *root*.
+
+    Returns (violations keyed by absolute path, parse-failures). A file
+    that fails to parse appears ONLY in the second list -- it is never
+    folded into the first as if it had been proven clean.
+    """
+    trees, parse_failures = parse_files(_files_to_scan(root))
+    violations: dict[Path, list[tuple[int, str, str]]] = {}
+    for path, tree in trees:
+        file_violations = _scan_tree(tree)
+        if file_violations:
+            violations[path] = file_violations
+    return violations, parse_failures
+
+
+def _count_type_assertion_sites_in_tree(tree: ast.AST) -> int:
     """Count assertEqual/assertNotEqual calls where either side is a
     type-subscript accessor -- the population this pin draws from
     (canonical EVENT_TYPE_* usage included), for the non-vacuity floor."""
-    src = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return 0
     count = 0
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
@@ -164,14 +179,20 @@ class TestAssertEqualVocabularyPin(unittest.TestCase):
     """No `assertEqual(event["type"], "literal")` regressions in tests/."""
 
     def test_no_bare_event_type_in_assertequal(self) -> None:
-        violations: dict[str, list[tuple[int, str, str]]] = {}
-        for py_file in _files_to_scan(TESTS_ROOT):
-            rel = _rel(py_file)
-            if rel in ALLOWLIST:
-                continue
-            file_violations = _scan_file(py_file)
-            if file_violations:
-                violations[rel] = file_violations
+        violations_by_path, parse_failures = _scan_root(TESTS_ROOT)
+
+        if parse_failures:
+            lines = [f"  {_rel(p)}: {err}" for p, err in sorted(parse_failures)]
+            self.fail(
+                f"{len(parse_failures)} file(s) failed to parse -- the scan "
+                f"cannot prove them clean:\n" + "\n".join(lines)
+            )
+
+        violations = {
+            _rel(p): vs
+            for p, vs in violations_by_path.items()
+            if _rel(p) not in ALLOWLIST
+        }
 
         if violations:
             lines = [
@@ -304,7 +325,13 @@ class TestPinIsNotVacuous(unittest.TestCase):
         self.assertEqual(shortfalls, [])
 
     def test_scan_examines_a_nontrivial_number_of_type_assertion_sites(self) -> None:
-        total = sum(_count_type_assertion_sites(p) for p in _files_to_scan(TESTS_ROOT))
+        trees, parse_failures = parse_files(_files_to_scan(TESTS_ROOT))
+        self.assertEqual(
+            parse_failures,
+            [],
+            msg=f"{len(parse_failures)} file(s) failed to parse: {parse_failures}",
+        )
+        total = sum(_count_type_assertion_sites_in_tree(tree) for _, tree in trees)
         self.assertGreaterEqual(
             total,
             50,
@@ -313,6 +340,19 @@ class TestPinIsNotVacuous(unittest.TestCase):
                 f"detection shape may have gone blind"
             ),
         )
+
+    def test_pin_fails_loudly_on_an_unparsable_file(self) -> None:
+        """A file the scan cannot parse must be reported as its own
+        signal -- neither a violation nor silently clean. Genuinely red
+        only because `_scan_root` takes a root parameter."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_broken.py").write_text("def broken(:\n")
+            violations, parse_failures = _scan_root(root)
+            self.assertEqual(violations, {})
+            self.assertEqual(len(parse_failures), 1)
+            failed_path, _err = parse_failures[0]
+            self.assertEqual(failed_path.name, "test_broken.py")
 
 
 if __name__ == "__main__":

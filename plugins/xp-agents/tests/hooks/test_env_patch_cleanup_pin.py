@@ -76,8 +76,8 @@ from typing import TypeGuard, TypeVar
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
+from _pin_helpers import parse_files, scan_shortfalls
 from _pin_helpers import rel as _rel_impl
-from _pin_helpers import scan_shortfalls
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
 REPO_ROOT = TESTS_ROOT.parent.parent.parent  # repo root for stable rel paths
@@ -342,17 +342,8 @@ def _helper_indirection_violations(
     return violations
 
 
-def _scan_file(path: Path) -> list[tuple[int, str]]:
-    """Return (lineno, reason) violations for one file. Empty = clean.
-
-    Syntax errors return [] -- they're a different bug class.
-    """
-    src = path.read_text(encoding="utf-8")
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return []
-
+def _scan_tree(tree: ast.AST) -> list[tuple[int, str]]:
+    """Return (lineno, reason) violations for one already-parsed tree."""
     parents = _build_parent_map(tree)
     env_patch_calls = [n for n in ast.walk(tree) if _is_env_patch_call(n)]
 
@@ -366,6 +357,34 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     violations.extend(_helper_indirection_violations(tree, helper_names))
 
     return sorted(violations)
+
+
+def _scan_file(path: Path) -> list[tuple[int, str]]:
+    """Return (lineno, reason) violations for one file. Empty = clean.
+
+    A SyntaxError propagates -- a file this cannot parse is a different
+    signal than "clean" and must not be reported as either (see
+    `_scan_root`, which callers scanning a whole tree should use instead).
+    """
+    return _scan_tree(ast.parse(path.read_text(encoding="utf-8")))
+
+
+def _scan_root(
+    root: Path,
+) -> tuple[dict[Path, list[tuple[int, str]]], list[tuple[Path, str]]]:
+    """Scan every file `files_to_scan` admits under *root*.
+
+    Returns (violations keyed by absolute path, parse-failures). A file
+    that fails to parse appears ONLY in the second list -- it is never
+    folded into the first as if it had been proven clean.
+    """
+    trees, parse_failures = parse_files(_files_to_scan(root))
+    violations: dict[Path, list[tuple[int, str]]] = {}
+    for path, tree in trees:
+        file_violations = _scan_tree(tree)
+        if file_violations:
+            violations[path] = file_violations
+    return violations, parse_failures
 
 
 def _rel(path: Path) -> str:
@@ -385,14 +404,20 @@ class TestEnvPatchCleanupPin(unittest.TestCase):
     """No unbounded patch.dict(os.environ, ...) cleanup in tests/."""
 
     def test_no_env_patch_cleanup_leaks_in_tests(self) -> None:
-        violations: dict[str, list[tuple[int, str]]] = {}
-        for py_file in _files_to_scan(TESTS_ROOT):
-            rel = _rel(py_file)
-            if rel in ALLOWLIST:
-                continue
-            file_violations = _scan_file(py_file)
-            if file_violations:
-                violations[rel] = file_violations
+        violations_by_path, parse_failures = _scan_root(TESTS_ROOT)
+
+        if parse_failures:
+            lines = [f"  {_rel(p)}: {err}" for p, err in sorted(parse_failures)]
+            self.fail(
+                f"{len(parse_failures)} file(s) failed to parse -- the scan "
+                f"cannot prove them clean:\n" + "\n".join(lines)
+            )
+
+        violations = {
+            _rel(p): vs
+            for p, vs in violations_by_path.items()
+            if _rel(p) not in ALLOWLIST
+        }
 
         if violations:
             lines = [
@@ -821,14 +846,15 @@ class TestPinIsNotVacuous(unittest.TestCase):
             self.assertIn("expected at least 5", shortfalls[0])
 
     def test_scan_examines_a_nontrivial_number_of_call_sites(self) -> None:
-        total = 0
-        for py_file in _files_to_scan(TESTS_ROOT):
-            src = py_file.read_text(encoding="utf-8")
-            try:
-                tree = ast.parse(src)
-            except SyntaxError:
-                continue
-            total += sum(1 for n in ast.walk(tree) if _is_env_patch_call(n))
+        trees, parse_failures = parse_files(_files_to_scan(TESTS_ROOT))
+        self.assertEqual(
+            parse_failures,
+            [],
+            msg=f"{len(parse_failures)} file(s) failed to parse: {parse_failures}",
+        )
+        total = sum(
+            sum(1 for n in ast.walk(tree) if _is_env_patch_call(n)) for _, tree in trees
+        )
         self.assertGreaterEqual(
             total,
             100,
@@ -845,6 +871,21 @@ class TestPinIsNotVacuous(unittest.TestCase):
         rels = [_rel(p) for p in _files_to_scan(TESTS_ROOT)]
         self.assertTrue(rels)
         self.assertTrue(all("/tests/" in r for r in rels))
+
+    def test_pin_fails_loudly_on_an_unparsable_file(self) -> None:
+        """A file the scan cannot parse must be reported as its own
+        signal -- neither a violation nor silently clean. This is a
+        genuine red test only because `_scan_root` takes a root
+        parameter: the module-constant-only loop this replaces could
+        never be pointed at a temp dir to prove it."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_broken.py").write_text("def broken(:\n")
+            violations, parse_failures = _scan_root(root)
+            self.assertEqual(violations, {})
+            self.assertEqual(len(parse_failures), 1)
+            failed_path, _err = parse_failures[0]
+            self.assertEqual(failed_path.name, "test_broken.py")
 
     def test_pin_can_actually_fail(self) -> None:
         """The main pin test asserts zero violations on the real tree, which
