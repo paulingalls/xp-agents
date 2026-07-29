@@ -23,20 +23,17 @@ _SHIPPED_SKILL_SCRIPTS = "skills/*/scripts"
 
 
 def files_to_scan(root: Path, exclude_self: Path) -> list[Path]:
-    """Return test_*.py + _*.py + conftest.py at any depth under root.
+    """Return every `.py` file at any depth under root.
 
-    Excludes `__init__.py` (no event literals; package marker only) and
-    the pin's own file (passed as `exclude_self.resolve()` — the pin
-    asserts other files, not itself).
+    A name-shape filter (test_*.py, _*.py, conftest.py) used to gate this
+    list; it silently dropped shared test-base modules with no matching
+    prefix (e.g. a `sister_test_base.py`) and every `__init__.py`, both of
+    which are ordinary test-tree code a pin's rule can apply to. The only
+    exclusion left is the pin's own file (passed as
+    `exclude_self.resolve()` — the pin asserts other files, not itself).
     """
     self_resolved = exclude_self.resolve()
-    paths: list[Path] = []
-    for p in root.rglob("*.py"):
-        if p.name == "__init__.py" or p.resolve() == self_resolved:
-            continue
-        if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
-            paths.append(p)
-    return paths
+    return [p for p in root.rglob("*.py") if p.resolve() != self_resolved]
 
 
 def _legacy_name_shaped_files(root: Path, exclude_self: Path | None) -> list[Path]:

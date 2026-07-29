@@ -427,17 +427,34 @@ class TestEventVocabularyPin(unittest.TestCase):
             self.assertIn("_close_fixtures.py", scanned)
             self.assertIn("test_a.py", scanned)
 
-    def test_files_to_scan_excludes_dunder_init(self) -> None:
-        """`__init__.py` is excluded from the `_*.py` glob — package
-        markers don't carry event-type literals and would create noise.
+    def test_files_to_scan_includes_dunder_init(self) -> None:
+        """`__init__.py` is now INCLUDED -- story-001 removed the name-shape
+        carve-out (name-shape filtering itself is gone; every .py file is
+        admitted). Excluding `__init__.py` was a name-shape exemption
+        living inside the very change whose point was ending name-shape
+        exemptions -- the same hole in miniature. Every real `__init__.py`
+        in the tree today is 0 bytes, so including them costs nothing, but
+        one with content later is no longer silently exempt.
         """
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / "__init__.py").write_text("")
             (root / "_helper.py").write_text("# helper\n")
             scanned = {p.name for p in _files_to_scan(root)}
-            self.assertNotIn("__init__.py", scanned)
+            self.assertIn("__init__.py", scanned)
             self.assertIn("_helper.py", scanned)
+
+    def test_files_to_scan_includes_non_name_shaped_modules(self) -> None:
+        """A module matching none of the legacy test_*/_*/conftest.py
+        shapes (e.g. a shared test-base module like
+        tests/engine/sister_test_base.py) is scanned -- `files_to_scan`
+        admits every .py file now, not just name-shaped ones.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "shared_test_base.py").write_text("# shared base\n")
+            scanned = {p.name for p in _files_to_scan(root)}
+            self.assertIn("shared_test_base.py", scanned)
 
     def test_files_to_scan_includes_conftest_at_any_depth(self) -> None:
         """`conftest.py` files must be included at any depth — pytest
