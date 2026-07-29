@@ -56,11 +56,18 @@ call to one of those names. One real helper in the tree today
 via `with self._in_place_env():`, in the same module -- so within-module
 scope is sufficient; nothing here resolves a helper imported from elsewhere.
 
-KNOWN GAPS (booked as debt 8dffcbf90181, not fixed here): an aliased import
-(`from unittest.mock import patch as p`) evades `_is_patch_dict_attr`'s
-name check, and a helper defined in one module but called from another
-evades the within-module indirection pass. This pin is a floor, not total
-coverage. It is also not a total guard on the safe rows it does bless:
+ALIASED IMPORTS are handled: `_patch_name_aliases` collects every local name
+bound to `patch` by an `import from unittest.mock`/`mock`, so
+`from unittest.mock import patch as p` then `p.dict(os.environ, ...)` is
+matched. The matcher is not keyed on the literal name.
+
+KNOWN GAPS (the remainder of debt 8dffcbf90181): a helper defined in one
+module but called from another evades the within-module indirection pass --
+deferred to the story that splits this file, because detecting it needs
+whole-tree state outside any matcher. Plain rebinding (`p = patch`) also
+stays invisible: alias collection reads import statements, not assignments.
+This pin is a floor, not total coverage. It is also not a total guard on
+the safe rows it does bless:
 unittest skips `tearDown` when `setUp` raises after `.start()`, so the
 setUp-start/tearDown-stop row accepts that one leak window (assumption
 37b2549e1a65).
@@ -97,12 +104,31 @@ ALLOWLIST: dict[str, str] = {}
 # ---------------------------------------------------------------------------
 
 
-def _is_patch_dict_attr(func: ast.expr) -> bool:
-    """True for the callee of `patch.dict(...)` or `mock.patch.dict(...)`."""
+def _patch_name_aliases(tree: ast.AST) -> set[str]:
+    """Find every local name that binds to `unittest.mock.patch` via import.
+
+    Catches `from unittest.mock import patch as p` so a later `p.dict(...)`
+    call is matched. Always includes the canonical name `patch`.
+    """
+    aliases = {"patch"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in (
+            "unittest.mock",
+            "mock",
+        ):
+            for alias in node.names:
+                if alias.name == "patch":
+                    aliases.add(alias.asname or alias.name)
+    return aliases
+
+
+def _is_patch_dict_attr(func: ast.expr, patch_aliases: set[str]) -> bool:
+    """True for the callee of `patch.dict(...)` (any import alias of
+    `patch`) or `mock.patch.dict(...)`."""
     if not (isinstance(func, ast.Attribute) and func.attr == "dict"):
         return False
     base = func.value
-    if isinstance(base, ast.Name) and base.id == "patch":
+    if isinstance(base, ast.Name) and base.id in patch_aliases:
         return True
     return isinstance(base, ast.Attribute) and base.attr == "patch"
 
@@ -130,9 +156,12 @@ def _patch_dict_target(call: ast.Call) -> ast.expr | None:
     return None
 
 
-def _is_env_patch_call(node: ast.AST) -> TypeGuard[ast.Call]:
-    """True for `patch.dict(os.environ, ...)` / `mock.patch.dict(os.environ, ...)`."""
-    if not (isinstance(node, ast.Call) and _is_patch_dict_attr(node.func)):
+def _is_env_patch_call(node: ast.AST, patch_aliases: set[str]) -> TypeGuard[ast.Call]:
+    """True for `patch.dict(os.environ, ...)` / `mock.patch.dict(os.environ, ...)`,
+    under any import alias of `patch` collected in *patch_aliases*."""
+    if not (
+        isinstance(node, ast.Call) and _is_patch_dict_attr(node.func, patch_aliases)
+    ):
         return False
     target = _patch_dict_target(node)
     return target is not None and _is_os_environ(target)
@@ -345,7 +374,10 @@ def _helper_indirection_violations(
 def _scan_tree(tree: ast.AST) -> list[tuple[int, str]]:
     """Return (lineno, reason) violations for one already-parsed tree."""
     parents = _build_parent_map(tree)
-    env_patch_calls = [n for n in ast.walk(tree) if _is_env_patch_call(n)]
+    patch_aliases = _patch_name_aliases(tree)
+    env_patch_calls = [
+        n for n in ast.walk(tree) if _is_env_patch_call(n, patch_aliases)
+    ]
 
     violations: list[tuple[int, str]] = []
     for call in env_patch_calls:
@@ -586,6 +618,26 @@ class TestWalkerDetectsViolations(unittest.TestCase):
                 '        self.enterContext(patch.dict({"a": "1"}, {"a": "2"}))\n'
             )
             self.assertEqual(_scan_file(tmp), [])
+
+    def test_detects_aliased_patch_import(self) -> None:
+        """`from unittest.mock import patch as p` then `p.dict(os.environ,
+        ...)` is flagged -- the matcher must not be keyed on the literal
+        name `patch`."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / "test_violation.py"
+            tmp.write_text(
+                "import os\n"
+                "import unittest\n"
+                "from unittest.mock import patch as p\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_x(self):\n"
+                '        self.enterContext(p.dict(os.environ, {"X": "1"}))\n'
+            )
+            violations = _scan_file(tmp)
+            self.assertEqual(len(violations), 1)
+            lineno, reason = violations[0]
+            self.assertEqual(lineno, 6)
+            self.assertIn("enterContext", reason)
 
 
 # ---------------------------------------------------------------------------
@@ -852,9 +904,10 @@ class TestPinIsNotVacuous(unittest.TestCase):
             [],
             msg=f"{len(parse_failures)} file(s) failed to parse: {parse_failures}",
         )
-        total = sum(
-            sum(1 for n in ast.walk(tree) if _is_env_patch_call(n)) for _, tree in trees
-        )
+        total = 0
+        for _, tree in trees:
+            aliases = _patch_name_aliases(tree)
+            total += sum(1 for n in ast.walk(tree) if _is_env_patch_call(n, aliases))
         self.assertGreaterEqual(
             total,
             100,
