@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
 from _pin_helpers import rel as _rel_impl
+from _pin_helpers import scan_shortfalls
 from event_schema import VALID_TYPES
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
@@ -126,6 +127,29 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
         if lit_node is not None and isinstance(lit_node.value, str):
             violations.append((lit_node.lineno, lit_node.value, method))
     return violations
+
+
+def _count_type_assertion_sites(path: Path) -> int:
+    """Count assertEqual/assertNotEqual calls where either side is a
+    type-subscript accessor -- the population this pin draws from
+    (canonical EVENT_TYPE_* usage included), for the non-vacuity floor."""
+    src = path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return 0
+    count = 0
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in ("assertEqual", "assertNotEqual"):
+            continue
+        if len(node.args) < 2:
+            continue
+        a, b = node.args[0], node.args[1]
+        if _is_type_subscript(a) or _is_type_subscript(b):
+            count += 1
+    return count
 
 
 def _rel(path: Path) -> str:
@@ -264,6 +288,31 @@ class TestAssertEqualVocabularyPin(unittest.TestCase):
                 justification.strip(),
                 msg=f"ALLOWLIST['{path}'] has empty justification",
             )
+
+
+class TestPinIsNotVacuous(unittest.TestCase):
+    """See test_env_patch_cleanup_pin.py's TestPinIsNotVacuous -- same
+    guardrail against a scan that reports clean because it could not look."""
+
+    def test_scan_has_no_shortfalls(self) -> None:
+        shortfalls = scan_shortfalls(
+            _files_to_scan(TESTS_ROOT),
+            TESTS_ROOT,
+            min_files=400,
+            exclude_self=Path(__file__),
+        )
+        self.assertEqual(shortfalls, [])
+
+    def test_scan_examines_a_nontrivial_number_of_type_assertion_sites(self) -> None:
+        total = sum(_count_type_assertion_sites(p) for p in _files_to_scan(TESTS_ROOT))
+        self.assertGreaterEqual(
+            total,
+            50,
+            msg=(
+                f"only {total} type-assertion sites found -- the "
+                f"detection shape may have gone blind"
+            ),
+        )
 
 
 if __name__ == "__main__":

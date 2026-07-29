@@ -38,6 +38,57 @@ def files_to_scan(root: Path, exclude_self: Path) -> list[Path]:
     return paths
 
 
+def _legacy_name_shaped_files(root: Path, exclude_self: Path | None) -> list[Path]:
+    """Recompute of the pre-widening test_*.py / _*.py / conftest.py rule,
+    frozen here as a forward guard -- see `scan_shortfalls`."""
+    self_resolved = exclude_self.resolve() if exclude_self is not None else None
+    paths: list[Path] = []
+    for p in root.rglob("*.py"):
+        if p.name == "__init__.py" or p.resolve() == self_resolved:
+            continue
+        if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
+            paths.append(p)
+    return paths
+
+
+def scan_shortfalls(
+    scanned: list[Path],
+    root: Path,
+    min_files: int,
+    exclude_self: Path | None = None,
+) -> list[str]:
+    """Human-readable shortfalls in *scanned*; empty when healthy.
+
+    Two legs:
+      - superset: every file the legacy name-shape predicate (test_*.py,
+        _*.py, conftest.py, minus __init__.py) would select under *root*
+        must still be present in *scanned*. `files_to_scan` now admits
+        every .py file, so the legacy set is a subset of it by
+        construction -- this leg is a tautology against the real tree.
+        Its value is as a forward guard: it fires the moment a future
+        change re-narrows `files_to_scan`, which the post-widening tree
+        cannot itself witness.
+      - floor: `len(scanned) >= min_files`.
+    """
+    shortfalls: list[str] = []
+    scanned_resolved = {p.resolve() for p in scanned}
+    missing = [
+        p
+        for p in _legacy_name_shaped_files(root, exclude_self)
+        if p.resolve() not in scanned_resolved
+    ]
+    if missing:
+        shown = ", ".join(sorted(str(p) for p in missing))
+        shortfalls.append(
+            f"{len(missing)} legacy-name-shaped file(s) missing from scan: {shown}"
+        )
+    if len(scanned) < min_files:
+        shortfalls.append(
+            f"only {len(scanned)} files scanned, expected at least {min_files}"
+        )
+    return shortfalls
+
+
 def shipped_files_to_scan(plugin_root: Path) -> list[Path]:
     """Return every shipped Python module under *plugin_root*.
 

@@ -77,6 +77,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
 from _pin_helpers import rel as _rel_impl
+from _pin_helpers import scan_shortfalls
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
 REPO_ROOT = TESTS_ROOT.parent.parent.parent  # repo root for stable rel paths
@@ -784,6 +785,40 @@ class TestPinIsNotVacuous(unittest.TestCase):
                 f"_pin_helpers.files_to_scan and TESTS_ROOT"
             ),
         )
+
+    def test_scan_has_no_shortfalls(self) -> None:
+        shortfalls = scan_shortfalls(
+            _files_to_scan(TESTS_ROOT),
+            TESTS_ROOT,
+            min_files=400,
+            exclude_self=Path(__file__),
+        )
+        self.assertEqual(shortfalls, [])
+
+    def test_scan_shortfalls_names_a_deliberately_narrowed_scan(self) -> None:
+        """Red proof for `scan_shortfalls` itself -- the real tree cannot
+        witness this leg post-widening (the legacy set is a subset of the
+        widened one by construction), so this hand-narrows the input."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_a.py").write_text("# test\n")
+            (root / "test_b.py").write_text("# test\n")
+            full_scan = [root / "test_a.py", root / "test_b.py"]
+            self.assertEqual(scan_shortfalls(full_scan, root, min_files=0), [])
+
+            narrowed = [root / "test_a.py"]
+            shortfalls = scan_shortfalls(narrowed, root, min_files=0)
+            self.assertEqual(len(shortfalls), 1)
+            self.assertIn("test_b.py", shortfalls[0])
+
+    def test_scan_shortfalls_flags_a_low_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "test_a.py").write_text("# test\n")
+            scanned = [root / "test_a.py"]
+            shortfalls = scan_shortfalls(scanned, root, min_files=5)
+            self.assertEqual(len(shortfalls), 1)
+            self.assertIn("expected at least 5", shortfalls[0])
 
     def test_scan_examines_a_nontrivial_number_of_call_sites(self) -> None:
         total = 0

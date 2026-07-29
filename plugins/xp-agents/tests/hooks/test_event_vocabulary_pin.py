@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 from _pin_helpers import files_to_scan as _files_to_scan_impl
 from _pin_helpers import rel as _rel_impl
+from _pin_helpers import scan_shortfalls
 from event_schema import VALID_TYPES
 
 TESTS_ROOT = Path(__file__).parent.parent  # plugins/xp-agents/tests/
@@ -150,6 +151,41 @@ def _scan_file(path: Path) -> list[tuple[int, str, str]]:
                     violations.append((value.lineno, value.value, "dict-literal"))
 
     return violations
+
+
+def _count_event_type_sites(path: Path) -> int:
+    """Count make_event calls (any first arg) plus dict `"type"` literals
+    (any string value) -- the population this pin draws from, for the
+    non-vacuity floor. Broader than `_scan_file`'s VALID_TYPES_SET filter
+    on purpose: most sites here are canonical, not violations."""
+    src = path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return 0
+
+    aliases = _make_event_call_aliases(tree)
+    fixture_modules = _fixture_module_names(tree)
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            match node.func:
+                case ast.Name(id=name) if name in aliases:
+                    count += 1
+                case ast.Attribute(attr="make_event", value=ast.Name(id=mod)) if (
+                    mod in fixture_modules
+                ):
+                    count += 1
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "type"
+                    and isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                ):
+                    count += 1
+    return count
 
 
 def _rel(path: Path) -> str:
@@ -460,6 +496,31 @@ class TestEventVocabularyPin(unittest.TestCase):
             )
             violations = _scan_file(tmp)
             self.assertEqual(violations, [])
+
+
+class TestPinIsNotVacuous(unittest.TestCase):
+    """See test_env_patch_cleanup_pin.py's TestPinIsNotVacuous -- same
+    guardrail against a scan that reports clean because it could not look."""
+
+    def test_scan_has_no_shortfalls(self) -> None:
+        shortfalls = scan_shortfalls(
+            _files_to_scan(TESTS_ROOT),
+            TESTS_ROOT,
+            min_files=400,
+            exclude_self=Path(__file__),
+        )
+        self.assertEqual(shortfalls, [])
+
+    def test_scan_examines_a_nontrivial_number_of_event_type_sites(self) -> None:
+        total = sum(_count_event_type_sites(p) for p in _files_to_scan(TESTS_ROOT))
+        self.assertGreaterEqual(
+            total,
+            1000,
+            msg=(
+                f"only {total} event-type sites found -- the "
+                f"detection shape may have gone blind"
+            ),
+        )
 
 
 if __name__ == "__main__":
