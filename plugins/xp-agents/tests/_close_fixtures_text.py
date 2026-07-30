@@ -8,7 +8,8 @@ cap. This module is a LEAF — it must not import from `_close_fixtures`
 
 `_quality_meta` / `_security_meta` are the single source of truth for
 the close-reviewer / Step 4.5 metadata shapes documented in
-xp-close-reviewer.md and scripts/_close_pipeline_shared.md; used by
+xp-close-reviewer.md, scripts/_close_pipeline_shared.md and
+scripts/_close_pipeline_review.md; used by
 both the count-concerns CLI tests and the realistic e2e tests so a
 contract change here surfaces in both surfaces at once.
 
@@ -86,7 +87,9 @@ def _security_meta(cycle_id: str, *, close_mode: str = "sprint") -> dict:
     """Step 4.5 security-block metadata shape (kind=security).
 
     Single source of truth for the kind=security/close_cycle_id/close_mode
-    block scripts/_close_pipeline_shared.md Step 4.5 documents.
+    block scripts/_close_pipeline_review.md Step 4 documents. (The
+    security step moved there when the close reference was split by mode;
+    the shared file keeps Steps 5-6b.)
     """
     return {
         "kind": "security",
@@ -183,8 +186,9 @@ class _Step4SecurityIncludeTests(_MixinBase):
     `Step 4.5` references that remain in this file refer to the *Fork
     close-reviewer* step that now lives at 4.5.
 
-    The shared template lives in scripts/_close_pipeline_shared.md (covered
-    by test_close_preloads_emit_shared.py). Each close skill that runs
+    The template lives in scripts/_close_pipeline_review.md, appended only
+    by the preloads of the modes that run it (covered by
+    test_close_preloads_emit_shared.py). Each close skill that runs
     security review (free/sprint/plan unconditionally) must add a
     reference instructing the LLM to apply the shared block with its own
     close-mode and close-skill-name substituted in. xp-story-close never

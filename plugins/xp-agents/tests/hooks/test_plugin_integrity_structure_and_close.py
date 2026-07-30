@@ -181,6 +181,98 @@ class TestPluginIntegrity(unittest.TestCase):
         self.assertGreater(len(combined), 1000, "Guide files too short combined")
 
 
+class TestCloseReferenceIsModeScoped(unittest.TestCase):
+    """The close-pipeline reference ships as two files, appended per mode.
+
+    Steps 4 (Security Review) and 4b (full code review) live in
+    `_close_pipeline_review.md`; Steps 5-6b live in
+    `_close_pipeline_shared.md`. free/plan/sprint append both, story-close
+    appends the shared one alone — it defers Steps 4 and 4b to its enclosing
+    sprint-close, so the steps are absent from its context rather than
+    present with a "skip this" note.
+
+    Structural counterpart to the stdout-level pins in
+    `integration/test_close_preloads_emit_shared.py`: this one catches a
+    preload whose `cat` wiring drifts even if no assertion happens to read
+    the emitted text.
+    """
+
+    _REVIEW_RUNNING_MODES = ("xp-free-close", "xp-plan-close", "xp-sprint-close")
+    _REVIEW_DEFERRING_MODES = ("xp-story-close",)
+
+    def setUp(self):
+        self.plugin_root = _PLUGIN_ROOT
+        self.scripts = self.plugin_root / "scripts"
+
+    def _preload_source(self, skill: str) -> str:
+        preload = self.plugin_root / "skills" / skill / "scripts" / "preload.sh"
+        return preload.read_text()
+
+    def test_both_reference_files_ship(self):
+        for name in ("_close_pipeline_review.md", "_close_pipeline_shared.md"):
+            with self.subTest(name=name):
+                path = self.scripts / name
+                self.assertTrue(path.is_file(), f"missing shipped reference: {path}")
+                self.assertGreater(
+                    len(path.read_text()),
+                    500,
+                    f"{name} is too short to be the real reference — a "
+                    "truncated file would pass an is_file() check alone",
+                )
+
+    def test_review_steps_live_only_in_the_review_reference(self):
+        review = (self.scripts / "_close_pipeline_review.md").read_text()
+        shared = (self.scripts / "_close_pipeline_shared.md").read_text()
+        for heading in (
+            "### Step 4: Security Review",
+            "### Step 4b: Full code review (conditional)",
+        ):
+            with self.subTest(heading=heading):
+                self.assertIn(heading, review, f"review reference must carry {heading}")
+                self.assertNotIn(
+                    heading,
+                    shared,
+                    f"{heading} must NOT be duplicated back into the shared "
+                    "reference — story-close appends that file and skips "
+                    "these steps",
+                )
+
+    def test_review_running_modes_append_review_before_shared(self):
+        for skill in self._REVIEW_RUNNING_MODES:
+            with self.subTest(skill=skill):
+                source = self._preload_source(skill)
+                review_idx = source.find("_close_pipeline_review.md")
+                shared_idx = source.find("_close_pipeline_shared.md")
+                self.assertGreater(
+                    review_idx, -1, f"{skill} preload must append the review reference"
+                )
+                self.assertGreater(
+                    shared_idx, -1, f"{skill} preload must append the shared reference"
+                )
+                self.assertLess(
+                    review_idx,
+                    shared_idx,
+                    f"{skill} preload must append the review reference BEFORE "
+                    "the shared one so Step 4 still precedes Step 5",
+                )
+
+    def test_review_deferring_modes_append_shared_only(self):
+        for skill in self._REVIEW_DEFERRING_MODES:
+            with self.subTest(skill=skill):
+                source = self._preload_source(skill)
+                self.assertIn(
+                    "_close_pipeline_shared.md",
+                    source,
+                    f"{skill} preload must still append the shared reference",
+                )
+                self.assertNotIn(
+                    "_close_pipeline_review.md",
+                    source,
+                    f"{skill} defers Steps 4 and 4b to its enclosing close, so "
+                    "its preload must NOT append the review reference",
+                )
+
+
 # ===========================================================================
 # Sprint-062 / M-8: worktree-commit doctrine pins
 # ===========================================================================

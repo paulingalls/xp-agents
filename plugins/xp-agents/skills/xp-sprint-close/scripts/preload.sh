@@ -52,8 +52,16 @@ emit_system_context_rendered_for close-reviewer
 write_marker CLOSE_CYCLE_ACTIVE ""
 emit_hook_guidance "$HOOK_STATUS"
 
-# Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
-# sees one consistent set of shared instructions across all four close
-# skills instead of four near-duplicate inlined copies.
+# Append the close-pipeline reference so the LLM sees one consistent set of
+# shared instructions instead of near-duplicate inlined copies.
+#
+# Two files, in this order. The review reference (Steps 4, 4b) is emitted only
+# by the modes that RUN those steps — story-close defers both to its enclosing
+# sprint-close, so it appends the shared file alone. Splitting the doc rather
+# than filtering headings out of one keeps the mode scoping structural: a
+# renamed heading cannot silently drop a section.
+#
+# Review file FIRST so Step 4 still precedes Step 5.
 echo
+cat "${PLUGIN_ROOT}/scripts/_close_pipeline_review.md"
 cat "${PLUGIN_ROOT}/scripts/_close_pipeline_shared.md"
