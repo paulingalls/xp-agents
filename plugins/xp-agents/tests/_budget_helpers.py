@@ -211,6 +211,7 @@ def _run_emitter(
     scripts_dir: Path,
     smm_dir: Path,
     cwd: Path,
+    fixtures: dict | None = None,
 ) -> tuple[bytes, str, int]:
     """Run an emitter via subprocess against a pre-seeded SMM.
 
@@ -218,8 +219,12 @@ def _run_emitter(
     can share one bootstrap (the budget test runs all 11 against the
     same empty SMM). XP_TEAMMATE_NAME="" forces solo-mode framing —
     `pop` would let a parent shell's leak through.
+
+    `fixtures` overrides the stdin-builder registry (default `EMITTER_FIXTURES`)
+    so the volume family can drive an emitter louder than shape does; see
+    `tests/test_volume_budgets.py` for why that is load-bearing.
     """
-    builder = EMITTER_FIXTURES.get(script_name)
+    builder = (EMITTER_FIXTURES if fixtures is None else fixtures).get(script_name)
     if builder is None:
         raise KeyError(f"no fixture builder registered for {script_name}")
     stdin_dict = builder()
