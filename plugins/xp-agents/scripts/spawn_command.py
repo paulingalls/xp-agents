@@ -89,6 +89,7 @@ def build_command(
             "spawn_teammate: no model resolved — teammate tier is inherited "
             "from the orchestrator and unverified; pass --model to pin it\n"
         )
+    plugin_dir = _flag_value(plugin_dir)
     if plugin_dir is not None:
         cmd += ["--plugin-dir", plugin_dir]
     if effort is not None:

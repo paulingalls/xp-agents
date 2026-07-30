@@ -32,6 +32,7 @@ collide, which `test_identical_patterns_still_collide` holds.
 
 import contextlib
 import io
+import os
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import conftest  # noqa: F401
 import file_domain_lock
 import marker_names
+import session_start
 import spawn_command
 from conftest import (
     _PLUGIN_ROOT,
@@ -484,6 +486,61 @@ class TestStoryNeverCollidesWithItself(unittest.TestCase):
         )
         claims = file_domain_lock.collision_report(data)["src/a.py"]
         self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
+
+
+class TestPluginDirEmptyFlagIsAbsent(unittest.TestCase):
+    """--plugin-dir carries the identical empty-flag defect --model had, and a
+    worse consequence: an empty CLAUDE_PLUGIN_ROOT spawns a teammate with no
+    skills, agents or hooks — every XP gate silently absent (adda51fd0778)."""
+
+    def test_empty_plugin_dir_omits_the_flag(self):
+        cmd = spawn_command.build_command("worktree-story-001", plugin_dir="")
+        self.assertNotIn("--plugin-dir", cmd)
+
+    def test_whitespace_plugin_dir_omits_the_flag(self):
+        cmd = spawn_command.build_command("worktree-story-001", plugin_dir="   ")
+        self.assertNotIn("--plugin-dir", cmd)
+
+    def test_real_plugin_dir_is_forwarded_stripped(self):
+        cmd = spawn_command.build_command("worktree-story-001", plugin_dir=" /p ")
+        self.assertIn("--plugin-dir", cmd)
+        self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/p")
+
+
+class TestTeammateCadenceRenderActuallyFires(unittest.TestCase):
+    """The cadence render was dead code in production: `main` passes
+    smm_dir=None for every teammate by design, and the render was gated on it.
+    Removing the lead's hand-written copy (phase 4) without this would leave a
+    teammate learning its cadence at its FIRST COMMIT (concern dc47698a5ad9).
+
+    Every os.environ patch below is a method-bounded `with` — the shape
+    test_env_patch_cleanup_pin.py requires, since patch.dict's exit restores the
+    whole mapping and an unbounded one would outlive tearDown.
+    """
+
+    def test_cadence_dir_falls_back_to_the_env_var(self):
+        """smm_dir=None is the production teammate shape — it must still
+        resolve a dir for the cadence read."""
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch.dict(os.environ, {"SMM_DIR": td}),
+        ):
+            self.assertEqual(session_start._cadence_dir(None), Path(td))
+
+    def test_cadence_dir_prefers_an_explicit_dir(self):
+        with (
+            tempfile.TemporaryDirectory() as explicit,
+            tempfile.TemporaryDirectory() as from_env,
+            patch.dict(os.environ, {"SMM_DIR": from_env}),
+        ):
+            self.assertEqual(session_start._cadence_dir(Path(explicit)), Path(explicit))
+
+    def test_cadence_dir_is_none_without_the_env_var(self):
+        """No dir known — render no cadence rather than deriving one, which
+        would create and seed an SMM as a SessionStart side effect."""
+        with patch.dict(os.environ):
+            os.environ.pop("SMM_DIR", None)
+            self.assertIsNone(session_start._cadence_dir(None))
 
 
 if __name__ == "__main__":
