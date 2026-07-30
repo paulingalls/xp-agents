@@ -12,13 +12,13 @@ preloads execute their FULL logic path — including helpers they invoke
 (session_history_cli.py, triage_preload.py, debt_for_files.py, etc.)
 whose stdout flows into the preload's additionalContext.
 
-Story-001 ships an empty PRELOAD_BUDGETS + empty PRELOAD_FIXTURES so both
-tests pass vacuously. Wave-2 trim stories (002-005, 007) APPEND entries
-as they trim and measure each preload.
+The assertion fails at 98% of budget, not on breach — a preload that has
+crept to its cap is reported while it can still be trimmed cheaply, which is
+the difference between a warning and an outage.
 
 Adding a new preload: add a fixture builder in `_preload_fixtures.py`,
-run `assert_preload_under_budgets` once to measure stdout chars, compute
-``ceil(measured * 1.125 / 100) * 100`` (floor at 100), add an entry below.
+run `assert_preload_under_budgets` once to measure stdout chars, then
+`ratchet(measured, <a first budget>, 100, rounding=math.ceil, floor=100)`.
 """
 
 import sys
@@ -34,37 +34,24 @@ from conftest import (
     discover_preload_scripts,
 )
 
-# ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
+# ratchet(measured, current, 100, rounding=ceil, floor=100) — see
+# `_budget_helpers.ratchet`. Recalculated from post-audit sizes; a budget may
+# only ever come DOWN, so an entry whose measured size fell by less than 11.1%
+# keeps the number it already had.
 #
-# The four close preloads are the exception: each `cat`s the shared
-# close-pipeline reference, so a char added there costs 4x and the wave-2 trim
-# stories set these to the next hundred above measured rather than the 1.125
-# headroom, deliberately keeping the trim pressure on. Bumped 7800/7900 -> 8300
-# when the shared Step 6 abort-default gained the close-diff pipe
-# (`count-concerns --diff-paths -`), so an unrelated open concern filed in the
-# same window can no longer abort a clean close. The added paragraph was
-# re-trimmed to five lines first; the per-mode SKILLs carry a one-liner each.
-# Measured at that bump: free 8237, plan 8223, sprint 8242, story 8295.
-# Bumped 8300 -> 8400 when the shared Step 5c worktree-commit note gained the
-# literal-path rule: the hard `-C` refusal shipped in v5.1.0 was taught in one
-# of four places, and not the one a teammate reads, so a lead following this
-# block hit a refusal the block never mentioned. One line, four preloads.
-# Measured at that bump: free 8303, plan 8289, sprint 8308, story 8361.
-# Bumped 8400 -> 8900 for shared Step 6b, which releases the close-cycle id
-# marker. Not prose that could live in one mode's SKILL.md: the marker is what
-# tags concerns with the close they were raised during, and an id left behind
-# tags concerns raised AFTER its close ended — which the next close's
-# `--cycle-id` count then excludes, dropping a concern the gate should have
-# counted. Every mode gates on that count, so every mode needs the release.
-# Written at four lines plus the command (a first draft at ~1100 chars was cut
-# to ~440 before this bump was taken).
-# Measured at that bump: free 8746, plan 8732, sprint 8751, story 8804.
-# NOT bumped for story-003's `--no-renames ... -z` capture flags (+16 chars per
-# site, x4 preloads): the flags fit, the sentence explaining WHY they are there
-# did not, and it was dropped rather than take a fifth bump for prose. Read the
-# headroom before writing here — measured after: free 8834, plan 8820, sprint
-# 8839, story 8892. Story-close now has EIGHT characters. The next edit to
-# `_close_pipeline_shared.md` that is longer than that needs a bump, not a trim.
+# The close preloads dominate this family: each appends a shared reference
+# file, so a char added there costs once per mode that appends it. Steps 4 and
+# 4b now live in a second file appended only by free/plan/sprint, which is what
+# took story-close from 8,730 (98.09% of 8,900 — inside the band, and
+# unfixable by any budget change, since the ratchet computes higher and a
+# ratchet may not raise) down to 5,668 and a budget of 6,400.
+#
+# free/plan/sprint measured 8,655/8,641/8,660 and HOLD at 8,900: the ratchet
+# wants 9,800 for them, so the monotonic guard pins them where they are. They
+# sit at 97.1-97.3%, roughly 60-80 chars clear of the 98% band. That is the
+# tightest headroom in this family by a wide margin — the next edit to either
+# reference file is what those chars are for, and there is no slack for prose
+# that could live in one mode's SKILL.md instead.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 100,
     "xp-assign": 300,
@@ -79,7 +66,7 @@ PRELOAD_BUDGETS: dict[str, int] = {
     "xp-sprint-close": 8900,
     "xp-sprint-review": 100,
     "xp-sprint-start": 100,
-    "xp-story-close": 8900,
+    "xp-story-close": 6400,
     "xp-system-context": 100,
     "xp-work-selection": 100,
 }

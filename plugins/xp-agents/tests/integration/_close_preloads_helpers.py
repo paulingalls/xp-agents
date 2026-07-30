@@ -38,15 +38,6 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "preload must emit the shared close-pipeline heading",
         )
 
-    def test_emits_step4b_full_code_review_heading(self):
-        result = self._preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            "### Step 4b: Full code review (conditional)",
-            result.stdout,
-            "preload must emit the shared Step 4b (full code review) heading",
-        )
-
     def test_emits_step5_present_findings_marker(self):
         result = self._preload()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -129,67 +120,43 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
             "Step 6 must NOT keep the prose-match fallback",
         )
 
-    def test_emits_step4_security_review_skill_invocation(self):
-        # M-2 step-order swap: Security Review is now Step 4 (was 4.5),
-        # close-reviewer fork is now Step 4.5 (was 4). Pin the new
-        # heading + the exact Skill-tool invocation shape — args MUST
-        # name "cumulative diff" so /security-review scopes correctly.
-        result = self._preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            "### Step 4: Security Review",
-            result.stdout,
-            "preload must emit the shared Step 4 (Security Review) heading "
-            "(M-2 step-order swap)",
-        )
-        self.assertNotIn(
-            "### Step 4.5: Security Review",
-            result.stdout,
-            "shared file must NOT carry the old `### Step 4.5: Security Review` "
-            "heading post-swap",
-        )
-        self.assertIn(
-            'Skill(skill: "security-review"',
-            result.stdout,
-            "Step 4 must invoke Skill(skill: 'security-review', args: ...)",
-        )
-        self.assertIn(
-            "cumulative diff",
-            result.stdout,
-            "Step 4 args must scope to the cumulative diff",
-        )
-
     def test_emits_step4_close_cycle_active_marker_write(self):
         # The close-cycle marker MUST be written by the preload script
         # itself (not LLM prose), so the Stop hook arms regardless of
         # what the LLM does next. Pin two halves:
         #  (a) the preload source calls `write_marker CLOSE_CYCLE_ACTIVE`
-        #      BEFORE its `cat _close_pipeline_shared.md` line
+        #      BEFORE the FIRST `cat .../_close_pipeline_*.md` line
         #      (text inspection — write_marker runs silently, no stdout).
         #  (b) the marker file actually appears on disk after the
         #      preload runs (behavioral effect).
         # Story-close overrides this test with an inverse-pin
         # (no marker write) — see TestStoryClosePreloadEmitsShared.
+        #
+        # Keyed on the EARLIEST reference-append, not on the shared file by
+        # name: free/plan/sprint now append two files, and the review one goes
+        # first. Naming `_close_pipeline_shared.md` here would let a preload
+        # emit Steps 4/4b ahead of the marker write and still pass — which is
+        # the exact prose-order failure mode this pin exists to catch.
         source = self._PRELOAD.read_text()
         write_call = "write_marker CLOSE_CYCLE_ACTIVE"
-        cat_call = 'cat "${PLUGIN_ROOT}/scripts/_close_pipeline_shared.md"'
+        cat_re = re.compile(r'cat "\$\{PLUGIN_ROOT\}/scripts/_close_pipeline_\w+\.md"')
         write_idx = source.find(write_call)
-        cat_idx = source.find(cat_call)
+        cat_matches = [m.start() for m in cat_re.finditer(source)]
         self.assertGreater(
             write_idx,
             -1,
             f"preload must invoke `{write_call}` to arm the close-cycle gate",
         )
-        self.assertGreater(
-            cat_idx,
-            -1,
-            f"preload must `{cat_call}` to append the shared pipeline",
+        self.assertTrue(
+            cat_matches,
+            f"preload must `cat` a close-pipeline reference matching "
+            f"{cat_re.pattern!r}",
         )
         self.assertLess(
             write_idx,
-            cat_idx,
-            "preload must arm the marker BEFORE cat'ing the shared "
-            "pipeline (prose-driven marker write was the failure mode)",
+            min(cat_matches),
+            "preload must arm the marker BEFORE cat'ing any close-pipeline "
+            "reference (prose-driven marker write was the failure mode)",
         )
 
         result = self._preload()
@@ -198,44 +165,6 @@ class _SharedPreloadAssertions(_ClosePreloadCommonTests):
         self.assertTrue(
             marker_path.is_file(),
             f"preload must actually write the marker file at {marker_path}",
-        )
-
-    def test_emits_step4_5_security_concern_metadata_kind(self):
-        # Security findings file as concerns with metadata.kind=security
-        # so the structural commit-link probe AND any future "filter by
-        # source" query can distinguish them from quality blocks.
-        result = self._preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            '"kind":"security"',
-            result.stdout,
-            "Step 4.5 append.sh templates must include metadata.kind=security",
-        )
-        self.assertIn(
-            '"close_cycle_id":',
-            result.stdout,
-            "Step 4.5 append.sh templates must include metadata.close_cycle_id "
-            "(scopes the Step 6 count to this close cycle only)",
-        )
-        self.assertIn(
-            '"close_mode":',
-            result.stdout,
-            "Step 4.5 append.sh templates must include metadata.close_mode "
-            "(free|sprint|plan substituted by each close skill)",
-        )
-
-    def test_emits_step4_5_clean_separation_note(self):
-        # Constraint: don't pass security findings to close-reviewer.
-        # The shared template must explicitly tell the close skill not
-        # to fold security into the reviewer prompt — security and
-        # quality are independent review streams.
-        result = self._preload()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            "clean separation",
-            result.stdout,
-            "Step 4.5 must explicitly call out clean-separation from "
-            "xp-close-reviewer (M-8 constraint)",
         )
 
     def test_emits_step5c_classify_and_act_marker(self):

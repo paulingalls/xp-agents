@@ -126,13 +126,21 @@ class TestShippedFilesAreProjectGeneric(unittest.TestCase):
     """
 
     # Walks every markdown file the plugin ships at runtime: SKILL.md
-    # bodies (skills/), agent prompts (agents/), and the shared
-    # close-pipeline reference. _preload_base.sh is shell, not LLM-
+    # bodies (skills/), agent prompts (agents/), and the close-pipeline
+    # reference under scripts/. _preload_base.sh is shell, not LLM-
     # facing prose, so excluded.
+    #
+    # scripts/ is a DIRECTORY root, not a named file. It used to name
+    # `_close_pipeline_shared.md` directly, and splitting that reference by
+    # close mode moved a third of its prose into a sibling
+    # (`_close_pipeline_review.md`) that the named-file form would have
+    # silently stopped scanning — the banned patterns are project-internal
+    # references, so an unscanned shipped surface is exactly the hole this
+    # test exists to close. The glob cannot be outrun by the next split.
     _SHIPPED_MARKDOWN_ROOTS = (
         _PLUGIN_ROOT / "skills",
         _PLUGIN_ROOT / "agents",
-        _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md",
+        _PLUGIN_ROOT / "scripts",
     )
 
     # Match the parenthetical patterns that wrap an internal event ID.
