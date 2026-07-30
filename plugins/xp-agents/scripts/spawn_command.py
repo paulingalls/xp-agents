@@ -19,6 +19,26 @@ import tier_wire
 _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 
+def flag_value(raw: str | None) -> str | None:
+    """A spawn flag's effective value: None when absent, empty, or whitespace.
+
+    `is not None` is the wrong absence test for these flags. Every real caller
+    is a shell interpolating a variable, and an unset variable interpolates to
+    `""` — not to nothing. So the untiered spawn (the common case) arrives as
+    `--model ""`, which `is not None` accepts and forwards as an empty flag.
+    Stripping also protects the tier table, which matches on exact names and
+    would read `" sonnet "` as an unknown model.
+
+    Public because `spawn_teammate.main` must apply the SAME emptiness test
+    before its `--plugin-dir`/`$CLAUDE_PLUGIN_ROOT` fallback: a bare truthiness
+    test there calls `"   "` a value, skips the fallback, and hands us a flag we
+    then drop — an ungated teammate from a variable that only looked set.
+    """
+    if raw is None:
+        return None
+    return raw.strip() or None
+
+
 def build_command(
     name: str,
     model: str | None = None,
@@ -29,13 +49,20 @@ def build_command(
 
     Prompt is piped via stdin, not passed as a CLI flag. When *model* is
     given, a --model flag selects the teammate's tier (e.g. sonnet for a
-    delegated solo teammate); otherwise the claude -p default is inherited.
+    delegated solo teammate); otherwise the claude -p default is inherited —
+    and that inheritance is ANNOUNCED on stderr, because an unannounced one is
+    indistinguishable from an empty tier variable the operator meant to set.
+
+    *model*, *plugin_dir* and *effort* are normalized through ``flag_value``: an
+    empty or whitespace-only value means "not set", so the flag is omitted
+    rather than forwarded empty.
 
     When *plugin_dir* is given, a --plugin-dir flag loads that plugin into the
     headless teammate session. This is REQUIRED for the teammate to get the
     xp-agents skills, agents, and hooks: a worktree `claude -p` session does
     not apply the project-scoped marketplace enablement, so without
-    --plugin-dir the plugin (and its full hook lifecycle) never loads.
+    --plugin-dir the plugin (and its full hook lifecycle) never loads — so its
+    absence is ANNOUNCED on stderr too, for the same reason the model's is.
 
     When *effort* is given, a --effort flag forwards the reasoning-effort
     level — but only when the resolved *model* is known to support it
@@ -59,10 +86,27 @@ def build_command(
         "--include-partial-messages",
         "--verbose",
     ]
+    model = flag_value(model)
+    effort = flag_value(effort)
     if model is not None:
         cmd += ["--model", model]
+    else:
+        sys.stderr.write(
+            "spawn_teammate: no model resolved — teammate tier is inherited "
+            "from the orchestrator and unverified; pass --model to pin it\n"
+        )
+    plugin_dir = flag_value(plugin_dir)
     if plugin_dir is not None:
         cmd += ["--plugin-dir", plugin_dir]
+    else:
+        # Louder than the model note on purpose: an inherited tier still runs
+        # the XP lifecycle, while a plugin-less teammate loads no skills, agents
+        # or hooks — every gate absent, and nothing downstream to report it.
+        sys.stderr.write(
+            "spawn_teammate: no plugin dir resolved — the teammate loads NO "
+            "xp-agents skills, agents or hooks and every XP gate is absent; "
+            "pass --plugin-dir or set CLAUDE_PLUGIN_ROOT\n"
+        )
     if effort is not None:
         if model is None:
             sys.stderr.write(

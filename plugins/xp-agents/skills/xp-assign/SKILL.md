@@ -20,7 +20,7 @@ allowed-tools:
   - Read
 ---
 
-!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh`
+!`CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" ${CLAUDE_SKILL_DIR}/scripts/preload.sh --consume-gate`
 
 # Work Assignment
 
@@ -217,11 +217,9 @@ separate Bash call anyway. The teammate has no prior context. Include:
   `branch_name`, NOT the sprint-level one). Copy it; do not shorten it to the
   story id, re-slug it, or prettify it.
 - **SMM Directory** — `SMM_DIR=<path>`
-- TDD instructions, plus the review cycle for `REVIEW_CADENCE` (the preload
-  emits the session's cadence — write THAT one, never both). Under `story`,
-  say the per-commit gate defers and the review runs once at
-  `/xp-story-close`; a teammate told to review per commit there pays for a
-  duplicate cycle.
+- TDD instructions. **Do not state the review cadence** — the teammate's own
+  session start renders it from live state, and its commit gate reports the one
+  in force. A copy written here is a channel that can only go stale.
 
 **The branch is a hard gate, not a nicety.** The spawn refuses any prompt that
 does not contain the `--branch` string, and exits non-zero without spawning.

@@ -6,8 +6,14 @@ story-008. Four rules across three surfaces:
 1. No teammate-facing surface may assert ONE review cadence unconditionally.
    The session picks `commit` or `story`; under story cadence a per-commit
    review cycle is a duplicate the teammate pays for twice. Covers
-   TEAMMATE_GUIDE.md (the guide injected into every teammate session) and
-   xp-assign/SKILL.md (the prompt the lead writes for the teammate).
+   TEAMMATE_GUIDE.md, the guide injected into every teammate session.
+
+   story-010 REVERSED the xp-assign half of this rule. story-008 made the lead
+   state the cadence in the spawn prompt so it would stop guessing; the premise
+   was wrong, because the lead was never the teammate's source —
+   `session_start._run_teammate` renders the cadence into every teammate session
+   from the marker. The lead's copy was a fourth channel and the only staleable
+   one, so it is now pinned ABSENT rather than present.
 
 2. No shipped prose may use the bash-only `${VAR:+...}` conditional-expansion
    form for a spawn flag. zsh — the macOS default shell — expands it to ONE
@@ -116,8 +122,21 @@ class TestGuideCadenceNeutrality(unittest.TestCase):
         )
 
 
-class TestAssignPromptCadenceVar(unittest.TestCase):
-    """The lead's teammate prompt gets the cadence from the preload, not a guess."""
+class TestAssignPromptHasNoCadenceChannel(unittest.TestCase):
+    """REVERSED (story-010): the lead's prompt must NOT state the cadence.
+
+    story-008 added this channel so the lead would stop GUESSING the cadence.
+    The premise was wrong — the lead was never the teammate's source.
+    `session_start._run_teammate` renders the cadence into EVERY teammate
+    session from the marker, and its own docstring says it exists "so the
+    teammate doesn't depend on the lead hand-writing it into the spawn prompt".
+
+    So the lead's copy was a fourth channel (marker → render → commit gate, plus
+    this) and the only one that could go stale: it is authored once, at spawn,
+    from a var the lead may reword or drop, while the other three read live
+    state. Removing it is the reversal; these pins hold it removed. The cadence
+    MARKER stays — see tests/hooks/test_markers_cadence.py.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -126,28 +145,41 @@ class TestAssignPromptCadenceVar(unittest.TestCase):
             _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
         ).read_text(encoding="utf-8")
 
-    def test_preload_emits_the_review_cadence(self):
-        """A deterministic source: `_get_review_cadence` (already shared by the
-        story-close and quality-review preloads), emitted as a KEY=value var."""
-        self.assertIn("_get_review_cadence", self.preload)
-        self.assertIn("REVIEW_CADENCE=", self.preload)
+    def test_preload_does_not_emit_the_review_cadence(self):
+        """No emitted `KEY=` var, and no reader for it: leaving
+        `_get_review_cadence` behind would be a python3 subprocess per
+        /xp-assign for a value nothing consumes.
 
-    def test_prompt_content_bullet_names_the_cadence_var(self):
-        """The review-cycle bullet in Step 3's include-list must direct the lead
-        at the emitted var. "Write the cadence the session set" is otherwise
-        unactionable and the lead guesses — which is how a sibling story got a
-        duplicate review cycle."""
+        Anchored on the `=` so the preload may still NAME the removed var in a
+        comment explaining why it is gone — that comment is what stops the
+        channel being re-added by someone who thinks it was an oversight.
+        """
+        self.assertNotIn("REVIEW_CADENCE=", self.preload)
+        self.assertNotIn("_get_review_cadence", self.preload)
+
+    def test_no_review_cycle_bullet_names_a_cadence_var(self):
+        """The include-list must not hand the lead a cadence to write. Scoped to
+        the review-cycle bullets (the shape story-008 introduced) rather than
+        the whole body, so an unrelated future mention of the word cannot make
+        this pin vacuous."""
         bullets = [
             line
             for line in self.body.splitlines()
             if re.search(r"(?i)review.cycle", line) and line.lstrip().startswith("-")
         ]
-        self.assertTrue(bullets, "no review-cycle bullet in the include-list")
-        self.assertTrue(
-            any("REVIEW_CADENCE" in line for line in bullets),
-            "the review-cycle prompt bullet does not name REVIEW_CADENCE:\n"
-            + "\n".join(bullets),
+        offenders = [line for line in bullets if "REVIEW_CADENCE" in line]
+        self.assertEqual(
+            offenders,
+            [],
+            "a review-cycle prompt bullet still names REVIEW_CADENCE — the "
+            "teammate gets its cadence from its own SessionStart render:\n"
+            + "\n".join(offenders),
         )
+
+    def test_the_skill_does_not_state_a_cadence_anywhere(self):
+        """Broader than the bullet pin: the channel is gone only if no part of
+        the skill tells the lead to write a cadence into the prompt."""
+        self.assertNotIn("REVIEW_CADENCE", self.body)
 
 
 class TestSpawnFlagConditionalForwarding(unittest.TestCase):

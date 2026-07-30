@@ -1,0 +1,651 @@
+#!/usr/bin/env python3
+"""Pins: the spawn path fails LOUD instead of silently inheriting (story-010).
+
+Defects on the spawn path, all silent:
+
+1. An empty or whitespace-only tier flag reached `build_command` as a truthy
+   `str` (only `is not None` was checked), so `--model ""` forwarded an empty
+   flag and `--effort ""` produced a misleading "does not support effort ''"
+   note. A shell that expands an unset var to `""` — the normal shape of an
+   untiered spawn — is the caller that hits this.
+2. With no model resolved the teammate silently ran at whatever tier the
+   orchestrator happened to be on. The silence WAS the defect: an inherited
+   tier must be observable, so the operator can tell "deliberately untiered"
+   from "the tier var was empty".
+3. The assign preload deleted a LIVE gate marker as its last act, so reading
+   what it emits disarmed the plan-review gate. Non-mutating is now the
+   default and the consume is opted into, because the accident happened
+   exactly twice — both times on the unmarked path.
+4. `file_domain_lock` compared glob entries as literal strings, so a story
+   declaring `skills/*/SKILL.md` and one declaring `skills/xp-assign/SKILL.md`
+   read as disjoint domains — and two teammates were cleared to edit one file.
+
+The glob pins live here rather than beside `tests/engine/test_file_domain_lock.py`
+because this story owns exactly one new test file; the collision lock belongs to
+the same spawn-determinism contract anyway — it is what decides whether two
+teammates may run at once.
+
+Glob-vs-glob overlap (two DIFFERENT patterns that could match one file) stays
+undetected by design — debt 40626375ff25. Identical pattern strings still
+collide, which `test_identical_patterns_still_collide` holds.
+"""
+
+import contextlib
+import io
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
+
+# Imported for its side effect as well as its symbols: conftest installs the
+# suite-wide backstop that makes launching the real `claude` binary impossible
+# (see test_no_test_can_spawn_a_real_agent.py). This module drives
+# spawn_teammate.main(), whose tail is the real spawn.
+import conftest  # noqa: F401
+import file_domain_lock
+import marker_names
+import session_start
+import smm_dir_resolve
+import spawn_command
+from conftest import (
+    _PLUGIN_ROOT,
+    _HookTestCase,
+    _IntegrationTestCase,
+    make_sprint_dict,
+    make_story_dict,
+    write_smm_fixture,
+)
+
+_ASSIGN_SKILL = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
+_ASSIGN_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
+
+# The opt-in the real assign invocation passes. Named here once so the prose pin
+# and the behavioral pins cannot drift onto two different spellings.
+_CONSUME_FLAG = "--consume-gate"
+
+
+def _build(**kwargs) -> tuple[list[str], str]:
+    """(argv, stderr) from build_command — the unit under test for the flag
+    guard. Mirrors test_spawn_teammate_effort._capture_spawn's stderr capture
+    without paying for the worktree/run_with_tee patching: the normalization
+    lives in build_command, so main() only needs the one end-to-end pin below.
+    """
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        cmd = spawn_command.build_command("worktree-story-010", **kwargs)
+    return cmd, stderr.getvalue()
+
+
+class TestEmptyTierFlagIsAbsent(unittest.TestCase):
+    """An empty value means "not set", not "set to empty" (AC1)."""
+
+    def test_empty_model_omits_the_flag(self):
+        cmd, _ = _build(model="")
+        self.assertNotIn("--model", cmd)
+
+    def test_whitespace_model_omits_the_flag(self):
+        cmd, _ = _build(model="   ")
+        self.assertNotIn("--model", cmd)
+
+    def test_real_model_is_still_forwarded(self):
+        cmd, _ = _build(model="sonnet")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+
+    def test_model_is_stripped_before_forwarding(self):
+        """A shell that interpolates a padded var must not hand argparse a
+        value the tier table cannot match."""
+        cmd, _ = _build(model=" sonnet ")
+        self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+
+    def test_empty_effort_omits_the_flag_without_an_unsupported_note(self):
+        """`--effort ""` used to reach tier_wire.effort_supported and print
+        "model does not support effort ''" — a note about a level nobody asked
+        for, which reads as a real tier problem."""
+        cmd, err = _build(model="opus", effort="")
+        self.assertNotIn("--effort", cmd)
+        self.assertNotIn("does not support", err)
+
+    def test_whitespace_effort_omits_the_flag_without_an_unsupported_note(self):
+        cmd, err = _build(model="opus", effort="  ")
+        self.assertNotIn("--effort", cmd)
+        self.assertNotIn("does not support", err)
+
+    def test_empty_effort_with_no_model_says_nothing_about_effort(self):
+        """The unverifiable-effort note is also wrong when no effort was asked
+        for — the only note due here is the inherited-tier one."""
+        _, err = _build(model="", effort="")
+        self.assertNotIn("effort", err)
+
+    def test_real_effort_still_forwarded_on_a_supporting_model(self):
+        cmd, _ = _build(model="opus", effort="xhigh")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "xhigh")
+
+    def test_effort_is_stripped_before_the_support_check(self):
+        cmd, _ = _build(model="opus", effort=" xhigh ")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "xhigh")
+
+
+class TestInheritedTierIsLoud(unittest.TestCase):
+    """No model resolved → say so on stderr (AC2)."""
+
+    def test_absent_model_notes_the_inherited_unverified_tier(self):
+        _, err = _build()
+        self.assertIn("inherited", err)
+        self.assertIn("orchestrator", err)
+        self.assertIn("unverified", err)
+
+    def test_empty_model_notes_the_inherited_unverified_tier(self):
+        """The empty-string path is the one an untiered shell spawn takes, so it
+        must reach the SAME note as an omitted flag — not stay silent because
+        `"" is not None`."""
+        _, err = _build(model="")
+        self.assertIn("inherited", err)
+        self.assertIn("unverified", err)
+
+    def test_resolved_model_notes_nothing(self):
+        """A plugin dir is passed too: the note under test is the TIER one, and
+        the plugin-less note would otherwise make this pass for the wrong
+        reason."""
+        _, err = _build(model="sonnet", plugin_dir="/p")
+        self.assertEqual(err, "")
+
+    def test_note_reaches_stderr_through_a_real_spawn(self):
+        """End-to-end through main(): the operator watching a live spawn is who
+        the note is for, and stdout is the teammate's stream — it must not land
+        there."""
+        import spawn_teammate
+
+        captured: dict[str, list[str]] = {}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+
+        stderr, stdout = io.StringIO(), io.StringIO()
+        try:
+            with (
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(
+                    spawn_teammate,
+                    "run_with_tee",
+                    side_effect=lambda cmd, *a, **k: captured.__setitem__("v", cmd),
+                ),
+                contextlib.redirect_stderr(stderr),
+                contextlib.redirect_stdout(stdout),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-010",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                        "--model",
+                        "",
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        self.assertNotIn("--model", captured["v"])
+        self.assertIn("inherited", stderr.getvalue())
+        self.assertNotIn("inherited", stdout.getvalue())
+
+
+class TestAssignPreloadIsNonDestructiveByDefault(_IntegrationTestCase):
+    """Inspecting the preload must not disarm a gate (AC4).
+
+    The marker is a live gate read by the lead's write gate and re-armed by the
+    plan-review SubagentStop hook. Its old `rm -f` ran unconditionally as the
+    preload's last line, so anyone running the preload to see what it emits
+    cleared the gate — which happened twice while this story was being planned.
+
+    An `--inspect` flag would reproduce the accident: the inspector is exactly
+    the caller who does not know to pass a flag. So the safe path is the DEFAULT
+    and the real invocation opts in.
+    """
+
+    def _marker(self) -> Path:
+        return self.smm_dir / marker_names.ASSIGN_PENDING
+
+    def _arm(self) -> Path:
+        path = self._marker()
+        path.write_text("sprint-001 story-001\n")
+        return path
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return self._run_preload(_ASSIGN_PRELOAD, args=list(args))
+
+    def test_bare_run_leaves_the_gate_marker(self):
+        marker = self._arm()
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            marker.is_file(),
+            "running the preload for inspection deleted the live gate marker",
+        )
+
+    def test_bare_run_still_emits_the_decision_vars(self):
+        """Non-mutating must not mean degraded: inspection is only useful if the
+        emitted vars are the same ones the real invocation gets."""
+        self._arm()
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for var in ("SMM_DIR=", "TEAMMATE_DEFAULT=", "RECOMMENDED_TIER="):
+            self.assertIn(var, result.stdout)
+
+    def test_opt_in_consumes_the_marker(self):
+        marker = self._arm()
+        result = self._run(_CONSUME_FLAG)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.is_file())
+
+    def test_opt_in_consumes_exactly_once_and_a_second_run_is_clean(self):
+        """ "Exactly once" has a second half: the consume must not error when the
+        marker is already gone, or a re-invoked /xp-assign fails on the preload."""
+        marker = self._arm()
+        first = self._run(_CONSUME_FLAG)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertFalse(marker.is_file())
+        second = self._run(_CONSUME_FLAG)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(marker.is_file())
+
+    def test_opt_in_still_emits_the_decision_vars(self):
+        self._arm()
+        result = self._run(_CONSUME_FLAG)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("TEAMMATE_DEFAULT=", result.stdout)
+
+
+class TestAssignPreloadConsumeWiring(unittest.TestCase):
+    """The static half: the real invocation opts in, via the marker helper."""
+
+    def test_skill_invocation_passes_the_consume_flag(self):
+        """The `!`-injected preload line IS the real assign invocation — if it
+        does not opt in, the gate is never consumed and /xp-assign re-arms
+        against itself forever."""
+        body = _ASSIGN_SKILL.read_text(encoding="utf-8")
+        injected = [
+            line
+            for line in body.splitlines()
+            if line.startswith("!`") and "preload" in line
+        ]
+        self.assertTrue(injected, "no injected preload line in xp-assign/SKILL.md")
+        self.assertTrue(
+            any(_CONSUME_FLAG in line for line in injected),
+            f"the injected preload line does not pass {_CONSUME_FLAG}:\n"
+            + "\n".join(injected),
+        )
+
+    def test_preload_consumes_through_the_marker_helper(self):
+        """`rm -f` on a marker path bypasses the marker convention (symlink
+        refusal, one spelling of the filename). `consume_marker` already
+        exists in the shared preload base."""
+        preload = _ASSIGN_PRELOAD.read_text(encoding="utf-8")
+        self.assertNotIn(marker_names.ASSIGN_PENDING, preload)
+        self.assertIn("consume_marker ASSIGN_PENDING", preload)
+
+
+class TestGlobAwareCollisionDetection(unittest.TestCase):
+    """A pattern claim collides with every explicit path it matches (AC5)."""
+
+    def test_pattern_collides_with_an_explicit_path_it_matches(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["skills/*/SKILL.md — every skill"]
+                ),
+                make_story_dict(
+                    id="story-002",
+                    file_domain=["skills/xp-assign/SKILL.md — the assign skill"],
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertIn("skills/xp-assign/SKILL.md", report)
+        claims = report["skills/xp-assign/SKILL.md"]
+        self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
+        self.assertEqual(claims[0].get("pattern"), "skills/*/SKILL.md")
+        # The explicit claimant is direct — no pattern to name.
+        self.assertIsNone(claims[1].get("pattern"))
+
+    def test_report_names_both_the_pattern_and_the_matched_path(self):
+        report = {
+            "skills/xp-assign/SKILL.md": [
+                {
+                    "story_id": "story-001",
+                    "origin": "authored",
+                    "pattern": "skills/*/SKILL.md",
+                },
+                {"story_id": "story-002", "origin": "authored"},
+            ]
+        }
+        message = file_domain_lock.format_collision_report(report)
+        self.assertIn("skills/xp-assign/SKILL.md", message)
+        self.assertIn("skills/*/SKILL.md", message)
+        self.assertIn("story-001", message)
+        self.assertIn("story-002", message)
+
+    def test_report_tells_a_pattern_claimant_what_to_do(self):
+        """ "fix the file_domain so each path has one owner" is unactionable when
+        one claimant never named the path: the remedy is to narrow the pattern
+        or drop the explicit entry."""
+        report = {
+            "a/b.py": [
+                {"story_id": "story-001", "origin": "authored", "pattern": "a/*.py"},
+                {"story_id": "story-002", "origin": "authored"},
+            ]
+        }
+        message = file_domain_lock.format_collision_report(report)
+        self.assertRegex(message, r"(?i)narrow the pattern")
+
+    def test_pattern_matching_no_file_on_disk_still_collides(self):
+        """The gate compares DECLARED entries, never the filesystem — a pattern
+        whose only match does not exist yet must not slip through (that is why
+        triage.extract_file_domain_paths is not the oracle here)."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["nonexistent/**/*.rs — future crate"]
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["nonexistent/deep/lib.rs — the file"]
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertIn("nonexistent/deep/lib.rs", report)
+
+    def test_recursive_pattern_matches_a_nested_explicit_path(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["src/**/*.ts — all TS"]),
+                make_story_dict(
+                    id="story-002", file_domain=["src/a/b/c.ts — one file"]
+                ),
+            ]
+        )
+        self.assertIn("src/a/b/c.ts", file_domain_lock.collision_report(data))
+
+    def test_star_does_not_cross_a_slash(self):
+        """`*` is one segment, so `skills/*.md` must NOT claim a nested file —
+        otherwise the gate over-reports and every glob domain blocks parallel
+        work."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["skills/*.md — top level"]
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["skills/xp-assign/SKILL.md — nested"]
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_non_matching_pattern_is_not_a_collision(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["scripts/*.py — scripts"]),
+                make_story_dict(id="story-002", file_domain=["smm/triage.py — triage"]),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_identical_patterns_still_collide(self):
+        """Regression guard on the pre-existing literal-string comparison: the
+        glob-vs-glob debt is "different patterns", never "the same pattern
+        twice"."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["src/*.py — glob"]),
+                make_story_dict(id="story-002", file_domain=["src/*.py — glob too"]),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            [c["story_id"] for c in report["src/*.py"]], ["story-001", "story-002"]
+        )
+
+    def test_dependency_edge_still_serializes_a_pattern_collision(self):
+        """Glob awareness widens WHICH claims meet; it must not touch the
+        concurrency rule that excuses two claims on one path."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["skills/*/SKILL.md — all"]
+                ),
+                make_story_dict(
+                    id="story-002",
+                    file_domain=["skills/xp-assign/SKILL.md — one"],
+                    dependencies=["story-001"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+
+class TestStoryNeverCollidesWithItself(unittest.TestCase):
+    """The structural guarantee `dict[path, origin]` used to give for free.
+
+    One story may legitimately declare a pattern AND an explicit path the
+    pattern matches (a domain plus the one file it calls out). Pattern matching
+    makes that TWO claims on one path from one story, and `_concurrent(a, b)`
+    is True for a story against itself — a story is not its own ancestor. So the
+    collapse has to be deliberate.
+    """
+
+    def test_pattern_plus_matching_explicit_path_in_one_story(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=[
+                        "skills/*/SKILL.md — every skill",
+                        "skills/xp-assign/SKILL.md — this one in particular",
+                    ],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_self_claim_collapses_to_the_direct_entry(self):
+        """When another story DOES collide, the self-overlapping story appears
+        exactly once — and as the direct claimant, since it named the path."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=[
+                        "skills/*/SKILL.md — every skill",
+                        "skills/xp-assign/SKILL.md — this one",
+                    ],
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["skills/xp-assign/SKILL.md — mine"]
+                ),
+            ]
+        )
+        claims = file_domain_lock.collision_report(data)["skills/xp-assign/SKILL.md"]
+        self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
+        self.assertIsNone(claims[0].get("pattern"))
+
+    def test_two_patterns_in_one_story_matching_one_declared_path(self):
+        """Both patterns match story-002's path; story-001 must still contribute
+        ONE claim, not one per pattern."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=["src/*.py — by star", "src/**/*.py — by recursion"],
+                ),
+                make_story_dict(id="story-002", file_domain=["src/a.py — the file"]),
+            ]
+        )
+        claims = file_domain_lock.collision_report(data)["src/a.py"]
+        self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
+
+
+class TestPluginDirEmptyFlagIsAbsent(unittest.TestCase):
+    """--plugin-dir carries the identical empty-flag defect --model had, and a
+    worse consequence: an empty CLAUDE_PLUGIN_ROOT spawns a teammate with no
+    skills, agents or hooks — every XP gate silently absent (adda51fd0778)."""
+
+    def test_empty_plugin_dir_omits_the_flag(self):
+        cmd = spawn_command.build_command("worktree-story-001", plugin_dir="")
+        self.assertNotIn("--plugin-dir", cmd)
+
+    def test_whitespace_plugin_dir_omits_the_flag(self):
+        cmd = spawn_command.build_command("worktree-story-001", plugin_dir="   ")
+        self.assertNotIn("--plugin-dir", cmd)
+
+    def test_real_plugin_dir_is_forwarded_stripped(self):
+        cmd = spawn_command.build_command("worktree-story-001", plugin_dir=" /p ")
+        self.assertIn("--plugin-dir", cmd)
+        self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/p")
+
+    def test_absent_plugin_dir_is_announced(self):
+        """Dropping the flag has the SAME consequence the empty flag had — an
+        ungated teammate — so normalizing it silently only moves the failure.
+        The inherited-tier note's argument applies with more force here."""
+        _, err = _build(model="sonnet")
+        self.assertIn("plugin", err.lower())
+        self.assertIn("gate", err.lower())
+
+    def test_whitespace_plugin_dir_does_not_defeat_the_env_fallback(self):
+        """`args.plugin_dir or os.environ[...]` is a truthiness test, and
+        `"   "` is truthy: without the shared emptiness test main() skips the
+        CLAUDE_PLUGIN_ROOT fallback and build_command then drops the flag."""
+        import spawn_teammate
+
+        captured: dict[str, list[str]] = {}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+        try:
+            with (
+                patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/env/xp-agents"}),
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(
+                    spawn_teammate,
+                    "run_with_tee",
+                    side_effect=lambda cmd, *a, **k: captured.__setitem__("v", cmd),
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-010",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                        "--plugin-dir",
+                        "   ",
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        cmd = captured["v"]
+        self.assertIn("--plugin-dir", cmd)
+        self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/env/xp-agents")
+
+
+class TestTeammateCadenceRenderActuallyFires(unittest.TestCase):
+    """The cadence render was dead code in production: `main` passes
+    smm_dir=None for every teammate by design, and the render was gated on it.
+    Removing the lead's hand-written copy (phase 4) without this would leave a
+    teammate learning its cadence at its FIRST COMMIT (concern dc47698a5ad9).
+
+    Every os.environ patch below is a method-bounded `with` — the shape
+    test_env_patch_cleanup_pin.py requires, since patch.dict's exit restores the
+    whole mapping and an unbounded one would outlive tearDown.
+    """
+
+    def test_cadence_dir_falls_back_to_the_env_var(self):
+        """smm_dir=None is the production teammate shape — it must still
+        resolve a dir for the cadence read."""
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch.dict(os.environ, {"SMM_DIR": td}),
+        ):
+            self.assertEqual(session_start._cadence_dir(None), Path(td))
+
+    def test_cadence_dir_prefers_an_explicit_dir(self):
+        with (
+            tempfile.TemporaryDirectory() as explicit,
+            tempfile.TemporaryDirectory() as from_env,
+            patch.dict(os.environ, {"SMM_DIR": from_env}),
+        ):
+            self.assertEqual(session_start._cadence_dir(Path(explicit)), Path(explicit))
+
+    def test_cadence_dir_is_none_without_the_env_var(self):
+        """No dir known — render no cadence rather than deriving one, which
+        would create and seed an SMM as a SessionStart side effect."""
+        with patch.dict(os.environ):
+            os.environ.pop("SMM_DIR", None)
+            self.assertIsNone(session_start._cadence_dir(None))
+
+    def test_cadence_dir_follows_a_relocation_pointer(self):
+        """The handle is pinned at spawn and the tree can have moved since. A
+        raw env read addresses the abandoned copy and renders ITS cadence —
+        the split brain smm_dir_resolve.follow_migration_pointer exists to
+        prevent, which the env branch must not opt out of."""
+        with (
+            tempfile.TemporaryDirectory() as old,
+            tempfile.TemporaryDirectory() as new,
+            patch.dict(os.environ, {"SMM_DIR": old}),
+        ):
+            (Path(old) / smm_dir_resolve.MIGRATION_POINTER).write_text(new + "\n")
+            self.assertEqual(session_start._cadence_dir(None), Path(new))
+
+
+class TestTeammateRenderIsCadenceOnly(_HookTestCase):
+    """The two-sided contract `_cadence_dir` exists to serve, pinned on the
+    function production actually calls.
+
+    The dead-code defect survived because every teammate pin passed an explicit
+    `smm_dir` — the shape production never uses. `_cadence_dir` unit tests do not
+    close that: they cannot catch a re-gating of the render on the wrong
+    variable. Both halves belong in ONE pin, because they pull opposite ways —
+    the cadence must reach a teammate whose `smm_dir` is None, and the SMM render
+    must NOT, since keeping the render out of a teammate's context is exactly why
+    `main` passes None.
+    """
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
+
+    def _render(self) -> str:
+        import session_start as ss
+
+        data = {"session_id": "test", "source": "startup", "cwd": self._TEAMMATE_CWD}
+        with patch.dict(os.environ, {"SMM_DIR": str(self.smm_dir)}):
+            result = ss.run(data, smm_dir=None)
+        self.assertIsNotNone(result, "teammate SessionStart rendered nothing")
+        return result or ""
+
+    def test_production_shape_still_renders_the_cadence(self):
+        import markers
+
+        write_smm_fixture(self.smm_dir, intent=[("Ship the widget", "goal")])
+        markers.write_review_cadence(self.smm_dir, "story")
+        self.assertIn("Review Cadence", self._render())
+
+    def test_production_shape_does_not_leak_the_smm_render(self):
+        write_smm_fixture(self.smm_dir, intent=[("Ship the widget", "goal")])
+        self.assertNotIn("Ship the widget", self._render())
+
+
+if __name__ == "__main__":
+    unittest.main()

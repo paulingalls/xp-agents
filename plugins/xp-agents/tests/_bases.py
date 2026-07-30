@@ -342,15 +342,21 @@ class _IntegrationTestCase(_AssertNotNoneMixin, unittest.TestCase):
         self,
         script_path: Path,
         extra_env: dict | None = None,
+        args: list[str] | None = None,
     ) -> subprocess.CompletedProcess:
-        """Run a preload.sh script as a subprocess."""
+        """Run a preload.sh script as a subprocess.
+
+        `args` is the preload's own argv — needed since a preload may gate a
+        mutation behind an opt-in flag (xp-assign's `--consume-gate`), so the
+        bare call and the real skill invocation are DIFFERENT runs to test.
+        """
         if not script_path.is_file():
             self.skipTest(f"Preload script not found: {script_path}")
         env = self._test_env.copy()
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
-            ["bash", str(script_path)],
+            ["bash", str(script_path), *(args or [])],
             cwd=self.tmpdir,
             capture_output=True,
             text=True,
