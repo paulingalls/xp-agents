@@ -33,8 +33,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _emitter_fixtures import EMITTER_BUDGETS, EMITTER_LOUD_FIXTURES
 from _preload_fixtures import PRELOAD_BUDGETS
-from _volume_fixture import assert_volume_under_budgets, bootstrap_populated_smm
+from _volume_fixture import (
+    assert_volume_under_budgets,
+    bootstrap_populated_smm,
+    emitter_runner,
+)
 from conftest import _SCRIPTS_DIR, _bootstrap_seeded_smm, _run_emitter
 
 # ratchet(measured, current, 100, rounding=ceil) — measured against
@@ -50,7 +55,20 @@ PRELOAD_VOLUME_BUDGETS: dict[str, int] = {
     "xp-work-selection": 118700,
 }
 
+# Same calibration, measured at each emitter's LOUD input (see
+# `_emitter_fixtures.EMITTER_LOUD_FIXTURES`) against the populated SMM.
+EMITTER_VOLUME_BUDGETS: dict[str, int] = {
+    "post_tool_exit_plan.py": 400,
+    "pre_tool_skill.py": 400,
+    "prompt_nugget.py": 600,
+    "retrospective.py": 600,
+    "session_end_warning.py": 200,
+    "session_start.py": 20300,
+    "subagent_start.py": 12100,
+}
+
 _LABEL = "skills/*/scripts/preload.sh"
+_EMITTER_LABEL = "scripts/*.py emitter"
 
 
 class TestRunEmitterAcceptsFixtureOverride(unittest.TestCase):
@@ -145,6 +163,40 @@ class TestPreloadVolumeBudgets(unittest.TestCase):
             measurements[1],
             "the volume fixture is not deterministic; a drifting measurement "
             "inside a 2%-wide band will flake in CI",
+        )
+
+
+class TestEmitterVolumeBudgets(unittest.TestCase):
+    def test_no_emitter_exceeds_its_volume_budget(self):
+        assert_volume_under_budgets(
+            self,
+            EMITTER_VOLUME_BUDGETS,
+            EMITTER_BUDGETS,
+            _EMITTER_LABEL,
+            runner=emitter_runner(EMITTER_LOUD_FIXTURES),
+        )
+
+    def test_the_fixture_is_what_makes_these_emitters_loud(self):
+        """The same mutation, over the emitter path."""
+        with self.assertRaises(AssertionError) as caught:
+            assert_volume_under_budgets(
+                self,
+                EMITTER_VOLUME_BUDGETS,
+                EMITTER_BUDGETS,
+                _EMITTER_LABEL,
+                bootstrap=_bootstrap_seeded_smm,
+                runner=emitter_runner(EMITTER_LOUD_FIXTURES),
+            )
+        message = str(caught.exception)
+        self.assertIn("does not exceed its shape budget", message)
+        self.assertNotIn("subprocess rc=", message)
+
+    def test_every_loud_fixture_has_a_volume_budget(self):
+        self.assertEqual(
+            set(EMITTER_LOUD_FIXTURES),
+            set(EMITTER_VOLUME_BUDGETS),
+            "a loud builder without a volume budget measures nothing, and a "
+            "volume budget without a loud builder bounds the quiet branch",
         )
 
 

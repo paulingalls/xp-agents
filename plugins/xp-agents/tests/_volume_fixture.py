@@ -28,10 +28,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _bases import _SCRIPTS_DIR
 from _budget_helpers import (
     _PLUGIN_ROOT,
     _bootstrap_seeded_smm,
     _measured_len,
+    _run_emitter,
     _run_preload,
     band_offender,
 )
@@ -105,7 +107,54 @@ def bootstrap_populated_smm(tmp: Path, *, total_events: int = 2000):
     repo, smm = _bootstrap_seeded_smm(tmp)
     write_events(smm / "events.jsonl", generate_events(total_events))
     (smm / "sprint.json").write_text(json.dumps(_sprint_doc()))
+    (smm / "shared_mental_model.json").write_text(json.dumps(_curated_pillars()))
     return repo, smm
+
+
+# Pillar counts and per-entry length from a real curated SMM: 1 intent, 20
+# constraints, 5 risks, 10 wisdom. The `type` per pillar is not decorative —
+# smm_schema pins a distinct enum for each (intent: goal/customer_intent,
+# constraints: decision/convention, risks: concern/assumption/debt/question,
+# wisdom: unconstrained), and load_smm raises on a mismatch.
+_PILLAR_SIZES = {
+    "intent": (1, 250, "goal"),
+    "constraints": (20, 250, "convention"),
+    "risks": (5, 330, "concern"),
+    "wisdom": (10, 210, "convention"),
+}
+
+
+def _curated_pillars() -> dict:
+    """The curated four pillars, populated.
+
+    `seed_smm.py` already writes this file, so the shape bootstrap has a
+    non-empty version of it — which is why `subagent_start` and `session_start`
+    move on NEITHER events volume nor sprint state. Their cost is this file,
+    and nothing else. Overwriting it is the only thing that drives the
+    `_inject_full` subagent tier or the session-start SMM render loud.
+    """
+    pillars: dict[str, list[dict]] = {}
+    next_id = 0
+    for pillar, (count, length, entry_type) in _PILLAR_SIZES.items():
+        entries = []
+        for _ in range(count):
+            # Ids are unique across ALL pillars, not per pillar — smm_schema
+            # rejects a collision between e.g. constraints[3] and wisdom[3].
+            entries.append(
+                {
+                    "id": f"{next_id:012x}",
+                    "content": "c" * length,
+                    "source": "seed",
+                    "ts": _TS,
+                    "type": entry_type,
+                    # Risk severity is its own enum, NOT the event severities
+                    # (high/medium/low) — debt/problem/uncertainty.
+                    **({"severity": "problem"} if pillar == "risks" else {}),
+                }
+            )
+            next_id += 1
+        pillars[pillar] = entries
+    return pillars
 
 
 def _sprint_doc() -> dict:
@@ -136,6 +185,21 @@ def _sprint_doc() -> dict:
     }
 
 
+def _preload_runner(name, smm_dir, repo):
+    return _run_preload(name, smm_dir, repo)
+
+
+def emitter_runner(loud_fixtures: dict):
+    """Runner that drives each emitter at its LOUD input."""
+
+    def run(name, smm_dir, repo):
+        return _run_emitter(
+            name, _SCRIPTS_DIR, smm_dir, repo, fixtures={name: loud_fixtures[name]}
+        )
+
+    return run
+
+
 def assert_volume_under_budgets(
     testcase,
     budgets: dict[str, int],
@@ -143,6 +207,7 @@ def assert_volume_under_budgets(
     label: str,
     *,
     bootstrap=bootstrap_populated_smm,
+    runner=_preload_runner,
 ) -> None:
     """Every surface stays clear of its volume band AND out-measures shape.
 
@@ -161,7 +226,7 @@ def assert_volume_under_budgets(
     with tempfile.TemporaryDirectory() as tmp:
         repo, smm_dir = bootstrap(Path(tmp))
         for name, budget in sorted(budgets.items()):
-            stdout_bytes, stderr, rc = _run_preload(name, smm_dir, repo)
+            stdout_bytes, stderr, rc = runner(name, smm_dir, repo)
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
