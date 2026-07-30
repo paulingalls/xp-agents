@@ -16,9 +16,10 @@ files a preload emits rather than by prose telling the reader to skip ahead.
 These tests assert the preload-side mechanic: when a close-skill
 preload runs, its stdout contains the reference's marker headings
 and key phrases, per close mode (story/sprint/plan/free). The
-`_SharedPreloadAssertions` and `_ReviewPipelineAssertions` mixins and the
-`_close_started_events` helper live in `_close_preloads_helpers.py` (not
-test-collected) so the mode-specific TestCase classes below share one copy.
+`_SharedPreloadAssertions` mixin and the `_close_started_events` helper live
+in `_close_preloads_helpers.py`, and the `_ReviewPipelineAssertions` mixin in
+`_close_preloads_review_helpers.py` (neither test-collected), so the
+mode-specific TestCase classes below share one copy.
 
 The cross-mode CLOSE_START_TS emission check, plan/free SKIP-note
 drop, shared-pipeline section ordering coherence, and the
@@ -41,11 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import markers
 import retro_metrics
 from _bases import _PLUGIN_ROOT
-from _close_preloads_helpers import (
-    _close_started_events,
-    _ReviewPipelineAssertions,
-    _SharedPreloadAssertions,
-)
+from _close_preloads_helpers import _close_started_events, _SharedPreloadAssertions
+from _close_preloads_review_helpers import _ReviewPipelineAssertions
 from conftest import _extract_preload_var, _IntegrationTestCase
 
 

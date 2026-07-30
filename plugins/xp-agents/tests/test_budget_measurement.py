@@ -253,6 +253,35 @@ class TestNinetyEightPercentBand(unittest.TestCase):
         """The other half: 0 is a bound, not an exemption."""
         self.assertIsNotNone(band_offender("hook_io.py", 12, 0))
 
+    def test_assert_md_under_budgets_is_actually_wired_to_the_band(self):
+        """The band must reach the ASSERTION, not just live in the helper.
+
+        Every other test here calls `band_offender` directly, and the sibling
+        char-measurement test uses a file that is OVER budget — which the old
+        `actual > budget` check flagged too. So reverting
+        `assert_md_under_budgets` to the breach check would leave the whole
+        suite green. This is the one case that separates them: 98 chars
+        against a budget of 100 is inside the band and UNDER the cap.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "INBAND.md").write_text("x" * 98, encoding="utf-8")
+
+            spy = _SpyCase()
+            with self.assertRaises(AssertionError) as caught:
+                assert_md_under_budgets(spy, tmp_path, "*.md", {"INBAND": 100}, "test")
+            self.assertIn("INBAND", str(caught.exception))
+            self.assertIn("98.0", str(caught.exception))
+
+    def test_assert_md_under_budgets_passes_below_the_band(self):
+        """The other side of the wiring — 97 chars against 100 must pass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "CLEAR.md").write_text("x" * 97, encoding="utf-8")
+            assert_md_under_budgets(
+                _SpyCase(), tmp_path, "*.md", {"CLEAR": 100}, "test"
+            )
+
 
 class TestMdBudgetsMatchStillFailsOnMissingEntry(unittest.TestCase):
     """AC4: the threshold change must not weaken the symmetric match.

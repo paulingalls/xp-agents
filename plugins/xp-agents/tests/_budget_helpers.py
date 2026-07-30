@@ -271,7 +271,7 @@ def assert_emitter_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every emitter's stdout (run via fixture) must be at or below budget.
+    """Every emitter's stdout (run via fixture) must stay clear of the 98% band.
 
     Bootstraps one SMM per call and reuses it across all emitters.
     `subagent_stop.py` runs LAST because its xp-plan-reviewer fixture
@@ -392,7 +392,7 @@ def assert_preload_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every preload's stdout (run via fixture) must be at or below budget.
+    """Every preload's stdout (run via fixture) must stay clear of the 98% band.
 
     Bootstraps one SMM per call and reuses it across all preloads.
     """
