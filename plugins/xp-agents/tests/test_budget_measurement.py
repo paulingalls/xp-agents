@@ -20,6 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Pins the liveness bypass on import: this module drives REAL preloads, and one
+# without the bypass refuses with a 419-char banner instead of its stdout.
+# Imported directly because only pytest loads `conftest` for us — under the
+# unittest fallback the pin would ride on some unrelated module's import.
+import _env_hygiene  # noqa: F401
 from _band_proof import assert_band_fired, below_band_budget, in_band_budget
 from _bases import _PLUGIN_ROOT
 from _budget_helpers import (
@@ -47,10 +52,11 @@ _MIN_REAL_MEASUREMENT = 1000
 
 
 class _SpyCase(unittest.TestCase):
-    """Minimal TestCase that absorbs assertFalse calls without raising.
+    """A throwaway TestCase to pass as the `testcase` arg of a budget assert.
 
-    Used to probe whether assert_md_under_budgets would report an offender
-    without polluting the outer TestCase's failure state.
+    It raises AssertionError like any other TestCase — the point is that the
+    failure lands on THIS instance, so the caller can catch and read it without
+    polluting the outer test's own state.
     """
 
     def runTest(self) -> None:

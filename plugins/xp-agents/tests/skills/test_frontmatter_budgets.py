@@ -309,9 +309,12 @@ class TestDescriptionBandWiring(unittest.TestCase):
     def setUp(self) -> None:
         self.actual = len(_skills()[self._SURFACE])
         # Non-vacuity: an extractor that silently stopped matching would
-        # measure 0, and `band_offender` reports nothing at 0.
+        # measure 0, and `band_offender` reports nothing at 0. The floor is
+        # 100 rather than a token 1 because `in_band_budget` adds at least 2
+        # chars — below ~98 that lands BELOW the band, and the leg would fail
+        # as "AssertionError not raised" instead of saying what went wrong.
         self.assertGreater(
-            self.actual, 50, f"{self._SURFACE}: description did not parse"
+            self.actual, 100, f"{self._SURFACE}: description did not parse"
         )
 
     def _drive(self, budget: int) -> None:

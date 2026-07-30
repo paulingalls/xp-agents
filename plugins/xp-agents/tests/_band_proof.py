@@ -26,10 +26,18 @@ module.
 import re
 import unittest
 
-# `band_offender` renders "<name>: <actual> chars, <pct>% of budget <budget>".
-# Parsed rather than string-matched against a literal like "99.0" so a
-# one-character drift in the measured surface cannot break the proof.
-_BAND_PCT_RE = re.compile(r"(\d+\.\d)% of budget")
+_BAND_LINE = r": (\d+) chars, (\d+\.\d)% of budget (\d+)"
+
+
+def _band_line_re(surface: str) -> re.Pattern[str]:
+    """`band_offender`'s line for THIS surface: "<name>: <n> chars, <pct>% ...".
+
+    Anchored to the surface's own line because the public asserts report every
+    offender they found, so an unanchored search would read whichever came
+    first. Counts are parsed rather than string-matched against a literal like
+    "99.0" so a one-character drift in the surface cannot break the proof.
+    """
+    return re.compile(re.escape(surface) + _BAND_LINE)
 
 
 def in_band_budget(actual: int) -> int:
@@ -66,9 +74,18 @@ def assert_band_fired(
         "the surface never ran — this proof would pass with no band at all",
     )
     testcase.assertIn("% of budget", message, "not a band_offender line")
-    match = _BAND_PCT_RE.search(message)
+    match = _band_line_re(surface).search(message)
     if match is None:
-        testcase.fail(f"no band percentage to read in: {message!r}")
-    pct = float(match.group(1))
+        testcase.fail(f"no band line for {surface} to read in: {message!r}")
+    actual, pct, budget = int(match[1]), float(match[2]), int(match[3])
     testcase.assertGreaterEqual(pct, 98.0, f"{pct}% is below the band")
-    testcase.assertLessEqual(pct, 100.0, f"{pct}% is a breach, not the band")
+    # Read off the counts, not the rendered percentage: a breach only a few
+    # chars over an 8,000-char budget renders as "100.0%", so a `pct <= 100`
+    # test would accept the one case this proof must reject — a surface
+    # calibrated high enough that a bare cap check reports it too.
+    testcase.assertLessEqual(
+        actual,
+        budget,
+        f"{actual} chars is over budget {budget} ({pct}%) — a breach a bare "
+        "cap check reports too, so this is not proof the band is wired",
+    )
