@@ -402,8 +402,12 @@ def register_parsers(sub: argparse._SubParsersAction) -> None:
         "--diff-paths",
         default=None,
         metavar="PATH",
-        help="File of newline-separated repo-relative paths in the close diff "
-        "(`-` reads stdin) — e.g. `git diff --name-only <review-base>...HEAD`. "
+        help="File of NUL- or newline-separated repo-relative paths in the "
+        "close diff (`-` reads stdin) — e.g. "
+        "`git diff --no-renames --name-only -z <review-base>...HEAD`. Use `-z`: "
+        'without it git QUOTES any path holding non-ASCII bytes, `"` or `\\`, '
+        "and a quoted path matches no `files` entry, so a concern about a file "
+        "this close touched reads as provably-elsewhere and is dropped. "
         "Only meaningful WITH --cycle-id: an untagged concern whose `files` all "
         "EXIST and all lie outside the diff is then excluded. Empty or "
         "unreadable behaves exactly as if absent (counts everything) and notes "
