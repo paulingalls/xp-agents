@@ -30,7 +30,24 @@ def normalize_repo_path(raw: str) -> str:
 
 
 def load_diff_paths(spec: str | None) -> set[str]:
-    """Parse newline-separated repo-relative paths from a file, or stdin ("-").
+    """Parse NUL- or newline-separated repo-relative paths from a file, or
+    stdin ("-").
+
+    The documented capture is `git diff --no-renames --name-only -z ...`
+    (story-003) — `-z` NUL-terminates every record, the only separator that
+    closes all three git path-quoting classes (non-ASCII, `"`, `\\`). Splitting
+    on NUL first, then newline, keeps a plain newline-separated FILE spec
+    working too: `--diff-paths` also accepts a file, and nothing guarantees
+    that file was produced by a `-z` capture rather than hand-authored or
+    written by some other producer.
+
+    `scripts/commits.py._nul_paths` already parses `-z` output and calls
+    itself "one parser for every `--name-only -z` reader below" — this is a
+    second one. Duplicated rather than imported: `smm/` importing from
+    `scripts/` is the wrong dependency direction (the reverse already holds
+    throughout this plugin), and `_nul_paths` doesn't fit anyway — it has no
+    newline fallback, because every one of ITS callers only ever reads `-z`
+    output, never a hand-authored file spec.
 
     Returns an EMPTY set for every degraded case — no spec, unreadable path,
     undecodable bytes, blank content — because empty and absent MUST behave
@@ -50,7 +67,8 @@ def load_diff_paths(spec: str | None) -> set[str]:
         raw = sys.stdin.read() if spec == "-" else Path(spec).read_text()
     except (OSError, UnicodeDecodeError):
         return set()
-    return {p for p in (normalize_repo_path(line) for line in raw.splitlines()) if p}
+    records = (line for chunk in raw.split("\0") for line in chunk.splitlines())
+    return {p for p in (normalize_repo_path(record) for record in records) if p}
 
 
 def _intersects_diff(entry: str, diff_paths: set[str]) -> bool:

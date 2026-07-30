@@ -352,6 +352,22 @@ class TestDiffPathsFromStdin(_ScopedGateTestCase):
             self._count(args, stdin_data="".join(f"{p}\n" for p in _DIFF)), "1"
         )
 
+    def test_stdin_nul_separated_paths_keep_a_relevant_concern(self) -> None:
+        """`git diff --name-only -z` NUL-terminates instead of newline-terminating
+        (story-003) — the reader must split on NUL too. Materializing the file is
+        load-bearing here: without it, `_names_existing_code` already keeps the
+        concern counted regardless of diff parsing, and the test would pass even
+        against the un-fixed reader."""
+        write_events(
+            self.events_file,
+            [_concern(files=["plugins/xp-agents/smm/smm_count.py"])],
+        )
+        self._materialize_recorded_files()
+        args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
+        self.assertEqual(
+            self._count(args, stdin_data="".join(f"{p}\0" for p in _DIFF)), "1"
+        )
+
 
 class TestRuleIsOptIn(_ScopedGateTestCase):
     """`--cycle-id`'s meaning narrows ONLY when `--diff-paths` is also supplied
