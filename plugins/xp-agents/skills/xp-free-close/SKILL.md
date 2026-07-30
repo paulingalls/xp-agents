@@ -103,7 +103,7 @@ The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by the prelo
 2. No open high-severity concern recorded during Step 4.5, verified via the
    canonical structured filter:
    ```bash
-   HIGH_CONCERN_COUNT=$(git diff --name-only <TARGET_BRANCH>...<CURRENT_BRANCH> \
+   HIGH_CONCERN_COUNT=$(git diff --no-renames --name-only -z <TARGET_BRANCH>...<CURRENT_BRANCH> \
      | python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-concerns --diff-paths - \
      --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)

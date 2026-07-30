@@ -59,6 +59,12 @@ from conftest import (
 # Written at four lines plus the command (a first draft at ~1100 chars was cut
 # to ~440 before this bump was taken).
 # Measured at that bump: free 8746, plan 8732, sprint 8751, story 8804.
+# NOT bumped for story-003's `--no-renames ... -z` capture flags (+16 chars per
+# site, x4 preloads): the flags fit, the sentence explaining WHY they are there
+# did not, and it was dropped rather than take a fifth bump for prose. Read the
+# headroom before writing here — measured after: free 8834, plan 8820, sprint
+# 8839, story 8892. Story-close now has EIGHT characters. The next edit to
+# `_close_pipeline_shared.md` that is longer than that needs a bump, not a trim.
 PRELOAD_BUDGETS: dict[str, int] = {
     "xp-accept": 100,
     "xp-assign": 300,
