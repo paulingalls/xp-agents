@@ -24,11 +24,10 @@ echo "SMM_DIR=${SMM_DIR}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 echo "SMM_FILE=$(smm_render_to_tempfile)"
 
-# The teammate prompt must state the session's review cadence, or the lead
-# guesses and the teammate runs a per-commit review cycle a story-cadence
-# session already defers. Same reader as the story-close and quality-review
-# preloads; fail-safes to 'commit'.
-echo "REVIEW_CADENCE=$(_get_review_cadence)"
+# No REVIEW_CADENCE var: the teammate reads its cadence from its OWN
+# SessionStart render (session_start._run_teammate), which reads the marker
+# live. A copy emitted here would be a fourth channel and the only staleable
+# one — the lead authors it once, at spawn. Reversal recorded in the SMM.
 
 if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
