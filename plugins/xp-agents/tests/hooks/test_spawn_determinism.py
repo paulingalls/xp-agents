@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pins: the spawn path fails LOUD instead of silently inheriting (story-010).
 
-Two tier-flag defects, both silent:
+Defects on the spawn path, all silent:
 
 1. An empty or whitespace-only tier flag reached `build_command` as a truthy
    `str` (only `is not None` was checked), so `--model ""` forwarded an empty
@@ -12,10 +12,15 @@ Two tier-flag defects, both silent:
    orchestrator happened to be on. The silence WAS the defect: an inherited
    tier must be observable, so the operator can tell "deliberately untiered"
    from "the tier var was empty".
+3. The assign preload deleted a LIVE gate marker as its last act, so reading
+   what it emits disarmed the plan-review gate. Non-mutating is now the
+   default and the consume is opted into, because the accident happened
+   exactly twice — both times on the unmarked path.
 """
 
 import contextlib
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,7 +36,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 # (see test_no_test_can_spawn_a_real_agent.py). This module drives
 # spawn_teammate.main(), whose tail is the real spawn.
 import conftest  # noqa: F401
+import marker_names
 import spawn_command
+from conftest import _PLUGIN_ROOT, _IntegrationTestCase
+
+_ASSIGN_SKILL = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
+_ASSIGN_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
+
+# The opt-in the real assign invocation passes. Named here once so the prose pin
+# and the behavioral pins cannot drift onto two different spellings.
+_CONSUME_FLAG = "--consume-gate"
 
 
 def _build(**kwargs) -> tuple[list[str], str]:
@@ -157,6 +171,101 @@ class TestInheritedTierIsLoud(unittest.TestCase):
         self.assertNotIn("--model", captured["v"])
         self.assertIn("inherited", stderr.getvalue())
         self.assertNotIn("inherited", stdout.getvalue())
+
+
+class TestAssignPreloadIsNonDestructiveByDefault(_IntegrationTestCase):
+    """Inspecting the preload must not disarm a gate (AC4).
+
+    The marker is a live gate read by the lead's write gate and re-armed by the
+    plan-review SubagentStop hook. Its old `rm -f` ran unconditionally as the
+    preload's last line, so anyone running the preload to see what it emits
+    cleared the gate — which happened twice while this story was being planned.
+
+    An `--inspect` flag would reproduce the accident: the inspector is exactly
+    the caller who does not know to pass a flag. So the safe path is the DEFAULT
+    and the real invocation opts in.
+    """
+
+    def _marker(self) -> Path:
+        return self.smm_dir / marker_names.ASSIGN_PENDING
+
+    def _arm(self) -> Path:
+        path = self._marker()
+        path.write_text("sprint-001 story-001\n")
+        return path
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return self._run_preload(_ASSIGN_PRELOAD, args=list(args))
+
+    def test_bare_run_leaves_the_gate_marker(self):
+        marker = self._arm()
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(
+            marker.is_file(),
+            "running the preload for inspection deleted the live gate marker",
+        )
+
+    def test_bare_run_still_emits_the_decision_vars(self):
+        """Non-mutating must not mean degraded: inspection is only useful if the
+        emitted vars are the same ones the real invocation gets."""
+        self._arm()
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for var in ("SMM_DIR=", "TEAMMATE_DEFAULT=", "RECOMMENDED_TIER="):
+            self.assertIn(var, result.stdout)
+
+    def test_opt_in_consumes_the_marker(self):
+        marker = self._arm()
+        result = self._run(_CONSUME_FLAG)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.is_file())
+
+    def test_opt_in_consumes_exactly_once_and_a_second_run_is_clean(self):
+        """ "Exactly once" has a second half: the consume must not error when the
+        marker is already gone, or a re-invoked /xp-assign fails on the preload."""
+        marker = self._arm()
+        first = self._run(_CONSUME_FLAG)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertFalse(marker.is_file())
+        second = self._run(_CONSUME_FLAG)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertFalse(marker.is_file())
+
+    def test_opt_in_still_emits_the_decision_vars(self):
+        self._arm()
+        result = self._run(_CONSUME_FLAG)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("TEAMMATE_DEFAULT=", result.stdout)
+
+
+class TestAssignPreloadConsumeWiring(unittest.TestCase):
+    """The static half: the real invocation opts in, via the marker helper."""
+
+    def test_skill_invocation_passes_the_consume_flag(self):
+        """The `!`-injected preload line IS the real assign invocation — if it
+        does not opt in, the gate is never consumed and /xp-assign re-arms
+        against itself forever."""
+        body = _ASSIGN_SKILL.read_text(encoding="utf-8")
+        injected = [
+            line
+            for line in body.splitlines()
+            if line.startswith("!`") and "preload" in line
+        ]
+        self.assertTrue(injected, "no injected preload line in xp-assign/SKILL.md")
+        self.assertTrue(
+            any(_CONSUME_FLAG in line for line in injected),
+            f"the injected preload line does not pass {_CONSUME_FLAG}:\n"
+            + "\n".join(injected),
+        )
+
+    def test_preload_consumes_through_the_marker_helper(self):
+        """`rm -f` on a marker path bypasses the marker convention (symlink
+        refusal, one spelling of the filename). `consume_marker` already
+        exists in the shared preload base."""
+        preload = _ASSIGN_PRELOAD.read_text(encoding="utf-8")
+        self.assertNotIn(marker_names.ASSIGN_PENDING, preload)
+        self.assertIn("consume_marker ASSIGN_PENDING", preload)
 
 
 if __name__ == "__main__":

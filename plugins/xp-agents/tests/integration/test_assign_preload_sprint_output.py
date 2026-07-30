@@ -290,9 +290,11 @@ class TestPreloadE2EPipeline(_IntegrationTestCase):
         self.assertGreaterEqual(sprint_pos, 0)
 
     def test_preload_clears_assign_pending_marker(self):
+        """The consume is opted into with `--consume-gate` (story-010): the bare
+        run is for inspection and must leave the live gate alone."""
         marker = self.smm_dir / ".assign-pending"
         marker.write_text("gate-id")
-        result = self._run_preload(_PRELOAD_SCRIPT)
+        result = self._run_preload(_PRELOAD_SCRIPT, args=["--consume-gate"])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists())
 
