@@ -40,24 +40,15 @@ README = REPO_ROOT / "README.md"
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 MAKEFILE = REPO_ROOT / "Makefile"
 
-# The five skills/*/scripts dirs that pyrightconfig.json's `extraPaths` already
-# names but `include` (the set pyright actually type-checks) does not.
-SKILLS_SCRIPT_DIRS = (
-    "plugins/xp-agents/skills/xp-accept/scripts",
-    "plugins/xp-agents/skills/xp-end-session/scripts",
-    "plugins/xp-agents/skills/xp-quality-review/scripts",
-    "plugins/xp-agents/skills/xp-sprint-review/scripts",
-    "plugins/xp-agents/skills/xp-work-selection/scripts",
-)
-
 # Surfaces that ship to user projects — a user's project may not use lefthook,
 # or any hook runner, at all, so this story's own check must never appear here.
 SHIPPED_DIRS = tuple(
     _PLUGIN_ROOT / d for d in ("scripts", "smm", "agents", "skills", "hooks")
 )
-SHIPPED_GUIDE_FILES = tuple(
-    _PLUGIN_ROOT / f for f in ("XP_VALUES.md", "PROCESS_GUIDE.md", "TEAMMATE_GUIDE.md")
-)
+# Globbed, not enumerated: `_pin_helpers.shipped_prose_to_scan` reads the root
+# guides the same way, and a hardcoded trio would leave the next guide added
+# unscanned with nothing going red.
+SHIPPED_GUIDE_FILES = tuple(sorted(_PLUGIN_ROOT.glob("*.md")))
 
 
 def _ci_active() -> bool:
@@ -84,19 +75,33 @@ def hooks_installed(repo_root: Path) -> bool:
     Resolved through git itself, never a bare `.git/hooks` join: a worktree
     checkout keeps `.git` as a FILE pointing at a shared common dir, so a
     naive join silently checks a path that never exists there even when the
-    real (shared) hooks are installed. Either mechanism is sufficient:
-    `core.hooksPath` pointing somewhere, or a `pre-commit` file in the
-    resolved hooks dir.
+    real (shared) hooks are installed. `rev-parse --git-path hooks` answers
+    both cases in one call — it returns the shared common dir's hooks in a
+    worktree, and honors a `core.hooksPath` override (tilde already expanded)
+    everywhere.
+
+    The answer is an EXECUTABLE `pre-commit` in that dir, not the mere
+    presence of an override: a global dotfiles `core.hooksPath` with no
+    pre-commit in it, or a hook copied around without its exec bit, leaves
+    every commit ungated — exactly the state this check exists to catch.
+    (`smm/git_hooks.has_executable_hook` applies the same exec-bit rule to
+    user projects.)
     """
-    if _git(repo_root, "config", "--get", "core.hooksPath"):
-        return True
-    common_dir = _git(repo_root, "rev-parse", "--git-common-dir")
-    if not common_dir:
+    hooks_dir = _git(repo_root, "rev-parse", "--git-path", "hooks")
+    if not hooks_dir:
         return False
-    common_path = Path(common_dir)
-    if not common_path.is_absolute():
-        common_path = repo_root / common_path
-    return (common_path / "hooks" / "pre-commit").is_file()
+    path = Path(hooks_dir)
+    if not path.is_absolute():
+        path = repo_root / path
+    return os.access(path / "pre-commit", os.X_OK)
+
+
+def _write_hook(hooks_dir: Path) -> Path:
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook = hooks_dir / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    hook.chmod(0o755)
+    return hook
 
 
 class TestHooksInstalledDetection(unittest.TestCase):
@@ -108,23 +113,51 @@ class TestHooksInstalledDetection(unittest.TestCase):
             init_repo(td)
             self.assertFalse(hooks_installed(Path(td)))
 
-    def test_core_hooks_path_counts_as_installed(self):
+    def test_core_hooks_path_with_a_hook_counts_as_installed(self):
         with tempfile.TemporaryDirectory() as td:
             init_repo(td)
+            override = Path(td) / "custom-hooks"
+            _write_hook(override)
             subprocess.run(
-                ["git", "config", "core.hooksPath", "/tmp/whatever-hooks"],
+                ["git", "config", "core.hooksPath", str(override)],
                 cwd=td,
                 capture_output=True,
                 check=True,
             )
             self.assertTrue(hooks_installed(Path(td)))
 
+    def test_core_hooks_path_without_a_hook_is_not_installed(self):
+        """The false-positive this check cannot afford: a global dotfiles
+        `core.hooksPath` is set on plenty of developer machines, and it says
+        nothing about whether THIS repo's gate was installed. Reporting
+        installed there is how a clone commits ungated with a green suite —
+        the exact failure the story exists to end."""
+        with tempfile.TemporaryDirectory() as td:
+            init_repo(td)
+            empty = Path(td) / "empty-hooks"
+            empty.mkdir()
+            subprocess.run(
+                ["git", "config", "core.hooksPath", str(empty)],
+                cwd=td,
+                capture_output=True,
+                check=True,
+            )
+            self.assertFalse(hooks_installed(Path(td)))
+
     def test_pre_commit_file_counts_as_installed(self):
         with tempfile.TemporaryDirectory() as td:
             init_repo(td)
-            hooks_dir = Path(td) / ".git" / "hooks"
-            (hooks_dir / "pre-commit").write_text("#!/bin/sh\nexit 0\n")
+            _write_hook(Path(td) / ".git" / "hooks")
             self.assertTrue(hooks_installed(Path(td)))
+
+    def test_non_executable_pre_commit_is_not_installed(self):
+        """git skips a hook without the exec bit, so a copied-around
+        `pre-commit` that lost it gates nothing."""
+        with tempfile.TemporaryDirectory() as td:
+            init_repo(td)
+            hook = _write_hook(Path(td) / ".git" / "hooks")
+            hook.chmod(0o644)
+            self.assertFalse(hooks_installed(Path(td)))
 
 
 class TestCiSkipPredicate(unittest.TestCase):
@@ -187,23 +220,45 @@ class TestPyrightGlobCoversTestsTree(unittest.TestCase):
 
 
 class TestPyrightConfigIncludesSkillsScripts(unittest.TestCase):
-    def test_all_five_skills_script_dirs_are_included_and_exist(self):
-        config = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
+    """The 13 shipped modules under `skills/*/scripts` must be in the set
+    pyright CHECKS, not merely in the set it resolves imports against.
+
+    Both configs, and the plugin-local one is the load-bearing half: the
+    lefthook command sets `root: plugins/xp-agents/`, so the commit gate runs
+    pyright with that as its cwd and reads THAT config — editing only the
+    repo-root one (which serves editors opening the repo root) leaves the gate
+    checking 779 files while a root-config-only pin reports green over 792.
+    Derived from the filesystem rather than a hardcoded tuple, so a sixth
+    skill that grows a scripts/ dir cannot slip in unchecked.
+    """
+
+    def _assert_covers_skill_scripts(self, config_path: Path, prefix: str):
+        config = json.loads(config_path.read_text(encoding="utf-8"))
         include = config.get("include", [])
         extra_paths = config.get("extraPaths", [])
-        for d in SKILLS_SCRIPT_DIRS:
+        name = config_path.relative_to(REPO_ROOT)
+        for scripts_dir in sorted((_PLUGIN_ROOT / "skills").glob("*/scripts")):
+            if not any(scripts_dir.glob("*.py")):
+                continue
+            entry = prefix + scripts_dir.relative_to(_PLUGIN_ROOT).as_posix()
             self.assertIn(
-                d, include, f"{d} must be added to pyrightconfig.json's include"
+                entry,
+                include,
+                f"{entry} must be in {name}'s include — else "
+                "its modules are never type-checked",
             )
             self.assertIn(
-                d,
+                entry,
                 extra_paths,
-                f"{d} must stay in extraPaths — adding to include must not move it out",
+                f"{entry} must stay in {name}'s extraPaths — adding to "
+                "include must not move it out",
             )
-            self.assertTrue(
-                (REPO_ROOT / d).is_dir(),
-                f"pyrightconfig.json names {d}, which does not exist",
-            )
+
+    def test_gate_config_checks_every_skill_scripts_dir(self):
+        self._assert_covers_skill_scripts(_PLUGIN_ROOT / "pyrightconfig.json", "")
+
+    def test_repo_root_config_checks_every_skill_scripts_dir(self):
+        self._assert_covers_skill_scripts(PYRIGHT_CONFIG, "plugins/xp-agents/")
 
 
 class TestRuffFormatFixModeSequencedOutOfParallel(unittest.TestCase):
@@ -303,11 +358,26 @@ class TestGatingClaimsAreConditional(unittest.TestCase):
         )
 
     def test_readme_leads_with_make_setup(self):
+        """LEADS with, not merely mentions: a README line alone is what
+        already failed once. Ordering is the assertion — `make setup` has to
+        come before the manual pipx steps it replaces, or the reader follows
+        the old path and never installs the hook."""
         text = README.read_text(encoding="utf-8")
-        self.assertIn(
-            "make setup",
-            text,
-            "README's Development setup section must lead with `make setup`",
+        section = text.split("## Development setup", 1)
+        self.assertEqual(
+            len(section), 2, "README must keep a `## Development setup` section"
+        )
+        body = section[1]
+        setup_at = body.find("make setup")
+        pipx_at = body.find("pipx install pytest")
+        self.assertNotEqual(setup_at, -1, "Development setup must name `make setup`")
+        self.assertNotEqual(pipx_at, -1, "Development setup must keep the pipx route")
+        self.assertLess(
+            setup_at,
+            pipx_at,
+            "`make setup` must come before the manual pipx steps — it is the "
+            "one command that installs the commit hook, and a reader who "
+            "stops at the first code block must have run it.",
         )
 
 
