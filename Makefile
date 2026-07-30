@@ -1,16 +1,22 @@
-.PHONY: test test-unit test-integration test-all
+.PHONY: setup
 
-# Fast unit tests (~0.2s + ~8s) — run on every change
-test-unit:
-	python3 -m unittest plugins/xp-agents/scripts/test_hooks.py plugins/xp-agents/smm/test_smm.py plugins/xp-agents/smm/test_engine.py
-
-# Integration tests (~5s) — run before pushing
-test-integration:
-	python3 -m unittest plugins/xp-agents/scripts/test_integration.py
-
-# Everything (~14s) — full confidence
-test-all:
-	python3 -m unittest plugins/xp-agents/scripts/test_hooks.py plugins/xp-agents/smm/test_smm.py plugins/xp-agents/smm/test_engine.py plugins/xp-agents/scripts/test_integration.py
-
-# Default: unit tests (what pre-commit runs)
-test: test-unit
+# Wires up the commit gate: verifies pytest -n auto actually works (the
+# CAPABILITY that matters, however it got installed — pipx is only the
+# recommended route, not a requirement), then installs the lefthook hook.
+# Idempotent: test_dev_setup.py's failure message points developers here,
+# and some will run it twice.
+setup:
+	@if ! pytest -n auto --collect-only -q >/dev/null 2>&1; then \
+		echo "pytest -n auto isn't working here. Install it, then re-run 'make setup':" >&2; \
+		echo "  brew install pipx                    # if not already installed" >&2; \
+		echo "  pipx install pytest" >&2; \
+		echo "  pipx inject pytest pytest-xdist      # parallel test execution" >&2; \
+		exit 1; \
+	fi
+	@if ! command -v lefthook >/dev/null 2>&1; then \
+		echo "lefthook isn't on PATH. Install it, then re-run 'make setup':" >&2; \
+		echo "  brew install lefthook" >&2; \
+		exit 1; \
+	fi
+	lefthook install
+	@echo "Commit gate installed — pytest -n auto now runs on every commit."
