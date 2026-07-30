@@ -88,7 +88,6 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/smm/test_smm_store.py": 487,
     "plugins/xp-agents/tests/hooks/test_commits_issues.py": 486,
     "plugins/xp-agents/tests/hooks/test_lang_leak_scan.py": 486,
-    "plugins/xp-agents/tests/integration/_close_preloads_helpers.py": 485,
     "plugins/xp-agents/tests/smm/test_session_history.py": 484,
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_branch_release.py": 482,
