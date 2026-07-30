@@ -1,9 +1,8 @@
 ---
 name: xp-sprint-review
 description: >-
-  Review the completed sprint. Compares what shipped vs planned, updates
-  execution_plan.json milestones with delivered status, and records sprint
-  velocity. Use when all stories are done or deferred.
+  Review the completed sprint: what shipped vs planned, update milestone
+  delivery, record velocity. Use when all stories are done.
 effort: high
 context: fork
 agent: xp-agents:xp-sprint-reviewer

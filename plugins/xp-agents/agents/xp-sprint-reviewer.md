@@ -1,10 +1,8 @@
 ---
 name: xp-sprint-reviewer
 description: >-
-  Sprint review analyst. Reviews what shipped vs planned, updates
-  execution_plan.json milestones with delivered status. Use when all
-  stories are done or deferred. Invoke via /xp-sprint-review skill,
-  not directly.
+  Sprint review analyst: what shipped vs planned, updates milestone delivery
+  status. Invoke via /xp-sprint-review, not directly.
 tools: Read, Write, Edit, Bash
 model: opus
 ---

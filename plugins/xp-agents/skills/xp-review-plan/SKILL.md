@@ -1,8 +1,8 @@
 ---
 name: xp-review-plan
 description: >-
-  Review the current plan mode plan. Checks plan size, TDD ordering, 
-  milestone boundaries, and decision conflicts. Use after planning completes.
+  Review the current plan: size, TDD ordering, milestone boundaries,
+  decision conflicts. Use after planning completes.
 effort: high
 context: fork
 agent: xp-agents:xp-plan-reviewer

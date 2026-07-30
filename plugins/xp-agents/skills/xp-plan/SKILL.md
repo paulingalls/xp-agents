@@ -1,10 +1,8 @@
 ---
 name: xp-plan
 description: >-
-  Create or update execution_plan.json — collaborative planning that transforms
-  external design sources into ordered development milestones with change zones,
-  impact zones, and design details. Replaces /xp-product-spec for sprint-mode
-  work. Use when starting a new change request or refining an existing plan.
+  Create or update execution_plan.json: turn design sources into ordered
+  milestones with change zones and design details.
 effort: high
 allowed-tools:
   - Read

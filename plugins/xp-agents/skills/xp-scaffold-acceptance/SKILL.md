@@ -1,15 +1,9 @@
 ---
 name: xp-scaffold-acceptance
 description: >-
-  Scaffold an acceptance test harness for a project surface. Triggers on
-  /xp-scaffold-acceptance. Inline skill that detects active teammates and
-  existing tooling, asks the customer to pick a surface and tool (with
-  monorepo path placement when relevant), web-refreshes the tool's latest
-  version, plans + previews the scaffold for explicit yes/show-files/no
-  confirmation, then atomically writes + installs + verifies + commits and
-  flips the system_context surface to covered. Re-running on a scaffolded
-  repo offers add-complementary / redo-via-revert / cancel. Refuses to run
-  while teammate worktrees are live.
+  Scaffold an acceptance test harness for a project surface. Detects
+  existing tooling, confirms with the customer, then writes, installs,
+  verifies and commits it.
 allowed-tools:
   - Read
   - AskUserQuestion

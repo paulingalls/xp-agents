@@ -1,9 +1,8 @@
 ---
 name: xp-stage-migration
 description: >-
-  Stage 2 floor migration prompt for /xp-kickoff Step 0. Reads dismissal,
-  prompts customer to set the Stage 2 floor or records a dismissal.
-  INTERNAL — invoked only by xp-kickoff when stage < 2.
+  Stage 2 floor migration prompt for /xp-kickoff. INTERNAL - invoked only by
+  xp-kickoff when the stage is below 2.
 allowed-tools:
   - Bash(python3 */smm/system_context_cli.py get-branching-field *)
   - Bash(python3 */smm/system_context_cli.py edit-branching-field *)

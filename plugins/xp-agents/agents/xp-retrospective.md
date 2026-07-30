@@ -1,10 +1,8 @@
 ---
 name: xp-retrospective
 description: >-
-  XP retrospective analyst. Keep/Fix/Try analysis with XP values as lenses.
-  Use at session start when retrospective data is available. Invoked by
-  /xp-kickoff via the Agent tool; SMM_DIR and RETRO_INPUT are injected
-  through the SubagentStart hook.
+  XP retrospective analyst: Keep/Fix/Try analysis with XP values as lenses.
+  Invoked by /xp-kickoff at session start.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

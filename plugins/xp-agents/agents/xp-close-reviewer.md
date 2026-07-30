@@ -1,12 +1,8 @@
 ---
 name: xp-close-reviewer
 description: >-
-  Branch-close reviewer. Reviews the diff between a close source branch
-  and its merge target before /xp-sprint-close, /xp-plan-close,
-  /xp-free-close, or /xp-story-close merges. Bash is available for diff
-  capture and read-only inspection (gh pr view, git log, grep); the
-  prompt forbids mutating commands. Mode-aware focus
-  (sprint/plan/free/story). Invoke via the close skills, not directly.
+  Branch-close reviewer: reviews the diff between a close source branch and
+  its merge target, mode-aware. Invoke via the close skills, not directly.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---

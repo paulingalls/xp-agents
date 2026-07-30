@@ -1,9 +1,8 @@
 ---
 name: xp-work-selection
 description: >-
-  This skill should be used when the user needs to select work for the session,
-  review retro Try items, triage open questions, or pick sprint stories.
-  Invoked as part of /xp-kickoff or standalone via /xp-work-selection.
+  Select work for the session: review retro Try items, triage open questions
+  and debts, pick sprint stories.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

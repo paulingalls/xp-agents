@@ -1,9 +1,8 @@
 ---
 name: xp-sprint-close
 description: >-
-  Push the sprint branch, fork xp-close-reviewer for cross-cutting review,
-  and merge into the target with cleanup. Auto-invoked at the end of
-  /xp-sprint-review; degrades gracefully when gh is unavailable.
+  Close a sprint branch: cross-cutting review, then merge into the target
+  with cleanup. Auto-invoked at the end of /xp-sprint-review.
 allowed-tools:
   - Read
   - Write

@@ -1,8 +1,8 @@
 ---
 name: xp-accept
 description: >-
-  Verify acceptance criteria for in-progress stories. Present criteria,
-  guide e2e test execution, mark stories done or deferred, update sprint.json.
+  Verify acceptance criteria for in-progress stories and mark each done or
+  deferred. Use when a story is ready to accept.
 allowed-tools:
   - Read
   - Bash

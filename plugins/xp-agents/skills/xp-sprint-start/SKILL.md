@@ -1,10 +1,8 @@
 ---
 name: xp-sprint-start
 description: >-
-  Create sprint.json from an execution plan milestone or product spec.
-  Decomposes milestones into context-rich stories with file domains,
-  interface contracts, and inlined design context. Deep codebase dive
-  identifies story boundaries. Customer confirms scope before writing.
+  Create sprint.json from an execution plan milestone: decompose it into
+  context-rich stories with file domains and interface contracts.
 effort: medium
 allowed-tools:
   - Read

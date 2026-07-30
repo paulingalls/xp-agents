@@ -1,10 +1,8 @@
 ---
 name: xp-system-analyzer
 description: >-
-  System context analyst. Reads codebase structure, CLAUDE.md, and key source
-  files to produce system_context.json — a thorough description of the product,
-  its architecture, and technical constraints.
-  Invoke via /xp-system-context skill, not directly.
+  System context analyst: reads the codebase to produce system_context.json.
+  Invoke via /xp-system-context, not directly.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---

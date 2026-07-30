@@ -1,11 +1,8 @@
 ---
 name: xp-free-close
 description: >-
-  Push the current free branch, fork xp-close-reviewer for free-mode
-  review, and merge into the target integration branch (recorded plan
-  branch when set and present locally, else primary) with cleanup.
-  Used for ad-hoc work performed outside a sprint or plan; degrades
-  gracefully when gh is unavailable.
+  Close ad-hoc work done outside a sprint or plan: review the free branch
+  diff and merge it into the integration branch.
 allowed-tools:
   - Read
   - Write

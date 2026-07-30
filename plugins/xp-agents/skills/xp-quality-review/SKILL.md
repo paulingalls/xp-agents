@@ -1,10 +1,8 @@
 ---
 name: xp-quality-review
 description: >-
-  Independent review of the current diff. Spawns an xp-code-reviewer subagent
-  that self-finds correctness (per-increment) or validates & fixes /code-review's
-  findings (close path, MODE=consume-findings), plus drift, debt, and
-  reuse/quality/efficiency + XP-lens review. Resolves plan concerns inline.
+  Independent review of the current diff. Spawns xp-code-reviewer for
+  correctness, drift, debt, and reuse/quality lenses.
 effort: high
 allowed-tools:
   - Read

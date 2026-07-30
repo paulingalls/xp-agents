@@ -1,10 +1,8 @@
 ---
 name: xp-housekeeper
 description: >-
-  SMM curator. Reads structured curation data and applies LLM judgment to
-  curate Intent, Constraints, Risks, and Wisdom pillars. Invoked by
-  /xp-kickoff via the Agent tool after work selection; SMM_DIR and
-  CURATION_INPUT are injected through the SubagentStart hook.
+  SMM curator: applies judgment to curate the Intent, Constraints, Risks and
+  Wisdom pillars. Invoked by /xp-kickoff after work selection.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

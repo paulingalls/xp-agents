@@ -1,8 +1,8 @@
 ---
 name: xp-kickoff
 description: >-
-  Session start orchestrator. Sequences retrospective, sprint setup,
-  work selection, and housekeeping. Use at the start of every session.
+  Session start orchestrator: sequences retrospective, sprint setup, work
+  selection, housekeeping. Use every session.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)

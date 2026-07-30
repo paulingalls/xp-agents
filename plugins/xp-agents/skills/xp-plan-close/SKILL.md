@@ -1,10 +1,8 @@
 ---
 name: xp-plan-close
 description: >-
-  Push the plan branch, fork xp-close-reviewer for plan-level review,
-  and merge into the primary branch with archive. Auto-invoked by
-  /xp-sprint-close after the last milestone of a plan-branch plan
-  ships; degrades gracefully when gh is unavailable.
+  Close a plan branch: review the plan-level diff and merge into primary
+  with archive. Auto-invoked after a plan's last milestone ships.
 allowed-tools:
   - Read
   - Write

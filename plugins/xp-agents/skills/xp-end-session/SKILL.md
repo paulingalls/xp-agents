@@ -1,10 +1,8 @@
 ---
 name: xp-end-session
 description: >-
-  User-invoked end-of-session cleanup. Drafts a session_summary event,
-  force-closes/defers open questions, bulk-drops maybe-addressed
-  concerns and debts, and prints an honesty-signal count of SMM events
-  not yet linked to a commit.
+  End-of-session cleanup: drafts a session summary, force-closes open
+  questions, and triages maybe-addressed concerns and debts.
 allowed-tools:
   - Read
   - AskUserQuestion

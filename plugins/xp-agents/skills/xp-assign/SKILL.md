@@ -1,12 +1,9 @@
 ---
 name: xp-assign
 description: >-
-  The universal per-story execution-shape decision. Reads the session default
-  tier and the plan-reviewer's per-story recommendation, then applies a behavior
-  table: it may exit in-agent (no spawn — continue in the existing checkout) or
-  spawn exactly ONE teammate at the chosen tier (the story's executor_model
-  forwarded to spawn_teammate's --model flag). Valid for solo and parallel
-  frontiers alike. Runs once per story after that story's plan is reviewed.
+  Per-story execution-shape decision: continue in-agent, or spawn one
+  teammate at the chosen tier. Runs once per story after its plan is
+  reviewed.
 allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)

@@ -1,11 +1,8 @@
 ---
 name: xp-story-close
 description: >-
-  Per-story close: review the story diff, merge into the sprint base,
-  and clean up. Invoked by /xp-accept on each accepted story; the
-  next-frontier promotion (via /xp-schedule) and the sprint-review
-  dispatch are owned by /xp-accept after its loop completes — single
-  source of truth lives there.
+  Close one story: review its diff, merge into the sprint base, clean up.
+  Invoked by /xp-accept for each accepted story.
 allowed-tools:
   - Read
   - Write

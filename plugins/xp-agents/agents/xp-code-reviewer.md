@@ -1,10 +1,8 @@
 ---
 name: xp-code-reviewer
 description: >-
-  Independent code reviewer. Self-finds correctness on the diff (per-increment),
-  or validates & fixes /code-review's handed-in findings (close path), then
-  reviews reuse, quality, efficiency, drift, debt, and XP-value lenses. Spawned
-  by /xp-quality-review.
+  Independent code review of the current diff: correctness, reuse, quality,
+  efficiency, drift, debt. Spawned by /xp-quality-review.
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: opus
 ---

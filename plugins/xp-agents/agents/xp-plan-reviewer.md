@@ -1,9 +1,8 @@
 ---
 name: xp-plan-reviewer
 description: >-
-  XP plan reviewer. Highest-leverage review -- checks plan size, TDD ordering,
-  milestone boundaries, decision conflicts. Use after planning completes.
-  Invoke via /xp-review-plan skill, not directly.
+  XP plan reviewer: checks plan size, TDD ordering, milestone boundaries,
+  decision conflicts. Invoke via /xp-review-plan, not directly.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
