@@ -167,7 +167,9 @@ appended. The user can still pick Merge to override. When 0, keep
 default ordering (Merge first). `<SMM_DIR>`, `<CLOSE_CYCLE_ID>`,
 `<CLOSE_START_TS>` come from the preload above.
 
-Pipe the diff verbatim. `--diff-paths -` drops an untagged concern whose
+Pipe the diff verbatim. `--no-renames` keeps a renamed file's OLD
+path in the list; `-z` NUL-separates, so a path holding a newline
+survives. `--diff-paths -` drops an untagged concern whose
 recorded files all lie outside the diff — the log is shared across
 worktrees, so one filed in this window may be about untouched code.
 Nothing else is dropped; an empty or unreadable diff counts everything

@@ -21,13 +21,19 @@ before this story and must keep holding, so it passes on both sides of the
 trim. Said plainly rather than dressed up as a failing test it never was.
 
 Budget formula, matching the sibling modules: round(chars * 1.125 / 10) * 10
-against the trimmed size, so each surface keeps ~11% headroom rather than
-sitting at its cap. Adding a surface: measure the trimmed description, apply
-the formula, add both entries below.
+against the trimmed size, so a surface keeps ~11% headroom rather than sitting
+at its cap. That is the **floor**, not the table — most entries below sit above
+it, holding room a description may legitimately need back. What the formula
+rules out is the other direction, and `test_no_budget_sits_at_its_cap` enforces
+it: an entry BELOW the formula has no room for a clarifying word, which is the
+shape that already produced this sprint's PROCESS_GUIDE and close-SKILL debt.
+Adding a surface: measure the trimmed description, apply the formula, add both
+entries below.
 """
 
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -44,15 +50,15 @@ _EXPECTED_SKILLS = 18
 _EXPECTED_AGENTS = 7
 
 SKILL_DESCRIPTION_BUDGETS: dict[str, int] = {
-    "xp-accept": 120,
+    "xp-accept": 130,
     "xp-assign": 170,
     "xp-end-session": 170,
     "xp-free-close": 180,
-    "xp-kickoff": 120,
+    "xp-kickoff": 130,
     "xp-plan": 180,
     "xp-plan-close": 170,
     "xp-quality-review": 180,
-    "xp-review-plan": 120,
+    "xp-review-plan": 130,
     "xp-scaffold-acceptance": 200,
     "xp-schedule": 190,
     "xp-sprint-close": 160,
@@ -110,24 +116,41 @@ AGENT_TRIGGERS: dict[str, tuple[str, ...]] = {
 }
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
-_DESCRIPTION_RE = re.compile(r"description: >-\n((?:[ \t]+.*\n)+)|description: (.*)")
+_BLOCK_INDICATORS = "|>"
 
 
 def read_description(path: Path) -> str:
     """The description as the harness renders it: folded to a single line.
 
-    A folded block scalar (``>-``) joins its lines with spaces, so measuring the
-    raw slice would count the YAML indentation the harness never sees. Collapse
-    whitespace and measure that — the budget has to bound what actually reaches
-    the context window, not the file's layout.
+    A block scalar joins its lines with spaces, so measuring the raw slice would
+    count the YAML indentation the harness never sees. Collapse whitespace and
+    measure that — the budget has to bound what actually reaches the context
+    window, not the file's layout.
+
+    Every shipped description uses ``>-`` today, but all six block indicators
+    (``| > |- >- |+ >+``) are handled: a regex pinned to one spelling would let
+    another parse as the two-character indicator itself, which is non-empty and
+    trivially under every budget. Same reason the continuation run is read by
+    indentation rather than by a trailing newline — `description:` as the last
+    frontmatter key has none on its final line.
     """
     frontmatter = _FRONTMATTER_RE.match(path.read_text(encoding="utf-8"))
     if frontmatter is None:
         return ""
-    match = _DESCRIPTION_RE.search(frontmatter.group(1))
-    if match is None:
-        return ""
-    return " ".join((match.group(1) or match.group(2) or "").split())
+    lines = frontmatter.group(1).split("\n")
+    for index, line in enumerate(lines):
+        if not line.startswith("description:"):
+            continue
+        value = line[len("description:") :].strip()
+        if value and value[0] not in _BLOCK_INDICATORS:
+            return " ".join(value.split())
+        body = []
+        for continuation in lines[index + 1 :]:
+            if continuation[:1] not in (" ", "\t"):
+                break
+            body.append(continuation)
+        return " ".join(" ".join(body).split())
+    return ""
 
 
 def _surfaces(directory: Path, pattern: str, name_of) -> dict[str, str]:
@@ -160,6 +183,38 @@ class TestDescriptionsAreDiscoverable(unittest.TestCase):
         self.assertEqual(len(agents), _EXPECTED_AGENTS, f"agents: {sorted(agents)}")
         for name, text in agents.items():
             self.assertTrue(text, f"{name}: description did not parse")
+
+
+class TestReadDescription(unittest.TestCase):
+    """The extractor itself, on the YAML shapes a future surface may use."""
+
+    def _read(self, frontmatter: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "SKILL.md"
+            path.write_text(f"---\n{frontmatter}\n---\n\n# Body\n", encoding="utf-8")
+            return read_description(path)
+
+    def test_folded_block_scalar(self):
+        self.assertEqual(
+            self._read("name: x\ndescription: >-\n  one two\n  three\nmodel: opus"),
+            "one two three",
+        )
+
+    def test_literal_block_scalar(self):
+        self.assertEqual(self._read("name: x\ndescription: |\n  one two"), "one two")
+
+    def test_block_scalar_as_last_key(self):
+        """No trailing newline on the final line — must not be dropped."""
+        self.assertEqual(
+            self._read("name: x\ndescription: >-\n  one two\n  three"),
+            "one two three",
+        )
+
+    def test_plain_scalar(self):
+        self.assertEqual(self._read("description: one two three"), "one two three")
+
+    def test_missing_description(self):
+        self.assertEqual(self._read("name: x\nmodel: opus"), "")
 
 
 class TestEverySurfaceHasABudget(unittest.TestCase):
@@ -200,6 +255,27 @@ class TestDescriptionBudgets(unittest.TestCase):
 
     def test_no_agent_description_exceeds_budget(self):
         self._assert_under(_agents(), AGENT_DESCRIPTION_BUDGETS, "agent")
+
+    def test_no_budget_sits_at_its_cap(self):
+        """A budget under the formula leaves no room for a clarifying word.
+
+        The upper bound above is only half the rule: an entry calibrated flush
+        to its current size makes the NEXT true clarification a budget bump
+        instead of an edit, which is how PROCESS_GUIDE reached one token of
+        headroom and three close SKILL.md files reached 22-28 chars.
+        """
+        tight = []
+        for surfaces, budgets in (
+            (_skills(), SKILL_DESCRIPTION_BUDGETS),
+            (_agents(), AGENT_DESCRIPTION_BUDGETS),
+        ):
+            for name, text in surfaces.items():
+                floor = round(len(text) * 1.125 / 10) * 10
+                if budgets[name] < floor:
+                    tight.append(f"{name}: {budgets[name]} < formula floor {floor}")
+        self.assertFalse(
+            tight, f"description budget(s) below the ~11% headroom floor: {tight}"
+        )
 
 
 class TestDescriptionRetainsTriggers(unittest.TestCase):
