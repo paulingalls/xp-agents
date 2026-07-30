@@ -51,7 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT
+from conftest import _PLUGIN_ROOT, band_offender
 
 # Every module that can put a block reason, a nudge, or a gate advisory in front
 # of an agent — hook entry points plus the helper modules they dispatch into,
@@ -89,9 +89,15 @@ GATE_SCRIPTS: tuple[str, ...] = (
     "smm/story_done_gate.py",
 )
 
-# round(chars * 1.125 / 10) * 10 over the measured reason prose, matching every
+# `ratchet(chars, current, 10)` over the measured reason prose, matching every
 # sibling budget module. Headroom is ~11%, not 0% — a gate that gains a clause
 # should not need a budget bump to say something true.
+#
+# The ratchet lowered NONE of these. Story-004 calibrated them from a fresh
+# measurement rather than inheriting a drifted number, so every entry already
+# sat at the formula and the monotonic guard had nothing to take. Recorded
+# because "ran the ratchet over 25 gate reasons" would otherwise read as 25
+# tightenings; the change here is the 98% band, not the numbers.
 REASON_BUDGETS: dict[str, int] = {
     "scripts/bash_failure.py": 60,
     "scripts/close_cycle_stop_gate.py": 890,
@@ -253,11 +259,17 @@ class TestExtractorIsNotVacuous(unittest.TestCase):
 class TestReasonBudgets(unittest.TestCase):
     def test_no_gate_exceeds_its_reason_budget(self):
         over = [
-            f"{n}: {reason_chars(gate_path(n))}/{REASON_BUDGETS[n]}"
+            offender
             for n in GATE_SCRIPTS
-            if reason_chars(gate_path(n)) > REASON_BUDGETS[n]
+            if (
+                offender := band_offender(
+                    n, reason_chars(gate_path(n)), REASON_BUDGETS[n]
+                )
+            )
         ]
-        self.assertFalse(over, f"gate reason prose over budget: {over}")
+        self.assertFalse(
+            over, f"gate reason prose at or inside the 98% band of budget: {over}"
+        )
 
     def test_no_gate_lost_its_reason(self):
         """The other direction: a budget alone rewards deleting the cause."""

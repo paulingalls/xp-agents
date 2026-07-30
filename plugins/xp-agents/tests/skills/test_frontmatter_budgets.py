@@ -20,13 +20,22 @@ Only the budget check carries the red — retention is an INVARIANT that held
 before this story and must keep holding, so it passes on both sides of the
 trim. Said plainly rather than dressed up as a failing test it never was.
 
-Budget formula, matching the sibling modules: round(chars * 1.125 / 10) * 10
-against the trimmed size, so a surface keeps ~11% headroom rather than sitting
-at its cap. That is the **floor**, not the table — most entries below sit above
-it, holding room a description may legitimately need back. What the formula
-rules out is the other direction, and `test_no_budget_sits_at_its_cap` enforces
+Budget formula, matching the sibling modules: `ratchet(chars, current, 10)` —
+`chars * 1.125` rounded to the nearest 10, but never above the number already
+on record. A surface keeps ~11% headroom rather than sitting at its cap.
+
+That formula is the **floor**, and `test_no_budget_sits_at_its_cap` enforces
 it: an entry BELOW the formula has no room for a clarifying word, which is the
 shape that already produced this sprint's PROCESS_GUIDE and close-SKILL debt.
+Most entries now sit AT the floor rather than above it, because the ratchet
+took each one down to the formula wherever the formula was the lower number.
+The two rules meet without conflict: `ratchet` returns `min(formula, current)`
+and the floor requires `>= formula`, so the ratchet can only ever land a
+description budget exactly on its floor, never under it.
+
+The upper bound fails at 98% of budget, not on breach — a description at its
+cap is reported while a trim is still cheap.
+
 Adding a surface: measure the trimmed description, apply the formula, add both
 entries below.
 """
@@ -39,7 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from conftest import _PLUGIN_ROOT
+from conftest import _PLUGIN_ROOT, band_offender
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
@@ -51,33 +60,33 @@ _EXPECTED_AGENTS = 7
 
 SKILL_DESCRIPTION_BUDGETS: dict[str, int] = {
     "xp-accept": 130,
-    "xp-assign": 170,
-    "xp-end-session": 170,
-    "xp-free-close": 180,
+    "xp-assign": 160,
+    "xp-end-session": 140,
+    "xp-free-close": 130,
     "xp-kickoff": 130,
-    "xp-plan": 180,
-    "xp-plan-close": 170,
-    "xp-quality-review": 180,
+    "xp-plan": 130,
+    "xp-plan-close": 150,
+    "xp-quality-review": 130,
     "xp-review-plan": 130,
-    "xp-scaffold-acceptance": 200,
-    "xp-schedule": 190,
-    "xp-sprint-close": 160,
-    "xp-sprint-review": 160,
-    "xp-sprint-start": 180,
-    "xp-stage-migration": 160,
-    "xp-story-close": 170,
-    "xp-system-context": 180,
-    "xp-work-selection": 170,
+    "xp-scaffold-acceptance": 180,
+    "xp-schedule": 160,
+    "xp-sprint-close": 150,
+    "xp-sprint-review": 140,
+    "xp-sprint-start": 150,
+    "xp-stage-migration": 130,
+    "xp-story-close": 130,
+    "xp-system-context": 140,
+    "xp-work-selection": 120,
 }
 
 AGENT_DESCRIPTION_BUDGETS: dict[str, int] = {
-    "xp-close-reviewer": 200,
-    "xp-code-reviewer": 170,
-    "xp-housekeeper": 170,
-    "xp-plan-reviewer": 160,
-    "xp-retrospective": 170,
-    "xp-sprint-reviewer": 160,
-    "xp-system-analyzer": 170,
+    "xp-close-reviewer": 160,
+    "xp-code-reviewer": 150,
+    "xp-housekeeper": 150,
+    "xp-plan-reviewer": 150,
+    "xp-retrospective": 130,
+    "xp-sprint-reviewer": 140,
+    "xp-system-analyzer": 130,
 }
 
 # The vocabulary a router needs to reach each surface. Matched case-insensitively
@@ -240,14 +249,15 @@ class TestDescriptionBudgets(unittest.TestCase):
         self, surfaces: dict[str, str], budgets: dict[str, int], label: str
     ):
         over = [
-            f"{name}: {len(text)}/{budgets[name]} (+{len(text) - budgets[name]})"
+            offender
             for name, text in surfaces.items()
-            if name in budgets and len(text) > budgets[name]
+            if name in budgets
+            and (offender := band_offender(name, len(text), budgets[name]))
         ]
         self.assertFalse(
             over,
-            f"{label} description(s) over budget — this text sits in EVERY "
-            f"session's context: {over}",
+            f"{label} description(s) at or inside the 98% band of budget — "
+            f"this text sits in EVERY session's context: {over}",
         )
 
     def test_no_skill_description_exceeds_budget(self):

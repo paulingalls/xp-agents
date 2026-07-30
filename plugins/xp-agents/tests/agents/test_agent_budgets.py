@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Per-agent .md character budgets.
 
-Sprint-075 token audit (M-2): each agents/*.md is capped at roughly
-trimmed_size * 1.125 (rounded to nearest 10). Growth past the budget
-fails this test, forcing either a deliberate budget bump or a re-trim.
+Budget formula: `ratchet(measured, current, 10)` — see
+`_budget_helpers.ratchet`. The calibration rule is `measured * 1.125` rounded
+to the nearest 10, but a budget may only ever come DOWN: applied bare, that
+rule RAISES any surface trimmed by less than 11.1%, handing back the headroom
+the trim just bought. Entries that "hold" are exactly those.
+
+The assertion fails at 98% of budget, not on breach. A surface at its cap
+still passed under the old check, which is how nine skills, three agents and
+one guide drifted to 98-100% of cap while every suite stayed green.
 
 Adding a new agent: measure len(Path("agents/<name>.md").read_text()),
-compute round(chars * 1.125 / 10) * 10, add the entry below.
+apply `ratchet(chars, <a first budget>, 10)`, add the entry below.
 """
 
 import sys
@@ -24,7 +30,7 @@ from conftest import (
 AGENT_BUDGETS: dict[str, int] = {
     "xp-close-reviewer": 8980,
     "xp-code-reviewer": 8550,
-    "xp-housekeeper": 11230,
+    "xp-housekeeper": 10080,
     "xp-plan-reviewer": 21940,
     # Bumped 21770 -> 22050 for the --retro-kind sprint instruction. This agent
     # is the ONLY caller of save_retrospective.py, so without that instruction
@@ -39,7 +45,7 @@ AGENT_BUDGETS: dict[str, int] = {
     # (TestPlanScheduleProseContract pins it). Re-trimmed first: the field
     # description and the rule were cut ~670 chars before this bump.
     "xp-retrospective": 23100,
-    "xp-sprint-reviewer": 4660,
+    "xp-sprint-reviewer": 4380,
     "xp-system-analyzer": 19640,
 }
 
