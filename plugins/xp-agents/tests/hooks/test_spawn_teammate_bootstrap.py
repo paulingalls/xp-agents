@@ -16,6 +16,10 @@ The suite-wide spawn guard does NOT cover this file. It patches
 subprocess.Popen to block argv[0] == "claude", but a shell=True bootstrap
 runs /bin/sh, which the guard lets through. Every command declared below is
 therefore deliberately harmless (writes a marker file, or exits non-zero).
+
+Split at 500 lines. The child env a spawned teammate receives is in
+test_teammate_child_env.py, and the recorded-rationale prose assertions in
+test_bootstrap_rationale_prose.py.
 """
 
 import inspect
@@ -25,33 +29,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+# Imported for its SIDE EFFECT as much as any symbol: conftest installs the
+# suite-wide backstop that makes launching the real `claude` binary impossible
+# (see test_no_test_can_spawn_a_real_agent.py, which PINS this import for every
+# module that imports spawn_teammate). The rule is structural — importing the
+# module that can spawn is the fact that matters, not how main() is reached.
+import conftest  # noqa: F401
 import spawn_teammate
+from _bootstrap_fixtures import _BootstrapTestCase
 from _system_context_fixtures import valid_doc, write_doc
-from conftest import _IntegrationTestCase, cleanup_test_worktrees
-
-
-class _BootstrapTestCase(_IntegrationTestCase):
-    """Shared setup: a temp git repo whose SMM may declare a bootstrap."""
-
-    def tearDown(self):
-        cleanup_test_worktrees(self.tmpdir)
-        super().tearDown()
-
-    def declare_bootstrap(self, command: str) -> None:
-        """Declare `stack.worktree_bootstrap` in this repo's system_context."""
-        doc = valid_doc()
-        doc["stack"]["worktree_bootstrap"] = command
-        write_doc(self.smm_dir, doc)
-
-    def spawn(self, name: str = "worktree-story-bootstrap") -> str:
-        """create_worktree with this test's SMM dir threaded in."""
-        return spawn_teammate.create_worktree(
-            name, str(self.tmpdir), smm_dir=self.smm_dir
-        )
 
 
 class TestBootstrapRuns(_BootstrapTestCase):
@@ -283,120 +274,6 @@ class TestInPlaceSkipsBootstrap(_BootstrapTestCase):
         )
 
 
-class TestChildEnvSmmDirIsResolved(_BootstrapTestCase):
-    """The SECOND leg of the same invariant the bootstrap resolves for.
-
-    run_bootstrap resolves SMM_DIR because the child's cwd is the new
-    worktree, so a relative/unnormalized value would resolve against it.
-    The `claude` teammate spawned moments later runs with that SAME cwd off
-    the SAME --smm-dir, so it needs the same resolution — a bootstrap that
-    saw an absolute SMM_DIR followed by an agent whose every hook resolved a
-    different one is exactly the split-brain the resolve was added to stop.
-    """
-
-    def test_teammate_env_smm_dir_is_absolute_and_normalized(self):
-        import tempfile
-        from unittest.mock import patch
-
-        captured: dict[str, dict[str, str]] = {}
-
-        def capture_run(cmd, *args, **kwargs):
-            captured["env"] = kwargs["env"]
-
-        # Absolute but UNNORMALIZED: what the child resolves must not depend
-        # on its cwd (a relative --smm-dir is the same bug, one os.getcwd()
-        # further away).
-        unresolved = str(self.smm_dir / ".." / self.smm_dir.name)
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("test prompt")
-            prompt_path = f.name
-
-        try:
-            with (
-                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_run),
-            ):
-                spawn_teammate.main(
-                    [
-                        "--name",
-                        "worktree-story-bootstrap",
-                        "--smm-dir",
-                        unresolved,
-                        "--prompt-file",
-                        prompt_path,
-                    ]
-                )
-        finally:
-            Path(prompt_path).unlink(missing_ok=True)
-
-        seen = captured["env"]["SMM_DIR"]
-        self.assertEqual(Path(seen), self.smm_dir.resolve())
-
-
-class TestChildEnvDropsOurSessionId(_BootstrapTestCase):
-    """A teammate is its own session and must not inherit the lead's id.
-
-    `os.environ.copy()` carried it, and the liveness signal is session-keyed:
-    writers key the marker on the id the harness hands each hook, the preload
-    check keys it on these environment variables. A teammate carrying OUR id
-    therefore reads a marker its own hooks never write — it either passes on the
-    LEAD's heartbeat while its own runtime is broken, or refuses every skill
-    preload once the lead goes idle while its hooks are demonstrably running.
-    """
-
-    def _child_env(self) -> dict[str, str]:
-        import tempfile
-        from unittest.mock import patch
-
-        captured: dict[str, dict[str, str]] = {}
-
-        def capture_run(cmd, *args, **kwargs):
-            captured["env"] = kwargs["env"]
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("test prompt")
-            prompt_path = f.name
-        try:
-            with (
-                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
-                patch.object(spawn_teammate, "run_with_tee", side_effect=capture_run),
-            ):
-                spawn_teammate.main(
-                    [
-                        "--name",
-                        "worktree-story-bootstrap",
-                        "--smm-dir",
-                        str(self.smm_dir),
-                        "--prompt-file",
-                        prompt_path,
-                    ]
-                )
-        finally:
-            Path(prompt_path).unlink(missing_ok=True)
-        return captured["env"]
-
-    def test_every_session_id_candidate_is_dropped(self):
-        import os as _os
-        from unittest.mock import patch
-
-        import hook_liveness
-
-        candidates = hook_liveness.SESSION_ID_ENV_CANDIDATES
-        leaked = dict.fromkeys(candidates, "the-leads-session")
-        with patch.dict(_os.environ, leaked):
-            env = self._child_env()
-        for var in hook_liveness.SESSION_ID_ENV_CANDIDATES:
-            with self.subTest(var=var):
-                self.assertNotIn(var, env)
-
-    def test_the_teammate_name_and_smm_dir_still_reach_the_child(self):
-        """The drop must not become a general env scrub."""
-        env = self._child_env()
-        self.assertEqual(env["XP_TEAMMATE_NAME"], "worktree-story-bootstrap")
-        self.assertEqual(Path(env["SMM_DIR"]), self.smm_dir.resolve())
-
-
 class TestMainProvisionsTheWorktree(_BootstrapTestCase):
     """The production wiring: a real `spawn_teammate` run must bootstrap.
 
@@ -446,53 +323,6 @@ class TestMainProvisionsTheWorktree(_BootstrapTestCase):
             artifact.is_file(),
             "spawn must thread its SMM dir into create_worktree — without it "
             "no declared bootstrap ever runs and the feature is inert",
-        )
-
-
-class TestBootstrapRationaleNamesBothFailureModes(_BootstrapTestCase):
-    """spike-005 measured the false-RED as the DOMINANT, loud mode (TS2882,
-    exit 2; bare tests exit 1) and the false-GREEN as contrived/masked. The
-    docstring and CHANGELOG previously named only the false-GREEN and called
-    the absence "not reliably loud" — self-contradicting SMM risk
-    f9afab74c152, which recorded the gate as failing. This pins the correction
-    so the record cannot silently regress to the half-story."""
-
-    def test_docstring_names_both_modes_and_drops_stale_phrase(self):
-        import worktree_bootstrap
-
-        doc = worktree_bootstrap.run_bootstrap.__doc__ or ""
-
-        self.assertNotIn(
-            "not reliably loud",
-            doc,
-            "the docstring must no longer claim the absence is quiet — "
-            "spike-005 measured a loud false-RED as the dominant mode",
-        )
-        self.assertTrue(
-            "TS2882" in doc or "false-RED" in doc or "exit 2" in doc,
-            "the docstring must name the measured false-RED mode",
-        )
-        self.assertIn(
-            "permissive",
-            doc,
-            "the docstring must still explain the false-GREEN mode",
-        )
-
-    def test_changelog_drops_stale_false_green_only_framing(self):
-        # The entry lives in the v4.x archive since the v5.0 cut split
-        # history out of CHANGELOG.md; the pin follows the entry.
-        repo_root = Path(__file__).parent.parent.parent.parent.parent
-        text = (repo_root / "changelog_pre_v5.md").read_text()
-
-        self.assertNotIn(
-            "not reliably loud",
-            text,
-            "CHANGELOG must not still assert the absence is quiet",
-        )
-        self.assertTrue(
-            "TS2882" in text or "false-RED" in text or "exit 2" in text,
-            "CHANGELOG must name the measured false-RED mode, not frame "
-            "the false-GREEN as the only failure",
         )
 
 

@@ -20,131 +20,25 @@ empty-or-unreadable case is the one way the conjunction could fail OPEN
 implementation is ever refactored.
 """
 
-import json
-import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
-import markers
-from conftest import _SMMTestCase, make_event, run_cli, write_events
-from event_schema import EVENT_TYPE_CONCERN, METADATA_KEY_CLOSE_CYCLE_ID
-
-_CLI = Path(__file__).parent.parent.parent / "smm" / "smm_cli.py"
-_APPEND_IMPL = Path(__file__).parent.parent.parent / "smm" / "_append_impl.py"
-
-# This close cycle vs. a concurrent teammate's close cycle.
-_CYCLE = "aaaa11112222"
-_OTHER_CYCLE = "bbbb33334444"
-
-# The close window: WINDOW_START is the preload's CLOSE_START_TS, IN_WINDOW is
-# any event recorded after it (so --since-ts alone can never exclude it — the
-# whole point of the concern being fixed).
-_WINDOW_START = "2026-07-26T00:00:00+00:00"
-_IN_WINDOW = "2026-07-26T02:36:49+00:00"
-
-# This story's domain, standing in for a close diff.
-_DIFF = [
-    "plugins/xp-agents/smm/smm_count.py",
-    "plugins/xp-agents/tests/engine/test_count_concerns_cycle_isolation.py",
-]
-# A file outside it — 964426f13819's real `files` entry. Used as a STRING
-# only: a sibling story is deleting this path, and this fixture must not care.
-_OUTSIDE_DIFF = "plugins/xp-agents/smm/break_stale_lock.sh"
-
-
-def _concern(
-    severity: str = "high",
-    *,
-    files: list[str] | None = None,
-    cycle: str | None = None,
-    ts: str = _IN_WINDOW,
-) -> dict:
-    """Concern event inside the close window. `files=None` omits the key
-    entirely (the shape a concern raised without `--files` has)."""
-    metadata = {METADATA_KEY_CLOSE_CYCLE_ID: cycle} if cycle else {}
-    event = make_event(EVENT_TYPE_CONCERN, severity=severity, ts=ts, metadata=metadata)
-    if files is not None:
-        event["files"] = files
-    return event
-
-
-class _ScopedGateTestCase(_SMMTestCase):
-    """Shared plumbing: write concerns, run the gate query, read the count.
-
-    `--repo-root` points at a synthetic working tree rather than this repo, so
-    no fixture depends on a real file surviving a sibling story's deletions.
-    `_scoped` MATERIALIZES every path the written concerns record, because
-    outside-the-diff is proof of irrelevance only for a file that is there and
-    simply untouched — a path that does not exist keeps its concern counted
-    (`TestAbsentPathsAreNotProofOfIrrelevance` pins the other direction).
-    """
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.repo_root = self.smm_dir / "fake-repo"
-        self.repo_root.mkdir()
-
-    def _count(self, extra_args: list[str], stdin_data: str | None = None) -> str:
-        result = run_cli(
-            _CLI,
-            [
-                "count-concerns",
-                "--severity",
-                "high",
-                "--repo-root",
-                str(self.repo_root),
-                *extra_args,
-            ],
-            self.smm_dir,
-            stdin_data=stdin_data,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout.strip()
-
-    def _diff_file(self, paths: list[str]) -> Path:
-        """Write a `git diff --name-only` capture next to the temp SMM."""
-        path = self.smm_dir / "close-diff.txt"
-        path.write_text("".join(f"{p}\n" for p in paths))
-        return path
-
-    def _materialize_recorded_files(self) -> None:
-        """Create every repo-relative path the written concerns name."""
-        for line in self.events_file.read_text().splitlines():
-            if not line.strip():
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # deliberately-corrupt fixtures record no files
-            for entry in event.get("files") or []:
-                if not isinstance(entry, str) or not entry.strip():
-                    continue
-                path = self.repo_root / entry.strip()
-                if ".." in path.parts or entry.strip().startswith(("/", "~")):
-                    continue
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.touch()
-
-    def _scoped(self, paths: list[str], *, materialize: bool = True) -> str:
-        """The real gate invocation: cycle + window + close diff."""
-        if materialize:
-            self._materialize_recorded_files()
-        return self._count(
-            [
-                "--cycle-id",
-                _CYCLE,
-                "--since-ts",
-                _WINDOW_START,
-                "--diff-paths",
-                str(self._diff_file(paths)),
-            ]
-        )
+from _scoped_gate_fixtures import (
+    _CLI,
+    _CYCLE,
+    _DIFF,
+    _OTHER_CYCLE,
+    _OUTSIDE_DIFF,
+    _WINDOW_START,
+    _concern,
+    _ScopedGateTestCase,
+)
+from conftest import run_cli, write_events
 
 
 class TestUntaggedConcernsScopedByDiffRelevance(_ScopedGateTestCase):
@@ -261,114 +155,6 @@ class TestTaggedConcernsUnaffected(_ScopedGateTestCase):
         self.assertEqual(self._scoped(_DIFF), "0")
 
 
-class TestDiffPathsFailsClosed(_ScopedGateTestCase):
-    """`--diff-paths` that parses to an empty set must behave EXACTLY as if it
-    were never supplied. Without this the rule is fail-OPEN: "no entry
-    intersects" is vacuously true against an empty set, so every untagged
-    concern with `files` drops and the gate returns ~0.
-
-    Every branch here is reachable in the shipped prose: story-close's preload
-    emits STORY_BASE_UNRESOLVED=true when get-base refuses, a failed `git diff`
-    inside `$(...)` delivers empty stdin silently (no `pipefail` in the prose),
-    and an empty commit range prints nothing.
-    """
-
-    def setUp(self) -> None:
-        super().setUp()
-        write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
-
-    def _empty_diff_paths_args(self, spec: str) -> list[str]:
-        return ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", spec]
-
-    def test_empty_file_counts_everything(self) -> None:
-        empty = self.smm_dir / "empty-diff.txt"
-        empty.write_text("")
-        self.assertEqual(self._count(self._empty_diff_paths_args(str(empty))), "1")
-
-    def test_whitespace_only_file_counts_everything(self) -> None:
-        blank = self.smm_dir / "blank-diff.txt"
-        blank.write_text("\n  \n\n")
-        self.assertEqual(self._count(self._empty_diff_paths_args(str(blank))), "1")
-
-    def test_missing_file_counts_everything(self) -> None:
-        missing = self.smm_dir / "no-such-diff.txt"
-        self.assertEqual(self._count(self._empty_diff_paths_args(str(missing))), "1")
-
-    def test_directory_instead_of_file_counts_everything(self) -> None:
-        self.assertEqual(
-            self._count(self._empty_diff_paths_args(str(self.smm_dir))), "1"
-        )
-
-    def test_undecodable_file_counts_everything(self) -> None:
-        """A non-UTF-8 filename in the path list must degrade to counting, not
-        raise — the gate captures stdout in `$(...)`, so a traceback becomes an
-        empty count the calling `[ "$N" -gt 0 ]` test cannot read."""
-        binary = self.smm_dir / "binary-diff.txt"
-        binary.write_bytes(b"plugins/xp-agents/caf\xe9.py\n")
-        self.assertEqual(self._count(self._empty_diff_paths_args(str(binary))), "1")
-
-    def test_empty_stdin_counts_everything(self) -> None:
-        self.assertEqual(
-            self._count(self._empty_diff_paths_args("-"), stdin_data=""), "1"
-        )
-
-    def test_empty_diff_paths_notes_the_degradation_on_stderr(self) -> None:
-        """Silently counting everything looks like the rule fired and found a
-        hit. The operator needs to see that the diff never arrived."""
-        empty = self.smm_dir / "empty-diff.txt"
-        empty.write_text("")
-        result = run_cli(
-            _CLI,
-            [
-                "count-concerns",
-                "--severity",
-                "high",
-                *self._empty_diff_paths_args(str(empty)),
-            ],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--diff-paths", result.stderr)
-
-
-class TestDiffPathsFromStdin(_ScopedGateTestCase):
-    """A close diff can be long, so `-` reads it from stdin."""
-
-    def test_stdin_paths_exclude_an_irrelevant_concern(self) -> None:
-        write_events(self.events_file, [_concern(files=[_OUTSIDE_DIFF])])
-        self._materialize_recorded_files()
-        args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
-        self.assertEqual(
-            self._count(args, stdin_data="".join(f"{p}\n" for p in _DIFF)), "0"
-        )
-
-    def test_stdin_paths_keep_a_relevant_concern(self) -> None:
-        write_events(
-            self.events_file,
-            [_concern(files=["plugins/xp-agents/smm/smm_count.py"])],
-        )
-        args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
-        self.assertEqual(
-            self._count(args, stdin_data="".join(f"{p}\n" for p in _DIFF)), "1"
-        )
-
-    def test_stdin_nul_separated_paths_keep_a_relevant_concern(self) -> None:
-        """`git diff --name-only -z` NUL-terminates instead of newline-terminating
-        (story-003) — the reader must split on NUL too. Materializing the file is
-        load-bearing here: without it, `_names_existing_code` already keeps the
-        concern counted regardless of diff parsing, and the test would pass even
-        against the un-fixed reader."""
-        write_events(
-            self.events_file,
-            [_concern(files=["plugins/xp-agents/smm/smm_count.py"])],
-        )
-        self._materialize_recorded_files()
-        args = ["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START, "--diff-paths", "-"]
-        self.assertEqual(
-            self._count(args, stdin_data="".join(f"{p}\0" for p in _DIFF)), "1"
-        )
-
-
 class TestRuleIsOptIn(_ScopedGateTestCase):
     """`--cycle-id`'s meaning narrows ONLY when `--diff-paths` is also supplied
     and non-empty. Every other invocation counts exactly as it does today."""
@@ -481,109 +267,6 @@ class TestMalformedLinesStillCount(_ScopedGateTestCase):
         never narrow the fail-closed floor (unchanged behavior)."""
         self.events_file.write_text('{"id": "truncated", "ts": "2026-07-26T03:00:00+0')
         self.assertEqual(self._scoped(_DIFF), "1")
-
-
-class TestStoryThreeFalseAbortE2E(_ScopedGateTestCase):
-    """AC#8 — the exact scenario from concern 3542ad2915df.
-
-    story-003's close cycle ran clean, but 964426f13819 (an unrelated open lock
-    defect, severity high, untagged, recorded inside the close window, naming a
-    file in story-005's domain) pushed the auto-merge gate to
-    abort-recommended. With the close diff supplied, the gate stays at 0.
-    """
-
-    def setUp(self) -> None:
-        super().setUp()
-        # 964426f13819's shape, plus the noise a live SMM carries in the same
-        # window: a resolved-elsewhere concern in another cycle and one with no
-        # file pin at all.
-        write_events(
-            self.events_file,
-            [
-                _concern(files=[_OUTSIDE_DIFF]),
-                _concern(files=["plugins/xp-agents/scripts/concern_conflicts.py"]),
-                _concern(files=["plugins/xp-agents/smm/init.sh"], cycle=_OTHER_CYCLE),
-            ],
-        )
-        self.story_003_diff = [
-            "plugins/xp-agents/scripts/preload_liveness.py",
-            "plugins/xp-agents/tests/hooks/test_preload_liveness.py",
-        ]
-
-    def test_gate_does_not_flip_to_abort_recommended(self) -> None:
-        self.assertEqual(self._scoped(self.story_003_diff), "0")
-
-    def test_gate_still_flips_when_the_concern_is_about_this_diff(self) -> None:
-        """The other half of the guarantee: narrowing must not disarm the gate
-        for a concern that IS about the code being merged."""
-        self.assertEqual(
-            self._scoped(
-                [*self.story_003_diff, "plugins/xp-agents/scripts/concern_conflicts.py"]
-            ),
-            "1",
-        )
-
-
-class TestTaggingBeatsTheFilesInference(_ScopedGateTestCase):
-    """The remedy this file's rule was only ever a fallback for.
-
-    Diff relevance INFERS which concerns belong to a close from the `files` the
-    author happened to record, so a stale or wrong path silently excludes a
-    concern from the one gate that exists not to miss it. When a close is
-    running, the appender records the answer instead — and a recorded answer
-    outranks the inference.
-
-    End-to-end on purpose: the concern is written by the real appender CLI (a
-    different process from the close, which is the whole difficulty) and read
-    by the real count-concerns query the shared Step 6 invokes.
-    """
-
-    def _append_concern_naming(self, path: str) -> None:
-        result = run_cli(
-            _APPEND_IMPL,
-            [
-                "--type", "concern",
-                "--agent", "main",
-                "--severity", "high",
-                "--content", "Reviewer Block: the gate must still see this",
-                "--files", json.dumps([path]),
-            ],
-            self.smm_dir,
-        )  # fmt: skip
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_a_concern_raised_during_the_close_counts_despite_its_files(self) -> None:
-        markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ID, _CYCLE)
-        self._append_concern_naming(_OUTSIDE_DIFF)
-        self.assertEqual(
-            self._scoped(_DIFF),
-            "1",
-            "a concern raised DURING this close carries its id, and the tag is "
-            "authoritative — the files heuristic must not drop it",
-        )
-
-    def test_the_same_concern_outside_a_close_follows_the_files_rule(self) -> None:
-        """The control, and AC#6: a concern written with no close running — the
-        shape every concern in an existing SMM has — keeps exactly the shipped
-        behaviour. The tag narrows the gate; its absence changes nothing."""
-        self._append_concern_naming(_OUTSIDE_DIFF)
-        self.assertEqual(self._scoped(_DIFF), "0")
-
-    def test_another_sessions_close_does_not_capture_this_concern(self) -> None:
-        """Two teammates closing at once against the shared SMM: the concern is
-        raised in a session with no close of its own, so it must stay untagged
-        rather than being pulled into the neighbour's cycle."""
-        with patch.dict(os.environ, {"XP_SESSION_ID": "another-session"}):
-            markers.marker_write(self.smm_dir, markers.CLOSE_CYCLE_ID, _CYCLE)
-        self._append_concern_naming("plugins/xp-agents/smm/smm_count.py")
-        counted = self._count(["--cycle-id", _CYCLE, "--since-ts", _WINDOW_START])
-        self.assertEqual(counted, "1", "an untagged concern still counts (fail closed)")
-        self.assertIsNone(
-            (self._read_events()[-1].get("metadata") or {}).get(
-                METADATA_KEY_CLOSE_CYCLE_ID
-            ),
-            "the neighbour's cycle id must not reach this session's concern",
-        )
 
 
 if __name__ == "__main__":

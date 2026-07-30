@@ -2,226 +2,75 @@
 """Resolve SMM state into branch and stage answers.
 
 Extracted from branching.py to keep that module under the 500-line
-target. One concern: read the recorded state (system_context's
-branching strategy, execution_plan's branch, sprint's branch_name),
-check it against what actually exists in git, and produce the branch a
-caller should fork from or merge into.
+target, then split again at 501 lines into a three-layer stack, each layer
+importing only downwards:
 
-The stage machinery lives here WITH the resolvers rather than in a
-third module: every resolver gates on the stage, so splitting them
-would create an import cycle instead of avoiding one.
+    git_refs          does git know this name?          (leaf)
+    branching_stage   which stage, primary, protected   (leaf)
+    branch_resolution which branch should you use       (this module)
+
+The stage machinery moved out with a caveat retired: the old docstring said a
+third module would create an import cycle "since every resolver gates on the
+stage", but the dependency only ever ran one way — nothing in the stage
+machinery calls a resolver. What is left here is the part that genuinely needs
+both layers: read the recorded state (execution_plan's branch, sprint's
+branch_name), check it against what actually exists in git, and produce the
+branch a caller should fork from or merge into.
 
 Import direction is strictly one-way — this module imports NOTHING from
 branching; branching imports these names back and re-exports them for
-backwards compat. Unlike the branch_lifecycle extraction, that means one
-definition of ``_git``, not two: ``branching._git is branch_resolution._git``.
+backwards compat. The same holds for the two layers below, and everything they
+define is re-exported HERE by identity: ``branching._git is
+branch_resolution._git`` still holds, and so does every
+``mock.patch("branch_resolution.<name>")`` site.
 
 Consequence for tests: ``patch("branching.<name>")`` only reaches code
 that still LIVES in branching.py. A call path that crosses into this
 module resolves the name in THIS module's globals, and such a patch
-silently stops applying. Patch the module that owns the caller.
+silently stops applying. Patch the module that owns the caller. The same rule
+now applies one layer down: a name patched HERE is not seen by a caller that
+lives in ``branching_stage`` or ``git_refs``.
 """
 
-import json
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import _common
+# `_common` is no longer called from this module, but it stays imported: it is
+# part of the same re-export surface as the names below. Five tests patch
+# `branch_resolution._common.log_hook_error` to assert what `get_primary_branch`
+# does and does not log, and that still WORKS across the split — patching an
+# attribute on the shared `_common` module object is global, so the caller now
+# living in `branching_stage` sees it. Drop this import and those tests fail on
+# an unresolvable target rather than on behaviour.
+import _common  # noqa: F401
 import execution_plan_store
 import identity
 import sprint_store
-import system_context_store
 from branch_names import branch_name, sprint_branch_name
-from system_context_schema import healed_integration_branch
 
-_DEFAULT_PRIMARY = "main"
-
-_PROTECTED_BRANCHES = {"main", "master"}
-
-
-def _git(args: list[str], cwd: str) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=10)
-
-
-def _load_branching_strategy(smm_dir: Path) -> dict:
-    """Read system_context.branching_strategy or {} on any failure."""
-    path = smm_dir / "system_context.json"
-    if not path.exists() or path.is_symlink():
-        return {}
-    try:
-        ctx = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return ctx.get("branching_strategy") or {}
-
-
-def _maybe_auto_promote(smm_dir: Path, current: int) -> int:
-    """Auto-promote Stage 1 -> Stage 2 (plugin floor). Idempotent.
-
-    Mutates system_context.json's branching_strategy.stage in place
-    and emits a one-time decision event. Returns 2 on success; on an
-    OSError (read-only SMM, missing dir, lock contention) returns the
-    original stage so the next call to get_branching_stage retries the
-    promotion. Schema-validation ValueErrors are intentionally NOT
-    caught — they signal corrupt input or a code bug and propagate.
-    """
-    if current != 1:
-        return current
-    try:
-        ctx = system_context_store.load_system_context(smm_dir)
-        if ctx is None:
-            return current
-        ctx.setdefault("branching_strategy", {})["stage"] = 2
-        system_context_store.save_system_context(smm_dir, ctx)
-        event = _common.make_event(
-            "decision",
-            "branching",
-            "Auto-promoted branching stage 1 -> 2 (plugin floor)",
-            topic="branching-stage-auto-promote",
-            metadata={"action": "stage_auto_promote", "from_stage": 1, "to_stage": 2},
-        )
-        _common.append_safe(smm_dir, event)
-        return 2
-    except OSError as e:  # narrow: ValueError (schema/code-bug) must crash loud
-        _common.log_hook_error(
-            f"branching auto-promote failed: {e}",
-            error_class=type(e).__name__,
-            from_stage=1,
-            to_stage=2,
-        )
-        return current
-
-
-def get_branching_stage(smm_dir: Path) -> int:
-    """Return the branching stage. NOT side-effect free.
-
-    A stage=1 read triggers a one-time auto-promotion (file mutation
-    + decision event) via `_maybe_auto_promote`. Read-only or locked
-    SMMs fail soft and return 1 unpromoted; the next call retries.
-    Stage 0/2/3 reads remain pure.
-    """
-    stage = _load_branching_strategy(smm_dir).get("stage", 0)
-    return _maybe_auto_promote(smm_dir, stage)
-
-
-def get_primary_branch(smm_dir: Path) -> str:
-    """Return the repo's primary integration branch.
-
-    Stage 0-2: 'main'. Stage 3: branching_strategy.integration_branch,
-    defaulting to 'main' when missing/null OR when the stored value cannot
-    serve as a git ref. Routes through ``get_branching_stage`` so
-    primary-branch reads also fire the Stage 1 -> 2 auto-promote — single
-    chokepoint for progression.
-
-    The answer is handed to `git checkout` / `git merge` as argv, so a stored
-    value that predates the ref-format check is healed HERE rather than
-    trusted: `-f` matches the branch-name pattern and would reach git as a
-    FLAG. Falling back to primary mirrors what this function already does for
-    a null value, and keeps every hook path non-raising. A substitution IS
-    logged — it changes a merge/checkout target, which must not be silent.
-    """
-    if get_branching_stage(smm_dir) < 3:
-        return _DEFAULT_PRIMARY
-    bs = _load_branching_strategy(smm_dir)
-    healed = healed_integration_branch(bs)
-    stored = bs.get("integration_branch")
-    # Null AND empty both mean "never configured" — the same falsy set the
-    # renderer hides and the pre-check `or _DEFAULT_PRIMARY` fell through on.
-    # Logging those would fire on every read of a stage-3 repo that never set
-    # the field; anything else IS a configured value we are overriding.
-    if healed is None and stored not in (None, ""):
-        _common.log_hook_error(
-            f"branching_strategy.integration_branch {stored!r} is not usable "
-            f"as a git ref; resolving the primary branch as "
-            f"{_DEFAULT_PRIMARY!r} instead",
-            error_class="ValueError",
-            integration_branch=stored,
-            substituted=_DEFAULT_PRIMARY,
-        )
-    return healed or _DEFAULT_PRIMARY
-
-
-def get_protected_branches(smm_dir: Path, stage: int) -> set[str]:
-    """Return the stage-aware set of branches treated as protected.
-
-    Stage 0: empty (branching doctrine inactive).
-    Stage 1+: ``{main, master}`` plus ``branching_strategy.protected_branches``
-    plus (at stage 3+) ``branching_strategy.integration_branch``. The
-    integration branch is the daily fork-and-merge target — committing
-    directly to it is the same anti-pattern as committing to main.
-
-    ``stage`` is supplied by callers (rather than re-read here) so the
-    stage 1→2 auto-promote side effect in ``get_branching_stage`` fires
-    once per hook chain instead of doubling on every protection check.
-
-    Routes the integration branch through the SAME heal helper as
-    ``get_primary_branch``, so the raw-JSON reader and the validated loader
-    cannot disagree about what the value resolves to. Unlike there, a dropped
-    entry is NOT logged: it is the lesser event (one fewer branch treated as
-    protected, not a redirected merge), and this runs on every Bash
-    PreToolUse.
-    """
-    if stage < 1:
-        return set()
-    result = set(_PROTECTED_BRANCHES)
-    bs = _load_branching_strategy(smm_dir)
-    declared = bs.get("protected_branches") or []
-    result.update(declared)
-    if stage >= 3:
-        integration = healed_integration_branch(bs)
-        if integration:
-            result.add(integration)
-    return result
-
-
-def is_protected_branch(stage: int, branch: str, smm_dir: Path) -> bool:
-    return branch in get_protected_branches(smm_dir, stage)
-
-
-def branch_exists(cwd: str, name: str) -> bool:
-    r = _git(["git", "rev-parse", "--verify", f"refs/heads/{name}"], cwd)
-    return r.returncode == 0
-
-
-def ref_exists(cwd: str, ref: str) -> bool:
-    """True when ``ref`` resolves to a commit — branch, tag, SHA, or remote ref.
-
-    Deliberately broader than ``branch_exists`` (refs/heads only): a HANDED base
-    is legitimately a bare SHA (chained stories fork off a commit) or a remote
-    ref, so the trust question for one is "can git resolve this to a commit",
-    not "is this a local branch". Empty and whitespace refs resolve to nothing
-    and answer False, as they should.
-    """
-    r = _git(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd)
-    return r.returncode == 0
-
-
-def _verified_local(cwd: str, name: str | None) -> str | None:
-    """Return ``name`` only if it is set AND still names a local branch.
-
-    The invariant this module exists to enforce: a RECORDED branch name is
-    trustworthy only if it still EXISTS. Branches get deleted, renamed, and
-    left behind in other worktrees; sprint.json does not notice. Handing a
-    recorded-but-vanished name to `git checkout`/`git merge` as a ref is the
-    silent-corruption path — so every recorded name is verified before it is
-    returned as an answer.
-    """
-    return name if name and branch_exists(cwd, name) else None
-
-
-def match_local_branches(cwd: str, pattern: str) -> list[str]:
-    """Run git for-each-ref against `refs/heads/<pattern>` and return short names."""
-    r = _git(
-        ["git", "for-each-ref", "--format=%(refname:short)", f"refs/heads/{pattern}"],
-        cwd,
-    )
-    if r.returncode != 0:
-        return []
-    return [b for b in r.stdout.splitlines() if b]
+# Re-exported BY IDENTITY, not re-implemented — see the module docstring. These
+# serve `branching`, `branching_core` and every mock.patch site; they are not
+# dead imports.
+from branching_stage import (  # noqa: F401
+    _DEFAULT_PRIMARY,
+    _PROTECTED_BRANCHES,
+    _load_branching_strategy,
+    _maybe_auto_promote,
+    get_branching_stage,
+    get_primary_branch,
+    get_protected_branches,
+    is_protected_branch,
+)
+from git_refs import (  # noqa: F401
+    _git,
+    _verified_local,
+    branch_exists,
+    match_local_branches,
+    ref_exists,
+)
 
 
 def _recorded_plan_branch(cwd: str, smm_dir: Path) -> str | None:

@@ -14,26 +14,25 @@ would be green today and green after a regression that deletes the ledger.
 The bug being pinned, observed live: the retro re-proposed debts whose originals
 had been compacted away, and escalated one to HIGH after "7 sessions unresolved"
 — when nothing could ever have resolved it, because the event no longer existed.
+
+Split at 500 lines: the ledger's own failure modes -- an unreadable ledger, and a
+failed ledger WRITE -- are in test_compact_ledger_failures.py. What stays is
+whether adoption memory SURVIVES a real compaction.
 """
 
-import contextlib
-import io
-import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
 import adoption_store
 import compact
 import intent
-import materialize
-from _append_impl import LockTimeoutError
+from _compaction_fixtures import TRY_ID, _LedgerCompactionTestCase
 from conftest import (
-    _SMMTestCase,
     adopt_try_event,
     defer_try_event,
     drop_try_event,
@@ -44,70 +43,9 @@ from conftest import (
 from event_schema import (
     DISPOSITION_ADOPTED,
     EVENT_TYPE_DEBT,
-    EVENT_TYPE_SESSION_STARTED,
     EVENT_TYPE_STATUS,
 )
 from resolution import collect_all_resolved_ids, compute_resolutions
-
-TRY_ID = "aa11bb22cc33"
-
-
-class _LedgerCompactionTestCase(_SMMTestCase):
-    """Machinery for driving a compaction that really does archive the intent."""
-
-    def _anchors(self, count: int = 4) -> list[dict]:
-        """Session boundary anchors, dated past the writer's clock.
-
-        An adopt `decision` is retained for _DECISION_MAX_AGE (3) sessions —
-        counted as anchors NEWER than the decision's own `ts`. The adopt fixtures
-        go through the real writer, which stamps `ts` with the wall clock, so
-        anchors dated in the fixture's own past would age the decision by ZERO
-        sessions and it would never be archived. The far-future date is what makes
-        this suite exercise compaction at all.
-        """
-        return [
-            make_event(
-                EVENT_TYPE_SESSION_STARTED,
-                content=f"start {i}",
-                ts=f"2099-01-{i + 1:02d}T00:00:00+00:00",
-            )
-            for i in range(count)
-        ]
-
-    def _compact(self, pre_watermark: list[dict]) -> list[dict]:
-        """Write *pre_watermark* + one uncurated trailing event, compact, and
-        return the events that SURVIVED. The trailing event keeps the watermark
-        honest: compaction only archives what has been curated."""
-        trailing = make_event(
-            EVENT_TYPE_STATUS, content="uncurated", ts="2026-06-01T00:00:00+00:00"
-        )
-        self._write_events([*pre_watermark, trailing])
-        materialize.write_curation_watermark(
-            self.smm_dir, len(pre_watermark), "xp-housekeeper"
-        )
-        compact.compact_after_curation(self.smm_dir)
-        return self._read_events()
-
-    def _assert_archived(self, live: list[dict], event: dict, what: str) -> None:
-        """The falsifiability guard. Every surviving-intent assertion below is
-        worthless unless the event carrying that intent is really gone."""
-        self.assertNotIn(
-            event["id"],
-            {e["id"] for e in live},
-            f"{what} is still in events.jsonl — compaction did not archive it, "
-            f"so this test proves nothing about surviving compaction",
-        )
-
-    def _ledger(self) -> dict:
-        return adoption_store.load_adoption(self.smm_dir)
-
-    def _retro_map(self, live: list[dict]) -> dict:
-        return intent.build_retro_intent_map(
-            live, intent.retro_try_ids(live), ledger=self._ledger()
-        )
-
-    def _triage_map(self, live: list[dict]) -> dict:
-        return intent.build_triage_intent_map(live, ledger=self._ledger())
 
 
 class TestRetroLaneSurvivesCompaction(_LedgerCompactionTestCase):
@@ -374,126 +312,6 @@ class TestDeferCountNeverFalls(_LedgerCompactionTestCase):
             "the ledger FORGOT deferrals it had already counted — a Try carried "
             "for three sessions now reads as freshly raised",
         )
-
-
-class TestAnUnreadableLedgerCannotWedgeCompaction(_LedgerCompactionTestCase):
-    """`load_adoption` fails LOUD, and compaction must not inherit that.
-
-    Compaction is the only thing that bounds `events.jsonl`, and it reaches
-    production two ways, both of which an unreadable ledger would break: `main()`
-    (SessionEnd + PostCompact) catches only LockTimeoutError, so a ValueError
-    escapes as a traceback; `smm_cli.complete_curation` suppresses OSError and
-    ValueError, so it no-ops in silence. Either way compaction stops every
-    session from then on, and the log grows forever — with no remedy but
-    hand-deleting a file the user has never heard of. An unbounded log is a far
-    worse failure than a forgotten adoption.
-    """
-
-    def _corrupt_case(self, body: str) -> list[dict]:
-        (self.smm_dir / adoption_store.ADOPTION_FILENAME).write_text(
-            body, encoding="utf-8"
-        )
-        debt = make_event(
-            EVENT_TYPE_DEBT, content="An adopted debt", ts="2026-01-01T00:00:00+00:00"
-        )
-        self._write_events([debt])
-        adopt = triage_event(self.smm_dir, "triage-adopt", debt["id"])
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            live = self._compact([debt, adopt, *self._anchors()])
-        self.assertIn("adoption ledger", err.getvalue())
-        self._assert_archived(live, adopt, "the triage-adopt status event")
-        return live
-
-    def test_corrupt_json_is_quarantined_and_the_log_still_compacts(self):
-        live = self._corrupt_case("{not json")
-
-        self.assertTrue((self.smm_dir / adoption_store.QUARANTINE_FILENAME).exists())
-        self.assertEqual(len(self._ledger()["entries"]), 1, "rebuilt from the log")
-        self.assertTrue(self._triage_map(live))
-
-    def test_a_version_from_the_future_does_not_wedge_a_rolled_back_plugin(self):
-        """The realistic path to an unreadable ledger: a newer plugin bumps
-        SCHEMA_VERSION, the user rolls back, and the older code cannot read what
-        the newer one wrote. Rolling back must not stop compaction forever."""
-        self._corrupt_case(
-            json.dumps({"version": adoption_store.SCHEMA_VERSION + 1, "entries": []})
-        )
-
-        self.assertTrue((self.smm_dir / adoption_store.QUARANTINE_FILENAME).exists())
-        self.assertEqual(self._ledger()["version"], adoption_store.SCHEMA_VERSION)
-
-
-class TestAWriteFailureIsNotAReadFailure(_LedgerCompactionTestCase):
-    """Quarantine is the remedy for an UNREADABLE ledger. It is not the remedy
-    for anything else, and it used to be applied to everything.
-
-    `record_intents` load-folds-saves, and BOTH ends raise ValueError:
-    `load_adoption` on a corrupt ledger, `save_adoption` on a schema-invalid
-    intent map. From outside they are one exception type. So a save-side failure —
-    which is OUR bug, in a map we built, with the ledger on disk perfectly
-    healthy and (per `save_adoption`) untouched — took the healthy adoption.json
-    and QUARANTINED it, then re-raised out of the un-wrapped retry anyway. The
-    cure destroyed the patient and the hook died regardless.
-
-    Naming the fault means reading first: only a failed READ may quarantine.
-    """
-
-    def _fold_with_broken_ledger_write(self, failure: Exception) -> tuple[str, dict]:
-        """Compact with a HEALTHY ledger on disk and the ledger WRITE failing.
-
-        Returns the fold's stderr and the adopt event, so callers can assert the
-        compaction ran to completion via `_assert_archived` — the suite's
-        falsifiability guard, and the only honest evidence that the archive and
-        the atomic replace were reached.
-        """
-        debt = make_event(
-            EVENT_TYPE_DEBT, content="An adopted debt", ts="2026-01-01T00:00:00+00:00"
-        )
-        self._write_events([debt])
-        adopt = triage_event(self.smm_dir, "triage-adopt", debt["id"])
-        adoption_store.save_adoption(self.smm_dir, adoption_store.empty_adoption())
-        with (
-            patch.object(compact.adoption_store, "record_intents", side_effect=failure),
-            contextlib.redirect_stderr(io.StringIO()) as err,
-        ):
-            live = self._compact([debt, adopt, *self._anchors()])
-        self._assert_archived(live, adopt, "the triage-adopt status event")
-        return err.getvalue(), adopt
-
-    def test_a_save_failure_does_not_quarantine_a_healthy_ledger(self):
-        self._fold_with_broken_ledger_write(
-            ValueError("adoption validation failed: bad intent map")
-        )
-        self.assertFalse(
-            (self.smm_dir / adoption_store.QUARANTINE_FILENAME).exists(),
-            "a healthy ledger was quarantined for a fault that was not its own",
-        )
-        self.assertTrue((self.smm_dir / adoption_store.ADOPTION_FILENAME).exists())
-
-    def test_a_save_failure_does_not_abort_the_compaction(self):
-        """The ledger is a CACHE of what the log already said. Compaction is the
-        only thing that bounds the log. Losing a fold is recoverable; losing
-        compaction is not. (`_assert_archived` inside the helper is what proves
-        the archive + atomic replace were reached.)"""
-        err, _ = self._fold_with_broken_ledger_write(
-            ValueError("adoption validation failed: bad intent map")
-        )
-        self.assertIn("compaction continues", err)
-
-    def test_a_contended_adoption_lock_does_not_abort_the_compaction(self):
-        """`LockTimeoutError` is a bare `Exception` subclass, so it slipped
-        through `except (OSError, ValueError)` untouched.
-
-        Teammates share one SMM dir and every SessionEnd compacts, so two
-        compactions overlapping on `adoption.lock` is ordinary, not exotic. A
-        contended lock propagated out of the fold and abandoned the whole pass
-        BEFORE the archive and the atomic replace ever ran — the log went
-        unbounded because a CACHE was busy.
-        """
-        err, _ = self._fold_with_broken_ledger_write(
-            LockTimeoutError("adoption.lock held by a sibling")
-        )
-        self.assertIn("compaction continues", err)
 
 
 if __name__ == "__main__":
