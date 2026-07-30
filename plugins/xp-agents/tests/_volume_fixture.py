@@ -108,7 +108,60 @@ def bootstrap_populated_smm(tmp: Path, *, total_events: int = 2000):
     write_events(smm / "events.jsonl", generate_events(total_events))
     (smm / "sprint.json").write_text(json.dumps(_sprint_doc()))
     (smm / "shared_mental_model.json").write_text(json.dumps(_curated_pillars()))
+    (smm / "system_context.json").write_text(json.dumps(_system_context_doc()))
+    (smm / "execution_plan.json").write_text(json.dumps(_plan_doc()))
     return repo, smm
+
+
+def _system_context_doc() -> dict:
+    """System context at its schema SOFT caps — 20 conventions, 15 principles,
+    10 modules, 10 project-specific entries, each field at its length cap.
+
+    The caps are real: `system_context_schema` enforces them at write time, so
+    this is the largest document the pillar can legally hold and therefore the
+    honest worst case for anything that renders it.
+    """
+    return {
+        "product": "p" * 400,
+        "architecture_overview": "a" * 750,
+        "stack": {"languages": ["python"], "test_command": "pytest"},
+        "modules": [
+            {"name": f"module-{i}", "purpose": "u" * 100, "path": "src/" + "d" * 60}
+            for i in range(10)
+        ],
+        "conventions": ["c" * 150 for _ in range(20)],
+        "principles": [
+            {"topic": f"topic-{i}", "decision": "d" * 200, "rationale": "r" * 200}
+            for i in range(15)
+        ],
+        "project_specific": [
+            {"name": f"section-{i}", "content": "s" * 400} for i in range(10)
+        ],
+    }
+
+
+def _plan_doc() -> dict:
+    """An execution plan with one in-progress milestone."""
+    return {
+        "title": "t" * 60,
+        "sources": [],
+        "overview": "o" * 300,
+        "milestones": [
+            {
+                "number": 1,
+                "name": "n" * 60,
+                "status": "in-progress",
+                "delivered_sprint": None,
+                "goal": "g" * 200,
+                "done": "Given x, When y, Then z",
+                "sources": "s" * 100,
+                "design_details": "d" * 800,
+                "constraints": ["c" * 150 for _ in range(4)],
+                "change_zones": [{"path": p, "note": "n" * 100} for p in _FILE_PATHS],
+                "impact_zones": [{"path": _FILE_PATHS[0], "note": "n" * 100}],
+            }
+        ],
+    }
 
 
 # Pillar counts and per-entry length from a real curated SMM: 1 intent, 20

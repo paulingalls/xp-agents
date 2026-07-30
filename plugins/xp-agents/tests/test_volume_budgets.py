@@ -52,11 +52,61 @@ from conftest import _SCRIPTS_DIR, _bootstrap_seeded_smm, _run_emitter
 # raised in production. Deliberate: a bound wants the pessimistic end, and the
 # open-concern count is the very thing a downstream story has to vary.
 PRELOAD_VOLUME_BUDGETS: dict[str, int] = {
-    "xp-work-selection": 118700,
+    "xp-accept": 45600,
+    "xp-end-session": 2300,
+    "xp-kickoff": 400,
+    "xp-plan": 200,
+    "xp-sprint-start": 300,
+    "xp-work-selection": 119000,
+}
+
+# Surfaces whose size does NOT track SMM data, with the reason. This is a
+# CLAIM, not an exemption: `test_prose_dominated_surfaces_really_are` measures
+# each one and fails if it ever climbs above its shape budget, which would mean
+# it had become volume-sensitive and needs a real entry here instead.
+_PRELOAD_PROSE_DOMINATED: dict[str, str] = {
+    "xp-free-close": "static shared close reference dominates (8,721 of 8,900)",
+    "xp-plan-close": "same shared reference",
+    "xp-sprint-close": "same shared reference",
+    "xp-story-close": "same reference, mode-scoped subset",
+    "xp-assign": "emits computed vars, not rendered SMM content",
+    "xp-schedule": "frontier ids only",
+    "xp-sprint-review": "counts only",
+    "xp-system-context": "a path and a flag",
+}
+
+# Surfaces that need a trigger this fixture does not build. Each names what is
+# missing so the gap is a to-do with an owner, not an unexplained absence.
+_PRELOAD_NEEDS_TRIGGER: dict[str, str] = {
+    "xp-quality-review": "needs a real git diff — its 196,066 chars in "
+    "production are the diff, not the SMM",
+    "xp-review-plan": "keyed on a `.plan-awaiting-review` marker that "
+    "populating the SMM does not create",
 }
 
 # Same calibration, measured at each emitter's LOUD input (see
 # `_emitter_fixtures.EMITTER_LOUD_FIXTURES`) against the populated SMM.
+_EMITTER_PROSE_DOMINATED: dict[str, str] = {
+    "lint_check.py": "a fixed warning string",
+    "review_cycle_done.py": "a fixed follow-up string",
+}
+
+_EMITTER_NEEDS_TRIGGER: dict[str, str] = {
+    "bash_post_tool.py": "needs a command whose result it records",
+    "kickoff_gate.py": "needs an un-kicked-off session",
+    "pre_tool_bash.py": "needs a gated command",
+    "pre_tool_write.py": "needs a write that trips the TDD gate",
+    "subagent_stop.py": "needs a live plan-review marker",
+}
+
+# Cannot emit AT ALL: `user_prompt_log.run()` returns None on all six of its
+# paths, so its `_common.hook_output` call is unreachable. Its 100-char shape
+# budget bounds a surface that structurally cannot produce output.
+_EMITTER_STRUCTURALLY_SILENT: dict[str, str] = {
+    "user_prompt_log.py": "run() returns None on every path; hook_output is "
+    "unreachable",
+}
+
 EMITTER_VOLUME_BUDGETS: dict[str, int] = {
     "post_tool_exit_plan.py": 400,
     "pre_tool_skill.py": 400,
@@ -198,6 +248,98 @@ class TestEmitterVolumeBudgets(unittest.TestCase):
             "a loud builder without a volume budget measures nothing, and a "
             "volume budget without a loud builder bounds the quiet branch",
         )
+
+
+class TestVolumeCoverageIsComplete(unittest.TestCase):
+    """Every surface the shape families bound must be CLASSIFIED here.
+
+    Written last, deliberately. An allowlist that retires itself is the
+    gate-that-does-nothing shape story-007's contract forbids, so there is no
+    pending set: a surface is either bounded at volume, or carries a written
+    reason why it cannot be, and anything else fails by name.
+    """
+
+    def test_every_preload_is_classified(self):
+        classified = (
+            set(PRELOAD_VOLUME_BUDGETS)
+            | set(_PRELOAD_PROSE_DOMINATED)
+            | set(_PRELOAD_NEEDS_TRIGGER)
+        )
+        self.assertEqual(
+            set(PRELOAD_BUDGETS) - classified,
+            set(),
+            "preloads with a shape budget and no volume classification. Add a "
+            "volume budget, or record why the surface has no volume dimension.",
+        )
+
+    def test_every_emitter_is_classified(self):
+        classified = (
+            set(EMITTER_VOLUME_BUDGETS)
+            | set(_EMITTER_PROSE_DOMINATED)
+            | set(_EMITTER_NEEDS_TRIGGER)
+            | set(_EMITTER_STRUCTURALLY_SILENT)
+        )
+        self.assertEqual(
+            set(EMITTER_BUDGETS) - classified,
+            set(),
+            "emitters with a shape budget and no volume classification.",
+        )
+
+    def test_no_surface_is_classified_twice(self):
+        for label, groups in (
+            (
+                "preload",
+                [
+                    PRELOAD_VOLUME_BUDGETS,
+                    _PRELOAD_PROSE_DOMINATED,
+                    _PRELOAD_NEEDS_TRIGGER,
+                ],
+            ),
+            (
+                "emitter",
+                [
+                    EMITTER_VOLUME_BUDGETS,
+                    _EMITTER_PROSE_DOMINATED,
+                    _EMITTER_NEEDS_TRIGGER,
+                    _EMITTER_STRUCTURALLY_SILENT,
+                ],
+            ),
+        ):
+            seen: set[str] = set()
+            for group in groups:
+                overlap = seen & set(group)
+                self.assertEqual(overlap, set(), f"{label} classified twice: {overlap}")
+                seen |= set(group)
+
+    def test_prose_dominated_surfaces_really_are(self):
+        """The claim is measured, not taken on trust.
+
+        A surface parked in `_PROSE_DOMINATED` because its size does not track
+        SMM data must keep measuring at or below its shape budget against the
+        POPULATED fixture. One that climbs past it has grown a volume dimension
+        and needs a real budget — this is what stops the category becoming a
+        quiet exemption.
+        """
+        import tempfile
+
+        from _budget_helpers import _PLUGIN_ROOT, _measured_len, _run_preload
+
+        offenders = []
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, smm = bootstrap_populated_smm(Path(tmp))
+            for name, reason in sorted(_PRELOAD_PROSE_DOMINATED.items()):
+                out, err, rc = _run_preload(name, smm, repo)
+                self.assertEqual(rc, 0, f"{name}: {err[:200]}")
+                actual = _measured_len(
+                    out, normalize_paths=(str(_PLUGIN_ROOT), str(smm), str(repo))
+                )
+                if actual > PRELOAD_BUDGETS[name]:
+                    offenders.append(
+                        f"{name}: {actual} chars at volume, above its shape "
+                        f"budget of {PRELOAD_BUDGETS[name]} — no longer "
+                        f"prose-dominated ({reason})"
+                    )
+        self.assertFalse(offenders, "\n".join(offenders))
 
 
 if __name__ == "__main__":
