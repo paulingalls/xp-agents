@@ -47,7 +47,7 @@ from spawn_args import parse_args
 # module; keep the name importable here so `spawn_teammate.build_command` IS
 # `spawn_command.build_command` — every `mock.patch("...spawn_teammate.build_command")`
 # site and every direct caller keeps working with zero edits.
-from spawn_command import build_command
+from spawn_command import build_command, flag_value
 
 # The prompt text (is this prompt ours, and what leads it) and the subprocess tee
 # + liveness watchdog live in sibling leaf modules; keep the names importable here
@@ -320,8 +320,14 @@ def main(argv: list[str] | None = None) -> None:
     # teammate loads none of the xp-agents skills/agents/hooks (ungated). Self-
     # resolve from CLAUDE_PLUGIN_ROOT when omitted so a caller that forgets the
     # flag can't silently re-spawn the plugin-less teammate this release fixes;
-    # an explicit --plugin-dir still wins.
-    plugin_dir = args.plugin_dir or os.environ.get("CLAUDE_PLUGIN_ROOT")
+    # an explicit --plugin-dir still wins. Both sides go through flag_value —
+    # the same emptiness test build_command applies — because a bare truthiness
+    # test calls a whitespace-only flag a value, skips the fallback, and then
+    # build_command drops the flag anyway: the plugin-less spawn, from a
+    # variable that only looked set.
+    plugin_dir = flag_value(args.plugin_dir) or flag_value(
+        os.environ.get("CLAUDE_PLUGIN_ROOT")
+    )
     cmd = build_command(name, args.model, plugin_dir, args.effort)
 
     env = os.environ.copy()

@@ -170,11 +170,20 @@ def _cadence_dir(smm_dir: Path | None) -> Path | None:
     environment, so the env read covers every real teammate at the cost of an
     env lookup rather than a subprocess; anything else renders no cadence, which
     is what already happened for all of them.
+
+    The env value is strip+pointer-followed exactly as `smm_dir_resolve` does
+    it: the handle is pinned at spawn and the tree can have relocated since, so
+    a raw read addresses the abandoned copy and renders that copy's stale
+    cadence. Only the derivation half is dropped, not the normalization half.
     """
     if smm_dir is not None:
         return smm_dir
-    env_dir = os.environ.get("SMM_DIR")
-    return _common.try_validate_smm_dir(Path(env_dir)) if env_dir else None
+    env_dir = os.environ.get("SMM_DIR", "").strip()
+    if not env_dir:
+        return None
+    return _common.try_validate_smm_dir(
+        smm_dir_resolve.follow_migration_pointer(Path(env_dir))
+    )
 
 
 def _run_teammate(smm_dir: Path | None) -> str | None:

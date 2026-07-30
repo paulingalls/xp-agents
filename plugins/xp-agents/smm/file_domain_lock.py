@@ -222,9 +222,13 @@ def collision_report(
     the scoped stories instead would truncate the closure and report a phantom
     collision between a pair that is in fact strictly sequential.
 
-    Patterns expand over the SCOPED stories' literal paths only. Widening that
-    to every story's literals cannot add a collision: an out-of-scope literal
-    leaves the path with one claimant, and one claimant is never a collision.
+    Patterns expand over the SCOPED stories' literal paths only. Where one
+    claimant is a literal that narrowing is free -- the literal's own story must
+    be scoped to be reported at all. It is NOT free where BOTH claimants are
+    patterns matching an out-of-scope story's literal: widening would surface
+    that pair. That is glob-vs-glob overlap (debt 40626375ff25), undetected here
+    by design, so the narrowing costs nothing this function already promises --
+    but it is a narrowing, not a no-op, and closing that debt must revisit it.
     """
     stories = [
         s

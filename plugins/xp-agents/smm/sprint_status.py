@@ -221,7 +221,8 @@ def in_progress_is_teammate_data(data: dict) -> bool:
 def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     """Why the named stories can or cannot run in parallel, with the facts.
 
-        {"collisions": {path: [{"story_id", "origin"}, ...]}, "glob_forced": bool}
+        {"collisions": {path: [{"story_id", "origin", "pattern"?}, ...]},
+         "glob_forced": bool}
 
     `collisions` is `file_domain_lock.collision_report`'s output forwarded
     unchanged — already sorted by path, already dependency- and terminal-aware,

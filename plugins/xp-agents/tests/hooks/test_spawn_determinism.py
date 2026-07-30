@@ -52,12 +52,15 @@ import conftest  # noqa: F401
 import file_domain_lock
 import marker_names
 import session_start
+import smm_dir_resolve
 import spawn_command
 from conftest import (
     _PLUGIN_ROOT,
+    _HookTestCase,
     _IntegrationTestCase,
     make_sprint_dict,
     make_story_dict,
+    write_smm_fixture,
 )
 
 _ASSIGN_SKILL = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
@@ -147,7 +150,10 @@ class TestInheritedTierIsLoud(unittest.TestCase):
         self.assertIn("unverified", err)
 
     def test_resolved_model_notes_nothing(self):
-        _, err = _build(model="sonnet")
+        """A plugin dir is passed too: the note under test is the TIER one, and
+        the plugin-less note would otherwise make this pass for the wrong
+        reason."""
+        _, err = _build(model="sonnet", plugin_dir="/p")
         self.assertEqual(err, "")
 
     def test_note_reaches_stderr_through_a_real_spawn(self):
@@ -506,6 +512,55 @@ class TestPluginDirEmptyFlagIsAbsent(unittest.TestCase):
         self.assertIn("--plugin-dir", cmd)
         self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/p")
 
+    def test_absent_plugin_dir_is_announced(self):
+        """Dropping the flag has the SAME consequence the empty flag had — an
+        ungated teammate — so normalizing it silently only moves the failure.
+        The inherited-tier note's argument applies with more force here."""
+        _, err = _build(model="sonnet")
+        self.assertIn("plugin", err.lower())
+        self.assertIn("gate", err.lower())
+
+    def test_whitespace_plugin_dir_does_not_defeat_the_env_fallback(self):
+        """`args.plugin_dir or os.environ[...]` is a truthiness test, and
+        `"   "` is truthy: without the shared emptiness test main() skips the
+        CLAUDE_PLUGIN_ROOT fallback and build_command then drops the flag."""
+        import spawn_teammate
+
+        captured: dict[str, list[str]] = {}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("test prompt")
+            prompt_path = f.name
+        try:
+            with (
+                patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": "/env/xp-agents"}),
+                patch.object(spawn_teammate, "create_worktree", return_value="/tmp/wt"),
+                patch.object(
+                    spawn_teammate,
+                    "run_with_tee",
+                    side_effect=lambda cmd, *a, **k: captured.__setitem__("v", cmd),
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                spawn_teammate.main(
+                    [
+                        "--name",
+                        "worktree-story-010",
+                        "--smm-dir",
+                        "/tmp/smm",
+                        "--prompt-file",
+                        prompt_path,
+                        "--plugin-dir",
+                        "   ",
+                    ]
+                )
+        finally:
+            Path(prompt_path).unlink(missing_ok=True)
+
+        cmd = captured["v"]
+        self.assertIn("--plugin-dir", cmd)
+        self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/env/xp-agents")
+
 
 class TestTeammateCadenceRenderActuallyFires(unittest.TestCase):
     """The cadence render was dead code in production: `main` passes
@@ -541,6 +596,55 @@ class TestTeammateCadenceRenderActuallyFires(unittest.TestCase):
         with patch.dict(os.environ):
             os.environ.pop("SMM_DIR", None)
             self.assertIsNone(session_start._cadence_dir(None))
+
+    def test_cadence_dir_follows_a_relocation_pointer(self):
+        """The handle is pinned at spawn and the tree can have moved since. A
+        raw env read addresses the abandoned copy and renders ITS cadence —
+        the split brain smm_dir_resolve.follow_migration_pointer exists to
+        prevent, which the env branch must not opt out of."""
+        with (
+            tempfile.TemporaryDirectory() as old,
+            tempfile.TemporaryDirectory() as new,
+            patch.dict(os.environ, {"SMM_DIR": old}),
+        ):
+            (Path(old) / smm_dir_resolve.MIGRATION_POINTER).write_text(new + "\n")
+            self.assertEqual(session_start._cadence_dir(None), Path(new))
+
+
+class TestTeammateRenderIsCadenceOnly(_HookTestCase):
+    """The two-sided contract `_cadence_dir` exists to serve, pinned on the
+    function production actually calls.
+
+    The dead-code defect survived because every teammate pin passed an explicit
+    `smm_dir` — the shape production never uses. `_cadence_dir` unit tests do not
+    close that: they cannot catch a re-gating of the render on the wrong
+    variable. Both halves belong in ONE pin, because they pull opposite ways —
+    the cadence must reach a teammate whose `smm_dir` is None, and the SMM render
+    must NOT, since keeping the render out of a teammate's context is exactly why
+    `main` passes None.
+    """
+
+    _TEAMMATE_CWD = "/home/user/project/.claude/worktrees/worktree-story-001/src"
+
+    def _render(self) -> str:
+        import session_start as ss
+
+        data = {"session_id": "test", "source": "startup", "cwd": self._TEAMMATE_CWD}
+        with patch.dict(os.environ, {"SMM_DIR": str(self.smm_dir)}):
+            result = ss.run(data, smm_dir=None)
+        self.assertIsNotNone(result, "teammate SessionStart rendered nothing")
+        return result or ""
+
+    def test_production_shape_still_renders_the_cadence(self):
+        import markers
+
+        write_smm_fixture(self.smm_dir, intent=[("Ship the widget", "goal")])
+        markers.write_review_cadence(self.smm_dir, "story")
+        self.assertIn("Review Cadence", self._render())
+
+    def test_production_shape_does_not_leak_the_smm_render(self):
+        write_smm_fixture(self.smm_dir, intent=[("Ship the widget", "goal")])
+        self.assertNotIn("Ship the widget", self._render())
 
 
 if __name__ == "__main__":

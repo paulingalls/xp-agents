@@ -35,8 +35,17 @@ r = json.loads(sys.argv[1])
 overlap = r.get("overlap") or {}
 frontier = r.get("frontier", [])
 collisions = overlap.get("collisions") or {}
+# A claim carries "pattern" when a GLOB entry produced it, and then the owner
+# never NAMED this path — "claimed by story-001" alone sends the lead to a
+# file_domain that does not contain it. Same reason file_domain_lock.
+# format_collision_report prints the pattern beside the path.
+# No single quotes anywhere in this script: it is bash-single-quoted above.
+def _owner(o):
+    pat = o.get("pattern")
+    return o["story_id"] + (" (via " + pat + ")" if pat else "")
+
 detail = "; ".join(
-    f"{p} claimed by " + ", ".join(o["story_id"] for o in owners)
+    f"{p} claimed by " + ", ".join(_owner(o) for o in owners)
     for p, owners in collisions.items()
 )
 for value in (
