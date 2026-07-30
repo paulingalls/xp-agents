@@ -18,11 +18,14 @@ Two axes, and the pairing between them is the whole story:
   in motion, or when a branch was cut for it (work may exist even if the story
   was parked back).
 
-A write-time relaxation alone leaves a staggered hole — two parked stories on
-one path coexist, then get promoted one at a time, so no pair is ever on the
-frontier together. Closing that is the start-time gate, pinned next.
+Because a write-time relaxation alone leaves a staggered hole — two parked
+stories on one path coexist, then get promoted one at a time, so no pair is
+ever on the frontier together — the second half of this module pins the
+start-time gate that closes it, on BOTH documented status writers.
 """
 
+import contextlib
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -33,8 +36,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 import file_domain_lock
 import sprint_save
 import sprint_store
-from conftest import _s, _SMMTestCase
+import sprint_transitions
+from conftest import _s, _SMMTestCase, run_cli
 
+_CLI = Path(__file__).parent.parent.parent / "smm" / "sprint_cli.py"
 _SHARED = "src/shared.py"
 
 
@@ -224,6 +229,183 @@ class TestFrontierKeepsStrictSemantics(_SMMTestCase):
         self.assertEqual(report["frontier"], ["story-001", "story-002"])
         self.assertIn(_SHARED, report["overlap"]["collisions"])
         self.assertFalse(report["parallelizable"])
+
+
+class TestStartTimeGate(_SMMTestCase):
+    """The staggered hole: with a write-time relaxation alone, two parked
+    stories on one path coexist, the frontier promotes them one at a time (one
+    story at a time is never a pair), and both end up running on the path. The
+    check therefore also runs at START time, on both status writers, inside the
+    sprint lock.
+    """
+
+    def _two_parked_sharers(self):
+        sprint_store.save_sprint(
+            self.smm_dir,
+            _sprint(
+                [
+                    _story("story-001", "scheduled"),
+                    _story("story-002", "scheduled"),
+                ]
+            ),
+        )
+
+    def test_second_promotion_is_refused_via_update_story_status(self):
+        """NEW BEHAVIOUR. First promotion allowed, second refused, naming both
+        stories and the path."""
+        self._two_parked_sharers()
+        sprint_store.update_story_status(self.smm_dir, "story-001", "in-progress")
+        with self.assertRaises(ValueError) as ctx:
+            sprint_store.update_story_status(self.smm_dir, "story-002", "in-progress")
+        msg = str(ctx.exception)
+        self.assertIn(_SHARED, msg)
+        self.assertIn("story-001", msg)
+        self.assertIn("story-002", msg)
+
+    def test_refused_promotion_leaves_the_status_on_disk_untouched(self):
+        self._two_parked_sharers()
+        sprint_store.update_story_status(self.smm_dir, "story-001", "in-progress")
+        before = (self.smm_dir / "sprint.json").read_bytes()
+        with self.assertRaises(ValueError):
+            sprint_store.update_story_status(self.smm_dir, "story-002", "in-progress")
+        self.assertEqual((self.smm_dir / "sprint.json").read_bytes(), before)
+
+    def test_second_promotion_is_refused_via_update_story_status_if(self):
+        """NEW BEHAVIOUR. `update-story-if --new in-progress` is the second
+        documented entrance; a gate in only one writer is fail-open."""
+        self._two_parked_sharers()
+        self.assertTrue(
+            sprint_store.update_story_status_if(
+                self.smm_dir, "story-001", expected="scheduled", new="in-progress"
+            )
+        )
+        with self.assertRaises(ValueError) as ctx:
+            sprint_store.update_story_status_if(
+                self.smm_dir, "story-002", expected="scheduled", new="in-progress"
+            )
+        self.assertIn(_SHARED, str(ctx.exception))
+
+    def test_both_writers_route_through_the_locked_helper(self):
+        """NEW BEHAVIOUR. The read-check-write must be ONE critical section:
+        an unlocked check lets two simultaneous promotions each see a clean
+        baseline and both write. Pinned by observing that the lock is held
+        while the transition is evaluated, on both writers."""
+        self._two_parked_sharers()
+        held: list[str] = []
+        original = sprint_transitions._sprint_lock
+
+        @contextlib.contextmanager
+        def _recording(smm_dir):
+            with original(smm_dir):
+                held.append("in")
+                yield
+                held.append("out")
+
+        sprint_transitions._sprint_lock = _recording
+        try:
+            sprint_store.update_story_status(self.smm_dir, "story-001", "in-progress")
+            self.assertEqual(held, ["in", "out"])
+            with self.assertRaises(ValueError):
+                sprint_store.update_story_status_if(
+                    self.smm_dir, "story-002", expected="scheduled", new="in-progress"
+                )
+            # The refusal raised from INSIDE the lock: "in" was recorded, the
+            # matching "out" was not, because the ValueError unwound the body.
+            self.assertEqual(held, ["in", "out", "in"])
+        finally:
+            sprint_transitions._sprint_lock = original
+
+    def test_done_path_sharer_never_blocks_a_promotion(self):
+        """PRESERVATION PIN. A shipped story released its files. It normally
+        has a branch_name, so this is only green while the terminal exemption
+        is checked before the branch discriminator."""
+        sprint_store.save_sprint(
+            self.smm_dir,
+            _sprint(
+                [
+                    _story("story-001", "done", branch_name="shipped/story-001"),
+                    _story("story-002", "scheduled"),
+                ]
+            ),
+        )
+        sprint_store.update_story_status(self.smm_dir, "story-002", "in-progress")
+        story = sprint_store.get_story(self.smm_dir, "story-002")
+        self.assertEqual(story["status"], "in-progress")
+
+    def test_already_running_story_may_advance_without_a_domain_recheck(self):
+        """PRESERVATION PIN. The gate is narrow: reviewing/closing are
+        already-running, so re-checking there would pay a filesystem
+        sister-expansion for no new information — and a story sharing a path
+        with itself must never block its own progress."""
+        sprint_store.save_sprint(
+            self.smm_dir,
+            _sprint([_story("story-001", "in-progress")]),
+        )
+        sprint_store.update_story_status(self.smm_dir, "story-001", "reviewing")
+        sprint_store.update_story_status(self.smm_dir, "story-001", "closing")
+        self.assertEqual(
+            sprint_store.get_story(self.smm_dir, "story-001")["status"], "closing"
+        )
+
+
+class TestStartTimeGateE2E(_SMMTestCase):
+    """Acceptance: both CLI entrances refuse, as subprocesses."""
+
+    def _two_parked_sharers(self):
+        sprint_store.save_sprint(
+            self.smm_dir,
+            _sprint(
+                [
+                    _story("story-001", "scheduled"),
+                    _story("story-002", "scheduled"),
+                ]
+            ),
+        )
+
+    def test_update_story_cli_refuses_the_second_promotion(self):
+        self._two_parked_sharers()
+        ok = run_cli(_CLI, ["update-story", "story-001", "in-progress"], self.smm_dir)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        bad = run_cli(_CLI, ["update-story", "story-002", "in-progress"], self.smm_dir)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn(_SHARED, bad.stderr)
+        on_disk = json.loads((self.smm_dir / "sprint.json").read_text())
+        statuses = {s["id"]: s["status"] for s in on_disk["stories"]}
+        self.assertEqual(
+            statuses, {"story-001": "in-progress", "story-002": "scheduled"}
+        )
+
+    def test_update_story_if_cli_refuses_the_second_promotion(self):
+        self._two_parked_sharers()
+        ok = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-001",
+                "--expected",
+                "scheduled",
+                "--new",
+                "in-progress",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        bad = run_cli(
+            _CLI,
+            [
+                "update-story-if",
+                "story-002",
+                "--expected",
+                "scheduled",
+                "--new",
+                "in-progress",
+            ],
+            self.smm_dir,
+        )
+        # rc 2 is update-story-if's validation/refusal code; rc 1 is a lost CAS
+        # race, which this is not.
+        self.assertEqual(bad.returncode, 2, bad.stderr)
+        self.assertIn(_SHARED, bad.stderr)
 
 
 if __name__ == "__main__":

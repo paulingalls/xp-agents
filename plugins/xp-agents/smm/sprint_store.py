@@ -10,22 +10,18 @@ Follows the same pattern as execution_plan_store.py.
 """
 
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import file_domain_lock
-from _append_impl import flock_with_timeout, write_text_atomic
+from _append_impl import write_text_atomic
 from _manual_shape_exemption import grandfathered_story_ids
 from sprint_schema import (
     SPRINT_FILENAME,
-    VALID_STORY_STATUSES,
     validate_sprint,
 )
 from system_context_store import acceptance_surface_names
 
 _MARKER_NAME = ".needs-sprint"
-_SPRINT_LOCK_NAME = "sprint.lock"
 
 
 class SprintCorruptError(ValueError):
@@ -36,27 +32,6 @@ class SprintCorruptError(ValueError):
     catch it; only a caller that opts in by catching this type first
     changes behavior.
     """
-
-
-@contextmanager
-def _sprint_lock(smm_dir: Path) -> Iterator[None]:
-    """Hold an exclusive flock on sprint.lock for the duration of the block.
-
-    Used by update_story_status_if to make the load-check-write CAS one
-    indivisible critical section — a second CAS caller racing this one
-    will see the post-update state when its load runs, not the pre-update
-    snapshot. The shared `flock_with_timeout` helper provides the
-    SIGALRM-bounded acquire and suppress-OSError-on-release semantics
-    so a deadlocked sibling can't wedge the wrapper.
-
-    Other unlocked sprint mutators (update_story_status, set_branch, etc.)
-    do NOT take this lock — the CAS only guarantees atomicity against
-    other CAS callers. Closing the in-process get→update window in
-    spawn_teammate.py is the load-bearing fix; cross-process protection
-    against unlocked writers is out of scope for this wrapper.
-    """
-    with flock_with_timeout(smm_dir / _SPRINT_LOCK_NAME):
-        yield
 
 
 def sprint_exists(smm_dir: Path) -> bool:
@@ -193,45 +168,6 @@ def get_story(smm_dir: Path, story_id: str) -> dict:
     """Return the story dict by id. Raises ValueError if missing."""
     _, story = _load_story(smm_dir, story_id)
     return story
-
-
-def update_story_status(smm_dir: Path, story_id: str, status: str) -> None:
-    """Update a story's status in the sprint."""
-    if status not in VALID_STORY_STATUSES:
-        valid = sorted(VALID_STORY_STATUSES)
-        raise ValueError(f"Invalid status {status!r}, must be one of {valid}")
-
-    sprint, story = _load_story(smm_dir, story_id)
-    story["status"] = status
-    save_sprint(smm_dir, sprint, enforce_budget=False)
-
-
-def update_story_status_if(
-    smm_dir: Path, story_id: str, *, expected: str, new: str
-) -> bool:
-    """Atomic compare-and-swap on story status.
-
-    Returns True when the on-disk status matched ``expected`` and the
-    write to ``new`` succeeded; False when the status differed (no-op,
-    file untouched). Raises ValueError for an unknown ``new`` status,
-    a missing story id, or a missing sprint.
-
-    Closes the get_story → update_story_status TOCTOU window in
-    spawn_teammate.py: the load-check-write runs under one flock so
-    a story already advanced past ``expected`` (e.g. an orchestrator
-    flipped it to ``done``) cannot be silently demoted.
-    """
-    if new not in VALID_STORY_STATUSES:
-        valid = sorted(VALID_STORY_STATUSES)
-        raise ValueError(f"Invalid status {new!r}, must be one of {valid}")
-
-    with _sprint_lock(smm_dir):
-        sprint, story = _load_story(smm_dir, story_id)
-        if story["status"] != expected:
-            return False
-        story["status"] = new
-        save_sprint(smm_dir, sprint, enforce_budget=False)
-        return True
 
 
 def set_branch(smm_dir: Path, branch_name: str) -> None:
@@ -372,6 +308,18 @@ from sprint_status import (  # noqa: E402  intentional mid-file re-export
     select_closing_stories,
     select_in_motion_stories,
     select_promoted_teammate_stories,
+)
+
+# -------------------------------------------------------------------
+# Status transitions — re-exported from sprint_transitions
+# -------------------------------------------------------------------
+# Bodies live in sprint_transitions.py; this block keeps the historical
+# `from sprint_store import update_story_status` import path working. Both
+# writers share one locked helper there, so a caller cannot reach the status
+# machine by a route the start-time collision check does not cover.
+from sprint_transitions import (  # noqa: E402  intentional mid-file re-export
+    update_story_status,
+    update_story_status_if,
 )
 
 # Public API contract — listed for pyright (so re-exports aren't flagged
