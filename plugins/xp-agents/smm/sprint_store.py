@@ -287,10 +287,18 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
     # this path can no longer write status at all — see the refusal above.) Other
     # edits (execution_mode, executor_model, context, …) can't affect collisions
     # and skip the sister-expansion cost.
+    #
+    # running_only=True: this is a MID-SPRINT amendment, so the question is
+    # whether a path is claimed by a story that is actually running, not by one
+    # that was merely planned. A parked story's claim vetoing a live story's
+    # amendment was the measured bug. run() keeps the strict default — see
+    # sprint_save.introduced_collisions.
     if updates.keys() & {"file_domain", "dependencies"}:
         import sprint_save  # function-local: sprint_save imports sprint_store (cycle)
 
-        introduced = sprint_save.introduced_collisions(sprint, smm_dir)
+        introduced = sprint_save.introduced_collisions(
+            sprint, smm_dir, running_only=True
+        )
         if introduced:
             raise ValueError(file_domain_lock.format_collision_report(introduced))
     save_sprint(smm_dir, sprint)

@@ -9,7 +9,12 @@ story already owns and silently reintroduce the collision M1 forbids.
 These tests pin the guard's this-write-only semantics: a domain edit that INTRODUCES
 a collision is refused, but an unrelated-field edit on a legacy sprint that already
 holds a pre-existing collision still succeeds (the pre-existing collision is not this
-write's fault). Mirrors the fixture + assertion style of
+write's fault).
+
+Every claimant here is RUNNING. A mid-sprint amendment asks whether a path is
+claimed by a story that is actually running (story-011), so a fixture of parked
+stories would make each refusal below vacuously green — the guard would have
+nothing to hold. Mirrors the fixture + assertion style of
 TestCreateRefusesCollidingSprintE2E and TestAddStoryNotBlockedByPreexistingCollision
 in test_sprint_save_sisters_autoinclude.py.
 """
@@ -41,9 +46,9 @@ class TestEditStoryCollisionGuard(_SMMTestCase):
     concurrently-runnable path, while leaving every other edit untouched."""
 
     def _disjoint(self, **b_extra):
-        a = _s("story-001", "a", "ready")
+        a = _s("story-001", "a", "in-progress")
         a["file_domain"] = ["src/shared.py — a"]
-        b = _s("story-002", "b", "ready")
+        b = _s("story-002", "b", "in-progress")
         b["file_domain"] = ["src/other.py — b"]
         b.update(b_extra)
         return _sprint([a, b])
@@ -52,9 +57,9 @@ class TestEditStoryCollisionGuard(_SMMTestCase):
         """Two independent stories already claiming src/shared.py, planted on
         disk via save_sprint DIRECTLY — the edit-story bypass that side-steps
         run()'s gate, so the collision sits on disk without this write's fault."""
-        a = _s("story-001", "a", "ready")
+        a = _s("story-001", "a", "in-progress")
         a["file_domain"] = ["src/shared.py — a"]
-        b = _s("story-002", "b", "ready")
+        b = _s("story-002", "b", "in-progress")
         b["file_domain"] = ["src/shared.py — b"]
         stories = [a, b, *(extra_stories or [])]
         return _sprint(stories)
@@ -99,7 +104,7 @@ class TestEditStoryCollisionGuard(_SMMTestCase):
     # AC4 — introduced-only filter: a disjoint domain edit succeeds even while a
     # pre-existing collision sits among OTHER stories.
     def test_disjoint_domain_edit_succeeds_despite_preexisting_collision(self):
-        c = _s("story-003", "c", "ready")
+        c = _s("story-003", "c", "in-progress")
         c["file_domain"] = ["src/c.py — c"]
         sprint_store.save_sprint(
             self.smm_dir, self._preexisting_collision(extra_stories=[c])
@@ -132,9 +137,9 @@ class TestEditStoryCollisionGuardE2E(_SMMTestCase):
     _CLI = Path(__file__).parent.parent.parent / "smm" / "sprint_cli.py"
 
     def test_colliding_edit_story_exits_nonzero_and_leaves_json_unchanged(self):
-        a = _s("story-001", "a", "ready")
+        a = _s("story-001", "a", "in-progress")
         a["file_domain"] = ["src/shared.py — a"]
-        b = _s("story-002", "b", "ready")
+        b = _s("story-002", "b", "in-progress")
         b["file_domain"] = ["src/other.py — b"]
         sprint_store.save_sprint(self.smm_dir, _sprint([a, b]))
         before = (self.smm_dir / "sprint.json").read_bytes()
