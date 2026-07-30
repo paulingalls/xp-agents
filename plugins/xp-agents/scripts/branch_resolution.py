@@ -51,8 +51,9 @@ import identity
 import sprint_store
 from branch_names import branch_name, sprint_branch_name
 
-# Re-exported BY IDENTITY, not re-implemented — see the module docstring. The
-# `branching`, `branching_core` and every mock.patch site, not dead imports.
+# Re-exported BY IDENTITY, not re-implemented — see the module docstring. These
+# serve `branching`, `branching_core` and every mock.patch site; they are not
+# dead imports.
 from branching_stage import (  # noqa: F401
     _DEFAULT_PRIMARY,
     _PROTECTED_BRANCHES,
