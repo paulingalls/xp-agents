@@ -87,11 +87,15 @@ def _write_story_status(
     start-time collision check runs INSIDE the lock — around it would restore
     the TOCTOU it exists to close.
 
-    The check is narrow on purpose: only a transition INTO `in-progress` from a
-    status that was not already running. `reviewing`/`closing` are already
-    running, so re-checking there would pay a filesystem sister-expansion for
-    an answer that cannot have changed, and a story would be compared against
-    its own claim.
+    The check is narrow on purpose: only a transition that puts a story in
+    motion from a status that was NOT already in motion. Already-running to
+    already-running (`in-progress` -> `reviewing` -> `closing`) skips it,
+    because re-checking there would pay a filesystem sister-expansion for an
+    answer that cannot have changed and would compare a story against its own
+    claim. It is keyed on the in-motion SET, not on `in-progress` alone: the
+    new status is arbitrary at both entrances, and every in-motion status
+    makes the claim live, so a parked story jumped straight to `reviewing`
+    would otherwise go live past the gate.
     """
     if status not in VALID_STORY_STATUSES:
         valid = sorted(VALID_STORY_STATUSES)
@@ -105,7 +109,7 @@ def _write_story_status(
             return False
         was_running = story["status"] in IN_MOTION_STORY_STATUSES
         story["status"] = status
-        if status == "in-progress" and not was_running:
+        if status in IN_MOTION_STORY_STATUSES and not was_running:
             _refuse_start_on_live_collision(smm_dir, sprint)
         save_sprint(smm_dir, sprint, enforce_budget=False)
         return True

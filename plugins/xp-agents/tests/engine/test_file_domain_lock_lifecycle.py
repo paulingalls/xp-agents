@@ -332,6 +332,20 @@ class TestStartTimeGate(_SMMTestCase):
         story = sprint_store.get_story(self.smm_dir, "story-002")
         self.assertEqual(story["status"], "in-progress")
 
+    def test_a_parked_story_jumped_straight_to_reviewing_is_also_refused(self):
+        """NEW BEHAVIOUR. The new status is arbitrary at both entrances, and
+        `reviewing` makes a claim live exactly as `in-progress` does. A gate
+        keyed on `in-progress` alone would let a parked story go live beside a
+        running sharer through a status it never checks."""
+        self._two_parked_sharers()
+        sprint_store.update_story_status(self.smm_dir, "story-001", "in-progress")
+        with self.assertRaises(ValueError) as ctx:
+            sprint_store.update_story_status(self.smm_dir, "story-002", "reviewing")
+        self.assertIn(_SHARED, str(ctx.exception))
+        self.assertEqual(
+            sprint_store.get_story(self.smm_dir, "story-002")["status"], "scheduled"
+        )
+
     def test_already_running_story_may_advance_without_a_domain_recheck(self):
         """PRESERVATION PIN. The gate is narrow: reviewing/closing are
         already-running, so re-checking there would pay a filesystem
