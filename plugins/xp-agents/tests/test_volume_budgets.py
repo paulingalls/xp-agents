@@ -17,14 +17,22 @@ no bound at all, the `xp-quality-review` preload 196,066 against a budget of 300
 Two independent axes make a surface quiet, and BOTH have to be driven:
 
   1. data volume — the SMM is empty
-  2. input shape — the fixture picks the cheap branch (`session_start` at
-     `source: "startup"`, never `"compact"`; `subagent_start` at
-     `general-purpose`, the cheapest of five tiers)
+  2. input shape — the fixture picks the cheap branch, e.g. `session_start` at
+     `source: "startup"`, never `"compact"`, which is the branch that also
+     injects PROCESS_GUIDE (1,264 chars against 17,962)
 
-Phase 0 measured which axis each emitter sits on: 3 of 15 flip on volume alone,
-8 stay at 0 until given a loud input, and `session_start`/`subagent_start` move
-on NEITHER events volume nor sprint state — they render
-`shared_mental_model.json`, which `seed_smm.py` already writes.
+Measured, not assumed: 3 of 15 emitters flip on events volume alone, 8 stay at
+0 until given a loud input, and `session_start`/`subagent_start` move on
+NEITHER events volume nor sprint state — their cost is
+`shared_mental_model.json`, which `seed_smm.py` already writes, so the fixture
+has to overwrite that file specifically. "Populate the SMM" turned out to be
+seven artifacts.
+
+`subagent_start` is worth knowing about: its shape builder passes
+`subagent_type` inside `tool_input`, while the hook reads a TOP-LEVEL
+`agent_type`. The lookup therefore sees `""` and falls through `_resolve_tier`
+to `_inject_full` — the most expensive tier, not the cheapest. The shape family
+measures the right tier against the wrong data.
 """
 
 import sys
