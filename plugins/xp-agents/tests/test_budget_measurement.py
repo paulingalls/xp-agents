@@ -26,12 +26,15 @@ from _budget_helpers import (
     _bootstrap_seeded_smm,
     _measured_len,
     _run_emitter,
+    _run_preload,
     assert_emitter_under_budgets,
     assert_md_budgets_match,
     assert_md_under_budgets,
+    assert_preload_under_budgets,
     band_offender,
     ratchet,
 )
+from _test_typing import _MixinBase
 
 _SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
 
@@ -316,26 +319,40 @@ def _measure_emitter(script_name: str) -> int:
         return _measured_len(stdout_bytes)
 
 
-class TestEmitterBandWiring(unittest.TestCase):
-    """The band must reach `assert_emitter_under_budgets`, not just the helper.
+def _measure_preload(skill_name: str) -> int:
+    """Mirror `assert_preload_under_budgets`' own measurement, exactly.
 
-    Reverting that assert to `actual > budget` left the whole suite green:
-    every emitter fixture that reached an assertion was also over its cap, so
-    nothing anywhere separated the band from a breach. `subagent_start.py` is
-    the surface because it measures ~3,200 chars — a ~64-char band, wide
-    enough to sit mid-band with room either side.
+    WITH `normalize_paths`, because the helper passes all three: every
+    checkout-variable path collapses to a placeholder, which makes this the
+    bootstrap-stable one of the two stdout surfaces.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
+        stdout_bytes, stderr, rc = _run_preload(skill_name, smm_dir, repo)
+        if rc != 0:
+            raise AssertionError(f"{skill_name}: rc={rc} stderr={stderr[:200]!r}")
+        return _measured_len(
+            stdout_bytes,
+            normalize_paths=(str(_PLUGIN_ROOT), str(smm_dir), str(repo)),
+        )
 
-    Measured once for the class: each public assert costs ~6 subprocesses,
-    three of them git, because `_bootstrap_seeded_smm` builds a repo and seeds
-    an SMM before the emitter runs. Both legs share the one measurement.
+
+class _StdoutBandProof(_MixinBase):
+    """The two legs every stdout-surface band proof needs.
+
+    Both public asserts take `budgets` as a parameter, so a one-entry dict
+    drives exactly the surface under test and no other. Both also cost ~6
+    subprocesses per call — three of them git, because
+    `_bootstrap_seeded_smm` builds a repo and seeds an SMM before the surface
+    runs — so the surface is measured once per class and both legs share it.
     """
 
-    _SURFACE = "subagent_start.py"
+    _SURFACE = ""
     actual = 0
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.actual = _measure_emitter(cls._SURFACE)
+    def _assert_under_budget(self, budget: int) -> None:
+        """Call the public assert for this surface with a one-entry dict."""
+        raise NotImplementedError
 
     def setUp(self) -> None:
         self.assertGreater(
@@ -345,24 +362,55 @@ class TestEmitterBandWiring(unittest.TestCase):
             "its real stdout, so neither leg below would prove anything",
         )
 
-    def test_emitter_inside_the_band_is_reported(self) -> None:
+    def test_surface_inside_the_band_is_reported(self) -> None:
         with self.assertRaises(AssertionError) as caught:
-            assert_emitter_under_budgets(
-                _SpyCase(),
-                _SCRIPTS_DIR,
-                {self._SURFACE: in_band_budget(self.actual)},
-                "emitter",
-            )
+            self._assert_under_budget(in_band_budget(self.actual))
         assert_band_fired(self, caught.exception, self._SURFACE)
 
-    def test_emitter_below_the_band_passes(self) -> None:
+    def test_surface_below_the_band_passes(self) -> None:
         """The twin that proves the leg above reports the band, not a breach."""
+        self._assert_under_budget(below_band_budget(self.actual))
+
+
+class TestEmitterBandWiring(_StdoutBandProof, unittest.TestCase):
+    """The band must reach `assert_emitter_under_budgets`, not just the helper.
+
+    Reverting that assert to `actual > budget` left the whole suite green:
+    every emitter fixture that reached an assertion was also over its cap, so
+    nothing anywhere separated the band from a breach. `subagent_start.py` is
+    the surface because it measures ~3,200 chars — a ~64-char band, wide
+    enough to sit mid-band with room either side.
+    """
+
+    _SURFACE = "subagent_start.py"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.actual = _measure_emitter(cls._SURFACE)
+
+    def _assert_under_budget(self, budget: int) -> None:
         assert_emitter_under_budgets(
-            _SpyCase(),
-            _SCRIPTS_DIR,
-            {self._SURFACE: below_band_budget(self.actual)},
-            "emitter",
+            _SpyCase(), _SCRIPTS_DIR, {self._SURFACE: budget}, "emitter"
         )
+
+
+class TestPreloadBandWiring(_StdoutBandProof, unittest.TestCase):
+    """Same proof for `assert_preload_under_budgets`, the other stdout family.
+
+    `xp-free-close` is the surface because it measures ~8,600 chars — a
+    ~170-char band, the widest window of any preload. `xp-assign` is the trap
+    to avoid: at ~186 chars its band is ~4 chars wide, which is a coin toss
+    rather than a test.
+    """
+
+    _SURFACE = "xp-free-close"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.actual = _measure_preload(cls._SURFACE)
+
+    def _assert_under_budget(self, budget: int) -> None:
+        assert_preload_under_budgets(_SpyCase(), {self._SURFACE: budget}, "preload")
 
 
 class TestMdBudgetsMatchStillFailsOnMissingEntry(unittest.TestCase):
