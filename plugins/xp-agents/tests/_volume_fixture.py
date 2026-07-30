@@ -238,6 +238,70 @@ def _sprint_doc() -> dict:
     }
 
 
+def measure_retro_input(smm_dir: Path, repo: Path) -> int:
+    """Bytes of `.retro-input.json`, the file handed to xp-retrospective.
+
+    Measured on DISK, not from stdout: `retrospective.py`'s stdout is a ~500
+    char pointer and already carries an emitter budget, while the artifact that
+    pointer names is the thing the subagent actually reads.
+    """
+    _run_emitter("retrospective.py", _SCRIPTS_DIR, smm_dir, repo)
+    artifact = smm_dir / ".retro-input.json"
+    return artifact.stat().st_size if artifact.exists() else 0
+
+
+def measure_curation_input(smm_dir: Path, repo: Path) -> int:
+    """Bytes of the housekeeper's curation payload.
+
+    Serialized from `materialize.prepare_curation_data`, matching how
+    `engine/test_curation_retro_bounds` measures it — that suite pins a
+    duplication regression at 20 items and says so; this bounds the same
+    payload at realistic volume, which nothing did.
+    """
+    sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
+    import materialize
+
+    return len(json.dumps(materialize.prepare_curation_data(smm_dir)).encode("utf-8"))
+
+
+ARTIFACT_MEASURERS = {
+    ".retro-input.json": measure_retro_input,
+    ".curation-input.json": measure_curation_input,
+}
+
+
+def assert_artifacts_under_budgets(
+    testcase, budgets: dict[str, int], label: str
+) -> None:
+    """Disk artifacts: bounded at volume, and proved to grow with data.
+
+    These carry no shape budget — no family ever measured them — so the margin
+    check compares the two bootstraps directly rather than against a pinned
+    constant.
+    """
+    offenders: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp_s, tempfile.TemporaryDirectory() as tmp_v:
+        shape_repo, shape_smm = _bootstrap_seeded_smm(Path(tmp_s))
+        vol_repo, vol_smm = bootstrap_populated_smm(Path(tmp_v))
+        for name, budget in sorted(budgets.items()):
+            measurer = ARTIFACT_MEASURERS[name]
+            shape = measurer(shape_smm, shape_repo)
+            actual = measurer(vol_smm, vol_repo)
+            if actual <= shape:
+                offenders.append(
+                    f"{name}: {actual} bytes at volume vs {shape} at shape — "
+                    f"the fixture did not drive this artifact, so its budget "
+                    f"bounds nothing"
+                )
+                continue
+            offender = band_offender(name, actual, budget)
+            if offender:
+                offenders.append(offender)
+    testcase.assertFalse(
+        offenders, f"{label} volume measurement failed:\n" + "\n".join(offenders)
+    )
+
+
 def _preload_runner(name, smm_dir, repo):
     return _run_preload(name, smm_dir, repo)
 

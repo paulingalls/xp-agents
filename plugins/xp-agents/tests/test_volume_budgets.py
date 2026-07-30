@@ -36,6 +36,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _emitter_fixtures import EMITTER_BUDGETS, EMITTER_LOUD_FIXTURES
 from _preload_fixtures import PRELOAD_BUDGETS
 from _volume_fixture import (
+    ARTIFACT_MEASURERS,
+    assert_artifacts_under_budgets,
     assert_volume_under_budgets,
     bootstrap_populated_smm,
     emitter_runner,
@@ -117,8 +119,18 @@ EMITTER_VOLUME_BUDGETS: dict[str, int] = {
     "subagent_start.py": 12100,
 }
 
+# Disk artifacts handed to a subagent by path. Neither carried ANY bound
+# before this module: `.retro-input.json` is written on every session start and
+# measured 204,224 chars in production, `.curation-input.json` 79,068. They are
+# the two largest injected surfaces in the plugin.
+ARTIFACT_VOLUME_BUDGETS: dict[str, int] = {
+    ".retro-input.json": 264100,
+    ".curation-input.json": 249600,
+}
+
 _LABEL = "skills/*/scripts/preload.sh"
 _EMITTER_LABEL = "scripts/*.py emitter"
+_ARTIFACT_LABEL = "smm/.*-input.json artifact"
 
 
 class TestRunEmitterAcceptsFixtureOverride(unittest.TestCase):
@@ -247,6 +259,21 @@ class TestEmitterVolumeBudgets(unittest.TestCase):
             set(EMITTER_VOLUME_BUDGETS),
             "a loud builder without a volume budget measures nothing, and a "
             "volume budget without a loud builder bounds the quiet branch",
+        )
+
+
+class TestArtifactVolumeBudgets(unittest.TestCase):
+    """The two biggest injected surfaces, neither of which had any bound."""
+
+    def test_no_artifact_exceeds_its_volume_budget(self):
+        assert_artifacts_under_budgets(self, ARTIFACT_VOLUME_BUDGETS, _ARTIFACT_LABEL)
+
+    def test_every_artifact_measurer_has_a_budget(self):
+        self.assertEqual(
+            set(ARTIFACT_MEASURERS),
+            set(ARTIFACT_VOLUME_BUDGETS),
+            "an artifact measured with no budget bounds nothing; a budget with "
+            "no measurer is never checked",
         )
 
 
