@@ -4,6 +4,7 @@
 import sys
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
@@ -324,6 +325,90 @@ class TestRunWithOverlap(_SMMTestCase):
         output = triage_preload.run(self.smm_dir)
         self.assertIn("MAYBE ADDRESSED", output)
         self.assertIn(concern["id"], output)
+
+
+class TestTriageTotalCeiling(unittest.TestCase):
+    """The block's TOTAL size must not grow with the number of open items.
+
+    Capping only the expensive 400-char tier makes the surface cheaper per
+    item, not bounded: at 162 chars for every remaining line, 91 open items
+    cost ~26k and 300 cost ~70k. A budget on that is calibrated to today's
+    item count, so ordinary growth later reads as a regression. The tail past
+    both tiers collapses to ONE line that states how many are not shown and
+    names a runnable command that lists them — nothing vanishes silently,
+    which is the laundering this module exists to prevent.
+    """
+
+    _ANCHORS: ClassVar[list[str]] = ["2026-02-01T00:00:00+00:00"]
+
+    def _items(self, count: int) -> list[dict]:
+        return [
+            make_event(
+                EVENT_TYPE_CONCERN,
+                content="c" * 400,
+                ts=f"2026-01-{(i % 28) + 1:02d}T00:00:00+00:00",
+            )
+            for i in range(count)
+        ]
+
+    def test_total_output_does_not_grow_with_item_count(self):
+        """The hard bound. 4x the items must not mean 4x the output."""
+        small = triage_preload.format_triage_section(
+            "Open Concerns", self._items(100), self._ANCHORS
+        )
+        large = triage_preload.format_triage_section(
+            "Open Concerns", self._items(400), self._ANCHORS
+        )
+        self.assertLessEqual(
+            len(large) - len(small),
+            200,
+            f"section grew {len(large) - len(small)} chars for 300 more items "
+            f"({len(small)} -> {len(large)}); the tail is not collapsing, so "
+            f"this surface is cheaper per item but still unbounded",
+        )
+
+    def test_full_tier_is_capped(self):
+        out = triage_preload.format_triage_section(
+            "Open Concerns", self._items(100), self._ANCHORS
+        )
+        full_lines = [ln for ln in out.split("\n") if ln.startswith("- [id: ")]
+        self.assertLessEqual(len(full_lines), triage_preload._SECTION_MAX_ITEMS)
+
+    def test_omitted_items_are_counted_and_retrievable(self):
+        """An item that vanished reads as fixed. A counted one reads as open."""
+        out = triage_preload.format_triage_section(
+            "Open Concerns", self._items(100), self._ANCHORS
+        )
+        shown = len([ln for ln in out.split("\n") if ln.startswith("- [id: ")])
+        self.assertIn(f"{100 - shown} further", out)
+        self.assertIn("--all", out)
+
+    def test_the_retrieval_path_is_runnable(self):
+        """A retrieval path the reader cannot execute is not a retrieval path.
+
+        The command named in the collapse line must be the real script with a
+        real flag, not prose — so the flag has to exist on the parser.
+        """
+        out = triage_preload.format_triage_section(
+            "Open Concerns", self._items(100), self._ANCHORS
+        )
+        command = next(ln for ln in out.split("\n") if "--all" in ln)
+        self.assertIn("triage_preload.py", command)
+        parser = triage_preload._build_parser()
+        self.assertTrue(parser.parse_args(["--smm-dir", "/tmp", "--all"]).all)
+
+    def test_all_renders_every_item(self):
+        """`--all` is what makes the collapse honest rather than lossy."""
+        items = self._items(100)
+        capped = triage_preload.format_triage_section(
+            "Open Concerns", items, self._ANCHORS
+        )
+        full = triage_preload.format_triage_section(
+            "Open Concerns", items, self._ANCHORS, uncapped=True
+        )
+        self.assertGreater(len(full), len(capped))
+        for item in items:
+            self.assertIn(item["id"], full)
 
 
 if __name__ == "__main__":
