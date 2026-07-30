@@ -48,9 +48,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _band_proof import assert_band_fired, below_band_budget, in_band_budget
 from conftest import _PLUGIN_ROOT, band_offender
 
 # Every module that can put a block reason, a nudge, or a gate advisory in front
@@ -283,6 +285,56 @@ class TestReasonBudgets(unittest.TestCase):
             "gate(s) lost reason prose — a block that no longer names its "
             f"cause is not actionable: {under}",
         )
+
+
+class TestReasonBandWiring(unittest.TestCase):
+    """The band must reach the assertion above, not merely `band_offender`.
+
+    `TestBudgetCanFail` is the near neighbour and not a substitute: it splices
+    an extra reason in until the surface BREACHES its cap, which the old
+    `actual > budget` check reported just as well. So reverting the assertion
+    to that check left this module green — the band was unfalsifiable here.
+
+    This drives a real gate into the band instead: at or above 98% of its
+    budget and still under it, the one region only the band reports.
+
+    `pre_tool_bash_commit_gates.py` is the surface deliberately.
+    `hook_io.py` carries a budget of 0 and measures 0 reason chars by design,
+    and `band_offender` returns None for `actual <= 0` — a proof driven over
+    it could never go red.
+    """
+
+    _SURFACE = "scripts/pre_tool_bash_commit_gates.py"
+
+    def setUp(self) -> None:
+        self.actual = reason_chars(gate_path(self._SURFACE))
+        # Non-vacuity: the band reports nothing at 0, so an extractor that
+        # silently stopped reading this file would make both legs meaningless.
+        self.assertGreater(
+            self.actual, 100, f"{self._SURFACE}: no reason prose extracted"
+        )
+
+    def _drive(self, budget: int) -> None:
+        """Run the host's own assertion with this one budget VALUE overridden.
+
+        A value override, never a key change: the sibling
+        `test_budget_and_floor_keys_cover_every_script` pins REASON_BUDGETS to
+        GATE_SCRIPTS exactly, so adding or removing a key breaks it. Every
+        other gate is still measured against its real budget and still passes,
+        so the only offender that can appear is this surface.
+        """
+        host = TestReasonBudgets("test_no_gate_exceeds_its_reason_budget")
+        with mock.patch.dict(REASON_BUDGETS, {self._SURFACE: budget}):
+            host.test_no_gate_exceeds_its_reason_budget()
+
+    def test_gate_inside_the_band_is_reported(self) -> None:
+        with self.assertRaises(AssertionError) as caught:
+            self._drive(in_band_budget(self.actual))
+        assert_band_fired(self, caught.exception, self._SURFACE)
+
+    def test_gate_below_the_band_passes(self) -> None:
+        """The twin that proves the leg above reports the band, not a breach."""
+        self._drive(below_band_budget(self.actual))
 
 
 class TestBudgetCanFail(unittest.TestCase):
