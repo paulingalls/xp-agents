@@ -64,32 +64,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _emitter_fixtures import EMITTER_FIXTURES
+from _emitter_fixtures import EMITTER_BUDGETS, EMITTER_FIXTURES
 from conftest import (
     _SCRIPTS_DIR,
     assert_budgets_match,
     assert_emitter_under_budgets,
     discover_emitter_scripts,
 )
-
-# ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
-EMITTER_BUDGETS: dict[str, int] = {
-    "bash_post_tool.py": 100,
-    "kickoff_gate.py": 100,
-    "lint_check.py": 300,
-    "post_tool_exit_plan.py": 100,
-    "pre_tool_bash.py": 100,
-    "pre_tool_skill.py": 100,
-    "pre_tool_write.py": 100,
-    "prompt_nugget.py": 100,
-    "retrospective.py": 100,
-    "review_cycle_done.py": 200,
-    "session_end_warning.py": 100,
-    "session_start.py": 1500,
-    "subagent_start.py": 3700,
-    "subagent_stop.py": 300,
-    "user_prompt_log.py": 100,
-}
 
 _LABEL = "scripts/*.py emitter"
 

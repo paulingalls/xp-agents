@@ -27,49 +27,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _preload_fixtures import PRELOAD_FIXTURES
+from _preload_fixtures import PRELOAD_BUDGETS, PRELOAD_FIXTURES
 from conftest import (
     assert_budgets_match,
     assert_preload_under_budgets,
     discover_preload_scripts,
 )
-
-# ratchet(measured, current, 100, rounding=ceil, floor=100) — see
-# `_budget_helpers.ratchet`. Recalculated from post-audit sizes; a budget may
-# only ever come DOWN, so an entry whose measured size fell by less than 11.1%
-# keeps the number it already had.
-#
-# The close preloads dominate this family: each appends a shared reference
-# file, so a char added there costs once per mode that appends it. Steps 4 and
-# 4b now live in a second file appended only by free/plan/sprint, which is what
-# took story-close from 8,730 (98.09% of 8,900 — inside the band, and
-# unfixable by any budget change, since the ratchet computes higher and a
-# ratchet may not raise) down to 5,668 and a budget of 6,400.
-#
-# free/plan/sprint measured 8,655/8,641/8,660 and HOLD at 8,900: the ratchet
-# wants 9,800 for them, so the monotonic guard pins them where they are. They
-# sit at 97.1-97.3%, roughly 60-80 chars clear of the 98% band. That is the
-# tightest headroom in this family by a wide margin — the next edit to either
-# reference file is what those chars are for, and there is no slack for prose
-# that could live in one mode's SKILL.md instead.
-PRELOAD_BUDGETS: dict[str, int] = {
-    "xp-accept": 100,
-    "xp-assign": 300,
-    "xp-end-session": 200,
-    "xp-free-close": 8900,
-    "xp-kickoff": 200,
-    "xp-plan": 100,
-    "xp-plan-close": 8900,
-    "xp-quality-review": 300,
-    "xp-review-plan": 100,
-    "xp-schedule": 200,
-    "xp-sprint-close": 8900,
-    "xp-sprint-review": 100,
-    "xp-sprint-start": 100,
-    "xp-story-close": 6400,
-    "xp-system-context": 100,
-    "xp-work-selection": 100,
-}
 
 _LABEL = "skills/*/scripts/preload.sh"
 
