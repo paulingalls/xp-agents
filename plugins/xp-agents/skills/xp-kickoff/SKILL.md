@@ -1,8 +1,8 @@
 ---
 name: xp-kickoff
 description: >-
-  Session start orchestrator. Sequences retrospective, sprint setup,
-  work selection, and housekeeping. Use at the start of every session.
+  Session start orchestrator: sequences retrospective, sprint setup, work
+  selection, housekeeping. Use every session.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
@@ -19,40 +19,32 @@ allowed-tools:
 
 # Session Kickoff
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7
-> strictly, one step per turn — make the call, observe, then decide the next.
-> Never put an `AskUserQuestion` and the action it gates in one block (the Step 2
-> session-mode question vs the skill it launches); never spawn the same subagent
-> twice (e.g. duplicate retrospectives). Independent read-only calls may still
-> batch.
+> **Sequential discipline.** Run Step 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 strictly,
+> one step per turn — make the call, observe, then decide the next. Never batch
+> an `AskUserQuestion` with the action it gates (the Step 2 session-mode
+> question vs the skill it launches); never spawn the same subagent twice.
 
-**You MUST complete ALL steps below in order. Do NOT stop after any single step. Do NOT start working on the user's goal until ALL steps are done. Housekeeping (Step 6) MUST always run — it is not optional. Only begin session work after housekeeping completes.**
+**Complete ALL steps in order, Housekeeping (Step 6) included. Do NOT start working on the user's goal until every step is done.**
 
 ## Step 0: Prepare (ALWAYS)
 
 **Bootstrap system context.** If the preload shows **NEEDS_SYSTEM_CONTEXT**, invoke `/xp-system-context` and wait. It sets the branching stage, so it MUST run before the stage gate below and before the mode fork.
 
-**Read the branching stage.** Take `STAGE` from the preload's `### STAGE=N` marker — that is the default source, no Python call needed. If **no `### STAGE` marker is present**, read it from Python (covers a fresh project before `/xp-system-context` and the rare case where the preload could not compute the stage). Also re-read it from Python after any path that mutated the stage since the preload ran: after `/xp-system-context` or after `/xp-stage-migration` (below):
+**Read the branching stage.** Take `STAGE` from the preload's `### STAGE=N` marker — the default source, no Python call needed. Read it from Python instead when **no `### STAGE` marker is present** (fresh project before `/xp-system-context`; preload could not compute it), or to re-read after a path that mutated the stage since the preload ran (`/xp-system-context`, `/xp-stage-migration` below):
 ```bash
 STAGE=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py --smm-dir <SMM_DIR> stage)
 ```
 
 If `STAGE < 2`, invoke `/xp-stage-migration` (it sets the Stage 2 floor directly, unless the user declines). Re-read `STAGE` after it returns.
 
-**Orphan free-branch triage.** If the preload shows **ORPHAN_FREE_BRANCHES**, ask via `AskUserQuestion` for each: **merge / keep / delete?**
-- **merge** — invoke `/xp-free-close` against that branch (check it out first if needed).
+**Orphan branch triage.** For each branch the preload lists under **ORPHAN_FREE_BRANCHES** or **ORPHAN_STORY_BRANCHES**, ask via `AskUserQuestion`: **merge / keep / delete?**
+- **merge** — free branch: invoke `/xp-free-close` against it (check it out first if needed). Story branch: `branching.py merge-branch --cwd . --branch <name>`, then delete it.
 - **keep** — leave the branch alone.
-- **delete** — `branching.py delete --cwd . --branch <name>`. Do not auto-delete branches with commits ahead of primary.
-
-**Orphan story-branch triage.** If the preload shows **ORPHAN_STORY_BRANCHES**, ask via `AskUserQuestion` for each: **merge / keep / delete?**
-- **merge** — `branching.py merge-branch --cwd . --branch <name>`, then `branching.py delete --cwd . --branch <name>`.
-- **keep** — leave the branch alone.
-- **delete** — `branching.py delete --cwd . --branch <name>`. Do not auto-delete branches with commits ahead of base.
+- **delete** — `branching.py delete --cwd . --branch <name>`. Do not auto-delete branches with commits ahead of their base.
 
 ## Step 1: Retrospective (ALWAYS)
 
-Invoke the `xp-retrospective` agent via the Agent tool (`subagent_type=xp-agents:xp-retrospective`). Invoke it synchronously — pass `run_in_background:false` (the harness backgrounds Agent-tool subagents by default; a backgrounded retrospective races the kickoff sequence and can bury its render before Step 2). The agent handles both populated and empty `.retro-input.json` — on a fresh project with no prior session_end, it emits a seed retrospective (Keep around adopting XP, Try as skill suggestions, no Fix). Do NOT gate this step on the existence of `.retro-input.json`; the agent owns that branch.
+Invoke the `xp-retrospective` agent via the Agent tool (`subagent_type=xp-agents:xp-retrospective`), passing `run_in_background:false` — the harness backgrounds Agent-tool subagents by default, and a backgrounded retrospective races the kickoff sequence and can bury its render before Step 2. Do NOT gate this step on the existence of `.retro-input.json`; the agent owns that branch, emitting a seed retrospective when the input is empty.
 
 After it completes, render the latest retrospective:
 ```bash
@@ -77,7 +69,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ### Free session fork
 
-Ask via AskUserQuestion: **"What's the focus for this session?"** Use the answer for both the branch slug and the session-focus goal event:
+Ask via AskUserQuestion: **"What's the focus for this session?"** The answer feeds both the branch slug and the session-focus goal event:
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --type "goal" --agent "xp-kickoff" \
@@ -114,14 +106,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_config_cli.py --smm-dir <SMM_DIR>
 
 Q2 — Ask via AskUserQuestion: **"Default model for teammates?"**
 
-Four options; `fable` rides the auto **"Other"** escape:
+Four options; `fable` rides the auto **"Other"** escape — on "Other", accept a valid token, else re-ask.
 
 - **haiku** — mechanical tasks
 - **sonnet** *(Recommended)* — pattern-following tasks
 - **opus** — architecture tasks
 - **inherit orchestrator** — same model as the lead
-
-On "Other", accept a valid token (e.g. `fable`), else re-ask.
 
 Write the chosen token:
 ```bash
@@ -132,27 +122,21 @@ Then proceed to Step 3.
 
 ## Step 3: Execution Plan (sprint mode, conditional)
 
-If the preload shows **NEEDS_EXECUTION_PLAN**, first `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` for context. Then invoke `/xp-plan`. Wait for it to complete.
-
-If not shown, skip to Step 4.
+If the preload shows **NEEDS_EXECUTION_PLAN**, first `Read` the SMM file at `<SMM_DIR>/shared_mental_model.json` for context, then invoke `/xp-plan` and wait for it to complete. Otherwise skip to Step 4.
 
 ## Step 4: Sprint Start (sprint mode, conditional)
 
-If the preload shows **NEEDS_SPRINT** and you haven't read the SMM in Step 3, `Read` `<SMM_DIR>/shared_mental_model.json` first. Then invoke `/xp-sprint-start`. Wait for it to complete (it creates the sprint branch).
-
-If not shown, skip to Step 5.
+If the preload shows **NEEDS_SPRINT** and you haven't read the SMM in Step 3, `Read` `<SMM_DIR>/shared_mental_model.json` first. Then invoke `/xp-sprint-start` and wait for it to complete (it creates the sprint branch). Otherwise skip to Step 5.
 
 ## Step 5: Work Selection (ALWAYS)
 
-Run `/xp-work-selection`. In free mode, stop after Step 4 (skip sprint story selection).
-
-Wait for it to complete.
+Run `/xp-work-selection` and wait for it to complete. In free mode, stop after its Step 4 (skip sprint story selection).
 
 ## Step 6: Housekeeping (ALWAYS)
 
-Invoke the `xp-housekeeper` agent via the Agent tool (`subagent_type=xp-agents:xp-housekeeper`). This is mandatory — it curates the four-pillar SMM (Intent, Constraints, Risks, Wisdom). **Kickoff is not complete until housekeeping finishes.**
+Invoke the `xp-housekeeper` agent via the Agent tool (`subagent_type=xp-agents:xp-housekeeper`) to curate the four-pillar SMM (Intent, Constraints, Risks, Wisdom). **Kickoff is not complete until housekeeping finishes.**
 
-**Do NOT run housekeeping in the background — pass `run_in_background:false` to the Agent tool.** The harness backgrounds Agent-tool subagents by default. Without it the Stop gate allows a housekeeper that started minutes ago, then tells you to re-invoke — so ending the turn is safe, but the flag is what actually finishes kickoff. Wait for the subagent to complete before Step 7.
+**Pass `run_in_background:false` — do NOT run housekeeping in the background.** The harness backgrounds Agent-tool subagents by default; without the flag the Stop gate admits a housekeeper that started minutes ago, then tells you to re-invoke — ending the turn is safe, but the flag is what actually finishes kickoff. Wait for the subagent before Step 7.
 
 If the user said "skip" at any earlier step, still run housekeeping.
 

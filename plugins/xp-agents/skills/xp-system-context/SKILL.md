@@ -1,10 +1,8 @@
 ---
 name: xp-system-context
 description: >-
-  Create or update system_context.json — autonomous codebase analysis that
-  produces a thorough system description. Reads project structure, CLAUDE.md,
-  and key source files to synthesize product overview, architecture, and
-  technical constraints. Use standalone or invoked by /xp-plan.
+  Create or update system_context.json: analyse the codebase to describe the
+  product, architecture and technical constraints.
 effort: high
 context: fork
 agent: xp-agents:xp-system-analyzer

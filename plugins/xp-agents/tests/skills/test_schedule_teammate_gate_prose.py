@@ -26,10 +26,8 @@ class TestScheduleTeammateGateProse(unittest.TestCase):
         full_text = _SKILL_PATH.read_text()
         _, cls.body = _split_frontmatter_body(full_text)
         cls.step2 = _slice(cls.body, "## Step 2:", ("## Step 3:",))
-        cls.step4 = (
-            _slice(cls.body, "## Step 4:", ("## ",))
-            or cls.body[cls.body.find("## Step 4:") :]
-        )
+        # Step 4 is the last section, so () — to EOF — is the honest bound.
+        cls.step4 = _slice(cls.body, "## Step 4:", ())
         cls.frontmatter, _ = _split_frontmatter_body(full_text)
 
     def test_skill_file_exists(self):

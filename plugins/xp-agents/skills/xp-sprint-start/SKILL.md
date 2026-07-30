@@ -1,10 +1,8 @@
 ---
 name: xp-sprint-start
 description: >-
-  Create sprint.json from an execution plan milestone or product spec.
-  Decomposes milestones into context-rich stories with file domains,
-  interface contracts, and inlined design context. Deep codebase dive
-  identifies story boundaries. Customer confirms scope before writing.
+  Create sprint.json from an execution plan milestone: decompose it into
+  context-rich stories with file domains and interface contracts.
 effort: medium
 allowed-tools:
   - Read
@@ -22,19 +20,15 @@ allowed-tools:
 
 # Sprint Planning
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Milestone Select (1) → 1b → Deep Dive
-> (2) → Decompose (3) → 3b → Goal (4) → Confirm (5) → Write (6) → Events (7) →
-> Branch (8) strictly, one step per turn — make the call, observe, then decide
-> the next. Never put an `AskUserQuestion` and the action consuming its answer in
-> one block (the Step 5 scope confirmation vs the Step 6 sprint write); never
-> spawn the same subagent twice. Independent read-only calls may still batch.
+> **Sequential discipline.** Run Steps 1 → 1b → 2 → 3 → 3b → 4 → 5 → 6 → 7 → 8
+> one step per turn — never batch an `AskUserQuestion` with the action consuming
+> its answer (the Step 5 scope confirmation vs the Step 6 sprint write).
 
-You are the sprint planner. Your job is to create `sprint.json` by decomposing a milestone from `execution_plan.json` into context-rich stories the team can deliver — including in parallel via subagents.
+You are the sprint planner: create `sprint.json` by decomposing a milestone from `execution_plan.json` into context-rich stories the team can deliver — including in parallel via subagents.
 
 ## Error Handling
 
-If the preload output above shows **ERROR**, explain the problem to the user and stop. Do not proceed with planning.
+If the preload output above shows **ERROR**, explain the problem to the user and stop.
 
 ## Deferred Story Carryover
 
@@ -69,8 +63,6 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "Milestone <N> touches uncovered surface '<surface>' — no acceptance harness covers it"
 ```
 
-An empty array emits no concerns.
-
 ### Step 2: Deep Codebase Dive
 
 For the selected milestone's **Change Zones** and **Impact Zones**: `Read` each change-zone file (structure + interfaces), `Read` impact-zone files (dependencies), and `Glob`/`Grep` for related files not listed (tests, imports).
@@ -102,7 +94,7 @@ For each story:
   - `setup` (optional): Prerequisites (e.g., `docker compose up -d`).
   - `notes` (optional): Anything the agent needs before running.
 
-  **Build `command` from `TEST_COMMAND`, never a hardcoded runner.** The preload emits `TEST_COMMAND=<declared command>`. Start `command` from that value — never invent a runner; only `TEST_COMMAND` knows which one this project uses. Empty `TEST_COMMAND` means none declared: leave `acceptance_execution` unset, add a `notes` placeholder telling the customer to declare `stack.test_command` via `system_context_cli.py edit-stack-field`.
+  **Build `command` from `TEST_COMMAND`, never a hardcoded runner.** The preload emits `TEST_COMMAND=<declared command>`; start `command` from that value — only `TEST_COMMAND` knows which runner this project uses. Empty `TEST_COMMAND` means none declared: leave `acceptance_execution` unset, add a `notes` placeholder telling the customer to declare `stack.test_command` via `system_context_cli.py edit-stack-field`.
 
   **Scope and verify `command`/`commands`**: if `TEST_COMMAND` accepts a positional path (`pytest <path>`), append the story's test file so the command names that specific file — the path MUST live inside the story's `file_domain`, since the verify-touch gate matches it against the commits. If `TEST_COMMAND` runs the whole tree with no single-spec syntax (`cargo test`, `go test ./...`), use it unscoped — verifiable only if it structurally cannot omit the story's test file (it runs everything). Judge this from what `TEST_COMMAND` actually is, never a per-language table. Use the path-naming binary form (`npx playwright test <spec>`, `npx jest <path>`), not a bare script alias (`npm run test:e2e`, `pnpm test`) whose proof file is hidden in config and non-verifiable; prefer `verify_acceptance.py --story <id>` when in doubt.
 
@@ -122,7 +114,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> build-capsto
   --depends-on <story-001,...> --story-id <story-NNN>
 ```
 
-Pipe the printed JSON into `add-story`. The capstone's ACs are **behavior-shaped** (Given/When/Then); the implementer replaces the `acceptance_execution` placeholder with the real cross-cutting test invocation during the capstone's own story.
+Pipe the printed JSON into `add-story`. Its ACs are **behavior-shaped** (Given/When/Then); the implementer fills the `acceptance_execution` placeholder with the real cross-cutting test invocation during the capstone's own story.
 
 ### Step 4: Sprint Goal
 
@@ -142,7 +134,7 @@ Do not write files until the customer confirms.
 
 ### Step 6: Write sprint.json
 
-After confirmation, assemble as JSON and write via the CLI (substitute Gherkin scenarios for the GWT prose if a BDD harness applies — see Step 3).
+Assemble as JSON and write via the CLI (substitute Gherkin scenarios for the GWT prose if a BDD harness applies — see Step 3).
 
 ```bash
 cat <<'SPRINTEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> create

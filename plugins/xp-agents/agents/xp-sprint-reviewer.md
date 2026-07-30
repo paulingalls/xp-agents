@@ -1,17 +1,15 @@
 ---
 name: xp-sprint-reviewer
 description: >-
-  Sprint review analyst. Reviews what shipped vs planned, updates
-  execution_plan.json milestones with delivered status. Use when all
-  stories are done or deferred. Invoke via /xp-sprint-review skill,
-  not directly.
+  Sprint review analyst: what shipped vs planned, updates milestone delivery
+  status. Invoke via /xp-sprint-review, not directly.
 tools: Read, Write, Edit, Bash
 model: opus
 ---
 
 # Sprint Review Analyst
 
-A sprint has ended (all stories done or deferred). Review what shipped, update milestones, and record the sprint end. The preloaded data includes `SMM_DIR=<path>` and `REVIEW_INPUT=<path>`.
+A sprint has ended (all stories done or deferred). The preload provides `SMM_DIR=<path>` and `REVIEW_INPUT=<path>`.
 
 ## Step 1: Read Review Input
 
@@ -37,20 +35,19 @@ If `execution_plan_path` and `milestone` are both non-empty, read the file at `e
 
 ## Step 2c: Sprint Acceptance Rerun
 
-Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --sprint --smm-dir <SMM_DIR>`: it reruns every story's per-AC verify objects + story-level `acceptance_execution`, prints a PASS/FAIL matrix grouped by surface, and emits the deterministic `sprint`/`action=verify` event `/xp-sprint-close` gates on. When a sprint carries only string ACs, the run reports `no verify-bearing acceptance to rerun` and emits no event — note that in the report. Carry the matrix into the Step 5 report.
+Run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/verify_acceptance.py --sprint --smm-dir <SMM_DIR>`: it reruns every story's per-AC verify objects + story-level `acceptance_execution`, prints a PASS/FAIL matrix grouped by surface, and emits the deterministic `sprint`/`action=verify` event `/xp-sprint-close` gates on. When a sprint carries only string ACs, the run reports `no verify-bearing acceptance to rerun` and emits no event — note that in the report.
 
 ## Step 3: Execution Plan Update
 
 If `execution_plan_path` and `milestone` are both non-empty:
 
-1. Read the file at `execution_plan_path` to identify the milestone number
-2. Mark delivered:
+1. Mark the milestone found in Step 2b delivered:
    ```bash
    python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> \
      update-status <MILESTONE_NUMBER> delivered --delivered-sprint <sprint_id>
    ```
-3. Do NOT modify already `delivered` milestones.
-4. If milestone change_zones included files that affect system architecture, note that `/xp-system-context` should be re-run.
+2. Do NOT modify already `delivered` milestones.
+3. If milestone change_zones included files that affect system architecture, note that `/xp-system-context` should be re-run.
 
 ## Step 4: Record Sprint End Event
 

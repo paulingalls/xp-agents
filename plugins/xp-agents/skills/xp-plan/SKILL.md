@@ -1,10 +1,8 @@
 ---
 name: xp-plan
 description: >-
-  Create or update execution_plan.json — collaborative planning that transforms
-  external design sources into ordered development milestones with change zones,
-  impact zones, and design details. Replaces /xp-product-spec for sprint-mode
-  work. Use when starting a new change request or refining an existing plan.
+  Create or update execution_plan.json: turn design sources into ordered
+  milestones with change zones and design details.
 effort: high
 allowed-tools:
   - Read
@@ -23,13 +21,10 @@ allowed-tools:
 
 # Execution Plan
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Mode Detection → System-Context Check →
-> Create (Steps 1–6) or Update (Steps 1–11) strictly, one step per turn — make
-> the call, observe, then decide the next. Never put an `AskUserQuestion` and the
-> action consuming its answer in one block (the Step 1 source-gathering question
-> vs writing the plan); never spawn the same subagent twice. Independent
-> read-only calls may still batch.
+> **Sequential discipline.** Run Mode Detection → System-Context Check → Create
+> (Steps 1–6) or Update (Steps 1–11) one step per turn — never batch an
+> `AskUserQuestion` with the action consuming its answer (Step 1's source
+> question vs writing the plan).
 
 ## Mode Detection
 
@@ -60,22 +55,21 @@ For each source:
 
 ### Step 2: Light Codebase Scan
 
-After gathering sources:
 - Use `Glob` to find files related to the change areas.
 - Use `Read` on 3-5 key files to understand current architecture and patterns.
 - Identify which files will likely change (change zones) and which are affected indirectly (impact zones).
 
 ### Step 3: Milestone Decomposition
 
-Based on sources + codebase scan, propose ordered milestones. Each milestone should be roughly one sprint's worth of work.
+From the sources + codebase scan, propose ordered milestones, each roughly one sprint's worth of work.
 
-**Discovery pass for change_zones.** Before finalizing each milestone's `change_zones`, run a discovery pass: for every file you intend to declare, identify the symbols (functions, classes, top-level constants) it exports, then `Grep` for call-sites of those symbols. Union the call-site files into the milestone footprint — surfacing them as `impact_zones` (read-only impact) or as additional `change_zones` (when the call-site itself must change). For symbols with too many call-sites to enumerate (>20 callers), record the count and a representative sample.
+**Discovery pass for change_zones.** Before finalizing each milestone's `change_zones`: for every file you intend to declare, identify the symbols (functions, classes, top-level constants) it exports, then `Grep` for call-sites of those symbols. Union the call-site files into the milestone footprint — as `impact_zones` (read-only impact) or as additional `change_zones` (when the call-site itself must change). For symbols with too many call-sites to enumerate (>20 callers), record the count and a representative sample.
 
 For each milestone:
 - **Goal**: One sentence describing what's delivered. Budget: ≤200 chars.
 - **Definition of Done**: A concrete, testable condition, behavior-shaped (Given/When/Then or equivalent — an observable outcome, not an implementation note). Budget: ≤300 chars.
 - **Sources**: References into the Sources table with section pointers.
-- **Discovery**: Run the discovery pass above. Its output feeds Change Zones and Impact Zones — do not hand-roll those bullets without it.
+- **Discovery**: Run the pass above — its output feeds Change Zones and Impact Zones; never hand-roll those bullets without it.
 - **Change Zones**: Files/modules modified, with a brief note. Union of declared paths and discovery call-sites that must change. Note budget: ≤150 chars each.
 - **Impact Zones**: Files affected indirectly (imports, tests, dependents), with why. Remaining read-only call-sites land here. Note budget: ≤150 chars each.
 - **Design Details**: Key decisions and patterns — link to design docs for full rationale. Budget: ≤800 chars.
@@ -128,7 +122,7 @@ cat <<'PLANEOF' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_D
 PLANEOF
 ```
 
-After writing, render the plan as markdown and **output it as text** so the user can see it:
+Then render the plan and **output it as text** for the user:
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/plan_cli.py --smm-dir <SMM_DIR> render
 ```

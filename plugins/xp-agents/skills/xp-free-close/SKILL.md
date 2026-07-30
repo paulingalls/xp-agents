@@ -1,11 +1,8 @@
 ---
 name: xp-free-close
 description: >-
-  Push the current free branch, fork xp-close-reviewer for free-mode
-  review, and merge into the target integration branch (recorded plan
-  branch when set and present locally, else primary) with cleanup.
-  Used for ad-hoc work performed outside a sprint or plan; degrades
-  gracefully when gh is unavailable.
+  Close ad-hoc work done outside a sprint or plan: review the free branch
+  diff and merge it into the integration branch.
 allowed-tools:
   - Read
   - Write
@@ -23,16 +20,14 @@ allowed-tools:
 
 # Free Close
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7
-> strictly, one step per turn — make the call, observe, then decide the next.
-> Don't batch a step with the one that depends on it (e.g. pushing or merging
-> before the forked xp-close-reviewer returns); never spawn the same subagent
-> twice. Independent read-only calls may still batch.
+> **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7 one per
+> turn: make the call, observe, then decide the next. Never batch a step with one
+> that depends on it, and never spawn the same subagent twice; independent
+> read-only calls may batch.
 
-The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the recorded plan branch when `execution_plan.json` sets one (and that branch exists locally), else the primary integration branch (sprint-close parity) — a free branch forked off a plan branch merges back to the plan branch, never to main. Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
+The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`, `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the recorded plan branch when `execution_plan.json` sets one (and that branch exists locally), else the primary integration branch — a free branch forked off a plan branch merges back to the plan branch, never to main. Shared pipeline lives in `${CLAUDE_PLUGIN_ROOT}/scripts/close_common.py`.
 
-**Commit trailer reminder — this is the ONLY leg that closes a Try.** When a commit on this free branch lands a carried retro Try (one adopted via `/xp-work-selection adopt`), the commit body **must** include `Resolves-Event: <try-id>`. Adoption now *links* its Try rather than closing it — deliberately, so that taking work on cannot close the item that verifies the work landed. There is no cascade to fall back on: without the trailer, the Try stays open forever and the retro agent keeps carrying it as adopted-but-never-landed.
+**Commit trailer reminder — this is the ONLY leg that closes a Try.** A commit on this free branch that lands a carried retro Try (one adopted via `/xp-work-selection adopt`) **must** include `Resolves-Event: <try-id>` in its body. Adoption only *links* its Try — taking work on must not close the item that verifies the work landed — and there is no cascade to fall back on: without the trailer the Try stays open forever, carried as adopted-but-never-landed.
 
 ## Step 1: Pre-flight
 
@@ -88,7 +83,7 @@ Agent(
 
 ## Steps 5–6b: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by the preload at the top of this context — see `scripts/_close_pipeline_shared.md` for the source. Apply those four steps in order after Step 4.5, then continue with Step 7 below.
+The shared reference (Steps 5, 5b, 6, 6b) is emitted by the preload — see `scripts/_close_pipeline_shared.md`. Apply in order after Step 4.5, then continue with Step 7 below.
 
 **Free-close override for Step 6 (auto-merge gate):** if ALL of these hold, skip the shared Step 6's `AskUserQuestion` (Step 6b still runs):
 
@@ -98,7 +93,7 @@ The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by the prelo
      --smm-dir <SMM_DIR> count-classifications \
      --route ask --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
-   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload (captured at close-cycle start). `--cycle-id` excludes concern_classify events tagged with a DIFFERENT close-cycle, so concurrent close-cycles in other teammate worktrees don't leak in (SMM is shared across worktrees). An UNTAGGED event is still counted — the count fails closed rather than silently dropping an ask-route the gate must see — so `--since-ts` is the bound that keeps pre-cycle events out. Test numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
+   `<CLOSE_CYCLE_ID>` and `<CLOSE_START_TS>` are emitted by the preload (captured at close-cycle start). `--cycle-id` excludes concern_classify events tagged with a DIFFERENT close-cycle, so concurrent close-cycles in other teammate worktrees don't leak in (SMM is shared across worktrees); an UNTAGGED event is still counted (fail closed, rather than dropping an ask-route the gate must see), so `--since-ts` is the bound that keeps pre-cycle events out. Test numerically: `[ "$ASK_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
 2. No open high-severity concern recorded during Step 4.5, verified via the
    canonical structured filter:
@@ -109,12 +104,11 @@ The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by the prelo
      --severity high --cycle-id <CLOSE_CYCLE_ID> --since-ts <CLOSE_START_TS>)
    ```
    `--diff-paths -` drops an untagged concern whose recorded files this close never touches, so a concurrent teammate's unrelated open defect cannot abort a clean close; an empty or unreadable diff counts everything (fail closed). Name both branches rather than `HEAD` so the range does not depend on your checkout.
-   Test numerically: `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to the
-   shared Step 6 prompt.
+   Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
 3. The preload emitted a non-empty `TEST_COMMAND=...` line (sourced from `system_context.stack.test_command`) AND running that command AFTER all Step 5c fixes landed exits 0. Any non-zero exit means tests aren't green — fall through to the shared Step 6 prompt.
 
-4. Step 5c classified zero `design_decision` findings — even if the classifier routed one to `fix`. Free-close merges into an integration branch (plan or primary), and architectural calls deserve a human checkpoint regardless of the classifier's route choice. Verify via:
+4. Step 5c classified zero `design_decision` findings — even if the classifier routed one to `fix`. Free-close merges into an integration branch (plan or primary), and architectural calls deserve a human checkpoint. Verify via:
    ```bash
    DESIGN_DECISION_COUNT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/smm_cli.py \
      --smm-dir <SMM_DIR> count-classifications \
@@ -122,7 +116,7 @@ The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by the prelo
    ```
    Test numerically: `[ "$DESIGN_DECISION_COUNT" -gt 0 ]` → fall through to the shared Step 6 prompt.
 
-When `TEST_COMMAND` is empty (the project hasn't configured a test command), the gate cannot fire. Print this two-line discovery hint before falling through to the shared Step 6 prompt:
+When `TEST_COMMAND` is empty the gate cannot fire. Print this hint before falling through to the shared Step 6 prompt:
 
 ```
 Auto-merge disabled — set stack.test_command in system_context.json to enable.
@@ -146,6 +140,6 @@ Any failing step aborts the chain — source intact for retry. Conflicts are nev
 
 ## Reporting Back
 
-**Surface the merge's trailer advisory.** The merge step's `close_common.py merge` prints a `Resolves-Event:` trailer advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so if the merge printed that advisory, relay it verbatim — the named commits are still in reach to add trailers.
+**Surface the merge's trailer advisory.** `close_common.py merge` prints a `Resolves-Event:` advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so relay any such advisory verbatim — the named commits are still in reach to add trailers.
 
 Tell the user: free branch merged into `<TARGET_BRANCH>`, PR (if created) merged, local branch deleted. Free-close is complete.

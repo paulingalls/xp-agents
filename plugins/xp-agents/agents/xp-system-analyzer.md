@@ -1,10 +1,8 @@
 ---
 name: xp-system-analyzer
 description: >-
-  System context analyst. Reads codebase structure, CLAUDE.md, and key source
-  files to produce system_context.json — a thorough description of the product,
-  its architecture, and technical constraints.
-  Invoke via /xp-system-context skill, not directly.
+  System context analyst: reads the codebase to produce system_context.json.
+  Invoke via /xp-system-context, not directly.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -133,11 +131,11 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --content "<Surface> surface detected (<signals>), no acceptance harness found. Run /xp-scaffold-acceptance to begin acceptance setup. If acceptance testing is not needed for this surface, dismiss this concern."
 ```
 
-Concerns must be **actionable**: state surface detected, what is missing, what specific commands to run, and consequence of inaction. Never scaffold — that is a separate skill.
+Concerns must be **actionable**: state surface detected, what is missing, what specific commands to run, and consequence of inaction.
 
 ### Step 3.7: Test Command Detection
 
-Detect the project's full automated-test command and populate `stack.test_command`. The story-close + free-close auto-merge gate (Step 6 override) reads this field via the preload — empty/unset means the gate cannot fire and those closes always prompt. Detecting it correctly unlocks the auto-merge ergonomics.
+Detect the project's full automated-test command and populate `stack.test_command`. The story-close + free-close auto-merge gate (Step 6 override) reads this field via the preload — empty/unset means the gate cannot fire and those closes always prompt.
 
 **Detection signals (first hit wins):**
 
@@ -155,11 +153,11 @@ Detect the project's full automated-test command and populate `stack.test_comman
 
 **When uncertain, leave `test_command` unset.** A wrong command is worse than none — it would either fail spuriously and block the auto-merge gate, or skip real tests and let bad merges through. Non-canonical runner, no test infra, or multiple parallel pipelines: omit and let the close skill prompt.
 
-**Update mode:** if `test_command` already exists, leave it alone unless detection signals strongly contradict it (e.g., runner switch) — the user may have set it deliberately. The schema treats `test_command` as optional.
+**Update mode:** if `test_command` already exists, leave it alone unless detection signals strongly contradict it (e.g., runner switch) — the user may have set it deliberately.
 
 ### Step 3.75: Worktree Bootstrap Detection
 
-Populate optional `stack.worktree_bootstrap` when — and only when — the repo already contains a script whose stated purpose is to prepare a fresh checkout for work (a documented setup/bootstrap entry point: `./scripts/init-worktree.sh`, a `setup` target, a documented one-liner in README/CONTRIBUTING). Record the command that runs it, as a single string. Teammate worktrees materialize only tracked files, so anything gitignored is absent — measured on a real project, the dominant failure this produces is a loud false-RED (a typecheck or test run erroring out over unresolvable modules), not merely a convenience gap; recording this command is a correctness step, and this is why the analyzer records it rather than leaving it to be discovered mid-story.
+Populate optional `stack.worktree_bootstrap` when — and only when — the repo already contains a script whose stated purpose is to prepare a fresh checkout for work (a documented setup/bootstrap entry point: `./scripts/init-worktree.sh`, a `setup` target, a documented one-liner in README/CONTRIBUTING). Record the command that runs it, as a single string. Teammate worktrees materialize only tracked files, so anything gitignored is absent — the dominant failure that produces is a loud false-RED (a typecheck or test run erroring out over unresolvable modules), not merely a convenience gap, which is why recording the command is a correctness step rather than something left for mid-story discovery.
 
 **Never invent one, and never assemble one from install steps you inferred.** Gitignored state splits in two, and only the project knows which is which: some is checkout-invariant (installable dependencies), some is checkout-variant (generated artifacts, local config, anything deriving from the checkout's own path — copying or sharing that across checkouts is silently wrong). A command you composed encodes a guess about that split. If no such script exists, omit the field and raise a `concern` naming the gitignored state a fresh checkout would lack, so the user can write the script deliberately.
 
@@ -256,7 +254,7 @@ Aim for ~70% of soft on first write so future curation has headroom without imme
 **Update-mode refinement.** For a single-field change on an existing entry, use `edit-module`, `edit-principle`, `edit-convention`, `edit-project-specific`, or `edit-acceptance-surface`. The first four accept a JSON object patch on stdin (`{"field": "new"}`); `edit-convention` takes a JSON-encoded replacement string (`"new text"`) and looks up by index or substring. Preserves the entry's existing metadata — cheaper than `retire+add` or `create`.
 
 **Guidelines:**
-- Focus on **product/domain context** — what the system IS, not how to develop in it. Reference CLAUDE.md rather than duplicating dev practices. Be thorough on domain concepts developers need.
+- Focus on **product/domain context** — what the system IS, not how to develop in it. Be thorough on domain concepts developers need.
 - `project_specific` is for anything that doesn't fit the generic fields.
 - Include `branching_strategy` (Step 3.5) and `acceptance_surfaces` (Step 3.6) directly in the create JSON. Do NOT write them separately via `edit-branching` / `edit-acceptance-surfaces` in create mode — those exist for update-mode patches only.
 
@@ -278,7 +276,7 @@ echo '{"name": "mod", "path": "src/mod", "purpose": "does X"}' | python3 ${CLAUD
 echo '{"purpose": "refined purpose"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-module <name>
 ```
 
-For wholesale rewrites prefer `create`; for surgical field updates on an existing capped-list entry prefer `edit-*`.
+For wholesale rewrites prefer `create`.
 
 Verify:
 ```bash

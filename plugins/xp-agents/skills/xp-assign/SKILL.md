@@ -1,12 +1,9 @@
 ---
 name: xp-assign
 description: >-
-  The universal per-story execution-shape decision. Reads the session default
-  tier and the plan-reviewer's per-story recommendation, then applies a behavior
-  table: it may exit in-agent (no spawn — continue in the existing checkout) or
-  spawn exactly ONE teammate at the chosen tier (the story's executor_model
-  forwarded to spawn_teammate's --model flag). Valid for solo and parallel
-  frontiers alike. Runs once per story after that story's plan is reviewed.
+  Per-story execution-shape decision: continue in-agent, or spawn one
+  teammate at the chosen tier. Runs once per story after its plan is
+  reviewed.
 allowed-tools:
   - Bash(*/init.sh)
   - Bash(*/skills/*/scripts/*)
@@ -24,27 +21,22 @@ allowed-tools:
 
 # Work Assignment
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Pre-flight → Execution-shape
-> decision → Branch → Prompt → Spawn → Post-spawn strictly, one step per
-> turn — make the call, observe, then decide the next. Each /xp-assign
-> invocation resolves ONE story: it either exits in-agent (no spawn) or
-> spawns exactly ONE teammate — never more, never the same subagent twice.
-> The lead loops externally (plan → /xp-review-plan → /xp-assign, repeat per
-> story). Independent read-only calls may still batch.
+> **Sequential discipline.** Run Pre-flight → Execution-shape decision →
+> Branch → Prompt → Spawn → Post-spawn one step per turn — make the call,
+> observe, then decide the next. Each invocation resolves ONE story: exit
+> in-agent, or spawn exactly ONE teammate, never more.
 
 /xp-assign makes the **per-story execution-shape decision** — in-agent (no
-spawn) or one teammate spawn, and at which tier — the same shape on solo and
-parallel frontiers; only the outcome differs. The structural decide-half (solo
-vs parallel, promotion, solo branch) belongs to `/xp-schedule`: by the time
-xp-assign runs it has promoted the batch to `in-progress` with
-`execution_mode=teammate`, which the preload lists as `TEAMMATE_STORY_IDS`.
+spawn) or one teammate spawn, and at which tier — identically on solo and
+parallel frontiers; only the outcome differs. `/xp-schedule` owns the structural
+half (solo vs parallel, promotion, solo branch): by the time xp-assign runs it
+has promoted the batch to `in-progress` with `execution_mode=teammate`, which
+the preload lists as `TEAMMATE_STORY_IDS`.
 
-**Parallelism shape:** earlier teammates run asynchronously while the
-lead plans the next story (the Bash `run_in_background=true`). The
-precedence is **plan → SPAWN → accept** — spelled out in Step 5, which
-is where it is actionable. Spawning never waits on an accept, or the
-background sits empty for a whole close cycle.
+**Parallelism shape:** earlier teammates run asynchronously while the lead plans
+the next story (Bash `run_in_background=true`). Precedence is **plan → SPAWN →
+accept**: spawning never waits on an accept, or the background sits empty for a
+whole close cycle.
 
 ## Pre-flight
 
@@ -53,9 +45,9 @@ background sits empty for a whole close cycle.
 3. If `SPRINT_FILE` provided, read it for story context (optional — status tracking only).
 4. **Mode + target — solo-first.** If `SOLO_TARGET` is non-empty → solo frontier (`MODE=solo`); set `TARGET=$SOLO_TARGET` and skip step 5 (no worktree to look up). Else if `TEAMMATE_STORY_IDS` is non-empty → teammate batch (`MODE=teammate`); resolve `TARGET` via step 5. Else nothing to assign — stop.
 
-   **A live solo story drains: while `SOLO_TARGET` names one there is no fall-through to the batch.** Every invocation targets it until it is accepted — a teammate spawn checks out the base branch (step 2) in the main checkout an in-place solo teammate is concurrently committing in. It is the one place the **plan → SPAWN → accept** precedence yields: re-invoking during its spawn only earns that spawn's refusal, and re-invoking after it EXITS re-runs the finished story (the exclusive claim is released at exit) — so its accept comes first.
+   **A live solo story drains: while `SOLO_TARGET` names one there is no fall-through to the batch**, until it is accepted — a teammate spawn checks out the base branch (step 2) in the main checkout an in-place solo teammate is concurrently committing in. It is the one place the **plan → SPAWN → accept** precedence yields: re-invoking during that spawn earns only its refusal, and re-invoking after it exits re-runs the finished story (the exclusive claim is released at exit) — so its accept comes first.
 
-   **The hole: >1 in-progress solo story.** The preload cannot pick one, so `SOLO_TARGET` arrives empty — indistinguishable from "no solo story", and this step would select the batch and check out that base anyway. Empty is NOT proof the drain is over: before selecting the batch, confirm `SPRINT_FILE` shows no `in-progress` + `execution_mode=solo` story; reconcile one that is (accept or defer) rather than spawn into its checkout.
+   **The hole: >1 in-progress solo story.** The preload cannot pick one, so `SOLO_TARGET` arrives empty — indistinguishable from "no solo story", and empty is NOT proof the drain is over. Before selecting the batch, confirm `SPRINT_FILE` shows no `in-progress` + `execution_mode=solo` story; reconcile one that is (accept or defer) rather than spawn into its checkout.
 5. **Target lookup (teammate batch only).** When `MODE=teammate`, resolve the lowest-id un-spawned story in `TEAMMATE_STORY_IDS` — the first whose teammate worktree is not yet live:
    ```bash
    TARGET=""
@@ -72,26 +64,25 @@ background sits empty for a whole close cycle.
 
    The auto-detect assumes the lead plans stories in id order. To spawn out-of-order, plan + review + assign one story at a time — planning several, then calling /xp-assign repeatedly, pairs the wrong plan with the wrong story.
 
-   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE distinct cases: (a) story is genuinely un-spawned (correct target), (b) earlier spawn crashed before worktree-create (story still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`, not still in-progress). Only (a) is "spawn it", and sprint.json's `branch_name` discriminates: null → no branch was ever cut → (a); non-null → Step 2 already ran, so (b) or (c) — **ask the user** (re-spawn, close it, or investigate); don't silently re-target. `git branch --merged "$BASE"` (`$BASE` via Step 2's `get-base`; unset in pre-flight) separates those two: it lists the branch when the merge landed but the close stopped before deleting it. A completed close DELETES the branch, so absence is the ordinary shape of (c) — never evidence of (a). A live duplicate cannot hide behind the empty result: a worktree teammate HAS a worktree, so this lookup finds it and never targets that story; an in-place teammate — which never has one — is refused by the spawn's exclusive per-name claim (non-zero exit, never two agents in one checkout).
+   **Stale-spawn check.** `find-teammate-worktree` returns empty for THREE cases: (a) genuinely un-spawned (correct target), (b) an earlier spawn crashed before worktree-create (still in-progress, no live teammate), (c) `/xp-story-close` cleaned the worktree after merge (story should be `done`). Only (a) is "spawn it", and sprint.json's `branch_name` discriminates: null → no branch was ever cut → (a); non-null → Step 2 already ran, so (b) or (c) — **ask the user** (re-spawn, close it, or investigate); don't silently re-target. `git branch --merged "$BASE"` (`$BASE` via Step 2's `get-base`; unset in pre-flight) separates those two: it lists the branch when the merge landed but the close stopped before deleting it. A completed close DELETES the branch, so absence is the ordinary shape of (c), never evidence of (a). A live duplicate cannot hide here: a worktree teammate has a worktree, so this lookup finds it; an in-place teammate is refused by the spawn's exclusive per-name claim.
 
 ## Step 0: Execution-shape decision (the behavior table)
 
-Before spawning, decide the execution shape for `TARGET` from two preload
-inputs: `TEAMMATE_DEFAULT` (the session default tier — `off`/`haiku`/`sonnet`/
-`opus`/`fable`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story
-pick — `in-agent`/`haiku`/`sonnet`/`opus`/`fable`/`none`, where `none` means it
-was omitted or retracted as ambiguous). **Verify
-`RECOMMENDED_TIER_STORY` equals the `TARGET` you resolved in pre-flight before
-applying `RECOMMENDED_TIER`.** If they differ, the un-spawned frontier shifted
-between preload and now — treat `RECOMMENDED_TIER` as `none` (apply the default)
-rather than misapply another story's recommendation to this `TARGET`.
+Decide the execution shape for `TARGET` from two preload inputs:
+`TEAMMATE_DEFAULT` (the session default tier — `off`/`haiku`/`sonnet`/`opus`/
+`fable`/`inherit`) and `RECOMMENDED_TIER` (the plan-reviewer's per-story pick —
+`in-agent`/`haiku`/`sonnet`/`opus`/`fable`/`none`, where `none` means it was
+omitted or retracted as ambiguous). **Verify `RECOMMENDED_TIER_STORY` equals the
+`TARGET` you resolved in pre-flight before applying `RECOMMENDED_TIER`.** If they
+differ, the un-spawned frontier shifted between preload and now — treat
+`RECOMMENDED_TIER` as `none` rather than misapply another story's recommendation.
 
 Evaluate the branches **in this order** and act on the first that matches:
 
 | # | Condition | Action |
 |---|---|---|
-| 1 | `TEAMMATE_DEFAULT` is `off` | **Exit, no spawn.** Output a one-line hint pointing at the kickoff teammate-support setting (re-run /xp-kickoff or flip the setting to enable teammates). |
-| 2 | `--in-agent` flag passed | **Force in-agent. Exit, no spawn.** Output "this story is in-agent appropriate; continue in the existing checkout." Write a tier_override event UNLESS `RECOMMENDED_TIER` was also `in-agent` (then the pick matches — no override). |
+| 1 | `TEAMMATE_DEFAULT` is `off` | **Exit, no spawn.** Output a one-line hint at the kickoff teammate-support setting (re-run /xp-kickoff to enable teammates). |
+| 2 | `--in-agent` flag passed | **Force in-agent. Exit, no spawn.** Output "this story is in-agent appropriate; continue in the existing checkout." Write a tier_override event UNLESS `RECOMMENDED_TIER` was also `in-agent` (the pick matches). |
 | 3 | `RECOMMENDED_TIER` is `in-agent` | **Exit, no spawn.** Output "continue here — spawning a teammate is pure overhead for this story." No override event: the pick matches the recommendation. |
 | 4 | `RECOMMENDED_TIER` matches `TEAMMATE_DEFAULT` (both a tier in `haiku`/`sonnet`/`opus`/`fable`) | **Silent spawn** at that tier: set the story's `executor_model` and forward `--model`. No question. |
 | 5 | `RECOMMENDED_TIER` is a tier that **diverges** from `TEAMMATE_DEFAULT` | Ask EXACTLY ONE `AskUserQuestion`: apply the recommended tier `Y`, or keep the default `X`? Spawn at the chosen tier. If the customer keeps the default (rejects the recommendation), write a tier_override event. |
@@ -99,7 +90,7 @@ Evaluate the branches **in this order** and act on the first that matches:
 
 For the spawning branches (4–6), persist the decision with `set-executor`, which
 writes a field only when its flag is passed (provided-empty → `null`; omitted →
-untouched). The two fields differ in ownership:
+untouched):
 
 - **`executor_model`** is also settable by a `/xp-schedule` per-story pre-seed, so
   pass `--model "<tier>"` only when the outcome is a concrete tier, and **omit
@@ -124,7 +115,6 @@ support it), degrading to the model default rather than erroring.
 **never** written to `executor_model`. It only ever drives the exit / no-spawn
 branches (2 and 3). The spawning branches set `executor_model` ONLY to a valid
 tier in `haiku`/`sonnet`/`opus`, or leave it untouched on the `inherit` outcome.
-A spawn never carries `in-agent` as a model.
 
 **Override audit event.** When the chosen tier differs from the recommendation
 (branch 2's forced in-agent, or branch 5 when the customer keeps the default),
@@ -158,17 +148,14 @@ EXECUTOR_EFFORT=$(echo "$STORY_JSON" | python3 -c "import json,sys; d=json.load(
   || { echo "executor_effort parse failed for $TARGET — fix sprint.json before spawning" >&2; exit 1; }
 ```
 
-`executor_effort` (set on a spawning branch above) forwards to spawn_teammate's
-`--effort` below when non-empty, guarded by that script's fail-safe; absent → no
-`--effort`.
-
-`executor_model` is optional. When set to `sonnet`/`opus`/`haiku`/`fable`, it is forwarded to spawn_teammate's `--model` flag below; when absent, no `--model` flag is passed (orchestrator tier). Each of the three steps traps its own failure mode because a silent empty `$EXECUTOR_MODEL` would drift the spawn to the orchestrator's tier when the story actually specified one.
+Both fields are optional, and Step 4 forwards each when non-empty. Each command
+above traps its own failure mode because a silently empty `$EXECUTOR_MODEL`
+would drift the spawn to the orchestrator's tier when the story specified one.
 
 ## Step 2: Create the story branch (Stage 1+)
 
-`/xp-schedule` already promoted the story to `in-progress` with
-`execution_mode=teammate`; xp-assign only creates the branch the teammate
-worktree spawns into. If stage < 1, skip branch creation entirely.
+xp-assign only creates the branch the teammate worktree spawns into. If
+stage < 1, skip branch creation entirely.
 
 The branch is cut FROM `$BASE`, so `--required` refuses to degrade to the
 release branch. There is no `set -e` here: without the `||` guard an empty
@@ -212,10 +199,10 @@ separate Bash call anyway. The teammate has no prior context. Include:
 - **What to Change** — detailed changes from `PLAN_FILE`
 - **Acceptance Criteria** — derived from the story record
 - **Interface Contracts** — shared boundaries with other stories
-- **Story Branch** — the story branch created in Step 2, **verbatim**: the exact
-  string, the same one you pass to `--branch` in Step 4 (the story's own
-  `branch_name`, NOT the sprint-level one). Copy it; do not shorten it to the
-  story id, re-slug it, or prettify it.
+- **Story Branch** — the story branch created in Step 2, **verbatim**: the same
+  string you pass to `--branch` in Step 4 (the story's own `branch_name`, NOT
+  the sprint-level one). Do not shorten it to the story id, re-slug it, or
+  prettify it.
 - **SMM Directory** — `SMM_DIR=<path>`
 - TDD instructions. **Do not state the review cadence** — the teammate's own
   session start renders it from live state, and its commit gate reports the one
@@ -226,24 +213,21 @@ does not contain the `--branch` string, and exits non-zero without spawning.
 Story ids repeat every sprint and nothing invalidates a prompt file, so a prompt
 naming only `story-003` is indistinguishable from a stale one written for LAST
 sprint's story-003 — the branch (id + slug) is the only thing that tells them
-apart. A paraphrased branch therefore fails the spawn exactly as a stale prompt
-does; write it exactly.
+apart, so a paraphrased branch fails the spawn exactly as a stale prompt does.
 
 The solo `--in-place` variant below passes no `--branch`, so the spawn can only
 fall back to checking the story id there — a weaker check, since both sprints'
-prompts carry the same id. Write the branch verbatim anyway: it costs nothing,
-and it is what the check uses wherever it is present.
+prompts carry the same id. Write the branch verbatim anyway.
 
 ## Step 4: Spawn ONE teammate async
 
-Launch via Bash with `run_in_background`, passing `--story-id $TARGET`,
-`--branch <story-branch>`, and `--plugin-dir ${CLAUDE_PLUGIN_ROOT}`. The
-`--plugin-dir` is **required**: a headless `claude -p` worktree session
-does not apply the project-scoped marketplace enablement, so without it
-the teammate loads none of the xp-agents skills, agents, or hooks (no
-TDD/review/commit gates, no SMM event recording). `${CLAUDE_PLUGIN_ROOT}`
-resolves to the lead's live plugin dir, so the teammate runs the same
-plugin version as the lead.
+Launch via a single Bash call with `run_in_background=true` — not a parallel
+batch — passing `--story-id $TARGET`, `--branch <story-branch>`, and
+`--plugin-dir ${CLAUDE_PLUGIN_ROOT}`. The `--plugin-dir` is **required**: a
+headless `claude -p` worktree session does not apply the project-scoped
+marketplace enablement, so without it the teammate loads none of the xp-agents
+skills, agents, or hooks. `${CLAUDE_PLUGIN_ROOT}` resolves to the lead's live
+plugin dir, so the teammate runs the same plugin version as the lead.
 
 If `$EXECUTOR_MODEL` is non-empty, append `--model "$EXECUTOR_MODEL"` to the
 command below; if `$EXECUTOR_EFFORT` is non-empty, append
@@ -258,8 +242,6 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py --name "worktree-$TARGET
   | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/teammate_output_filter.py \
   --smm-dir ${SMM_DIR} --teammate-id "worktree-$TARGET"
 ```
-
-Single Bash call with `run_in_background=true` — not a parallel batch.
 
 **Solo in-place variant (`MODE=solo` spawn).** Skip Step 2 (the solo branch
 exists). Spawn **in the main checkout**: add `--in-place`, drop
@@ -280,13 +262,12 @@ main checkout until the task-notification fires (it commits to the solo branch i
 place). On it, run `/xp-accept` for `$TARGET` (still `in-progress`/solo → solo
 path).
 
-**Surface the live forensic log (both variants).** Right after launching the
-background spawn, tell the lead where to watch the teammate mid-flight. The
-`.log` is line-flushed live (`run_with_tee`), so `tail -F` shows progress and
-diagnoses a stall in real time — unlike the task output, which stays ~empty
-until exit. Use `-F`, not `-f`: the log only appears a few seconds in, and `-F`
-waits for it instead of erroring on a not-yet-created path. Query the exact
-path (single source of truth) and surface it:
+**Surface the live forensic log (both variants).** Right after launching, tell
+the lead where to watch mid-flight. The `.log` is line-flushed live
+(`run_with_tee`), so `tail -F` shows progress and diagnoses a stall in real time
+— unlike the task output, which stays ~empty until exit. Use `-F`, not `-f`: the
+log only appears a few seconds in, and `-F` waits for it instead of erroring on
+a not-yet-created path. Query the exact path and surface it:
 
 ```bash
 LOG_PATH=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/spawn_teammate.py \
@@ -296,13 +277,13 @@ echo "Teammate running in background. Watch it live / diagnose a stall: tail -F 
 
 ## Step 5: Post-spawn
 
-The Bash above runs with `run_in_background=true`. You'll receive a `task-notification` when the teammate exits.
+You'll receive a `task-notification` when the background teammate exits.
 
 **Surface the teammate's exit to the user when the notification fires** — don't silently move on:
-- **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin, so this file stays ~empty during the run, then holds one of two shapes: **on success**, one summary line naming the **report file path** (`Report: <path> | Branch: <branch> | Cost: $<n>`); **on a no-result failure**, several diagnostic lines plus a saved-artifact path — open that artifact for the full capture. For anything mid-flight, tail the live `.log` at `$LOG_PATH` from Step 4 instead.
+- **Read the task output file** named in the notification. `teammate_output_filter.py` does NOT tee its stdin, so this file stays ~empty during the run, then holds one of two shapes: **on success**, one summary line naming the **report file path** (`Report: <path> | Branch: <branch> | Cost: $<n>`); **on a no-result failure**, several diagnostic lines plus a saved-artifact path — open that artifact for the full capture. Mid-flight, tail `$LOG_PATH` from Step 4 instead.
 - **Then open the report file** for the structured what-shipped narrative — this is what /xp-accept and the eventual retro need; don't skip it.
 - **If exit was non-zero** — the teammate crashed (worktree-create race, prompt-file missing, --plugin-dir resolution, agent error). Tell the user immediately; ask whether to re-spawn (delete the partial worktree first if any), defer the story, or investigate. The story is still `in-progress` with no live teammate.
-- **If exit was 0** — apply the pipeline's precedence rule before touching `/xp-accept`: if any story is planned, reviewed and un-spawned, spawn it FIRST, then accept `$TARGET`. If there is nothing left to spawn, accept `$TARGET` immediately — the rule is precedence, not a reason to delay the accept; an exhausted spawn frontier must never stall acceptance. Either way `$TARGET` gets its `/xp-accept` (verify + close) on this notification, before sibling stories pile up unaccepted.
+- **If exit was 0** — apply the pipeline's precedence rule before touching `/xp-accept`: if any story is planned, reviewed and un-spawned, spawn it FIRST, then accept `$TARGET`. If there is nothing left to spawn, accept `$TARGET` immediately — an exhausted spawn frontier must never stall acceptance. Either way `$TARGET` gets its `/xp-accept` (verify + close) on this notification, before sibling stories pile up unaccepted.
 
 The orchestrator does NOT merge teammate branches. Each story branch stays
 alive on its teammate worktree until its `/xp-story-close` invocation
