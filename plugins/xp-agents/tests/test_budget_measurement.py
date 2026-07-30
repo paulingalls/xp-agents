@@ -20,12 +20,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from _band_proof import assert_band_fired, below_band_budget, in_band_budget
+from _bases import _PLUGIN_ROOT
 from _budget_helpers import (
+    _bootstrap_seeded_smm,
+    _measured_len,
+    _run_emitter,
+    assert_emitter_under_budgets,
     assert_md_budgets_match,
     assert_md_under_budgets,
     band_offender,
     ratchet,
 )
+
+_SCRIPTS_DIR = _PLUGIN_ROOT / "scripts"
+
+# The smallest measurement that can plausibly be a real stdout surface rather
+# than a stand-in for one. A preload that refuses for want of a live hook
+# runtime prints a ~419-char banner, and a budget derived from THAT sits
+# mid-band just as neatly — so a proof that measured the refusal would read
+# green while pinning nothing at all.
+_MIN_REAL_MEASUREMENT = 1000
 
 
 class _SpyCase(unittest.TestCase):
@@ -281,6 +296,73 @@ class TestNinetyEightPercentBand(unittest.TestCase):
             assert_md_under_budgets(
                 _SpyCase(), tmp_path, "*.md", {"CLEAR": 100}, "test"
             )
+
+
+def _measure_emitter(script_name: str) -> int:
+    """Mirror `assert_emitter_under_budgets`' own measurement, exactly.
+
+    No `normalize_paths` — the helper passes none, so any absolute path the
+    emitter echoes makes the count vary with whichever bootstrap measured it.
+    This runs its own bootstrap, so the two can disagree by a character;
+    `in_band_budget`'s ~1% slack is what absorbs that.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, smm_dir = _bootstrap_seeded_smm(Path(tmp))
+        stdout_bytes, stderr, rc = _run_emitter(
+            script_name, _SCRIPTS_DIR, smm_dir, repo
+        )
+        if rc != 0:
+            raise AssertionError(f"{script_name}: rc={rc} stderr={stderr[:200]!r}")
+        return _measured_len(stdout_bytes)
+
+
+class TestEmitterBandWiring(unittest.TestCase):
+    """The band must reach `assert_emitter_under_budgets`, not just the helper.
+
+    Reverting that assert to `actual > budget` left the whole suite green:
+    every emitter fixture that reached an assertion was also over its cap, so
+    nothing anywhere separated the band from a breach. `subagent_start.py` is
+    the surface because it measures ~3,200 chars — a ~64-char band, wide
+    enough to sit mid-band with room either side.
+
+    Measured once for the class: each public assert costs ~6 subprocesses,
+    three of them git, because `_bootstrap_seeded_smm` builds a repo and seeds
+    an SMM before the emitter runs. Both legs share the one measurement.
+    """
+
+    _SURFACE = "subagent_start.py"
+    actual = 0
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.actual = _measure_emitter(cls._SURFACE)
+
+    def setUp(self) -> None:
+        self.assertGreater(
+            self.actual,
+            _MIN_REAL_MEASUREMENT,
+            f"{self._SURFACE} measured {self.actual} chars — too small to be "
+            "its real stdout, so neither leg below would prove anything",
+        )
+
+    def test_emitter_inside_the_band_is_reported(self) -> None:
+        with self.assertRaises(AssertionError) as caught:
+            assert_emitter_under_budgets(
+                _SpyCase(),
+                _SCRIPTS_DIR,
+                {self._SURFACE: in_band_budget(self.actual)},
+                "emitter",
+            )
+        assert_band_fired(self, caught.exception, self._SURFACE)
+
+    def test_emitter_below_the_band_passes(self) -> None:
+        """The twin that proves the leg above reports the band, not a breach."""
+        assert_emitter_under_budgets(
+            _SpyCase(),
+            _SCRIPTS_DIR,
+            {self._SURFACE: below_band_budget(self.actual)},
+            "emitter",
+        )
 
 
 class TestMdBudgetsMatchStillFailsOnMissingEntry(unittest.TestCase):
