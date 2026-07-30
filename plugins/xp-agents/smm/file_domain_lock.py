@@ -14,6 +14,13 @@ time when one transitively depends on the other, or when either has reached a
 terminal status and released its files. A story building on an earlier story's
 file is the normal shape of sequential work, and it is legal.
 
+A claim is scoped to a LIFECYCLE, not owned outright. `collision_report`'s
+`running_only` flag selects which reading a caller gets: strict (every
+non-terminal story reserves its paths -- the right answer when the question is
+hypothetical, e.g. authoring a sprint or judging whether a frontier could fan
+out) or live-only (only running stories reserve anything -- the right answer
+when the question is "may this happen NOW"). See `_holds_claim`.
+
 Given a loaded sprint dict this reports every colliding path, tagging each
 claim as `authored` (the planner wrote it) or `auto_included` (the sister-test
 globber added it). Origin matters because the remedy differs -- an authored
@@ -135,16 +142,51 @@ def ancestors(stories: list[dict]) -> dict[str, set[str]]:
     return closure
 
 
-def _concurrent(a: dict, b: dict, story_ancestors: dict[str, set[str]]) -> bool:
-    """True when claims `a` and `b` could be worked at the same time.
+def _holds_claim(claim: dict, *, running_only: bool) -> bool:
+    """Whether this claim reserves its path against another story.
 
     Terminal stories (done/deferred) have merged or been dropped, so they hold
-    nothing. A dependency edge in either direction serializes the pair --
-    `story_ancestors` is transitive, so an indirect edge serializes it too.
+    nothing on either setting.
+
+    `running_only` narrows the rest to claims that are LIVE: the claim reserves
+    the path only while its story is in motion, or once a branch was cut for it
+    (work may exist on that branch even if the story was parked back to
+    `scheduled` -- status alone is not enough, because a story CAN be moved
+    back after promotion). `branch_name` is the same never-started
+    discriminator the stale-spawn check uses, with "no branch" spelled either
+    null or "".
+
+    KNOWN LIMITATION: nothing ever clears `branch_name`, so a story that was
+    promoted and then parked holds its claim for the rest of the sprint. That
+    is the fail-closed direction -- a stale claim costs a false refusal, a
+    missed one costs two teammates editing one file -- but it is a limitation,
+    not a property: do not read a held claim as proof work is in flight.
     """
-    if a["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
+    if claim["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
         return False
-    if b["status"] in sprint_schema.TERMINAL_STORY_STATUSES:
+    if not running_only:
+        return True
+    return claim["status"] in sprint_schema.IN_MOTION_STORY_STATUSES or bool(
+        claim["branch_name"]
+    )
+
+
+def _concurrent(
+    a: dict,
+    b: dict,
+    story_ancestors: dict[str, set[str]],
+    *,
+    running_only: bool,
+) -> bool:
+    """True when claims `a` and `b` could be worked at the same time.
+
+    Both claims must actually hold (see `_holds_claim`). A dependency edge in
+    either direction serializes the pair -- `story_ancestors` is transitive, so
+    an indirect edge serializes it too.
+    """
+    if not _holds_claim(a, running_only=running_only):
+        return False
+    if not _holds_claim(b, running_only=running_only):
         return False
     a_id, b_id = a["story_id"], b["story_id"]
     return not (
@@ -188,14 +230,19 @@ def _resolved_claims(
                 "story_id": story["id"],
                 "origin": origin,
                 "status": story.get("status", ""),
+                # Normalized to None so `_holds_claim` reads one absence: the
+                # schema default is null, but `get_story_branch_name` hands back
+                # "" for the same "no branch was ever cut".
+                "branch_name": story.get("branch_name") or None,
                 "pattern": pattern,
             }
     return resolved
 
 
 def _public_claim(claim: dict) -> dict:
-    """A report claim: internal `status` dropped, `pattern` only when there is
-    one, so a literal-only collision keeps the exact pre-glob shape."""
+    """A report claim: internal `status`/`branch_name` dropped, `pattern` only
+    when there is one, so a literal-only collision keeps the exact pre-glob
+    shape. Built by whitelist, so a new internal field stays internal."""
     public = {"story_id": claim["story_id"], "origin": claim["origin"]}
     if claim.get("pattern"):
         public["pattern"] = claim["pattern"]
@@ -203,7 +250,7 @@ def _public_claim(claim: dict) -> dict:
 
 
 def collision_report(
-    data: dict, *, scope: set[str] | None = None
+    data: dict, *, scope: set[str] | None = None, running_only: bool = False
 ) -> dict[str, list[dict]]:
     """{path: [{"story_id", "origin", "pattern"?}, ...]} for every path claimed
     by 2+ stories that could run concurrently. Empty dict == no collisions.
@@ -214,6 +261,22 @@ def collision_report(
     dependency edge, or when either claimant is done/deferred. Duplicate
     story_ids claiming one path stay a collision -- neither depends on the
     other, so the malformed sprint is surfaced rather than excused.
+
+    `running_only` picks WHICH claims hold (see `_holds_claim`): False -- the
+    default -- means every non-terminal story reserves its paths; True narrows
+    that to stories actually running. The choice belongs to the caller because
+    the two enforcement points ask different questions. Authoring a sprint
+    (`sprint_save.run`) and asking whether a frontier could fan out
+    (`sprint_status.file_domains_overlap_detail`) are both HYPOTHETICAL: every
+    story involved is parked by construction, so `running_only=True` there
+    would report nothing and both gates would evaporate. "May this story start
+    now" and "may this running story amend its domain" are questions about the
+    live state, and take True. The default is the strict setting so an omitted
+    keyword fails CLOSED.
+
+    Relaxing a claim by lifecycle never relaxes the concurrency guarantee: two
+    stories that are genuinely running on one path with no dependency edge
+    collide on both settings.
 
     `scope` restricts WHOSE claims are reported (None = every story). It must
     never restrict which DEPENDENCIES exist: serialization is transitive, so an
@@ -254,7 +317,7 @@ def collision_report(
             claim
             for i, claim in enumerate(claims)
             if any(
-                _concurrent(claim, other, story_ancestors)
+                _concurrent(claim, other, story_ancestors, running_only=running_only)
                 for j, other in enumerate(claims)
                 if i != j
             )
