@@ -10,9 +10,14 @@ trailing newline undercounts by one under `wc -l` but not under
 The band ratchet (`_BAND_CEILINGS`) is the second half of the recorded
 constraint ("leave real headroom below the cap"): a file already above 450
 lines may not grow past its CURRENT count, which becomes its own ceiling.
-Shrinking below 451 retires its entry — the table only ever shrinks, and an
-empty table is the success state. It is generated from measurement, not
-typed by hand; re-measure with `_line_count` before editing it.
+Shrinking below 451 makes an entry dormant, and an empty table is the success
+state. It is generated from measurement, not typed by hand; re-measure with
+`_line_count` before editing it.
+
+Retirement is a MANUAL step and nothing here enforces it: a dormant entry is
+not a failure, so a file that shrinks below 451 keeps its old, higher ceiling
+and may regrow all the way back to it. Delete the entry when you shrink a
+file, or the ratchet quietly hands back the ground you just won.
 """
 
 import sys
@@ -25,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _pin_helpers import (
     files_to_scan,
     rel,
+    scan_shortfalls,
     shipped_files_to_scan,
     shipped_prose_to_scan,
 )
@@ -143,16 +149,23 @@ def _cap_offenders(
     return offenders
 
 
-def _band_violations(paths: list[Path], repo_root: Path) -> list[str]:
+def _band_violations(
+    paths: list[Path], repo_root: Path, ceilings: dict[str, int] | None = None
+) -> list[str]:
     """Files above `_BAND_FLOOR` that either have no recorded ceiling or have
-    grown past the one they have."""
+    grown past the one they have.
+
+    *ceilings* defaults to `_BAND_CEILINGS`; tests pass their own table so the
+    red proof does not depend on which real files happen to be in the band.
+    """
+    ceilings = _BAND_CEILINGS if ceilings is None else ceilings
     violations = []
     for path in paths:
         count = _line_count(path)
         if count <= _BAND_FLOOR:
             continue
         key = rel(path, repo_root)
-        ceiling = _BAND_CEILINGS.get(key)
+        ceiling = ceilings.get(key)
         if ceiling is None:
             violations.append(
                 f"{key} ({count} lines) crossed above {_BAND_FLOOR} with no "
@@ -222,6 +235,57 @@ class TestCapOffenderDetection(unittest.TestCase):
             offenders = _cap_offenders([at_cap], root)
 
         self.assertEqual(offenders, [])
+
+
+class TestBandRatchetRedProof(unittest.TestCase):
+    """The ratchet itself, proven to go red -- committed, not a manual
+    bump-and-restore. `_BAND_CEILINGS` is honest against the tree the day it
+    is measured, so the real-tree ratchet tests are green by construction and
+    say nothing about whether the comparison works."""
+
+    def _write(self, root: Path, lines: int) -> Path:
+        path = root / "banded.py"
+        path.write_text("\n".join(f"x = {i}" for i in range(lines)) + "\n")
+        self.assertEqual(_line_count(path), lines)
+        return path
+
+    def test_growth_past_a_recorded_ceiling_is_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._write(root, 460)
+            violations = _band_violations([path], root, {"banded.py": 459})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("banded.py", violations[0])
+        self.assertIn("460", violations[0])
+        self.assertIn("459", violations[0])
+
+    def test_a_file_at_its_recorded_ceiling_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._write(root, 460)
+            violations = _band_violations([path], root, {"banded.py": 460})
+
+        self.assertEqual(violations, [])
+
+    def test_crossing_the_floor_with_no_recorded_ceiling_is_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._write(root, 451)
+            violations = _band_violations([path], root, {})
+
+        self.assertEqual(len(violations), 1)
+        self.assertIn("no recorded ceiling", violations[0])
+
+    def test_shrinking_to_the_floor_is_allowed_despite_a_higher_ceiling(self):
+        """A file that drops to <=450 passes even while its (now stale) entry
+        still records a higher count -- shrinking is never a violation."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._write(root, 450)
+            violations = _band_violations([path], root, {"banded.py": 485})
+
+        self.assertEqual(violations, [])
 
 
 class TestShippedRootFloorRedProof(unittest.TestCase):
@@ -311,8 +375,6 @@ class TestNonVacuity(unittest.TestCase):
         self.assertEqual(shortfalls, [], msg="; ".join(shortfalls))
 
     def test_test_scan_clears_a_tree_wide_floor(self):
-        from _pin_helpers import scan_shortfalls
-
         paths = files_to_scan(_PLUGIN_ROOT / "tests", exclude_self=Path(__file__))
         shortfalls = scan_shortfalls(
             paths, _PLUGIN_ROOT / "tests", min_files=550, exclude_self=Path(__file__)
@@ -351,6 +413,14 @@ class TestSelfCoverage(unittest.TestCase):
 
     def test_this_file_is_under_the_cap(self):
         self.assertLessEqual(_line_count(Path(__file__)), _LINE_CAP)
+
+    def test_this_file_honors_the_band_ratchet_too(self):
+        """`exclude_self` keeps this file out of both tree-wide legs, so the
+        cap assertion above leaves it the one file in the tree the RATCHET
+        cannot see. Crossing 450 here must demand a recorded ceiling like
+        anywhere else."""
+        violations = _band_violations([Path(__file__)], _REPO_ROOT)
+        self.assertEqual(violations, [], msg="; ".join(violations))
 
 
 if __name__ == "__main__":
