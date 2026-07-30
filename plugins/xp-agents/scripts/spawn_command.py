@@ -19,6 +19,21 @@ import tier_wire
 _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
 
+def _flag_value(raw: str | None) -> str | None:
+    """A tier flag's effective value: None when absent, empty, or whitespace.
+
+    `is not None` is the wrong absence test for these flags. Every real caller
+    is a shell interpolating a variable, and an unset variable interpolates to
+    `""` — not to nothing. So the untiered spawn (the common case) arrives as
+    `--model ""`, which `is not None` accepts and forwards as an empty flag.
+    Stripping also protects the tier table, which matches on exact names and
+    would read `" sonnet "` as an unknown model.
+    """
+    if raw is None:
+        return None
+    return raw.strip() or None
+
+
 def build_command(
     name: str,
     model: str | None = None,
@@ -29,7 +44,13 @@ def build_command(
 
     Prompt is piped via stdin, not passed as a CLI flag. When *model* is
     given, a --model flag selects the teammate's tier (e.g. sonnet for a
-    delegated solo teammate); otherwise the claude -p default is inherited.
+    delegated solo teammate); otherwise the claude -p default is inherited —
+    and that inheritance is ANNOUNCED on stderr, because an unannounced one is
+    indistinguishable from an empty tier variable the operator meant to set.
+
+    *model* and *effort* are normalized through ``_flag_value``: an empty or
+    whitespace-only value means "not set", so the flag is omitted rather than
+    forwarded empty.
 
     When *plugin_dir* is given, a --plugin-dir flag loads that plugin into the
     headless teammate session. This is REQUIRED for the teammate to get the
@@ -59,8 +80,15 @@ def build_command(
         "--include-partial-messages",
         "--verbose",
     ]
+    model = _flag_value(model)
+    effort = _flag_value(effort)
     if model is not None:
         cmd += ["--model", model]
+    else:
+        sys.stderr.write(
+            "spawn_teammate: no model resolved — teammate tier is inherited "
+            "from the orchestrator and unverified; pass --model to pin it\n"
+        )
     if plugin_dir is not None:
         cmd += ["--plugin-dir", plugin_dir]
     if effort is not None:

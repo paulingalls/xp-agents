@@ -55,6 +55,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--story-id", default=None)
     parser.add_argument("--branch", default=None)
+    # --model / --effort: an empty or whitespace-only value means ABSENT, not
+    # "set to empty" — build_command normalizes both and omits the flag. Callers
+    # are shells interpolating a tier variable, and an unset variable arrives as
+    # `""`; without the normalization that forwarded an empty flag. Absent
+    # --model additionally makes build_command announce the inherited tier on
+    # stderr, so an unset variable is never mistaken for a deliberate choice.
     parser.add_argument("--model", default=None)
     parser.add_argument("--plugin-dir", default=None)
     parser.add_argument("--effort", default=None)
