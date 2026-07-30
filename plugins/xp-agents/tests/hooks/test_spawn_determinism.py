@@ -16,6 +16,18 @@ Defects on the spawn path, all silent:
    what it emits disarmed the plan-review gate. Non-mutating is now the
    default and the consume is opted into, because the accident happened
    exactly twice — both times on the unmarked path.
+4. `file_domain_lock` compared glob entries as literal strings, so a story
+   declaring `skills/*/SKILL.md` and one declaring `skills/xp-assign/SKILL.md`
+   read as disjoint domains — and two teammates were cleared to edit one file.
+
+The glob pins live here rather than beside `tests/engine/test_file_domain_lock.py`
+because this story owns exactly one new test file; the collision lock belongs to
+the same spawn-determinism contract anyway — it is what decides whether two
+teammates may run at once.
+
+Glob-vs-glob overlap (two DIFFERENT patterns that could match one file) stays
+undetected by design — debt 40626375ff25. Identical pattern strings still
+collide, which `test_identical_patterns_still_collide` holds.
 """
 
 import contextlib
@@ -36,9 +48,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 # (see test_no_test_can_spawn_a_real_agent.py). This module drives
 # spawn_teammate.main(), whose tail is the real spawn.
 import conftest  # noqa: F401
+import file_domain_lock
 import marker_names
 import spawn_command
-from conftest import _PLUGIN_ROOT, _IntegrationTestCase
+from conftest import (
+    _PLUGIN_ROOT,
+    _IntegrationTestCase,
+    make_sprint_dict,
+    make_story_dict,
+)
 
 _ASSIGN_SKILL = _PLUGIN_ROOT / "skills" / "xp-assign" / "SKILL.md"
 _ASSIGN_PRELOAD = _PLUGIN_ROOT / "skills" / "xp-assign" / "scripts" / "preload.sh"
@@ -266,6 +284,206 @@ class TestAssignPreloadConsumeWiring(unittest.TestCase):
         preload = _ASSIGN_PRELOAD.read_text(encoding="utf-8")
         self.assertNotIn(marker_names.ASSIGN_PENDING, preload)
         self.assertIn("consume_marker ASSIGN_PENDING", preload)
+
+
+class TestGlobAwareCollisionDetection(unittest.TestCase):
+    """A pattern claim collides with every explicit path it matches (AC5)."""
+
+    def test_pattern_collides_with_an_explicit_path_it_matches(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["skills/*/SKILL.md — every skill"]
+                ),
+                make_story_dict(
+                    id="story-002",
+                    file_domain=["skills/xp-assign/SKILL.md — the assign skill"],
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertIn("skills/xp-assign/SKILL.md", report)
+        claims = report["skills/xp-assign/SKILL.md"]
+        self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
+        self.assertEqual(claims[0].get("pattern"), "skills/*/SKILL.md")
+        # The explicit claimant is direct — no pattern to name.
+        self.assertIsNone(claims[1].get("pattern"))
+
+    def test_report_names_both_the_pattern_and_the_matched_path(self):
+        report = {
+            "skills/xp-assign/SKILL.md": [
+                {
+                    "story_id": "story-001",
+                    "origin": "authored",
+                    "pattern": "skills/*/SKILL.md",
+                },
+                {"story_id": "story-002", "origin": "authored"},
+            ]
+        }
+        message = file_domain_lock.format_collision_report(report)
+        self.assertIn("skills/xp-assign/SKILL.md", message)
+        self.assertIn("skills/*/SKILL.md", message)
+        self.assertIn("story-001", message)
+        self.assertIn("story-002", message)
+
+    def test_report_tells_a_pattern_claimant_what_to_do(self):
+        """ "fix the file_domain so each path has one owner" is unactionable when
+        one claimant never named the path: the remedy is to narrow the pattern
+        or drop the explicit entry."""
+        report = {
+            "a/b.py": [
+                {"story_id": "story-001", "origin": "authored", "pattern": "a/*.py"},
+                {"story_id": "story-002", "origin": "authored"},
+            ]
+        }
+        message = file_domain_lock.format_collision_report(report)
+        self.assertRegex(message, r"(?i)narrow the pattern")
+
+    def test_pattern_matching_no_file_on_disk_still_collides(self):
+        """The gate compares DECLARED entries, never the filesystem — a pattern
+        whose only match does not exist yet must not slip through (that is why
+        triage.extract_file_domain_paths is not the oracle here)."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["nonexistent/**/*.rs — future crate"]
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["nonexistent/deep/lib.rs — the file"]
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertIn("nonexistent/deep/lib.rs", report)
+
+    def test_recursive_pattern_matches_a_nested_explicit_path(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["src/**/*.ts — all TS"]),
+                make_story_dict(
+                    id="story-002", file_domain=["src/a/b/c.ts — one file"]
+                ),
+            ]
+        )
+        self.assertIn("src/a/b/c.ts", file_domain_lock.collision_report(data))
+
+    def test_star_does_not_cross_a_slash(self):
+        """`*` is one segment, so `skills/*.md` must NOT claim a nested file —
+        otherwise the gate over-reports and every glob domain blocks parallel
+        work."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["skills/*.md — top level"]
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["skills/xp-assign/SKILL.md — nested"]
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_non_matching_pattern_is_not_a_collision(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["scripts/*.py — scripts"]),
+                make_story_dict(id="story-002", file_domain=["smm/triage.py — triage"]),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_identical_patterns_still_collide(self):
+        """Regression guard on the pre-existing literal-string comparison: the
+        glob-vs-glob debt is "different patterns", never "the same pattern
+        twice"."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(id="story-001", file_domain=["src/*.py — glob"]),
+                make_story_dict(id="story-002", file_domain=["src/*.py — glob too"]),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            [c["story_id"] for c in report["src/*.py"]], ["story-001", "story-002"]
+        )
+
+    def test_dependency_edge_still_serializes_a_pattern_collision(self):
+        """Glob awareness widens WHICH claims meet; it must not touch the
+        concurrency rule that excuses two claims on one path."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001", file_domain=["skills/*/SKILL.md — all"]
+                ),
+                make_story_dict(
+                    id="story-002",
+                    file_domain=["skills/xp-assign/SKILL.md — one"],
+                    dependencies=["story-001"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+
+class TestStoryNeverCollidesWithItself(unittest.TestCase):
+    """The structural guarantee `dict[path, origin]` used to give for free.
+
+    One story may legitimately declare a pattern AND an explicit path the
+    pattern matches (a domain plus the one file it calls out). Pattern matching
+    makes that TWO claims on one path from one story, and `_concurrent(a, b)`
+    is True for a story against itself — a story is not its own ancestor. So the
+    collapse has to be deliberate.
+    """
+
+    def test_pattern_plus_matching_explicit_path_in_one_story(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=[
+                        "skills/*/SKILL.md — every skill",
+                        "skills/xp-assign/SKILL.md — this one in particular",
+                    ],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_self_claim_collapses_to_the_direct_entry(self):
+        """When another story DOES collide, the self-overlapping story appears
+        exactly once — and as the direct claimant, since it named the path."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=[
+                        "skills/*/SKILL.md — every skill",
+                        "skills/xp-assign/SKILL.md — this one",
+                    ],
+                ),
+                make_story_dict(
+                    id="story-002", file_domain=["skills/xp-assign/SKILL.md — mine"]
+                ),
+            ]
+        )
+        claims = file_domain_lock.collision_report(data)["skills/xp-assign/SKILL.md"]
+        self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
+        self.assertIsNone(claims[0].get("pattern"))
+
+    def test_two_patterns_in_one_story_matching_one_declared_path(self):
+        """Both patterns match story-002's path; story-001 must still contribute
+        ONE claim, not one per pattern."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    file_domain=["src/*.py — by star", "src/**/*.py — by recursion"],
+                ),
+                make_story_dict(id="story-002", file_domain=["src/a.py — the file"]),
+            ]
+        )
+        claims = file_domain_lock.collision_report(data)["src/a.py"]
+        self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
 
 
 if __name__ == "__main__":
