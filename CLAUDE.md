@@ -80,9 +80,9 @@ See PROCESS_GUIDE.md for event types, required fields, and common patterns.
 
 ## Testing
 
-All tests run on every commit via lefthook. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`, `CLAUDE_CODE_SESSION_ID`, and more) stripped via `env -u` in lefthook.yml and at import time in `tests/_env_hygiene.py` — that module is the single registry of the strip list and the pins, and lefthook must mirror it. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's pre-commit fails.
+All tests run on every commit via lefthook — but only once `make setup` has installed the hook; a clone that skips it commits ungated, silently. Leaky env vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `SMM_DIR`, `XP_TEAMMATE_NAME`, `CLAUDE_CODE_SESSION_ID`, and more) stripped via `env -u` in lefthook.yml and at import time in `tests/_env_hygiene.py` — that module is the single registry of the strip list and the pins, and lefthook must mirror it. The teammate var matters because the SessionStart hook reads it to choose the teammate guide; without stripping, integration tests assert against the wrong guide and every teammate's pre-commit fails.
 
-**Setup** (one-time): `pipx install pytest && pipx inject pytest pytest-xdist`. See README "Development setup" for details.
+**Setup** (one-time): `make setup` — verifies `pytest -n auto` works and installs the lefthook hook. See README "Development setup" for details and the manual equivalents.
 
 ```bash
 # Run everything in parallel (~13s on 16 cores):
