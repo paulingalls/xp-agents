@@ -48,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from _band_proof import assert_band_fired, below_band_budget, in_band_budget
 from conftest import _PLUGIN_ROOT, band_offender
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
@@ -286,6 +287,46 @@ class TestDescriptionBudgets(unittest.TestCase):
         self.assertFalse(
             tight, f"description budget(s) below the ~11% headroom floor: {tight}"
         )
+
+
+class TestDescriptionBandWiring(unittest.TestCase):
+    """The band must reach `_assert_under`, not merely live in `band_offender`.
+
+    Every entry above is calibrated ~11% above its surface, so reverting
+    `_assert_under` to a bare `actual > budget` breach check leaves all of them
+    green and nothing here separates the band from a breach — the same
+    unfalsifiable pin the sibling stdout families carried.
+
+    So drive one REAL description into the band with a fabricated budget: at
+    or above 98% of it and still under it, which is the only region the band
+    reports and a breach check cannot. `xp-scaffold-acceptance` is the surface
+    because it is the longest description shipped, keeping the fabricated
+    budget clear of the degenerate small numbers.
+    """
+
+    _SURFACE = "xp-scaffold-acceptance"
+
+    def setUp(self) -> None:
+        self.actual = len(_skills()[self._SURFACE])
+        # Non-vacuity: an extractor that silently stopped matching would
+        # measure 0, and `band_offender` reports nothing at 0.
+        self.assertGreater(
+            self.actual, 50, f"{self._SURFACE}: description did not parse"
+        )
+
+    def _drive(self, budget: int) -> None:
+        """Run the host's own assertion over a one-entry fabricated budget."""
+        host = TestDescriptionBudgets("test_no_skill_description_exceeds_budget")
+        host._assert_under(_skills(), {self._SURFACE: budget}, "skill")
+
+    def test_description_inside_the_band_is_reported(self) -> None:
+        with self.assertRaises(AssertionError) as caught:
+            self._drive(in_band_budget(self.actual))
+        assert_band_fired(self, caught.exception, self._SURFACE)
+
+    def test_description_below_the_band_passes(self) -> None:
+        """The twin that proves the leg above reports the band, not a breach."""
+        self._drive(below_band_budget(self.actual))
 
 
 class TestDescriptionRetainsTriggers(unittest.TestCase):
