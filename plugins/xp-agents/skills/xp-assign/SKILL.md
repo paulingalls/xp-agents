@@ -195,7 +195,9 @@ separate Bash call anyway. The teammate has no prior context. Include:
 
 - **Milestone Context** — design_details and constraints from execution_plan.json
 - **Story Context** — what THIS story uniquely does (don't restate milestone rationale)
-- **File Domain** — files this story exclusively owns
+- **File Domain** — files this story claims *while it runs*. The claim exists so
+  two stories running at the same time never edit one file; it is not permanent
+  ownership, and a story that has finished or has not started holds nothing
 - **What to Change** — detailed changes from `PLAN_FILE`
 - **Acceptance Criteria** — derived from the story record
 - **Interface Contracts** — shared boundaries with other stories
