@@ -6,8 +6,8 @@ creation), then continue with the close skill's mode-specific tail
 
 ### Step 4: Security Review
 
-Applies to **free, sprint, plan**. Story-close is dispatched inside
-an active sprint; the enclosing sprint-close covers it.
+Applies to **free, sprint, plan** — the enclosing sprint-close covers
+story-close.
 
 ```
 Skill(skill: "security-review",
@@ -38,13 +38,13 @@ and `<CLOSE_CYCLE_ID>` / `<SMM_DIR>` from the preload values above.
 result is invisible to them. Step 4 findings bypass Step 5c (the
 classifier scopes to close-reviewer findings only) and flow directly
 to the Step 6 count. Do NOT pass them to xp-close-reviewer in Step
-4.5 — clean separation. Quality and security are independent streams.
+4.5 — clean separation; quality and security are independent streams.
 
 ### Step 4b: Full code review (conditional)
 
 Run only when the preload emitted `RUN_FULL_CODE_REVIEW=true` (cumulative close
-diff ≥ `REVIEW_CYCLE_THRESHOLD` code files); skip otherwise — story-close and
-below-threshold closes never set it. The one broad multi-agent correctness pass.
+diff ≥ `REVIEW_CYCLE_THRESHOLD` code files) — the one broad multi-agent
+correctness pass.
 
 `/code-review` runs via the **Workflow tool** (async), not the `Skill` tool —
 and a Workflow completion does not arm the review-cycle marker. So:
@@ -104,7 +104,7 @@ in the fix commit body:**
 > When the fix lands in a teammate worktree, run from the orchestrator
 > with `git -C <worktree-path> commit ...` — never `cd <wt> && git
 > commit && cd -`. The cd-back fires before the trailer-extract hook,
-> so the hook reads the wrong HEAD and the auto-link silently breaks.
+> so the hook reads the wrong HEAD and the auto-link breaks.
 > Substitute the path literally; an unresolvable `-C` is refused.
 
 - `lint` → run the project's formatter and linter in fix mode, re-test
@@ -141,12 +141,10 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --working-on '[]'
 ```
 
-`metadata.action="concern_classify"` is the canonical signal; `route`
-is the fix/ask discriminator. `close_cycle_id` (from the preload)
-scopes the count — SMM is shared across worktrees and concurrent
-close-cycles would otherwise leak in.
+`close_cycle_id` (from the preload) scopes the count — SMM is shared
+across worktrees and concurrent close-cycles would otherwise leak in.
 
-After acting, continue to the next finding, then Step 6.
+Loop to the next finding, then Step 6.
 
 ### Step 6: Confirm the merge
 
@@ -184,8 +182,8 @@ before confirming the merge.
 
 ### Step 6b: Release the cycle id
 
-On **every** exit — merge, auto-merge, abort — right after Step 6.
-A mode whose gate skips the Step 6 prompt still runs this:
+On **every** exit — merge, auto-merge, abort — right after Step 6,
+including when the mode's gate skipped the Step 6 prompt:
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/markers.py \

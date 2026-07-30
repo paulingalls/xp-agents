@@ -32,7 +32,13 @@ class TestKickoffModelQuestion(unittest.TestCase):
         cls.section = _slice(
             body,
             '"Default model for teammates?"',
-            ("Write the matching token",),
+            # "matching" until story-004: no such string exists in the skill
+            # (it says "chosen"), so the slice silently ran to EOF and the
+            # option cap below was enforced over the whole rest of the file.
+            # It passed only because Steps 3-7 happen to contain no "- **"
+            # bullets — the next one added would have failed for the wrong
+            # reason. Same defect class as the scan-less-than-claimed pins.
+            ("Write the chosen token",),
         )
 
     def _option_bullets(self):

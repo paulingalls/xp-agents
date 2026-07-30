@@ -13,20 +13,16 @@ allowed-tools:
 
 # Scaffold Acceptance
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run its non-standard order 1 → 3 → 2 → 4 →
-> 5 → 6 → 7 → 8 → 9 → 10 (Steps 2 and 4–9 loop once per confirmed surface)
-> strictly, one step per turn — make the call, observe, then decide the next.
-> Never put an `AskUserQuestion` and the action consuming its answer in one block
-> (the Step 3/5 surface/preview confirmation vs the Step 6 write); never spawn the
-> same subagent twice. Independent read-only calls may still batch.
+> **Sequential discipline.** Run the non-standard order
+> 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9 → 10 one step per turn — never batch an
+> `AskUserQuestion` with the action consuming its answer (the Step 3/5
+> surface/preview confirmations vs the Step 6 write).
 
 Entry point for `/xp-scaffold-acceptance`. **Inline — do not fork a subagent.**
 
-**Runtime order is 1 → 3 → 2 → 4 → 5 → 6 → 7 → 8 → 9 → 10.** Step 1 detects
-once; Step 3 confirms the surface set; Steps 2 and 4–9 then run **once per
-confirmed surface** (Step 3 picks the tool before Step 2 web-refreshes it);
-Step 10 summarizes after the loop.
+Step 1 detects once; Step 3 confirms the surface set; Steps 2 and 4–9 then run
+**once per confirmed surface** (Step 3 picks the tool before Step 2
+web-refreshes it); Step 10 summarizes after the loop.
 
 `$REPO_ROOT` is the customer's repository root, resolved once:
 
@@ -36,8 +32,7 @@ REPO_ROOT="${REPO_ROOT:-$(pwd)}"
 
 ## Step 1: Detect
 
-Resolve `SMM_DIR` and your `agent_id` from the session. Then run two
-checks.
+Resolve `SMM_DIR` and your `agent_id` from the session.
 
 ### 1a. Refuse if teammates are live
 
@@ -145,7 +140,7 @@ Exit cleanly in both cases. **No writes.**
 ## Step 2: Refresh knowledge
 
 **Runs once per confirmed surface, inside Step 3c's loop — not a single
-pre-loop pass.** Each surface refreshes its own tool knowledge.
+pre-loop pass.**
 
 After Step 3 collects surface + tool, consult the curated map BEFORE
 WebSearch — some tool names collide with unrelated packages (`brew
@@ -190,9 +185,6 @@ verbatim and exit. `'GUIDANCE_EOF'` quoting disables shell expansion;
 
 ## Step 3: Confirm the surface set
 
-List uncovered surfaces, confirm the set against default tools, then loop the
-per-surface pipeline.
-
 ### 3a. List uncovered surfaces
 
 ```bash
@@ -229,16 +221,14 @@ call `scaffold_detect.canonical_tools_for(<surface>)` and offer
 ### 3c. Per-surface loop
 
 **For each confirmed surface, run Steps 2 and 4–9** as one iteration, binding
-`$SURFACE` / `$TOOL` to that surface. Iterations are independent: a
-cancellation (Step 5 `no`) or auto-revert (Steps 6–7 failure) records that
-surface **skipped** and continues — it does not abort the rest. After the last
-surface, go to Step 10.
+`$SURFACE` / `$TOOL` to that surface. After the last surface, go to Step 10.
 
-**Loop scoping of "exit":** inside this loop, every "then exit" in Steps 5–9
-means **end this iteration** (record the surface skipped), NOT exit the skill.
-Surface the step's `reason` verbatim, mark the surface skipped, and move to the
-next confirmed surface. Only an empty confirmed set (handled in Step 3a/3b)
-ends the skill before Step 10.
+**Loop scoping of "exit":** every "then exit" in Steps 5–9 means **end this
+iteration**, NOT exit the skill — surface the step's `reason` verbatim, record
+that surface **skipped**, and move to the next confirmed surface. Iterations
+are independent: a cancellation (Step 5 `no`) or auto-revert (Steps 6–7
+failure) never aborts the rest. Only an empty confirmed set (handled in Step
+3a/3b) ends the skill before Step 10.
 
 #### NO_CONFIG_FILE_SIGNAL caveat (sdk, message_event)
 
@@ -260,12 +250,11 @@ update. Set `verify_cmd` to the runner's invocation against the test
 file. Set `branch_name` to the shared `<user>/scaffold` — this is the
 exact branch Step 8 commits to (`branching.create_scaffold_branch`),
 and `render-preview` shows it as `Commit branch:`, so any other value
-misrepresents where the work lands. The name is surface-independent: in
-a multi-surface loop every surface lands on this one shared branch.
+misrepresents where the work lands.
 
-**Draft each file body and embed it in the plan dict.** Each entry
-carries a `body` field with full desired contents — Step 5's
-`show files` and Step 6's `apply-write` both read `$PLAN_JSON.*.body`.
+**Draft each file body and embed it in the plan dict** — each entry's
+`body` field carries the full desired contents; Step 5's `show files`
+and Step 6's `apply-write` both read `$PLAN_JSON.*.body`.
 If you cannot author a body confidently, omit the file and loop back
 to Step 2 for more research (or call `decline_if_unreliable` and exit).
 
@@ -365,21 +354,18 @@ dir and unrestored paths) verbatim, then exit.
 ## Step 7: Install and verify
 
 **After apply-write `ok=true` you MUST always follow with `apply-install`
-AND either `apply-verify` (complete) or `apply-revert` (cancel) — never
-abandon a snapshot mid-pipeline.** Cleanup only happens at verify or
-revert success; the snapshot leaks otherwise.
+AND either `apply-verify` (complete) or `apply-revert` (cancel).**
+Cleanup only happens at verify or revert success; the snapshot leaks
+otherwise.
 
 ```bash
 INSTALL_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-install --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
-# Parse: if .ok is false, surface .reason verbatim and exit.
 
 # Identity-verify (name-collision guard): no-op when verify_identity_cmd is empty;
 # else asserts tool's --version output matches expected_version_pattern.
-# Mismatch triggers the same auto-revert as install/verify failure.
 IDENTITY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-verify-identity --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
-# Parse: if .ok is false (phase=verify-identity), surface .reason verbatim and exit.
 
 VERIFY_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
     apply-verify --snapshot-id "$SNAPSHOT_ID" --repo-root "$REPO_ROOT")
@@ -424,15 +410,14 @@ COMMIT_JSON=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/scaffold_cli.py \
 ```
 
 Stage-aware: Stage 0 commits on current HEAD; Stage 1+ creates or
-resumes the shared `<user>/scaffold` branch off the current branch and
-commits there. The name is surface-independent, so a multi-surface loop
-creates it on the first surface and resumes it on the rest — every
-surface lands on one shared branch rather than chaining a per-surface
-branch off the previous surface. The scaffold branch always forks off
-the current branch (main / free / sprint / plan / generic feature) so
+resumes the shared `<user>/scaffold` branch off the current branch
+(main / free / sprint / plan / generic feature) and commits there, so
 any user work already on that branch stays reachable — branching off a
 protected base is fine because the scaffold child is what keeps the
-commit off the protected branch. The one refusal is a story branch: a
+commit off the protected branch. The name is surface-independent, so a
+multi-surface loop creates the branch on the first surface and resumes
+it on the rest rather than chaining a per-surface branch off the
+previous one. The one refusal is a story branch: a
 scaffold there would land inside the story's `file_domain`, so
 `apply-commit` returns `ok=false` with guidance to checkout the sprint
 branch first.
@@ -464,14 +449,12 @@ Snapshot is auto-cleaned on success.
 The HEAD-advancement gate checks that (1) the commit exists and (2) HEAD
 matches `--commit-sha`. Subject convention is **not** gated, so manual
 recovery flows where the user committed the scaffold themselves with a
-non-canonical subject (conventional-commits, plain prose, custom prefix)
-still work — the SHA-match alone binds record to the exact commit.
+non-canonical subject still work.
 
 ## Step 10: Summarize
 
 After the loop, render **one line per surface** from the Step 3b set — the sole
-end-of-run output (do not re-summarize inline). Each surface lands in one
-outcome:
+end-of-run output (do not re-summarize inline):
 
 - **created** — fresh scaffold committed (`ApplyResult.resumed=false`); show the Step 8 sha.
 - **resumed** — `ApplyResult.resumed=true`; scaffold files already existed, re-applied idempotently.

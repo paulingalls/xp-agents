@@ -273,10 +273,9 @@ emit_hook_guidance() {
     if [ "$1" = "absent" ]; then
         echo ""
         echo "### HOOK_GUIDANCE"
-        echo "PRE_COMMIT_HOOK=absent — the merge in Step 7 won't fire"
-        echo "any project tests. Before confirming the merge, run the"
-        echo "project's test command (look in CLAUDE.md) so the merged"
-        echo "state is verified."
+        echo "PRE_COMMIT_HOOK=absent — the Step 7 merge fires no project"
+        echo "tests. Run the project's test command (look in CLAUDE.md)"
+        echo "before confirming the merge."
     fi
 }
 
@@ -359,7 +358,7 @@ sprint_list_stories() {
 # this reader was written to end.
 sprint_list_carryover() {
     python3 "${PLUGIN_ROOT}/smm/sprint_cli.py" --smm-dir "$SMM_DIR" list-carryover 2>/dev/null \
-        || echo "WARNING: the carry-over reader failed; deferred stories from the previous sprint may be missing from this list."
+        || echo "WARNING: the carry-over reader failed; deferred stories from the previous sprint may be missing."
 }
 
 # Next sprint ID (increments current, falls back to sprint-001).

@@ -15,19 +15,17 @@ allowed-tools:
 
 # Accept Verification
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 1.0 → 1b → 1.5 → 2 → 3 → 4 →
-> 5 → 6 → 7 → 8 strictly, one step per turn — make the call, observe, then decide
-> the next. Never put an `AskUserQuestion` and the action consuming its answer in
-> one block (the Step 1 accept/defer question vs the `/xp-story-close` call in
-> Step 2); never spawn the same subagent twice. Independent read-only calls may
-> still batch.
+> **Sequential discipline.** Run Step 1 → 1.0 → 1b → 1.5 → 2 → 3 → 4 → 5 → 6 →
+> 7 → 8 one per turn: make the call, observe, then decide the next. Never put an
+> `AskUserQuestion` and the action consuming its answer in one block (the Step 1
+> accept/defer question vs Step 2's `/xp-story-close` call), and never spawn the
+> same subagent twice; independent read-only calls may batch.
 
 The preload shows: count of stories under acceptance,
 `SELECTED_STATUS=reviewing|in-progress`, `SPRINT_FILE=<path>`, or
 ERROR/NO_STORIES_TO_ACCEPT. Reviewing-first dispatch picks `reviewing`
 stories when present (teammate self-promote path), else `in-progress`
-(solo path) — iterate whichever set was selected.
+(solo path).
 
 **If ERROR or NO_STORIES_TO_ACCEPT**, explain and stop.
 
@@ -44,20 +42,19 @@ main checkout that needs recovery before any checkout (Step 1's
 precondition below handles it).
 
 **Pipeline precedence, before draining this loop.** A task-notification
-lands here, at the top of the accept loop — not at some later handoff.
-Before working the selected set below, check whether any story is
-planned, reviewed and un-spawned: if so, hand off to `/xp-assign` to
-spawn it first, then return here to accept. If there is nothing left to
-spawn, accept immediately — the rule is precedence, not a reason to
-delay acceptance. Draining every `reviewing` story before checking for
-spawnable work leaves the background empty for the whole close cycle.
+lands here, at the top of the accept loop. Before working the selected
+set below, check whether any story is planned, reviewed and un-spawned:
+if so, hand off to `/xp-assign` to spawn it first, then return here to
+accept. If there is nothing left to spawn, accept immediately — the rule
+is precedence, not a reason to delay acceptance. Draining every
+`reviewing` story before checking for spawnable work leaves the
+background empty for the whole close cycle.
 
 ## Step 1: Review Each Story Under Acceptance
 
-Read the sprint file at `SPRINT_FILE`. For each story in the selected set
-(reviewing or in-progress per `SELECTED_STATUS`), check its
-`acceptance_execution` field (the preload's `### Acceptance Types`
-section shows each story's routing for quick reference).
+Read the sprint file at `SPRINT_FILE`. For each story in the selected set,
+check its `acceptance_execution` field (the preload's `### Acceptance Types`
+section shows each story's routing).
 
 ### Precondition: heal the main checkout
 
@@ -102,8 +99,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
 Route on **command presence**, not `type`: when `acceptance_execution` carries
 a `command`/`commands` — **including a `type: "manual"` block** — run the
 prepare → run → restore → disposition flow below via
-`verify_acceptance.py --story <id>` (the single runner; per story-021 it runs a
-manual block's command and N/As a command-less one).
+`verify_acceptance.py --story <id>` (the single runner).
 
 **Present.** Show the story title and acceptance criteria.
 
@@ -169,8 +165,7 @@ Do **not** retry automatically. Flaky acceptance is information.
 ### Manual walkthrough (no runnable command)
 
 Reserved for a block with **no runnable command**: no `acceptance_execution`,
-or a `type: "manual"` block carrying only `steps`/prose (one with a command
-took the automated path).
+or a `type: "manual"` block carrying only `steps`/prose.
 
 1. Present the story title and all acceptance criteria.
 2. For each **E2E criterion** (prefixed "E2E:") — run the test via Bash; report results.
@@ -210,7 +205,7 @@ Step 5 records a status event per deferral with the cascade reason.
 
 ## Step 1b: Concern Triage
 
-If the preload shows `### Concerns for story-NNN`, review each listed concern against the story's work. For each concern, judge whether the story's commits address it:
+If the preload shows `### Concerns for story-NNN`, judge for each whether the story's commits address it:
 
 - **If clearly addressed** — resolve it:
   ```bash
@@ -221,7 +216,7 @@ If the preload shows `### Concerns for story-NNN`, review each listed concern ag
   ```
 - **If unsure** — leave it open for manual triage at next work-selection.
 
-File overlap alone does not mean a concern is resolved. Use your judgment based on the concern's content and what the commits actually changed.
+File overlap alone does not mean a concern is resolved — judge on the concern's content against what the commits actually changed.
 
 ## Step 1.5: Transition reviewing → closing (CAS-guarded)
 
@@ -242,17 +237,13 @@ stderr — rc=2 means corrupt sprint.json, not a benign race).
 
 ## Step 2: Invoke /xp-story-close (close-then-done)
 
-**Close FIRST, then mark done.** The story sits in `closing`
-throughout the close cycle (Step 1.5 → Step 4); mark-done (Step 4) is
-the FINAL step, after /xp-story-close success and Step 3 decisions.
+**Close FIRST, then mark done.** The story sits in `closing` from
+Step 1.5 through Step 4; mark-done (Step 4) is the FINAL step, after
+/xp-story-close success and Step 3 decisions.
 
 /xp-story-close auto-discovers teammate worktree state — no context-
-passing from /xp-accept needed — and owns:
-
-- Fork `xp-close-reviewer` (story mode: AC, file_domain, scope creep,
-  regression risk)
-- Auto-resolve MAYBE ADDRESSED concerns
-- Confirm and run `close_common.py merge`
+passing from /xp-accept needed — and owns the story-mode close-reviewer
+fork, MAYBE ADDRESSED concern resolution, and the confirmed merge.
 
 Close stops at the merge — it does NOT promote or branch the next
 story. The next-frontier promotion is owned by Step 8's post-loop

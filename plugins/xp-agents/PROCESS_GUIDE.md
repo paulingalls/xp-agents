@@ -10,11 +10,11 @@
 
 ## Sequential Discipline
 
-The harness batches independent tool calls in parallel; XP flows are step-gated and sequential. Run one step per turn — make the call, observe, then decide the next. Batching a gated step with the next races unsettled state, and one failure cancels the whole batch.
+The harness batches independent tool calls in parallel; XP flows are step-gated. Run one step per turn: call, observe, decide next. Batching a gated step with the next races unsettled state, and one failure cancels the whole batch.
 
 - Never place an `AskUserQuestion` and the action that consumes its answer in the same block — the action runs against a guessed answer.
 - Never spawn the same subagent more than once; duplicates collide on shared preload/marker state.
-- Exemption: genuinely independent read-only calls (Glob, Grep, Read of unrelated files) may still batch — the rule targets dependent/gated calls only.
+- Exemption: genuinely independent read-only calls (Glob, Grep, Read of unrelated files) may still batch.
 
 ## Pillars
 

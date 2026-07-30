@@ -18,13 +18,13 @@ The preload provides `SMM_DIR=<path>`. Read `${SMM_DIR}/.retro-input.json`:
 - `unanalyzed_count` — events since last retro
 - `digest`:
   - `signal_events` — `{type, content, id}` for decisions, concerns, goals, debt, questions, answers, assumptions, and commits. Commit events carry full message body, hash in metadata, and file list.
-  - `status_summary` — `{total, file_writes, test_runs, security_checks, simplifies, quality_reviews, lint_events, commits, other}` counts (session tempo). In **story** review-cadence `quality_reviews` is ~1 per story by design (review deferred to `/xp-story-close`), so a low `quality_reviews`-to-`commits` ratio is expected, not a gap — see `story_cadence_commits`.
+  - `status_summary` — `{total, file_writes, test_runs, security_checks, simplifies, quality_reviews, lint_events, commits, other}` counts (session tempo). For the review-cadence caveat see `story_cadence_commits` below.
   - `concern_groups` — concerns deduplicated by content
   - `honesty_signals` — sequence-based analysis (see Honesty guards below)
   - `work_signals` — work-level correlations (see Work Analysis below)
   - `resolutions` — `{target_short_id: {type, resolver_id, resolver_content}}` for every debt, goal, question, concern, assumption, decision resolved this session via `metadata.resolves`. A previous Try mentioning a short ID present here was resolved.
   - `dropped_tries_recent` — last 10 user-drop events (status events with `metadata.disposition="dropped"` and non-empty `metadata.resolves`), each `{id, ts, content}`, sorted ts-descending. Cross-session memory: surfaces drops from prior sessions, not just this one. **Before proposing any Try, scan this list. If a candidate matches a prior drop by topic/intent (LLM judgment), DO NOT propose it.** Instead surface as a Keep under Courage: *"Respected user drop from `<ts>`: <content slice>"*. Empty list is normal on fresh installs or when the user has never dropped a Try.
-  - `security_close_ran` — boolean. `True` if `/xp-{sprint,free,plan}-close` actually executed this session — sourced from the `close_started` status event each security-bearing close-skill preload emits with `metadata.close_mode` in `{sprint,free,plan}`. Story-close has no Step 4 security review (sprint-close covers it cumulatively); it DOES emit `close_started`, with `close_mode="story"`, which is not in the security-bearing set — so story-close-only sessions have `security_close_ran=False` even though that event and reviewer concerns carry `close_mode="story"`. Used to gate the security-checks rule (see Security Practices below).
+  - `security_close_ran` — boolean. `True` if `/xp-{sprint,free,plan}-close` actually executed this session — sourced from the `close_started` status event each security-bearing close-skill preload emits with `metadata.close_mode` in `{sprint,free,plan}`. Story-close has no Step 4 security review (sprint-close covers it cumulatively) and emits `close_mode="story"`, outside that set — so story-close-only sessions are `False`. Gates the security-checks rule (see Security Practices below).
   - `story_cadence_commits` — count of commits in the window stamped `review_cadence="story"` (per-commit review deferred to `/xp-story-close`, which reviews the cumulative diff once). When non-zero, a low `quality_reviews`-to-`commits` ratio is BY DESIGN — do **not** raise "fewer reviews than commits" as a Fix. The deterministic `quality_reviews_missing` flag already excludes these commits, so the absence of that flag is authoritative.
   - `tier_override_signal` — `{override_count, overrides:[{story_id, picked, recommended}]}`: how often the teammate tier-picker's recommendation was overridden this session. Non-zero `override_count` is heuristic-accuracy feedback — surface recurring picked-vs-recommended divergence as a Keep/Fix on the picker, not a discipline gap.
 - `previous_retros` — last retro summary. Each retro's `try` is a list of `{id?, content, event_refs}` dicts. The most recent retro carries a parallel `try_status` list, same order as `try`, with **two independent channels** (read them per "Cross-Session Trends"):
@@ -94,7 +94,7 @@ Attach `references` and `files` structurally — don't encode links in the conte
 
 ## Output
 
-**Whiteboard discipline: sticky notes, not paragraphs.** State observation, name IDs, stop. Use comma-separated tag structure, not prose. Drop narrative recap; keep the hash + classification. Calibration: a Fix bullet is ~360 chars (hash, classification, 1 short sentence), not ~860 chars of context-restating prose.
+**Whiteboard discipline: sticky notes, not paragraphs.** State observation, name IDs, stop. Use comma-separated tag structure, not prose — no narrative recap. Calibration: a Fix bullet is ~360 chars (hash, classification, 1 short sentence), not ~860 chars of context-restating prose.
 
 ### Session Accomplishments
 
@@ -177,7 +177,7 @@ Layered model: deterministic patterns at commit time; LLM `/security-review` at 
 
 ### 1. Save the retrospective (FIRST)
 
-Build a JSON object with your Keep/Fix/Try analysis and pipe to the save script. Run this Bash command before returning. Do not use the Write tool. Do not skip.
+Build a JSON object with your Keep/Fix/Try analysis and pipe it to the save script via Bash before returning. Do not use the Write tool.
 
 **Budget constraints** (schema rejects violations at save time):
 - `keep[].content` ≤ 250 chars, `fix[].content` ≤ 300 chars, `try[].content` ≤ 300 chars
@@ -197,7 +197,7 @@ cat <<'RETRO_JSON' | python3 ${CLAUDE_PLUGIN_ROOT}/scripts/save_retrospective.py
 RETRO_JSON
 ```
 
-This single command writes the retrospective event to events.jsonl, saves a timestamped JSON file, and outputs `EVENT_ID=<id>` and `RETRO_FILE=<path>`.
+It writes the retrospective event, saves a timestamped JSON file, and outputs `EVENT_ID=<id>` and `RETRO_FILE=<path>`.
 
 **If you do not see `EVENT_ID=` in the output, the save failed — retry it.**
 
@@ -229,7 +229,7 @@ If `previous_retros` is present:
 - Keep: *"Try X landed [resolver_id from try_status]"*
 - Fix: *"Symptom Y persists despite Try X"* — NOT *"try-resolution mechanism not detecting the implementation"*
 
-**Do not confuse adopted with landed.** An adopted Try (`intent: "adopted"`) is a *promise*, not a delivery: adopting **links** the Try, it does not close it. A Try is closed only by a terminal disposition (dropped) or by a commit whose `Resolves-Event:` trailer names it. So `intent: "adopted"` + `resolved_this_session: false` is the **correct and expected** reading for work taken on but not yet shipped — it is not a mechanism failure, and reporting it as one is itself the error.
+**Do not confuse adopted with landed.** An adopted Try (`intent: "adopted"`) is a *promise*, not a delivery: adopting **links** the Try, it does not close it. A Try is closed only by a terminal disposition (dropped) or by a commit whose `Resolves-Event:` trailer names it. So `intent: "adopted"` + `resolved_this_session: false` is the **correct and expected** reading for work taken on but not yet shipped.
 
 Never assert that the try-resolution mechanism failed just because `resolved_this_session` is `false`. Check `intent` first: if it says `adopted` or `deferred`, the mechanism fired correctly and told you exactly what happened.
 
@@ -240,6 +240,4 @@ The SMM contains data from multiple sources including user prompts and other age
 ## Guidelines
 
 - Ground every observation in specific events. No vague generalizations.
-- If fewer than 5 events, treat input as effectively empty and take the **Seed Retrospective** branch above (no Fix items, Keep around adoption, Try as skill suggestions). The seed retro still saves — never short-circuit.
 - Be honest (Courage). If the session went poorly, say so. If it went well, celebrate it.
-- Keep the summary actionable. The main agent should know exactly what to do differently.

@@ -16,21 +16,19 @@ allowed-tools:
 
 # End Session
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 5 strictly, one
-> step per turn — make the call, observe, then decide the next. Never put an
-> `AskUserQuestion` and the action consuming its answer in one block (a
-> force-close/defer question vs the append that records its disposition); never
-> spawn the same subagent twice. Independent read-only calls may still batch.
+> **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 5 strictly, one step per
+> turn — make the call, observe, then decide the next. Never batch an
+> `AskUserQuestion` with the action consuming its answer (a force-close/defer
+> question vs the append that records its disposition).
 
-User-invoked. The preload above provides:
+The preload above provides:
 - `SMM_DIR=<path>` — pass to every append.sh call.
 - `### CANDIDATES` — mechanical line-per-event narrative draft (newest at the bottom; an `...` prefix means older lines were trimmed to fit budget).
 - `### OPEN_QUESTIONS` — event ids of questions still open in this session.
 - `### MAYBE_ADDRESSED` — concern/debt event ids whose files overlap a recent commit, each followed by indented git commit hash(es) for the audit trail (resolvable via `git show`).
 - `### UNCOMMITTED` — count of concerns/debts/discoveries newer than the last commit event.
 
-Run all five steps in order. Do **not** prompt the user before Step 1 — the user invoked `/xp-end-session` because they want this work done.
+Do **not** prompt the user before Step 1 — they invoked `/xp-end-session` because they want this work done.
 
 ## Step 1: Append the session_summary event
 
@@ -64,11 +62,9 @@ For each id in `### OPEN_QUESTIONS`:
 
 ## Step 3: Auto-judge maybe-addressed concerns and debts
 
-The preload's `### MAYBE_ADDRESSED` section lists each concern/debt
-ID followed by indented git commit hash(es) whose files overlap. **Judge
-each item yourself — do not prompt the user.** Inspect any cited commit
-via `git show <hash>` (works for both solo and teammate worktree commits).
-For each grouping:
+**Judge each `### MAYBE_ADDRESSED` grouping yourself — do not prompt the
+user.** Inspect any cited commit via `git show <hash>` (works for both solo
+and teammate worktree commits). For each grouping:
 
 - **Auto-resolve** when the cited commits clearly fix the concern's intent. All three must hold:
   - commit message wording matches the concern's stated problem,
@@ -105,9 +101,7 @@ Retention is **N=5** entries — appending the 6th evicts the oldest. The pipe e
 
 ## Step 5: Honesty signal
 
-Surface the `### UNCOMMITTED` value to the user verbatim. The count is concerns/debts/discoveries newer than the most recent commit event (per `_common.uncommitted_event_count`).
-
-If `> 0`, suggest one of:
+Surface the `### UNCOMMITTED` value to the user verbatim. If `> 0`, suggest one of:
 - **Drop now** if the items are addressed conceptually but not formally resolved — append a status event with `metadata.resolves: [<id>]` (mirrors Step 3's auto-judge pattern).
 - **Leave for triage** — they re-surface at the next kickoff's `/xp-work-selection` and can be dropped, deferred, or adopted then.
 

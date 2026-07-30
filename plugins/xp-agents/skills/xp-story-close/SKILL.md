@@ -22,12 +22,10 @@ allowed-tools:
 
 # Story Close
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 1b → 1c → 2 → 3 → 4.5 → 5–6 →
-> 7 → 7b strictly, one step per turn — make the call, observe, then decide
-> the next. Don't batch a step with the one that depends on it (e.g. merging
-> before the diff review completes); never spawn the same subagent twice.
-> Independent read-only calls may still batch.
+> **Sequential discipline.** Run Step 1 → 1b → 1c → 2 → 3 → 4.5 → 5–6 → 7 → 7b
+> one per turn: make the call, observe, then decide the next. Never batch a step
+> with one that depends on it, and never spawn the same subagent twice;
+> independent read-only calls may batch.
 
 The preload above surfaces `SMM_DIR`, `TEAMMATE_CWD`, `CURRENT_BRANCH`,
 `TARGET_BRANCH`, `STORY_BASE_UNRESOLVED`, `GH_AVAILABLE`, `WORKTREE_CLEAN`.
@@ -39,9 +37,9 @@ primary otherwise. Shared pipeline lives in
 
 If `STORY_BASE_UNRESOLVED=true`, **STOP. Run no further step.**
 
-`TARGET_BRANCH` is the branch this close merges the story INTO, and the only
-value it could have been guessed as is the release branch. There is no safe
-degraded close. Report the reason the preload printed: re-cut the sprint branch
+The only value `TARGET_BRANCH` could have been guessed as is the release
+branch, so there is no safe degraded close. Report the reason the preload
+printed: re-cut the sprint branch
 (`branching.py create-sprint`) or fix `sprint.json`'s `branch_name`, then
 re-run `/xp-story-close`.
 
@@ -72,10 +70,9 @@ Stop on non-zero exit; the script emitted the reason on stderr.
 
 Surface file_domain drift to stderr before the reviewer fork. Default
 `XP_FILE_DOMAIN_DRIFT_TOLERANCE=1` absorbs a single drifting file
-(set `0` for strict). Do NOT emit a concern event — per convention,
-drift is a planning signal that retro surfaces from `cascade_size`;
-emitting per-close concerns pollutes the open-event surface. Continue
-regardless of drift state.
+(set `0` for strict). Do NOT emit a concern event — drift is a planning
+signal that retro surfaces from `cascade_size`, and per-close concerns
+pollute the open-event surface. Continue regardless of drift state.
 
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir <SMM_DIR> \
@@ -95,8 +92,8 @@ needs a commit that touches each declared acceptance-test path, or a
 recorded as debt). The customer can re-run `/xp-accept` after adding
 the touching (or deferring) commit.
 
-If `VERIFY_DEFERRED` is `true`, the deferral is on record — proceed.
-If `VERIFY_UNTOUCHED` is empty, the gate passes — proceed.
+Proceed when `VERIFY_DEFERRED` is `true` (deferral on record) or
+`VERIFY_UNTOUCHED` is empty (gate passes).
 
 ## Step 2: Push the story branch
 
@@ -111,9 +108,8 @@ fresh worktree has no installed deps (`node_modules`/`.env`/e2e) →
 `ERR_MODULE_NOT_FOUND`. For a teammate branch (held by the worktree) `push`
 relocates: it detaches the main checkout onto the story tip, pushes (so the
 hook runs with the main checkout's installed deps against the story's code),
-then restores the main checkout to its base — reusing `accept-env`'s
-Mechanism A. Solo branches (already checked out here) push directly. `--smm-dir`
-lets the relocate resolve the base ref.
+then restores the main checkout to its base. Solo branches (already checked
+out here) push directly. `--smm-dir` lets the relocate resolve the base ref.
 
 Stdout is `pushed: <branch>` or `skipped: no remote configured`.
 
@@ -163,18 +159,18 @@ staged diff:
 
 - `/xp-quality-review` — its preload emits `MODE=self-find`, so the independent
   `xp-code-reviewer` self-finds correctness plus quality/drift/debt; fix findings
-  inline (or record as debt with a reason), as in the per-commit flow. Supply
-  `<CLOSE_CYCLE_ID>` when spawning it, tagging any blocking finding as a high concern.
+  inline (or record as debt with a reason). Supply `<CLOSE_CYCLE_ID>` when
+  spawning it, tagging any blocking finding as a high concern for condition 2
+  below to consume.
 
 Do not fork `xp-close-reviewer` here — the quality review subsumes it; the
-broad multi-agent code review runs at sprint close. A blocking finding is
-tagged as a high concern for condition 2 below to consume.
+broad multi-agent code review runs at sprint close.
 
 ## Steps 5–6b: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by
-the preload — see `scripts/_close_pipeline_shared.md`. Apply in order
-after Step 4.5, then continue with Step 7.
+The shared reference (Steps 5, 5b, 6, 6b) is emitted by the preload —
+see `scripts/_close_pipeline_shared.md`. Apply in order after Step 4.5,
+then continue with Step 7.
 
 **Story-close override for Step 6 (auto-merge gate):** skip the shared
 Step 6 `AskUserQuestion` (Step 6b still runs) when ALL hold:
@@ -236,9 +232,8 @@ that is dirty, so the lead either commits the reviewer's fix
 (`git -C <abs-path> add -A && git -C <abs-path> commit -m ...` — `add -A` also
 stages NEW files a `commit -am` would miss) or clears unrelated scratch
 (`git -C <abs-path> stash -u`) first. Use the literal path — the gate refuses
-a `-C` it cannot resolve. Empty for solo closes (the working
-tree persists, nothing to lose), and a missing/invalid `TEAMMATE_CWD` — the
-check is skipped.
+a `-C` it cannot resolve. Empty for solo closes (the working tree persists);
+a missing or invalid `TEAMMATE_CWD` skips the check.
 
 Always at orchestrator cwd (see intro). Any failing step aborts the
 chain — source intact for retry. Conflicts are never auto-resolved.
@@ -246,8 +241,7 @@ chain — source intact for retry. Conflicts are never auto-resolved.
 ## Step 7b: Teammate worktree cleanup (if applicable)
 
 If the just-closed story was a teammate's, a `worktree-<story-id>`
-worktree exists (out of the repo). Solo stories have no worktree
-to clean up.
+worktree exists (out of the repo); solo stories have none.
 
 ```bash
 STORY_ID=$(python3 ${CLAUDE_PLUGIN_ROOT}/scripts/branching.py \
@@ -264,7 +258,7 @@ fi
 
 ## Reporting Back
 
-**Surface the merge's trailer advisory.** The merge step's `close_common.py merge` prints a `Resolves-Event:` trailer advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so if the merge printed that advisory, relay it verbatim — the named commits are still in reach to add trailers.
+**Surface the merge's trailer advisory.** `close_common.py merge` prints a `Resolves-Event:` advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so relay any such advisory verbatim — the named commits are still in reach to add trailers.
 
 Tell the user: story branch merged into sprint, PR (if created)
 merged, local branch deleted. Close stops here — it does NOT promote

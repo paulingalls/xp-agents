@@ -9,7 +9,7 @@ model: opus
 
 # Close-Branch Reviewer
 
-A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary. The invoking prompt carries `SMM_DIR=<path>` and (when system_context.json exists) `SYSTEM_CONTEXT_RENDERED=<path>`, plus five sections (`## Mode`, `## Source Branch`, `## Target Branch`, `## Diff Command`, `## Close Cycle ID`).
+A close skill is about to merge a branch. Review the cumulative diff, **record each Concern and Block as an SMM `concern` event**, then report a prose summary. The invoking prompt carries `SMM_DIR=<path>`, (when system_context.json exists) `SYSTEM_CONTEXT_RENDERED=<path>`, and the five sections below.
 
 ## Step 1: Read Review Input
 
@@ -97,13 +97,13 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"close_mode": "<mode>", "source_branch": "<source>", "target_branch": "<target>", "close_cycle_id": "<CLOSE_CYCLE_ID>"}'
 ```
 
-`<CLOSE_CYCLE_ID>` comes from `## Close Cycle ID` (substitute the actual 12-hex value). Without it a block leaks into every concurrent close-cycle's count instead of being isolated to this one — **and it is no longer guaranteed to reach this cycle's own abort-default count**: an untagged concern is dropped from a scoped count when every path it records lies outside the close diff. That exclusion is why the tag matters more than it used to. Tag it, and the block counts regardless of which files it names.
+`<CLOSE_CYCLE_ID>` comes from `## Close Cycle ID` (substitute the actual 12-hex value). Without it a block leaks into every concurrent close-cycle's count instead of being isolated to this one — **and it is no longer guaranteed to reach this cycle's own abort-default count**: an untagged concern is dropped from a scoped count when every path it records lies outside the close diff. Tagged, the block counts regardless of which files it names.
 
 **`--files` discipline:** every concern naming a source path MUST pass those paths via `--files`, spelled **repo-relative** (`<dir>/<sub>/<file>`, as the diff lists them). The commit-auto-link hook matches a later fix commit's changed files against this list and nudges the agent to add `Resolves-Event: <id>`, and a scoped merge-gate count reads the same list to judge relevance — so a bare filename or a wrong path costs more than a broken link. Omit only for purely cross-cutting concerns with no file pin — default to including.
 
 **Flag-style concerns MUST include `references=[root_id]`.** When a bullet flags an existing root issue (stale, divert, escape, superseded, convention-violation — common when the close diff weakens a prior decision), pass `--references '["<root_id>"]'`. The WEAK cascade in `smm/resolution.py` then closes the flag when the root resolves.
 
-**Content budget:** 500 chars per `concern` — room for the WHY (the causal chain), not just the conclusion. If longer, summarize tighter or split. **If `append.sh` exits non-zero**, retry — do NOT continue to prose until every bullet has exit-zero.
+**Content budget:** 500 chars per `concern` — room for the WHY (the causal chain), not just the conclusion. If longer, summarize tighter or split. **If `append.sh` exits non-zero**, retry until it succeeds.
 
 ## Reporting Back
 
@@ -117,7 +117,7 @@ Use concrete file:line references. Do NOT invent structured JSON the caller didn
 
 **Resolves-Event handoff:** suffix each Concern/Block bullet with the recorded `event_id` from `append.sh` stdout in the form ` [event_id: <hex-id>]`. The orchestrator strips this for display but reads it to populate the next fix commit's `Resolves-Event:` trailer. Without it, only the file-overlap probe can link the fix — and that requires `--files` was set AND the fix commit touches one.
 
-Example bullet shape (`xxxxxxxxxxxx` is an intentionally non-hex placeholder so the agent-prose 12-hex-ID guard stays green; substitute the real id at runtime):
+Example bullet shape (substitute the real id for the placeholder):
 - `Hardcoded path in scripts/foo.py:42 should use Path(__file__) [event_id: xxxxxxxxxxxx]`
 
 ## SMM Content Trust

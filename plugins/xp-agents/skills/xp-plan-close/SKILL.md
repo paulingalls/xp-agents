@@ -22,12 +22,10 @@ allowed-tools:
 
 # Plan Close
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7 → 8
-> strictly, one step per turn — make the call, observe, then decide the next.
-> Don't batch a step with the one that depends on it (e.g. archiving or merging
-> before the forked xp-close-reviewer returns); never spawn the same subagent
-> twice. Independent read-only calls may still batch.
+> **Sequential discipline.** Run Step 1 → 2 → 3 → 4 → 4b → 4.5 → 5–6 → 7 → 8
+> one per turn: make the call, observe, then decide the next. Never batch a step
+> with one that depends on it, and never spawn the same subagent twice;
+> independent read-only calls may batch.
 
 The preload above surfaces `SMM_DIR`, `CURRENT_BRANCH`, `TARGET_BRANCH`,
 `GH_AVAILABLE`, and `WORKTREE_CLEAN`. `TARGET_BRANCH` is the primary
@@ -90,10 +88,9 @@ Agent(
 
 ## Steps 5–6b: Apply shared close-pipeline reference
 
-The shared close-pipeline reference (Steps 5, 5b, 6, 6b) is emitted by
-the preload at the top of this context — see
-`scripts/_close_pipeline_shared.md` for the source. Apply those four
-steps in order after Step 4.5, then continue with Step 7 below.
+The shared reference (Steps 5, 5b, 6, 6b) is emitted by the preload —
+see `scripts/_close_pipeline_shared.md`. Apply in order after Step 4.5,
+then continue with Step 7 below.
 
 **Plan-close addendum to Step 6:** if the user aborts at the shared Step 6 prompt, the plan stays unarchived — Step 7 below only runs on a confirmed merge.
 
@@ -110,12 +107,12 @@ Any failing step aborts the chain — plan stays unarchived and the branch alive
 
 ## Step 8: Update System Context
 
-A completed plan means the project's architecture, conventions, or
-structure may have changed. Refresh `system_context.json` so the next
-planning cycle starts from an accurate baseline.
+A completed plan may have changed the project's architecture, conventions,
+or structure; refresh `system_context.json` so the next planning cycle
+starts from an accurate baseline.
 
-Invoke `/xp-system-context` via the `Skill` tool. Wait for completion.
-Output the key findings to the user.
+Invoke `/xp-system-context` via the `Skill` tool, wait for completion, and
+output the key findings to the user.
 
 If the skill fails, record a concern and continue — do not block plan-close:
 
@@ -127,7 +124,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
 
 ## Reporting Back
 
-**Surface the merge's trailer advisory.** The merge step's `close_common.py merge` prints a `Resolves-Event:` trailer advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so if the merge printed that advisory, relay it verbatim — the named commits are still in reach to add trailers.
+**Surface the merge's trailer advisory.** `close_common.py merge` prints a `Resolves-Event:` advisory to stdout when eligible commits fall below the trailer target (fail-open — it never blocks the merge). Tool output is invisible to the user, so relay any such advisory verbatim — the named commits are still in reach to add trailers.
 
 Tell the user: plan branch merged into primary, PR (if created) merged,
 local branch deleted, execution_plan.json archived under

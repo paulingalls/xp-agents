@@ -14,12 +14,8 @@ allowed-tools:
 
 # Stage 2 Floor Migration
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Step 1 → 2 → 3 strictly, one step per
-> turn — make the call, observe, then decide the next. Never put an
-> `AskUserQuestion` and the action consuming its answer in one block (the
-> set-floor/dismiss question vs the edit-branching-field that records it); never
-> spawn the same subagent twice. Independent read-only calls may still batch.
+> **Sequential discipline.** Run Step 1 → 2 → 3 one step per turn — never batch
+> the `AskUserQuestion` with the `edit-branching-field` that records its answer.
 
 ## Step 1: Check dismissal
 
@@ -28,8 +24,8 @@ DISMISSED_AT=$(python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir
   get-branching-field stage_prompt_dismissed_at)
 ```
 
-If `DISMISSED_AT` is non-empty, the user has already declined the migration
-once. Log to the user (no prompt): *"Stage 2 migration prompt was dismissed
+If `DISMISSED_AT` is non-empty, log to the user (no prompt): *"Stage 2
+migration prompt was dismissed
 at {DISMISSED_AT}. To re-enable, run `printf null | python3
 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR>
 edit-branching-field stage_prompt_dismissed_at`"*. Stop without further
@@ -50,8 +46,8 @@ If the user picks **migrate**, write the Stage 2 floor directly
 printf '2' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> \
   edit-branching-field stage
 ```
-Do NOT record a dismissal — migration is the non-dismissed branch. Return
-control to the caller (which re-reads stage fresh, so do not cache).
+Do NOT record a dismissal. Return control to the caller (which re-reads stage
+fresh, so do not cache).
 
 If the user picks **continue**, record the dismissal:
 ```bash
