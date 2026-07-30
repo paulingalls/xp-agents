@@ -337,14 +337,26 @@ xp-agents works out of the box with zero configuration. It is opinionated — al
 
 ## Development setup
 
-The shipping plugin code is **stdlib-only** — every script under `plugins/xp-agents/` runs on Python 3.11+ with no `pip install`. The test suite is allowed external runners (it doesn't ship), and the recommended setup is `pipx`:
+**The commit gate does not exist until you run this.** `lefthook install` writes the git hook that runs the suite on every commit — nothing does that for you, and a clone that skips it commits ungated, silently.
+
+```bash
+make setup
+```
+
+This verifies `pytest -n auto` actually works (however it's installed — pipx below is the recommended route, not a requirement) and installs the lefthook hook. It's idempotent; safe to run again.
+
+The shipping plugin code is **stdlib-only** — every script under `plugins/xp-agents/` runs on Python 3.11+ with no `pip install`. The test suite is allowed external runners (it doesn't ship). If `make setup` reports `pytest -n auto` isn't working, the recommended fix is `pipx`:
 
 ```bash
 # One-time tooling install (isolated venv, on PATH, no Homebrew conflict):
 brew install pipx                    # if not already installed
 pipx install pytest
 pipx inject pytest pytest-xdist      # parallel test execution
+```
 
+You do not need to pre-run the suite yourself — that's what the gate is for. Once `make setup` has run:
+
+```bash
 # Run the full suite in parallel (~7,600 tests as of v5.0.0):
 pytest -n auto
 
@@ -352,7 +364,7 @@ pytest -n auto
 python3 -m unittest discover -s plugins/xp-agents/tests -p "test_*.py"
 ```
 
-`lefthook` runs `pytest -n auto` on every commit. If `pytest` isn't on PATH, lefthook will fail loud — install it via the steps above, or set `LEFTHOOK=0 git commit ...` to bypass for an emergency.
+`lefthook` then runs `pytest -n auto` on every commit. If `pytest` stops working on PATH, lefthook will fail loud — reinstall it via the steps above, or set `LEFTHOOK=0 git commit ...` to bypass for an emergency.
 
 Run a single file: `pytest plugins/xp-agents/tests/hooks/test_session_start_core.py`.
 Run a single test: `pytest plugins/xp-agents/tests/hooks/test_session_start_core.py::TestSessionStart::test_clear_source_returns_context`.

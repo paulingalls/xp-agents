@@ -1,5 +1,14 @@
 {
-  "include": ["scripts", "smm", "tests"],
+  "include": [
+    "scripts",
+    "smm",
+    "tests",
+    "skills/xp-accept/scripts",
+    "skills/xp-end-session/scripts",
+    "skills/xp-quality-review/scripts",
+    "skills/xp-sprint-review/scripts",
+    "skills/xp-work-selection/scripts"
+  ],
   "extraPaths": [
     "scripts",
     "smm",
