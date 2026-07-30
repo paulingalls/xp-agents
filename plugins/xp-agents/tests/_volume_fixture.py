@@ -16,9 +16,13 @@ fixtures, while the raw logs carry absolute home paths and literal prompt text.
 **Determinism.** Content lengths, ids (constant-width) and timestamps are all
 fixed; nothing reads the wall clock. Timestamps are therefore absolute, so a
 reader that filters on recency will eventually see this fixture as stale and go
-quiet. That failure is LOUD by construction: `assert_volume_under_budgets`
-requires every surface to out-measure its own shape budget, so a fixture that
-ages into silence fails rather than passing with a wrong number.
+quiet. That failure is LOUD by construction, on two guards that between them
+cover every surface: `assert_volume_under_budgets` requires each one to
+out-measure its own shape budget, and — for the emitters whose loud input
+already clears that budget on its own —
+`test_every_emitter_volume_entry_moves_with_data` requires the populated
+bootstrap to out-measure the empty one. A fixture that ages into silence fails
+rather than passing with a wrong number.
 """
 
 import json
@@ -27,6 +31,10 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+# `_event_fixtures` imports `event_schema` from smm/ at module scope, and this
+# module is imported BEFORE `conftest` (alphabetically) by the suite that uses
+# it — so it cannot rely on conftest having put smm/ on the path.
+sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 
 from _bases import _SCRIPTS_DIR
 from _budget_helpers import (
@@ -78,10 +86,13 @@ _TS = "2026-07-20T09:00:00+00:00"
 
 
 def generate_events(total: int = 2000) -> list[dict]:
-    """Deterministic event list matching the measured distribution.
+    """Event list matching the measured distribution, at a fixed SIZE.
 
-    Round-robin by integer count rather than sampling — no randomness, so two
-    runs produce byte-identical output and the 2%-wide budget band is stable.
+    Round-robin by integer count rather than sampling. Not byte-identical
+    across runs — `make_event` mints a random id — but every id is the same
+    12 hex chars wide and every other field is fixed, so the measured length
+    is stable and the 2%-wide budget band does not flake.
+    `test_the_generator_is_deterministic` holds that.
     """
     events: list[dict] = []
     for event_type, share in _TYPE_MIX.items():
@@ -245,7 +256,11 @@ def measure_retro_input(smm_dir: Path, repo: Path) -> int:
     char pointer and already carries an emitter budget, while the artifact that
     pointer names is the thing the subagent actually reads.
     """
-    _run_emitter("retrospective.py", _SCRIPTS_DIR, smm_dir, repo)
+    _, stderr, rc = _run_emitter("retrospective.py", _SCRIPTS_DIR, smm_dir, repo)
+    if rc != 0:
+        # Otherwise a crashed emitter writes no artifact, measures 0, and is
+        # reported as "the fixture did not drive this" — the wrong diagnosis.
+        raise RuntimeError(f"retrospective.py: rc={rc} stderr={stderr[:200]!r}")
     artifact = smm_dir / ".retro-input.json"
     return artifact.stat().st_size if artifact.exists() else 0
 
@@ -257,9 +272,10 @@ def measure_curation_input(smm_dir: Path, repo: Path) -> int:
     `engine/test_curation_retro_bounds` measures it — that suite pins a
     duplication regression at 20 items and says so; this bounds the same
     payload at realistic volume, which nothing did.
+
+    `repo` is unused — the signature is the one `ARTIFACT_MEASURERS` calls.
     """
-    sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
-    import materialize
+    import materialize  # smm/ is on sys.path from this module's import
 
     return len(json.dumps(materialize.prepare_curation_data(smm_dir)).encode("utf-8"))
 
@@ -306,6 +322,43 @@ def _preload_runner(name, smm_dir, repo):
     return _run_preload(name, smm_dir, repo)
 
 
+# Surfaces that leave state behind in the SMM they run against:
+# `post_tool_exit_plan` writes a `.plan-awaiting-review` marker, and a later
+# surface reads it — `session_end_warning` measures 0 chars alone and 81 after
+# it. Every helper below shares one bootstrap across a whole set, so these go
+# LAST and no sibling measures a marker it did not trigger. Same guard, same
+# reason, as `_budget_helpers.assert_emitter_under_budgets`'s subagent_stop
+# ordering; an unlisted marker-writer makes measurements order-dependent.
+_MARKER_WRITERS = frozenset({"post_tool_exit_plan.py"})
+
+
+def _measurement_order(names) -> list[str]:
+    return sorted(names, key=lambda name: (name in _MARKER_WRITERS, name))
+
+
+def measure_surfaces(names, *, bootstrap, runner) -> dict[str, int]:
+    """{surface: measured chars} for a whole set, against one bootstrap.
+
+    Fails loud on a non-zero exit: a crashed surface measures 0, and 0 read as
+    a measurement is exactly the vacuous-green shape this family exists to
+    prevent.
+    """
+    measured: dict[str, int] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, smm_dir = bootstrap(Path(tmp))
+        for name in _measurement_order(names):
+            stdout_bytes, stderr, rc = runner(name, smm_dir, repo)
+            if rc != 0:
+                raise RuntimeError(
+                    f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}"
+                )
+            measured[name] = _measured_len(
+                stdout_bytes,
+                normalize_paths=(str(_PLUGIN_ROOT), str(smm_dir), str(repo)),
+            )
+    return measured
+
+
 def emitter_runner(loud_fixtures: dict):
     """Runner that drives each emitter at its LOUD input."""
 
@@ -333,7 +386,13 @@ def assert_volume_under_budgets(
     loud yields a small measurement, a small derived budget, and an entry that
     is green forever — indistinguishable from a correct one. Requiring the
     volume measurement to exceed that surface's SHAPE budget (a constant the
-    other family already pins) catches exactly that, with no second bootstrap.
+    other family already pins) catches that, with no second bootstrap.
+
+    It does NOT catch it for an emitter whose loud INPUT alone clears the shape
+    budget — the margin is already satisfied before the SMM is read, so data
+    contributing nothing still passes. `session_start` measures 10,372 of its
+    17,854 that way. `test_every_emitter_volume_entry_moves_with_data` is the
+    guard for that half; this one cannot be.
 
     `bootstrap` is injectable so the mutation is a permanent test rather than a
     manual procedure: point it at `_bootstrap_seeded_smm` and every surface
@@ -342,7 +401,8 @@ def assert_volume_under_budgets(
     offenders: list[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         repo, smm_dir = bootstrap(Path(tmp))
-        for name, budget in sorted(budgets.items()):
+        for name in _measurement_order(budgets):
+            budget = budgets[name]
             stdout_bytes, stderr, rc = runner(name, smm_dir, repo)
             if rc != 0:
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")

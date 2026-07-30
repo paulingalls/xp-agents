@@ -41,14 +41,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from _emitter_fixtures import EMITTER_BUDGETS, EMITTER_LOUD_FIXTURES
+from _emitter_fixtures import EMITTER_BUDGETS, EMITTER_FIXTURES, EMITTER_LOUD_FIXTURES
 from _preload_fixtures import PRELOAD_BUDGETS
 from _volume_fixture import (
     ARTIFACT_MEASURERS,
+    _preload_runner,
     assert_artifacts_under_budgets,
     assert_volume_under_budgets,
     bootstrap_populated_smm,
     emitter_runner,
+    measure_surfaces,
 )
 from conftest import _SCRIPTS_DIR, _bootstrap_seeded_smm, _run_emitter
 
@@ -126,6 +128,17 @@ EMITTER_VOLUME_BUDGETS: dict[str, int] = {
     "session_start.py": 20300,
     "subagent_start.py": 12100,
 }
+
+# Two of those entries measure the SAME at volume as against an empty SMM (292
+# and 312 chars): their loud input is the whole story and the SMM contributes
+# nothing. Their budgets are worth having — they bound an input branch no family
+# measured before — but they are shape bounds wearing a volume label, and the
+# loudness margin cannot tell the difference because the loud input alone clears
+# the shape budget. Named, so `test_every_emitter_volume_entry_moves_with_data`
+# can hold the other five to a real data delta rather than exempting all seven.
+_EMITTERS_WITHOUT_A_DATA_DIMENSION = frozenset(
+    {"post_tool_exit_plan.py", "pre_tool_skill.py"}
+)
 
 # Disk artifacts handed to a subagent by path. Neither carried ANY bound
 # before this module: `.retro-input.json` is written on every session start and
@@ -261,6 +274,42 @@ class TestEmitterVolumeBudgets(unittest.TestCase):
         self.assertIn("does not exceed its shape budget", message)
         self.assertNotIn("subprocess rc=", message)
 
+    def test_every_emitter_volume_entry_moves_with_data(self):
+        """The half the loudness margin cannot cover: a measured data delta.
+
+        `assert_volume_under_budgets` clears an emitter as soon as its LOUD
+        input out-measures its shape budget — which three of these seven do
+        before the SMM is read at all. So drive the SAME loud input against
+        both bootstraps and require the populated one to be strictly larger.
+        An emitter that stops rendering SMM data fails here even though its
+        volume budget would stay comfortably green.
+        """
+        run = emitter_runner(EMITTER_LOUD_FIXTURES)
+        empty = measure_surfaces(
+            EMITTER_VOLUME_BUDGETS, bootstrap=_bootstrap_seeded_smm, runner=run
+        )
+        loaded = measure_surfaces(
+            EMITTER_VOLUME_BUDGETS, bootstrap=bootstrap_populated_smm, runner=run
+        )
+        for name in sorted(EMITTER_VOLUME_BUDGETS):
+            if name in _EMITTERS_WITHOUT_A_DATA_DIMENSION:
+                self.assertEqual(
+                    empty[name],
+                    loaded[name],
+                    f"{name}: {empty[name]} chars against an empty SMM vs "
+                    f"{loaded[name]} populated — it has grown a data dimension, "
+                    f"so drop it from _EMITTERS_WITHOUT_A_DATA_DIMENSION and "
+                    f"re-derive its budget",
+                )
+                continue
+            self.assertGreater(
+                loaded[name],
+                empty[name],
+                f"{name}: {loaded[name]} chars against a populated SMM, the "
+                f"same as against an empty one — its volume budget bounds the "
+                f"loud input branch, not the data",
+            )
+
     def test_every_loud_fixture_has_a_volume_budget(self):
         self.assertEqual(
             set(EMITTER_LOUD_FIXTURES),
@@ -354,26 +403,29 @@ class TestVolumeCoverageIsComplete(unittest.TestCase):
         POPULATED fixture. One that climbs past it has grown a volume dimension
         and needs a real budget — this is what stops the category becoming a
         quiet exemption.
+
+        BOTH claim sets, preload and emitter: an exemption nobody measures is
+        the same defect whichever family raised it.
         """
-        import tempfile
-
-        from _budget_helpers import _PLUGIN_ROOT, _measured_len, _run_preload
-
         offenders = []
-        with tempfile.TemporaryDirectory() as tmp:
-            repo, smm = bootstrap_populated_smm(Path(tmp))
-            for name, reason in sorted(_PRELOAD_PROSE_DOMINATED.items()):
-                out, err, rc = _run_preload(name, smm, repo)
-                self.assertEqual(rc, 0, f"{name}: {err[:200]}")
-                actual = _measured_len(
-                    out, normalize_paths=(str(_PLUGIN_ROOT), str(smm), str(repo))
-                )
-                if actual > PRELOAD_BUDGETS[name]:
-                    offenders.append(
-                        f"{name}: {actual} chars at volume, above its shape "
-                        f"budget of {PRELOAD_BUDGETS[name]} — no longer "
-                        f"prose-dominated ({reason})"
-                    )
+        for claims, runner, shape_budgets in (
+            (_PRELOAD_PROSE_DOMINATED, _preload_runner, PRELOAD_BUDGETS),
+            (
+                _EMITTER_PROSE_DOMINATED,
+                emitter_runner(EMITTER_FIXTURES),
+                EMITTER_BUDGETS,
+            ),
+        ):
+            measured = measure_surfaces(
+                claims, bootstrap=bootstrap_populated_smm, runner=runner
+            )
+            offenders += [
+                f"{name}: {measured[name]} chars at volume, above its shape "
+                f"budget of {shape_budgets[name]} — no longer prose-dominated "
+                f"({reason})"
+                for name, reason in sorted(claims.items())
+                if measured[name] > shape_budgets[name]
+            ]
         self.assertFalse(offenders, "\n".join(offenders))
 
 

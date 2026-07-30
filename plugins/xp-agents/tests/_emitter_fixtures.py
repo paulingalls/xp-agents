@@ -150,17 +150,6 @@ def session_start_compact() -> dict:
     return {"session_id": "t", "agent_id": "main", "source": "compact"}
 
 
-def subagent_start_full() -> dict:
-    """The `_inject_full` tier — the full SMM render.
-
-    Note `subagent_type` lives in `tool_input` while `subagent_start` reads a
-    TOP-LEVEL `agent_type`, so this (like the shape builder) resolves to `""`
-    and falls through `_resolve_tier` to `_inject_full`. What makes it loud is
-    the populated `shared_mental_model.json`, not the tier.
-    """
-    return _make_agent_input(subagent_type="general-purpose")
-
-
 def post_tool_exit_plan_triggered() -> dict:
     """A non-`xp-` agent: writes the marker and returns the review nudge."""
     return {
@@ -185,7 +174,14 @@ EMITTER_LOUD_FIXTURES: dict[str, FixtureBuilder] = {
     "retrospective.py": retrospective,
     "session_end_warning.py": session_end_warning,
     "session_start.py": session_start_compact,
-    "subagent_start.py": subagent_start_full,
+    # The shape builder unchanged, on purpose: `subagent_start` reads a
+    # TOP-LEVEL `agent_type`, never `tool_input.subagent_type`, so every input
+    # here resolves to `""` and falls through `_resolve_tier` to the most
+    # expensive tier already. Measured identical to the shape builder on both
+    # bootstraps (3,209 empty / 10,691 populated) — what makes this one loud is
+    # the populated `shared_mental_model.json`, and a second builder that
+    # differed only in an unread field would just look like it did more.
+    "subagent_start.py": subagent_start,
 }
 
 
