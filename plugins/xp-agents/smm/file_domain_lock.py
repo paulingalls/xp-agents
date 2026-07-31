@@ -42,7 +42,6 @@ strings still collide, on the same string-equality path as any literal.
 
 import re
 
-import glob_translator
 import sprint_schema
 import triage
 
@@ -51,10 +50,16 @@ ORIGIN_AUTHORED = "authored"
 ORIGIN_AUTO_INCLUDED = "auto_included"
 
 # A file_domain entry containing any of these is a PATTERN; anything else is a
-# literal path. Kept in step with glob_translator.glob_to_regex, the single
-# translator this module reuses -- those are exactly the characters it treats as
-# metacharacters.
-_GLOB_META_RE = re.compile(r"[*?\[]")
+# literal path. `[` is deliberately NOT here, though glob_translator.glob_to_regex
+# does treat it as a metacharacter: a bracketed SEGMENT is a real filename in
+# several ecosystems (Next.js/SvelteKit route params -- `app/[id]/page.tsx`,
+# `src/routes/[...rest]/+page.svelte`), and reading those as character classes
+# made a literal file claim unrelated declared paths (`app/[id]/page.tsx`
+# matching `app/i/page.tsx`) and then offered "narrow the pattern" as the remedy
+# for something that is not a pattern. A bracket class alongside a real wildcard
+# (`src/[ab]*.py`) is still honored -- the `*` classifies the entry, and the
+# translator expands the class inside it.
+_GLOB_META_RE = re.compile(r"[*?]")
 
 
 def _is_pattern(entry: str) -> bool:
@@ -212,13 +217,16 @@ def _resolved_claims(
     same pattern string still collide -- the pre-glob behavior, preserved.
     """
     resolved: dict[str, dict] = {}
-    matchers: dict[str, re.Pattern[str]] = {}
     for entry, origin in claims.items():
         targets: list[tuple[str, str | None]] = [(entry, None)]
         if _is_pattern(entry):
-            matcher = matchers.setdefault(
-                entry, re.compile(glob_translator.glob_to_regex(entry))
-            )
+            # triage.compile_glob, not a bare re.compile of the translation:
+            # it caches (this runs per story per report) and it absorbs the
+            # re.error a malformed class raises (`src/[]*.py`), which unguarded
+            # escaped a collision REPORT as a traceback. A pattern that will not
+            # compile falls back to matching itself, so its literal claim stands
+            # and only its expansion is lost.
+            matcher = triage.compile_glob(entry)
             targets += [(lit, entry) for lit in literals if matcher.fullmatch(lit)]
         for path, pattern in targets:
             prior = resolved.get(path)

@@ -322,7 +322,10 @@ def main() -> None:
 
     usb_p = sub.add_parser("update-story-branch", help="Set a story's branch name")
     usb_p.add_argument("story_id", help="Story ID")
-    usb_p.add_argument("branch_name", help="Branch name to record")
+    usb_p.add_argument(
+        "branch_name",
+        help="Branch name to record; '' clears it (releases a stale file_domain claim)",
+    )
 
     gsb_p = sub.add_parser(
         "get-story-branch",

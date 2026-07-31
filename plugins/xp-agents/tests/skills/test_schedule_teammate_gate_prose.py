@@ -61,6 +61,19 @@ class TestScheduleTeammateGateProse(unittest.TestCase):
             msg="Step 4 solo handoff must point at /xp-assign",
         )
 
+    def test_parallel_promotion_loop_checks_the_promotion_status(self):
+        """A promotion can be REFUSED (a live file_domain claim). Unchecked,
+        the loop leaves the story execution_mode=teammate but still queued,
+        the spawn selector skips it, and the story is silently dropped from
+        the batch. The loop must surface a refusal per story."""
+        step3 = _slice(self.body, "## Step 3:", ("## Step 4:",))
+        loop = _slice(step3, "for sid in $FRONTIER_IDS", ("```",))
+        self.assertRegex(
+            loop,
+            r"\|\||if !|exit_status|\$\?",
+            msg="the promotion loop must check update-story's exit status",
+        )
+
     def test_prose_uses_no_internal_marker_name(self):
         """Declarative: .teammate-config internal filename must not appear."""
         self.assertNotIn(".teammate-config", self.body)

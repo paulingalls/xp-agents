@@ -56,7 +56,7 @@ _SHIPPED_ROOT_FLOORS = {
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 _BAND_CEILINGS = {
-    # shipped (14)
+    # shipped (16)
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 498,
     "plugins/xp-agents/scripts/close_common.py": 496,
@@ -68,6 +68,15 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/smm/event_schema.py": 480,
     "plugins/xp-agents/scripts/lint_runners.py": 477,
     "plugins/xp-agents/smm/_append_impl.py": 469,
+    # Entered the band at sprint close: the start-time file_domain gate needed
+    # an ABSOLUTE sister-expanded report alongside the this-write-only one.
+    # sprint_save now carries four responsibilities (milestone transition,
+    # sister include, collision attribution, save/run); collision attribution
+    # is the cohesive group to extract next.
+    "plugins/xp-agents/smm/sprint_save.py": 463,
+    # Entered the band at sprint close: extract_diagnostics learned to tell the
+    # spawn's own advisories from spawn-side evidence.
+    "plugins/xp-agents/scripts/teammate_output_filter.py": 461,
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,
     "plugins/xp-agents/scripts/scaffold_detect.py": 459,

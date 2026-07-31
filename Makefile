@@ -6,8 +6,13 @@
 # Idempotent: test_dev_setup.py's failure message points developers here,
 # and some will run it twice.
 setup:
-	@if ! pytest -n auto --collect-only -q >/dev/null 2>&1; then \
-		echo "pytest -n auto isn't working here. Install it, then re-run 'make setup':" >&2; \
+	@probe=$$(pytest -n auto --collect-only -q 2>&1); \
+	if [ $$? -ne 0 ]; then \
+		echo "$$probe" >&2; \
+		echo "" >&2; \
+		echo "'pytest -n auto --collect-only' failed (output above), so the commit gate was NOT installed." >&2; \
+		echo "A collection error means pytest works and a module doesn't — fix that, not this." >&2; \
+		echo "If pytest itself is missing, install it and re-run 'make setup':" >&2; \
 		echo "  brew install pipx                    # if not already installed" >&2; \
 		echo "  pipx install pytest" >&2; \
 		echo "  pipx inject pytest pytest-xdist      # parallel test execution" >&2; \

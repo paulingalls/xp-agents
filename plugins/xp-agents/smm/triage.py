@@ -104,11 +104,14 @@ def _glob_to_regex(pattern: str) -> str:
 
 
 @functools.lru_cache(maxsize=256)
-def _compile_glob(pattern: str) -> re.Pattern[str]:
+def compile_glob(pattern: str) -> re.Pattern[str]:
     """Compile a glob pattern to a regex once and cache.
 
     `resolve_dominant_story` is on the pre-commit hot path — same patterns
-    recompile on every commit without this cache.
+    recompile on every commit without this cache. Public because
+    `file_domain_lock` needs the same compile with the same guard: an inline
+    `re.compile(glob_to_regex(...))` there is one malformed file_domain entry
+    away from the very re.error this function exists to absorb.
 
     Degrades gracefully on a malformed glob: free-text file_domain prose
     (e.g. "...effects[].damage...") can produce an invalid regex — a bare
@@ -162,7 +165,7 @@ def extract_file_domain_paths(
             if candidate_files is not None:
                 if candidates_list is None:
                     candidates_list = list(candidate_files)
-                regex = _compile_glob(path)
+                regex = compile_glob(path)
                 for cand in candidates_list:
                     if regex.fullmatch(cand):
                         paths.add(cand)

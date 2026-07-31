@@ -58,6 +58,7 @@ from sister_layout import (  # noqa: E402  intentional re-export
 __all__ = [
     "_coerce_overrides",
     "_resolve_layout",
+    "expanded_collision_report",
     "introduced_collisions",
     "run",
     "save",
@@ -254,6 +255,38 @@ def _auto_include_sister_tests(
         domain.extend(additions)
 
 
+def _expanded_report(
+    sprint: dict,
+    layout: "sister_tests.TestLayout | None",
+    project_root: Path | None,
+    *,
+    running_only: bool,
+) -> dict[str, list[dict]]:
+    """`collision_report` over a sister-expanded READ-ONLY copy of `sprint`.
+
+    Takes an already-resolved layout so `introduced_collisions` expands both of
+    its sides with ONE, keeping the comparison apples-to-apples.
+    """
+    view = copy.deepcopy(sprint)  # _auto_include_sister_tests mutates in place
+    if layout is not None and project_root is not None:
+        _auto_include_sister_tests(view, layout, project_root)
+    return file_domain_lock.collision_report(view, running_only=running_only)
+
+
+def expanded_collision_report(
+    sprint: dict, smm_dir: Path, *, running_only: bool = False
+) -> dict[str, list[dict]]:
+    """Every collision in `sprint`, sister-expanded the way run() expands.
+
+    Public because the start-time gate (`sprint_transitions`) needs the ABSOLUTE
+    reading, not `introduced_collisions`' this-write-only one: a live collision
+    that PRE-EXISTS is exactly what a promotion must refuse to join. Read-only.
+    """
+    layout = _resolve_layout(smm_dir)
+    project_root = _resolve_project_root() if layout is not None else None
+    return _expanded_report(sprint, layout, project_root, running_only=running_only)
+
+
 def introduced_collisions(
     data: dict,
     smm_dir: Path,
@@ -305,17 +338,10 @@ def introduced_collisions(
     """
     layout = _resolve_layout(smm_dir)
     project_root = _resolve_project_root() if layout is not None else None
-
-    def _expanded_report(sprint: dict) -> dict[str, list[dict]]:
-        view = copy.deepcopy(sprint)  # _auto_include_sister_tests mutates in place
-        if layout is not None and project_root is not None:
-            _auto_include_sister_tests(view, layout, project_root)
-        return file_domain_lock.collision_report(view, running_only=running_only)
-
     current_report = (
         file_domain_lock.collision_report(data, running_only=running_only)
         if current_expanded
-        else _expanded_report(data)
+        else _expanded_report(data, layout, project_root, running_only=running_only)
     )
     # Fail open: this read is advisory (it only says which collisions PRE-EXIST),
     # so an unreadable file must not veto the write — a hard raise here shut the
@@ -328,7 +354,9 @@ def introduced_collisions(
         # First create (or an unreadable baseline): nothing trustworthy on disk,
         # so every current collision is our fault.
         return current_report
-    baseline_report = _expanded_report(baseline)
+    baseline_report = _expanded_report(
+        baseline, layout, project_root, running_only=running_only
+    )
 
     introduced: dict[str, list[dict]] = {}
     for path, claims in current_report.items():

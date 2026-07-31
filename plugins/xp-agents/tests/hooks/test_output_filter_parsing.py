@@ -298,6 +298,37 @@ class TestExtractDiagnostics(unittest.TestCase):
         self.assertIn("WARN: falling back to /tmp for worktree base", diags)
         self.assertIn("Spawning teammate in worktree ...", diags)
 
+    def test_spawn_notice_is_not_reported_as_the_failure_cause(self):
+        """The spawn's own advisories ride the same 2>&1 pipe as the teammate's
+        stdout, and the model one fires on every untiered spawn. Left in the
+        evidence tier they outranked the no-result fallback and became the
+        reported cause of every no-result failure — a tier notice shown for a
+        watchdog kill, sending the lead after a --model problem that isn't."""
+        import spawn_command
+        import teammate_output_filter
+
+        lines = [
+            _SYSTEM_LINE,
+            f"{spawn_command.NOTICE_PREFIX}no model resolved — teammate tier is "
+            "inherited from the orchestrator",
+        ]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertNotIn("no model resolved", diags)
+        self.assertIn("No result event", diags)
+
+    def test_a_real_diagnostic_still_outranks_a_notice(self):
+        """Demoting the notice must not demote the line beside it."""
+        import spawn_command
+        import teammate_output_filter
+
+        lines = [
+            f"{spawn_command.NOTICE_PREFIX}no model resolved",
+            "worktree base is read-only",
+        ]
+        diags = teammate_output_filter.extract_diagnostics(lines)
+        self.assertIn("worktree base is read-only", diags)
+        self.assertNotIn("no model resolved", diags)
+
     def test_mixed_json_and_unrecognized_reports_both_counts_not_stream_json(self):
         """A mix of parsed JSON and unrecognized non-JSON text reports the
         parsed-event count and the raw line count as distinct figures, and

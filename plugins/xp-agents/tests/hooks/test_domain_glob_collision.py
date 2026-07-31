@@ -226,5 +226,96 @@ class TestStoryNeverCollidesWithItself(unittest.TestCase):
         self.assertEqual([c["story_id"] for c in claims], ["story-001", "story-002"])
 
 
+class TestBracketedPathIsNotAGlob(unittest.TestCase):
+    """A bracketed SEGMENT is a real filename in several ecosystems (Next.js /
+    SvelteKit route params). Reading it as a character class made a literal
+    file claim unrelated paths and then offered "narrow the pattern" as the
+    remedy for something that is not a pattern."""
+
+    def test_route_param_path_does_not_claim_a_matching_literal(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    status="in-progress",
+                    file_domain=["app/[id]/page.tsx — one"],
+                ),
+                make_story_dict(
+                    id="story-002",
+                    status="in-progress",
+                    file_domain=["app/i/page.tsx — two"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+    def test_identical_route_param_paths_still_collide_as_literals(self):
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    status="in-progress",
+                    file_domain=["app/[id]/page.tsx — one"],
+                ),
+                make_story_dict(
+                    id="story-002",
+                    status="in-progress",
+                    file_domain=["app/[id]/page.tsx — two"],
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            sorted(c["story_id"] for c in report["app/[id]/page.tsx"]),
+            ["story-001", "story-002"],
+        )
+        # ...and as a LITERAL, so no unactionable "narrow the pattern" remedy.
+        self.assertNotIn("pattern", report["app/[id]/page.tsx"][0])
+
+    def test_a_wildcard_beside_a_class_still_expands(self):
+        """The narrowing is about classification, not about dropping bracket
+        support: a real wildcard still makes the entry a pattern, and the
+        translator still honours the class inside it."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    status="in-progress",
+                    file_domain=["src/[ab]*.py — one"],
+                ),
+                make_story_dict(
+                    id="story-002",
+                    status="in-progress",
+                    file_domain=["src/alpha.py — two"],
+                ),
+            ]
+        )
+        report = file_domain_lock.collision_report(data)
+        self.assertEqual(
+            sorted(c["story_id"] for c in report["src/alpha.py"]),
+            ["story-001", "story-002"],
+        )
+
+    def test_an_uncompilable_class_does_not_escape_as_a_regex_error(self):
+        """`[]` is an unterminated character set. An inline re.compile here
+        turned one malformed file_domain entry into a traceback out of a
+        read-only report."""
+        data = make_sprint_dict(
+            stories=[
+                make_story_dict(
+                    id="story-001",
+                    status="in-progress",
+                    file_domain=["src/[]*.py — one"],
+                ),
+                make_story_dict(
+                    id="story-002",
+                    status="in-progress",
+                    file_domain=["src/alpha.py — two"],
+                ),
+            ]
+        )
+        self.assertEqual(file_domain_lock.collision_report(data), {})
+
+
 if __name__ == "__main__":
     unittest.main()

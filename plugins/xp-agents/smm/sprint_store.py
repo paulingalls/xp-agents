@@ -16,6 +16,7 @@ import file_domain_lock
 from _append_impl import write_text_atomic
 from _manual_shape_exemption import grandfathered_story_ids
 from sprint_schema import (
+    IN_MOTION_STORY_STATUSES,
     SPRINT_FILENAME,
     validate_sprint,
 )
@@ -178,9 +179,17 @@ def set_branch(smm_dir: Path, branch_name: str) -> None:
 
 
 def set_story_branch(smm_dir: Path, story_id: str, branch_name: str) -> None:
-    """Record a story's git branch name."""
+    """Record a story's git branch name; `""` CLEARS it back to null.
+
+    Clearing is the supported release for a stale file_domain claim: a branch
+    that was cut and then abandoned keeps its story's claim live forever
+    (file_domain_lock._holds_claim), and without this the only way out was
+    hand-editing sprint.json. `""` is how `get_story_branch_name` already
+    spells "no branch", and null is the schema's own absence — the empty
+    string itself is not a valid branch name, so it could never be stored.
+    """
     sprint, story = _load_story(smm_dir, story_id)
-    story["branch_name"] = branch_name
+    story["branch_name"] = branch_name.strip() or None
     save_sprint(smm_dir, sprint, enforce_budget=False)
 
 
@@ -224,16 +233,21 @@ def edit_story(smm_dir: Path, story_id: str, updates: object) -> None:
     # edits (execution_mode, executor_model, context, …) can't affect collisions
     # and skip the sister-expansion cost.
     #
-    # running_only=True: this is a MID-SPRINT amendment, so the question is
-    # whether a path is claimed by a story that is actually running, not by one
-    # that was merely planned. A parked story's claim vetoing a live story's
-    # amendment was the measured bug. run() keeps the strict default — see
-    # sprint_save.introduced_collisions.
+    # The measured bug was a PARKED story's claim vetoing a LIVE story's
+    # amendment, so the relaxation belongs to the live story: running_only is
+    # keyed on the story being edited. Amending a story that is itself parked
+    # is authoring, not amendment — nothing is in flight to be unblocked — so it
+    # keeps run()'s strict reading, and two parked stories cannot quietly grow
+    # onto one path through edit-story. A blanket True dropped that leg
+    # entirely: the malformed sprint then surfaced later as a refused promotion.
+    # See sprint_save.introduced_collisions.
     if updates.keys() & {"file_domain", "dependencies"}:
         import sprint_save  # function-local: sprint_save imports sprint_store (cycle)
 
         introduced = sprint_save.introduced_collisions(
-            sprint, smm_dir, running_only=True
+            sprint,
+            smm_dir,
+            running_only=story.get("status") in IN_MOTION_STORY_STATUSES,
         )
         if introduced:
             raise ValueError(file_domain_lock.format_collision_report(introduced))

@@ -91,12 +91,17 @@ the following `/xp-schedule` run.
 **Parallel** — for each `FRONTIER_IDS` story, set `execution_mode=teammate` and
 promote to `in-progress`. Do **not** create branches — `/xp-assign` creates each
 teammate branch at spawn time, per story, after that story's plan is reviewed.
+`update-story` **can refuse** a promotion (a file_domain claim held by a live
+story), so check its status — an unchecked loop leaves the story
+`execution_mode=teammate` but still `scheduled`, and `/xp-assign` then skips it
+silently. Report every `PROMOTE-REFUSED` line to the user and do not spawn that
+story; the batch is the promoted set, not `FRONTIER_IDS`.
 ```bash
 for sid in $FRONTIER_IDS; do
   echo '{"execution_mode":"teammate"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --smm-dir ${SMM_DIR} edit-story "$sid"
   python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
-    update-story "$sid" in-progress
+    update-story "$sid" in-progress || echo "PROMOTE-REFUSED: $sid"
 done
 ```
 

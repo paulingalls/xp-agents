@@ -18,6 +18,15 @@ import tier_wire
 
 _ALLOWED_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,Skill,Agent"
 
+# Prefix on every ADVISORY this module writes to stderr — a note about what the
+# spawn resolved, never a failure. The spawn's stderr is merged into the
+# teammate's stdout (`2>&1 | teammate_output_filter.py`), where any non-JSON
+# line otherwise outranks the "no result event" fallback; these notes fire on
+# the ordinary untiered spawn, so unmarked they would be reported as the cause
+# of every no-result failure. teammate_output_filter.extract_diagnostics reads
+# this constant to tell a note apart from evidence.
+NOTICE_PREFIX = "spawn_teammate: notice: "
+
 
 def flag_value(raw: str | None) -> str | None:
     """A spawn flag's effective value: None when absent, empty, or whitespace.
@@ -92,7 +101,7 @@ def build_command(
         cmd += ["--model", model]
     else:
         sys.stderr.write(
-            "spawn_teammate: no model resolved — teammate tier is inherited "
+            f"{NOTICE_PREFIX}no model resolved — teammate tier is inherited "
             "from the orchestrator and unverified; pass --model to pin it\n"
         )
     plugin_dir = flag_value(plugin_dir)
@@ -103,20 +112,20 @@ def build_command(
         # the XP lifecycle, while a plugin-less teammate loads no skills, agents
         # or hooks — every gate absent, and nothing downstream to report it.
         sys.stderr.write(
-            "spawn_teammate: no plugin dir resolved — the teammate loads NO "
+            f"{NOTICE_PREFIX}no plugin dir resolved — the teammate loads NO "
             "xp-agents skills, agents or hooks and every XP gate is absent; "
             "pass --plugin-dir or set CLAUDE_PLUGIN_ROOT\n"
         )
     if effort is not None:
         if model is None:
             sys.stderr.write(
-                f"spawn_teammate: model inherited from orchestrator (unknown "
+                f"{NOTICE_PREFIX}model inherited from orchestrator (unknown "
                 f"here) — cannot verify effort {effort!r} support, dropping "
                 f"--effort, using model default\n"
             )
         elif not tier_wire.effort_supported(model, effort):
             sys.stderr.write(
-                f"spawn_teammate: model {model!r} does not support effort "
+                f"{NOTICE_PREFIX}model {model!r} does not support effort "
                 f"{effort!r} — dropping --effort, using model default\n"
             )
         else:

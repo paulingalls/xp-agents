@@ -49,8 +49,8 @@ def _sprint_lock(smm_dir: Path) -> Iterator[None]:
         yield
 
 
-def _refuse_start_on_live_collision(smm_dir: Path, sprint: dict) -> None:
-    """Raise if starting a story would put two RUNNING stories on one path.
+def _refuse_start_on_live_collision(smm_dir: Path, sprint: dict, story_id: str) -> None:
+    """Raise if starting `story_id` would put two RUNNING stories on one path.
 
     The second necessary line, not belt-and-braces. /xp-schedule's frontier
     check refuses to parallelize an overlapping frontier, but it scopes to
@@ -61,20 +61,38 @@ def _refuse_start_on_live_collision(smm_dir: Path, sprint: dict) -> None:
     at a time, and one story alone is never a pair. So the same question is
     asked again at START time, when both stories are finally live.
 
-    Reuses `sprint_save.introduced_collisions` rather than inventing a second
-    attribution. Its "colliding set GREW versus the on-disk baseline" rule
-    already covers a status change: its docstring names a dependency edit that
-    makes two shared-path stories concurrent as the same shape, since
-    concurrency is not a domain diff.
+    ABSOLUTE, not this-write-only. An earlier version asked
+    `sprint_save.introduced_collisions` whether this transition GREW the
+    colliding set versus the on-disk baseline, and that is the wrong question
+    here: a story parked back after promotion keeps a live claim (its branch
+    was cut — see file_domain_lock._holds_claim), so the collision is ALREADY
+    in the baseline, the set does not grow, and the gate waved through the
+    exact pair it exists to stop. Whether a live collision pre-existed is no
+    licence to add a second teammate to it; the only question at start time is
+    whether the started story shares a live path once the transition lands.
+
+    Scoped to `story_id`'s own paths so a live collision elsewhere in the
+    sprint — one this transition can neither cause nor cure — never blocks an
+    unrelated story from starting.
 
     Called with the POST-transition sprint, in-memory and unsaved, so a refusal
     leaves the file untouched.
     """
     import sprint_save  # function-local: sprint_save imports sprint_store (cycle)
 
-    introduced = sprint_save.introduced_collisions(sprint, smm_dir, running_only=True)
-    if introduced:
-        raise ValueError(file_domain_lock.format_collision_report(introduced))
+    report = sprint_save.expanded_collision_report(sprint, smm_dir, running_only=True)
+    mine = {
+        path: claims
+        for path, claims in report.items()
+        if any(claim["story_id"] == story_id for claim in claims)
+    }
+    if mine:
+        raise ValueError(
+            file_domain_lock.format_collision_report(mine)
+            + "\na claim also holds while a story is parked with a branch already "
+            "cut: if that branch is abandoned, release the claim with "
+            "`sprint_cli.py update-story-branch <story-id> ''` before promoting."
+        )
 
 
 def _write_story_status(
@@ -100,6 +118,12 @@ def _write_story_status(
     if status not in VALID_STORY_STATUSES:
         valid = sorted(VALID_STORY_STATUSES)
         raise ValueError(f"Invalid status {status!r}, must be one of {valid}")
+    # Checked BEFORE the lock: `_sprint_lock` creates sprint.lock inside
+    # smm_dir, so a missing directory surfaces there as a raw FileNotFoundError
+    # traceback, ahead of `_load_story`'s ValueError and past the ValueError
+    # contract both public writers document.
+    if not smm_dir.is_dir():
+        raise ValueError(f"SMM directory not found: {smm_dir}")
 
     from sprint_store import _load_story, save_sprint
 
@@ -110,7 +134,7 @@ def _write_story_status(
         was_running = story["status"] in IN_MOTION_STORY_STATUSES
         story["status"] = status
         if status in IN_MOTION_STORY_STATUSES and not was_running:
-            _refuse_start_on_live_collision(smm_dir, sprint)
+            _refuse_start_on_live_collision(smm_dir, sprint, story_id)
         save_sprint(smm_dir, sprint, enforce_budget=False)
         return True
 

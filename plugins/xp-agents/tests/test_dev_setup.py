@@ -391,6 +391,24 @@ class TestMakefileSetupTarget(unittest.TestCase):
             "above names it as the fix.",
         )
 
+    def test_probe_failure_shows_pytest_own_output(self):
+        """The probe answers "does `pytest -n auto` work here?", and a
+        COLLECTION error is a different answer from "pytest is missing".
+        Swallowing the output reported both as "install pytest", and the dev
+        with a broken import then never got the commit gate installed at all —
+        exactly what this target exists to close."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "--collect-only -q >/dev/null 2>&1",
+            text,
+            "the probe must not discard pytest's own diagnostics",
+        )
+        self.assertRegex(
+            text,
+            r"(?s)setup:.*collect-only.*echo \"\$\$probe\"",
+            "the probe's captured output must be echoed on failure",
+        )
+
     def test_dead_targets_are_gone(self):
         text = MAKEFILE.read_text(encoding="utf-8")
         for dead_path in (

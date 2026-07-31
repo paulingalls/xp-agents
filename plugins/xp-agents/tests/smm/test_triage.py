@@ -299,8 +299,8 @@ class TestMalformedGlobRobustness(unittest.TestCase):
     BAD_GLOB_ENTRY = "src/items[].py — empty bracket class is invalid regex"
 
     def test_compile_glob_does_not_raise_on_unterminated_set(self):
-        """_compile_glob returns a usable pattern instead of raising re.error."""
-        pattern = triage._compile_glob("items[].py")
+        """compile_glob returns a usable pattern instead of raising re.error."""
+        pattern = triage.compile_glob("items[].py")
         # Falls back to a literal match — the malformed glob matches only
         # its own literal text, never a real file path.
         self.assertIsNone(pattern.fullmatch("items.py"))
