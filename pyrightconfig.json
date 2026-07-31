@@ -1,5 +1,14 @@
 {
-  "include": ["plugins/xp-agents/scripts", "plugins/xp-agents/smm", "plugins/xp-agents/tests"],
+  "include": [
+    "plugins/xp-agents/scripts",
+    "plugins/xp-agents/smm",
+    "plugins/xp-agents/tests",
+    "plugins/xp-agents/skills/xp-accept/scripts",
+    "plugins/xp-agents/skills/xp-end-session/scripts",
+    "plugins/xp-agents/skills/xp-quality-review/scripts",
+    "plugins/xp-agents/skills/xp-sprint-review/scripts",
+    "plugins/xp-agents/skills/xp-work-selection/scripts"
+  ],
   "extraPaths": [
     "plugins/xp-agents/scripts",
     "plugins/xp-agents/smm",

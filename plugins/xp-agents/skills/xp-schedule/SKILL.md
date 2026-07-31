@@ -1,13 +1,8 @@
 ---
 name: xp-schedule
 description: >-
-  Decide the next execution unit per ready frontier: auto-solo on a single
-  frontier or one that cannot run concurrently (overlapping domains or a
-  dependency edge), ask solo/parallel on >=2 stories that form a disjoint
-  antichain, then promote the chosen scheduled stories to in-progress and set
-  each story's execution_mode. Runs before planning so the mode choice sets
-  the planning scope. Solo also creates+checks out the branch; parallel leaves
-  branches to /xp-assign.
+  Decide solo or parallel execution for the ready frontier, then promote the
+  chosen stories and set each execution_mode. Runs before planning.
 allowed-tools:
   - Bash(*/append.sh *)
   - Bash(*/init.sh)
@@ -22,52 +17,46 @@ allowed-tools:
 
 # Schedule the Next Frontier
 
-> **Sequential discipline.** The harness batches independent tool calls in
-> parallel; this skill is step-gated. Run Read-frontier → Mode → Promote → Next
-> strictly, one step per turn — make the call, observe, then decide the next.
-> Never put the mode `AskUserQuestion` and the promote/branch it gates in one
-> block; never spawn the same subagent twice. Independent read-only calls may
-> still batch.
+> **Sequential discipline.** Run Read-frontier → Mode → Promote → Next strictly,
+> one step per turn — make the call, observe, then decide the next. Never batch
+> the mode `AskUserQuestion` with the promote/branch it gates.
 
 Decide solo vs parallel for the **ready frontier** — the dep-satisfied
-`scheduled` stories — then promote it. This precedes planning because the choice
-sets the planning scope: solo plans one story; parallel locks per-story
-file-domain disjointness up front, then the lead per-story plans→reviews→spawns
-each teammate in turn. The preload computes the frontier; this skill consumes
-it. `execution_mode` is a durable story field (`solo`/`teammate`) read later by
-the plan-review gate (`subagent_stop`) and retro analysis.
+`scheduled` stories the preload computes — then promote it. This precedes
+planning because the choice sets the planning scope: solo plans one story;
+parallel locks per-story file-domain disjointness up front, then the lead
+per-story plans→reviews→spawns each teammate in turn. `execution_mode` is a
+durable story field (`solo`/`teammate`) read later by the plan-review gate
+(`subagent_stop`) and retro analysis.
 
 ## Step 1: Read the frontier
 
 The preload emits `FRONTIER_IDS` (space-separated), `FRONTIER_COUNT`, and
 `PARALLELIZABLE` (`true` only when the frontier has >=2 stories that form an
 antichain — no story depends on another, directly or transitively — with
-disjoint file domains). If `FRONTIER_COUNT` is `0`, there is nothing ready to
-schedule (no dep-satisfied scheduled story) — report that and stop.
+disjoint file domains). If `FRONTIER_COUNT` is `0`, nothing is ready to
+schedule — report that and stop.
 `OVERLAP_DETAIL`/`GLOB_FORCED` explain a false PARALLELIZABLE **when set**; a
 false verdict with both empty means these stories cannot run concurrently for
 a different reason — a dependency edge within the frontier.
 
 ## Step 2: Choose the mode (gate)
 
-**Teammate support gate:** When `TEAMMATE_ENABLED == false` (teammates are
-disabled for this session), auto-solo silently and skip the entire mode
-decision tree below. Proceed directly to Step 3.
+**Teammate support gate:** When `TEAMMATE_ENABLED == false`, auto-solo
+silently: skip the mode decision tree below and go to Step 3.
 
-Otherwise, when teammate support is enabled:
+Otherwise:
 
 - `FRONTIER_COUNT == 1` → **solo**, no question.
-- `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == false` (these stories cannot
-  run concurrently) → **solo**, no question (teammates would collide or one
-  would be branched without the other's commits) — but
-  report why instead of downgrading silently: name `OVERLAP_DETAIL`'s
-  colliding stories/path when set; if `GLOB_FORCED`, note a glob domain
-  blocks proving disjointness; if neither is set, the frontier carries a
-  dependency edge between two of its members.
+- `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == false` → **solo**, no question
+  (teammates would collide, or one would be branched without the other's
+  commits) — but report why instead of downgrading silently: name
+  `OVERLAP_DETAIL`'s colliding stories/path when set; if `GLOB_FORCED`, note a
+  glob domain blocks proving disjointness; if neither is set, the frontier
+  carries a dependency edge between two of its members.
 - `FRONTIER_COUNT >= 2` and `PARALLELIZABLE == true` → ask via `AskUserQuestion`:
   *"Solo (sequential) or CLI teammates (parallel)?"* Present the rationale
-  (the disjoint frontier ids). Do not bundle this question with the Step 3
-  promotion it gates.
+  (the disjoint frontier ids).
 
 ## Step 3: Promote + set mode (+ solo branch)
 
@@ -102,12 +91,17 @@ the following `/xp-schedule` run.
 **Parallel** — for each `FRONTIER_IDS` story, set `execution_mode=teammate` and
 promote to `in-progress`. Do **not** create branches — `/xp-assign` creates each
 teammate branch at spawn time, per story, after that story's plan is reviewed.
+`update-story` **can refuse** a promotion (a file_domain claim held by a live
+story), so check its status — an unchecked loop leaves the story
+`execution_mode=teammate` but still `scheduled`, and `/xp-assign` then skips it
+silently. Report every `PROMOTE-REFUSED` line to the user and do not spawn that
+story; the batch is the promoted set, not `FRONTIER_IDS`.
 ```bash
 for sid in $FRONTIER_IDS; do
   echo '{"execution_mode":"teammate"}' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py \
     --smm-dir ${SMM_DIR} edit-story "$sid"
   python3 ${CLAUDE_PLUGIN_ROOT}/smm/sprint_cli.py --smm-dir ${SMM_DIR} \
-    update-story "$sid" in-progress
+    update-story "$sid" in-progress || echo "PROMOTE-REFUSED: $sid"
 done
 ```
 

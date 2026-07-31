@@ -38,6 +38,52 @@ def lock_path_for(current: Path) -> Path:
     return destination_for(current).parent / _LOCK_NAME
 
 
+PidCondition = Literal["alive", "dead", "exists_not_ours", "unknown"]
+
+
+def probe_pid_condition(pid: int) -> PidCondition:
+    """What `os.kill(pid, 0)` says about a pid — the CONDITION, not a verdict.
+
+    The one liveness probe in the tree. Two call sites share it (`holder_state`
+    below, and `in_place_marker._probe_pid`) and they answer the SAME condition
+    differently, which is why this returns four states rather than the tri-state
+    either site uses:
+
+      * `exists_not_ours` (EPERM) is *held* to the lock and *unadjudicable* to
+        the marker. A shared tri-state would have to fold it onto `unknown`
+        alongside `OverflowError`, and the lock could then no longer read it as
+        held — a behaviour change inside a lock.
+      * `unknown` covers everything os.kill cannot answer: a value too big for a
+        C int, and a non-positive pid.
+
+    `pid <= 0` is `unknown`, NEVER `dead`. `os.kill(0, 0)` signals our OWN
+    process group and SUCCEEDS; a negative pid targets a group. Neither is a pid
+    we wrote, so both are corruption — not alive, but not proof of death either.
+    Calling them dead would let the marker site delete a marker it cannot prove
+    dead, which is the failure its tri-state exists to prevent.
+
+    Total: never raises. `OverflowError` is an `ArithmeticError`, so it escapes
+    an `OSError` clause and would otherwise crash the Stop hook that reaches
+    here through the marker — and a crashed gate never fires at all.
+
+    POSIX-only: `os.kill(pid, 0)` is a liveness probe here, but on Windows it
+    would terminate the target. The plugin is already POSIX (flock, bash
+    preloads), so this is a note, not a branch.
+    """
+    if pid <= 0:
+        return "unknown"
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return "dead"
+    except OverflowError:
+        return "unknown"
+    except OSError:
+        # EPERM: the process EXISTS and is simply not ours.
+        return "exists_not_ours"
+    return "alive"
+
+
 def holder_state(target: str) -> bool | None:
     """Is the pid a lock names running? None when the target names no pid.
 
@@ -57,24 +103,28 @@ def holder_state(target: str) -> bool | None:
     and answers the legacy tree, and the advisory built on None tells the user
     to clear it by hand. Agreement on the VERDICT is what the invariant needs;
     a lock naming pid 0 is corrupt residue either way.
+
+    The STRING contract stays here rather than moving into the shared probe: the
+    agreement with init.sh's regex is what this call site needs, and the probe
+    takes an int.
     """
-    if not (target.isascii() and target.isdigit()) or int(target) <= 0:
+    if not (target.isascii() and target.isdigit()):
         return None
-    try:
-        os.kill(int(target), 0)
-    except ProcessLookupError:
-        return False
-    except OverflowError:
-        # Too big for a C int, so not a pid this tool can check — and NOT
-        # "running": init.sh's `kill -0` rejects the same value and stops
-        # waiting for it, so reporting a holder here would leave a lock no side
-        # waits for and this command refuses to clear.
-        return None
-    except OSError:
-        # EPERM: the process EXISTS and is simply not ours. Not proven dead, so
-        # it reads as held.
-        return True
-    return True
+    match probe_pid_condition(int(target)):
+        case "alive":
+            return True
+        case "dead":
+            return False
+        case "exists_not_ours":
+            # Not proven dead, so it reads as held.
+            return True
+        case "unknown":
+            # A non-positive target, or one too big for a C int — not a pid this
+            # tool can check, and NOT "running": init.sh's `kill -0` rejects the
+            # same value and stops waiting for it, so reporting a holder here
+            # would leave a lock no side waits for and this command refuses to
+            # clear.
+            return None
 
 
 LockState = Literal["free", "stalled", "in-progress", "blocked", "unprobeable"]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pin: Step 4b's full-review prescription states its own cost bound.
 
-story-012. `scripts/_close_pipeline_shared.md` Step 4b prescribes the broad
+story-012. `scripts/_close_pipeline_review.md` Step 4b prescribes the broad
 multi-agent correctness pass to every close mode above threshold and, before
 this story, said nothing about scale — a customer run reached roughly a
 hundred agents. The fix is prose-only, next to the launch line: what drives
@@ -25,10 +25,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 from conftest import _slice
 
 _PLUGIN_ROOT = Path(__file__).parent.parent
-_SHARED_PATH = _PLUGIN_ROOT / "scripts" / "_close_pipeline_shared.md"
+_REVIEW_PATH = _PLUGIN_ROOT / "scripts" / "_close_pipeline_review.md"
 
 _START_MARKER = "### Step 4b: Full code review (conditional)"
-_END_MARKERS = ("### Step 5: Present findings",)
+# Empty DELIBERATELY, per `_slice`'s contract: Step 4b is the LAST section
+# of the review reference, so the region runs to EOF. A non-empty tuple
+# naming the old `### Step 5` end marker would raise instead — Step 5 moved
+# to `_close_pipeline_shared.md` when the reference was split by mode.
+_END_MARKERS: tuple[str, ...] = ()
 
 # Digit-carrying substrings that legitimately belong in the Step 4b section
 # on its own (heading + step cross-references + its own ordered list), none
@@ -65,11 +69,11 @@ def _stray_digit_matches(section: str) -> list[str]:
 class TestStep4bCostBoundProse(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = _SHARED_PATH.read_text()
+        cls.text = _REVIEW_PATH.read_text()
         cls.section = _slice(cls.text, _START_MARKER, _END_MARKERS)
 
     def test_file_exists(self):
-        self.assertTrue(_SHARED_PATH.is_file(), f"missing: {_SHARED_PATH}")
+        self.assertTrue(_REVIEW_PATH.is_file(), f"missing: {_REVIEW_PATH}")
 
     # --- AC-1: what drives scale + what the caller controls ---------------
     def test_states_scale_driver_and_caller_lever(self):

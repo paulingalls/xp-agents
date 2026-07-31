@@ -1,18 +1,33 @@
 #!/bin/bash
 set -euo pipefail
-# Preload for xp-assign: emit plan/sprint/SMM paths, clear assign gate.
+# Preload for xp-assign: emit plan/sprint/SMM paths; consume the assign gate
+# ONLY when the caller opts in with --consume-gate.
+#
+# Non-mutating is the DEFAULT because the mutating path used to be the unmarked
+# one: the gate marker is live (a lead write gate reads it, the plan-review
+# SubagentStop hook arms it), and every run — including a run made just to read
+# what the preload emits — deleted it. That disarmed the plan-review gate twice
+# while this preload was being read. An `--inspect` flag would not have helped:
+# the person inspecting is exactly the caller who does not know to pass a flag.
+# So the skill's `!`-injected invocation opts IN, and everything else is safe.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
+
+CONSUME_GATE=no
+for arg in "$@"; do
+    case "$arg" in
+        --consume-gate) CONSUME_GATE=yes ;;
+    esac
+done
 
 echo "SMM_DIR=${SMM_DIR}"
 echo "PLUGIN_ROOT=${PLUGIN_ROOT}"
 echo "SMM_FILE=$(smm_render_to_tempfile)"
 
-# The teammate prompt must state the session's review cadence, or the lead
-# guesses and the teammate runs a per-commit review cycle a story-cadence
-# session already defers. Same reader as the story-close and quality-review
-# preloads; fail-safes to 'commit'.
-echo "REVIEW_CADENCE=$(_get_review_cadence)"
+# No REVIEW_CADENCE var: the teammate reads its cadence from its OWN
+# SessionStart render (session_start._run_teammate), which reads the marker
+# live. A copy emitted here would be a fourth channel and the only staleable
+# one — the lead authors it once, at spawn. Reversal recorded in the SMM.
 
 if [ -f "${SMM_DIR}/sprint.json" ]; then
     echo "SPRINT_FILE=$(sprint_render_to_tempfile)"
@@ -192,4 +207,9 @@ if [ -f "$PLAN_MARKER" ]; then
     fi
 fi
 
-rm -f "${SMM_DIR}/.assign-pending"
+# Consume the gate through the marker helper, not `rm -f` on a hand-spelled
+# path: the helper owns the filename and refuses a symlink. Idempotent, so a
+# re-invoked /xp-assign whose gate is already consumed still exits 0.
+if [ "$CONSUME_GATE" = yes ]; then
+    consume_marker ASSIGN_PENDING
+fi

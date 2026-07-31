@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Each close-skill preload appends the shared close-pipeline reference.
+"""Each close-skill preload appends the close-pipeline reference for its mode.
 
 All four close skills source their Step 5 / 5b / 6 prose from a single
 file at `scripts/_close_pipeline_shared.md`. Each preload `cat`s that
@@ -7,11 +7,18 @@ file at the end of its output so the LLM running the skill sees one
 consistent set of shared instructions instead of four near-duplicate
 copies.
 
+Steps 4 and 4b live in a SECOND file, `scripts/_close_pipeline_review.md`,
+appended (before the shared one) only by free/plan/sprint — the modes that
+run those steps. Story-close defers both to its enclosing sprint-close and
+appends the shared file alone, so the reference is mode-scoped by which
+files a preload emits rather than by prose telling the reader to skip ahead.
+
 These tests assert the preload-side mechanic: when a close-skill
-preload runs, its stdout contains the shared content's marker headings
-and key phrases, per close mode (story/sprint/plan/free). The shared
-`_SharedPreloadAssertions` mixin and `_close_started_events` helper
-live in `_close_preloads_helpers.py` (not test-collected) so all four
+preload runs, its stdout contains the reference's marker headings
+and key phrases, per close mode (story/sprint/plan/free). The
+`_SharedPreloadAssertions` mixin and the `_close_started_events` helper live
+in `_close_preloads_helpers.py`, and the `_ReviewPipelineAssertions` mixin in
+`_close_preloads_review_helpers.py` (neither test-collected), so the
 mode-specific TestCase classes below share one copy.
 
 The cross-mode CLOSE_START_TS emission check, plan/free SKIP-note
@@ -36,6 +43,7 @@ import markers
 import retro_metrics
 from _bases import _PLUGIN_ROOT
 from _close_preloads_helpers import _close_started_events, _SharedPreloadAssertions
+from _close_preloads_review_helpers import _ReviewPipelineAssertions
 from conftest import _extract_preload_var, _IntegrationTestCase
 
 
@@ -65,8 +73,8 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
     def test_does_not_emit_run_full_code_review_flag(self):
         # Inverse-pin: story-close runs /xp-quality-review only (self-find);
         # the broad Step 4b workflow /code-review never runs at story close, so
-        # the preload must NOT emit RUN_FULL_CODE_REVIEW. The shared Step 4b
-        # prose is still catted (gated on the absent flag → skipped).
+        # the preload must NOT emit RUN_FULL_CODE_REVIEW. Step 4b's prose is
+        # not appended either — see the review-steps inverse pin below.
         source = self._PRELOAD.read_text()
         self.assertNotIn(
             "close-review-gate",
@@ -79,6 +87,34 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
             _extract_preload_var(result.stdout, "RUN_FULL_CODE_REVIEW"),
             "story-close preload must not emit RUN_FULL_CODE_REVIEW",
         )
+
+    def test_does_not_emit_the_review_pipeline_steps(self):
+        # Mode-scoped close reference. story-close runs neither Step 4
+        # (Security Review — the enclosing sprint-close covers this diff) nor
+        # Step 4b (the broad workflow /code-review, which never fires at story
+        # close: the preload does not even compute its gate flag, pinned
+        # above). Both steps live in `_close_pipeline_review.md`, which only
+        # free/plan/sprint `cat`. Emitting them here spent context on steps
+        # this mode is documented to skip.
+        #
+        # Pinned on the EMITTED STDOUT, not on the preload source: the source
+        # check would pass the moment the `cat` line is absent, even if the
+        # steps had been left inline in the file story-close still reads.
+        result = self._preload()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for absent in (
+            "### Step 4: Security Review",
+            "### Step 4b: Full code review (conditional)",
+            'Skill(skill: "security-review"',
+            '"kind":"security"',
+        ):
+            with self.subTest(absent=absent):
+                self.assertNotIn(
+                    absent,
+                    result.stdout,
+                    f"story-close preload must not emit {absent!r} — Steps 4 "
+                    "and 4b belong to the modes that run them",
+                )
 
     def test_emits_close_started_event_story(self):
         # story-close records its cycle in the log like every other mode: the
@@ -128,7 +164,9 @@ class TestStoryClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTes
         )
 
 
-class TestSprintClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
+class TestSprintClosePreloadEmitsShared(
+    _ReviewPipelineAssertions, _SharedPreloadAssertions, _IntegrationTestCase
+):
     _PRELOAD = _PLUGIN_ROOT / "skills" / "xp-sprint-close" / "scripts" / "preload.sh"
 
     def test_emits_run_full_code_review_flag(self):
@@ -152,7 +190,9 @@ class TestSprintClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTe
         self.assertEqual(md.get("close_cycle_id"), cycle_id)
 
 
-class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
+class TestPlanClosePreloadEmitsShared(
+    _ReviewPipelineAssertions, _SharedPreloadAssertions, _IntegrationTestCase
+):
     """Commit 2b: plan-close preload now emits the shared content too.
 
     Step 5b previously skipped on the rationale that story+sprint close
@@ -186,7 +226,9 @@ class TestPlanClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTest
         self.assertEqual(md.get("close_cycle_id"), cycle_id)
 
 
-class TestFreeClosePreloadEmitsShared(_SharedPreloadAssertions, _IntegrationTestCase):
+class TestFreeClosePreloadEmitsShared(
+    _ReviewPipelineAssertions, _SharedPreloadAssertions, _IntegrationTestCase
+):
     """Commit 2b: free-close preload now emits the shared content too.
 
     Step 5b previously skipped on the (incorrect) rationale that free

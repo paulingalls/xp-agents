@@ -30,7 +30,29 @@ def normalize_repo_path(raw: str) -> str:
 
 
 def load_diff_paths(spec: str | None) -> set[str]:
-    """Parse newline-separated repo-relative paths from a file, or stdin ("-").
+    """Parse NUL- or newline-separated repo-relative paths from a file, or
+    stdin ("-").
+
+    The documented capture is `git diff --no-renames --name-only -z ...`
+    (story-003) — `-z` NUL-terminates every record, the only separator that
+    closes every git path-quoting class (non-ASCII, `"`, `\\`, and control
+    bytes including NEWLINE). The separator is chosen by CONTENT, not layered:
+    a blob holding a NUL is `-z` output and is split on NUL ALONE, because a
+    newline inside a `-z` record is part of a legal path, and splitting it too
+    would shatter that path into fragments matching nothing — reopening, for
+    the one class only `-z` can deliver raw, exactly the fail-open this story
+    closes. A blob with no NUL is split on newlines, which keeps a plain
+    newline-separated FILE spec working: `--diff-paths` also accepts a file,
+    and nothing guarantees it came from a `-z` capture rather than being
+    hand-authored or written by some other producer.
+
+    `scripts/commits.py._nul_paths` already parses `-z` output and calls
+    itself "one parser for every `--name-only -z` reader below" — this is a
+    second one. Duplicated rather than imported: `smm/` importing from
+    `scripts/` is the wrong dependency direction (the reverse already holds
+    throughout this plugin), and `_nul_paths` doesn't fit anyway — it has no
+    newline fallback, because every one of ITS callers only ever reads `-z`
+    output, never a hand-authored file spec.
 
     Returns an EMPTY set for every degraded case — no spec, unreadable path,
     undecodable bytes, blank content — because empty and absent MUST behave
@@ -50,7 +72,8 @@ def load_diff_paths(spec: str | None) -> set[str]:
         raw = sys.stdin.read() if spec == "-" else Path(spec).read_text()
     except (OSError, UnicodeDecodeError):
         return set()
-    return {p for p in (normalize_repo_path(line) for line in raw.splitlines()) if p}
+    records = raw.split("\0") if "\0" in raw else raw.splitlines()
+    return {p for p in (normalize_repo_path(record) for record in records) if p}
 
 
 def _intersects_diff(entry: str, diff_paths: set[str]) -> bool:

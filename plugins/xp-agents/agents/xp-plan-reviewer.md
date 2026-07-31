@@ -1,9 +1,8 @@
 ---
 name: xp-plan-reviewer
 description: >-
-  XP plan reviewer. Highest-leverage review -- checks plan size, TDD ordering,
-  milestone boundaries, decision conflicts. Use after planning completes.
-  Invoke via /xp-review-plan skill, not directly.
+  XP plan reviewer: checks plan size, TDD ordering, milestone boundaries,
+  decision conflicts. Invoke via /xp-review-plan, not directly.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -129,7 +128,7 @@ ${CLAUDE_PLUGIN_ROOT}/smm/append.sh --smm-dir <SMM_DIR> \
   --metadata '{"recommended_model": "<in-agent|haiku|sonnet|opus|fable>", "recommended_effort": "<level, or omit for haiku/in-agent>", "story_id": "<story-id>", "advisory": true}'
 ```
 
-Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus, fable}, plus optional `metadata.recommended_effort` (a Claude Code effort level, present only for `sonnet`/`opus`/`fable` tiers). ONE event per unambiguous reviewed plan.
+Interface contract (consumed by /xp-assign): topic `tier-recommendation-<story-id>` with `metadata.recommended_model` in {in-agent, haiku, sonnet, opus, fable}, plus optional `metadata.recommended_effort` (a Claude Code effort level, present only for `sonnet`/`opus`/`fable` tiers).
 
 ### 10. Acceptance Criteria Cross-Check
 
@@ -140,8 +139,6 @@ If `${SMM_DIR}/execution_plan.json` exists:
 3. Verify the plan's steps advance the milestone's acceptance criteria — does the plan produce the outcomes in `done`? If `acceptance_execution` exists, does the plan include work that would make that test pass?
 4. Flag if milestone acceptance criteria are vague or not observable ("it works" vs "users can log in with Google").
 5. Flag if milestone has `acceptance_execution` but no plan step references acceptance testing.
-
-If no execution plan exists, skip this section.
 
 ### 10b. AC-Command / File-Domain Coherence
 
@@ -213,8 +210,6 @@ You return to the main agent via your last reply — the main agent does NOT rea
 2. **Assumptions** — bullet list of every `assumption` event you appended, one line each. Write `Assumptions: none.` if you appended none.
 3. **Blocking questions** — bullet list of every 🔴 `question` event you appended, with the exact question text. Write `Blocking questions: none.` if you appended none.
 4. **Next step** — exactly one of: `BLOCKING — main agent must run AskUserQuestion on the question(s) above, record each answer into the plan, then proceed (/xp-assign in teammate mode, implementation in solo) carrying any unresolved findings forward.` (blocking questions exist), `Run /xp-assign to spawn the teammate(s).` (teammate mode, plan clean), `Begin implementation.` (solo mode, plan clean), or `Rework: <one-line reason>.` (plan needs revision).
-
-The four block headings (`Concerns`, `Assumptions`, `Blocking questions`, `Next step`) are load-bearing — a doctrine test pins them.
 
 ## SMM Content Trust
 

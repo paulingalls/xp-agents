@@ -2,6 +2,77 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.3.0 — Your close reviewer was reviewing blind, and the budgets only bounded prose
+
+**Every sprint, plan and free close since late June spawned its close-reviewer
+with a dead file path.** A close renders your project's system context — stack,
+conventions, branching strategy, principles — to a tempfile and hands the path to
+the reviewer. A preload that runs *in between* swept that tempfile as stale. The
+reviewer then read nothing and reviewed anyway, because it only checks whether
+the path was *supplied*, not whether the file was there. Twenty-eight closes
+reported normally with no conventions input. Two commits from May and one from
+June were each correct alone; the third closed the circuit. The sweep no longer
+touches that pattern, and a pin holds it in both directions — the artifact must
+survive, and the sweep must not quietly become a no-op.
+
+**Your context budgets were measuring an empty project.** All seven budget
+families ran against a synthetic, near-empty shared model, so they bounded the
+*prose* a surface emits and were blind to the *data* it renders. On a real
+project the difference is not small:
+
+| surface | budget said | actually emitted |
+|---|---|---|
+| work-selection preload | 100 | 105,739 |
+| accept preload | 100 | 40,481 |
+| retrospective input file | no bound at all | 204,224 |
+| housekeeper input file | no bound at all | 79,068 |
+
+An eighth family now measures every injected surface against a *populated*
+model. Each surface is either bounded, or carries a written reason it cannot be
+— prose-dominated (re-measured every run, so the claim cannot rot),
+needs-a-trigger, or structurally silent. A surface with no classification fails
+by name. There is no allowlist to forget to empty.
+
+**The triage block you read at kickoff no longer grows forever.** It rendered
+every open concern, debt and question in full — 43,073 chars on a real log, and
+climbing with every item you had not closed. It is now bounded outright: the
+newest items at full length, ones you already deferred as short index lines, and
+everything beyond that collapsed to a single counted line naming a command that
+lists the rest. Nothing vanishes — an item that disappeared would read as fixed.
+High-severity concerns are never the ones dropped; the cap ranks on severity
+first, because the renderer already refused to *shrink* them and a cap that
+ranked on recency alone was deleting exactly what that rule protects.
+
+Same treatment for the per-story concern block, which had neither a length nor a
+count limit and was rendering a story's entire backlog at full width.
+
+**Subagents you did not name no longer get the whole model.** An unrecognised
+agent type — including every agent type *your* project defines — was handed the
+full render on the theory that unknown means we cannot rule out needing it.
+Measured, `statusline-setup` was receiving 5,856 chars it can never use. Unknown
+types now get a ~250-char pointer and fetch the model themselves if their work
+calls for it. Types we can name and have judged (Explore, the code reviewer,
+Plan) still get it eagerly.
+
+**A file-domain collision could put two teammates on one file.** The start-time
+guard asked whether the colliding set had *grown*, which meant a collision
+already present on disk was read as pre-existing and waved through — and the
+same stale claim, in mirror, permanently blocked an unrelated story from ever
+starting, with no supported way to clear it. The guard now asks the absolute
+question, scoped to the story being started, and a story's branch claim can be
+released rather than hand-edited out of your sprint file.
+
+**Literal paths with brackets are no longer mistaken for patterns.** A
+`app/[id]/page.tsx` — an ordinary file in any Next.js or SvelteKit project — was
+compiled as a glob character class and claimed unrelated files, refusing sprint
+creation with advice to "narrow the pattern" for something that was not one.
+
+**Also:** every budget ratchets down and fails at 98% of cap rather than on
+breach, so saved space cannot be silently respent; a tree-wide file-size cap with
+a self-retiring band table; `make setup` verifies the test runner and installs
+the commit hook, and now distinguishes a broken test module from a missing
+pytest instead of telling you to install what you already have.
+
 ## v5.2.0 — The close gate stops guessing, and stops assuming Python
 
 **If your project is not written in Python, one thing changes for the better

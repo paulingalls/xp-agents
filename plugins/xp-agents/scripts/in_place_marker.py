@@ -82,6 +82,11 @@ import in_place_locks
 import marker_names
 from _append_impl import write_text_atomic
 
+# The tree's ONE pid liveness probe. It reports the raw condition rather than a
+# verdict, because this module and `migration_lock.holder_state` map EPERM in
+# OPPOSITE directions — see `_probe_pid` below and that module's docstring.
+from migration_lock import probe_pid_condition
+
 # The three verdicts. "PROVEN dead" is a strictly narrower claim than "not
 # alive", and only the former may ever authorize a reap — hence three, not two.
 #
@@ -445,36 +450,32 @@ def _read_tokens(path: Path) -> list[str] | None:
 def _probe_pid(pid: int) -> bool | None:
     """True = alive, False = PROVEN dead, None = cannot adjudicate.
 
-    Still here, and still three-state, but its job has NARROWED: it no longer
-    adjudicates the supervisor (the lock does that). It answers the child-pid
-    OR-leg, and the legacy fallback. Its three states map onto the OR-leg exactly:
-    alive ⇒ LIVE; proven dead ⇒ contributes nothing, the lock decides;
-    unadjudicable ⇒ LIVE, because we will not delete what we cannot prove dead.
+    THIS SITE'S VERDICT over the shared four-state probe, which reports the raw
+    condition so that this mapping and `migration_lock.holder_state`'s — which
+    disagree on EPERM — can both be expressed. Only `False` lets a marker be
+    reaped, so every state short of proof of death folds onto None.
 
-    POSIX-only: os.kill(pid, 0) is a liveness probe here, but on Windows it would
-    terminate the target. The plugin is already POSIX (flock, bash preloads), so
-    this is a note, not a branch.
+    Its job has NARROWED: it no longer adjudicates the supervisor (the lock does
+    that). It answers the child-pid OR-leg, and the legacy fallback. Its three
+    states map onto the OR-leg exactly: alive ⇒ LIVE; proven dead ⇒ contributes
+    nothing, the lock decides; unadjudicable ⇒ LIVE, because we will not delete
+    what we cannot prove dead.
     """
-    if pid <= 0:
-        # os.kill(0, 0) signals our OWN process group and SUCCEEDS; negative pids
-        # are process-GROUP targets. Neither is a pid we wrote, so this is
-        # corruption: not alive, but not proof of death either.
-        return None
-    try:
-        os.kill(pid, 0)
-    except OverflowError:
-        # int() is arbitrary-precision but os.kill needs a C int. OverflowError is
-        # an ArithmeticError, so it escapes the OSError clauses below and would
-        # CRASH the Stop hook — and a crash means the gate never fires at all.
-        return None
-    except ProcessLookupError:
-        return False  # proven dead
-    except OSError:
-        # PermissionError: the pid EXISTS but is owned by another uid, so it is
-        # not our teammate (which runs as us) — unadjudicable, and certainly not
-        # proof of death.
-        return None
-    return True
+    match probe_pid_condition(pid):
+        case "alive":
+            return True
+        case "dead":
+            return False
+        case "exists_not_ours":
+            # The pid EXISTS but is owned by another uid, so it is not our
+            # teammate (which runs as us) — unadjudicable, and certainly not
+            # proof of death.
+            return None
+        case "unknown":
+            # A non-positive pid (os.kill(0, 0) signals our OWN process group and
+            # SUCCEEDS; a negative pid targets a group), or a value too big for a
+            # C int. Corruption either way: not alive, not proof of death.
+            return None
 
 
 def in_place_teammate_from_env(smm_dir: Path, env_name: str | None) -> bool:

@@ -43,9 +43,19 @@ What this test does NOT catch:
   counts) — those scale with SMM size and are validated by per-script unit
   tests in this directory.
 
+Budgets are `ratchet(measured, current, 100, rounding=ceil, floor=100)`,
+and the assertion fails at 98% of budget rather than on breach.
+
+TEN of the fifteen entries below measure 0 chars: the fixture drives the
+emitter's no-trigger path, so those budgets bound nothing that is actually
+exercised. `ratchet` refuses to lower a zero measurement for exactly that
+reason — encoding 0 as the bound would record the fixture gap as the rule.
+Fixing those fixtures is separate work; until then, read those ten entries as
+placeholders, not as coverage.
+
 Adding a new emitter: add a fixture builder in `_emitter_fixtures.py`,
-run `assert_emitter_under_budgets` once to measure stdout chars, compute
-``ceil(measured * 1.125 / 100) * 100`` (floor at 100), add an entry below.
+run `assert_emitter_under_budgets` once to measure stdout chars, then
+`ratchet(measured, <a first budget>, 100, rounding=math.ceil, floor=100)`.
 """
 
 import sys
@@ -54,32 +64,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _emitter_fixtures import EMITTER_FIXTURES
+from _emitter_fixtures import EMITTER_BUDGETS, EMITTER_FIXTURES
 from conftest import (
     _SCRIPTS_DIR,
     assert_budgets_match,
     assert_emitter_under_budgets,
     discover_emitter_scripts,
 )
-
-# ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
-EMITTER_BUDGETS: dict[str, int] = {
-    "bash_post_tool.py": 100,
-    "kickoff_gate.py": 100,
-    "lint_check.py": 300,
-    "post_tool_exit_plan.py": 100,
-    "pre_tool_bash.py": 100,
-    "pre_tool_skill.py": 100,
-    "pre_tool_write.py": 100,
-    "prompt_nugget.py": 100,
-    "retrospective.py": 100,
-    "review_cycle_done.py": 200,
-    "session_end_warning.py": 100,
-    "session_start.py": 2100,
-    "subagent_start.py": 4700,
-    "subagent_stop.py": 300,
-    "user_prompt_log.py": 100,
-}
 
 _LABEL = "scripts/*.py emitter"
 

@@ -13,7 +13,10 @@ Each pin keeps its own detection pass because the violation shapes differ
 line of Markdown). The pin owns detection; this helper owns discovery.
 """
 
+import ast
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 # The shipped Python surface, relative to plugins/xp-agents/. `hooks/` is
 # absent on purpose: it holds hooks.json and no Python at all.
@@ -22,13 +25,23 @@ _SHIPPED_SKILL_SCRIPTS = "skills/*/scripts"
 
 
 def files_to_scan(root: Path, exclude_self: Path) -> list[Path]:
-    """Return test_*.py + _*.py + conftest.py at any depth under root.
+    """Return every `.py` file at any depth under root.
 
-    Excludes `__init__.py` (no event literals; package marker only) and
-    the pin's own file (passed as `exclude_self.resolve()` — the pin
-    asserts other files, not itself).
+    A name-shape filter (test_*.py, _*.py, conftest.py) used to gate this
+    list; it silently dropped shared test-base modules with no matching
+    prefix (e.g. a `sister_test_base.py`) and every `__init__.py`, both of
+    which are ordinary test-tree code a pin's rule can apply to. The only
+    exclusion left is the pin's own file (passed as
+    `exclude_self.resolve()` — the pin asserts other files, not itself).
     """
     self_resolved = exclude_self.resolve()
+    return [p for p in root.rglob("*.py") if p.resolve() != self_resolved]
+
+
+def _legacy_name_shaped_files(root: Path, exclude_self: Path | None) -> list[Path]:
+    """Recompute of the pre-widening test_*.py / _*.py / conftest.py rule,
+    frozen here as a forward guard -- see `scan_shortfalls`."""
+    self_resolved = exclude_self.resolve() if exclude_self is not None else None
     paths: list[Path] = []
     for p in root.rglob("*.py"):
         if p.name == "__init__.py" or p.resolve() == self_resolved:
@@ -36,6 +49,87 @@ def files_to_scan(root: Path, exclude_self: Path) -> list[Path]:
         if p.name.startswith(("test_", "_")) or p.name == "conftest.py":
             paths.append(p)
     return paths
+
+
+def scan_shortfalls(
+    scanned: list[Path],
+    root: Path,
+    min_files: int,
+    exclude_self: Path | None = None,
+) -> list[str]:
+    """Human-readable shortfalls in *scanned*; empty when healthy.
+
+    Two legs:
+      - superset: every file the legacy name-shape predicate (test_*.py,
+        _*.py, conftest.py, minus __init__.py) would select under *root*
+        must still be present in *scanned*. `files_to_scan` now admits
+        every .py file, so the legacy set is a subset of it by
+        construction -- this leg is a tautology against the real tree.
+        Its value is as a forward guard: it fires the moment a future
+        change re-narrows `files_to_scan`, which the post-widening tree
+        cannot itself witness.
+      - floor: `len(scanned) >= min_files`.
+    """
+    shortfalls: list[str] = []
+    scanned_resolved = {p.resolve() for p in scanned}
+    missing = [
+        p
+        for p in _legacy_name_shaped_files(root, exclude_self)
+        if p.resolve() not in scanned_resolved
+    ]
+    if missing:
+        shown = ", ".join(sorted(str(p) for p in missing))
+        shortfalls.append(
+            f"{len(missing)} legacy-name-shaped file(s) missing from scan: {shown}"
+        )
+    if len(scanned) < min_files:
+        shortfalls.append(
+            f"only {len(scanned)} files scanned, expected at least {min_files}"
+        )
+    return shortfalls
+
+
+def parse_files(
+    paths: list[Path],
+) -> tuple[list[tuple[Path, ast.AST]], list[tuple[Path, str]]]:
+    """Parse every path in *paths*; split into successes and failures.
+
+    A file that fails to parse is captured as `(path, str(error))` in the
+    second list rather than swallowed -- callers report it as its own
+    signal, distinct from "clean" (no violations found in the first list).
+    """
+    trees: list[tuple[Path, ast.AST]] = []
+    failures: list[tuple[Path, str]] = []
+    for path in paths:
+        try:
+            trees.append((path, ast.parse(path.read_text(encoding="utf-8"))))
+        except SyntaxError as exc:
+            failures.append((path, str(exc)))
+    return trees, failures
+
+
+_Violation = TypeVar("_Violation")
+
+
+def scan_root(
+    paths: list[Path],
+    scan_tree: Callable[[ast.AST], list[_Violation]],
+) -> tuple[dict[Path, list[_Violation]], list[tuple[Path, str]]]:
+    """Run *scan_tree* over every parseable path in *paths*.
+
+    Returns (violations keyed by path, parse-failures). A file that fails to
+    parse appears ONLY in the second list -- it is never folded into the first
+    as if it had been proven clean. Each pin still owns its own `scan_tree`;
+    what is shared is the parse/partition step, which was identical in all
+    three sister pins.
+    """
+    trees, parse_failures = parse_files(paths)
+    violations: dict[Path, list[_Violation]] = {}
+    for path, tree in trees:
+        found = scan_tree(tree)
+        if found:
+            violations[path] = found
+    return violations, parse_failures
 
 
 def shipped_files_to_scan(plugin_root: Path) -> list[Path]:

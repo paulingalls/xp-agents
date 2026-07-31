@@ -86,6 +86,34 @@ class TestSchedulePreload(_IntegrationTestCase):
         self.assertEqual(_extract_preload_var(out, "PARALLELIZABLE"), "false")
         self.assertEqual(_extract_preload_var(out, "OVERLAP_DETAIL"), "")
 
+    def test_pattern_claim_names_its_pattern_in_the_detail(self):
+        """story-010 made a glob claim every declared path it matches, so a
+        collision can now name a story whose file_domain does NOT contain the
+        path. Without the pattern the lead reads "b.py claimed by story-001",
+        opens story-001, finds no b.py, and disbelieves the report."""
+        self._write(
+            [
+                _make_story(
+                    id="story-001",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["*.py — everything at the root"],
+                ),
+                _make_story(
+                    id="story-002",
+                    status="scheduled",
+                    dependencies=[],
+                    file_domain=["b.py — one file"],
+                ),
+            ]
+        )
+        out = self._run()
+        detail = _extract_preload_var(out, "OVERLAP_DETAIL")
+        assert detail is not None
+        self.assertIn("b.py", detail)
+        self.assertIn("*.py", detail)
+        self.assertIn("story-001", detail)
+
     def test_overlapping_multi_frontier_not_parallelizable(self):
         self._write(
             [

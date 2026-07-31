@@ -43,9 +43,26 @@ import marker_names  # noqa: E402
 import markers  # noqa: E402
 import sister_tests  # noqa: E402  # pyright: ignore[reportMissingImports]
 import sprint_store  # noqa: E402
-import system_context_store  # noqa: E402
 import triage  # noqa: E402
 import worktree  # noqa: E402
+
+# Layout resolution lives in sister_layout.py — extracted so this module could
+# take introduced_collisions' `running_only` param without breaching its
+# file-size band ceiling. Re-exported under the historical private names so
+# `sprint_save._resolve_layout` keeps working for the sister-test suites.
+from sister_layout import (  # noqa: E402  intentional re-export
+    _coerce_overrides,
+    _resolve_layout,
+)
+
+__all__ = [
+    "_coerce_overrides",
+    "_resolve_layout",
+    "expanded_collision_report",
+    "introduced_collisions",
+    "run",
+    "save",
+]
 
 # Matches "Milestone N: <anything>" or "Milestone N — <anything>"
 _MILESTONE_NUMBER_RE = re.compile(r"^\s*Milestone\s+(\d+)\b", re.IGNORECASE)
@@ -129,73 +146,6 @@ def _transition_target_milestone(data: dict, smm_dir: Path) -> None:
             smm_dir,
             f"Failed to transition milestone {target_num} to in-progress: {exc}",
         )
-
-
-def _coerce_overrides(raw: object) -> tuple["sister_tests.TestLayoutRule", ...]:
-    """Coerce JSON list-of-dicts to tuple-of-TestLayoutRule. Round-trips
-    skip_basenames/skip_suffixes/source_excludes from JSON list to tuple.
-    Silently drops malformed entries — schema validator is the source of
-    truth; this is defensive."""
-    if not isinstance(raw, list):
-        return ()
-    out: list[sister_tests.TestLayoutRule] = []
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            out.append(
-                sister_tests.TestLayoutRule(
-                    source_pattern=entry["source_pattern"],
-                    stem_extractor=entry["stem_extractor"],
-                    test_glob=entry["test_glob"],
-                    skip_basenames=tuple(entry.get("skip_basenames", ())),
-                    skip_suffixes=tuple(entry.get("skip_suffixes", ())),
-                    source_excludes=tuple(entry.get("source_excludes", ())),
-                )
-            )
-        except (KeyError, TypeError):
-            continue
-    return tuple(out)
-
-
-def _resolve_layout(smm_dir: Path) -> "sister_tests.TestLayout | None":
-    """Load system_context.test_layout and construct a TestLayout. Returns
-    None when test_layout is absent, convention is 'unknown', system_context
-    is missing/unreadable, OR the layout resolves to no rules and no
-    overrides (a degenerate "custom" with empty overrides). Never writes
-    events.
-
-    Returning None for the degenerate-custom case ensures the soft-warn
-    path fires once instead of silently no-op'ing every save."""
-    try:
-        sc = system_context_store.load_system_context(smm_dir)
-    except (OSError, ValueError):
-        return None
-    if sc is None:
-        return None
-    layout_data = sc.get("test_layout")
-    if not isinstance(layout_data, dict):
-        return None
-    convention = layout_data.get("convention")
-    if not isinstance(convention, str) or convention == "unknown":
-        return None
-    if convention == "custom":
-        rules: tuple[sister_tests.TestLayoutRule, ...] = ()
-    else:
-        builtin = sister_tests.BUILTIN_LAYOUTS.get(convention)
-        if builtin is None:
-            return None  # schema validator should catch this earlier
-        rules = builtin.rules
-    overrides = _coerce_overrides(layout_data.get("overrides", []))
-    if not rules and not overrides:
-        # Degenerate layout (convention='custom' with empty/malformed
-        # overrides) — discovery would iterate zero rules and return zero
-        # sisters on every save. Treat as "no layout configured" so the
-        # soft-warn path surfaces it.
-        return None
-    return sister_tests.TestLayout(
-        convention=convention, rules=rules, overrides=overrides
-    )
 
 
 def _warn_sister_skip_once(smm_dir: Path, reason: str) -> None:
@@ -305,8 +255,44 @@ def _auto_include_sister_tests(
         domain.extend(additions)
 
 
+def _expanded_report(
+    sprint: dict,
+    layout: "sister_tests.TestLayout | None",
+    project_root: Path | None,
+    *,
+    running_only: bool,
+) -> dict[str, list[dict]]:
+    """`collision_report` over a sister-expanded READ-ONLY copy of `sprint`.
+
+    Takes an already-resolved layout so `introduced_collisions` expands both of
+    its sides with ONE, keeping the comparison apples-to-apples.
+    """
+    view = copy.deepcopy(sprint)  # _auto_include_sister_tests mutates in place
+    if layout is not None and project_root is not None:
+        _auto_include_sister_tests(view, layout, project_root)
+    return file_domain_lock.collision_report(view, running_only=running_only)
+
+
+def expanded_collision_report(
+    sprint: dict, smm_dir: Path, *, running_only: bool = False
+) -> dict[str, list[dict]]:
+    """Every collision in `sprint`, sister-expanded the way run() expands.
+
+    Public because the start-time gate (`sprint_transitions`) needs the ABSOLUTE
+    reading, not `introduced_collisions`' this-write-only one: a live collision
+    that PRE-EXISTS is exactly what a promotion must refuse to join. Read-only.
+    """
+    layout = _resolve_layout(smm_dir)
+    project_root = _resolve_project_root() if layout is not None else None
+    return _expanded_report(sprint, layout, project_root, running_only=running_only)
+
+
 def introduced_collisions(
-    data: dict, smm_dir: Path, *, current_expanded: bool = False
+    data: dict,
+    smm_dir: Path,
+    *,
+    current_expanded: bool = False,
+    running_only: bool = False,
 ) -> dict[str, list[dict]]:
     """Collisions in `data` that THIS write is responsible for.
 
@@ -339,20 +325,23 @@ def introduced_collisions(
     for an identical, idempotent result. edit_story passes RAW data and keeps the
     default (False), relying on this function to own the current-side expansion.
     The baseline is always expanded — that read is this function's own work.
+
+    `running_only` is forwarded to `collision_report` for BOTH sides, so the
+    baseline-vs-current comparison stays apples-to-apples. It answers "which
+    claims hold" (see file_domain_lock._holds_claim), and it is the CALLER's
+    choice, not this function's: run() keeps the default because authoring is
+    when disjointness is decided and every story in a fresh sprint is parked —
+    True there would report zero collisions for exactly the sprint the module
+    docstring names as the gate's reason to exist. `edit_story` and the
+    start-time gate pass True: those write into a sprint that is already
+    running, and a parked story's claim must not veto a live story's work.
     """
     layout = _resolve_layout(smm_dir)
     project_root = _resolve_project_root() if layout is not None else None
-
-    def _expanded_report(sprint: dict) -> dict[str, list[dict]]:
-        view = copy.deepcopy(sprint)  # _auto_include_sister_tests mutates in place
-        if layout is not None and project_root is not None:
-            _auto_include_sister_tests(view, layout, project_root)
-        return file_domain_lock.collision_report(view)
-
     current_report = (
-        file_domain_lock.collision_report(data)
+        file_domain_lock.collision_report(data, running_only=running_only)
         if current_expanded
-        else _expanded_report(data)
+        else _expanded_report(data, layout, project_root, running_only=running_only)
     )
     # Fail open: this read is advisory (it only says which collisions PRE-EXIST),
     # so an unreadable file must not veto the write — a hard raise here shut the
@@ -365,7 +354,9 @@ def introduced_collisions(
         # First create (or an unreadable baseline): nothing trustworthy on disk,
         # so every current collision is our fault.
         return current_report
-    baseline_report = _expanded_report(baseline)
+    baseline_report = _expanded_report(
+        baseline, layout, project_root, running_only=running_only
+    )
 
     introduced: dict[str, list[dict]] = {}
     for path, claims in current_report.items():

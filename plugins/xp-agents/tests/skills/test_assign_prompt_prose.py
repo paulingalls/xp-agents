@@ -80,6 +80,26 @@ class TestAssignPromptProse(unittest.TestCase):
         the id cannot be told apart from last sprint's same-numbered story."""
         self.assertRegex(self.write_step, r"(?i)stale|another sprint|repeat")
 
+    def test_the_file_domain_is_framed_as_a_claim_while_the_story_runs(self):
+        """The teammate reads this bullet as the definition of its job, so an
+        ownership framing teaches the wrong rule twice over: it invites a
+        teammate to treat a queued story's list as a standing reservation, and
+        it hides WHY the domain exists — keeping two stories that run at the
+        same time off one file. Say the claim holds while the story runs, and
+        say concurrency is the reason."""
+        self.assertIn("File Domain", self.write_step)
+        self.assertRegex(self.write_step, r"(?i)while it runs")
+        self.assertRegex(
+            self.write_step,
+            r"(?i)at the same time|concurrent",
+            "the bullet must name concurrency as the reason for the claim",
+        )
+        self.assertNotRegex(
+            self.write_step,
+            r"(?i)exclusively owns",
+            "ownership framing is what this bullet had to stop saying",
+        )
+
     def test_the_in_place_variant_is_not_left_contradicting_the_gate(self):
         """Step 4's solo variant passes NO --branch. Left unsaid, Step 3's
         "the spawn refuses any prompt without the --branch string" reads as

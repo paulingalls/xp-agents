@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import _common
 import coordination
 import identity
+import spawn_command
 import spawn_prompt
 import teammate_runner
 import worktree
@@ -223,6 +224,14 @@ def extract_diagnostics(lines: list[str]) -> str:
     fire, and it reports the parsed-JSON count and the total captured-line
     count as two distinct figures rather than asserting the whole capture
     was stream-json.
+
+    The spawn's OWN advisories (spawn_command.NOTICE_PREFIX) are excluded from
+    the evidence tier: they say what the spawn resolved, not that anything went
+    wrong, and the model one fires on every untiered spawn — so left in, they
+    became the reported cause of every no-result failure and sent the lead
+    chasing a --model problem that did not exist. They are still counted in the
+    line totals, and the stream-dump artifact keeps them verbatim. The error
+    tier runs FIRST, so a real refusal is never demoted by this.
     """
     if not lines:
         return "No output received from claude -p"
@@ -249,11 +258,14 @@ def extract_diagnostics(lines: list[str]) -> str:
     if errors:
         return "Spawn failed: " + _bounded_join(errors, _ERROR_LINE_CHARS)
 
-    if non_json_lines:
+    evidence = [
+        line for line in non_json_lines if spawn_command.NOTICE_PREFIX not in line
+    ]
+    if evidence:
         return (
-            f"Unrecognized output ({len(non_json_lines)} of {len(lines)} line(s) "
+            f"Unrecognized output ({len(evidence)} of {len(lines)} line(s) "
             f"captured, {parsed_count} parsed as stream-json): "
-            + _bounded_join(non_json_lines)
+            + _bounded_join(evidence)
         )
 
     return (

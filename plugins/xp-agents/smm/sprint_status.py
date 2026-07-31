@@ -221,7 +221,8 @@ def in_progress_is_teammate_data(data: dict) -> bool:
 def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     """Why the named stories can or cannot run in parallel, with the facts.
 
-        {"collisions": {path: [{"story_id", "origin"}, ...]}, "glob_forced": bool}
+        {"collisions": {path: [{"story_id", "origin", "pattern"?}, ...]},
+         "glob_forced": bool}
 
     `collisions` is `file_domain_lock.collision_report`'s output forwarded
     unchanged — already sorted by path, already dependency- and terminal-aware,
@@ -229,13 +230,14 @@ def file_domains_overlap_detail(data: dict, story_ids: list[str]) -> dict:
     would create a second place to drift from the one file_domain parser.
 
     `glob_forced` is a SEPARATE signal, never folded into `collisions`.
-    `collision_report` compares glob tokens as literal strings, so a
-    glob-declared domain reads as disjoint there. `extract_file_domain_paths`
-    is reused as the glob DETECTOR (it raises ValueError on a glob with no
-    candidates/cwd) — the exact oracle the overlap bool has always relied on,
-    so conservatism fires on exactly the old inputs. Callers need the two apart
-    to say "both stories claim x.py" versus "a glob domain means disjointness
-    can't be proven".
+    `collision_report` now expands a glob against paths some story DECLARED, so
+    pattern-vs-explicit overlap lands in `collisions` — but glob-vs-glob does
+    not (debt 40626375ff25), so a domain declared ENTIRELY in globs can still
+    read as disjoint there. `extract_file_domain_paths` is reused as the glob
+    DETECTOR (it raises ValueError on a glob with no candidates/cwd) — the exact
+    oracle the overlap bool has always relied on, so conservatism fires on
+    exactly the old inputs. Callers need the two apart to say "both stories
+    claim x.py" versus "a glob domain means disjointness can't be proven".
 
     Fewer than two named stories: no pair, so no claim about paths, and the
     detector never runs.

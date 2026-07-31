@@ -12,13 +12,13 @@ preloads execute their FULL logic path — including helpers they invoke
 (session_history_cli.py, triage_preload.py, debt_for_files.py, etc.)
 whose stdout flows into the preload's additionalContext.
 
-Story-001 ships an empty PRELOAD_BUDGETS + empty PRELOAD_FIXTURES so both
-tests pass vacuously. Wave-2 trim stories (002-005, 007) APPEND entries
-as they trim and measure each preload.
+The assertion fails at 98% of budget, not on breach — a preload that has
+crept to its cap is reported while it can still be trimmed cheaply, which is
+the difference between a warning and an outage.
 
 Adding a new preload: add a fixture builder in `_preload_fixtures.py`,
-run `assert_preload_under_budgets` once to measure stdout chars, compute
-``ceil(measured * 1.125 / 100) * 100`` (floor at 100), add an entry below.
+run `assert_preload_under_budgets` once to measure stdout chars, then
+`ratchet(measured, <a first budget>, 100, rounding=math.ceil, floor=100)`.
 """
 
 import sys
@@ -27,56 +27,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from _preload_fixtures import PRELOAD_FIXTURES
+from _preload_fixtures import PRELOAD_BUDGETS, PRELOAD_FIXTURES
 from conftest import (
     assert_budgets_match,
     assert_preload_under_budgets,
     discover_preload_scripts,
 )
-
-# ceil(measured_chars * 1.125 / 100) * 100, floor at 100.
-#
-# The four close preloads are the exception: each `cat`s the shared
-# close-pipeline reference, so a char added there costs 4x and the wave-2 trim
-# stories set these to the next hundred above measured rather than the 1.125
-# headroom, deliberately keeping the trim pressure on. Bumped 7800/7900 -> 8300
-# when the shared Step 6 abort-default gained the close-diff pipe
-# (`count-concerns --diff-paths -`), so an unrelated open concern filed in the
-# same window can no longer abort a clean close. The added paragraph was
-# re-trimmed to five lines first; the per-mode SKILLs carry a one-liner each.
-# Measured at that bump: free 8237, plan 8223, sprint 8242, story 8295.
-# Bumped 8300 -> 8400 when the shared Step 5c worktree-commit note gained the
-# literal-path rule: the hard `-C` refusal shipped in v5.1.0 was taught in one
-# of four places, and not the one a teammate reads, so a lead following this
-# block hit a refusal the block never mentioned. One line, four preloads.
-# Measured at that bump: free 8303, plan 8289, sprint 8308, story 8361.
-# Bumped 8400 -> 8900 for shared Step 6b, which releases the close-cycle id
-# marker. Not prose that could live in one mode's SKILL.md: the marker is what
-# tags concerns with the close they were raised during, and an id left behind
-# tags concerns raised AFTER its close ended — which the next close's
-# `--cycle-id` count then excludes, dropping a concern the gate should have
-# counted. Every mode gates on that count, so every mode needs the release.
-# Written at four lines plus the command (a first draft at ~1100 chars was cut
-# to ~440 before this bump was taken).
-# Measured at that bump: free 8746, plan 8732, sprint 8751, story 8804.
-PRELOAD_BUDGETS: dict[str, int] = {
-    "xp-accept": 100,
-    "xp-assign": 300,
-    "xp-end-session": 200,
-    "xp-free-close": 8900,
-    "xp-kickoff": 200,
-    "xp-plan": 100,
-    "xp-plan-close": 8900,
-    "xp-quality-review": 300,
-    "xp-review-plan": 100,
-    "xp-schedule": 200,
-    "xp-sprint-close": 8900,
-    "xp-sprint-review": 100,
-    "xp-sprint-start": 100,
-    "xp-story-close": 8900,
-    "xp-system-context": 100,
-    "xp-work-selection": 100,
-}
 
 _LABEL = "skills/*/scripts/preload.sh"
 

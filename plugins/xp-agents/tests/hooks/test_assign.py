@@ -141,10 +141,15 @@ class TestAssignPreload(_IntegrationTestCase):
         self.assertNotIn("PLAN_FILE=", result.stdout)
 
     def test_preload_clears_assign_pending_marker(self):
-        """Preload clears .assign-pending marker when it exists."""
+        """Preload clears .assign-pending marker when the caller opts in.
+
+        `--consume-gate` (story-010): the bare run is the inspection path and
+        leaves the live gate armed. See
+        test_spawn_determinism.TestAssignPreloadIsNonDestructiveByDefault.
+        """
         marker = self.smm_dir / ".assign-pending"
         marker.write_text("review-1")
-        result = self._run_preload(_PRELOAD_SCRIPT)
+        result = self._run_preload(_PRELOAD_SCRIPT, args=["--consume-gate"])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists(), "assign-pending marker should be cleared")
 

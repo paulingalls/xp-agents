@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 
 from _bases import _PLUGIN_ROOT
@@ -13,6 +14,75 @@ from _emitter_fixtures import EMITTER_FIXTURES
 from _preload_fixtures import PRELOAD_FIXTURES
 
 _HISTORICAL_ID_RE = re.compile(r"\b[0-9a-f]{12}\b")
+
+# Calibration: a budget is the measured size plus ~11% headroom, so a surface
+# sits near 89% of its cap and can gain a clarifying clause without a bump.
+_CALIBRATION = 1.125
+
+# The band the assertions fail at. SEPARATE knob from _CALIBRATION: the
+# multiplier decides where a freshly-ratcheted file lands (~89%), the band
+# decides when creep becomes a failure (98%). Firing only ON breach is why
+# nine skills, three agents and one guide drifted to 98-100% of cap across
+# three sessions while every budget suite stayed green.
+_BAND = 0.98
+
+
+def ratchet(
+    actual: int,
+    current: int,
+    granularity: int,
+    *,
+    rounding: Callable[[float], int] = round,
+    floor: int = 0,
+) -> int:
+    """Recalculate a budget from a measured size — DOWNWARD only.
+
+    `min(rounding(actual * 1.125 / granularity) * granularity, current)`.
+
+    Two guards make this a ratchet rather than a re-baseline:
+
+    **Monotonic.** The bare calibration rule RAISES a budget unless `actual`
+    has fallen below `current / 1.125` — an 11.1% cut. Most files a prose
+    audit trims are trimmed by less than that, so without the `min` the rule
+    would hand back headroom on the majority of surfaces it touched. A budget
+    may only ever come down.
+
+    **Non-vacuity.** A measurement of 0 does NOT ratchet; `current` is
+    returned unchanged. Zero means the fixture drove a no-trigger path and
+    never exercised the surface, so encoding it as the bound would record
+    "this measures nothing" as the budget — the same defect as a pin that
+    scans less than it claims. Report those entries and fix the fixture; do
+    not let the ratchet bake the gap in.
+
+    `rounding`/`floor` carry the two families' recorded formulas: md surfaces
+    use `round` at granularity 10, preload/emitter stdout uses `math.ceil` at
+    granularity 100 with a floor of 100.
+    """
+    if actual <= 0:
+        return current
+    scaled = rounding(actual * _CALIBRATION / granularity) * granularity
+    return min(max(scaled, floor), current)
+
+
+def band_offender(name: str, actual: int, budget: int) -> str | None:
+    """Offender line when `actual` is at or inside the 98% band, else None.
+
+    Names the percentage as well as the char counts: "8730 chars (budget
+    8900)" reads as comfortable, "98.1% of budget" reads as the warning it is.
+
+    A measurement of 0 is never an offender, mirroring `ratchet`'s
+    non-vacuity guard — `hook_io.py` carries a deliberate budget of 0 and
+    emits no reason prose, and a bare `actual >= 0.98 * budget` reads
+    `0 >= 0` as a breach on a surface that has not grown by one character.
+    Prose ARRIVING at a zero budget still fails: 0 is a bound, not a pass.
+    """
+    if actual <= 0:
+        return None
+    if budget > 0 and actual < _BAND * budget:
+        return None
+    pct = f"{actual / budget * 100:.1f}% of budget {budget}" if budget else "budget 0"
+    return f"{name}: {actual} chars, {pct}"
+
 
 # A preload/emitter echoes absolute paths (e.g. CLAUDE_PLUGIN_ROOT). When the
 # suite runs from a worktree (lefthook pre-commit), those paths carry an extra
@@ -84,16 +154,18 @@ def assert_md_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every shipped .md must be at or below its character budget."""
+    """Every shipped .md must stay clear of the 98% band of its budget."""
     files = _md_files(dir_path, pattern)
     offenders: list[str] = []
     for name, budget in budgets.items():
         actual = len(files[name].read_text(encoding="utf-8"))
-        if actual > budget:
-            offenders.append(f"{name}: {actual} chars (budget {budget})")
+        offender = band_offender(name, actual, budget)
+        if offender:
+            offenders.append(offender)
     testcase.assertFalse(
         offenders,
-        f"{label} files exceed their character budget:\n" + "\n".join(offenders),
+        f"{label} files at or inside the 98% band of their character "
+        f"budget (trim, or take a deliberate bump):\n" + "\n".join(offenders),
     )
 
 
@@ -139,6 +211,7 @@ def _run_emitter(
     scripts_dir: Path,
     smm_dir: Path,
     cwd: Path,
+    fixtures: dict | None = None,
 ) -> tuple[bytes, str, int]:
     """Run an emitter via subprocess against a pre-seeded SMM.
 
@@ -146,8 +219,12 @@ def _run_emitter(
     can share one bootstrap (the budget test runs all 11 against the
     same empty SMM). XP_TEAMMATE_NAME="" forces solo-mode framing —
     `pop` would let a parent shell's leak through.
+
+    `fixtures` overrides the stdin-builder registry (default `EMITTER_FIXTURES`)
+    so the volume family can drive an emitter louder than shape does; see
+    `tests/test_volume_budgets.py` for why that is load-bearing.
     """
-    builder = EMITTER_FIXTURES.get(script_name)
+    builder = (EMITTER_FIXTURES if fixtures is None else fixtures).get(script_name)
     if builder is None:
         raise KeyError(f"no fixture builder registered for {script_name}")
     stdin_dict = builder()
@@ -199,7 +276,7 @@ def assert_emitter_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every emitter's stdout (run via fixture) must be at or below budget.
+    """Every emitter's stdout (run via fixture) must stay clear of the 98% band.
 
     Bootstraps one SMM per call and reuses it across all emitters.
     `subagent_stop.py` runs LAST because its xp-plan-reviewer fixture
@@ -219,11 +296,13 @@ def assert_emitter_under_budgets(
                 offenders.append(f"{name}: subprocess rc={rc} stderr={stderr[:200]!r}")
                 continue
             actual = _measured_len(stdout_bytes)
-            if actual > budget:
-                offenders.append(f"{name}: {actual} chars (budget {budget})")
+            offender = band_offender(name, actual, budget)
+            if offender:
+                offenders.append(offender)
     testcase.assertFalse(
         offenders,
-        f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
+        f"{label} stdout at or inside the 98% band of its budget:\n"
+        + "\n".join(offenders),
     )
 
 
@@ -318,7 +397,7 @@ def assert_preload_under_budgets(
     budgets: dict[str, int],
     label: str,
 ) -> None:
-    """Every preload's stdout (run via fixture) must be at or below budget.
+    """Every preload's stdout (run via fixture) must stay clear of the 98% band.
 
     Bootstraps one SMM per call and reuses it across all preloads.
     """
@@ -334,11 +413,13 @@ def assert_preload_under_budgets(
                 stdout_bytes,
                 normalize_paths=(str(_PLUGIN_ROOT), str(smm_dir), str(repo)),
             )
-            if actual > budget:
-                offenders.append(f"{name}: {actual} chars (budget {budget})")
+            offender = band_offender(name, actual, budget)
+            if offender:
+                offenders.append(offender)
     testcase.assertFalse(
         offenders,
-        f"{label} stdout exceeds budget:\n" + "\n".join(offenders),
+        f"{label} stdout at or inside the 98% band of its budget:\n"
+        + "\n".join(offenders),
     )
 
 

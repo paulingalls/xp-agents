@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drift guard for pyrightconfig.json:extraPaths.
+"""Drift guard for pyrightconfig.json's path lists (`extraPaths`, `include`).
 
 Pyright resolves imports against `extraPaths`. The list rots in two
 directions: dead entries (path removed but listing kept) silently mask real
@@ -26,9 +26,13 @@ _ROOT_PYRIGHT_CONFIG = _REPO_ROOT / "pyrightconfig.json"
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"
 
 
-def _load_extra_paths(config_path: Path) -> list[str]:
+def _load_paths(config_path: Path, key: str) -> list[str]:
     config = json.loads(config_path.read_text())
-    return config["extraPaths"]
+    return config[key]
+
+
+def _load_extra_paths(config_path: Path) -> list[str]:
+    return _load_paths(config_path, "extraPaths")
 
 
 def _has_direct_py_files(directory: Path) -> bool:
@@ -73,13 +77,24 @@ class TestPyrightExtraPathsDriftGuard(unittest.TestCase):
         )
 
     def test_root_and_plugin_extra_paths_stay_in_sync(self):
+        self._assert_key_in_sync("extraPaths")
+
+    def test_root_and_plugin_include_stay_in_sync(self):
+        # `include` drifts with worse consequences than `extraPaths`: it is the
+        # set pyright CHECKS. The commit gate runs pyright with
+        # `root: plugins/xp-agents/`, so it reads the plugin-local config —
+        # a dir added to the root config alone is checked by editors and by
+        # nothing that gates a commit.
+        self._assert_key_in_sync("include")
+
+    def _assert_key_in_sync(self, key: str):
         # The two configs MUST list the same logical paths (root-config
         # entries are just plugin-local entries with `plugins/xp-agents/`
         # prepended). Keeping them in sync prevents IDE-vs-CLI diagnostic
         # divergence: an import error caught by one config but masked by
         # the other is a worst-case false-pass.
-        plugin_paths = set(_load_extra_paths(_PLUGIN_PYRIGHT_CONFIG))
-        root_paths = set(_load_extra_paths(_ROOT_PYRIGHT_CONFIG))
+        plugin_paths = set(_load_paths(_PLUGIN_PYRIGHT_CONFIG, key))
+        root_paths = set(_load_paths(_ROOT_PYRIGHT_CONFIG, key))
         prefix = "plugins/xp-agents/"
         derived_from_root = {
             p[len(prefix) :] for p in root_paths if p.startswith(prefix)
@@ -87,13 +102,13 @@ class TestPyrightExtraPathsDriftGuard(unittest.TestCase):
         non_prefixed = {p for p in root_paths if not p.startswith(prefix)}
         self.assertFalse(
             non_prefixed,
-            "repo-root pyrightconfig.json entries must all start with "
+            f"repo-root pyrightconfig.json {key} entries must all start with "
             f"{prefix!r}; offending entries: {non_prefixed}",
         )
         self.assertEqual(
             plugin_paths,
             derived_from_root,
-            "pyrightconfig.json extraPaths drift between plugin-local and "
+            f"pyrightconfig.json {key} drift between plugin-local and "
             f"repo-root configs.\n  plugin-only: {plugin_paths - derived_from_root}"
             f"\n  root-only:   {derived_from_root - plugin_paths}",
         )

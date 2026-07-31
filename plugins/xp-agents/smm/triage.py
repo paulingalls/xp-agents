@@ -104,11 +104,14 @@ def _glob_to_regex(pattern: str) -> str:
 
 
 @functools.lru_cache(maxsize=256)
-def _compile_glob(pattern: str) -> re.Pattern[str]:
+def compile_glob(pattern: str) -> re.Pattern[str]:
     """Compile a glob pattern to a regex once and cache.
 
     `resolve_dominant_story` is on the pre-commit hot path — same patterns
-    recompile on every commit without this cache.
+    recompile on every commit without this cache. Public because
+    `file_domain_lock` needs the same compile with the same guard: an inline
+    `re.compile(glob_to_regex(...))` there is one malformed file_domain entry
+    away from the very re.error this function exists to absorb.
 
     Degrades gracefully on a malformed glob: free-text file_domain prose
     (e.g. "...effects[].damage...") can produce an invalid regex — a bare
@@ -162,7 +165,7 @@ def extract_file_domain_paths(
             if candidate_files is not None:
                 if candidates_list is None:
                     candidates_list = list(candidate_files)
-                regex = _compile_glob(path)
+                regex = compile_glob(path)
                 for cand in candidates_list:
                     if regex.fullmatch(cand):
                         paths.add(cand)
@@ -177,3 +180,46 @@ def extract_file_domain_paths(
                 for match in glob_root.glob(path):
                     paths.add(str(match.relative_to(glob_root)))
     return paths
+
+
+def cap_with_overflow(items: list[dict], limit: int) -> tuple[list[dict], int]:
+    """Keep the *limit* highest-priority items; return them and the drop count.
+
+    Shared by the two triage renderers (`xp-work-selection`'s block and
+    `xp-accept`'s per-story concerns) rather than duplicated, because the
+    honesty contract is the part that must not drift: a capped block reports
+    what it omitted and how to get it, so an omitted item never reads as fixed.
+    Both callers already import this module; the alternative was two copies of
+    the same three lines diverging on the part that matters.
+
+    WHICH items survive is a priority judgement, and `severity: high` is the
+    one the renderers already act on: the work-selection block refuses to
+    DIGEST a high-severity item because it is "the item whose WHY the lead most
+    needs in front of them". A cap ranking on recency alone then REMOVES that
+    same item whenever it is old — strictly worse than the shrink the
+    exemption forbids, and not hypothetical: 7 of the 10 open high-severity
+    concerns on the live log sit past index 25 in newest-first order.
+
+    The ORDER items are rendered in is a separate question, and it stays the
+    caller's (newest-first) — a cap has no business rewriting it.
+    """
+    if len(items) <= limit:
+        return list(items), 0
+    by_priority = sorted(
+        range(len(items)), key=lambda i: (items[i].get("severity") != "high", i)
+    )
+    return [items[i] for i in sorted(by_priority[:limit])], len(items) - limit
+
+
+def overflow_line(count: int, command: str) -> str:
+    """The one line a capped block ends with.
+
+    Spelled RUNNABLE: the claim is that the omitted items are one command
+    away, and a retrieval path the reader cannot execute is not a retrieval
+    path. Callers pass their own command because each surface is re-rendered
+    by its own script.
+    """
+    plural = "s" if count != 1 else ""
+    return (
+        f"#### {count} further open item{plural} not shown. List them:\n    {command}"
+    )

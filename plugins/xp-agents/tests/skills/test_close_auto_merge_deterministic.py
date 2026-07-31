@@ -88,7 +88,15 @@ class TestConcernCountIsScopedByCloseDiff(unittest.TestCase):
     # Cwd-independent by construction: `<TARGET_BRANCH>...<CURRENT_BRANCH>`, not
     # `...HEAD`. At story-close the orchestrator's HEAD is the sprint branch, not
     # the story branch (same invariant close_common.py's diff-command documents).
-    _EXPECTED_DIFF = "git diff --name-only <TARGET_BRANCH>...<CURRENT_BRANCH>"
+    #
+    # `--no-renames` (story-003): default rename detection reports only the NEW
+    # path, so a concern naming the OLD path of a renamed file is dropped by the
+    # very close that renamed it. `-z` (story-003): the only separator that
+    # closes every git path-quoting escape (non-ASCII, `"`, `\`), not just the
+    # non-ASCII one `core.quotepath=false` alone would close.
+    _EXPECTED_DIFF = (
+        "git diff --no-renames --name-only -z <TARGET_BRANCH>...<CURRENT_BRANCH>"
+    )
 
     @classmethod
     def setUpClass(cls):

@@ -26,10 +26,8 @@ class TestScheduleTeammateGateProse(unittest.TestCase):
         full_text = _SKILL_PATH.read_text()
         _, cls.body = _split_frontmatter_body(full_text)
         cls.step2 = _slice(cls.body, "## Step 2:", ("## Step 3:",))
-        cls.step4 = (
-            _slice(cls.body, "## Step 4:", ("## ",))
-            or cls.body[cls.body.find("## Step 4:") :]
-        )
+        # Step 4 is the last section, so () — to EOF — is the honest bound.
+        cls.step4 = _slice(cls.body, "## Step 4:", ())
         cls.frontmatter, _ = _split_frontmatter_body(full_text)
 
     def test_skill_file_exists(self):
@@ -61,6 +59,19 @@ class TestScheduleTeammateGateProse(unittest.TestCase):
             self.step4,
             r"/xp-assign",
             msg="Step 4 solo handoff must point at /xp-assign",
+        )
+
+    def test_parallel_promotion_loop_checks_the_promotion_status(self):
+        """A promotion can be REFUSED (a live file_domain claim). Unchecked,
+        the loop leaves the story execution_mode=teammate but still queued,
+        the spawn selector skips it, and the story is silently dropped from
+        the batch. The loop must surface a refusal per story."""
+        step3 = _slice(self.body, "## Step 3:", ("## Step 4:",))
+        loop = _slice(step3, "for sid in $FRONTIER_IDS", ("```",))
+        self.assertRegex(
+            loop,
+            r"\|\||if !|exit_status|\$\?",
+            msg="the promotion loop must check update-story's exit status",
         )
 
     def test_prose_uses_no_internal_marker_name(self):

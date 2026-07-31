@@ -97,8 +97,22 @@ def _split_frontmatter_body(text: str) -> tuple[str, str]:
 
 
 def _slice(body: str, start_marker: str, end_markers: tuple[str, ...]) -> str:
-    """Return the body region from start_marker up to the first end_marker."""
+    """Return the body region from start_marker up to the first end_marker.
+
+    Pass an empty `end_markers` to mean "to EOF" deliberately. A NON-empty
+    tuple that matches nothing raises: story-004 found a pin whose end marker
+    had drifted out of the skill ("Write the matching token" vs the actual
+    "Write the chosen token"), so its slice silently ran to EOF and the caller's
+    cap was enforced over the rest of the file. It passed by luck. Failing loud
+    here is what stops the next drifted marker from reading as green.
+    """
     start = body.index(start_marker)
     rest = body[start + len(start_marker) :]
     ends = [rest.index(m) for m in end_markers if m in rest]
+    if end_markers and not ends:
+        raise AssertionError(
+            f"slice after {start_marker!r} found none of its end markers "
+            f"{end_markers!r} — the region would silently run to EOF. Fix the "
+            "marker, or pass () if slicing to EOF is intended."
+        )
     return rest[: min(ends)] if ends else rest

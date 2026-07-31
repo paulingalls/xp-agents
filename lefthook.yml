@@ -1,17 +1,38 @@
+# piped (NOT parallel — lefthook rejects both): ruff-format rewrites staged
+# files in place, so nothing else may read them concurrently. `priority: 1`
+# pins it to run before the other commands regardless of name ordering
+# (verified against lefthook 2.1.10: priority orders piped and plain-sequential
+# runs, and is a no-op under parallel); see
+# test_dev_setup.py::TestRuffFormatFixModeSequencedOutOfParallel for the pin.
+#
+# Two consequences of `piped` beyond the ordering, both deliberate:
+#  - It ABORTS the remaining commands at the first failure. A ruff-check error
+#    therefore costs 0.06s instead of the ~129s pytest run, but a red commit
+#    shows only the FIRST failing check, not every one at once as parallel did.
+#  - Everything is sequential now, pyright included: ~13s of type-checking that
+#    used to overlap the test run is added to the hook's wall clock.
+#
+# Accepted residual of `stage_fixed` (see the SMM's precommit-piped-priority /
+# partial-stage decisions): on a PARTIALLY staged file, ruff formats the
+# working-tree copy and stage_fixed `git add`s the whole file, so unstaged
+# edits in that file join the commit. Stage whole files, or re-check `git diff
+# --cached` after a commit where the formatter reported a rewrite.
 pre-commit:
-  parallel: true
+  piped: true
   commands:
+    ruff-format:
+      glob: "*.py"
+      priority: 1
+      run: ruff format {staged_files}
+      stage_fixed: true
     ruff-check:
       glob: "*.py"
       run: ruff check {staged_files}
-    ruff-format:
-      glob: "*.py"
-      run: ruff format --check {staged_files}
     shellcheck:
       glob: "*.sh"
       run: shellcheck -x -e SC1091 {staged_files}
     pyright:
-      glob: "plugins/xp-agents/{scripts,smm}/*.py"
+      glob: "plugins/xp-agents/**/*.py"
       root: "plugins/xp-agents/"
       run: pyright
     # All tests in one pytest -n auto run (~13s on 16 cores). Replaces four

@@ -106,7 +106,10 @@ class TestSessionRoundTripIntegration(_IntegrationTestCase):
         )
         r2 = self._run_script(
             "subagent_start.py",
-            {"session_id": "round-trip-2", "agent_id": "task-1"},
+            # A NAMED full-render type: the unknown-type fallback serves the
+            # cheap pointer now, so relying on it here would stop exercising
+            # the injection this round-trip is asserting.
+            {"session_id": "round-trip-2", "agent_id": "task-1", "agent_type": "Plan"},
         )
         self.assertEqual(r2.returncode, 0)
         output = json.loads(r2.stdout)

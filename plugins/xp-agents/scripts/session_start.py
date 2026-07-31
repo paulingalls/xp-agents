@@ -154,6 +154,38 @@ def _resolve_via_init_sh() -> Path | None:
     return None
 
 
+def _cadence_dir(smm_dir: Path | None) -> Path | None:
+    """The SMM dir to read the review cadence from, independent of the render.
+
+    `main` passes ``smm_dir=None`` for every teammate BY DESIGN — a resolved dir
+    would inject the whole SMM render into a teammate's context — so gating the
+    cadence on it made that render dead code in production: no teammate ever saw
+    a `## Review Cadence` section, and a lead's hand-written copy was the only
+    live channel.
+
+    Reads the documented `$SMM_DIR` override rather than `_common.resolve_smm_dir`,
+    which falls back to init.sh derivation when the var is unset — and that
+    derivation CREATES and seeds an SMM. A SessionStart hook must not gain that
+    side effect. `spawn_teammate` exports the var into every teammate's
+    environment, so the env read covers every real teammate at the cost of an
+    env lookup rather than a subprocess; anything else renders no cadence, which
+    is what already happened for all of them.
+
+    The env value is strip+pointer-followed exactly as `smm_dir_resolve` does
+    it: the handle is pinned at spawn and the tree can have relocated since, so
+    a raw read addresses the abandoned copy and renders that copy's stale
+    cadence. Only the derivation half is dropped, not the normalization half.
+    """
+    if smm_dir is not None:
+        return smm_dir
+    env_dir = os.environ.get("SMM_DIR", "").strip()
+    if not env_dir:
+        return None
+    return _common.try_validate_smm_dir(
+        smm_dir_resolve.follow_migration_pointer(Path(env_dir))
+    )
+
+
 def _run_teammate(smm_dir: Path | None) -> str | None:
     """Teammate SessionStart: XP Values + Guide + cadence + SMM. No markers."""
     smm_dir = _common.try_validate_smm_dir(smm_dir)
@@ -164,8 +196,10 @@ def _run_teammate(smm_dir: Path | None) -> str | None:
     guide = plugin_loader.load_teammate_guide()
     if guide:
         parts.append(guide)
+    cadence_dir = _cadence_dir(smm_dir)
+    if cadence_dir is not None:
+        parts.append(_render_review_cadence(markers.read_review_cadence(cadence_dir)))
     if smm_dir is not None:
-        parts.append(_render_review_cadence(markers.read_review_cadence(smm_dir)))
         data = system_context_store.load_system_context(smm_dir)
         if data:
             ctx_rendered = render_system_context(data)

@@ -1,9 +1,9 @@
 # Teammate Guide
 
-You implement your assigned story independently. You run in one of two contexts — tell them apart by your working directory:
+You implement your assigned story independently, in one of two contexts — tell them apart by your working directory:
 
 - **Worktree** (parallel): your cwd is a `worktree-<story-id>/` dir out of the repo (beside the SMM dir), isolated from the main checkout and sibling teammates; prompt paths are relative to this worktree.
-- **In-place** (solo delegation): your cwd IS the main checkout, already on your story branch — there is no worktree, so read/edit files directly and commit on the branch you are on.
+- **In-place** (solo delegation): your cwd IS the main checkout, already on your story branch — no worktree; read, edit, and commit in place.
 
 ## TDD Workflow
 
@@ -20,7 +20,7 @@ Security: a deterministic secret/pattern scan on staged diffs at commit; `/secur
 
 ## Sequential Discipline
 
-Your work is sequential — do one action, observe its result, then proceed. Batch only genuinely independent read-only calls, never dependent steps (e.g. save then verify).
+Do one action, observe its result, then proceed. Batch only genuinely independent read-only calls, never dependent steps (e.g. save then verify).
 
 ## Commit Conventions
 
@@ -34,7 +34,7 @@ Your work is sequential — do one action, observe its result, then proceed. Bat
 
 Stay in your assigned domain for work you initiate. If you must step outside, raise a concern — collision with parallel teammates is the risk.
 
-**Reviewer-suggested edits are different.** KEEP an `xp-code-reviewer` edit outside your domain by default — it sees the whole diff. Raise a concern instead only when the edit is large (restructures, not polishes), off-topic for the diff, or in files owned by another in-progress story.
+KEEP an `xp-code-reviewer` edit outside your domain by default — it sees the whole diff. Raise a concern instead only when the edit is large (restructures, not polishes), off-topic for the diff, or in files owned by another in-progress story.
 
 ## Escalate on Ambiguity
 

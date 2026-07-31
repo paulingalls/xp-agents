@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Per-skill SKILL.md character budgets.
 
-Budgets enforce token discipline post-sprint-074 audit: each SKILL.md
-file is capped at roughly trimmed_size * 1.125 (rounded to nearest 10).
-Growth past the budget fails this test, forcing either a deliberate
-budget bump or a re-trim.
+Budget formula: `ratchet(measured, current, 10)` — see
+`_budget_helpers.ratchet`. The calibration rule is `measured * 1.125` rounded
+to the nearest 10, but a budget may only ever come DOWN: applied bare, that
+rule RAISES any surface trimmed by less than 11.1%, handing back the headroom
+the trim just bought. Entries that "hold" are exactly those.
+
+The assertion fails at 98% of budget, not on breach. A surface at its cap
+still passed under the old check, which is how nine skills, three agents and
+one guide drifted to 98-100% of cap while every suite stayed green.
 
 Adding a new skill: measure len(Path("skills/<name>/SKILL.md").read_text()),
-compute round(chars * 1.125 / 10) * 10, add the entry below.
+apply `ratchet(chars, <a first budget>, 10)`, add the entry below.
 """
 
 import sys
@@ -24,8 +29,8 @@ from conftest import (
 
 SKILL_BUDGETS: dict[str, int] = {
     "xp-accept": 15400,
-    "xp-assign": 21020,
-    "xp-end-session": 6440,
+    "xp-assign": 20700,
+    "xp-end-session": 5810,
     # Bumped 8590 -> 8750: auto-merge condition 2 now pipes the close diff into
     # count-concerns via --diff-paths, plus the one-paragraph rule (what gets
     # dropped, and that an empty diff counts everything). Re-trimmed that
@@ -38,15 +43,15 @@ SKILL_BUDGETS: dict[str, int] = {
     # the delivery-field refusal the CLI actually enforces. Re-trimmed first —
     # the `schedules` bullet is shorter than the one it replaced.
     "xp-plan": 10230,
-    "xp-plan-close": 6140,
-    "xp-quality-review": 8190,
-    "xp-review-plan": 1020,
-    "xp-scaffold-acceptance": 22810,
-    "xp-schedule": 7070,
+    "xp-plan-close": 5670,
+    "xp-quality-review": 6720,
+    "xp-review-plan": 990,
+    "xp-scaffold-acceptance": 20940,
+    "xp-schedule": 6710,
     "xp-sprint-close": 7540,
-    "xp-sprint-review": 1850,
+    "xp-sprint-review": 1420,
     "xp-sprint-start": 12560,
-    "xp-stage-migration": 2940,
+    "xp-stage-migration": 2420,
     # Bumped 12110 -> 12450 (story-025): condition 2 became a deterministic
     # count-concerns read (mirrors condition 1's count-classifications) and
     # Step 4.5b gained the close-cycle-id threading clause. Re-trimmed
@@ -60,8 +65,8 @@ SKILL_BUDGETS: dict[str, int] = {
     # the full rationale lives once in the shared close-pipeline reference,
     # which the preload injects alongside this skill.
     "xp-story-close": 12770,
-    "xp-system-context": 1250,
-    "xp-work-selection": 8820,
+    "xp-system-context": 1070,
+    "xp-work-selection": 8700,
 }
 
 _SKILLS_DIR = _PLUGIN_ROOT / "skills"

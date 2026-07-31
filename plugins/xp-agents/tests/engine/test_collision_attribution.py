@@ -40,11 +40,19 @@ def _sprint(stories):
     }
 
 
-def _story(sid, path, **extra):
-    s = _s(sid, sid, "ready")
+def _story(sid, path, status="ready", **extra):
+    s = _s(sid, sid, status)
     s["file_domain"] = [f"{path} — {sid}"]
     s.update(extra)
     return s
+
+
+def _running(sid, path, **extra):
+    """A claimant whose claim is LIVE. edit_story asks the running-only
+    question (story-011), so its refusal fixtures must be running stories —
+    a parked pair would make the assertion vacuous. run() asks the strict
+    authoring question and keeps the parked default."""
+    return _story(sid, path, "in-progress", **extra)
 
 
 def _make_git_project(tmpdir: Path) -> None:
@@ -88,8 +96,8 @@ class TestDependencyEditConcurrencyAttribution(_SMMTestCase):
             self.smm_dir,
             _sprint(
                 [
-                    _story("story-001", "src/shared.py"),
-                    _story("story-002", "src/shared.py", dependencies=["story-001"]),
+                    _running("story-001", "src/shared.py"),
+                    _running("story-002", "src/shared.py", dependencies=["story-001"]),
                 ]
             ),
         )
@@ -150,7 +158,10 @@ class TestSisterExpandedAttribution(_GitProjectSisterCase):
         sprint_store.save_sprint(
             self.smm_dir,
             _sprint(
-                [_story("story-001", "src/foo.py"), _story("story-002", "src/other.py")]
+                [
+                    _running("story-001", "src/foo.py"),
+                    _running("story-002", "src/other.py"),
+                ]
             ),
         )
         # Edit B's domain to foo_tools.py. RAW domains stay disjoint (foo.py vs

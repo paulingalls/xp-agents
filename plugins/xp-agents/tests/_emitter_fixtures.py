@@ -111,6 +111,96 @@ def bash_post_tool() -> dict:
     }
 
 
+# ceil(measured_chars * 1.125 / 100) * 100, floor at 100 — measured against
+# `_budget_helpers._bootstrap_seeded_smm`, so these bound PROSE SHAPE only.
+#
+# Lives beside the builders rather than in the suite that asserts it:
+# `tests/test_volume_budgets.py` needs these as the floor its own measurements
+# must clear, and importing a `test_*` module for a constant makes pytest
+# execute that file under a second module name.
+EMITTER_BUDGETS: dict[str, int] = {
+    "bash_post_tool.py": 100,
+    "kickoff_gate.py": 100,
+    "lint_check.py": 300,
+    "post_tool_exit_plan.py": 100,
+    "pre_tool_bash.py": 100,
+    "pre_tool_skill.py": 100,
+    "pre_tool_write.py": 100,
+    "prompt_nugget.py": 100,
+    "retrospective.py": 100,
+    "review_cycle_done.py": 200,
+    "session_end_warning.py": 100,
+    "session_start.py": 1500,
+    # Ratcheted 3700 -> 2100 when the unknown-agent-type fallback went lazy:
+    # this fixture supplies `subagent_type` inside `tool_input` and the hook
+    # reads a TOP-LEVEL `agent_type`, so it lands on that fallback and its
+    # measurement fell 3,209 -> 1,815. Left at 3700 the saving would be
+    # silently re-spendable, which is the failure mode the band exists to
+    # prevent.
+    "subagent_start.py": 2100,
+    "subagent_stop.py": 300,
+    "user_prompt_log.py": 100,
+}
+
+
+# --- Loud variants, for the volume family -----------------------------------
+#
+# An emitter's cost depends on its INPUT as much as on the SMM, and the
+# builders above pick the quiet branch every time. These pick the expensive
+# one. Only emitters whose loud branch out-measures their shape budget appear
+# here; `test_volume_budgets` classifies the rest and says why.
+
+
+def session_start_compact() -> dict:
+    """`compact` also injects PROCESS_GUIDE, which `startup` does not."""
+    return {"session_id": "t", "agent_id": "main", "source": "compact"}
+
+
+def post_tool_exit_plan_triggered() -> dict:
+    """A non-`xp-` agent: writes the marker and returns the review nudge."""
+    return {
+        "session_id": "t",
+        "agent_id": "main",
+        "agent_type": "main",
+        "tool_name": "ExitPlanMode",
+        "tool_input": {},
+        "tool_response": {"filePath": "/tmp/p.md"},
+    }
+
+
+def pre_tool_skill_gated() -> dict:
+    """A lead-owned lifecycle skill — the branch that emits a gate reason."""
+    return _make_skill_input(skill="xp-agents:xp-story-close")
+
+
+def subagent_start_full_tier() -> dict:
+    """A NAMED full-render tier.
+
+    This used to be the shape builder itself: `subagent_start` reads a
+    top-level `agent_type`, the shape builder supplies none, and the unknown
+    fallback rendered the whole SMM — so the expensive tier was reached by
+    accident. The fallback is lazy now, so reaching it has to be deliberate.
+    """
+    return {
+        "session_id": "t",
+        "agent_id": "a-1",
+        "agent_type": "Plan",
+        "tool_name": "Agent",
+        "tool_input": {},
+    }
+
+
+EMITTER_LOUD_FIXTURES: dict[str, FixtureBuilder] = {
+    "post_tool_exit_plan.py": post_tool_exit_plan_triggered,
+    "pre_tool_skill.py": pre_tool_skill_gated,
+    "prompt_nugget.py": prompt_nugget,
+    "retrospective.py": retrospective,
+    "session_end_warning.py": session_end_warning,
+    "session_start.py": session_start_compact,
+    "subagent_start.py": subagent_start_full_tier,
+}
+
+
 EMITTER_FIXTURES: dict[str, FixtureBuilder] = {
     "bash_post_tool.py": bash_post_tool,
     "kickoff_gate.py": kickoff_gate,

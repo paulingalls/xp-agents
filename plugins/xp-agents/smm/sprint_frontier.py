@@ -144,8 +144,9 @@ def ready_frontier_report(
     frontier degrades to solo for the dependency reason, /xp-schedule's solo
     path promotes the lowest-id dep-satisfied story first, which is the
     dependency itself. ``overlap`` is ``file_domains_overlap_detail``'s dict
-    forwarded verbatim — ``{"collisions": {path: [{"story_id", "origin"},
-    ...]}, "glob_forced": bool}`` — and stays exactly that; the dependency
+    forwarded verbatim — ``{"collisions": {path: [{"story_id", "origin",
+    "pattern"?}, ...]}, "glob_forced": bool}`` — and stays exactly that; a
+    ``pattern`` key appears only on a claim a GLOB entry produced; the dependency
     reason for a False verdict is deliberately NOT surfaced there. `collisions`
     and `glob_forced` are DISTINCT signals: a concrete path collision names
     the clashing stories, while glob_forced means a glob domain makes
