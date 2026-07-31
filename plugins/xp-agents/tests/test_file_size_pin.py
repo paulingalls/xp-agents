@@ -67,7 +67,6 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
     "plugins/xp-agents/scripts/lint_runners.py": 477,
-    "plugins/xp-agents/smm/sprint_save.py": 472,
     "plugins/xp-agents/smm/_append_impl.py": 469,
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,

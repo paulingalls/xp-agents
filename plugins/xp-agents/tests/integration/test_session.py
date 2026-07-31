@@ -243,6 +243,9 @@ class TestSubagentStartIntegration(_IntegrationTestCase):
             {
                 "session_id": "int-test",
                 "agent_id": "explorer-1",
+                # Named full-render tier — the unknown fallback serves the
+                # pointer now, and this test is about the SMM content.
+                "agent_type": "Plan",
             },
         )
         self.assertEqual(result.returncode, 0)

@@ -3,7 +3,7 @@
 
 Tiered injection via the _TIERS registry (injector, wants_sequential_note):
 - Explore: Intent + Constraints pillars + XP values
-- xp-code-reviewer / Plan / unknown types: full SMM + XP values
+- xp-code-reviewer / Plan: full SMM + XP values
 - xp-retrospective: SMM_DIR + RETRO_INPUT paths + XP values
 - xp-housekeeper: curation path + work-selection block + XP values
 - xp-* forked agents (close/plan/sprint reviewer): XP values only
@@ -11,9 +11,16 @@ Tiered injection via the _TIERS registry (injector, wants_sequential_note):
   a cheap SMM reference pointer, no full render. Purpose-blind, prompt-driven,
   highest-fanout types; most do read-only review/research, and a code-writing one
   renders the curated SMM on demand from the pointer.
+- Unknown / user-defined types: the same pointer, and the sequential note.
 
 Every tier gets the sequential-discipline note EXCEPT the generic catch-alls
 (they do independent reads, the case the note already exempts).
+
+The unknown-type default is LAZY. It was eager, on the argument that unknown
+means we cannot rule out needing the SMM — but unknowability cuts both ways and
+measurement settled it: `statusline-setup` was handed 5,856 chars it can never
+use, and a downstream project's own agent types all land here too. Eager is now
+reserved for types we can name and have judged.
 """
 
 import sys
@@ -207,6 +214,11 @@ _GENERIC_TIER: tuple[Callable[..., list[str]], bool] = (_inject_reference, False
 _TIERS: dict[str, tuple[Callable[..., list[str]], bool]] = {
     "Explore": (_inject_explore, True),
     "xp-code-reviewer": (_inject_full, True),
+    # Named rather than left to the fallback: Plan reads the curated SMM to
+    # design against existing conventions, so eager injection genuinely earns
+    # its cost here. It used to be served BY the fallback, which made it
+    # indistinguishable from types that just happened to land there.
+    "Plan": (_inject_full, True),
     "xp-retrospective": (_inject_retrospective, True),
     "xp-housekeeper": (_inject_housekeeper, True),
     # Generic catch-alls (Workflow fan-out + ad-hoc Task agents): reference tier.
@@ -217,16 +229,34 @@ _TIERS: dict[str, tuple[Callable[..., list[str]], bool]] = {
 
 
 def _resolve_tier(agent_type: str, bare: str) -> tuple[Callable[..., list[str]], bool]:
-    """(injector, wants_note) for an agent type. Fallbacks: xp-* forked agents
-    get values only (their data comes via preload) but keep the note for their
-    step-gated SMM work; everything else unknown (Plan, ad-hoc) gets the full
-    SMM — eager context earns its cost there."""
+    """(injector, wants_note) for an agent type.
+
+    Fallbacks: xp-* forked agents get values only (their data comes via
+    preload) but keep the note for their step-gated SMM work; everything else
+    unknown gets the REFERENCE POINTER.
+
+    That last default is deliberately lazy, and it used to be eager. Eager was
+    justified as "unknown means we cannot rule out that it needs the SMM" — but
+    the same unknowability cuts the other way, and measurement settled it:
+    `statusline-setup`, a real type this branch serves, was handed 5,856 chars
+    of curated SMM it can never use. A type we can name and have judged needs
+    the render belongs in `_TIERS` (Explore, xp-code-reviewer, Plan); a type
+    nobody predicted gets ~250 chars and self-serves the rest on demand. The
+    cost of being wrong is now one command, not a full render on every spawn.
+
+    Note the fallback is NOT `_GENERIC_TIER`, though it shares that tier's
+    injector. `_GENERIC_TIER` also drops the sequential note, which is right
+    for the three named generic types — they do independent reads, the case
+    the note already exempts. An UNKNOWN type has no such guarantee and may
+    well be writing code step by step, so it keeps the note. Same payload,
+    different guidance.
+    """
     tier = _TIERS.get(bare)
     if tier is not None:
         return tier
     if agent_type.startswith("xp-"):
         return (_inject_no_smm, True)
-    return (_inject_full, True)
+    return (_inject_reference, True)
 
 
 def run(input_data: dict, smm_dir: Path | None = None) -> str | None:

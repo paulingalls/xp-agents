@@ -167,6 +167,23 @@ def pre_tool_skill_gated() -> dict:
     return _make_skill_input(skill="xp-agents:xp-story-close")
 
 
+def subagent_start_full_tier() -> dict:
+    """A NAMED full-render tier.
+
+    This used to be the shape builder itself: `subagent_start` reads a
+    top-level `agent_type`, the shape builder supplies none, and the unknown
+    fallback rendered the whole SMM — so the expensive tier was reached by
+    accident. The fallback is lazy now, so reaching it has to be deliberate.
+    """
+    return {
+        "session_id": "t",
+        "agent_id": "a-1",
+        "agent_type": "Plan",
+        "tool_name": "Agent",
+        "tool_input": {},
+    }
+
+
 EMITTER_LOUD_FIXTURES: dict[str, FixtureBuilder] = {
     "post_tool_exit_plan.py": post_tool_exit_plan_triggered,
     "pre_tool_skill.py": pre_tool_skill_gated,
@@ -174,14 +191,7 @@ EMITTER_LOUD_FIXTURES: dict[str, FixtureBuilder] = {
     "retrospective.py": retrospective,
     "session_end_warning.py": session_end_warning,
     "session_start.py": session_start_compact,
-    # The shape builder unchanged, on purpose: `subagent_start` reads a
-    # TOP-LEVEL `agent_type`, never `tool_input.subagent_type`, so every input
-    # here resolves to `""` and falls through `_resolve_tier` to the most
-    # expensive tier already. Measured identical to the shape builder on both
-    # bootstraps (3,209 empty / 10,691 populated) — what makes this one loud is
-    # the populated `shared_mental_model.json`, and a second builder that
-    # differed only in an unread field would just look like it did more.
-    "subagent_start.py": subagent_start,
+    "subagent_start.py": subagent_start_full_tier,
 }
 
 

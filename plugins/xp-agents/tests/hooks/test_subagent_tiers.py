@@ -67,7 +67,11 @@ class TestSubagentStart(_HookTestCase):
 
         write_smm_fixture(self.smm_dir, intent=[("Ship v1", "goal")])
         result = subagent_start.run(
-            {"session_id": "test", "agent_id": "explorer-1"},
+            # A NAMED full-render type. This used to rely on the unknown-type
+            # fallback, which now serves the pointer — so the test would have
+            # passed for the wrong reason, or failed while still describing
+            # something true.
+            {"session_id": "test", "agent_id": "explorer-1", "agent_type": "Plan"},
             smm_dir=self.smm_dir,
         )
         assert result is not None
@@ -188,21 +192,26 @@ class TestSubagentStartTieredInjection(_HookTestCase):
         assert result is not None
         self.assertNotIn("BEHAVIORAL_GUIDE", result)
 
-    def test_unknown_agent_type_gets_full_smm_and_values(self):
-        """An unspecified/unknown agent type gets full SMM + XP values — the
-        safe default. (The named 'general-purpose' type is the reference tier;
-        see TestGenericReferenceTier.)"""
+    def test_unknown_agent_type_gets_the_reference_pointer(self):
+        """An unknown agent type gets the POINTER, not the full render.
+
+        This reverses the previous default, which called eager injection "the
+        safe default". Measured, it is not: `statusline-setup` — a real type
+        this branch serves — received 5,856 chars of curated SMM it can never
+        use, and an unknown type is by definition one whose needs nobody
+        predicted. The pointer costs ~250 chars and a code-writing agent
+        self-serves the full render from it, so the eager branch is now
+        reserved for the types we can name (see `_TIERS`).
+        """
         result = self.subagent_start.run(
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
         )
         assert result is not None
-        self.assertIn("Intent", result)
-        self.assertIn("Constraints", result)
-        self.assertIn("Risks", result)
-        self.assertIn("Wisdom", result)
         self.assertIn("Extreme Programming", result)
-        self.assertNotIn("EnterPlanMode", result)
+        self.assertIn(f"SMM_DIR={self.smm_dir}", result)
+        self.assertIn("smm_cli.py", result)
+        self.assertNotIn("<smm-context>", result)
 
     def test_plan_agent_gets_full_smm_and_values(self):
         """Plan agent gets full SMM + XP values."""
