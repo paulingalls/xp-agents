@@ -142,12 +142,11 @@ def format_triage_section(
         # sorts by ts descending), so the cap keeps the items the lead is most
         # likely to act on without inventing a rank. Age as a SIGNAL is
         # unavailable here — see `_digests` — but as an ORDER it is free.
-        full, dropped_full = full[:_FULL_TIER_MAX_ITEMS], full[_FULL_TIER_MAX_ITEMS:]
-        digest, dropped_digest = (
-            digest[:_DIGEST_TIER_MAX_ITEMS],
-            digest[_DIGEST_TIER_MAX_ITEMS:],
+        full, dropped_full = triage.cap_with_overflow(full, _FULL_TIER_MAX_ITEMS)
+        digest, dropped_digest = triage.cap_with_overflow(
+            digest, _DIGEST_TIER_MAX_ITEMS
         )
-        omitted = len(dropped_full) + len(dropped_digest)
+        omitted = dropped_full + dropped_digest
 
     lines = [f"### {header}:"]
     for item in full:
@@ -170,11 +169,7 @@ def format_triage_section(
             lines.append(_digest_line(item, session_anchor_timestamps, intents))
             lines.extend(_maybe_addressed_lines(item, commit_overlap))
     if omitted:
-        plural = "s" if omitted != 1 else ""
-        lines.append(
-            f"#### {omitted} further open item{plural} not shown. List them:\n"
-            f"    {_ALL_COMMAND}"
-        )
+        lines.append(triage.overflow_line(omitted, _ALL_COMMAND))
     return "\n".join(lines)
 
 

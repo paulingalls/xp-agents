@@ -136,3 +136,61 @@ class TestSelectInMotionStories(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConcernTriageIsBounded(unittest.TestCase):
+    """xp-accept's concern block had neither a per-item cap nor a count cap.
+
+    It emits full concern bodies for every concern overlapping an in-motion
+    story's file_domain, so a story touching a busy path pays the whole
+    backlog. Measured 40,481 chars against a shape budget of 100 on a
+    populated SMM. Same honesty contract as the triage block: an item that
+    vanished reads as fixed, so the tail collapses to a counted line naming a
+    runnable command rather than being dropped.
+    """
+
+    def _concerns(self, count: int) -> list[dict]:
+        return [
+            make_event(EVENT_TYPE_CONCERN, content="c" * 500, files=["scripts/a.py"])
+            for _ in range(count)
+        ]
+
+    def test_body_is_truncated(self):
+        out = concern_triage.format_concern_triage("story-001", self._concerns(1), [])
+        self.assertNotIn("c" * 500, out)
+        self.assertIn("c" * 100, out)
+
+    def test_total_does_not_grow_with_concern_count(self):
+        small = concern_triage.format_concern_triage(
+            "story-001", self._concerns(50), []
+        )
+        large = concern_triage.format_concern_triage(
+            "story-001", self._concerns(200), []
+        )
+        self.assertLessEqual(
+            len(large) - len(small),
+            200,
+            f"grew {len(large) - len(small)} chars for 150 more concerns "
+            f"({len(small)} -> {len(large)}); the tail is not collapsing",
+        )
+
+    def test_omitted_concerns_are_counted_and_named(self):
+        out = concern_triage.format_concern_triage("story-001", self._concerns(200), [])
+        shown = len([ln for ln in out.split("\n") if ln.startswith("- [id: ")])
+        self.assertIn(f"{200 - shown} further", out)
+        self.assertIn("concern_triage.py", out)
+
+    def test_the_retrieval_path_is_runnable(self):
+        parser = concern_triage._build_parser()
+        args = parser.parse_args(
+            ["--smm-dir", "/tmp", "--sprint-file", "/tmp/s.json", "--all"]
+        )
+        self.assertTrue(args.all)
+
+    def test_all_renders_every_concern(self):
+        concerns = self._concerns(200)
+        capped = concern_triage.format_concern_triage("story-001", concerns, [])
+        full = concern_triage.format_concern_triage(
+            "story-001", concerns, [], uncapped=True
+        )
+        self.assertGreater(len(full), len(capped))

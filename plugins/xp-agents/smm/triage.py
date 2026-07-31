@@ -177,3 +177,30 @@ def extract_file_domain_paths(
                 for match in glob_root.glob(path):
                     paths.add(str(match.relative_to(glob_root)))
     return paths
+
+
+def cap_with_overflow(items: list, limit: int) -> tuple[list, int]:
+    """Keep the first *limit* items; return them and how many were dropped.
+
+    Shared by the two triage renderers (`xp-work-selection`'s block and
+    `xp-accept`'s per-story concerns) rather than duplicated, because the
+    honesty contract is the part that must not drift: a capped block reports
+    what it omitted and how to get it, so an omitted item never reads as fixed.
+    Both callers already import this module; the alternative was two copies of
+    the same three lines diverging on the part that matters.
+    """
+    return items[:limit], max(0, len(items) - limit)
+
+
+def overflow_line(count: int, command: str) -> str:
+    """The one line a capped block ends with.
+
+    Spelled RUNNABLE: the claim is that the omitted items are one command
+    away, and a retrieval path the reader cannot execute is not a retrieval
+    path. Callers pass their own command because each surface is re-rendered
+    by its own script.
+    """
+    plural = "s" if count != 1 else ""
+    return (
+        f"#### {count} further open item{plural} not shown. List them:\n    {command}"
+    )

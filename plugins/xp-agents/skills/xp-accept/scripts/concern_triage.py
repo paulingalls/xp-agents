@@ -18,6 +18,7 @@ _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "smm"))
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
+import _common  # noqa: E402
 import commits  # noqa: E402
 import event_schema  # noqa: E402
 import materialize  # noqa: E402
@@ -53,19 +54,43 @@ def find_concerns_for_story(
     return matching
 
 
+# Same 400 as the kickoff triage block, and for the same reason: it is the
+# previous content cap, so the excerpt keeps the whole WHY every stored concern
+# used to carry. The count cap is this block's own — one story's concerns are a
+# working set, not an inventory, and a story touching a busy path was paying
+# the entire backlog at full length (40,481 chars measured against a shape
+# budget of 100).
+_EXCERPT_MAX_CHARS = 400
+_MAX_CONCERNS_PER_STORY = 10
+
+_ALL_COMMAND = (
+    "python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-accept/scripts/concern_triage.py "
+    "--smm-dir <SMM_DIR> --sprint-file <SPRINT_FILE> --all"
+)
+
+
 def format_concern_triage(
     story_id: str,
     concerns: list[dict],
     events: list[dict],
+    *,
+    uncapped: bool = False,
 ) -> str:
-    """Format concern triage output for a story."""
+    """Format concern triage output for a story.
+
+    `uncapped` is the `--all` retrieval path the overflow line names.
+    """
     if not concerns:
         return ""
+
+    omitted = 0
+    if not uncapped:
+        concerns, omitted = triage.cap_with_overflow(concerns, _MAX_CONCERNS_PER_STORY)
 
     lines = [f"### Concerns for {story_id}"]
     for concern in concerns:
         cid = concern.get("id", "")
-        content = concern.get("content", "")
+        content = _common.truncate(concern.get("content", ""), _EXCERPT_MAX_CHARS)
         files = concern.get("files") or []
         lines.append(f"- [id: {cid}] {content}")
         if files:
@@ -73,10 +98,12 @@ def format_concern_triage(
         hits = commits.find_addressing_commits(concern, events)
         if hits:
             lines.append(commits.format_maybe_addressed_line(hits))
+    if omitted:
+        lines.append(triage.overflow_line(omitted, _ALL_COMMAND))
     return "\n".join(lines)
 
 
-def run(smm_dir: Path, sprint_file: Path) -> str:
+def run(smm_dir: Path, sprint_file: Path, *, uncapped: bool = False) -> str:
     """Scan for open concerns matching in-motion stories."""
     if not sprint_file.is_file():
         return ""
@@ -100,22 +127,34 @@ def run(smm_dir: Path, sprint_file: Path) -> str:
     sections: list[str] = []
     for story in stories:
         concerns = find_concerns_for_story(story, open_concerns)
-        section = format_concern_triage(story.get("id", ""), concerns, events)
+        section = format_concern_triage(
+            story.get("id", ""), concerns, events, uncapped=uncapped
+        )
         if section:
             sections.append(section)
 
     return "\n\n".join(sections)
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
+    """Named, so a test can assert the overflow line's command really parses."""
     parser = argparse.ArgumentParser(
         description="Find open concerns overlapping in-motion stories."
     )
     parser.add_argument("--smm-dir", type=Path, required=True)
     parser.add_argument("--sprint-file", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Render every matching concern, ignoring the per-story cap.",
+    )
+    return parser
 
-    output = run(args.smm_dir, args.sprint_file)
+
+def main() -> None:
+    args = _build_parser().parse_args()
+
+    output = run(args.smm_dir, args.sprint_file, uncapped=args.all)
     if output:
         print(output)
 
