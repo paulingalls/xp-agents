@@ -31,10 +31,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/_preload_liveness.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/_preload_emit.sh"
 
 # Clean up temp files from previous preload runs.
-# These are created by smm_render_to_tempfile/sprint_render_to_tempfile/
-# system_context_render_to_tempfile_for and are safe to remove once the
-# previous skill has finished.
-find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" -o -name ".system-context-rendered.*" \) -exec rm -f {} + 2>/dev/null || true
+# These are created by smm_render_to_tempfile/sprint_render_to_tempfile and are
+# safe to remove once the previous skill has finished — each is consumed by the
+# same skill invocation that emitted it.
+#
+# `.system-context-rendered.*` is NOT swept, and that is the whole point. A
+# close emits it at Step 0 and hands the path to the close-reviewer at Step
+# 4.5, but Step 4b runs `/xp-quality-review` in between — whose preload sources
+# THIS file. Sweeping the pattern here therefore deleted the reviewer's input
+# before it was read, every time `RUN_FULL_CODE_REVIEW=true`. It failed
+# SILENTLY: the agent gets `SYSTEM_CONTEXT_RENDERED=<dead path>` and reviews
+# with no conventions, branching or principles, with no branch for "line
+# present, file gone". Observed live in sprint-003's own close.
+find "$SMM_DIR" -maxdepth 1 \( -name ".smm-rendered.*" -o -name ".sprint-rendered.*" -o -name ".sprint-review-input.*" \) -exec rm -f {} + 2>/dev/null || true
 
 dump_smm() {
     if [ -f "${SMM_DIR}/shared_mental_model.json" ]; then
