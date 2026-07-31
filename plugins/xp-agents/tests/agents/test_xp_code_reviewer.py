@@ -331,6 +331,62 @@ class TestXpCodeReviewerProse(unittest.TestCase):
         )
 
 
+class TestDecisionNudgeIsProseOnly(unittest.TestCase):
+    """§3b must ask for the decision, not file a tracked item about its absence.
+
+    The nudge's subject is a MISSING artifact, so nothing a later commit does
+    can close it: the decision gets recorded, and the item that asked for it
+    stays open anyway. Measured on this project's own log at the time of the
+    change — the reviewer's items closed at 22% against 83% for the sibling
+    reviewer, and every nudge-shaped one was still open, four of them with the
+    requested decision already recorded minutes later.
+
+    So the fix is not a better sweep downstream; it is to stop minting an item
+    whose own success condition leaves it open. The prose summary already
+    reaches the author, who has the rationale the event never carried.
+
+    Pinned as prose because the agent is an LLM: the instruction IS the
+    mechanism. This proves the instruction says prose-only and names no event
+    verb — not that a given review obeyed it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        text = _AGENT_PROMPT.read_text(encoding="utf-8")
+        _, body = _split_frontmatter_body(text)
+        cls.section_3b = _section_slice(body, "## 3b", "## 4.")
+
+    def test_nudge_records_no_event(self):
+        lowered = self.section_3b.lower()
+        for verb in ("concern", "debt", "append.sh", "--severity"):
+            self.assertNotIn(
+                verb,
+                lowered,
+                f"§3b must not instruct recording an event ({verb!r}): a nudge "
+                "about a missing decision has no fix that closes it, so the "
+                "item accumulates whether or not the author complies",
+            )
+
+    def test_nudge_is_delivered_in_the_summary(self):
+        """Guard the other direction: prose-only must not become silent.
+
+        Deleting §3b entirely would also pass the test above. The nudge still
+        has to reach someone — it is the half that demonstrably works.
+        """
+        lowered = self.section_3b.lower()
+        self.assertTrue(
+            "summary" in lowered or "prose" in lowered,
+            "§3b must still route the nudge to the author via the review "
+            "summary; dropping it silently is not the fix",
+        )
+        self.assertIn(
+            "topic",
+            lowered,
+            "§3b must still ask for a stable topic — an ad-hoc one disables "
+            "the superseded-decision detector it exists to arm",
+        )
+
+
 class TestProjectAgnosticAssertHelper(unittest.TestCase):
     """Pin the shared vocab-scan helper's own contract: scan RAW.
 
