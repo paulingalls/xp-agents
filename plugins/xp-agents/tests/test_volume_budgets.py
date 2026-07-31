@@ -31,8 +31,10 @@ seven artifacts.
 `subagent_start` is worth knowing about: its shape builder passes
 `subagent_type` inside `tool_input`, while the hook reads a TOP-LEVEL
 `agent_type`. The lookup therefore sees `""` and falls through `_resolve_tier`
-to `_inject_full` — the most expensive tier, not the cheapest. The shape family
-measures the right tier against the wrong data.
+to the unknown-type fallback — which now serves the cheap reference pointer, so
+the shape family measures the CHEAPEST tier. The loud builder names `Plan`
+explicitly to reach the full render; relying on the fallback for that would
+break silently the next time the fallback moves.
 """
 
 import sys
@@ -58,18 +60,23 @@ from conftest import _SCRIPTS_DIR, _bootstrap_seeded_smm, _run_emitter
 # `_volume_fixture.bootstrap_populated_smm`, calibrated at 1.125 so a fresh
 # surface lands near 89% rather than inside the 98% band.
 #
-# These read roughly 2x the same surface against a copied real log (105,454 vs
-# 52,674 for xp-work-selection). The generator emits every concern UNRESOLVED,
-# where a real log resolves most of them — 223 open here against 91 open of 223
-# raised in production. Deliberate: a bound wants the pessimistic end, and the
-# open-concern count is the very thing a downstream story has to vary.
+# These read roughly 2x the same surface against a copied real log. The
+# generator emits every concern UNRESOLVED, where a real log resolves most of
+# them — 223 open here against 91 open of 223 raised in production. Deliberate:
+# a bound wants the pessimistic end.
+#
+# xp-work-selection and xp-accept were RATCHETED DOWN once the triage and
+# concern blocks grew total ceilings — 119,000 -> 23,900 (measured 105,739 ->
+# 21,173, -80%) and 45,600 -> 14,900 (40,481 -> 13,169, -67%). `ratchet` only
+# ever lowers, which is the point: without re-deriving them the saving would be
+# silently re-spendable, which is the failure mode the band exists to prevent.
 PRELOAD_VOLUME_BUDGETS: dict[str, int] = {
-    "xp-accept": 45600,
+    "xp-accept": 14900,
     "xp-end-session": 2300,
     "xp-kickoff": 400,
     "xp-plan": 200,
     "xp-sprint-start": 300,
-    "xp-work-selection": 119000,
+    "xp-work-selection": 23900,
 }
 
 # Surfaces whose size does NOT track SMM data, with the reason. This is a

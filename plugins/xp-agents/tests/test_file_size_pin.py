@@ -56,7 +56,7 @@ _SHIPPED_ROOT_FLOORS = {
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 _BAND_CEILINGS = {
-    # shipped (15)
+    # shipped (14)
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 498,
     "plugins/xp-agents/scripts/close_common.py": 496,
@@ -67,7 +67,6 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/linter_tables.py": 482,
     "plugins/xp-agents/smm/event_schema.py": 480,
     "plugins/xp-agents/scripts/lint_runners.py": 477,
-    "plugins/xp-agents/smm/sprint_save.py": 472,
     "plugins/xp-agents/smm/_append_impl.py": 469,
     "plugins/xp-agents/scripts/pre_tool_write.py": 463,
     "plugins/xp-agents/scripts/session_start.py": 462,

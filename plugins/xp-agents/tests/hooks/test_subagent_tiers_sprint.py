@@ -159,8 +159,9 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Extreme Programming", result)
         self.assertNotIn("Ship v1", result)
 
-    def test_custom_agent_type_gets_full_smm(self):
-        """Custom agent types get full SMM (default tier)."""
+    def test_custom_agent_type_gets_the_reference_pointer(self):
+        """A user-defined type gets the POINTER — every downstream project's
+        own agent types land on this fallback, not just the built-ins."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -170,15 +171,14 @@ class TestSubagentStartSprintTiers(_HookTestCase):
             smm_dir=self.smm_dir,
         )
         assert result is not None
-        self.assertIn("Ship v1", result)
+        self.assertIn("smm_cli.py", result)
+        self.assertNotIn("Ship v1", result)
         self.assertNotIn("Teammate Guide", result)
 
     def test_general_purpose_gets_reference_not_eager_smm(self):
-        """A general-purpose agent is the generic reference tier: it gets a
-        pointer to the SMM, not the eager full render. Even with a sprint
-        active, no SMM/sprint content is injected — it self-serves on demand if
-        its task writes code. (Custom/unknown types still get full SMM — see
-        test_custom_agent_type_gets_full_smm.)"""
+        """The generic reference tier: a pointer, not the eager render. Even
+        with a sprint active nothing is injected — it self-serves if its task
+        writes code. Unknown types get the same pointer, plus the note."""
         result = self.subagent_start.run(
             {
                 "session_id": "t",
@@ -258,15 +258,15 @@ class TestSubagentStartSprintTiers(_HookTestCase):
         self.assertIn("Constraints", result)
         self.assertNotIn("sprint-001", result)
 
-    def test_default_agent_unchanged(self):
-        """Default (non-xp, non-Explore) gets full SMM."""
+    def test_default_agent_gets_the_reference_pointer(self):
+        """Default (non-xp, non-Explore, unnamed) gets the pointer."""
         result = self.subagent_start.run(
             {"session_id": "t", "agent_id": "task-1"},
             smm_dir=self.smm_dir,
         )
         assert result is not None
-        self.assertIn("Intent", result)
-        self.assertIn("Risks", result)
+        self.assertIn("smm_cli.py", result)
+        self.assertNotIn("<smm-context>", result)
         self.assertNotIn("sprint-001", result)
 
 

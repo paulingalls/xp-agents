@@ -58,6 +58,36 @@ _DIGEST_EXCERPT_MAX_CHARS = 60
 # deferral. If you move either number, move it knowing the other exists.
 _NEGLECT_DEFER_COUNT = 3
 
+# The TOTAL bound, and the thing the two per-item bounds above cannot give.
+#
+# Capping only the expensive tier makes the block cheaper per item, not
+# bounded: at ~162 chars a digest line, 91 open concerns cost ~26k and 300 cost
+# ~70k. A byte budget over that is calibrated to today's item count, so
+# ordinary growth later reads as a regression rather than as growth.
+#
+# So each section renders at most `_SECTION_MAX_ITEMS` lines — at most
+# `_FULL_TIER_MAX_ITEMS` of them at full length — and everything past that
+# collapses into ONE line naming the count and a command that lists the rest.
+# The counts are what the lead can actually triage in a sitting; the tail is
+# an inventory, and an inventory belongs behind a command.
+#
+# The collapse is NOT a filter. `--all` re-renders every item uncapped, and the
+# count line says how many are down there — an item that vanished would read as
+# fixed, which is the laundering this module exists to prevent. That is also
+# why the tail is not simply digested further: a 60-char line per item is still
+# linear, and linear is the property being removed.
+_FULL_TIER_MAX_ITEMS = 25
+_DIGEST_TIER_MAX_ITEMS = 35
+_SECTION_MAX_ITEMS = _FULL_TIER_MAX_ITEMS + _DIGEST_TIER_MAX_ITEMS
+
+# Spelled RUNNABLE, for the same reason the digest header is: the collapse's
+# entire honesty claim is that the omitted items are one command away, and a
+# retrieval path the reader cannot execute is not a retrieval path.
+_ALL_COMMAND = (
+    "python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-work-selection/scripts/"
+    "triage_preload.py --smm-dir <SMM_DIR> --all"
+)
+
 
 def _format_intent(entry: dict, session_anchor_timestamps: list[str]) -> str:
     """Render one triage intent as a suffix on the item's line.
@@ -83,6 +113,7 @@ def format_triage_section(
     *,
     commit_overlap: dict[str, list[dict]] | None = None,
     intents: dict[str, dict] | None = None,
+    uncapped: bool = False,
 ) -> str:
     """Format a triage section with aging info, plus any recorded triage intent.
 
@@ -105,6 +136,18 @@ def format_triage_section(
     for item in items:
         (digest if _digests(item, intents) else full).append(item)
 
+    omitted = 0
+    if not uncapped:
+        # Newest-first is already the caller's order (`triage.find_unresolved`
+        # sorts by ts descending), so the cap keeps the items the lead is most
+        # likely to act on without inventing a rank. Age as a SIGNAL is
+        # unavailable here — see `_digests` — but as an ORDER it is free.
+        full, dropped_full = triage.cap_with_overflow(full, _FULL_TIER_MAX_ITEMS)
+        digest, dropped_digest = triage.cap_with_overflow(
+            digest, _DIGEST_TIER_MAX_ITEMS
+        )
+        omitted = dropped_full + dropped_digest
+
     lines = [f"### {header}:"]
     for item in full:
         lines.append(_full_line(item, session_anchor_timestamps, intents))
@@ -125,6 +168,8 @@ def format_triage_section(
         for item in digest:
             lines.append(_digest_line(item, session_anchor_timestamps, intents))
             lines.extend(_maybe_addressed_lines(item, commit_overlap))
+    if omitted:
+        lines.append(triage.overflow_line(omitted, _ALL_COMMAND))
     return "\n".join(lines)
 
 
@@ -216,8 +261,13 @@ def _maybe_addressed_lines(
     return [commits.format_maybe_addressed_line(commit_overlap[event_id])]
 
 
-def run(smm_dir: Path) -> str:
-    """Scan events and produce triage output."""
+def run(smm_dir: Path, *, uncapped: bool = False) -> str:
+    """Scan events and produce triage output.
+
+    `uncapped` is the `--all` retrieval path the collapse line names: it renders
+    every open item, which is what makes the capped block a summary rather than
+    a silent filter.
+    """
     events, _ = materialize.parse_events(smm_dir)
     if not events:
         return ""
@@ -248,29 +298,50 @@ def run(smm_dir: Path) -> str:
             overlap[c.get("id", "")] = hits
 
     sections = [
-        format_triage_section("Open Debts", debts, session_anchor_ts, intents=intents),
+        format_triage_section(
+            "Open Debts",
+            debts,
+            session_anchor_ts,
+            intents=intents,
+            uncapped=uncapped,
+        ),
         format_triage_section(
             "Open Concerns",
             concerns,
             session_anchor_ts,
             commit_overlap=overlap,
             intents=intents,
+            uncapped=uncapped,
         ),
         format_triage_section(
-            "Open Questions", questions, session_anchor_ts, intents=intents
+            "Open Questions",
+            questions,
+            session_anchor_ts,
+            intents=intents,
+            uncapped=uncapped,
         ),
     ]
     return "\n\n".join(s for s in sections if s)
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
+    """Named, so a test can assert the collapse line's command really parses."""
     parser = argparse.ArgumentParser(
         description="Scan events for unresolved debts/concerns/questions."
     )
     parser.add_argument("--smm-dir", type=Path, required=True, help="SMM directory")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Render every open item, ignoring the per-section cap.",
+    )
+    return parser
 
-    if output := run(args.smm_dir):
+
+def main() -> None:
+    args = _build_parser().parse_args()
+
+    if output := run(args.smm_dir, uncapped=args.all):
         print(output)
 
 
