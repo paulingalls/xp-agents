@@ -48,7 +48,9 @@ When a new debt near-duplicates an existing open debt (the duplicate-debt probe 
 
 ## 3b. New-Pattern Decision Nudge
 
-When the diff introduces a NEW architectural pattern (naming convention, module boundary, error-handling shape, retry strategy — anything future code will mirror), nudge the author to emit a `type=decision` event with a stable `--topic <slug>`. This is advisory — record the nudge as a low-severity concern if no decision was logged; do NOT block the commit. The stable topic lets the superseded-decision detector catch a future divergent pattern as drift; an empty or ad-hoc topic silently disables it.
+When the diff introduces a NEW architectural pattern (naming convention, module boundary, error-handling shape, retry strategy — anything future code will mirror), ask the author in your **summary** to emit a `type=decision` event, proposing a stable `--topic <slug>`. An empty or ad-hoc topic silently disables the superseded-decision detector this arms.
+
+Summary only — record no event, block no commit.
 
 ## 4. Reuse, Quality, Efficiency & XP-Value Lenses
 

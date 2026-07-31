@@ -2,6 +2,22 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.3.1 — The code reviewer stops filing items that cannot be closed
+
+When a diff introduced a new architectural pattern, the code reviewer nudged you
+to record a decision about it — and filed a low-severity concern when you had
+not. That concern's subject is a *missing* artifact, so nothing you do later
+closes it: you record the decision, and the item asking for it stays open
+anyway. On this project's own log, four such items were still open with the
+requested decision already recorded, two of them within seven minutes.
+
+The nudge now goes in the review summary, where it already worked, and records
+nothing. Your open-item list stops collecting entries whose success condition
+leaves them open.
+
+Scope, stated plainly: this removes one generator, not a backlog. Most open
+concerns are real findings waiting to be scheduled.
+
 ## v5.3.0 — Your close reviewer was reviewing blind, and the budgets only bounded prose
 
 **Every sprint, plan and free close since late June spawned its close-reviewer
