@@ -56,7 +56,7 @@ _SHIPPED_ROOT_FLOORS = {
 # governed only by the tree-wide cap. Shrink a listed file to <=450 and delete
 # its entry -- the table is self-retiring.
 _BAND_CEILINGS = {
-    # shipped (15)
+    # shipped (14)
     "plugins/xp-agents/smm/seed_smm.py": 499,
     "plugins/xp-agents/scripts/spawn_teammate.py": 498,
     "plugins/xp-agents/scripts/close_common.py": 496,

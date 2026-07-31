@@ -63,10 +63,26 @@ def find_concerns_for_story(
 _EXCERPT_MAX_CHARS = 400
 _MAX_CONCERNS_PER_STORY = 10
 
+# The count cap bounds how many concerns render; this bounds what ONE of them
+# can cost. `files` was the term neither of the caps above reached — it renders
+# in full for every shown concern, so a concern naming 200 paths outweighs the
+# 400-char excerpt of the WHY it sits under. 12 because the largest concern on
+# the live log names 28 files and the median names 1, so this fires on the
+# outliers and leaves ordinary concerns untouched; the id retrieves the whole
+# list, and the remainder is COUNTED rather than silently dropped.
+_MAX_FILES_PER_CONCERN = 12
+
 _ALL_COMMAND = (
     "python3 ${CLAUDE_PLUGIN_ROOT}/skills/xp-accept/scripts/concern_triage.py "
     "--smm-dir <SMM_DIR> --sprint-file <SPRINT_FILE> --all"
 )
+
+
+def _format_files(files: list[str]) -> str:
+    """One concern's file list, bounded and with the remainder counted."""
+    shown = ", ".join(files[:_MAX_FILES_PER_CONCERN])
+    extra = len(files) - _MAX_FILES_PER_CONCERN
+    return f"{shown} (+{extra} more)" if extra > 0 else shown
 
 
 def format_concern_triage(
@@ -94,7 +110,7 @@ def format_concern_triage(
         files = concern.get("files") or []
         lines.append(f"- [id: {cid}] {content}")
         if files:
-            lines.append(f"  Files: {', '.join(files)}")
+            lines.append(f"  Files: {_format_files(files)}")
         hits = commits.find_addressing_commits(concern, events)
         if hits:
             lines.append(commits.format_maybe_addressed_line(hits))

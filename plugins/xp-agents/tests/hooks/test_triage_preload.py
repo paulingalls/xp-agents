@@ -410,6 +410,24 @@ class TestTriageTotalCeiling(unittest.TestCase):
         for item in items:
             self.assertIn(item["id"], full)
 
+    def test_a_high_severity_item_survives_the_cap(self):
+        """Recency alone must not collapse a HIGH-severity item.
+
+        `_digests` already refuses to SHRINK a high-severity item — "the item
+        whose WHY the lead most needs in front of them". A cap that ranks by
+        recency alone then REMOVES that same item entirely whenever it is old,
+        which is strictly worse than the shrink the exemption forbids. On the
+        live log this is not hypothetical: 7 of the 10 open high-severity
+        concerns sit past index 25 in newest-first order.
+        """
+        items = self._items(100)
+        items[-1]["severity"] = "high"
+        oldest_high = items[-1]["id"]
+        out = triage_preload.format_triage_section(
+            "Open Concerns", items, self._ANCHORS
+        )
+        self.assertIn(oldest_high, out)
+
 
 if __name__ == "__main__":
     unittest.main()

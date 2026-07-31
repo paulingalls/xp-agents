@@ -194,3 +194,31 @@ class TestConcernTriageIsBounded(unittest.TestCase):
             "story-001", concerns, [], uncapped=True
         )
         self.assertGreater(len(full), len(capped))
+
+    def test_a_high_severity_concern_survives_the_cap(self):
+        """The count cap ranks newest-first, and severity outranks recency.
+
+        Dropping a high-severity concern behind a command while ten newer
+        low-severity ones render in full is the opposite of triage.
+        """
+        concerns = self._concerns(50)
+        concerns[-1]["severity"] = "high"
+        out = concern_triage.format_concern_triage("story-001", concerns, [])
+        self.assertIn(concerns[-1]["id"], out)
+
+    def test_the_file_list_is_bounded(self):
+        """The one term the count cap does not bound.
+
+        `files` renders in full for every shown concern, so a concern naming
+        200 paths costs more than the 400-char content excerpt it sits under
+        — the largest on the live log names 28. Same contract as everywhere
+        else here: the remainder is COUNTED, never silently dropped.
+        """
+        concern = make_event(
+            EVENT_TYPE_CONCERN,
+            content="x",
+            files=[f"plugins/xp-agents/scripts/module_{i}.py" for i in range(200)],
+        )
+        out = concern_triage.format_concern_triage("story-001", [concern], [])
+        self.assertLess(len(out), 1000)
+        self.assertIn("more", out)

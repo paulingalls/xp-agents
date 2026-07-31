@@ -131,7 +131,13 @@ EMITTER_BUDGETS: dict[str, int] = {
     "review_cycle_done.py": 200,
     "session_end_warning.py": 100,
     "session_start.py": 1500,
-    "subagent_start.py": 3700,
+    # Ratcheted 3700 -> 2100 when the unknown-agent-type fallback went lazy:
+    # this fixture supplies `subagent_type` inside `tool_input` and the hook
+    # reads a TOP-LEVEL `agent_type`, so it lands on that fallback and its
+    # measurement fell 3,209 -> 1,815. Left at 3700 the saving would be
+    # silently re-spendable, which is the failure mode the band exists to
+    # prevent.
+    "subagent_start.py": 2100,
     "subagent_stop.py": 300,
     "user_prompt_log.py": 100,
 }

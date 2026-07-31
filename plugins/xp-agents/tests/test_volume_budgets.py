@@ -31,8 +31,10 @@ seven artifacts.
 `subagent_start` is worth knowing about: its shape builder passes
 `subagent_type` inside `tool_input`, while the hook reads a TOP-LEVEL
 `agent_type`. The lookup therefore sees `""` and falls through `_resolve_tier`
-to `_inject_full` — the most expensive tier, not the cheapest. The shape family
-measures the right tier against the wrong data.
+to the unknown-type fallback — which now serves the cheap reference pointer, so
+the shape family measures the CHEAPEST tier. The loud builder names `Plan`
+explicitly to reach the full render; relying on the fallback for that would
+break silently the next time the fallback moves.
 """
 
 import sys
