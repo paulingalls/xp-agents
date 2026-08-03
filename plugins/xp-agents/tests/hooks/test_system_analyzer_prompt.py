@@ -189,6 +189,25 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
             "architecture_overview — schema/markdown drift detected",
         )
 
+    def test_surface_command_and_paths_are_in_the_template(self):
+        """Update mode replaces the WHOLE surfaces array, so the template must
+        name the two new fields — otherwise an analyzer run between now and the
+        authoring skill silently DROPS values a project declared, and unlike a
+        misspelt key nothing reports the loss."""
+        for field in ("paths", "command"):
+            self.assertIn(
+                f'"{field}"',
+                self.content,
+                f"analyzer surface template must carry {field!r} or update mode "
+                "drops it",
+            )
+        self.assertIn(
+            "re-emit any `paths`/`command`",
+            self.content,
+            "template must tell update mode to re-emit declared values or the "
+            "replace-the-whole-array patch deletes them silently",
+        )
+
     def test_product_budget_matches_schema(self):
         expected = system_context_schema.FIELD_MAXLENGTH["product"]
         self.assertIn(
@@ -242,6 +261,14 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
             (
                 "acceptance_surfaces.signal",
                 system_context_schema.ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.paths item",
+                system_context_schema.ACCEPTANCE_SURFACE_PATH_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.command",
+                system_context_schema.ACCEPTANCE_SURFACE_COMMAND_MAXLENGTH,
             ),
         )
         for field, expected in cases:

@@ -116,8 +116,9 @@ Canonical acceptance harnesses per surface live in `scripts/scaffold_detect.py:_
 - `signals`: what you detected indicating this surface exists
 - `harness`: acceptance tooling name (omit if none found)
 - `status`: `"covered"` if harness exists, `"gap"` if not
+- `paths`, `command`: the globs this surface owns and the narrowed command covering it. Record only what the project documents — never infer a command. `command` requires `paths` or it is rejected at write.
 
-**Update mode:** Patch via `edit-acceptance-surfaces` and compare detected surfaces against existing entries — add new surfaces, update signals, do NOT remove surfaces the user may have manually added:
+**Update mode:** Patch via `edit-acceptance-surfaces` and compare detected surfaces against existing entries — add new surfaces, update signals, do NOT remove surfaces the user may have manually added. This replaces the WHOLE array, so re-emit any `paths`/`command` you found: a declared value you omit is DELETED, silently:
 ```bash
 echo '<json-array>' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-acceptance-surfaces
 ```
@@ -238,7 +239,7 @@ Before filling each capped list, apply its discriminator test. The test is the *
     {"name": "domain-glossary (max 50 chars)", "content": "<string, list, or object — serialized max 500 chars>"}
   ],
   "acceptance_surfaces": [
-    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap"}
+    {"name": "browser (max 50 chars)", "signals": ["<max 100 chars each>"], "harness": "<optional, max 50 chars>", "status": "covered | gap", "paths": ["<optional, max 200 chars each>"], "command": "<optional, max 100 chars; requires paths>"}
   ]
 }
 ```

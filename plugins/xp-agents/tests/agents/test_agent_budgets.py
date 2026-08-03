@@ -46,7 +46,14 @@ AGENT_BUDGETS: dict[str, int] = {
     # description and the rule were cut ~670 chars before this bump.
     "xp-retrospective": 23100,
     "xp-sprint-reviewer": 4380,
-    "xp-system-analyzer": 19640,
+    # Bumped 19640 -> 20370 for the surface `paths`/`command` template fields
+    # plus the update-mode re-emit warning. A deliberate bump, not a ratchet:
+    # `ratchet` only ever lowers, and the file sat at 99.3% of the old budget
+    # once the two fields landed. The re-emit sentence is load-bearing —
+    # update mode replaces the whole surfaces array, so without it a declared
+    # value is deleted silently (TestSystemAnalyzerPromptMaxlengthSync pins
+    # it). Trimmed first; measured 19507 after the trim.
+    "xp-system-analyzer": 20370,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
