@@ -19,6 +19,7 @@ Back-compat: a single ``command: str`` is treated as a one-element list.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -73,18 +74,22 @@ _OUTPUT_TAIL_CHARS = 500
 # TRUE total; only the stored detail is bounded.
 _MAX_FAILING_ITEMS = 20
 
-# Per-command timeout for the unattended --sprint batch path: a hung
-# acceptance test must convert to an attributable red, never block close
-# forever. Generous default (won't false-fail a real suite); operators tune
-# via VERIFY_CMD_TIMEOUT_S when a surface legitimately runs longer.
-_DEFAULT_CMD_TIMEOUT_S = 600
+# Per-command timeout shared by BOTH run paths — the attended --story gate and
+# the unattended --sprint batch. Its purpose is "never hang forever", not "fail
+# fast": a hung acceptance command must convert to an attributable failure
+# instead of blocking accept or close indefinitely. Two hours because an
+# acceptance suite legitimately runs long — an hour-long one must pass
+# comfortably, and a tight bound would turn slow-but-green into red. Operators
+# tune per project via VERIFY_CMD_TIMEOUT_S. The bound is PER COMMAND, so a
+# story declaring three commands can take 3x it end to end.
+_DEFAULT_CMD_TIMEOUT_S = 7200
 
 
 def _cmd_timeout() -> int:
     """Per-command timeout in seconds; a POSITIVE VERIFY_CMD_TIMEOUT_S overrides.
 
     Only positive, and that is not input-hygiene fussiness: `timeout=0` makes
-    subprocess.run raise TimeoutExpired before the command has run at all, so
+    the runner raise TimeoutExpired before the command has run at all, so
     every acceptance command would die "timed out after 0s" having never
     executed. Zero and negatives express no runnable budget, so they are not
     an override; they fall back to the default, exactly as unparseable text
@@ -194,6 +199,11 @@ def _run_sprint(smm_dir: Path) -> int:
 
     timeout = _cmd_timeout()
     env = _subprocess_env.smm_child_env(smm_dir)
+    # The process cwd, explicitly — the runner is invoked bare from the main
+    # checkout and a declared command's relative paths resolve against it.
+    # NOT smm_dir, the nearest Path in scope: that would relocate every
+    # declared command and break every relative path it uses.
+    cwd = os.getcwd()
     rows: list[dict] = []
     for sid, ac_idx, surface, cmd, na in items:
         if na:
@@ -213,22 +223,24 @@ def _run_sprint(smm_dir: Path) -> int:
         # A non-N/A item always carries a command (see _gather_sprint_items);
         # only the command-less sentinel above uses cmd=None.
         assert cmd is not None
-        # shell=True: AC commands are trusted shell strings declared by the
-        # story (see _run_commands). capture_output keeps the matrix clean.
+        # Run in its own session so the timeout kills the whole process GROUP:
+        # a plain shell timeout reaps only the shell, leaving alive whatever
+        # the acceptance command backgrounded (a dev server, a stack) to
+        # outlive the close it was started for. Captured, because the matrix
+        # and the failure tails below read the output.
         try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,  # noqa: secret
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
+            proc = _subprocess_env.run_in_new_process_group(
+                cmd, cwd=cwd, timeout=timeout, env=env
             )
             rc = proc.returncode
             output = proc.stderr or proc.stdout or ""
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             rc = -1
-            output = f"timed out after {timeout}s"
+            # Whatever the command managed to say before it was killed is
+            # usually the only clue to WHY it hung; a bare "timed out after
+            # Ns" sends the operator off to reproduce it by hand.
+            said = getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
+            output = f"timed out after {timeout}s" + (f": {said}" if said else "")
         row: dict = {
             "story": sid,
             "ac_idx": ac_idx,

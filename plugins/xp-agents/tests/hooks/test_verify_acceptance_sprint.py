@@ -102,7 +102,7 @@ class TestSprintEnvPropagation(_SprintCLITestCase):
     def test_smm_dir_visible_in_sprint_subprocess(self):
         # Sprint-mode parallel: _run_sprint must also forward SMM_DIR into
         # each AC subprocess. The story-mode test covers _run_commands;
-        # this covers _run_sprint's separate subprocess.run call site.
+        # this covers _run_sprint's separate call site.
         # See test_verify_acceptance.test_smm_dir_visible_in_subprocess for
         # the same env-strip rationale.
         self._seed(

@@ -157,6 +157,17 @@ class TestCmdTimeout(_SMMTestCase):
     def test_positive_override_is_honoured(self):
         self.assertEqual(self._timeout("42"), 42)
 
+    def test_default_bound_is_two_hours(self):
+        # The bound guarantees "never hangs forever" — it is NOT a fail-fast
+        # budget. One constant now serves BOTH the attended --story path and
+        # the unattended --sprint batch, and a real acceptance suite can
+        # legitimately run for an hour, so a tight default would convert a
+        # slow-but-passing suite into a red. Per-project tuning stays on
+        # VERIFY_CMD_TIMEOUT_S.
+        with patch.dict(os.environ):
+            os.environ.pop("VERIFY_CMD_TIMEOUT_S", None)
+            self.assertEqual(verify_acceptance._cmd_timeout(), 7200)
+
     def test_zero_falls_back_to_the_default(self):
         self.assertEqual(self._timeout("0"), verify_acceptance._DEFAULT_CMD_TIMEOUT_S)
 
