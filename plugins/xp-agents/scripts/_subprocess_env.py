@@ -48,7 +48,7 @@ class TimedOutWithOutput(subprocess.TimeoutExpired):
 
 
 def run_in_new_process_group(
-    command: str, cwd: str, timeout: int, env: dict[str, str]
+    command: str, cwd: str, timeout: int, env: dict[str, str], capture: bool = True
 ) -> subprocess.CompletedProcess:
     """Run *command* via the shell, killing its whole process group on timeout.
 
@@ -56,13 +56,26 @@ def run_in_new_process_group(
     time — the process group has already been killed by then, so callers
     never block on a hung descendant's pipes. Raise-vs-swallow policy for
     both ``TimeoutExpired`` and a non-zero exit is each caller's own.
+
+    ``capture=False`` inherits the parent's stdio instead of piping it, for
+    the one caller (``verify_acceptance``'s ``--story`` gate) an operator
+    WATCHES: capturing an hour-long acceptance suite would blank the screen
+    until it finished. The kill-the-group guarantee is unaffected — it comes
+    from ``start_new_session`` + ``killpg``, not from owning the pipes — but
+    ``returncode`` is then the only thing a caller learns, since the returned
+    ``stdout``/``stderr`` (and a timeout's drained output) are ``None``.
+    Deliberately a boolean and not pluggable stdio targets: no caller wants a
+    third destination, and the alternative — a second hand-rolled
+    ``Popen(start_new_session=True)`` at the streaming site — is exactly the
+    duplication this module exists to remove.
     """
+    pipe = subprocess.PIPE if capture else None
     proc = subprocess.Popen(
         command,
         shell=True,  # noqa: secret
         cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=pipe,
+        stderr=pipe,
         text=True,
         env=env,
         start_new_session=True,
@@ -110,12 +123,12 @@ def run_in_new_process_group(
 def _env_int(name: str, default: int) -> int:
     """Env var *name* as a positive int, or *default*.
 
-    Only a POSITIVE value overrides: ``timeout=0`` makes ``subprocess.run``
-    raise ``TimeoutExpired`` before the command has run at all, so a
-    zero/negative override would silently convert every declared command
-    into an immediate false failure that never actually ran. Zero, negative,
-    unset, and unparseable text all fall back to *default* — the same
-    fallback trio both call sites need, now defined once.
+    Only a POSITIVE value overrides: ``timeout=0`` makes
+    ``run_in_new_process_group`` raise ``TimeoutExpired`` before the command
+    has run at all, so a zero/negative override would silently convert every
+    declared command into an immediate false failure that never actually ran.
+    Zero, negative, unset, and unparseable text all fall back to *default* —
+    the same fallback trio every call site needs, now defined once.
     """
     raw = os.environ.get(name)
     if raw:

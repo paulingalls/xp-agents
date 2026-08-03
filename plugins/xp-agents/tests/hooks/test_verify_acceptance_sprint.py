@@ -102,7 +102,7 @@ class TestSprintEnvPropagation(_SprintCLITestCase):
     def test_smm_dir_visible_in_sprint_subprocess(self):
         # Sprint-mode parallel: _run_sprint must also forward SMM_DIR into
         # each AC subprocess. The story-mode test covers _run_commands;
-        # this covers _run_sprint's separate subprocess.run call site.
+        # this covers _run_sprint's separate call site.
         # See test_verify_acceptance.test_smm_dir_visible_in_subprocess for
         # the same env-strip rationale.
         self._seed(
@@ -308,6 +308,47 @@ class TestCommandTimeout(_SprintCLITestCase):
         self.assertEqual(len(failing), 1, failing)
         self.assertNotEqual(failing[0]["returncode"], 0)
         self.assertIn("timed out", failing[0]["output"])
+
+    def _run_hung(self, command: str) -> list[dict]:
+        self._seed(
+            [
+                _story(
+                    "story-001",
+                    acceptance_criteria=[
+                        {"description": "h", "surface": "cli", "command": command},
+                    ],
+                ),
+            ]
+        )
+        result = run_cli(
+            _VERIFY_ACCEPTANCE,
+            ["--sprint"],
+            self.smm_dir,
+            extra_env={"VERIFY_CMD_TIMEOUT_S": "1"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return self._verify_events()[0]["metadata"]["failing"]
+
+    def test_hung_command_carries_what_it_said_before_the_kill(self):
+        # The drained output is usually the only clue to WHY it hung.
+        failing = self._run_hung("echo WHYIHUNG >&2; sleep 5")
+        self.assertIn("WHYIHUNG", failing[0]["output"])
+
+    def test_chatty_hang_still_names_the_timeout(self):
+        # The stored detail is a TAIL slice, so a hung command that talked
+        # more than the tail budget must not evict its own "timed out"
+        # marker — without it the row reads as an ordinary non-zero exit and
+        # the operator has no idea the command never returned.
+        chatty = "x" * (verify_acceptance._OUTPUT_TAIL_CHARS * 4)
+        failing = self._run_hung(f"printf %s {chatty} >&2; sleep 5")
+        output = failing[0]["output"]
+        self.assertIn("timed out", output, output[:120])
+        self.assertIn("x", output)
+        self.assertLessEqual(
+            len(output),
+            verify_acceptance._OUTPUT_TAIL_CHARS + 60,
+            "the tail budget must still bound the stored detail",
+        )
 
 
 class TestEmitConfirmation(_SprintCLITestCase):

@@ -19,6 +19,7 @@ Back-compat: a single ``command: str`` is treated as a one-element list.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,13 @@ from sprint_store import get_story
 _EXIT_OK = 0
 _EXIT_RED = 1
 _EXIT_ERROR = 2
+
+# --story exit for a command that blew its time bound. POSITIVE on purpose:
+# _run_commands' return flows through main() into sys.exit(), where the batch
+# path's in-process -1 sentinel would surface to the shell as 255. The
+# /xp-accept gate compares only against 0, so it would still hold — which is
+# precisely why nothing would have caught the nonsense code the operator reads.
+_EXIT_TIMEOUT = 3
 
 # Story-level acceptance_execution carries no surface; bucket it here.
 _STORY_SURFACE = "(story)"
@@ -73,18 +81,22 @@ _OUTPUT_TAIL_CHARS = 500
 # TRUE total; only the stored detail is bounded.
 _MAX_FAILING_ITEMS = 20
 
-# Per-command timeout for the unattended --sprint batch path: a hung
-# acceptance test must convert to an attributable red, never block close
-# forever. Generous default (won't false-fail a real suite); operators tune
-# via VERIFY_CMD_TIMEOUT_S when a surface legitimately runs longer.
-_DEFAULT_CMD_TIMEOUT_S = 600
+# Per-command timeout shared by BOTH run paths — the attended --story gate and
+# the unattended --sprint batch. Its purpose is "never hang forever", not "fail
+# fast": a hung acceptance command must convert to an attributable failure
+# instead of blocking accept or close indefinitely. Two hours because an
+# acceptance suite legitimately runs long — an hour-long one must pass
+# comfortably, and a tight bound would turn slow-but-green into red. Operators
+# tune per project via VERIFY_CMD_TIMEOUT_S. The bound is PER COMMAND, so a
+# story declaring three commands can take 3x it end to end.
+_DEFAULT_CMD_TIMEOUT_S = 7200
 
 
 def _cmd_timeout() -> int:
     """Per-command timeout in seconds; a POSITIVE VERIFY_CMD_TIMEOUT_S overrides.
 
     Only positive, and that is not input-hygiene fussiness: `timeout=0` makes
-    subprocess.run raise TimeoutExpired before the command has run at all, so
+    the runner raise TimeoutExpired before the command has run at all, so
     every acceptance command would die "timed out after 0s" having never
     executed. Zero and negatives express no runnable budget, so they are not
     an override; they fall back to the default, exactly as unparseable text
@@ -98,16 +110,35 @@ def _cmd_timeout() -> int:
 
 
 def _run_commands(commands: list[str], smm_dir: Path) -> int:
-    """Run each command in order; return 0 on all-green, else first non-zero exit."""
+    """Run each command in order; return 0 on all-green, else the first failure.
+
+    The failure is the command's own non-zero exit, or _EXIT_TIMEOUT if it
+    blew the bound. Output is NOT captured: an operator watches this path
+    scroll by during /xp-accept, so the commands stream straight to the
+    terminal — the reason the shared runner takes a capture opt-out at all.
+    """
     multi = len(commands) > 1
     env = _subprocess_env.smm_child_env(smm_dir)
+    timeout = _cmd_timeout()
+    # See _run_sprint: the process cwd, explicitly, NOT smm_dir.
+    cwd = os.getcwd()
     for i, cmd in enumerate(commands):
-        # shell=True: AC commands are shell strings (pytest, grep, bash
-        # one-liners with pipes/redirects). Stories declare them; the SMM
-        # is trusted local state, not external input.
-        result = subprocess.run(cmd, shell=True, check=False, env=env)
+        label = f"commands[{i}]" if multi else "command"
+        # AC commands are shell strings (test runners, greps, one-liners with
+        # pipes/redirects). Stories declare them; the SMM is trusted local
+        # state, not external input. Run in a new session so a hung one loses
+        # its whole process group rather than orphaning what it backgrounded.
+        try:
+            result = _subprocess_env.run_in_new_process_group(
+                cmd, cwd=cwd, timeout=timeout, env=env, capture=False
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                f"verify_acceptance: {label} timed out after {timeout}s: {cmd}",
+                file=sys.stderr,
+            )
+            return _EXIT_TIMEOUT
         if result.returncode != 0:
-            label = f"commands[{i}]" if multi else "command"
             print(
                 f"verify_acceptance: {label} failed (exit {result.returncode}): {cmd}",
                 file=sys.stderr,
@@ -194,6 +225,11 @@ def _run_sprint(smm_dir: Path) -> int:
 
     timeout = _cmd_timeout()
     env = _subprocess_env.smm_child_env(smm_dir)
+    # The process cwd, explicitly — the runner is invoked bare from the main
+    # checkout and a declared command's relative paths resolve against it.
+    # NOT smm_dir, the nearest Path in scope: that would relocate every
+    # declared command and break every relative path it uses.
+    cwd = os.getcwd()
     rows: list[dict] = []
     for sid, ac_idx, surface, cmd, na in items:
         if na:
@@ -213,22 +249,31 @@ def _run_sprint(smm_dir: Path) -> int:
         # A non-N/A item always carries a command (see _gather_sprint_items);
         # only the command-less sentinel above uses cmd=None.
         assert cmd is not None
-        # shell=True: AC commands are trusted shell strings declared by the
-        # story (see _run_commands). capture_output keeps the matrix clean.
+        # Run in its own session so the timeout kills the whole process GROUP:
+        # a plain shell timeout reaps only the shell, leaving alive whatever
+        # the acceptance command backgrounded (a dev server, a stack) to
+        # outlive the close it was started for. Captured, because the matrix
+        # and the failure tails below read the output.
+        # Kept OUT of the truncated tail below, which keeps the LAST
+        # _OUTPUT_TAIL_CHARS: a hung command that talked a lot before it was
+        # killed would otherwise evict its own "timed out" marker, and the row
+        # would read as an ordinary non-zero exit.
+        marker = ""
         try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,  # noqa: secret
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
+            proc = _subprocess_env.run_in_new_process_group(
+                cmd, cwd=cwd, timeout=timeout, env=env
             )
             rc = proc.returncode
             output = proc.stderr or proc.stdout or ""
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             rc = -1
-            output = f"timed out after {timeout}s"
+            marker = f"timed out after {timeout}s"
+            # Whatever the command managed to say before it was killed is
+            # usually the only clue to WHY it hung; a bare "timed out after
+            # Ns" sends the operator off to reproduce it by hand.
+            output = (
+                getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
+            ).strip()
         row: dict = {
             "story": sid,
             "ac_idx": ac_idx,
@@ -238,7 +283,9 @@ def _run_sprint(smm_dir: Path) -> int:
         }
         if rc != 0:
             # Carry a tail of the failure so the close gate can explain the red.
-            row["output"] = output[-_OUTPUT_TAIL_CHARS:]
+            row["output"] = ": ".join(
+                p for p in (marker, output[-_OUTPUT_TAIL_CHARS:]) if p
+            )
         rows.append(row)
 
     _print_matrix(rows)
