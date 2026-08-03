@@ -94,9 +94,19 @@ def run_teardown(wt_path: str, smm_dir: Path) -> None:
             timeout=timeout,
             env=_subprocess_env.smm_child_env(smm_dir),
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        # The output the command managed to produce before it was killed is
+        # usually the only clue to WHY it hung — "timed out after 120s" alone
+        # sends the operator back to reproduce it by hand. run_in_new_process_group
+        # drains the pipes after killing the group and re-raises carrying the
+        # decoded text; getattr keeps this working if a plain TimeoutExpired
+        # ever reaches here from another path.
+        tail = (
+            getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
+        ).strip()
         print(
-            f"worktree teardown timed out after {timeout}s: {command}",
+            f"worktree teardown timed out after {timeout}s: {command}"
+            + (f"\n{tail}" if tail else ""),
             file=sys.stderr,
         )
         return

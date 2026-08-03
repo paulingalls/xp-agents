@@ -25,6 +25,7 @@ test_bootstrap_rationale_prose.py.
 import inspect
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -152,11 +153,25 @@ class TestBootstrapKillsProcessGroup(_BootstrapTestCase):
     an agent.
     """
 
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
     def test_backgrounded_hanging_child_is_killed_and_bootstrap_raises(self):
+        # Observed by PID, not by waiting for the orphan to write a file.
+        # A `(sleep 30 && echo > leaked.txt)` formulation passes against the
+        # UNHARDENED implementation too: it also returns at the 1s timeout,
+        # 29 seconds before the orphan would reveal itself. Liveness is
+        # observable at the moment we look.
         self.declare_bootstrap(
             "echo started > started.txt; "
-            "(sleep 30 && echo should-not-appear > leaked.txt) & "
-            "wait $!"
+            "{ sleep 30 & echo $! > child.pid; wait; } & wait"
         )
         name = "worktree-story-bootstrap"
 
@@ -172,9 +187,15 @@ class TestBootstrapKillsProcessGroup(_BootstrapTestCase):
 
         wt = worktree.worktree_path(name, str(self.tmpdir))
         self.assertTrue((wt / "started.txt").is_file())
+        pid = int((wt / "child.pid").read_text().strip())
+
+        deadline = time.monotonic() + 2
+        while self._alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
         self.assertFalse(
-            (wt / "leaked.txt").exists(),
-            "the backgrounded grandchild must die with the process group; "
+            self._alive(pid),
+            f"the backgrounded grandchild (pid {pid}) survived the timeout; "
             "reaping only the shell leaves exactly the orphans this "
             "hardening exists to prevent",
         )

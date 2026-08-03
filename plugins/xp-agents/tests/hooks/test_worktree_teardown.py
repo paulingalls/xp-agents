@@ -13,8 +13,10 @@ test_spawn_teammate_bootstrap.py.
 """
 
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -151,14 +153,40 @@ class TestTeardownDegradesQuiet(_TeardownTestCase):
 
 class TestTeardownKillsProcessGroup(_TeardownTestCase):
     """AC4: a backgrounded, hanging child is killed as a group; run_teardown
-    still returns rather than blocking on its pipe."""
+    still returns rather than blocking on its pipe.
 
-    def test_backgrounded_hanging_child_is_killed_and_teardown_returns(self):
+    The orphan is observed by PID, not by waiting for it to write a file.
+    An earlier version of this test declared `(sleep 30 && echo > leaked.txt)`
+    and asserted the file was absent — which the UNHARDENED implementation
+    also satisfies, because it too returns at the 1s timeout, 29 seconds
+    before the orphan would reveal itself. That test passed against the code
+    it was meant to pin. Checking whether the process is still alive makes
+    the difference observable at the moment we look.
+    """
+
+    def _declare_backgrounded_child(self) -> None:
+        # Records the grandchild's pid, then blocks so the timeout fires
+        # while it is still running.
         self.declare_teardown(
             "echo started > started.txt; "
-            "(sleep 30 && echo should-not-appear > leaked.txt) & "
-            "wait $!"
+            "{ sleep 30 & echo $! > child.pid; wait; } & wait"
         )
+
+    def _child_pid(self) -> int:
+        return int((self.wt_dir / "child.pid").read_text().strip())
+
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def test_backgrounded_hanging_child_is_killed_and_teardown_returns(self):
+        self._declare_backgrounded_child()
 
         with (
             patch.dict(os.environ, {"XP_TEARDOWN_TIMEOUT_S": "1"}),
@@ -167,10 +195,115 @@ class TestTeardownKillsProcessGroup(_TeardownTestCase):
             worktree_teardown.run_teardown(str(self.wt_dir), self.smm_dir)
 
         self.assertTrue((self.wt_dir / "started.txt").is_file())
+        pid = self._child_pid()
+
+        deadline = time.monotonic() + 2
+        while self._alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
         self.assertFalse(
-            (self.wt_dir / "leaked.txt").exists(),
-            "backgrounded grandchild must be killed with the process group, "
-            "not left to finish after the timeout",
+            self._alive(pid),
+            f"backgrounded grandchild (pid {pid}) survived the timeout — "
+            "killing only the shell leaves it running, which is the orphan "
+            "leak this hardening exists to prevent",
+        )
+
+
+class TestTeardownTimeoutReportsWhatTheChildSaid(_TeardownTestCase):
+    """A bare "timed out after Ns" sends the operator back to reproduce the
+    hang by hand. The output the command produced before it was killed is
+    usually the only clue to why it hung, so the drain after the group kill
+    has to reach the report."""
+
+    def test_timeout_report_carries_the_childs_output(self):
+        self.declare_teardown("echo stopping-db >&2; sleep 30")
+
+        with (
+            patch.dict(os.environ, {"XP_TEARDOWN_TIMEOUT_S": "1"}),
+            patch("sys.stderr") as mock_stderr,
+        ):
+            worktree_teardown.run_teardown(str(self.wt_dir), self.smm_dir)
+
+        written = "".join(c.args[0] for c in mock_stderr.write.call_args_list)
+        self.assertIn("timed out", written)
+        self.assertIn("stopping-db", written)
+        # Decoded, not a bytes repr — TimeoutExpired.stdout/.stderr are
+        # bytes-typed even under text=True, which is why the runner re-raises
+        # a str-carrying subclass instead of handing the original back.
+        self.assertNotIn("b'", written)
+
+
+class TestTeardownUnstartableCommand(_TeardownTestCase):
+    """The likeliest real failure once story-002 wires the call site: the
+    worktree path is already gone by the time teardown runs."""
+
+    def test_missing_cwd_reports_and_returns(self):
+        self.declare_teardown("echo never-runs > nope.txt")
+        gone = self.wt_dir / "does-not-exist"
+
+        with patch("sys.stderr") as mock_stderr:
+            worktree_teardown.run_teardown(str(gone), self.smm_dir)
+
+        written = "".join(c.args[0] for c in mock_stderr.write.call_args_list)
+        self.assertIn("failed to start", written)
+
+
+class TestRunnerKillsGroupOnInterrupt(_TeardownTestCase):
+    """An interrupt must not leave the declared command's tree running.
+
+    `start_new_session=True` closes the timeout orphan door and opens another:
+    it detaches the child from the controlling terminal, so a Ctrl-C no longer
+    reaches it with the terminal's process group. If the runner caught only
+    TimeoutExpired, KeyboardInterrupt would propagate past the one killpg that
+    can still reach the group, leaving the whole tree running detached.
+    """
+
+    def test_keyboard_interrupt_still_kills_the_group(self):
+        import _subprocess_env
+
+        script = (
+            "{ sleep 30 & echo $! > "
+            + str(self.wt_dir / "child.pid")
+            + "; wait; } & wait"
+        )
+        original = subprocess.Popen.communicate
+        calls = {"n": 0}
+
+        def side_effect(proc_self, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # Let the child start and record its pid, then interrupt the
+                # wait exactly as a Ctrl-C would. Later calls are the runner's
+                # own bounded drain, which must still work.
+                time.sleep(0.4)
+                raise KeyboardInterrupt
+            return original(proc_self, *args, **kwargs)
+
+        with (
+            patch.object(
+                subprocess.Popen,
+                "communicate",
+                autospec=True,
+                side_effect=side_effect,
+            ),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            _subprocess_env.run_in_new_process_group(
+                script,
+                cwd=str(self.wt_dir),
+                timeout=30,
+                env=_subprocess_env.smm_child_env(self.smm_dir),
+            )
+
+        pid = int((self.wt_dir / "child.pid").read_text().strip())
+        deadline = time.monotonic() + 2
+        while TestTeardownKillsProcessGroup._alive(pid) and (
+            time.monotonic() < deadline
+        ):
+            time.sleep(0.05)
+        self.assertFalse(
+            TestTeardownKillsProcessGroup._alive(pid),
+            f"interrupted run left the detached grandchild (pid {pid}) alive",
         )
 
 
