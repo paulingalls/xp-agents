@@ -14,6 +14,7 @@ path would put the two halves of a single contract in two places.
 """
 
 import os
+import select
 import shutil
 import subprocess
 import sys
@@ -27,8 +28,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import sprint_store
+import verify_acceptance
 from _bases import _HookTestCase
-from conftest import make_sprint_dict, make_story_dict, verify_events
+from conftest import make_sprint_dict, make_story_dict, reap, verify_events
 
 _VERIFY_ACCEPTANCE = (
     Path(__file__).parent.parent.parent / "scripts" / "verify_acceptance.py"
@@ -143,6 +145,107 @@ class TestTimeoutKillsProcessGroup(_HardeningTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self._assert_reaped(pidfile)
 
+    def test_story_path_reaps_the_backgrounded_child(self):
+        pidfile = self._seed_backgrounding_command()
+        result = self._run_from(
+            self._workdir(),
+            "--story",
+            "story-001",
+            extra_env={"VERIFY_CMD_TIMEOUT_S": "1"},
+            # Half the command's own `sleep 30`: reaching THIS bound means the
+            # runner never applied one of its own.
+            timeout=15,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self._assert_reaped(pidfile)
+
+
+class TestStoryPathIsBounded(_HardeningTestCase):
+    """AC2/AC3: the `--story` path — the gate `/xp-accept` invokes — carried no
+    timeout at all, so a declared command that never returns hung acceptance
+    indefinitely with no operator signal.
+
+    The exit status has to be a POSITIVE named constant. `_run_commands`'
+    return flows through `main()` into `sys.exit()`, so the batch path's
+    in-process `-1` sentinel would surface to the shell as 255 — a nonsense
+    code the operator has to decode. The gate itself still holds either way
+    (only ==0 is compared), which is exactly why nothing would have caught it.
+    """
+
+    def _run_hung(self, commands: list[str]) -> subprocess.CompletedProcess:
+        self._seed({"type": "bash", "commands": commands})
+        return self._run_from(
+            self._workdir(),
+            "--story",
+            "story-001",
+            extra_env={"VERIFY_CMD_TIMEOUT_S": "1"},
+            # Far under the command's own `sleep 300`: reaching this bound
+            # instead of the runner's own means the run was NOT bounded.
+            timeout=20,
+        )
+
+    def test_never_returning_command_is_bounded_and_reports(self):
+        result = self._run_hung(["sleep 300"])
+        self.assertEqual(
+            result.returncode,
+            verify_acceptance._EXIT_TIMEOUT,
+            f"expected the named timeout exit code; stderr={result.stderr!r}",
+        )
+        self.assertNotEqual(result.returncode, 255, "a -1 return leaked to the shell")
+        self.assertIn("sleep 300", result.stderr, "stderr must name the command")
+        self.assertIn("1s", result.stderr, "stderr must name the bound it exceeded")
+
+    def test_a_later_command_in_the_list_is_bounded_too(self):
+        # The bound is per command, and the report has to identify WHICH
+        # command hung — not merely that something did.
+        result = self._run_hung(["true", "sleep 300"])
+        self.assertEqual(result.returncode, verify_acceptance._EXIT_TIMEOUT)
+        self.assertIn("commands[1]", result.stderr)
+
+
+class TestStoryPathStreamsLiveOutput(_HardeningTestCase):
+    """AC4: `/xp-accept` runs the `--story` path attended — an operator watches
+    the acceptance suite scroll by. The shared runner captures through pipes by
+    default, so converting this site as-is would blank the screen until the
+    command finished; on an hour-long suite that is a real regression. Hence
+    the capture opt-out.
+
+    This one legitimately passes against the PRE-change call site, which also
+    streams, so it is a regression pin rather than a red-first test. It is
+    proved by mutating the POST-change code: force capture back on, watch it go
+    red.
+    """
+
+    def test_output_appears_before_the_command_finishes(self):
+        self._seed({"type": "bash", "commands": ["echo XPSTREAM; sleep 10"]})
+        proc = subprocess.Popen(
+            self._argv("--story", "story-001"),
+            cwd=self._workdir(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=os.environ.copy(),
+        )
+        try:
+            stream = proc.stdout
+            assert stream is not None
+            # readline() blocks; select bounds the wait so a withheld-capture
+            # regression fails in 5s instead of hanging the suite for 10.
+            ready, _, _ = select.select([stream], [], [], 5)
+            self.assertTrue(
+                ready,
+                "no output within 5s — the command's output was captured and "
+                "withheld instead of streaming to the operator",
+            )
+            self.assertIn("XPSTREAM", stream.readline())
+            # The marker arriving while the command is STILL RUNNING is the
+            # whole point: captured output would also arrive, just too late.
+            self.assertIsNone(
+                proc.poll(), "the command already finished; nothing was proved"
+            )
+        finally:
+            reap(proc)
+
 
 class TestDeclaredCommandCwd(_HardeningTestCase):
     """AC5: a declared command's relative paths resolve against the cwd the
@@ -168,6 +271,19 @@ class TestDeclaredCommandCwd(_HardeningTestCase):
             "green",
             "a relative-path AC command did not resolve against the "
             f"invocation cwd; failing={meta.get('failing')!r}",
+        )
+
+    def test_story_path_resolves_against_the_invocation_cwd(self):
+        workdir = self._workdir()
+        (workdir / "marker.txt").write_text("here")
+        self._seed({"type": "bash", "commands": ["test -f marker.txt"]})
+
+        result = self._run_from(workdir, "--story", "story-001")
+        self.assertEqual(
+            result.returncode,
+            0,
+            "a relative-path AC command did not resolve against the "
+            f"invocation cwd; stderr={result.stderr!r}",
         )
 
 

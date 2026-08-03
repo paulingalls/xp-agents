@@ -202,8 +202,13 @@ class TestManualTypeStoryPath(_SMMTestCase):
     def test_manual_steps_only_is_na_and_never_shelled(self):
         self._save({"type": "manual", "steps": ["go read the logs and confirm X"]})
         # Call _run_story in-process (not via run_cli's subprocess) so the
-        # patched subprocess.run is actually observed.
-        with patch.object(verify_acceptance.subprocess, "run") as mock_run:
+        # patched runner is actually observed. Patched on _subprocess_env, the
+        # single door every declared command now goes through — a mock on the
+        # stdlib's subprocess.run would sit on a door this path stopped using
+        # and assert_not_called would pass vacuously.
+        with patch.object(
+            verify_acceptance._subprocess_env, "run_in_new_process_group"
+        ) as mock_run:
             rc = verify_acceptance._run_story(self.smm_dir, "story-001")
         self.assertEqual(rc, verify_acceptance._EXIT_OK)
         mock_run.assert_not_called()

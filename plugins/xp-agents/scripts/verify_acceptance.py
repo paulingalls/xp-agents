@@ -47,6 +47,13 @@ _EXIT_OK = 0
 _EXIT_RED = 1
 _EXIT_ERROR = 2
 
+# --story exit for a command that blew its time bound. POSITIVE on purpose:
+# _run_commands' return flows through main() into sys.exit(), where the batch
+# path's in-process -1 sentinel would surface to the shell as 255. The
+# /xp-accept gate compares only against 0, so it would still hold — which is
+# precisely why nothing would have caught the nonsense code the operator reads.
+_EXIT_TIMEOUT = 3
+
 # Story-level acceptance_execution carries no surface; bucket it here.
 _STORY_SURFACE = "(story)"
 
@@ -103,16 +110,35 @@ def _cmd_timeout() -> int:
 
 
 def _run_commands(commands: list[str], smm_dir: Path) -> int:
-    """Run each command in order; return 0 on all-green, else first non-zero exit."""
+    """Run each command in order; return 0 on all-green, else the first failure.
+
+    The failure is the command's own non-zero exit, or _EXIT_TIMEOUT if it
+    blew the bound. Output is NOT captured: an operator watches this path
+    scroll by during /xp-accept, so the commands stream straight to the
+    terminal — the reason the shared runner takes a capture opt-out at all.
+    """
     multi = len(commands) > 1
     env = _subprocess_env.smm_child_env(smm_dir)
+    timeout = _cmd_timeout()
+    # See _run_sprint: the process cwd, explicitly, NOT smm_dir.
+    cwd = os.getcwd()
     for i, cmd in enumerate(commands):
-        # shell=True: AC commands are shell strings (pytest, grep, bash
-        # one-liners with pipes/redirects). Stories declare them; the SMM
-        # is trusted local state, not external input.
-        result = subprocess.run(cmd, shell=True, check=False, env=env)
+        label = f"commands[{i}]" if multi else "command"
+        # AC commands are shell strings (test runners, greps, one-liners with
+        # pipes/redirects). Stories declare them; the SMM is trusted local
+        # state, not external input. Run in a new session so a hung one loses
+        # its whole process group rather than orphaning what it backgrounded.
+        try:
+            result = _subprocess_env.run_in_new_process_group(
+                cmd, cwd=cwd, timeout=timeout, env=env, capture=False
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                f"verify_acceptance: {label} timed out after {timeout}s: {cmd}",
+                file=sys.stderr,
+            )
+            return _EXIT_TIMEOUT
         if result.returncode != 0:
-            label = f"commands[{i}]" if multi else "command"
             print(
                 f"verify_acceptance: {label} failed (exit {result.returncode}): {cmd}",
                 file=sys.stderr,
