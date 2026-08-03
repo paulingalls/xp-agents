@@ -79,6 +79,31 @@ CAVEATS = (
     "edit diverges the legs on its own.",
 )
 
+# Added to a result only when the throwaway landed INSIDE the repo. Unlike the
+# two caveats above — which describe false POSITIVES, and so cost a spurious
+# question — this one describes a false NEGATIVE: the measurement can come back
+# clean on a checkout that genuinely needs provisioning.
+_IN_REPO_CAVEAT = (
+    "DEGRADED PLACEMENT: the throwaway landed inside the repo because the "
+    "out-of-repo base could not be resolved. A module walk-up from an in-repo "
+    "worktree reaches the primary's installed dependencies, so a real gap can "
+    "read as no_gap. Treat a no_gap from this run as inconclusive."
+)
+
+
+def _is_out_of_repo(wt: Path, root: str) -> bool:
+    """True when the throwaway sits OUTSIDE the primary checkout.
+
+    `worktree.worktree_path` prefers an out-of-repo base and falls back to
+    `{git_root}/.claude/worktrees/` when it cannot resolve one — a documented
+    safe degradation for PLACEMENT, but not for MEASUREMENT, which is why the
+    caller reports it rather than trusting the happy path.
+    """
+    try:
+        return not wt.resolve().is_relative_to(Path(root).resolve())
+    except OSError:
+        return False
+
 
 def _differential_timeout() -> int:
     """Per-leg timeout in seconds; a POSITIVE XP_DIFFERENTIAL_TIMEOUT_S wins.
@@ -259,29 +284,68 @@ def differential(
     if reason is not None:
         return _result(OUTCOME_REFUSED, command, reason=reason)
 
+    # The worktree leg always runs at the throwaway's ROOT, so a *cwd* pointing
+    # into a subdirectory compares two POSITIONS as well as two checkouts. Not a
+    # subtle skew: measured on a tree with every file tracked and committed —
+    # where no provisioning gap is possible — a subdirectory cwd reported a gap,
+    # 0 vs 2, on "no rule to make target". The caller turns a gap into a question
+    # for a human, so this manufactures a false question carrying a misleading
+    # diagnostic. Documented as a precondition before; enforced now, because a
+    # precondition nothing checks is a comment.
+    root = worktree.resolve_git_root(cwd)
+    if root is None:
+        return _result(
+            OUTCOME_REFUSED,
+            command,
+            reason=f"cannot differential from {cwd!r}: it is not a git checkout",
+        )
+    if Path(root).resolve() != Path(cwd).resolve():
+        return _result(
+            OUTCOME_REFUSED,
+            command,
+            reason=(
+                f"cannot differential from {cwd!r}: it is a subdirectory of the "
+                f"checkout root {root!r}, and the worktree leg always runs at the "
+                f"throwaway's root — the legs would differ by POSITION as well as "
+                f"by checkout, which reads as a gap that is not one. Re-run from "
+                f"the root."
+            ),
+        )
+
     seconds = timeout if timeout and timeout > 0 else _differential_timeout()
     env = _subprocess_env.smm_child_env(smm_dir)
     name = _throwaway_name()
     wt = _add_detached_worktree(name, cwd)
+    # An in-repo placement resolves dependencies by walking UP into the primary's
+    # tree, which HIDES the gap being measured. worktree_path falls back to
+    # in-repo when the out-of-repo base is unresolvable, so say so on the result:
+    # every other caveat here describes a false POSITIVE, and this is the one
+    # direction — a false negative — the doctrine above calls unacceptable.
+    degraded = () if _is_out_of_repo(wt, root) else (_IN_REPO_CAVEAT,)
+    leg = "primary"
     try:
         primary = _subprocess_env.run_in_new_process_group(
             command, cwd=cwd, timeout=seconds, env=env
         )
+        leg = "worktree"
         throwaway = _subprocess_env.run_in_new_process_group(
             command, cwd=str(wt), timeout=seconds, env=env
         )
     except subprocess.TimeoutExpired as exc:
+        # Name the leg. Reporting a hung PRIMARY's output under `worktree_output`
+        # points the operator at the wrong checkout.
+        tail = _tail(getattr(exc, "text_stdout", "") or getattr(exc, "text_stderr", ""))
         return _result(
             OUTCOME_ERROR,
             command,
             reason=(
-                f"a leg timed out after {seconds}s, so there is no exit code to "
-                f"compare: {command}. Tune XP_DIFFERENTIAL_TIMEOUT_S if this "
-                f"command legitimately needs longer."
+                f"the {leg} leg timed out after {seconds}s, so there is no exit "
+                f"code to compare: {command}. Tune XP_DIFFERENTIAL_TIMEOUT_S if "
+                f"this command legitimately needs longer."
             ),
-            worktree_output=_tail(
-                getattr(exc, "text_stdout", "") or getattr(exc, "text_stderr", "")
-            ),
+            worktree_output=tail if leg == "worktree" else "",
+            primary_output=tail if leg == "primary" else "",
+            extra_caveats=degraded,
         )
     finally:
         # The guarantee this module owns: nothing else in shipped code wraps
@@ -297,6 +361,8 @@ def differential(
         primary_exit=primary.returncode,
         worktree_exit=throwaway.returncode,
         worktree_output=_tail(throwaway.stderr or throwaway.stdout or ""),
+        primary_output=_tail(primary.stderr or primary.stdout or ""),
+        extra_caveats=degraded,
     )
 
 
@@ -308,6 +374,8 @@ def _result(
     primary_exit: int | None = None,
     worktree_exit: int | None = None,
     worktree_output: str = "",
+    primary_output: str = "",
+    extra_caveats: tuple[str, ...] = (),
 ) -> dict:
     """One shape for all four outcomes, so a consumer can read a field without
     first branching on the outcome. `caveats` rides on every result: they are
@@ -319,7 +387,8 @@ def _result(
         "worktree_exit": worktree_exit,
         "reason": reason,
         "worktree_output": worktree_output,
-        "caveats": list(CAVEATS),
+        "primary_output": primary_output,
+        "caveats": [*CAVEATS, *extra_caveats],
     }
 
 

@@ -18,8 +18,10 @@ staying out of the `worktree-story-` teammate namespace). The removal tests
 below therefore assert the PRODUCTION `finally` ran, not that cleanup exists.
 """
 
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -139,6 +141,95 @@ class _DifferentialTestCase(_IntegrationTestCase):
         self.assertEqual(self.live_throwaways(), [])
         leaked = [p for p in self.registered_worktrees() if "worktree-diff-" in p]
         self.assertEqual(leaked, [], "a throwaway is still in the git registry")
+
+
+class TestSubdirectoryCwdIsRefused(_DifferentialTestCase):
+    """A *cwd* below the checkout root compares two POSITIONS, not two checkouts.
+
+    The worktree leg always runs at the throwaway's ROOT. Measured on a tree
+    with every file TRACKED and committed — where no provisioning gap is
+    possible — a subdirectory cwd reported gap 0 vs 2 on "no rule to make
+    target". Story-004 turns a gap into a question for a human, so this would
+    manufacture a false question with a misleading diagnostic.
+    """
+
+    def test_subdirectory_cwd_is_refused_not_measured(self) -> None:
+        sub = self.tmpdir / "app"
+        sub.mkdir()
+        (sub / "marker.txt").write_text("tracked\n")
+        subprocess.run(["git", "add", "-A"], cwd=self.tmpdir, check=True)
+        subprocess.run(["git", "commit", "-m", "add app/"], cwd=self.tmpdir, check=True)
+
+        result = worktree_differential.differential(
+            "test -f marker.txt", str(sub), self.smm_dir
+        )
+
+        self.assertEqual(result["outcome"], worktree_differential.OUTCOME_REFUSED)
+        self.assertIn("subdirectory", result["reason"])
+        self.assertNoThrowawayLeft()
+
+    def test_a_non_git_cwd_is_refused(self) -> None:
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+
+        result = worktree_differential.differential("true", str(outside), self.smm_dir)
+
+        self.assertEqual(result["outcome"], worktree_differential.OUTCOME_REFUSED)
+        self.assertIn("not a git checkout", result["reason"])
+
+
+class TestTimeoutNamesItsLeg(_DifferentialTestCase):
+    """Reporting a hung PRIMARY's output under `worktree_output` points the
+    operator at the wrong checkout."""
+
+    def test_a_hung_primary_leg_is_named_and_reported_as_primary(self) -> None:
+        # `&&`, not `;` — a `;` discards the exit status, so the structural
+        # guard refuses the command before either leg runs.
+        result = self.run_differential("echo hanging-here >&2 && sleep 30", timeout=1)
+
+        self.assertEqual(result["outcome"], worktree_differential.OUTCOME_ERROR)
+        self.assertIn("primary leg timed out", result["reason"])
+        self.assertIn("hanging-here", result["primary_output"])
+        self.assertEqual(
+            result["worktree_output"],
+            "",
+            "the worktree leg never ran; attributing the primary's output to it "
+            "sends the operator to the wrong checkout",
+        )
+        self.assertNoThrowawayLeft()
+
+
+class TestDegradedPlacementIsReported(_DifferentialTestCase):
+    """`worktree_path` falls back to IN-REPO placement when the out-of-repo base
+    is unresolvable. A module walk-up from there reaches the primary's installed
+    dependencies, so a real gap can read as no_gap.
+
+    Every other caveat describes a false POSITIVE, costing a spurious question.
+    This one is a false NEGATIVE — the direction the module's own doctrine says
+    must never ship silently.
+    """
+
+    def test_in_repo_placement_adds_a_caveat(self) -> None:
+        def in_repo(name: str, cwd: str) -> Path:
+            return Path(cwd) / ".claude" / "worktrees" / name
+
+        with patch.object(
+            worktree_differential.worktree, "worktree_path", side_effect=in_repo
+        ):
+            result = self.run_differential("true")
+
+        joined = " ".join(result["caveats"])
+        self.assertIn("DEGRADED PLACEMENT", joined)
+        self.assertIn("inconclusive", joined)
+        # The intrinsic caveats must survive alongside the run-specific one.
+        self.assertIn("PATH SENSITIVITY", joined)
+
+    def test_out_of_repo_placement_adds_no_caveat(self) -> None:
+        """The other half of the pair: without it, a test asserting the caveat's
+        presence would also pass against an implementation that always adds it."""
+        result = self.run_differential("true")
+
+        self.assertNotIn("DEGRADED PLACEMENT", " ".join(result["caveats"]))
 
 
 class TestTwoLegCompare(_DifferentialTestCase):
