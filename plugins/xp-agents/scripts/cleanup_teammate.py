@@ -38,7 +38,7 @@ def verify_merged(branch: str, cwd: str, base: str) -> bool:
 
 def cleanup(name: str, cwd: str, smm_dir: Path, base: str) -> None:
     """Remove worktree, branch, agent markers, and report file."""
-    worktree.remove_worktree(name, cwd, merge_target=base)
+    worktree.remove_worktree(name, cwd, merge_target=base, smm_dir=smm_dir)
     markers.cleanup_agent_markers(smm_dir, name)
     report = worktree.teammate_report_path(smm_dir, name)
     with contextlib.suppress(OSError):

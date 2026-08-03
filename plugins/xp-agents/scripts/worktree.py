@@ -16,8 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import branch_lifecycle
+import coordination
 import identity
 import marker_names
+import worktree_teardown
 
 _WORKTREE_PREFIX = "worktree-"
 
@@ -114,7 +116,26 @@ class WorktreeNotEmpty(Exception):
     """
 
 
-def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | None:
+def _is_linked_worktree(wt: Path) -> bool:
+    """True only for a LINKED git worktree — never the main checkout.
+
+    Gates the one effect in this module that runs project-declared code:
+    `is_dir()` is not enough to say "this is a worktree we may stop
+    services in". A directory stranded between `mkdir` and `git worktree
+    add` is a dir; so is the lead's own checkout, whatever a caller's
+    `name` resolved to. Running `docker compose down` (or any declared
+    stop) in either is the scoping failure the worktree milestone forbids.
+
+    The discriminator is git's own on-disk shape, not a path comparison, so
+    it holds regardless of how `wt` was derived: a linked worktree's `.git`
+    is a FILE (`gitdir: <path>`), the main checkout's is a DIRECTORY.
+    """
+    return (wt / ".git").is_file()
+
+
+def remove_worktree_dir(
+    name: str, cwd: str, *, force: bool = True, smm_dir: Path | None = None
+) -> str | None:
     """Remove the worktree DIRECTORY and prune stale entries. Delete NO branch.
 
     Returns the branch the worktree had checked out — the caller cannot re-read
@@ -139,12 +160,31 @@ def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | Non
         we want, so let it refuse and raise WorktreeNotEmpty rather than
         overriding it. A crashed teammate's un-committed work is protected by the
         same refusal, which is the other half of what makes it right.
+
+    *smm_dir*, when given, wires two more removal-path effects at this single
+    choke point:
+
+      - Before removal: the project's declared `stack.worktree_teardown`
+        command runs against the worktree, but ONLY when force=True — a
+        force=False caller (the re-spawn path) may be looking at a tree a
+        live peer still owns, and tearing down its stack out from under it
+        would stop a running service and leave the peer's own removal
+        refused with the stack already dead. `run_teardown` validates
+        nothing about `wt_path` — it documents that the CALLER owns
+        confirming the path is a real worktree, and `_is_linked_worktree`
+        below is where this caller discharges that.
+      - After a removal that actually succeeded: this teammate's
+        `.coordination.json` entry (keyed on `name`) is cleared, so a
+        merged-and-gone worktree doesn't leave a phantom entry blocking
+        edits to files it touched. A raised WorktreeNotEmpty skips this line
+        entirely — the tree is still there, so the entry isn't phantom.
     """
     try:
         wt = worktree_path(name, cwd)
     except RuntimeError:
         return None
     branch = name
+    removed_ok = True
     if wt.is_dir():
         # `identity.get_current_branch` returns "" on failure and "HEAD"
         # for detached HEAD (mid-rebase / mid-bisect / `git checkout <sha>`).
@@ -153,6 +193,10 @@ def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | Non
         head = identity.get_current_branch(str(wt))
         if head and head != "HEAD":
             branch = head
+
+        if smm_dir is not None and force and _is_linked_worktree(wt):
+            worktree_teardown.run_teardown(str(wt), smm_dir)
+
         cmd = ["git", "worktree", "remove"]
         if force:
             cmd.append("--force")
@@ -171,11 +215,14 @@ def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | Non
                 "that work. Inspect it, commit or discard the changes, remove the "
                 "worktree by hand, then re-run."
             )
+        removed_ok = result.returncode == 0
     subprocess.run(
         ["git", "worktree", "prune"],
         cwd=cwd,
         capture_output=True,
     )
+    if removed_ok and smm_dir is not None and identity.is_teammate_agent_id(name):
+        coordination.clear_coordination_agent(smm_dir, name)
     return branch
 
 
@@ -199,7 +246,12 @@ class BranchRemoval(enum.Enum):
 
 
 def remove_worktree(
-    name: str, cwd: str, *, merge_target: str | None = None, force_branch: bool = False
+    name: str,
+    cwd: str,
+    *,
+    merge_target: str | None = None,
+    force_branch: bool = False,
+    smm_dir: Path | None = None,
 ) -> BranchRemoval:
     """Remove a git worktree directory, prune, AND delete its branch.
 
@@ -214,8 +266,12 @@ def remove_worktree(
     before deleting — never trusts `git branch -d`'s own upstream-based proof.
     When the proof fails, an unmerged branch is either refused (kept, loud) or
     force-dropped, and the caller learns which via the returned ``BranchRemoval``.
+
+    *smm_dir* passes through to ``remove_worktree_dir`` unchanged — the
+    teardown-before-removal and coordination-clear-after-removal wiring lives
+    there, at the single choke point both removal entry points share.
     """
-    branch_to_delete = remove_worktree_dir(name, cwd)
+    branch_to_delete = remove_worktree_dir(name, cwd, smm_dir=smm_dir)
     if branch_to_delete is None:
         return BranchRemoval.NO_BRANCH
     if branch_lifecycle.delete_branch(cwd, branch_to_delete, merge_target=merge_target):
