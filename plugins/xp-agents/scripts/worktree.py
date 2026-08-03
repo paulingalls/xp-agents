@@ -116,6 +116,23 @@ class WorktreeNotEmpty(Exception):
     """
 
 
+def _is_linked_worktree(wt: Path) -> bool:
+    """True only for a LINKED git worktree — never the main checkout.
+
+    Gates the one effect in this module that runs project-declared code:
+    `is_dir()` is not enough to say "this is a worktree we may stop
+    services in". A directory stranded between `mkdir` and `git worktree
+    add` is a dir; so is the lead's own checkout, whatever a caller's
+    `name` resolved to. Running `docker compose down` (or any declared
+    stop) in either is the scoping failure the worktree milestone forbids.
+
+    The discriminator is git's own on-disk shape, not a path comparison, so
+    it holds regardless of how `wt` was derived: a linked worktree's `.git`
+    is a FILE (`gitdir: <path>`), the main checkout's is a DIRECTORY.
+    """
+    return (wt / ".git").is_file()
+
+
 def remove_worktree_dir(
     name: str, cwd: str, *, force: bool = True, smm_dir: Path | None = None
 ) -> str | None:
@@ -152,9 +169,10 @@ def remove_worktree_dir(
         force=False caller (the re-spawn path) may be looking at a tree a
         live peer still owns, and tearing down its stack out from under it
         would stop a running service and leave the peer's own removal
-        refused with the stack already dead. `worktree_path(name, cwd)` is
-        used only inside the `wt.is_dir()` branch below, so run_teardown's
-        unvalidated `wt_path` precondition holds by construction.
+        refused with the stack already dead. `run_teardown` validates
+        nothing about `wt_path` — it documents that the CALLER owns
+        confirming the path is a real worktree, and `_is_linked_worktree`
+        below is where this caller discharges that.
       - After a removal that actually succeeded: this teammate's
         `.coordination.json` entry (keyed on `name`) is cleared, so a
         merged-and-gone worktree doesn't leave a phantom entry blocking
@@ -176,7 +194,7 @@ def remove_worktree_dir(
         if head and head != "HEAD":
             branch = head
 
-        if smm_dir is not None and force:
+        if smm_dir is not None and force and _is_linked_worktree(wt):
             worktree_teardown.run_teardown(str(wt), smm_dir)
 
         cmd = ["git", "worktree", "remove"]

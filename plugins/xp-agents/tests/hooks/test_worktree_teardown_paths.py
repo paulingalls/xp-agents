@@ -14,6 +14,7 @@ Two increments, mirroring the story's TDD split:
 """
 
 import os
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -121,6 +122,56 @@ class TestNoTeardownWithoutForceOrSmmDir(_TeardownWiringTestCase):
             worktree.remove_worktree_dir(name, str(self.tmpdir), force=True)
 
         mock_teardown.assert_not_called()
+
+
+class TestTeardownTargetMustBeALinkedWorktree(_TeardownWiringTestCase):
+    """`run_teardown` validates nothing about `wt_path` by design — it
+    documents that the CALLER owns confirming the path is a real worktree.
+    This choke point is that caller, and `is_dir()` alone does not discharge
+    the obligation: a stranded directory and the lead's own main checkout are
+    both directories. Running a project's declared stop command in either is
+    the scoping failure the milestone forbids."""
+
+    def test_no_teardown_in_a_directory_that_is_not_a_worktree(self):
+        """A run killed between mkdir and `git worktree add` strands a plain
+        directory at the worktree path. Nothing was ever started in it, so
+        nothing may be stopped there."""
+        name = "worktree-story-207"
+        self.declare_teardown('echo torn > "$SMM_DIR/stray.txt"')
+        wt = worktree.worktree_path(name, str(self.tmpdir))
+        wt.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(shutil.rmtree, wt, True)
+
+        worktree.remove_worktree_dir(
+            name, str(self.tmpdir), force=True, smm_dir=self.smm_dir
+        )
+
+        self.assertFalse(
+            (self.smm_dir / "stray.txt").exists(),
+            "teardown must not run in a directory that is not a linked worktree",
+        )
+
+    def test_no_teardown_in_the_main_checkout(self):
+        """The named risk, directly: whatever a caller's `name` resolves to,
+        the lead's own checkout must never have the project's stop command
+        run against it."""
+        self.declare_teardown('echo torn > "$SMM_DIR/main-checkout.txt"')
+
+        with patch("worktree.worktree_path", return_value=self.tmpdir):
+            worktree.remove_worktree_dir(
+                "worktree-story-208",
+                str(self.tmpdir),
+                force=True,
+                smm_dir=self.smm_dir,
+            )
+
+        self.assertFalse(
+            (self.smm_dir / "main-checkout.txt").exists(),
+            "teardown must never run against the main checkout",
+        )
+        self.assertTrue(
+            (self.tmpdir / "README").is_file(), "the main checkout must survive"
+        )
 
 
 class TestRemovalSurvivesTeardownFailure(_TeardownWiringTestCase):
