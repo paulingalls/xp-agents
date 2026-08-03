@@ -123,5 +123,70 @@ class TestSectionAcceptanceSurfaces(_SMMTestCase):
         self.assertIn("playwright", result.stdout)
 
 
+class TestUnknownSurfaceKeyRejectedAtAuthoring(_SMMTestCase):
+    """A misspelt surface field must be loud where it is AUTHORED.
+
+    `cmd` for `command` or `path` for `paths` would otherwise validate clean
+    and select nothing forever — configured-looking and inert. The check lives
+    at the CLI, deliberately NOT in `validate_system_context`: that validator
+    also runs on the READ path (`load_system_context` raises), and
+    `branching_stage._maybe_auto_promote` does a load -> mutate -> save
+    round-trip on a hook path while explicitly not catching ValueError. A
+    document-wide rule would turn one stray key in an existing project's file
+    into a crashed hook on upgrade.
+    """
+
+    def test_add_rejects_an_unknown_key(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["add-acceptance-surface"],
+            self.smm_dir,
+            stdin_data=json.dumps(_surface(cmd="pytest tests/cli")),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("cmd", result.stderr)
+
+    def test_add_accepts_the_known_optional_fields(self) -> None:
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["add-acceptance-surface"],
+            self.smm_dir,
+            stdin_data=json.dumps(
+                _surface(command="pytest tests/cli", paths=["src/cli/**"])
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["acceptance_surfaces"][0]["command"], "pytest tests/cli")
+
+    def test_replace_all_rejects_an_unknown_key(self) -> None:
+        """The analyzer's path: edit-acceptance-surfaces replaces the WHOLE
+        array, so it is an authoring boundary too."""
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["edit-acceptance-surfaces"],
+            self.smm_dir,
+            stdin_data=json.dumps([_surface(path=["src/**"])]),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("path", result.stderr)
+
+    def test_edit_one_rejects_an_unknown_key(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [_surface()]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-acceptance-surface", "browser"],
+            self.smm_dir,
+            stdin_data=json.dumps({"cmd": "pytest"}),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("cmd", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,45 @@ ACCEPTANCE_SURFACE_COMMAND_MAXLENGTH: int = 100
 
 _ACCEPTANCE_SURFACE_REQUIRED = frozenset({"name", "signals", "status"})
 _VALID_SURFACE_STATUSES = frozenset({"covered", "gap"})
+ACCEPTANCE_SURFACE_KNOWN_KEYS = frozenset(
+    {"name", "signals", "status", "harness", "command", "paths"}
+)
+
+
+def unknown_surface_key_errors(entries: object) -> list[str]:
+    """Unrecognized keys on surface entries — for the AUTHORING boundary ONLY.
+
+    Deliberately NOT part of `validate_system_context`. That validator also runs
+    on the READ path: `load_system_context` raises on any error, and
+    `branching_stage._maybe_auto_promote` performs a load -> mutate -> save
+    round-trip from a hook while explicitly not catching ValueError. A
+    document-wide unknown-key rule would therefore turn one stray key in a
+    project's existing file into a crashed hook the first time its stage
+    auto-promotes — punishing users for a typo they may not have made.
+
+    At the add/edit CLI the calculus inverts: a key is being introduced right
+    now, by someone who can fix it, and silence there is what lets `cmd` for
+    `command` sit in a document selecting nothing forever.
+
+    Takes a LIST of entries. A non-list yields no errors on purpose: for the
+    replace-the-whole-array command a bare dict is a SHAPE error, and reporting
+    an unknown key there would pre-empt the schema's own message — including
+    the null-unset hint that command surfaces for a non-list payload. Callers
+    holding a single entry or patch wrap it themselves.
+    """
+    if not isinstance(entries, list):
+        return []
+    errors: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for key in sorted(set(entry) - ACCEPTANCE_SURFACE_KNOWN_KEYS):
+            errors.append(
+                f"unknown acceptance_surface field {key!r} "
+                f"(known: {', '.join(sorted(ACCEPTANCE_SURFACE_KNOWN_KEYS))})"
+            )
+    return errors
+
 
 # Locked 12-entry convention enum for the optional top-level
 # `test_layout` field. The 10 builtin names mirror story-001's

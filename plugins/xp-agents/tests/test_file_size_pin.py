@@ -61,7 +61,6 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/scripts/spawn_teammate.py": 498,
     "plugins/xp-agents/scripts/close_common.py": 496,
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
-    "plugins/xp-agents/smm/system_context_cli.py": 493,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
     "plugins/xp-agents/scripts/linter_tables.py": 482,

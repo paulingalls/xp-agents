@@ -55,6 +55,15 @@ from system_context_edit_cli import (
 from system_context_edit_cli import (
     cmd_edit_project_specific as _cmd_edit_project_specific,
 )
+from system_context_entry_validators import unknown_surface_key_errors
+
+# Re-export shim per the split convention — `edit-field` and the optional-field
+# set moved to a sibling when this file crossed the 500-line cap; every existing
+# importer and mock.patch target keeps resolving through here.
+from system_context_field_cli import (
+    _OPTIONAL_TOP_LEVEL_FIELDS,
+    _cmd_edit_field,
+)
 from system_context_nested_field_cli import (
     cmd_edit_branching_field as _cmd_edit_branching_field,
 )
@@ -114,15 +123,6 @@ __all__ = [
 ]
 
 # ── CLI commands ────────────────────────────────────────────────
-
-
-_OPTIONAL_TOP_LEVEL_FIELDS = frozenset(
-    {
-        "branching_strategy",
-        "acceptance_surfaces",
-        "test_layout",
-    }
-)
 
 
 def _cmd_exists(args: argparse.Namespace) -> int:
@@ -232,59 +232,6 @@ def _cmd_section(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_edit_field(args: argparse.Namespace) -> int:
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("No system context found.", file=sys.stderr)
-        return 1
-
-    name = args.name
-    if (
-        name not in data
-        and name != "project_specific"
-        and name not in _OPTIONAL_TOP_LEVEL_FIELDS
-    ):
-        ps_names = [e["name"] for e in data.get("project_specific", [])]
-        if name not in ps_names:
-            print(f"Unknown field: {name!r}", file=sys.stderr)
-            return 1
-
-    raw = sys.stdin.read()
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    # edit-field is single-field; only the null-wipe half of _cmd_create's
-    # optional-field contract applies — preservation isn't relevant when
-    # the caller is targeting one specific field.
-    if name in _OPTIONAL_TOP_LEVEL_FIELDS and value is None:
-        data.pop(name, None)
-    elif name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
-        data[name] = value
-    else:
-        for entry in data.get("project_specific", []):
-            if entry["name"] == name:
-                entry["content"] = value
-                break
-
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        # Optional top-level fields can be unset with stdin `null`; surface
-        # that affordance when a non-null edit fails validation, so future
-        # optional fields inherit the same UX without per-command duplication.
-        if name in _OPTIONAL_TOP_LEVEL_FIELDS:
-            print(
-                f"{name} can be unset by passing `null` on stdin.",
-                file=sys.stderr,
-            )
-        return 1
-    return 0
-
-
 def _cmd_edit_branching(args: argparse.Namespace) -> int:
     args.name = "branching_strategy"
     return _cmd_edit_field(args)
@@ -307,12 +254,19 @@ def _cmd_add_project_specific(args: argparse.Namespace) -> int:
 
 
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
+    # Replaces the WHOLE array (the analyzer's path), so it introduces entries
+    # and is an authoring boundary exactly as `add` is.
     args.name = "acceptance_surfaces"
-    return _cmd_edit_field(args)
+    return _cmd_edit_field(args, value_check=unknown_surface_key_errors)
 
 
 def _cmd_add_acceptance_surface(args: argparse.Namespace) -> int:
-    return _cmd_append_to_list(args, "acceptance_surfaces", create_if_missing=True)
+    return _cmd_append_to_list(
+        args,
+        "acceptance_surfaces",
+        create_if_missing=True,
+        value_check=lambda item: unknown_surface_key_errors([item]),
+    )
 
 
 def _cmd_edit_test_layout(args: argparse.Namespace) -> int:
