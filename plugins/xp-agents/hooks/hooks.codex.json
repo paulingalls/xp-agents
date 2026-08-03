@@ -1,0 +1,232 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording SessionStart..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording UserPromptSubmit..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PreToolUse:Bash..."
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PreToolUse:write..."
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PreToolUse:Agent..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PostToolUse:Bash..."
+          }
+        ]
+      },
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PostToolUse:write..."
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PostToolUse:Agent..."
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PermissionRequest..."
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording SubagentStart..."
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording SubagentStop..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording Stop..."
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PreCompact..."
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording PostCompact..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: recording SessionEnd..."
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: unrecognised-event probe..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: unrecognised-event probe..."
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: unrecognised-event probe..."
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/spike/_dump_payload.py",
+            "additionalContextLimit": 0,
+            "statusMessage": "spike: unrecognised-event probe..."
+          }
+        ]
+      }
+    ]
+  }
+}
