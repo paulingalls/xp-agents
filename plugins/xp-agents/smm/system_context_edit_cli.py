@@ -154,13 +154,28 @@ def cmd_edit_project_specific(args: argparse.Namespace) -> int:
     return _cmd_edit_by_key(args, "project_specific", "name", "project_specific")
 
 
+def _surface_patch_key_errors(patch: object) -> list[str]:
+    """Unknown-key check for a single-surface PATCH.
+
+    A `null` value REMOVES the key (`_apply_patch` deletes it), so an unknown
+    key being cleared is the cleanup this check should welcome, not refuse —
+    refusing it would leave a document that already carries a stray key with
+    no targeted way to drop it. Only keys being SET are candidates.
+    """
+    if not isinstance(patch, dict):
+        return []
+    return unknown_surface_key_errors(
+        [{k: v for k, v in patch.items() if v is not None}]
+    )
+
+
 def cmd_edit_acceptance_surface(args: argparse.Namespace) -> int:
     return _cmd_edit_by_key(
         args,
         "acceptance_surfaces",
         "name",
         "acceptance_surface",
-        value_check=lambda patch: unknown_surface_key_errors([patch]),
+        value_check=_surface_patch_key_errors,
     )
 
 

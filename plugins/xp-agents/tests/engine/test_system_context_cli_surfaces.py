@@ -187,6 +187,107 @@ class TestUnknownSurfaceKeyRejectedAtAuthoring(_SMMTestCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("cmd", result.stderr)
 
+    def test_edit_one_still_clears_a_stray_key_with_null(self) -> None:
+        """A `null` patch value REMOVES a key, so the unknown-key check must
+        not refuse it — a document that already carries a stray key would
+        otherwise have no targeted way to drop it."""
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [_surface(cmd="pytest")]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-acceptance-surface", "browser"],
+            self.smm_dir,
+            stdin_data=json.dumps({"cmd": None}),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("cmd", data["acceptance_surfaces"][0])
+
+    def test_create_rejects_an_unknown_key(self) -> None:
+        """`create` is the analyzer's FIRST-write door for surfaces — Step 4
+        tells it to inline them here and not to patch them separately in
+        create mode, so the check has to hold at this door too."""
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [_surface(cmd="pytest tests/cli")]
+        result = run_cli(
+            _CLI,
+            ["create"],
+            self.smm_dir,
+            stdin_data=json.dumps(doc),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("cmd", result.stderr)
+
+    def test_create_accepts_the_known_optional_fields(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [
+            _surface(command="pytest tests/cli", paths=["src/cli/**"])
+        ]
+        result = run_cli(
+            _CLI,
+            ["create"],
+            self.smm_dir,
+            stdin_data=json.dumps(doc),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertEqual(data["acceptance_surfaces"][0]["paths"], ["src/cli/**"])
+
+    def test_generic_edit_field_door_rejects_an_unknown_key(self) -> None:
+        """`edit-field acceptance_surfaces` reaches the same writer as the
+        named command; without the check keyed on the FIELD it would be a
+        silent bypass."""
+        write_doc(self.smm_dir)
+        result = run_cli(
+            _CLI,
+            ["edit-field", "acceptance_surfaces"],
+            self.smm_dir,
+            stdin_data=json.dumps([_surface(cmd="pytest")]),
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("cmd", result.stderr)
+
+    def test_generic_edit_field_door_still_unsets_with_null(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [_surface()]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(
+            _CLI,
+            ["edit-field", "acceptance_surfaces"],
+            self.smm_dir,
+            stdin_data="null",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.smm_dir / SYSTEM_CONTEXT_FILENAME).read_text())
+        self.assertNotIn("acceptance_surfaces", data)
+
+
+class TestDeclaredSurfaceFieldsAreVisibleInTheRender(_SMMTestCase):
+    """Update mode reads the document through `render` and then REPLACES the
+    whole surfaces array. A declared value the render hides is therefore
+    deleted on the next analyzer run — it cannot re-emit what it never saw.
+    """
+
+    def test_render_shows_paths_and_command(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [
+            _surface(command="pytest tests/cli", paths=["src/cli/**"])
+        ]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("src/cli/**", result.stdout)
+        self.assertIn("pytest tests/cli", result.stdout)
+
+    def test_render_omits_the_rows_when_undeclared(self) -> None:
+        doc = valid_doc()
+        doc["acceptance_surfaces"] = [_surface()]
+        write_doc(self.smm_dir, doc)
+        result = run_cli(_CLI, ["render"], self.smm_dir)
+        self.assertNotIn("paths:", result.stdout)
+        self.assertNotIn("command:", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

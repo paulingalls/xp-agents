@@ -276,6 +276,14 @@ def _render_acceptance_surfaces(lines: list[str], surfaces: list[dict]) -> None:
         signals = ", ".join(s.get("signals", []))
         signals_str = f" — {signals}" if signals else ""
         lines.append(f"- **{s['name']}** ({s['status']}){harness}{signals_str}")
+        # Declared `paths`/`command` must be VISIBLE here: update mode reads
+        # the document through this render and then replaces the whole
+        # surfaces array, so anything the render hides is silently deleted on
+        # the next run — the analyzer cannot re-emit what it never saw.
+        if s.get("paths"):
+            lines.append(f"  - paths: {', '.join(s['paths'])}")
+        if s.get("command"):
+            lines.append(f"  - command: `{s['command']}`")
     lines.append("")
 
 

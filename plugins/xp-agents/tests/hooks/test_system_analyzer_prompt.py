@@ -262,6 +262,14 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                 "acceptance_surfaces.signal",
                 system_context_schema.ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
             ),
+            (
+                "acceptance_surfaces.paths item",
+                system_context_schema.ACCEPTANCE_SURFACE_PATH_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.command",
+                system_context_schema.ACCEPTANCE_SURFACE_COMMAND_MAXLENGTH,
+            ),
         )
         for field, expected in cases:
             with self.subTest(field=field):

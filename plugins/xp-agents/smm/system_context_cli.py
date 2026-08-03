@@ -57,11 +57,13 @@ from system_context_edit_cli import (
 )
 from system_context_entry_validators import unknown_surface_key_errors
 
-# Re-export shim per the split convention — `edit-field` and the optional-field
-# set moved to a sibling when this file crossed the 500-line cap; every existing
-# importer and mock.patch target keeps resolving through here.
+# Re-export shim per the split convention — `create`, `edit-field` and the
+# optional-field set moved to a sibling when this file crossed the 500-line cap
+# (the two commands are the two halves of one optional-field contract); every
+# existing importer and mock.patch target keeps resolving through here.
 from system_context_field_cli import (
     _OPTIONAL_TOP_LEVEL_FIELDS,
+    _cmd_create,
     _cmd_edit_field,
 )
 from system_context_nested_field_cli import (
@@ -112,9 +114,12 @@ from system_context_schema import validate_system_context
 __all__ = [
     "_COUNT_CAP_TABLE",
     "_EDIT_ACTIONS",
+    "_OPTIONAL_TOP_LEVEL_FIELDS",
     "_RETIRE_ACTIONS",
     "_cmd_append_to_list",
+    "_cmd_create",
     "_cmd_edit_branching_field",
+    "_cmd_edit_field",
     "_cmd_edit_stack_field",
     "_cmd_get_branching_field",
     "_cmd_get_stack_field",
@@ -195,30 +200,6 @@ def _split_csv(raw: str) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
-def _cmd_create(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-    if isinstance(data, dict) and any(
-        f not in data or data[f] is None for f in _OPTIONAL_TOP_LEVEL_FIELDS
-    ):
-        existing = store.load_system_context(args.smm_dir) or {}
-        for field in _OPTIONAL_TOP_LEVEL_FIELDS:
-            if field in data and data[field] is None:
-                del data[field]
-            elif field not in data and field in existing:
-                data[field] = existing[field]
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
 def _cmd_section(args: argparse.Namespace) -> int:
     data = store.load_system_context(args.smm_dir)
     if data is None:
@@ -255,9 +236,11 @@ def _cmd_add_project_specific(args: argparse.Namespace) -> int:
 
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
     # Replaces the WHOLE array (the analyzer's path), so it introduces entries
-    # and is an authoring boundary exactly as `add` is.
+    # and is an authoring boundary exactly as `add` is. The unknown-key check
+    # rides on the field name via `_FIELD_VALUE_CHECKS`, so `edit-field
+    # acceptance_surfaces` — the same writer by another door — gets it too.
     args.name = "acceptance_surfaces"
-    return _cmd_edit_field(args, value_check=unknown_surface_key_errors)
+    return _cmd_edit_field(args)
 
 
 def _cmd_add_acceptance_surface(args: argparse.Namespace) -> int:
