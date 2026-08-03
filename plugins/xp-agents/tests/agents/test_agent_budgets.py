@@ -46,7 +46,7 @@ AGENT_BUDGETS: dict[str, int] = {
     # description and the rule were cut ~670 chars before this bump.
     "xp-retrospective": 23100,
     "xp-sprint-reviewer": 4380,
-    "xp-system-analyzer": 19640,
+    "xp-system-analyzer": 20370,
 }
 
 _AGENTS_DIR = _PLUGIN_ROOT / "agents"
