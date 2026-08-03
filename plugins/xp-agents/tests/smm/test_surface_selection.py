@@ -16,6 +16,7 @@ the one this story's AC first named — proves nothing at all.
 """
 
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,7 +25,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import sprint_store
 import surface_selection
+import system_context_surface_cli
+from _system_context_fixtures import valid_doc, write_doc
+from conftest import _SMMTestCase, run_cli
+
+_CLI = Path(__file__).parent.parent.parent / "smm" / "system_context_cli.py"
 
 
 def _surface(name: str, **overrides: object) -> dict:
@@ -243,6 +250,125 @@ class TestCommandsForStory(unittest.TestCase):
                 self._context(), self._sprint("a.py"), "story-999", cwd="."
             )
         self.assertIn("story-999", str(ctx.exception))
+
+
+class TestSurfaceCommandsCli(_SMMTestCase):
+    """The read seam. `--smm-dir` is a GLOBAL argument declared before the
+    subparsers, so it precedes the subcommand — `run_cli` builds it that way.
+    """
+
+    #: Seeded into every case so the no-match assertion can DISCRIMINATE.
+    #: `valid_doc()`'s stack carries no test_command, and without one a CLI
+    #: mutated to substitute the full suite on no-match prints nothing anyway
+    #: — the assertion passes and proves nothing. Measured: the mutation went
+    #: 24-passed until this line existed.
+    FULL_SUITE = "pytest -n auto THE-WHOLE-SUITE"
+
+    def _seed(self, surfaces: list[dict], domain: list[str]) -> None:
+        doc = valid_doc()
+        doc["stack"] = {"languages": ["Python"], "test_command": self.FULL_SUITE}
+        doc["acceptance_surfaces"] = surfaces
+        write_doc(self.smm_dir, doc)
+        sprint_store.save_sprint(
+            self.smm_dir,
+            {
+                "sprint_id": "sprint-test",
+                "goal": "seam",
+                "started": "2026-08-03",
+                "milestone": "test",
+                "stories": [
+                    {
+                        "id": "story-001",
+                        "title": "Test",
+                        "status": "ready",
+                        "dependencies": [],
+                        "milestone_ref": "test",
+                        "design_sources": "test",
+                        "context": "test",
+                        "file_domain": domain,
+                        "interface_contracts": [],
+                        "acceptance_criteria": ["test"],
+                    }
+                ],
+            },
+        )
+
+    def _run(self, story: str = "story-001") -> subprocess.CompletedProcess:
+        return run_cli(_CLI, ["surface-commands", story, "--cwd", "."], self.smm_dir)
+
+    def test_prints_one_command_per_line(self) -> None:
+        self._seed(
+            [
+                _surface("cli", paths=["src/cli/**"], command="pytest tests/cli"),
+                _surface("api", paths=["src/api/**"], command="pytest tests/api"),
+            ],
+            ["src/cli/main.py", "src/api/routes.py"],
+        )
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.splitlines(), ["pytest tests/cli", "pytest tests/api"]
+        )
+
+    def test_no_match_prints_nothing_and_exits_zero(self) -> None:
+        """The CLI must NOT substitute stack.test_command here. A CLI that
+        returned the full suite on no-match makes narrowing indistinguishable
+        from failure, and the caller can no longer own the fallback."""
+        self._seed(
+            [_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")],
+            ["docs/ARCHITECTURE.md"],
+        )
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn(self.FULL_SUITE, result.stdout)
+
+    def test_surfaces_declaring_no_paths_yield_nothing(self) -> None:
+        """Every project's state today — the fields postdate their documents."""
+        self._seed([_surface("cli"), _surface("automation")], ["src/cli/main.py"])
+        result = self._run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn(self.FULL_SUITE, result.stdout)
+
+    def test_unknown_story_exits_one_naming_the_story(self) -> None:
+        self._seed(
+            [_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")],
+            ["src/cli/main.py"],
+        )
+        result = self._run("story-999")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("story-999", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_missing_system_context_exits_one(self) -> None:
+        result = self._run()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+
+
+class TestSurfaceCliExports(unittest.TestCase):
+    """Sibling of test_system_context_field_cli / _nested_field_cli / _caps_cli:
+    the extraction convention pins the extracted module's export surface AND
+    the aggregator's re-import shim, so a `mock.patch` on either path bites the
+    one object the dispatch table holds.
+    """
+
+    def test_command_is_callable(self) -> None:
+        self.assertTrue(callable(system_context_surface_cli.cmd_surface_commands))
+
+    def test_cli_module_reimports_the_same_object(self) -> None:
+        import system_context_cli
+
+        self.assertIs(
+            system_context_cli._cmd_surface_commands,
+            system_context_surface_cli.cmd_surface_commands,
+        )
+
+    def test_shim_name_is_declared_in_all(self) -> None:
+        import system_context_cli
+
+        self.assertIn("_cmd_surface_commands", system_context_cli.__all__)
 
 
 if __name__ == "__main__":
