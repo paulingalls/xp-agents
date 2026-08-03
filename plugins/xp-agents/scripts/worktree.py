@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 import branch_lifecycle
 import identity
 import marker_names
+import worktree_teardown
 
 _WORKTREE_PREFIX = "worktree-"
 
@@ -114,7 +115,9 @@ class WorktreeNotEmpty(Exception):
     """
 
 
-def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | None:
+def remove_worktree_dir(
+    name: str, cwd: str, *, force: bool = True, smm_dir: Path | None = None
+) -> str | None:
     """Remove the worktree DIRECTORY and prune stale entries. Delete NO branch.
 
     Returns the branch the worktree had checked out — the caller cannot re-read
@@ -139,6 +142,15 @@ def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | Non
         we want, so let it refuse and raise WorktreeNotEmpty rather than
         overriding it. A crashed teammate's un-committed work is protected by the
         same refusal, which is the other half of what makes it right.
+
+    *smm_dir*, when given together with force=True, runs the project's
+    declared `stack.worktree_teardown` command against the worktree BEFORE
+    removal. force=False is excluded — that caller (the re-spawn path) may
+    be looking at a tree a live peer still owns, and tearing down its stack
+    out from under it would stop a running service and leave the peer's own
+    removal refused with the stack already dead. `worktree_path(name, cwd)`
+    is used only inside the `wt.is_dir()` branch below, so run_teardown's
+    unvalidated `wt_path` precondition holds by construction.
     """
     try:
         wt = worktree_path(name, cwd)
@@ -153,6 +165,10 @@ def remove_worktree_dir(name: str, cwd: str, *, force: bool = True) -> str | Non
         head = identity.get_current_branch(str(wt))
         if head and head != "HEAD":
             branch = head
+
+        if smm_dir is not None and force:
+            worktree_teardown.run_teardown(str(wt), smm_dir)
+
         cmd = ["git", "worktree", "remove"]
         if force:
             cmd.append("--force")
