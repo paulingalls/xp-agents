@@ -46,11 +46,25 @@ def _declared_teardown(smm_dir: Path) -> str | None:
     `worktree_bootstrap._declared_bootstrap`, which lets a corrupt
     system_context propagate as a fail-closed gate read. Teardown is a
     cleanup action, not a gate: nothing downstream trusts its verdict, so a
-    corrupt system_context degrades to "no declaration" rather than raising.
+    corrupt system_context degrades rather than raising.
+
+    It degrades QUIET, not SILENT, and the difference is the whole point.
+    Returning a bare None would make an unreadable context indistinguishable
+    from the ordinary case of a project that declared no teardown — so the
+    operator whose declared command silently stopped running would get no
+    signal at all, and the containers would leak exactly as they did before
+    this module existed. An absent declaration says nothing; an unreadable
+    one says so.
     """
     try:
         doc = system_context_store.load_system_context(smm_dir)
-    except (ValueError, OSError):
+    except (ValueError, OSError) as exc:
+        print(
+            f"worktree teardown skipped: system_context could not be read "
+            f"({exc}). If this project declares a teardown command, it did "
+            f"NOT run.",
+            file=sys.stderr,
+        )
         return None
     if doc is None:
         return None

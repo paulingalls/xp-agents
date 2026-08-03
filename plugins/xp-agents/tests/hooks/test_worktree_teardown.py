@@ -120,14 +120,32 @@ class TestTeardownDegradesQuiet(_TeardownTestCase):
         self.assertIn("timed out", written)
 
     def test_corrupt_system_context_returns_normally_and_reports(self):
+        # A corrupt context must not read as "this project declared no
+        # teardown". Those two states are indistinguishable to the caller
+        # unless the corrupt one SAYS something: the operator whose declared
+        # teardown silently stopped running otherwise has no signal at all,
+        # and the containers leak exactly as they did before this module
+        # existed. Degrading quiet is the contract; degrading SILENT is the
+        # fail-open shape.
         (self.smm_dir / "system_context.json").write_text("not json")
 
         with patch("sys.stderr") as mock_stderr:
-            # Should not raise despite the corrupt doc.
+            # Returns rather than raising — a merge-gated removal must not
+            # be blocked by an unreadable context.
             worktree_teardown.run_teardown(str(self.wt_dir), self.smm_dir)
 
-        # No declaration was readable, so nothing ran and nothing needed
-        # reporting — the point of this test is the absence of a raise.
+        written = "".join(c.args[0] for c in mock_stderr.write.call_args_list)
+        self.assertIn("system_context", written)
+
+    def test_absent_declaration_reports_nothing(self):
+        # The other half of the pair above, and the reason the corrupt case
+        # cannot simply be folded into it: a project that declared no
+        # teardown is the ordinary case for most projects, and must stay
+        # silent. If both paths were silent the distinction would be
+        # untestable; if both reported, every spawn would nag.
+        with patch("sys.stderr") as mock_stderr:
+            worktree_teardown.run_teardown(str(self.wt_dir), self.smm_dir)
+
         mock_stderr.write.assert_not_called()
 
 
