@@ -137,6 +137,49 @@ class TestBootstrapFailure(_BootstrapTestCase):
         )
 
 
+class TestBootstrapKillsProcessGroup(_BootstrapTestCase):
+    """A backgrounded, hanging child dies with the process group.
+
+    The sibling assertion for teardown lives in test_worktree_teardown.py.
+    Both call the same `_subprocess_env.run_in_new_process_group`, but each
+    owns its own call site and its own raise-vs-swallow policy, so shared
+    coverage through one caller proves nothing about the other: bootstrap
+    could stop passing the timeout, or catch TimeoutExpired differently, and
+    the teardown test would stay green.
+
+    Bootstrap's contract here is the LOUD one — it raises SystemExit, where
+    teardown swallows — because a half-provisioned worktree must never host
+    an agent.
+    """
+
+    def test_backgrounded_hanging_child_is_killed_and_bootstrap_raises(self):
+        self.declare_bootstrap(
+            "echo started > started.txt; "
+            "(sleep 30 && echo should-not-appear > leaked.txt) & "
+            "wait $!"
+        )
+        name = "worktree-story-bootstrap"
+
+        with (
+            patch.dict(os.environ, {"XP_BOOTSTRAP_TIMEOUT_S": "1"}),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            self.spawn(name)
+
+        self.assertIn("timed out", str(ctx.exception))
+
+        import worktree
+
+        wt = worktree.worktree_path(name, str(self.tmpdir))
+        self.assertTrue((wt / "started.txt").is_file())
+        self.assertFalse(
+            (wt / "leaked.txt").exists(),
+            "the backgrounded grandchild must die with the process group; "
+            "reaping only the shell leaves exactly the orphans this "
+            "hardening exists to prevent",
+        )
+
+
 class TestBootstrapTimeoutOverride(_BootstrapTestCase):
     """A tunable timeout that can be tuned to a value nothing can satisfy is
     not a tuning knob, it is an off switch for provisioning: `timeout=0` makes
