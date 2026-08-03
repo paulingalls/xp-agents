@@ -9,12 +9,57 @@ and a child env carrying the resolved SMM_DIR so a ``$SMM_DIR``-referencing
 command resolves it correctly regardless of the child's own cwd. Before this
 module existed each site hand-rolled its own near-identical copy of both.
 
+``worktree_bootstrap.run_bootstrap`` and ``worktree_teardown.run_teardown``
+also share the process-group-aware invocation below: ``shell=True`` +
+``timeout`` alone reaps only the shell, leaving alive any child the declared
+command backgrounds or forks — exactly the orphans a teardown command exists
+to kill. ``start_new_session=True`` puts the shell and its descendants in a
+new process group so a timeout can ``killpg`` all of them at once.
+
 Pure stdlib, no SMM/scripts imports — either caller can import this leaf
 module with zero cycle risk.
 """
 
 import os
+import signal
+import subprocess
 from pathlib import Path
+
+
+def run_in_new_process_group(
+    command: str, cwd: str, timeout: int, env: dict[str, str]
+) -> subprocess.CompletedProcess:
+    """Run *command* via the shell, killing its whole process group on timeout.
+
+    Raises ``subprocess.TimeoutExpired`` if the command doesn't finish in
+    time — the process group has already been killed by then, so callers
+    never block on a hung descendant's pipes. Raise-vs-swallow policy for
+    both ``TimeoutExpired`` and a non-zero exit is each caller's own.
+    """
+    proc = subprocess.Popen(
+        command,
+        shell=True,  # noqa: secret
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Kill the whole process group (negative pgid), not just the shell
+        # `proc` points at — start_new_session made the shell its leader, so
+        # its pgid equals its pid. A plain proc.kill() would leave any
+        # backgrounded/forked descendant alive, and communicate() below could
+        # then hang on a pipe those descendants still hold open.
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(
+        command, proc.returncode, stdout=stdout, stderr=stderr
+    )
 
 
 def _env_int(name: str, default: int) -> int:
