@@ -15,7 +15,9 @@ less. A "`**` matches a nested path" assertion — the obvious shape, and
 the one this story's AC first named — proves nothing at all.
 """
 
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -153,6 +155,94 @@ class TestGlobSemanticsDiscriminateFromFnmatch(unittest.TestCase):
         self.assertEqual(
             surface_selection.commands_for_paths(surfaces, {"src/a.py"}), []
         )
+
+
+class TestCommandsForStory(unittest.TestCase):
+    def _tree(self) -> Path:
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        (root / "plugins" / "xp-agents" / "smm").mkdir(parents=True)
+        (root / "plugins" / "xp-agents" / "smm" / "surface_selection.py").write_text("")
+        return root
+
+    @staticmethod
+    def _sprint(*entries: str) -> dict:
+        return {"stories": [{"id": "story-015", "file_domain": list(entries)}]}
+
+    @staticmethod
+    def _context(**overrides: object) -> dict:
+        return {
+            "acceptance_surfaces": [
+                _surface(
+                    "engine",
+                    paths=["plugins/xp-agents/smm/**"],
+                    command="pytest tests/smm",
+                    **overrides,
+                )
+            ]
+        }
+
+    def test_a_glob_file_domain_is_expanded_before_matching(self) -> None:
+        """THE discriminator for `extract_file_domain_paths` over
+        `entry_to_paths`. Unexpanded, the raw string
+        `plugins/**/surface_selection.py` cannot fullmatch the surface regex
+        `plugins/xp\\-agents/smm(?:/.*)?` — the literal `xp-agents/smm`
+        segments simply are not in it. Expanded against a real tree it
+        becomes `plugins/xp-agents/smm/surface_selection.py`, which does.
+        """
+        self.assertEqual(
+            surface_selection.commands_for_story(
+                self._context(),
+                self._sprint("plugins/**/surface_selection.py — new: the matcher"),
+                "story-015",
+                cwd=str(self._tree()),
+            ),
+            ["pytest tests/smm"],
+        )
+
+    def test_a_literal_file_domain_entry_keeps_its_description_stripped(self) -> None:
+        self.assertEqual(
+            surface_selection.commands_for_story(
+                self._context(),
+                self._sprint(
+                    "plugins/xp-agents/smm/surface_selection.py — new: the matcher"
+                ),
+                "story-015",
+                cwd=str(self._tree()),
+            ),
+            ["pytest tests/smm"],
+        )
+
+    def test_a_story_outside_every_surface_selects_nothing(self) -> None:
+        self.assertEqual(
+            surface_selection.commands_for_story(
+                self._context(),
+                self._sprint("docs/ARCHITECTURE.md — prose only"),
+                "story-015",
+                cwd=str(self._tree()),
+            ),
+            [],
+        )
+
+    def test_a_context_declaring_no_surfaces_selects_nothing(self) -> None:
+        self.assertEqual(
+            surface_selection.commands_for_story(
+                {},
+                self._sprint("plugins/xp-agents/smm/surface_selection.py"),
+                "story-015",
+                cwd=str(self._tree()),
+            ),
+            [],
+        )
+
+    def test_an_unknown_story_raises_rather_than_returning_empty(self) -> None:
+        """Empty would be indistinguishable from a real no-match, which reads
+        as 'no narrowing available' instead of 'you named the wrong story'."""
+        with self.assertRaises(ValueError) as ctx:
+            surface_selection.commands_for_story(
+                self._context(), self._sprint("a.py"), "story-999", cwd="."
+            )
+        self.assertIn("story-999", str(ctx.exception))
 
 
 if __name__ == "__main__":
