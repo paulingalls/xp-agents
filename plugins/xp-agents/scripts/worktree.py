@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "smm"))
 
 import branch_lifecycle
+import coordination
 import identity
 import marker_names
 import worktree_teardown
@@ -143,20 +144,29 @@ def remove_worktree_dir(
         overriding it. A crashed teammate's un-committed work is protected by the
         same refusal, which is the other half of what makes it right.
 
-    *smm_dir*, when given together with force=True, runs the project's
-    declared `stack.worktree_teardown` command against the worktree BEFORE
-    removal. force=False is excluded — that caller (the re-spawn path) may
-    be looking at a tree a live peer still owns, and tearing down its stack
-    out from under it would stop a running service and leave the peer's own
-    removal refused with the stack already dead. `worktree_path(name, cwd)`
-    is used only inside the `wt.is_dir()` branch below, so run_teardown's
-    unvalidated `wt_path` precondition holds by construction.
+    *smm_dir*, when given, wires two more removal-path effects at this single
+    choke point:
+
+      - Before removal: the project's declared `stack.worktree_teardown`
+        command runs against the worktree, but ONLY when force=True — a
+        force=False caller (the re-spawn path) may be looking at a tree a
+        live peer still owns, and tearing down its stack out from under it
+        would stop a running service and leave the peer's own removal
+        refused with the stack already dead. `worktree_path(name, cwd)` is
+        used only inside the `wt.is_dir()` branch below, so run_teardown's
+        unvalidated `wt_path` precondition holds by construction.
+      - After a removal that actually succeeded: this teammate's
+        `.coordination.json` entry (keyed on `name`) is cleared, so a
+        merged-and-gone worktree doesn't leave a phantom entry blocking
+        edits to files it touched. A raised WorktreeNotEmpty skips this line
+        entirely — the tree is still there, so the entry isn't phantom.
     """
     try:
         wt = worktree_path(name, cwd)
     except RuntimeError:
         return None
     branch = name
+    removed_ok = True
     if wt.is_dir():
         # `identity.get_current_branch` returns "" on failure and "HEAD"
         # for detached HEAD (mid-rebase / mid-bisect / `git checkout <sha>`).
@@ -187,11 +197,14 @@ def remove_worktree_dir(
                 "that work. Inspect it, commit or discard the changes, remove the "
                 "worktree by hand, then re-run."
             )
+        removed_ok = result.returncode == 0
     subprocess.run(
         ["git", "worktree", "prune"],
         cwd=cwd,
         capture_output=True,
     )
+    if removed_ok and smm_dir is not None and identity.is_teammate_agent_id(name):
+        coordination.clear_coordination_agent(smm_dir, name)
     return branch
 
 
@@ -215,7 +228,12 @@ class BranchRemoval(enum.Enum):
 
 
 def remove_worktree(
-    name: str, cwd: str, *, merge_target: str | None = None, force_branch: bool = False
+    name: str,
+    cwd: str,
+    *,
+    merge_target: str | None = None,
+    force_branch: bool = False,
+    smm_dir: Path | None = None,
 ) -> BranchRemoval:
     """Remove a git worktree directory, prune, AND delete its branch.
 
@@ -230,8 +248,12 @@ def remove_worktree(
     before deleting — never trusts `git branch -d`'s own upstream-based proof.
     When the proof fails, an unmerged branch is either refused (kept, loud) or
     force-dropped, and the caller learns which via the returned ``BranchRemoval``.
+
+    *smm_dir* passes through to ``remove_worktree_dir`` unchanged — the
+    teardown-before-removal and coordination-clear-after-removal wiring lives
+    there, at the single choke point both removal entry points share.
     """
-    branch_to_delete = remove_worktree_dir(name, cwd)
+    branch_to_delete = remove_worktree_dir(name, cwd, smm_dir=smm_dir)
     if branch_to_delete is None:
         return BranchRemoval.NO_BRANCH
     if branch_lifecycle.delete_branch(cwd, branch_to_delete, merge_target=merge_target):

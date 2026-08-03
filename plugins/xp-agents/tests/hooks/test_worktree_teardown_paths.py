@@ -23,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
+import coordination
+import post_tool_use
 import worktree
 from _repo_bases import _create_teammate_worktree
 from _system_context_fixtures import valid_doc, write_doc
@@ -150,6 +152,144 @@ class TestRemovalSurvivesTeardownFailure(_TeardownWiringTestCase):
 
         self.assertFalse(
             wt_path.is_dir(), "removal must proceed despite a timed-out teardown"
+        )
+
+
+class TestCoordinationClearsOnSuccessfulRemoval(_IntegrationTestCase):
+    """AC3: the coordination entry a real hook registered is cleared by name
+    after the worktree it belongs to is removed — and a sibling's entry is
+    left untouched.
+
+    The registered key is never hand-typed: it comes out of a real
+    post_tool_use.run() call over realistic hook input, so this proves the
+    production register-then-clear round trip, not a coincidence of two
+    identical literals.
+    """
+
+    def test_clears_the_key_post_tool_use_actually_registered(self):
+        name = "worktree-story-301"
+        other = "worktree-story-302"
+        wt_path = _create_teammate_worktree(self.tmpdir, name)
+        other_wt_path = _create_teammate_worktree(self.tmpdir, other)
+
+        post_tool_use.run(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "notes.txt"},
+                "cwd": wt_path,
+            },
+            smm_dir=self.smm_dir,
+        )
+        post_tool_use.run(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "notes.txt"},
+                "cwd": other_wt_path,
+            },
+            smm_dir=self.smm_dir,
+        )
+
+        before = coordination.read_coordination(self.smm_dir)
+        self.assertIn(
+            name,
+            before,
+            "post_tool_use should have registered this teammate under its own key",
+        )
+        self.assertIn(other, before)
+
+        worktree.remove_worktree_dir(
+            name, str(self.tmpdir), force=True, smm_dir=self.smm_dir
+        )
+
+        after = coordination.read_coordination(self.smm_dir)
+        self.assertNotIn(
+            name,
+            after,
+            "the key post_tool_use registered for the removed teammate must be cleared",
+        )
+        self.assertIn(other, after, "a sibling teammate's entry must be untouched")
+
+    def test_clears_despite_a_failing_teardown_command(self):
+        """AC4 (coordination half): a failing teardown must not prevent the
+        coordination entry from clearing once removal succeeds."""
+        name = "worktree-story-303"
+        wt_path = _create_teammate_worktree(self.tmpdir, name)
+        doc = valid_doc()
+        doc["stack"]["worktree_teardown"] = "exit 1"
+        write_doc(self.smm_dir, doc)
+
+        post_tool_use.run(
+            {
+                "tool_name": "Write",
+                "tool_input": {"file_path": "notes.txt"},
+                "cwd": wt_path,
+            },
+            smm_dir=self.smm_dir,
+        )
+        self.assertIn(name, coordination.read_coordination(self.smm_dir))
+
+        worktree.remove_worktree_dir(
+            name, str(self.tmpdir), force=True, smm_dir=self.smm_dir
+        )
+
+        self.assertNotIn(name, coordination.read_coordination(self.smm_dir))
+
+
+class TestCoordinationNotClearedOnRefusal(_IntegrationTestCase):
+    """AC5: force=False refusing on a dirty worktree raises WorktreeNotEmpty
+    and must NOT clear the coordination entry — the tree is still there, so
+    the entry is not phantom."""
+
+    def test_raise_leaves_the_coordination_entry_in_place(self):
+        name = "worktree-story-304"
+        wt_path = Path(_create_teammate_worktree(self.tmpdir, name))
+        (wt_path / "untracked.txt").write_text("uncommitted work")
+        coordination.update_coordination(self.smm_dir, name, ["untracked.txt"])
+
+        with self.assertRaises(worktree.WorktreeNotEmpty):
+            worktree.remove_worktree_dir(
+                name, str(self.tmpdir), force=False, smm_dir=self.smm_dir
+            )
+
+        self.assertIn(
+            name,
+            coordination.read_coordination(self.smm_dir),
+            "a refused removal must not clear the entry for a tree that's still there",
+        )
+        self.assertTrue(wt_path.is_dir())
+
+
+class TestCoordinationNotClearedOnRemovalFailure(_IntegrationTestCase):
+    """AC6: `git worktree remove --force` reporting failure must not clear
+    the coordination entry — the tree still exists, so the entry is not
+    phantom."""
+
+    def test_failed_force_removal_leaves_the_coordination_entry_in_place(self):
+        import subprocess
+
+        name = "worktree-story-305"
+        wt_path = Path(_create_teammate_worktree(self.tmpdir, name))
+        coordination.update_coordination(self.smm_dir, name, ["x"])
+
+        real_run = subprocess.run
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:3] == ["git", "worktree", "remove"]:
+                return subprocess.CompletedProcess(
+                    cmd, returncode=1, stdout="", stderr="simulated failure"
+                )
+            return real_run(cmd, *args, **kwargs)
+
+        with patch("worktree.subprocess.run", side_effect=fake_run):
+            worktree.remove_worktree_dir(
+                name, str(self.tmpdir), force=True, smm_dir=self.smm_dir
+            )
+
+        self.assertTrue(wt_path.is_dir(), "tree should still exist")
+        self.assertIn(
+            name,
+            coordination.read_coordination(self.smm_dir),
+            "a failed force-removal must not clear the entry for a tree still there",
         )
 
 
