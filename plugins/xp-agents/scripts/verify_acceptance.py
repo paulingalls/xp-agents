@@ -254,6 +254,11 @@ def _run_sprint(smm_dir: Path) -> int:
         # the acceptance command backgrounded (a dev server, a stack) to
         # outlive the close it was started for. Captured, because the matrix
         # and the failure tails below read the output.
+        # Kept OUT of the truncated tail below, which keeps the LAST
+        # _OUTPUT_TAIL_CHARS: a hung command that talked a lot before it was
+        # killed would otherwise evict its own "timed out" marker, and the row
+        # would read as an ordinary non-zero exit.
+        marker = ""
         try:
             proc = _subprocess_env.run_in_new_process_group(
                 cmd, cwd=cwd, timeout=timeout, env=env
@@ -262,11 +267,13 @@ def _run_sprint(smm_dir: Path) -> int:
             output = proc.stderr or proc.stdout or ""
         except subprocess.TimeoutExpired as exc:
             rc = -1
+            marker = f"timed out after {timeout}s"
             # Whatever the command managed to say before it was killed is
             # usually the only clue to WHY it hung; a bare "timed out after
             # Ns" sends the operator off to reproduce it by hand.
-            said = getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
-            output = f"timed out after {timeout}s" + (f": {said}" if said else "")
+            output = (
+                getattr(exc, "text_stderr", "") or getattr(exc, "text_stdout", "")
+            ).strip()
         row: dict = {
             "story": sid,
             "ac_idx": ac_idx,
@@ -276,7 +283,9 @@ def _run_sprint(smm_dir: Path) -> int:
         }
         if rc != 0:
             # Carry a tail of the failure so the close gate can explain the red.
-            row["output"] = output[-_OUTPUT_TAIL_CHARS:]
+            row["output"] = ": ".join(
+                p for p in (marker, output[-_OUTPUT_TAIL_CHARS:]) if p
+            )
         rows.append(row)
 
     _print_matrix(rows)

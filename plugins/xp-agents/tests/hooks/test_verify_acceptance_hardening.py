@@ -13,9 +13,11 @@ command is executed and bounded — across BOTH paths, so splitting them by
 path would put the two halves of a single contract in two places.
 """
 
+import contextlib
 import os
 import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -94,6 +96,20 @@ class _HardeningTestCase(_HookTestCase):
 
     def _verify_events(self) -> list[dict]:
         return verify_events(self._read_events())
+
+    @staticmethod
+    def _killpg_from(pgidfile: Path) -> None:
+        """Best-effort reap of a declared command's detached process group.
+
+        Call this from the test body, NOT addCleanup: cleanups run AFTER
+        tearDown, which has already removed the smm_dir the pgid file lives in.
+        """
+        try:
+            pgid = int(pgidfile.read_text().strip())
+        except (OSError, ValueError):
+            return
+        with contextlib.suppress(OSError):
+            os.killpg(pgid, signal.SIGKILL)
 
 
 class TestTimeoutKillsProcessGroup(_HardeningTestCase):
@@ -217,7 +233,18 @@ class TestStoryPathStreamsLiveOutput(_HardeningTestCase):
     """
 
     def test_output_appears_before_the_command_finishes(self):
-        self._seed({"type": "bash", "commands": ["echo XPSTREAM; sleep 10"]})
+        # The command records its own pgid first: reaping the RUNNER below
+        # cannot reach it — start_new_session detached it into a session of
+        # its own — so without an explicit killpg every run of this test would
+        # leave a `sleep` behind for 10s. Orphan hygiene is what the file is
+        # about; the test must not leak one itself.
+        pgidfile = self.smm_dir / "stream.pgid"
+        self._seed(
+            {
+                "type": "bash",
+                "commands": [f"echo $$ > {pgidfile}; echo XPSTREAM; sleep 10"],
+            }
+        )
         proc = subprocess.Popen(
             self._argv("--story", "story-001"),
             cwd=self._workdir(),
@@ -244,6 +271,7 @@ class TestStoryPathStreamsLiveOutput(_HardeningTestCase):
                 proc.poll(), "the command already finished; nothing was proved"
             )
         finally:
+            self._killpg_from(pgidfile)
             reap(proc)
 
 

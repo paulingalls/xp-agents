@@ -123,12 +123,12 @@ def run_in_new_process_group(
 def _env_int(name: str, default: int) -> int:
     """Env var *name* as a positive int, or *default*.
 
-    Only a POSITIVE value overrides: ``timeout=0`` makes ``subprocess.run``
-    raise ``TimeoutExpired`` before the command has run at all, so a
-    zero/negative override would silently convert every declared command
-    into an immediate false failure that never actually ran. Zero, negative,
-    unset, and unparseable text all fall back to *default* — the same
-    fallback trio both call sites need, now defined once.
+    Only a POSITIVE value overrides: ``timeout=0`` makes
+    ``run_in_new_process_group`` raise ``TimeoutExpired`` before the command
+    has run at all, so a zero/negative override would silently convert every
+    declared command into an immediate false failure that never actually ran.
+    Zero, negative, unset, and unparseable text all fall back to *default* —
+    the same fallback trio every call site needs, now defined once.
     """
     raw = os.environ.get(name)
     if raw:
