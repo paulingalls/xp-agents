@@ -163,6 +163,8 @@ Populate optional `stack.worktree_bootstrap` when — and only when — the repo
 
 **Update mode:** if `worktree_bootstrap` already exists, leave it alone — it is a deliberate user declaration.
 
+The same discipline applies to optional `stack.worktree_teardown`: record a command only when the project already documents one that stops what it started, never invent or compose one, and in update mode leave an existing value alone.
+
 ### Step 3.8: Test Layout Detection
 
 Populate optional `test_layout` for sister-test discovery. Scan markers top-to-bottom — first match wins (matters in monorepos):
@@ -222,7 +224,8 @@ Before filling each capped list, apply its discriminator test. The test is the *
     "dependencies_policy": "<optional, max 100 chars>",
     "package_manager": "<optional, max 100 chars>",
     "test_command": "<optional, max 100 chars — see Step 3.7>",
-    "worktree_bootstrap": "<optional, max 100 chars — see Step 3.75>"
+    "worktree_bootstrap": "<optional, max 100 chars — see Step 3.75>",
+    "worktree_teardown": "<optional, max 100 chars — see Step 3.75>"
   },
   "modules": [
     {"name": "auth (max 50 chars)", "path": "src/auth (max 200 chars)", "purpose": "<max 100 chars>"}
