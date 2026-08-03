@@ -104,6 +104,34 @@ class TestSystemAnalyzerDetectsTestCommand(unittest.TestCase):
         )
 
 
+class TestSystemAnalyzerDetectsWorktreeTeardown(unittest.TestCase):
+    """`stack.worktree_teardown` mirrors `worktree_bootstrap`: only record a
+    command when the project already documents one, never invent or compose
+    it, and leave an existing value alone on update — Step 3.75 states this
+    by reference rather than restating the whole discipline.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.content = _read_system_analyzer_agent()
+
+    def test_worktree_teardown_sentence_present(self):
+        self.assertIn(
+            "worktree_teardown",
+            self.content,
+            "Step 3.75 must mention stack.worktree_teardown so the analyzer "
+            "records a project-declared teardown command",
+        )
+
+    def test_step_4_template_includes_worktree_teardown(self):
+        self.assertIn(
+            '"worktree_teardown":',
+            self.content,
+            "Step 4 JSON template must include worktree_teardown in the "
+            "stack object so a detected value propagates to system_context.json",
+        )
+
+
 class TestSystemAnalyzerNamespaceInstruction(unittest.TestCase):
     """`user_namespace` is now READ when naming branches, so the analyzer's
     instruction for it must not clobber a prefix already in use.

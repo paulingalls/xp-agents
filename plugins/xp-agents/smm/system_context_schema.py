@@ -102,12 +102,18 @@ _REQUIRED_FIELDS = frozenset(
 # checkout-invariant (installable) versus checkout-variant (must be
 # regenerated, never copied), so the project's own script encodes that
 # split.
+#
+# `worktree_teardown` is its mirror image: a project-declared command run
+# before a teammate worktree is removed, to stop whatever the teammate
+# started (e.g. a `docker compose` stack) that outlives the worktree
+# itself. Also opaque to the plugin, for the same reason.
 STACK_OPTIONAL_FIELDS = (
     "runtime",
     "dependencies_policy",
     "package_manager",
     "test_command",
     "worktree_bootstrap",
+    "worktree_teardown",
 )
 
 _MODULE_REQUIRED = frozenset({"name", "purpose", "path"})

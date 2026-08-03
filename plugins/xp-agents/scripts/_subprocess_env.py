@@ -9,12 +9,102 @@ and a child env carrying the resolved SMM_DIR so a ``$SMM_DIR``-referencing
 command resolves it correctly regardless of the child's own cwd. Before this
 module existed each site hand-rolled its own near-identical copy of both.
 
+``worktree_bootstrap.run_bootstrap`` and ``worktree_teardown.run_teardown``
+also share the process-group-aware invocation below: ``shell=True`` +
+``timeout`` alone reaps only the shell, leaving alive any child the declared
+command backgrounds or forks — exactly the orphans a teardown command exists
+to kill. ``start_new_session=True`` puts the shell and its descendants in a
+new process group so a timeout can ``killpg`` all of them at once.
+
 Pure stdlib, no SMM/scripts imports — either caller can import this leaf
 module with zero cycle risk.
 """
 
+import contextlib
 import os
+import signal
+import subprocess
 from pathlib import Path
+
+# How long to drain the pipes after killing the group. Bounded on purpose:
+# see the drain comment in run_in_new_process_group.
+_DRAIN_TIMEOUT_S = 5
+
+
+class TimedOutWithOutput(subprocess.TimeoutExpired):
+    """``TimeoutExpired`` carrying the child's DECODED output.
+
+    ``TimeoutExpired.stdout``/``.stderr`` are typed — and on some paths
+    populated — as ``bytes`` even when the process ran with ``text=True``,
+    so a caller that f-strings them prints ``b'...'`` at the operator. These
+    two attributes are always ``str``. Subclassing keeps every existing
+    ``except subprocess.TimeoutExpired`` working unchanged.
+    """
+
+    def __init__(self, cmd: str, timeout: float, out: str = "", err: str = ""):
+        super().__init__(cmd, timeout)
+        self.text_stdout = out
+        self.text_stderr = err
+
+
+def run_in_new_process_group(
+    command: str, cwd: str, timeout: int, env: dict[str, str]
+) -> subprocess.CompletedProcess:
+    """Run *command* via the shell, killing its whole process group on timeout.
+
+    Raises ``subprocess.TimeoutExpired`` if the command doesn't finish in
+    time — the process group has already been killed by then, so callers
+    never block on a hung descendant's pipes. Raise-vs-swallow policy for
+    both ``TimeoutExpired`` and a non-zero exit is each caller's own.
+    """
+    proc = subprocess.Popen(
+        command,
+        shell=True,  # noqa: secret
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except BaseException as exc:
+        # BaseException, not just TimeoutExpired, and the width is the point.
+        # start_new_session detaches the child from the controlling terminal,
+        # so a Ctrl-C no longer reaches it as part of the terminal's group.
+        # Catching only TimeoutExpired would let KeyboardInterrupt propagate
+        # straight past the one killpg that can still reach the group, leaving
+        # the whole declared-command tree running detached — a NEW orphan door
+        # opened by the very flag that closes the timeout one. TimeoutExpired
+        # is a subclass, so the timeout path below is unchanged.
+        #
+        # Kill the whole process group (negative pgid), not just the shell
+        # `proc` points at — start_new_session made the shell its leader, so
+        # its pgid equals its pid. A plain proc.kill() would leave any
+        # backgrounded/forked descendant alive.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        # Bounded, because "never blocks" has to survive a descendant that
+        # setsid'd its way OUT of the group and still holds the pipe: killpg
+        # cannot reach it, and an unbounded drain here would hang the one
+        # path that must not.
+        try:
+            drained_out, drained_err = proc.communicate(timeout=_DRAIN_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            drained_out, drained_err = "", ""
+        # Hand the child's output back on the timeout path — a caller that can
+        # only report "timed out after 120s" tells the operator nothing about
+        # WHY. Re-raised as the str-typed subclass rather than mutating the
+        # original, whose stdout/stderr are bytes-typed.
+        if isinstance(exc, subprocess.TimeoutExpired):
+            raise TimedOutWithOutput(
+                command, timeout, drained_out or "", drained_err or ""
+            ) from exc
+        raise
+    return subprocess.CompletedProcess(
+        command, proc.returncode, stdout=stdout, stderr=stderr
+    )
 
 
 def _env_int(name: str, default: int) -> int:

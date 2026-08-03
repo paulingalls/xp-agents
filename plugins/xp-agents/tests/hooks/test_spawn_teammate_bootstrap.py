@@ -25,6 +25,7 @@ test_bootstrap_rationale_prose.py.
 import inspect
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -134,6 +135,69 @@ class TestBootstrapFailure(_BootstrapTestCase):
         self.assertTrue(
             (wt / "partial.txt").is_file(),
             "the partial bootstrap's output must survive for diagnosis",
+        )
+
+
+class TestBootstrapKillsProcessGroup(_BootstrapTestCase):
+    """A backgrounded, hanging child dies with the process group.
+
+    The sibling assertion for teardown lives in test_worktree_teardown.py.
+    Both call the same `_subprocess_env.run_in_new_process_group`, but each
+    owns its own call site and its own raise-vs-swallow policy, so shared
+    coverage through one caller proves nothing about the other: bootstrap
+    could stop passing the timeout, or catch TimeoutExpired differently, and
+    the teardown test would stay green.
+
+    Bootstrap's contract here is the LOUD one — it raises SystemExit, where
+    teardown swallows — because a half-provisioned worktree must never host
+    an agent.
+    """
+
+    @staticmethod
+    def _alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def test_backgrounded_hanging_child_is_killed_and_bootstrap_raises(self):
+        # Observed by PID, not by waiting for the orphan to write a file.
+        # A `(sleep 30 && echo > leaked.txt)` formulation passes against the
+        # UNHARDENED implementation too: it also returns at the 1s timeout,
+        # 29 seconds before the orphan would reveal itself. Liveness is
+        # observable at the moment we look.
+        self.declare_bootstrap(
+            "echo started > started.txt; "
+            "{ sleep 30 & echo $! > child.pid; wait; } & wait"
+        )
+        name = "worktree-story-bootstrap"
+
+        with (
+            patch.dict(os.environ, {"XP_BOOTSTRAP_TIMEOUT_S": "1"}),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            self.spawn(name)
+
+        self.assertIn("timed out", str(ctx.exception))
+
+        import worktree
+
+        wt = worktree.worktree_path(name, str(self.tmpdir))
+        self.assertTrue((wt / "started.txt").is_file())
+        pid = int((wt / "child.pid").read_text().strip())
+
+        deadline = time.monotonic() + 2
+        while self._alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        self.assertFalse(
+            self._alive(pid),
+            f"the backgrounded grandchild (pid {pid}) survived the timeout; "
+            "reaping only the shell leaves exactly the orphans this "
+            "hardening exists to prevent",
         )
 
 
