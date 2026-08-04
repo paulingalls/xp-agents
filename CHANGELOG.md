@@ -2,6 +2,39 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
+## v5.4.0 — Story close stops paying for the whole suite
+
+Closing a story ran your entire test command. On a project whose acceptance
+suite takes an hour, every story paid that hour — and the gate that ran it
+merges without asking.
+
+Close now runs only the commands covering the surfaces your change actually
+touched. Declare `paths` and a `command` on an acceptance surface and both
+story close and free close narrow to it; declare nothing and everything behaves
+exactly as before. `/xp-system-context` proposes the fields for you, confirms
+them, and never infers a command it did not read.
+
+**It narrows all-or-nothing, on purpose.** If your change touches one file that
+no surface claims, the whole selection is discarded and the full command runs.
+Partial narrowing is the one shape that tests *less* than what it replaces, and
+the consumer is an auto-merge gate — so the analyzer also proposes a
+command-less surface covering the leftovers (docs, config), which buys coverage
+without adding a run.
+
+Selection reads the close diff, not the story's declared file list, so a file
+you touched outside the plan is still covered.
+
+Two things worth knowing before you turn this on:
+
+- `stack.test_command` is expected to cover **every** surface, because it is
+  what the gate falls back to and what a full selection collapses to. Point it
+  at a script that calls each suite, not at one of them.
+- A selection covering every declared command runs the full command once
+  instead of N — N narrowed runs cost more than the one they replace.
+
+Scope, stated plainly: nothing narrows until surfaces declare `paths`. Until
+then this release changes no behavior at all.
+
 ## v5.3.1 — The code reviewer stops filing items that cannot be closed
 
 When a diff introduced a new architectural pattern, the code reviewer nudged you
