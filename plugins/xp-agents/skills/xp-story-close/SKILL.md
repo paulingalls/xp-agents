@@ -206,14 +206,12 @@ Step 6 `AskUserQuestion` (Step 6b still runs) when ALL hold:
    No block is emitted when there is nothing to run, so the gate can
    **never run nothing** and report green.
 
-When there is no `### GATE_COMMANDS` block, print this hint before falling
-through:
-
-```
-Auto-merge disabled — set stack.test_command in system_context.json to enable.
-To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
-    printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
-```
+No block: report the preload's `GATE_DISABLED_REASON`, never assume unset.
+`not-set` — no `stack.test_command`; declare one via
+`system_context_cli.py edit-stack-field test_command`.
+`exit-status-masked` — set but its exit status never reaches the shell (`;`, a
+pipe, a trailing `&`), so it reports success when its runner failed; name it
+and suggest `&&`.
 
 When all three conditions hold, print:
 "All reviewer findings addressed and tests green — proceeding to merge
