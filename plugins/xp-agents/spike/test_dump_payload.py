@@ -84,6 +84,19 @@ class TestRecorderCapturesVerbatim(unittest.TestCase):
             self.assertEqual(entry["stdin_bytes"], len(_AWKWARD.encode("utf-8")))
             self.assertIn("payload_file", entry)
 
+    def test_a_denied_write_is_reported_on_stderr_not_swallowed(self) -> None:
+        # Under a sandbox a denied write would otherwise leave an empty output
+        # dir, which reads downstream as "this event never fired" — a false
+        # negative on the payload inventory. Exit stays 0 and stdout stays empty
+        # (a hook must neither block nor inject); the trace goes to stderr.
+        with tempfile.TemporaryDirectory() as td:
+            blocker = Path(td) / "blocker"
+            blocker.write_text("not a directory")
+            r = self._run(_AWKWARD, blocker / "under-a-file")
+            self.assertEqual(r.returncode, 0)
+            self.assertEqual(r.stdout, b"")
+            self.assertIn(b"xp-spike: could not write", r.stderr)
+
     def test_two_firings_do_not_overwrite_each_other(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             outdir = Path(td)

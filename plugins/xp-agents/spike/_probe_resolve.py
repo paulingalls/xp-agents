@@ -48,7 +48,20 @@ _SESSION_ID_ENV_CANDIDATES = (
 
 _PLUGIN_ROOT_KEYS = ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT")
 
-_INIT_SH_TIMEOUT_SECONDS = 20
+# What init.sh CONSULTS before it derives anything: a pinned SMM_DIR is honored
+# verbatim and skips derivation entirely, and a named XP_AGENTS_DATA switches off
+# legacy discovery and relocation. Recorded because without them a resolved path
+# is ambiguous — "the hook derived it" and "the hook echoed a variable the runner
+# exported" produce the same line, and one of them is not evidence for AC-1. Run
+# D exports SMM_DIR by design, so this is the expected case, not a corner.
+_RESOLUTION_INPUT_KEYS = ("SMM_DIR", "XP_AGENTS_DATA", "XP_SMM_MIGRATE")
+
+# Matches production's own budget for the same script (30s in
+# `smm/smm_dir_resolve._DERIVE_TIMEOUT_SECONDS`). A SHORTER budget here would
+# record "cannot resolve" for a first run that copies the whole SMM to the new
+# data root — a resolution production would have completed — which is a false
+# observation on the one AC this probe exists to answer.
+_INIT_SH_TIMEOUT_SECONDS = 30
 
 
 def _payload_session_id(raw: bytes) -> str | None:
@@ -153,6 +166,7 @@ def main() -> int:
         "payload_session_id": payload_session_id,
         "env_session_ids": env_session_ids,
         "session_ids_agree": agree,
+        "resolution_inputs": {k: os.environ.get(k) for k in _RESOLUTION_INPUT_KEYS},
         "init_sh": _run_init_sh(),
     }
 
@@ -161,11 +175,11 @@ def main() -> int:
         root.mkdir(parents=True, exist_ok=True)
         with (root / "resolve.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry) + "\n")
-    except Exception:
-        # Same bargain as the recorder: a probe that fails loudly would block
-        # the host mid-observation. The sandbox canary, run before the session,
-        # is what distinguishes a denied write from a hook that never fired.
-        pass
+    except Exception as exc:
+        # Same bargain as the recorder: exit 0 so a probe never blocks the host
+        # mid-observation, but state the failure on stderr — an absent record is
+        # otherwise indistinguishable from a hook that never fired.
+        _dump_payload._report_write_failure("resolve record", exc)
 
     return 0
 

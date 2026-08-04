@@ -101,10 +101,63 @@ class TestResolveProbe(unittest.TestCase):
             self.assertEqual(
                 entry["env_session_ids"]["CODEX_THREAD_ID"], "env-session-xyz"
             )
-            self.assertFalse(
+            # assertIs, not assertFalse: the field is three-valued and None is
+            # also falsy, so assertFalse would pass against a probe that never
+            # compared the pair at all — which is precisely the do-nothing
+            # implementation this check exists to rule out.
+            self.assertIs(
                 entry["session_ids_agree"],
+                False,
                 "a disagreeing pair must be reported as disagreeing",
             )
+
+    def test_an_agreeing_pair_is_reported_as_agreeing(self) -> None:
+        # The other half of the discriminator. Without it, a probe hardwired to
+        # "disagree" passes every check above and would refuse liveness on a
+        # session whose ids match — a false observation on AC-4 in the opposite
+        # direction from the one pinned above.
+        with tempfile.TemporaryDirectory() as td:
+            outdir = Path(td)
+            self._run_probe(
+                _SESSION_START, outdir, {"CODEX_THREAD_ID": "payload-session-abc"}
+            )
+            self.assertIs(self._one(outdir)["session_ids_agree"], True)
+
+    def test_nothing_to_compare_is_neither_agree_nor_disagree(self) -> None:
+        # No env candidate is set here, so there is no pair. Reporting False
+        # would state a conflict that does not exist and send AC-4 chasing a
+        # disagreement the run never observed.
+        with tempfile.TemporaryDirectory() as td:
+            outdir = Path(td)
+            self._run_probe(_SESSION_START, outdir)
+            self.assertIsNone(self._one(outdir)["session_ids_agree"])
+
+    def test_records_whether_a_pinned_smm_dir_short_circuited_resolution(self) -> None:
+        # init.sh honours an exported SMM_DIR verbatim and skips derivation, so
+        # a resolved path alone cannot tell "the hook derived it" from "the hook
+        # echoed what the runner exported". Run D exports SMM_DIR by design, so
+        # the resolution inputs must be on the record or AC-1's evidence is
+        # ambiguous exactly where it is used.
+        with tempfile.TemporaryDirectory() as td:
+            outdir = Path(td)
+            self._run_probe(_SESSION_START, outdir, {"SMM_DIR": "/pinned/by/runner"})
+            entry = self._one(outdir)
+            self.assertEqual(entry["resolution_inputs"]["SMM_DIR"], "/pinned/by/runner")
+            for key in ("XP_AGENTS_DATA", "XP_SMM_MIGRATE"):
+                self.assertIn(key, entry["resolution_inputs"])
+                self.assertIsNone(entry["resolution_inputs"][key])
+
+    def test_a_denied_write_is_reported_on_stderr_not_swallowed(self) -> None:
+        # A swallowed write leaves the output dir looking like a hook that never
+        # fired — the one confusion this rig must not produce. Exit stays 0 and
+        # stdout stays empty; the trace goes to stderr.
+        with tempfile.TemporaryDirectory() as td:
+            blocker = Path(td) / "blocker"
+            blocker.write_text("not a directory")
+            r = self._run_probe(_SESSION_START, blocker / "under-a-file")
+            self.assertEqual(r.returncode, 0)
+            self.assertEqual(r.stdout, b"")
+            self.assertIn(b"xp-spike: could not write", r.stderr)
 
     def test_records_resolution_outcome_when_no_plugin_root(self) -> None:
         # Absence of a plugin root is an outcome to record, not a reason to
@@ -191,6 +244,19 @@ class TestInjectMarker(unittest.TestCase):
             _run(_INJECT, _SESSION_START, outdir, {"XP_SPIKE_MARKER": "planted-value"})
             entry = _records(outdir, "injected_markers.jsonl")[0]
             self.assertNotIn("planted-value", entry["marker"])
+
+    def test_still_injects_when_the_record_cannot_be_written(self) -> None:
+        # A write problem must not become a false negative on AC-3: the marker
+        # still goes out, and stderr says the run is inconclusive rather than
+        # leaving it to look like a hook that never fired.
+        with tempfile.TemporaryDirectory() as td:
+            blocker = Path(td) / "blocker"
+            blocker.write_text("not a directory")
+            r = _run(_INJECT, _SESSION_START, blocker / "under-a-file")
+            self.assertEqual(r.returncode, 0)
+            hso = json.loads(r.stdout.decode("utf-8"))["hookSpecificOutput"]
+            self.assertIn("XP-SPIKE-MARKER-", hso["additionalContext"])
+            self.assertIn(b"xp-spike: could not write", r.stderr)
 
     def _recorded_marker(self, outdir: Path) -> str:
         return _records(outdir, "injected_markers.jsonl")[0]["marker"]

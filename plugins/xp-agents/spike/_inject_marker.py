@@ -76,12 +76,14 @@ def main() -> int:
         }
         with (root / "injected_markers.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry) + "\n")
-    except Exception:
+    except Exception as exc:
         # Deliberate: if the record cannot be written, still inject. A run whose
         # marker was injected but not recorded is inconclusive, which the outer
         # runner detects by finding no record — whereas refusing to inject would
-        # turn a write problem into a false negative on the AC.
-        pass
+        # turn a write problem into a false negative on the AC. Stderr says which
+        # of the two happened; a silent swallow would leave the inconclusive run
+        # looking like a hook that never fired.
+        _dump_payload._report_write_failure("injected marker", exc)
 
     sys.stdout.write(
         json.dumps(
