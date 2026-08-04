@@ -35,6 +35,7 @@ is the shipped "bound events by sprint start, fail open on None" primitive and
 this PORTS its pattern rather than importing it, for that reason.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -72,16 +73,18 @@ class ConcernWindow:
         floor: str | None,
         cycle_id: str | None,
         widened: bool,
-        window_start: str | None,
         close_starts: dict[str, dict],
         note: str | None,
     ) -> None:
-        # The effective `--since-ts`. None means NO floor — never the passed
-        # since_ts, which is the exclusion this module exists to lift.
+        # The effective `--since-ts`, and — when `widened` — the sprint window
+        # start the tag rule reads too. ONE field deliberately, because in the
+        # widened case a separate `window_start` would always equal it: two
+        # spellings of one bound is the exact drift this module exists to stop.
+        # None means NO floor — never the passed since_ts, which is the
+        # exclusion this module exists to lift.
         self.floor = floor
         self.cycle_id = cycle_id
         self.widened = widened
-        self.window_start = window_start
         self.close_starts = close_starts
         # A one-line degradation notice for stderr, or None when nothing was
         # dropped. Quiet by default: a note on every unscoped call would train
@@ -101,7 +104,7 @@ class ConcernWindow:
 
         When it HAS widened, a foreign tag excludes only on positive proof that
         its close ran before this sprint: the tag joins to a `close_started`
-        whose ts precedes the window start. A tag that joins to nothing counts —
+        whose ts precedes the window floor. A tag that joins to nothing counts —
         4 of the 13 tagged cycle ids in this project's log have no
         `close_started` at all, because they predate the event. Unjoinable is
         unreadable evidence, never licence to exclude, the same rule
@@ -112,7 +115,7 @@ class ConcernWindow:
             return False
         if not self.widened:
             return True
-        if self.window_start is None:
+        if self.floor is None:
             return False
         started = self.close_starts.get(tag)
         if started is None:
@@ -120,7 +123,7 @@ class ConcernWindow:
         ts = started.get("ts")
         if not isinstance(ts, str) or not ts:
             return False
-        return ts < self.window_start
+        return ts < self.floor
 
 
 def close_started_index(events: list[dict]) -> dict[str, dict]:
@@ -140,6 +143,26 @@ def close_started_index(events: list[dict]) -> dict[str, dict]:
     return index
 
 
+_ISO_DATE_PREFIX_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _lexical_floor(value: object) -> str | None:
+    """*value* as a floor safe to compare byte-wise, or None when it is not one.
+
+    A floor is compared lexicographically against full ISO event timestamps, so
+    a string that is not at least a `YYYY-MM-DD` prefix is not a weak floor but
+    an INVERTED one: "TBD" sorts ABOVE every real ts, so trusting it excludes
+    the entire log — silently widening the exclusion, the one direction this
+    module forbids. sprint.json's `started` is required by the schema but its
+    SHAPE is unvalidated and `xp-sprint-start` SKILL.md has an LLM author it, so
+    it is checked here rather than trusted. None then reaches the same
+    no-floor-and-say-so path as a missing sprint.
+    """
+    if not isinstance(value, str) or not _ISO_DATE_PREFIX_RE.match(value):
+        return None
+    return value
+
+
 def sprint_window_start(events: list[dict], smm_dir: Path) -> str | None:
     """The current sprint's start bound, or None when it cannot be resolved.
 
@@ -148,6 +171,10 @@ def sprint_window_start(events: list[dict], smm_dir: Path) -> str | None:
     sprint.json's date-only `started`) and costs no extra file read. Falls back
     to sprint.json, which is a valid lexicographic floor against a full ISO ts
     even at date granularity — "2026-07-31T09:00:00+00:00" >= "2026-07-20".
+
+    Either leg must pass `_lexical_floor` to be used. Skipping a malformed
+    sprint-start event only ever reaches an EARLIER one, so every degradation
+    here widens the window rather than the exclusion.
 
     `load_sprint_fail_open` because this read is advisory: a corrupt sprint.json
     must degrade the gate loudly, not crash a close mid-pipeline. Same posture
@@ -158,12 +185,11 @@ def sprint_window_start(events: list[dict], smm_dir: Path) -> str | None:
             continue
         if event_action(event) != SPRINT_ACTION_START:
             continue
-        ts = event.get("ts")
-        if isinstance(ts, str) and ts:
-            return ts
+        floor = _lexical_floor(event.get("ts"))
+        if floor:
+            return floor
     sprint = sprint_store.load_sprint_fail_open(smm_dir)
-    started = sprint.get("started") if isinstance(sprint, dict) else None
-    return started if isinstance(started, str) and started else None
+    return _lexical_floor(sprint.get("started") if isinstance(sprint, dict) else None)
 
 
 def _close_mode(started: dict | None) -> str | None:
@@ -210,7 +236,6 @@ def resolve(
             floor=since_ts,
             cycle_id=cycle_id,
             widened=False,
-            window_start=None,
             close_starts=close_starts,
             note=None,
         )
@@ -228,7 +253,6 @@ def resolve(
             floor=window_start,
             cycle_id=cycle_id,
             widened=True,
-            window_start=window_start,
             close_starts=close_starts,
             note=note,
         )
@@ -249,7 +273,6 @@ def resolve(
         floor=None,
         cycle_id=cycle_id,
         widened=False,
-        window_start=None,
         close_starts=close_starts,
         note=note,
     )

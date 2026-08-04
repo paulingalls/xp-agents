@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """An enclosing close's concern gate can see the whole sprint.
 
+`close_window.resolve` and `ConcernWindow.excludes_tag` at the unit boundary;
+the same rule through the real `count-concerns` query lives in
+`test_close_window_count_concerns.py`.
+
 Concern f106bf044ded / decision efed0cb00c62: the merge gate whose entire
 purpose is to catch a story-close's unfixed findings could not see them. A
 story-close records a concern tagged with its own cycle id; the later
@@ -33,33 +37,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 import close_window
-from _count_concerns_fixtures import _CLI, _close_started, _concern
-from conftest import _SMMTestCase, make_event, make_sprint_dict, run_cli, write_events
-from event_schema import EVENT_TYPE_SPRINT, EVENT_TYPE_STATUS
-
-_SPRINT_START = "2026-07-20T09:00:00+00:00"
-_PREV_SPRINT_START = "2026-06-01T09:00:00+00:00"
-
-# The enclosing close being gated, and the story-close that ran earlier in the
-# same sprint and left a concern behind.
-_ENCLOSING = "eeee00001111"
-_STORY_CYCLE = "550011122233"
-_PRIOR_SPRINT_CYCLE = "0dd000111222"
-
-# The enclosing close starts LATE in the sprint — that gap between the sprint
-# start and CLOSE_START_TS is the hole this story closes.
-_CLOSE_START_TS = "2026-07-28T12:00:00+00:00"
-
-
-def _sprint_start(ts: str = _SPRINT_START, sprint_id: str = "sprint-007") -> dict:
-    """A `type=sprint`, `metadata.action=start` event — the sprint window bound.
-
-    Preferred over sprint.json's date-only `started`: better granularity and no
-    extra file read, since `count-concerns` already iterates these events.
-    """
-    return make_event(
-        EVENT_TYPE_SPRINT, ts=ts, metadata={"sprint_id": sprint_id, "action": "start"}
-    )
+from _close_window_fixtures import (
+    _CLOSE_START_TS,
+    _ENCLOSING,
+    _PREV_SPRINT_START,
+    _PRIOR_SPRINT_CYCLE,
+    _SPRINT_START,
+    _STORY_CYCLE,
+    _sprint_start,
+)
+from _count_concerns_fixtures import _close_started
+from conftest import _SMMTestCase, make_sprint_dict
 
 
 class TestResolveFloor(_SMMTestCase):
@@ -118,6 +106,33 @@ class TestResolveFloor(_SMMTestCase):
         window = self._resolve([_close_started(_ENCLOSING, "sprint", _CLOSE_START_TS)])
         self.assertEqual(window.floor, "2026-07-20")
         self.assertTrue(window.widened)
+
+    def test_sprint_json_started_that_is_not_a_date_yields_no_floor(self) -> None:
+        # `started` is REQUIRED by the sprint schema but its SHAPE is not
+        # validated, and xp-sprint-start SKILL.md has an LLM author it. A value
+        # like "TBD" sorts ABOVE every real ISO ts, so trusting it as a floor
+        # excludes the ENTIRE log — widening the exclusion, the one direction
+        # this module forbids, and silently: the count reads 0 and auto-merge
+        # fires over the findings the gate exists to catch.
+        (self.smm_dir / "sprint.json").write_text(
+            json.dumps(make_sprint_dict(started="TBD"))
+        )
+        window = self._resolve([_close_started(_ENCLOSING, "sprint", _CLOSE_START_TS)])
+        self.assertIsNone(window.floor)
+        self.assertIsNotNone(window.note)
+
+    def test_malformed_sprint_start_event_ts_falls_through(self) -> None:
+        # Same rule on the preferred leg: a ts that is not a date prefix is not
+        # a floor. Falling through to the EARLIER sprint start only ever widens
+        # the window, so the degradation stays fail-closed.
+        window = self._resolve(
+            [
+                _sprint_start(_PREV_SPRINT_START, "sprint-006"),
+                _sprint_start("soon", "sprint-007"),
+                _close_started(_ENCLOSING, "sprint", _CLOSE_START_TS),
+            ]
+        )
+        self.assertEqual(window.floor, _PREV_SPRINT_START)
 
     def test_unresolvable_sprint_window_drops_the_floor_entirely(self) -> None:
         # NEVER fall back to the passed --since-ts: that is exactly the
@@ -246,169 +261,6 @@ class TestExcludesTag(_SMMTestCase):
             since_ts=_CLOSE_START_TS,
         )
         self.assertTrue(window.excludes_tag(_STORY_CYCLE))
-
-
-class TestCountConcernsWidening(_SMMTestCase):
-    """End-to-end through the CLI the close pipeline actually runs."""
-
-    def _count(self, events: list[dict], cycle_id: str = _ENCLOSING) -> str:
-        write_events(self.events_file, events)
-        result = run_cli(
-            _CLI,
-            [
-                "count-concerns",
-                "--severity",
-                "high",
-                "--cycle-id",
-                cycle_id,
-                "--since-ts",
-                _CLOSE_START_TS,
-            ],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout.strip()
-
-    def test_enclosing_close_counts_an_earlier_story_closes_concern(self) -> None:
-        # AC2 through the real query. The concern is dropped twice over today:
-        # its tag differs from the gated cycle AND its ts predates
-        # CLOSE_START_TS. Both have to lift for this to count.
-        events = [
-            _sprint_start(),
-            _close_started(_STORY_CYCLE, "story", "2026-07-22T10:00:00+00:00"),
-            _concern(
-                "high",
-                ts="2026-07-22T10:30:00+00:00",
-                metadata={"close_cycle_id": _STORY_CYCLE},
-            ),
-            _close_started(_ENCLOSING, "sprint", _CLOSE_START_TS),
-        ]
-        self.assertEqual(self._count(events), "1")
-
-    def test_enclosing_close_counts_an_untagged_mid_sprint_concern(self) -> None:
-        events = [
-            _sprint_start(),
-            _concern("high", ts="2026-07-22T10:30:00+00:00", metadata={}),
-            _close_started(_ENCLOSING, "plan", _CLOSE_START_TS),
-        ]
-        self.assertEqual(self._count(events), "1")
-
-    def test_enclosing_close_excludes_a_previous_sprints_concern(self) -> None:
-        # AC3 through the real query: BOTH filters must keep it out — its ts
-        # predates the sprint start and its tag's close does too.
-        events = [
-            _close_started(_PRIOR_SPRINT_CYCLE, "story", _PREV_SPRINT_START),
-            _concern(
-                "high",
-                ts="2026-06-02T10:30:00+00:00",
-                metadata={"close_cycle_id": _PRIOR_SPRINT_CYCLE},
-            ),
-            _sprint_start(),
-            _close_started(_ENCLOSING, "sprint", _CLOSE_START_TS),
-        ]
-        self.assertEqual(self._count(events), "0")
-
-    def test_story_close_keeps_its_narrow_window(self) -> None:
-        # AC4 through the real query: the same mid-sprint leftovers that an
-        # enclosing close must see stay invisible to a story close.
-        events = [
-            _sprint_start(),
-            _close_started(_STORY_CYCLE, "story", "2026-07-22T10:00:00+00:00"),
-            _concern(
-                "high",
-                ts="2026-07-22T10:30:00+00:00",
-                metadata={"close_cycle_id": _STORY_CYCLE},
-            ),
-            _concern("high", ts="2026-07-22T11:00:00+00:00", metadata={}),
-            _close_started(_ENCLOSING, "story", _CLOSE_START_TS),
-            _concern("high", ts="2026-07-28T13:00:00+00:00", metadata={}),
-        ]
-        self.assertEqual(self._count(events), "1")
-
-    def test_corrupt_line_floor_uses_the_same_widened_bound(self) -> None:
-        # Two spellings of one rule is how this module drifted before: the
-        # corrupt-line floor must resolve the bound identically. A line whose
-        # embedded ts sits between the sprint start and CLOSE_START_TS is IN
-        # the widened window, so it stays on the fail-closed floor.
-        write_events(
-            self.events_file,
-            [_sprint_start(), _close_started(_ENCLOSING, "sprint", _CLOSE_START_TS)],
-        )
-        with self.events_file.open("a", encoding="utf-8") as fh:
-            fh.write('{"ts": "2026-07-22T10:00:00+00:00", "type": "conce\n')
-        result = run_cli(
-            _CLI,
-            [
-                "count-concerns",
-                "--severity",
-                "high",
-                "--cycle-id",
-                _ENCLOSING,
-                "--since-ts",
-                _CLOSE_START_TS,
-            ],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "1")
-        self.assertIn("fail closed", result.stderr)
-
-    def test_corrupt_line_before_the_sprint_is_still_excluded(self) -> None:
-        write_events(
-            self.events_file,
-            [_sprint_start(), _close_started(_ENCLOSING, "sprint", _CLOSE_START_TS)],
-        )
-        with self.events_file.open("a", encoding="utf-8") as fh:
-            fh.write('{"ts": "2026-06-02T10:00:00+00:00", "type": "conce\n')
-        result = run_cli(
-            _CLI,
-            [
-                "count-concerns",
-                "--severity",
-                "high",
-                "--cycle-id",
-                _ENCLOSING,
-                "--since-ts",
-                _CLOSE_START_TS,
-            ],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "0")
-        self.assertIn("provably out of scope", result.stderr)
-
-    def test_count_classifications_window_is_untouched(self) -> None:
-        # OUT of scope by contract: it asks "were ask-route items raised during
-        # THIS close?", where a narrow window is correct. Widening it would
-        # wrongly block auto-merge on an EARLIER close's ask items.
-        write_events(
-            self.events_file,
-            [
-                _sprint_start(),
-                make_event(
-                    EVENT_TYPE_STATUS,
-                    ts="2026-07-22T10:30:00+00:00",
-                    working_on=[],
-                    metadata={"action": "concern_classify", "route": "ask"},
-                ),
-                _close_started(_ENCLOSING, "sprint", _CLOSE_START_TS),
-            ],
-        )
-        result = run_cli(
-            _CLI,
-            [
-                "count-classifications",
-                "--route",
-                "ask",
-                "--cycle-id",
-                _ENCLOSING,
-                "--since-ts",
-                _CLOSE_START_TS,
-            ],
-            self.smm_dir,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "0")
 
 
 if __name__ == "__main__":
