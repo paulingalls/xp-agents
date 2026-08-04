@@ -18,9 +18,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "smm"))
 import branching
 import identity
 import sprint_store
-import verify_acceptance
+
+# verify_acceptance_record is the READ side of the verify event, not the runner:
+# this gate never runs an acceptance command, and importing `verify_acceptance`
+# for two reader names would pull its whole subprocess half in with them.
+import verify_acceptance_record
 import verify_deferred
 import verify_paths
+from event_schema import VERIFY_STATUS_RED
 
 
 def review_clean_block(review_cwd: str) -> str:
@@ -119,12 +124,30 @@ def verify_gate_block(args: argparse.Namespace) -> str | None:
                 return None  # symlinked sprint path → fail open (matches touch gate)
             if sprint is None:
                 return None
-            status, failing = verify_acceptance._last_verify(
-                smm_dir, sprint["sprint_id"]
+            status, failing, skipped = verify_acceptance_record.verify_report(
+                smm_dir, sprint
             )
-            if status == verify_acceptance.VERIFY_STATUS_RED and not args.force_verify:
+            if (
+                status == verify_acceptance_record.VERIFY_REPORT_UNVERIFIED
+                and not args.force_verify
+            ):
+                # NOT the same refusal as red, and not the same as `none`.
+                # `none` means there was nothing verify-bearing to gate; this
+                # means there was, and no run ever recorded a result — most
+                # often because the rerun was killed by the bound of the tool
+                # that launched it, which kills it before it can append. Reading
+                # that silence as green merges an unverified sprint.
+                return (
+                    "merge refused: this sprint has verify-bearing acceptance "
+                    "and no verify run recorded a result. Run /xp-sprint-review, "
+                    "or /xp-sprint-close --force-close <reason>"
+                )
+            if status == VERIFY_STATUS_RED and not args.force_verify:
+                # Shared with the CLI status printer: a sprint red purely
+                # because the batch budget SKIPPED items would otherwise refuse
+                # with an empty list — right to refuse, silent about why.
                 items = ", ".join(
-                    f"{r.get('story', '?')} {r.get('command', '')}" for r in failing
+                    verify_acceptance_record.unverified_items(failing, skipped)
                 )
                 return (
                     "merge refused: sprint acceptance is red: "

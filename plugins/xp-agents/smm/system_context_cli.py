@@ -4,22 +4,27 @@
 Thin wrapper over system_context_store.py for shell scripts and
 Claude Code skills. Python scripts should import the store directly.
 
+`--smm-dir` is a GLOBAL argument and must precede the subcommand. Every line
+below previously trailed it (`exists --smm-dir DIR`), which argparse rejects
+with exit 2 for EVERY subcommand; no test caught it because run_cli leads.
+
 Usage:
-    system_context_cli.py exists --smm-dir DIR
-    system_context_cli.py validate --smm-dir DIR
-    system_context_cli.py render --smm-dir DIR
-    system_context_cli.py create --smm-dir DIR          < context.json
-    system_context_cli.py section NAME --smm-dir DIR
-    system_context_cli.py edit-field NAME --smm-dir DIR  < value.json
-    system_context_cli.py edit-stack-field NAME --smm-dir DIR  < value.json
-    system_context_cli.py get-stack-field NAME --smm-dir DIR
-    system_context_cli.py add-module --smm-dir DIR       < module.json
-    system_context_cli.py add-convention --smm-dir DIR   < convention.json
-    system_context_cli.py add-principle --smm-dir DIR     < decision.json
-    system_context_cli.py add-project-specific --smm-dir DIR < entry.json
-    system_context_cli.py edit-branching --smm-dir DIR   < branching.json
-    system_context_cli.py edit-acceptance-surfaces --smm-dir DIR < surfaces.json
-    system_context_cli.py add-acceptance-surface --smm-dir DIR   < surface.json
+    system_context_cli.py --smm-dir DIR exists
+    system_context_cli.py --smm-dir DIR validate
+    system_context_cli.py --smm-dir DIR render
+    system_context_cli.py --smm-dir DIR create           < context.json
+    system_context_cli.py --smm-dir DIR section NAME
+    system_context_cli.py --smm-dir DIR edit-field NAME  < value.json
+    system_context_cli.py --smm-dir DIR edit-stack-field NAME  < value.json
+    system_context_cli.py --smm-dir DIR get-stack-field NAME
+    system_context_cli.py --smm-dir DIR add-module       < module.json
+    system_context_cli.py --smm-dir DIR add-convention   < convention.json
+    system_context_cli.py --smm-dir DIR add-principle    < decision.json
+    system_context_cli.py --smm-dir DIR add-project-specific < entry.json
+    system_context_cli.py --smm-dir DIR edit-branching   < branching.json
+    system_context_cli.py --smm-dir DIR edit-acceptance-surfaces < surfaces.json
+    system_context_cli.py --smm-dir DIR add-acceptance-surface   < surface.json
+    system_context_cli.py --smm-dir DIR surface-commands --paths-from - < paths
 """
 
 import argparse
@@ -54,6 +59,17 @@ from system_context_edit_cli import (
 )
 from system_context_edit_cli import (
     cmd_edit_project_specific as _cmd_edit_project_specific,
+)
+from system_context_entry_validators import unknown_surface_key_errors
+
+# Re-export shim per the split convention — `create`, `edit-field` and the
+# optional-field set moved to a sibling when this file crossed the 500-line cap
+# (the two commands are the two halves of one optional-field contract); every
+# existing importer and mock.patch target keeps resolving through here.
+from system_context_field_cli import (
+    _OPTIONAL_TOP_LEVEL_FIELDS,
+    _cmd_create,
+    _cmd_edit_field,
 )
 from system_context_nested_field_cli import (
     cmd_edit_branching_field as _cmd_edit_branching_field,
@@ -93,6 +109,9 @@ from system_context_retire_cli import (
     cmd_retire_project_specific as _cmd_retire_project_specific,
 )
 from system_context_schema import validate_system_context
+from system_context_surface_cli import (
+    cmd_surface_commands as _cmd_surface_commands,
+)
 
 # Back-compat shim: callers that imported these names from
 # system_context_cli before each family was extracted still find them
@@ -103,26 +122,21 @@ from system_context_schema import validate_system_context
 __all__ = [
     "_COUNT_CAP_TABLE",
     "_EDIT_ACTIONS",
+    "_OPTIONAL_TOP_LEVEL_FIELDS",
     "_RETIRE_ACTIONS",
     "_cmd_append_to_list",
+    "_cmd_create",
     "_cmd_edit_branching_field",
+    "_cmd_edit_field",
     "_cmd_edit_stack_field",
     "_cmd_get_branching_field",
     "_cmd_get_stack_field",
+    "_cmd_surface_commands",
     "_emit_edit_event",
     "_emit_retire_event",
 ]
 
 # ── CLI commands ────────────────────────────────────────────────
-
-
-_OPTIONAL_TOP_LEVEL_FIELDS = frozenset(
-    {
-        "branching_strategy",
-        "acceptance_surfaces",
-        "test_layout",
-    }
-)
 
 
 def _cmd_exists(args: argparse.Namespace) -> int:
@@ -195,30 +209,6 @@ def _split_csv(raw: str) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
-def _cmd_create(args: argparse.Namespace) -> int:
-    raw = sys.stdin.read()
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-    if isinstance(data, dict) and any(
-        f not in data or data[f] is None for f in _OPTIONAL_TOP_LEVEL_FIELDS
-    ):
-        existing = store.load_system_context(args.smm_dir) or {}
-        for field in _OPTIONAL_TOP_LEVEL_FIELDS:
-            if field in data and data[field] is None:
-                del data[field]
-            elif field not in data and field in existing:
-                data[field] = existing[field]
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
 def _cmd_section(args: argparse.Namespace) -> int:
     data = store.load_system_context(args.smm_dir)
     if data is None:
@@ -229,59 +219,6 @@ def _cmd_section(args: argparse.Namespace) -> int:
         print(f"Unknown section: {args.name!r}", file=sys.stderr)
         return 1
     print(result)
-    return 0
-
-
-def _cmd_edit_field(args: argparse.Namespace) -> int:
-    data = store.load_system_context(args.smm_dir)
-    if data is None:
-        print("No system context found.", file=sys.stderr)
-        return 1
-
-    name = args.name
-    if (
-        name not in data
-        and name != "project_specific"
-        and name not in _OPTIONAL_TOP_LEVEL_FIELDS
-    ):
-        ps_names = [e["name"] for e in data.get("project_specific", [])]
-        if name not in ps_names:
-            print(f"Unknown field: {name!r}", file=sys.stderr)
-            return 1
-
-    raw = sys.stdin.read()
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        print(f"Invalid JSON: {exc}", file=sys.stderr)
-        return 1
-
-    # edit-field is single-field; only the null-wipe half of _cmd_create's
-    # optional-field contract applies — preservation isn't relevant when
-    # the caller is targeting one specific field.
-    if name in _OPTIONAL_TOP_LEVEL_FIELDS and value is None:
-        data.pop(name, None)
-    elif name in data or name in _OPTIONAL_TOP_LEVEL_FIELDS:
-        data[name] = value
-    else:
-        for entry in data.get("project_specific", []):
-            if entry["name"] == name:
-                entry["content"] = value
-                break
-
-    try:
-        store.save_system_context(args.smm_dir, data)
-    except ValueError as exc:
-        print(f"Validation error: {exc}", file=sys.stderr)
-        # Optional top-level fields can be unset with stdin `null`; surface
-        # that affordance when a non-null edit fails validation, so future
-        # optional fields inherit the same UX without per-command duplication.
-        if name in _OPTIONAL_TOP_LEVEL_FIELDS:
-            print(
-                f"{name} can be unset by passing `null` on stdin.",
-                file=sys.stderr,
-            )
-        return 1
     return 0
 
 
@@ -307,12 +244,21 @@ def _cmd_add_project_specific(args: argparse.Namespace) -> int:
 
 
 def _cmd_edit_acceptance_surfaces(args: argparse.Namespace) -> int:
+    # Replaces the WHOLE array (the analyzer's path), so it introduces entries
+    # and is an authoring boundary exactly as `add` is. The unknown-key check
+    # rides on the field name via `_FIELD_VALUE_CHECKS`, so `edit-field
+    # acceptance_surfaces` — the same writer by another door — gets it too.
     args.name = "acceptance_surfaces"
     return _cmd_edit_field(args)
 
 
 def _cmd_add_acceptance_surface(args: argparse.Namespace) -> int:
-    return _cmd_append_to_list(args, "acceptance_surfaces", create_if_missing=True)
+    return _cmd_append_to_list(
+        args,
+        "acceptance_surfaces",
+        create_if_missing=True,
+        value_check=lambda item: unknown_surface_key_errors([item]),
+    )
 
 
 def _cmd_edit_test_layout(args: argparse.Namespace) -> int:
@@ -414,6 +360,15 @@ def main() -> None:
         "get-test-layout",
         help="Print test_layout as JSON (or `null` when unset)",
     )
+    surface_p = sub.add_parser(
+        "surface-commands",
+        help="Print surface commands covering changed paths read from stdin",
+    )
+    # `choices`: any other source would read as a silently empty selection,
+    # indistinguishable from "no narrowing available".
+    surface_p.add_argument(
+        "--paths-from", default="-", choices=["-"], help="Changed paths, on stdin"
+    )
 
     for name, help_text in (
         ("retire-principle", "Retire a principle by topic"),
@@ -471,6 +426,7 @@ def main() -> None:
         "add-acceptance-surface": _cmd_add_acceptance_surface,
         "edit-test-layout": _cmd_edit_test_layout,
         "get-test-layout": _cmd_get_test_layout,
+        "surface-commands": _cmd_surface_commands,
         "edit-branching": _cmd_edit_branching,
         "edit-branching-field": _cmd_edit_branching_field,
         "get-branching-field": _cmd_get_branching_field,

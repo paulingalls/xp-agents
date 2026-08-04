@@ -58,10 +58,9 @@ _SHIPPED_ROOT_FLOORS = {
 _BAND_CEILINGS = {
     # shipped (16)
     "plugins/xp-agents/smm/seed_smm.py": 499,
-    "plugins/xp-agents/scripts/spawn_teammate.py": 498,
+    "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 496,
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
-    "plugins/xp-agents/smm/system_context_cli.py": 493,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
     "plugins/xp-agents/scripts/retro_metrics.py": 490,
     "plugins/xp-agents/scripts/linter_tables.py": 482,
@@ -100,6 +99,14 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_branch_release.py": 482,
     "plugins/xp-agents/tests/hooks/test_bash.py": 481,
+    # RETIRED (close review): test_system_context_schema_fields.py 480->335, by
+    # taking the extraction its own ceiling note named — `TestAcceptanceSurface*`
+    # (two classes, one fixture) moved to test_system_context_surface_fields.py.
+    # RETIRED (story-018), both now under the 450 floor so deleted, not
+    # ratcheted: test_story_close_surface_gate.py 478->386 (three disagreeing
+    # gate harnesses consolidated into tests/integration/_gate_harness.py), and
+    # test_system_analyzer_prompt.py 468->445, which was AT its ceiling with
+    # prose pins still to add (-> test_system_analyzer_surface_prose.py).
     "plugins/xp-agents/tests/hooks/test_retrospective.py": 479,
     "plugins/xp-agents/tests/hooks/test_branching_cli_detection.py": 479,
     "plugins/xp-agents/tests/integration/test_core_hooks.py": 478,

@@ -182,5 +182,65 @@ class TestAcceptanceSurfaceNames(_SMMTestCase):
         self.assertIsNone(acceptance_surface_names(self.smm_dir))
 
 
+class TestLegacyDocumentSurvivesTheSurfaceFields(_SMMTestCase):
+    """A document written before `command`/`paths` existed must LOAD and SAVE.
+
+    Load and save BOTH validate and raise, and `branching_stage`'s stage
+    auto-promotion does a load -> mutate -> save round-trip from a hook without
+    catching ValueError. So a document-wide unknown-key rule would not merely
+    warn — it would crash a hook the first time an existing project upgraded.
+    This is the regression pin for keeping that rule at the authoring CLI.
+    """
+
+    def _round_trip(self, doc: dict) -> dict:
+        save_system_context(self.smm_dir, doc)
+        loaded = load_system_context(self.smm_dir)
+        assert loaded is not None
+        save_system_context(self.smm_dir, loaded)
+        reloaded = load_system_context(self.smm_dir)
+        assert reloaded is not None
+        return reloaded
+
+    def test_multi_surface_document_without_the_new_fields(self) -> None:
+        doc = valid_doc(
+            acceptance_surfaces=[
+                {"name": "cli", "signals": ["*_cli.py tools"], "status": "covered"},
+                {"name": "automation", "signals": ["hooks"], "status": "covered"},
+            ]
+        )
+        out = self._round_trip(doc)
+        self.assertEqual(len(out["acceptance_surfaces"]), 2)
+
+    def test_document_carrying_an_unknown_surface_key_still_round_trips(self) -> None:
+        doc = valid_doc(
+            acceptance_surfaces=[
+                {
+                    "name": "cli",
+                    "signals": ["*_cli.py tools"],
+                    "status": "covered",
+                    "cmd": "pytest tests/cli",
+                }
+            ]
+        )
+        out = self._round_trip(doc)
+        self.assertEqual(out["acceptance_surfaces"][0]["cmd"], "pytest tests/cli")
+
+    def test_the_new_fields_round_trip_when_present(self) -> None:
+        doc = valid_doc(
+            acceptance_surfaces=[
+                {
+                    "name": "cli",
+                    "signals": ["*_cli.py tools"],
+                    "status": "covered",
+                    "command": "pytest tests/cli",
+                    "paths": ["src/cli/**"],
+                }
+            ]
+        )
+        out = self._round_trip(doc)
+        self.assertEqual(out["acceptance_surfaces"][0]["command"], "pytest tests/cli")
+        self.assertEqual(out["acceptance_surfaces"][0]["paths"], ["src/cli/**"])
+
+
 if __name__ == "__main__":
     unittest.main()

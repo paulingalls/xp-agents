@@ -9,6 +9,10 @@ set -euo pipefail
 # work via primary.
 # shellcheck source=../../_preload_base.sh
 source "$(dirname "$0")/../../_preload_base.sh"
+# Sourced directly rather than via _preload_base.sh: only the close skills need
+# surface-scoped gate commands, and the base is sourced by every preload.
+# shellcheck source=../../_preload_surface.sh
+source "$(dirname "$0")/../../_preload_surface.sh"
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 TARGET_BRANCH=$(python3 "${PLUGIN_ROOT}/scripts/branching.py" \
@@ -32,7 +36,8 @@ echo "PRE_COMMIT_HOOK=${HOOK_STATUS}"
 # TEST_COMMAND is customer-set free text (system_context.stack.test_command,
 # not a git-constrained ref) — route it through emit_var so a newline in it
 # cannot forge a KEY=value line in this contract.
-emit_var TEST_COMMAND "$(find_test_command)"
+TEST_COMMAND=$(find_test_command)
+emit_var TEST_COMMAND "$TEST_COMMAND"
 echo "CLOSE_START_TS=$(now_iso)"
 CLOSE_CYCLE_ID=$(generate_id)
 echo "CLOSE_CYCLE_ID=${CLOSE_CYCLE_ID}"
@@ -52,6 +57,13 @@ emit_system_context_rendered_for close-reviewer
 # was unreliable when the LLM skipped or reordered the invocation.
 write_marker CLOSE_CYCLE_ACTIVE ""
 emit_hook_guidance "$HOOK_STATUS"
+
+# Condition 3's command set, resolved here rather than judged as prose — see
+# _preload_surface.sh. Free close has no story, so the branch diff is its only
+# possible input; the same call serves story close, where the diff also catches
+# files the story drifted onto. Emitted LAST of this preload's own output so
+# the reference's first heading bounds the block.
+emit_gate_commands "$(_git merge-base "${TARGET_BRANCH}" HEAD 2>/dev/null)" "${TEAMMATE_CWD:-.}" "$TEST_COMMAND"
 
 # Append the close-pipeline reference so the LLM sees one consistent set of
 # shared instructions instead of near-duplicate inlined copies.

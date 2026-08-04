@@ -104,6 +104,34 @@ class TestSystemAnalyzerDetectsTestCommand(unittest.TestCase):
         )
 
 
+class TestSystemAnalyzerDetectsWorktreeTeardown(unittest.TestCase):
+    """`stack.worktree_teardown` mirrors `worktree_bootstrap`: only record a
+    command when the project already documents one, never invent or compose
+    it, and leave an existing value alone on update — Step 3.75 states this
+    by reference rather than restating the whole discipline.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.content = _read_system_analyzer_agent()
+
+    def test_worktree_teardown_sentence_present(self):
+        self.assertIn(
+            "worktree_teardown",
+            self.content,
+            "Step 3.75 must mention stack.worktree_teardown so the analyzer "
+            "records a project-declared teardown command",
+        )
+
+    def test_step_4_template_includes_worktree_teardown(self):
+        self.assertIn(
+            '"worktree_teardown":',
+            self.content,
+            "Step 4 JSON template must include worktree_teardown in the "
+            "stack object so a detected value propagates to system_context.json",
+        )
+
+
 class TestSystemAnalyzerNamespaceInstruction(unittest.TestCase):
     """`user_namespace` is now READ when naming branches, so the analyzer's
     instruction for it must not clobber a prefix already in use.
@@ -161,6 +189,25 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
             "architecture_overview — schema/markdown drift detected",
         )
 
+    def test_surface_command_and_paths_are_in_the_template(self):
+        """Update mode replaces the WHOLE surfaces array, so the template must
+        name the two new fields — otherwise an analyzer run between now and the
+        authoring skill silently DROPS values a project declared, and unlike a
+        misspelt key nothing reports the loss."""
+        for field in ("paths", "command"):
+            self.assertIn(
+                f'"{field}"',
+                self.content,
+                f"analyzer surface template must carry {field!r} or update mode "
+                "drops it",
+            )
+        self.assertIn(
+            "re-emit any `paths`/`command`",
+            self.content,
+            "template must tell update mode to re-emit declared values or the "
+            "replace-the-whole-array patch deletes them silently",
+        )
+
     def test_product_budget_matches_schema(self):
         expected = system_context_schema.FIELD_MAXLENGTH["product"]
         self.assertIn(
@@ -214,6 +261,14 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
             (
                 "acceptance_surfaces.signal",
                 system_context_schema.ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.paths item",
+                system_context_schema.ACCEPTANCE_SURFACE_PATH_MAXLENGTH,
+            ),
+            (
+                "acceptance_surfaces.command",
+                system_context_schema.ACCEPTANCE_SURFACE_COMMAND_MAXLENGTH,
             ),
         )
         for field, expected in cases:
@@ -379,6 +434,11 @@ class TestSystemAnalyzerPromptMaxlengthSync(unittest.TestCase):
                     window,
                     f"Update-mode refinement paragraph must cite {cmd!r}",
                 )
+
+
+# The surface-authoring pins moved to test_system_analyzer_surface_prose.py —
+# this file was at its recorded 468-line ceiling and story-018 needed to add to
+# that group. See that module's docstring for why the prose is load-bearing.
 
 
 if __name__ == "__main__":

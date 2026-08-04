@@ -96,6 +96,31 @@ def _seed_verify_event(smm: Path, status: str) -> None:
     (smm / "events.jsonl").write_text(json.dumps(event) + "\n")
 
 
+def _merge_acceptance(td: str, main: str, smm: Path, *extra: str):
+    """The acceptance gate's merge invocation — one spelling, four callers.
+
+    Four copies of the same fourteen-element list is how one of them ends up
+    naming a different gate or a different branch and passes for the wrong
+    reason.
+    """
+    return _run(
+        [
+            "merge",
+            "--cwd",
+            td,
+            "--source",
+            "feat",
+            "--target",
+            main,
+            "--verify-gate",
+            "acceptance",
+            "--smm-dir",
+            str(smm),
+            *extra,
+        ]
+    )
+
+
 class TestMergeVerifyTouchGate(unittest.TestCase):
     def test_refuses_when_declared_path_untouched_and_not_deferred(self):
         with tempfile.TemporaryDirectory() as td:
@@ -296,34 +321,25 @@ class TestMergeVerifyTouchGate(unittest.TestCase):
 
 
 class TestMergeVerifyAcceptanceGate(unittest.TestCase):
-    def _setup_red(self, td: str) -> str:
+    def _setup_unverified(self, td: str) -> str:
+        """A verify-bearing sprint with no verify event at all."""
         _bf.init_repo(td)
         main = _bf.get_current_branch(td)
-        smm = _make_smm(td)
-        _seed_story_sprint(smm)
-        _seed_verify_event(smm, "red")
+        _seed_story_sprint(_make_smm(td))
         _bf.make_commit(td, "feat", "f.txt", "x", "feature")
+        return main
+
+    def _setup_red(self, td: str) -> str:
+        """The same sprint, plus a recorded RED verify run."""
+        main = self._setup_unverified(td)
+        _seed_verify_event(Path(td) / "smm", "red")
         return main
 
     def test_refuses_on_red_without_force(self):
         with tempfile.TemporaryDirectory() as td:
             main = self._setup_red(td)
             smm = Path(td) / "smm"
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "feat",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "acceptance",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_acceptance(td, main, smm)
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertTrue(_bf.branch_exists(td, "feat"))
 
@@ -331,22 +347,7 @@ class TestMergeVerifyAcceptanceGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             main = self._setup_red(td)
             smm = Path(td) / "smm"
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "feat",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "acceptance",
-                    "--smm-dir",
-                    str(smm),
-                    "--force-verify",
-                ]
-            )
+            result = _merge_acceptance(td, main, smm, "--force-verify")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(_bf.branch_exists(td, "feat"))
 
@@ -359,48 +360,47 @@ class TestMergeVerifyAcceptanceGate(unittest.TestCase):
             smm = _make_smm(td)
             (smm / "sprint.json").write_text("{ not valid json")
             _bf.make_commit(td, "feat", "f.txt", "x", "feature")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "feat",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "acceptance",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            result = _merge_acceptance(td, main, smm)
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("corrupt", result.stderr.lower())
             self.assertNotIn("Traceback", result.stderr)
             self.assertTrue(_bf.branch_exists(td, "feat"))
 
-    def test_passes_when_no_verify_event(self):
+    def test_refuses_when_verify_bearing_work_was_never_verified(self):
+        """No event is not the same as nothing to gate.
+
+        This case used to PASS on a sprint carrying a verify-bearing
+        `acceptance_execution`, so what it pinned was "never verified merges
+        green". The rerun runs under a tool bound SMALLER than its own, so a
+        long acceptance suite is killed before it can append: this silence is
+        the shape of a lost run, not of a clean one.
+        """
         with tempfile.TemporaryDirectory() as td:
-            _bf.init_repo(td)
-            main = _bf.get_current_branch(td)
-            smm = _make_smm(td)
-            _seed_story_sprint(smm)  # no verify event seeded → status none
-            _bf.make_commit(td, "feat", "f.txt", "x", "feature")
-            result = _run(
-                [
-                    "merge",
-                    "--cwd",
-                    td,
-                    "--source",
-                    "feat",
-                    "--target",
-                    main,
-                    "--verify-gate",
-                    "acceptance",
-                    "--smm-dir",
-                    str(smm),
-                ]
-            )
+            main = self._setup_unverified(td)
+            result = _merge_acceptance(td, main, Path(td) / "smm")
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("no verify run", result.stderr)
+            self.assertTrue(_bf.branch_exists(td, "feat"))
+
+    def test_force_verify_bypasses_never_verified(self):
+        """`--force-close` stays the one documented override, or the new
+        refusal is a wall rather than a gate."""
+        with tempfile.TemporaryDirectory() as td:
+            main = self._setup_unverified(td)
+            smm = Path(td) / "smm"
+            result = _merge_acceptance(td, main, smm, "--force-verify")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_passes_when_there_is_nothing_verify_bearing(self):
+        """All-prose acceptance has no run to be missing. The MANUAL shape,
+        where the predicate broke, is pinned on `verify_report` elsewhere."""
+        with tempfile.TemporaryDirectory() as td:
+            main = self._setup_unverified(td)
+            smm = Path(td) / "smm"
+            sprint = json.loads((smm / "sprint.json").read_text())
+            del sprint["stories"][0]["acceptance_execution"]
+            (smm / "sprint.json").write_text(json.dumps(sprint))
+            result = _merge_acceptance(td, main, smm)
             self.assertEqual(result.returncode, 0, result.stderr)
 
 

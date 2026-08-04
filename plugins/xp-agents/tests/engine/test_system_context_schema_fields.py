@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Tests for system_context_schema.py: module/convention/principle/
-project_specific/acceptance-surface/source-event-id/principles-rename/
-count-cap validation.
+project_specific/source-event-id/principles-rename/count-cap validation.
 
 Split from test_system_context_schema.py (over the 500-line cap); base
 validity, constants, and field-budget/stack validation live in the
-test_system_context_schema_core.py sibling.
+test_system_context_schema_core.py sibling, and `acceptance_surfaces[]` entry
+validation in test_system_context_surface_fields.py.
 """
 
 import sys
@@ -260,29 +260,6 @@ class TestProjectSpecificValidation(unittest.TestCase):
         ]
         errors = validate_system_context(doc)
         self.assertEqual(errors, [])
-
-
-def _surface(**overrides: object) -> dict:
-    s = {"name": "cli", "signals": ["pytest -n auto"], "status": "covered"}
-    s.update(overrides)
-    return s
-
-
-class TestAcceptanceSurfaceValidation(unittest.TestCase):
-    def test_acceptance_surface_name_over_budget(self) -> None:
-        doc = valid_doc(acceptance_surfaces=[_surface(name="x" * 51)])
-        errors = validate_system_context(doc)
-        self.assertTrue(any("name" in e and "budget" in e for e in errors))
-
-    def test_acceptance_surface_harness_over_budget(self) -> None:
-        doc = valid_doc(acceptance_surfaces=[_surface(harness="x" * 51)])
-        errors = validate_system_context(doc)
-        self.assertTrue(any("harness" in e and "budget" in e for e in errors))
-
-    def test_acceptance_surface_signal_item_over_budget(self) -> None:
-        doc = valid_doc(acceptance_surfaces=[_surface(signals=["x" * 101])])
-        errors = validate_system_context(doc)
-        self.assertTrue(any("signals" in e and "budget" in e for e in errors))
 
 
 class TestSourceEventIdEdgeCases(unittest.TestCase):

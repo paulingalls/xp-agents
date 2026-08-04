@@ -14,6 +14,7 @@ the append with a retire-first hint and exits non-zero.
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -53,8 +54,20 @@ _COUNT_CAP_TABLE: dict[str, tuple[int, int, str]] = {
 
 
 def cmd_append_to_list(
-    args: argparse.Namespace, field: str, *, create_if_missing: bool = False
+    args: argparse.Namespace,
+    field: str,
+    *,
+    create_if_missing: bool = False,
+    value_check: Callable[[object], list[str]] | None = None,
 ) -> int:
+    """Append one stdin-parsed item to a capped list field.
+
+    *value_check* runs on the parsed item BEFORE it is appended, for rules that
+    belong at the authoring boundary rather than in the document schema — see
+    `system_context_entry_validators.unknown_surface_key_errors` for why an
+    unknown-key rule must not run on the read path. Default None keeps every
+    other caller's behavior identical.
+    """
     data = store.load_system_context(args.smm_dir)
     if data is None:
         print("No system context found.", file=sys.stderr)
@@ -65,6 +78,12 @@ def cmd_append_to_list(
     except json.JSONDecodeError as exc:
         print(f"Invalid JSON: {exc}", file=sys.stderr)
         return 1
+
+    if value_check is not None:
+        problems = value_check(item)
+        if problems:
+            print("; ".join(problems), file=sys.stderr)
+            return 1
 
     caps = _COUNT_CAP_TABLE.get(field)
     bucket = data.setdefault(field, []) if create_if_missing else data[field]

@@ -48,8 +48,10 @@ sits on the sprint branch; teammate commits live in the teammate's
 `worktree-<story-id>` worktree, out of the repo). Requires the story in
 `closing` state (set by `/xp-accept` Step 1.5) — the worktree lookup
 keys on it. Steps 1 and 3 route `close_common.py` at
-`--cwd ${TEAMMATE_CWD:-.}` (they read the story's diff/PR base). Step 2
-(push) instead relocates to the main checkout (`--cwd .`) — see Step 2.
+`--cwd ${TEAMMATE_CWD:-.}` (they read the story's diff/PR base), as does the
+Step 6 gate command — until Step 7 your checkout holds neither the story's
+commits nor the Step 5c fixes. Step 2 (push) instead relocates to the main
+checkout (`--cwd .`) — see Step 2.
 Step 7 (merge) ALWAYS runs at orchestrator
 cwd (`--cwd .`) — `git merge` checks out the target branch held by the
 orchestrator's worktree, so running it from the teammate cwd fails with
@@ -195,16 +197,22 @@ Step 6 `AskUserQuestion` (Step 6b still runs) when ALL hold:
    never touches; an empty or unreadable diff counts everything (fail closed).
    Name both branches — on the teammate path your HEAD is the sprint branch.
    Test `[ "$HIGH_CONCERN_COUNT" -gt 0 ]` → fall through to shared Step 6.
-3. Preload emitted a non-empty `TEST_COMMAND=...` AND running it after
-   all Step 5c fixes landed exits 0.
+3. Preload emitted a `### GATE_COMMANDS` block AND every command in it, run
+   from `${TEAMMATE_CWD:-.}` after all Step 5c fixes landed, exits 0 — name
+   which failed on a non-zero.
+   The preload chose that set (surface-scoped, else the full `TEST_COMMAND`)
+   and reports which in `GATE_SCOPE`; do not re-derive it here — a gate
+   decided in prose cannot be asserted, and this one merges without asking.
+   No block is emitted when there is nothing to run, so the gate can
+   **never run nothing** and report green.
 
-When `TEST_COMMAND` is empty, print this hint before falling through:
-
-```
-Auto-merge disabled — set stack.test_command in system_context.json to enable.
-To set it, pipe the command (JSON-quoted) into the edit-stack-field CLI:
-    printf %s '"<your-test-command>"' | python3 ${CLAUDE_PLUGIN_ROOT}/smm/system_context_cli.py --smm-dir <SMM_DIR> edit-stack-field test_command
-```
+No block: report `GATE_DISABLED_REASON`, never assume unset.
+`not-set` — no `stack.test_command`; set it via
+`system_context_cli.py edit-stack-field test_command`.
+`exit-status-masked` — set but its exit status never reaches the shell (`;`,
+pipe, `&`, `||`, `$(...)` capture), so it reports success when its runner
+failed; name the one it has and suggest `&&`.
+`unresolved` — resolver failed; do not claim it is unset.
 
 When all three conditions hold, print:
 "All reviewer findings addressed and tests green — proceeding to merge
