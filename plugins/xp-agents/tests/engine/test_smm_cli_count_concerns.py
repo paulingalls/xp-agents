@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
 
 from _close_fixtures import _quality_meta, _security_meta
-from _count_concerns_fixtures import _CLI, _concern
+from _count_concerns_fixtures import _CLI, _close_started, _concern
 from conftest import _SMMTestCase, make_event, run_cli, write_events
 from event_schema import EVENT_TYPE_STATUS
 
@@ -179,9 +179,14 @@ class TestCountConcerns(_SMMTestCase):
         # --since-ts remains a real bound on untagged concerns — an old
         # untagged concern from before this close cycle started must not
         # leak into a scoped-by-time count.
+        #
+        # The bound is now the WINDOW's, not the flag's: a `story` close is the
+        # one mode that keeps it, so the cycle has to be seedable as one (see
+        # the sibling below for what an unreadable mode does instead).
         write_events(
             self.events_file,
             [
+                _close_started(_CYCLE_SOLO, "story", "2026-05-01T00:00:00+00:00"),
                 _concern(
                     "high", metadata={}, ts="2026-04-01T00:00:00+00:00"
                 ),  # too old
@@ -192,19 +197,29 @@ class TestCountConcerns(_SMMTestCase):
         )
         result = run_cli(
             _CLI,
-            ["count-concerns", "--since-ts", "2026-05-01T00:00:00+00:00"],
+            [
+                "count-concerns",
+                "--cycle-id",
+                _CYCLE_SOLO,
+                "--since-ts",
+                "2026-05-01T00:00:00+00:00",
+            ],
             self.smm_dir,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "1")
 
-    def test_since_ts_excludes_earlier_events(self) -> None:
+    def test_since_ts_is_dropped_when_no_close_mode_can_be_read(self) -> None:
+        # The other half of the pin above, and the direction this suite could
+        # not express before: --since-ts alone names a window whose OWNER is
+        # unknown, and a floor nobody can justify is how an enclosing close came
+        # to miss the very findings its gate exists to catch. So it is ignored,
+        # both concerns count, and the CLI says why on stderr.
         write_events(
             self.events_file,
             [
-                _concern("high", ts="2026-04-01T00:00:00+00:00"),
-                _concern("high", ts="2026-05-01T12:00:00+00:00"),
-                _concern("high", ts="2026-05-02T00:00:00+00:00"),
+                _concern("high", metadata={}, ts="2026-04-01T00:00:00+00:00"),
+                _concern("high", metadata={}, ts="2026-05-02T00:00:00+00:00"),
             ],
         )
         result = run_cli(
@@ -214,12 +229,47 @@ class TestCountConcerns(_SMMTestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "2")
+        self.assertIn("NO time floor", result.stderr)
 
-    def test_combined_severity_cycle_id_and_since_ts(self) -> None:
-        # The canonical close-skill invocation.
+    def test_since_ts_excludes_earlier_events(self) -> None:
+        # Same rewrite as above, for the same reason: the lexicographic ts
+        # comparison is what this pins, so the window has to be live for the
+        # comparison to be reached at all.
         write_events(
             self.events_file,
             [
+                _close_started(_CYCLE_SOLO, "story", "2026-05-01T00:00:00+00:00"),
+                _concern("high", ts="2026-04-01T00:00:00+00:00"),
+                _concern("high", ts="2026-05-01T12:00:00+00:00"),
+                _concern("high", ts="2026-05-02T00:00:00+00:00"),
+            ],
+        )
+        result = run_cli(
+            _CLI,
+            [
+                "count-concerns",
+                "--cycle-id",
+                _CYCLE_SOLO,
+                "--since-ts",
+                "2026-05-01T00:00:00+00:00",
+            ],
+            self.smm_dir,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "2")
+
+    def test_combined_severity_cycle_id_and_since_ts(self) -> None:
+        # The canonical close-skill invocation — which now includes the
+        # close_started event the preload emits alongside the cycle id, without
+        # which the gated cycle has no readable mode. Seeded as `story`: that is
+        # the mode this fixture's narrow window has always described, and every
+        # expectation below is unchanged under it, the deliberate one included
+        # (a concern tagged with the GATED cycle but older than --since-ts is
+        # still excluded).
+        write_events(
+            self.events_file,
+            [
+                _close_started("cycle1aaaaaa", "story", "2026-05-01T00:00:00+00:00"),
                 _concern(
                     "medium",
                     metadata={"close_cycle_id": "cycle1aaaaaa"},
