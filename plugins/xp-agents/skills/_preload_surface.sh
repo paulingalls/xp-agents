@@ -61,11 +61,29 @@ runnable_lines() {
 # emit_gate_commands CHANGED_PATHS FULL_COMMAND -> GATE_SCOPE + the block.
 # CHANGED_PATHS is newline-separated (`get_changed_files_range "$BASE"`).
 #
-#   surface commands found -> GATE_SCOPE=surface, block lists them
-#   else FULL_COMMAND set   -> GATE_SCOPE=full,    block holds it alone
-#   else                    -> GATE_SCOPE=none,    NO block at all
+#   FULL_COMMAND unrunnable  -> GATE_SCOPE=none,    NO block at all
+#   else surface cmds found  -> GATE_SCOPE=surface, block lists them
+#   else                     -> GATE_SCOPE=full,    block holds it alone
 #
-# "found"/"set" mean RUNNABLE, not merely non-empty — see runnable_lines.
+# "runnable"/"found" mean RUNNABLE, not merely non-empty — see runnable_lines.
+#
+# THE FULL COMMAND IS TESTED FIRST, AND THAT ORDER IS THE CONTRACT, not a
+# style choice. PROCESS_GUIDE documents an empty `stack.test_command` as the
+# switch that DISABLES the close auto-merge, and both close SKILL.md files
+# still print "set stack.test_command ... to enable" when no block is emitted.
+# Resolving surfaces first would re-arm unattended merging for a project that
+# turned it off on purpose, and the hint it never prints would be a lie.
+# It also makes `surface_selection.should_collapse`'s stated assumption — that
+# the caller's fallback command covers every surface — checkable rather than
+# merely hoped for: there is no narrowing without a fallback to narrow FROM.
+#
+# `flat` on FULL_COMMAND, not `runnable_lines` alone: FULL_COMMAND is ONE
+# command, while the block's contract is one command PER LINE and condition 3
+# runs every one of them. A newline in `stack.test_command` would otherwise be
+# split into a SECOND EXECUTED command at an unattended merge — an execution
+# escalation, not a formatting slip. (The surface leg's per-command flattening
+# lives in `surface_selection._declared_command`, so the CLI's one-per-line
+# output stays true at its source.)
 #
 # Each command is line-prefixed with "- ". strip_framing kills the
 # newline/CR/tab forgery vectors but does nothing about a value whose SHAPE is
@@ -73,16 +91,18 @@ runnable_lines() {
 # command, not only an attack — would forge a preload key. The prefix makes
 # that structurally impossible; test_preload_var_hygiene.py pins it.
 emit_gate_commands() {
-    local changed="${1-}" full="${2-}" resolved scope line
-    resolved=$(runnable_lines "$(printf '%s\n' "$changed" | find_surface_commands)")
-    if [ -n "$resolved" ]; then
-        scope="surface"
+    local changed="${1-}" full="${2-}" fallback resolved scope line
+    fallback=$(runnable_lines "$(flat "$full")")
+    if [ -z "$fallback" ]; then
+        resolved=""
+        scope="none"
     else
-        resolved=$(runnable_lines "$full")
+        resolved=$(runnable_lines "$(printf '%s\n' "$changed" | find_surface_commands)")
         if [ -n "$resolved" ]; then
-            scope="full"
+            scope="surface"
         else
-            scope="none"
+            resolved="$fallback"
+            scope="full"
         fi
     fi
     emit_var GATE_SCOPE "$scope"

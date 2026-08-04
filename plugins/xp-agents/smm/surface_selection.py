@@ -121,16 +121,27 @@ def commands_for_paths(surfaces: Iterable[dict], paths: Iterable[str]) -> list[s
 
 
 def _declared_command(surface: dict) -> str | None:
-    """The surface's command, or None when it declares none.
+    """The surface's command, FLATTENED to one line, or None when it declares none.
 
     ONE predicate for "declares a command", shared by the selection and the
     collapse rule — two spellings would let a surface count as commanded for
     one and uncommanded for the other. Whitespace-only counts as none: the
     schema only type- and length-checks the field, so `"  "` reaches here, and
     a blank command is a bullet the gate cannot run.
+
+    The flattening is a SAFETY rule, not tidiness. The CLI's contract is one
+    command per line, and its consumer — the close preload's gate block —
+    splits on newlines and runs every line it finds, unattended, before an
+    auto-merge. A declared `command` of `"pytest -q\\nrm -rf build"` would
+    become TWO executed commands. Nothing in the schema rejects a newline
+    (`command` is only type- and length-checked), so the one predicate that
+    defines "the command" normalizes it, and de-duplication, the collapse rule
+    and the printed output then all agree on the same normal form.
     """
     command = surface.get("command")
-    return command if isinstance(command, str) and command.strip() else None
+    if not isinstance(command, str) or not command.strip():
+        return None
+    return " ".join(command.split())
 
 
 def _distinct_commands(surfaces: Iterable[dict]) -> set[str]:
