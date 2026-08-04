@@ -25,13 +25,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/_preload_emit.sh"
 
 # find_surface_commands STORY_ID [CWD] -> newline-joined surface commands, or
 # empty. Mirrors find_test_command: delegate to the CLI, swallow failure to
-# empty, let the caller decide. story-015's CLI already collapses no-match,
-# PARTIAL coverage and cannot-answer into that one empty signal, so empty here
-# means exactly "no narrowing available" and never "some of it is covered".
+# empty, let the caller decide. The CLI collapses no-match, PARTIAL coverage
+# and cannot-answer into that one empty signal, so empty here means exactly
+# "no narrowing available" and never "some of it is covered".
+#
+# Input is the CHANGED-PATH set on stdin, not a story id. Story close used to
+# pass its id and select on the DECLARED file_domain — but Step 1b tolerates
+# drift and continues, so a drifted file never entered the coverage input and
+# its tests ran nowhere at an auto-merge. Free close has no story at all. The
+# changed set is the one input both modes share and the only one that is true.
 find_surface_commands() {
-    [ -n "${1-}" ] || return 0
     python3 "${PLUGIN_ROOT}/smm/system_context_cli.py" \
-        --smm-dir "${SMM_DIR}" surface-commands "$1" --cwd "${2:-.}" 2>/dev/null \
+        --smm-dir "${SMM_DIR}" surface-commands --paths-from - 2>/dev/null \
         || echo ""
 }
 
@@ -53,7 +58,8 @@ runnable_lines() {
     printf '%s' "$out"
 }
 
-# emit_gate_commands STORY_ID FULL_COMMAND [CWD] -> GATE_SCOPE + the block.
+# emit_gate_commands CHANGED_PATHS FULL_COMMAND -> GATE_SCOPE + the block.
+# CHANGED_PATHS is newline-separated (`get_changed_files_range "$BASE"`).
 #
 #   surface commands found -> GATE_SCOPE=surface, block lists them
 #   else FULL_COMMAND set   -> GATE_SCOPE=full,    block holds it alone
@@ -67,8 +73,8 @@ runnable_lines() {
 # command, not only an attack — would forge a preload key. The prefix makes
 # that structurally impossible; test_preload_var_hygiene.py pins it.
 emit_gate_commands() {
-    local story="${1-}" full="${2-}" cwd="${3:-.}" resolved scope line
-    resolved=$(runnable_lines "$(find_surface_commands "$story" "$cwd")")
+    local changed="${1-}" full="${2-}" resolved scope line
+    resolved=$(runnable_lines "$(printf '%s\n' "$changed" | find_surface_commands)")
     if [ -n "$resolved" ]; then
         scope="surface"
     else

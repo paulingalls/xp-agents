@@ -202,17 +202,19 @@ emit_system_context_rendered_for close-reviewer
 emit_hook_guidance "$HOOK_STATUS"
 
 # Condition 3's command set, RESOLVED here rather than left as prose branches
-# for the skill to judge — see _preload_surface.sh. Same `${TEAMMATE_CWD:-.}`
-# as the verify_paths call above: selection expands the story's file_domain
-# globs over DISK, so a hardcoded `.` would compute a teammate story's
-# selection against the main checkout, where its new files do not exist —
-# silently empty, silently never narrowing.
+# for the skill to judge — see _preload_surface.sh.
+#
+# Selects on the CLOSE DIFF, not the declared file_domain. Step 1b tolerates
+# drift and continues, so a file the story drifted onto is absent from the
+# declaration — and selecting on the declaration would leave that file's tests
+# running nowhere at an auto-merge. `get_changed_files_range` uses _git, which
+# is TEAMMATE_CWD-aware, so the range is computed in the right checkout.
 #
 # Emitted LAST of the preload's own output, so the `### GATE_COMMANDS` block
 # is bounded by the shared reference's first heading rather than trailing off
 # into unrelated KEY=value lines. The shared file's own `- ` bullets sit under
 # their own headings, past that boundary.
-emit_gate_commands "$STORY_ID" "$TEST_COMMAND" "${TEAMMATE_CWD:-.}"
+emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")" "$TEST_COMMAND"
 
 # Append shared close-pipeline reference (Steps 5, 5b, 6) so the LLM
 # sees one consistent set of shared instructions across all four close

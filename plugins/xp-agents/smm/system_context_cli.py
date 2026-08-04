@@ -24,7 +24,7 @@ Usage:
     system_context_cli.py --smm-dir DIR edit-branching   < branching.json
     system_context_cli.py --smm-dir DIR edit-acceptance-surfaces < surfaces.json
     system_context_cli.py --smm-dir DIR add-acceptance-surface   < surface.json
-    system_context_cli.py --smm-dir DIR surface-commands STORY_ID [--cwd .]
+    system_context_cli.py --smm-dir DIR surface-commands --paths-from - < paths
 """
 
 import argparse
@@ -362,11 +362,12 @@ def main() -> None:
     )
     surface_p = sub.add_parser(
         "surface-commands",
-        help="Print surface commands covering a story's file domain, one per line",
+        help="Print surface commands covering changed paths read from stdin",
     )
-    surface_p.add_argument("story_id", help="Story id (e.g. story-015)")
     surface_p.add_argument(
-        "--cwd", default=".", help="Root for expanding glob file_domain entries"
+        "--paths-from",
+        default="-",
+        help="Read newline-separated changed paths from this source ('-' = stdin)",
     )
 
     for name, help_text in (

@@ -36,7 +36,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-import sprint_store
 import surface_selection
 import system_context_store as store
 
@@ -44,28 +43,23 @@ __all__ = ["cmd_surface_commands"]
 
 
 def cmd_surface_commands(args: argparse.Namespace) -> int:
-    """Print the surface commands covering `args.story_id`'s file domain."""
+    """Print the surface commands covering a CHANGED-path set read from stdin.
+
+    Paths-only. The story-id door this replaced could not serve free close
+    (which has no story) and, worse, selected on the DECLARED file_domain —
+    which the close gate lets drift, so a drifted file never entered the
+    coverage input and its tests ran nowhere at an auto-merge. The changed
+    file set is the one input both close modes share and the only one that is
+    true, so it is the only door.
+    """
     data = store.load_system_context(args.smm_dir)
     if data is None:
         print("No system context found.", file=sys.stderr)
         return 1
 
-    sprint = sprint_store.load_sprint(args.smm_dir)
-    if sprint is None:
-        print("No sprint found.", file=sys.stderr)
-        return 1
+    raw = sys.stdin.read() if args.paths_from == "-" else ""
+    paths = [line.strip() for line in raw.splitlines() if line.strip()]
 
-    try:
-        commands = surface_selection.commands_for_story(
-            data, sprint, args.story_id, cwd=args.cwd
-        )
-    except ValueError as exc:
-        # The story id is the one thing the caller controls, so a typo must be
-        # loud. Selection itself cannot raise: a malformed glob degrades to a
-        # literal inside triage.compile_glob rather than escaping.
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    for command in commands:
+    for command in surface_selection.commands_for_changed_paths(data, paths):
         print(command)
     return 0

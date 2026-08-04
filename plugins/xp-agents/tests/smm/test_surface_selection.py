@@ -15,17 +15,14 @@ less. A "`**` matches a nested path" assertion — the obvious shape, and
 the one this story's AC first named — proves nothing at all.
 """
 
-import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "smm"))
 
-import sprint_store
 import surface_selection
 import system_context_surface_cli
 from _system_context_fixtures import valid_doc, write_doc
@@ -192,231 +189,189 @@ class TestGlobSemanticsDiscriminateFromFnmatch(unittest.TestCase):
         )
 
 
-class TestCommandsForStory(unittest.TestCase):
-    def _tree(self) -> Path:
-        root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, root, True)
-        (root / "plugins" / "xp-agents" / "smm").mkdir(parents=True)
-        (root / "plugins" / "xp-agents" / "smm" / "surface_selection.py").write_text("")
-        return root
+class TestCommandsForChangedPaths(unittest.TestCase):
+    """The ONE door now, and the one place the coverage veto lives.
+
+    story-017 replaced the story-id door with a paths door, because free close
+    has no story and story close must see DRIFTED files (Step 1b tolerates
+    drift, so the declared domain is not what changed). Plan review caught that
+    the paths door as first drafted would have called `commands_for_paths`,
+    which has NO veto — narrowing while an unclaimed file is tested by nothing,
+    the exact fail-open shape story-015's close review fixed.
+
+    Inputs here are LITERAL (`git diff --name-only`), never re-expanded: a
+    deleted file must stay in the residue, or the veto weakens fail-open.
+    """
 
     @staticmethod
-    def _sprint(*entries: str) -> dict:
-        return {"stories": [{"id": "story-015", "file_domain": list(entries)}]}
-
-    @staticmethod
-    def _context(**overrides: object) -> dict:
+    def _context(*extra: dict) -> dict:
         return {
             "acceptance_surfaces": [
                 _surface(
                     "engine",
                     paths=["plugins/xp-agents/smm/**"],
                     command="pytest tests/smm",
-                    **overrides,
-                )
+                ),
+                *extra,
             ]
         }
 
-    def test_a_glob_file_domain_is_expanded_before_matching(self) -> None:
-        """THE discriminator for `extract_file_domain_paths` over
-        `entry_to_paths`. Unexpanded, the raw string
-        `plugins/**/surface_selection.py` cannot fullmatch the surface regex
-        `plugins/xp\\-agents/smm(?:/.*)?` — the literal `xp-agents/smm`
-        segments simply are not in it. Expanded against a real tree it
-        becomes `plugins/xp-agents/smm/surface_selection.py`, which does.
-        """
+    def test_a_fully_claimed_path_set_selects_its_command(self) -> None:
         self.assertEqual(
-            surface_selection.commands_for_story(
-                self._context(),
-                self._sprint("plugins/**/surface_selection.py — new: the matcher"),
-                "story-015",
-                cwd=str(self._tree()),
+            surface_selection.commands_for_changed_paths(
+                self._context(), ["plugins/xp-agents/smm/surface_selection.py"]
             ),
             ["pytest tests/smm"],
         )
 
-    def test_a_literal_file_domain_entry_keeps_its_description_stripped(self) -> None:
+    def test_a_partly_claimed_path_set_selects_nothing(self) -> None:
+        """Mutation: have the paths door call commands_for_paths (no veto)
+        -> red. This is the row my first plan draft was missing entirely."""
         self.assertEqual(
-            surface_selection.commands_for_story(
+            surface_selection.commands_for_changed_paths(
                 self._context(),
-                self._sprint(
-                    "plugins/xp-agents/smm/surface_selection.py — new: the matcher"
-                ),
-                "story-015",
-                cwd=str(self._tree()),
-            ),
-            ["pytest tests/smm"],
-        )
-
-    def test_a_story_outside_every_surface_selects_nothing(self) -> None:
-        self.assertEqual(
-            surface_selection.commands_for_story(
-                self._context(),
-                self._sprint("docs/ARCHITECTURE.md — prose only"),
-                "story-015",
-                cwd=str(self._tree()),
+                ["plugins/xp-agents/smm/surface_selection.py", "docs/ARCH.md"],
             ),
             [],
         )
 
-    def test_a_partly_claimed_story_selects_nothing(self) -> None:
-        """The fail-CLOSED direction: the story ALSO touches a file no surface
-        claims, so narrowing would leave it untested — strictly less than the
-        full command it replaces, on the gate that auto-merges."""
+    def test_a_deleted_path_still_counts_against_coverage(self) -> None:
+        """Diff paths are literal and must NOT be re-expanded over disk: a
+        deleted file matches no glob on the filesystem, so expansion would
+        drop it from the residue and weaken the veto fail-open."""
         self.assertEqual(
-            surface_selection.commands_for_story(
+            surface_selection.commands_for_changed_paths(
                 self._context(),
-                self._sprint(
-                    "plugins/xp-agents/smm/surface_selection.py — claimed",
-                    "docs/ARCHITECTURE.md — claimed by nothing",
-                ),
-                "story-015",
-                cwd=str(self._tree()),
+                ["plugins/xp-agents/smm/surface_selection.py", "docs/DELETED.md"],
             ),
             [],
         )
 
     def test_a_claiming_surface_without_a_command_still_earns_coverage(self) -> None:
-        """The escape hatch that keeps the rule usable: a surface over the
-        prose/config paths with NO command claims them — coverage is total —
-        while contributing no command of its own."""
-        context = self._context()
-        context["acceptance_surfaces"].append(_surface("docs", paths=["docs/**"]))
+        """The escape hatch that keeps the rule usable."""
         self.assertEqual(
-            surface_selection.commands_for_story(
-                context,
-                self._sprint(
-                    "plugins/xp-agents/smm/surface_selection.py — claimed",
-                    "docs/ARCHITECTURE.md — claimed, uncommanded",
-                ),
-                "story-015",
-                cwd=str(self._tree()),
+            surface_selection.commands_for_changed_paths(
+                self._context(_surface("docs", paths=["docs/**"])),
+                ["plugins/xp-agents/smm/surface_selection.py", "docs/ARCH.md"],
             ),
             ["pytest tests/smm"],
         )
 
-    def test_a_context_declaring_no_surfaces_selects_nothing(self) -> None:
+    def test_no_surfaces_declared_selects_nothing(self) -> None:
+        self.assertEqual(surface_selection.commands_for_changed_paths({}, ["a.py"]), [])
+
+    def test_an_empty_path_set_selects_nothing(self) -> None:
+        """An empty diff must not read as 'everything is covered'."""
         self.assertEqual(
-            surface_selection.commands_for_story(
-                {},
-                self._sprint("plugins/xp-agents/smm/surface_selection.py"),
-                "story-015",
-                cwd=str(self._tree()),
-            ),
-            [],
+            surface_selection.commands_for_changed_paths(self._context(), []), []
         )
 
-    def test_an_unknown_story_raises_rather_than_returning_empty(self) -> None:
-        """Empty would be indistinguishable from a real no-match, which reads
-        as 'no narrowing available' instead of 'you named the wrong story'."""
-        with self.assertRaises(ValueError) as ctx:
-            surface_selection.commands_for_story(
-                self._context(), self._sprint("a.py"), "story-999", cwd="."
-            )
-        self.assertIn("story-999", str(ctx.exception))
+
+class TestShouldCollapse(unittest.TestCase):
+    """Collapse = every DISTINCT declared command is selected, and there are
+    at least two of them.
+
+    The >=2 floor is arithmetic, not an invented threshold: the AC's whole
+    motivation is "N runs are slower than the one full command". With N=1 a
+    narrowed run is never slower than the full one, so collapsing there would
+    make narrowing never fire in the commonest case — the feature inert.
+    """
+
+    def test_all_commanded_surfaces_selected_collapses(self) -> None:
+        a = _surface("a", paths=["a/**"], command="pytest a")
+        b = _surface("b", paths=["b/**"], command="pytest b")
+        self.assertTrue(surface_selection.should_collapse([a, b], [a, b]))
+
+    def test_a_subset_does_not_collapse(self) -> None:
+        a = _surface("a", paths=["a/**"], command="pytest a")
+        b = _surface("b", paths=["b/**"], command="pytest b")
+        self.assertFalse(surface_selection.should_collapse([a, b], [a]))
+
+    def test_a_single_commanded_surface_never_collapses(self) -> None:
+        """Mutation: drop the >=2 floor -> red, and narrowing dies."""
+        a = _surface("a", paths=["a/**"], command="pytest a")
+        self.assertFalse(surface_selection.should_collapse([a], [a]))
+
+    def test_surfaces_sharing_one_command_count_once(self) -> None:
+        a = _surface("a", paths=["a/**"], command="pytest all")
+        b = _surface("b", paths=["b/**"], command="pytest all")
+        self.assertFalse(surface_selection.should_collapse([a, b], [a, b]))
+
+    def test_command_less_surfaces_are_ignored(self) -> None:
+        a = _surface("a", paths=["a/**"], command="pytest a")
+        b = _surface("b", paths=["b/**"], command="pytest b")
+        docs = _surface("docs", paths=["docs/**"])
+        self.assertTrue(surface_selection.should_collapse([a, b, docs], [a, b]))
 
 
 class TestSurfaceCommandsCli(_SMMTestCase):
-    """The read seam. `--smm-dir` is a GLOBAL argument declared before the
-    subparsers, so it precedes the subcommand — `run_cli` builds it that way.
+    """The read seam, now paths-only. `--smm-dir` is a GLOBAL argument declared
+    before the subparsers, so it precedes the subcommand — `run_cli` builds it
+    that way. Changed paths arrive newline-separated on stdin.
     """
 
-    #: Seeded into every case so the no-match assertion can DISCRIMINATE.
-    #: `valid_doc()`'s stack carries no test_command, and without one a CLI
-    #: mutated to substitute the full suite on no-match prints nothing anyway
-    #: — the assertion passes and proves nothing. Measured: the mutation went
-    #: 24-passed until this line existed.
+    #: Seeded into every case so the no-match assertions DISCRIMINATE.
+    #: valid_doc()'s stack carries no test_command, and without one a CLI
+    #: mutated to substitute the full suite prints nothing anyway — the
+    #: assertion would pass and prove nothing. Measured on story-015: the
+    #: mutation went 24-passed until this line existed.
     FULL_SUITE = "pytest -n auto THE-WHOLE-SUITE"
 
-    def _seed(self, surfaces: list[dict], domain: list[str]) -> None:
+    def _seed(self, surfaces: list[dict]) -> None:
         doc = valid_doc()
         doc["stack"] = {"languages": ["Python"], "test_command": self.FULL_SUITE}
         doc["acceptance_surfaces"] = surfaces
         write_doc(self.smm_dir, doc)
-        sprint_store.save_sprint(
-            self.smm_dir,
-            {
-                "sprint_id": "sprint-test",
-                "goal": "seam",
-                "started": "2026-08-03",
-                "milestone": "test",
-                "stories": [
-                    {
-                        "id": "story-001",
-                        "title": "Test",
-                        "status": "ready",
-                        "dependencies": [],
-                        "milestone_ref": "test",
-                        "design_sources": "test",
-                        "context": "test",
-                        "file_domain": domain,
-                        "interface_contracts": [],
-                        "acceptance_criteria": ["test"],
-                    }
-                ],
-            },
-        )
 
-    def _run(self, story: str = "story-001") -> subprocess.CompletedProcess:
-        return run_cli(_CLI, ["surface-commands", story, "--cwd", "."], self.smm_dir)
+    def _run(self, *paths: str) -> subprocess.CompletedProcess:
+        return run_cli(
+            _CLI,
+            ["surface-commands", "--paths-from", "-"],
+            self.smm_dir,
+            stdin_data="\n".join(paths) + "\n",
+        )
 
     def test_prints_one_command_per_line(self) -> None:
         self._seed(
             [
                 _surface("cli", paths=["src/cli/**"], command="pytest tests/cli"),
                 _surface("api", paths=["src/api/**"], command="pytest tests/api"),
-            ],
-            ["src/cli/main.py", "src/api/routes.py"],
+            ]
         )
-        result = self._run()
+        result = self._run("src/cli/main.py", "src/api/routes.py")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.splitlines(), ["pytest tests/cli", "pytest tests/api"]
         )
 
-    def test_no_match_prints_nothing_and_exits_zero(self) -> None:
-        """The CLI must NOT substitute stack.test_command here. A CLI that
-        returned the full suite on no-match makes narrowing indistinguishable
-        from failure, and the caller can no longer own the fallback."""
-        self._seed(
-            [_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")],
-            ["docs/ARCHITECTURE.md"],
-        )
-        result = self._run()
+    def test_partial_coverage_prints_nothing_and_exits_zero(self) -> None:
+        """The veto, through the door callers actually use. Mutation: have the
+        CLI call commands_for_paths (no veto) -> red."""
+        self._seed([_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")])
+        result = self._run("src/cli/main.py", "src/db/schema.py")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertNotIn(self.FULL_SUITE, result.stdout)
-
-    def test_partly_claimed_story_prints_nothing_and_exits_zero(self) -> None:
-        """One unclaimed file must send the caller back to the full command."""
-        self._seed(
-            [_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")],
-            ["src/cli/main.py", "src/db/schema.py"],
-        )
-        result = self._run()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
 
     def test_surfaces_declaring_no_paths_yield_nothing(self) -> None:
         """Every project's state today — the fields postdate their documents."""
-        self._seed([_surface("cli"), _surface("automation")], ["src/cli/main.py"])
-        result = self._run()
+        self._seed([_surface("cli"), _surface("automation")])
+        result = self._run("src/cli/main.py")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
         self.assertNotIn(self.FULL_SUITE, result.stdout)
 
-    def test_unknown_story_exits_one_naming_the_story(self) -> None:
-        self._seed(
-            [_surface("cli", paths=["src/cli/**"], command="pytest tests/cli")],
-            ["src/cli/main.py"],
-        )
-        result = self._run("story-999")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("story-999", result.stderr)
+    def test_the_cli_never_substitutes_the_full_command(self) -> None:
+        """Empty must mean 'no narrowing available', so the CALLER owns the
+        fallback. A CLI that printed the full suite here would make narrowing
+        indistinguishable from no selection."""
+        self._seed([_surface("cli", paths=["src/cli/**"], command="pytest x")])
+        result = self._run("docs/README.md")
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
     def test_missing_system_context_exits_one(self) -> None:
-        result = self._run()
+        result = self._run("src/cli/main.py")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, "")
 
