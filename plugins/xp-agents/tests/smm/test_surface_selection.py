@@ -99,6 +99,14 @@ class TestCommandsForPaths(unittest.TestCase):
             ["pytest tests/api"],
         )
 
+    def test_a_blank_command_is_not_a_command(self) -> None:
+        """One predicate with the collapse rule, which already stripped — a
+        surface must not be commanded for one and uncommanded for the other."""
+        surfaces = [_surface("cli", paths=["src/cli/**"], command="  ")]
+        self.assertEqual(
+            surface_selection.commands_for_paths(surfaces, {"src/cli/main.py"}), []
+        )
+
     def test_a_gap_surface_declaring_a_command_is_still_selected(self) -> None:
         """`status` is deliberately not consulted: nothing in the schema
         couples it to `command`, and dropping a command the author explicitly

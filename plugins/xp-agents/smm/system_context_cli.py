@@ -364,10 +364,10 @@ def main() -> None:
         "surface-commands",
         help="Print surface commands covering changed paths read from stdin",
     )
+    # `choices`: any other source would read as a silently empty selection,
+    # indistinguishable from "no narrowing available".
     surface_p.add_argument(
-        "--paths-from",
-        default="-",
-        help="Read newline-separated changed paths from this source ('-' = stdin)",
+        "--paths-from", default="-", choices=["-"], help="Changed paths, on stdin"
     )
 
     for name, help_text in (

@@ -2,10 +2,8 @@
 """Which acceptance surfaces a set of paths touches, and the commands covering them.
 
 Pure: every function takes plain dicts and loads nothing. The CLI seam
-(`system_context_surface_cli.py`) owns reading system_context.json and
-sprint.json, because a story's paths live in one document and the surfaces
-in the other, and a module that loaded either could not be reused by a
-caller that already has them.
+(`system_context_surface_cli.py`) owns reading system_context.json, because a
+module that loaded it could not be reused by a caller that already has it.
 
 Two reuse rules, both load-bearing:
 
@@ -104,25 +102,42 @@ def surfaces_for_paths(surfaces: Iterable[dict], paths: Iterable[str]) -> list[d
 def commands_for_paths(surfaces: Iterable[dict], paths: Iterable[str]) -> list[str]:
     """De-duplicated commands of the surfaces claiming any of `paths`.
 
+    NOT a selection door — it carries NO coverage veto, so a caller that hands
+    its result to a gate narrows to less testing than the full command it
+    replaces the moment one path is unclaimed. Call
+    `commands_for_changed_paths`; this is its final step, exposed only because
+    the veto and the collapse rule are tested against it.
+
     Declaration order is preserved and duplicates collapse, so two surfaces
     sharing one command run it once. A matched surface that declares no
     command contributes nothing rather than blocking the others.
     """
     commands: list[str] = []
     for surface in surfaces_for_paths(surfaces, paths):
-        command = surface.get("command")
-        if isinstance(command, str) and command and command not in commands:
+        command = _declared_command(surface)
+        if command and command not in commands:
             commands.append(command)
     return commands
 
 
+def _declared_command(surface: dict) -> str | None:
+    """The surface's command, or None when it declares none.
+
+    ONE predicate for "declares a command", shared by the selection and the
+    collapse rule — two spellings would let a surface count as commanded for
+    one and uncommanded for the other. Whitespace-only counts as none: the
+    schema only type- and length-checks the field, so `"  "` reaches here, and
+    a blank command is a bullet the gate cannot run.
+    """
+    command = surface.get("command")
+    return command if isinstance(command, str) and command.strip() else None
+
+
 def _distinct_commands(surfaces: Iterable[dict]) -> set[str]:
     return {
-        s["command"]
+        command
         for s in surfaces
-        if isinstance(s, dict)
-        and isinstance(s.get("command"), str)
-        and s["command"].strip()
+        if isinstance(s, dict) and (command := _declared_command(s)) is not None
     }
 
 
@@ -138,6 +153,14 @@ def should_collapse(surfaces: Iterable[dict], matched: Iterable[dict]) -> bool:
 
     Surfaces sharing one command count once, so two surfaces both declaring
     `pytest all` are one run, not two.
+
+    ASSUMES the caller's fallback command covers every surface. Collapse
+    swaps N runs for that one, so a project whose surfaces name DIFFERENT
+    harnesses (browser=playwright, cli=pytest) while `stack.test_command`
+    names only one tests LESS after collapsing than before. The same
+    assumption already underwrites the partial-coverage veto's fallback —
+    both hand the caller back to that one command — so it is stated here
+    rather than re-decided: nothing in the schema can check it.
     """
     declared = _distinct_commands(surfaces)
     return len(declared) >= 2 and _distinct_commands(matched) == declared

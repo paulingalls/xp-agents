@@ -447,6 +447,14 @@ class TestStoryClosePreloadEmitsTheGateBlock(unittest.TestCase):
         stray = [ln for ln in body if ln.strip() and not ln.startswith("- ")]
         self.assertEqual(stray, [], f"non-command lines inside the block: {stray}")
 
+    def test_the_preload_passes_the_close_diff(self) -> None:
+        """Source pin: only the call site names the input. Replaced with "",
+        the whole suite still passed (measured) while narrowing was inert."""
+        self.assertIn(
+            'emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")"',
+            _STORY_CLOSE_PRELOAD.read_text(),
+        )
+
     def _real_preload_stdout(self) -> str:
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))

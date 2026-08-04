@@ -166,6 +166,17 @@ class TestFreeClosePreloadEmitsTheBlock(_FreeCloseResolution):
         self.assertEqual(self._commands(out), [_FULL])
         self.assertIn(f"TEST_COMMAND={_FULL}", out)
 
+    def test_the_preload_passes_the_branch_diff(self) -> None:
+        """Source pin. The behavioral tests above drive `emit_gate_commands`
+        directly, and the end-to-end one runs outside a git repo, so BOTH stay
+        green against a call site that stopped passing the changed-path set —
+        measured: the whole suite passes with the argument emptied, narrowing
+        permanently and silently inert. Only the call site names the input."""
+        self.assertIn(
+            'emit_gate_commands "$(get_changed_files_range "${TARGET_BRANCH}")"',
+            _FREE_CLOSE_PRELOAD.read_text(),
+        )
+
     def test_nothing_unrelated_sits_inside_the_block(self) -> None:
         """The block is emitted LAST of the preload's own output, so the
         shared reference's first heading bounds it — otherwise the gate would
