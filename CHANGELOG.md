@@ -2,7 +2,56 @@
 
 History prior to v5.0 lives in [`changelog_pre_v5.md`](changelog_pre_v5.md).
 
-## v5.4.0 — Story close stops paying for the whole suite
+## v5.4.0 — Teammate worktrees stop what they started, and story close stops paying for the whole suite
+
+Two threads. The first closes a leak your machine has been carrying; the second
+cuts what closing a story costs.
+
+### Teammate worktrees can stop what they started
+
+`git worktree add` hands a teammate a bare checkout, so `stack.worktree_bootstrap`
+exists to bring one up — install dependencies, generate types, start whatever the
+project needs. Nothing ever brought it back **down**. A bootstrap that started a
+database container, a dev server or a language server left it running after the
+worktree it belonged to was gone, on every teammate story you ever closed.
+
+Declare `stack.worktree_teardown` in `system_context.json` and it runs inside the
+worktree, at the single removal choke point, before the directory goes away. Like
+bootstrap it is an opaque command by design — your script knows what it started
+and what is safe to stop; the plugin cannot and should not guess.
+`/xp-system-context` will record a teardown your project *already documents*, and
+will not invent or compose one.
+
+Bounded and non-fatal, deliberately: 120s (`XP_TEARDOWN_TIMEOUT_S` overrides), and
+a non-zero exit, a timeout, a command that will not start, or an unreadable
+`system_context` are each reported on stderr and swallowed — cleanup that refuses
+to clean up is worse than the leak it exists to prevent. An unreadable context
+says so out loud rather than degrading silently, so an operator whose declared
+command stopped running finds out.
+
+It runs on the **forced** removal — the cleanup after a story closes — and not on
+the re-spawn path, where a live peer may still own that tree and stopping its
+stack out from under it would strand them mid-story.
+
+**Declared commands are now killed as a group.** Bootstrap, teardown and your
+acceptance commands each run in their own process group and are killed as one when
+they time out. `subprocess.run(shell=True, timeout=...)` reaps only the shell it
+spawned, so an acceptance command that backgrounded a stack left it running after
+close had moved on — the same orphan leak, reached from a different door. The
+unattended acceptance batch also gained a bound it never had (7200s), and the
+`/xp-accept` path a bound it never had at all; both mean "never hang forever", not
+"fail fast", so an hour-long suite still passes comfortably.
+
+**Half of this thread did not ship.** The skill that would detect a missing
+bootstrap and *verify* a candidate you supply is deferred.
+`scripts/worktree_differential.py` — the instrument it was to be built on, which
+runs one declared command in your checkout and again in a bare worktree and
+compares the two true exit codes — ships and is runnable by hand, but nothing
+calls it for you yet. It exists because a candidate's own exit code proves
+nothing: two plausible bootstraps both exited 0, one installed 2208 packages,
+and neither fixed the failure.
+
+### Story close stops paying for the whole suite
 
 Closing a story ran your entire test command. On a project whose acceptance
 suite takes an hour, every story paid that hour — and the gate that ran it
@@ -24,16 +73,46 @@ without adding a run.
 Selection reads the close diff, not the story's declared file list, so a file
 you touched outside the plan is still covered.
 
-Two things worth knowing before you turn this on:
+Three things worth knowing before you turn this on. `/xp-system-context` states
+all three and asks you to confirm, because none of them can be decided in code:
 
+- **Coverage is checked by path, not by blast radius.** The selection proves
+  every file you touched is claimed by some surface. It cannot prove a change in
+  one surface does not break another — that is undecidable across languages — so
+  a cross-surface break can auto-merge at story close, and **no later step
+  re-runs the full suite**. Sprint close reviews the diff and asks a human; it
+  never runs your test command. Declare `paths` where you have evidence the
+  surfaces are independent.
 - `stack.test_command` is expected to cover **every** surface, because it is
   what the gate falls back to and what a full selection collapses to. Point it
   at a script that calls each suite, not at one of them.
 - A selection covering every declared command runs the full command once
   instead of N — N narrowed runs cost more than the one they replace.
 
-Scope, stated plainly: nothing narrows until surfaces declare `paths`. Until
-then this release changes no behavior at all.
+**The gate re-checks its own command set before it merges.** The commands are
+resolved once, when the close begins — but a review fix landing mid-close can
+touch a file the frozen set covers nowhere, and that file would have merged
+untested. The block now carries a recheck as its own first command: it re-derives
+the set at merge time, against a pinned merge-base and including uncommitted and
+untracked work, and exits non-zero if anything moved. Drift can only ever send
+the close to the human prompt — it can never fail toward auto-merge.
+
+### One regression, stated plainly
+
+**If your `stack.test_command`'s exit status cannot reach the shell, close
+auto-merge now turns itself off.** `pytest -q; echo done` exits 0 when pytest
+*failed*; so does a bare pipe, and so does a trailing `&`. The gate reads that
+zero as a pass and merges without asking — it has been greenlighting red suites.
+Commands in that shape are now refused, and the close falls through to asking
+you. `&&` propagates failure and is unaffected.
+
+This is a behavior change for anyone in that shape today: you lose an auto-merge
+you had. You were not getting the check you thought you were. The no-block hint
+now names which case you are in (`not-set`, `exit-status-masked`, `unresolved`)
+instead of telling everyone the field is unset.
+
+Scope, stated plainly: nothing narrows until surfaces declare `paths`. Apart from
+the refusal above, this release changes no close behavior for existing projects.
 
 ## v5.3.1 — The code reviewer stops filing items that cannot be closed
 
