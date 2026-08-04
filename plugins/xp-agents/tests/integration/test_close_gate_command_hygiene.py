@@ -25,92 +25,34 @@ The harness drives `emit_gate_commands` through the real shell module and the
 real `surface-commands` CLI — the two files this file guards.
 """
 
-import json
-import os
-import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from _bases import _PLUGIN_ROOT
-
-_SURFACE_MODULE = _PLUGIN_ROOT / "skills" / "_preload_surface.sh"
-
-_CLAIMED = "src/cli/main.py"
+from _gate_harness import CLAIMED as _CLAIMED
+from _gate_harness import GateHarness
 
 
-class _BlockHarness(unittest.TestCase):
+class _BlockHarness(GateHarness):
+    """Naming shim over the shared harness — see `_gate_harness`.
+
+    This file's env-passing shape is the one the consolidation KEPT, because
+    it is the only one that can carry the newline-, quote- and
+    separator-bearing commands these safety assertions are about.
+    """
+
     def _seed(self, surfaces: list[dict], test_command: str) -> Path:
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        smm = tmp / "data" / "proj" / "smm"
-        smm.mkdir(parents=True)
-        (smm / "events.jsonl").write_text("")
-        (smm / "system_context.json").write_text(
-            json.dumps(
-                {
-                    "product": "x",
-                    "architecture_overview": "x",
-                    "stack": {"languages": ["Python"], "test_command": test_command},
-                    "modules": [],
-                    "conventions": [],
-                    "principles": [],
-                    "project_specific": [],
-                    "acceptance_surfaces": surfaces,
-                }
-            )
-        )
-        return smm
+        return self.seed(surfaces, test_command=test_command)
 
     def _resolve(self, smm: Path, *, paths: str, full: str) -> str:
-        """Values travel by ENV, never interpolated into the bash source.
+        return self.resolve(smm, paths=paths, full=full)
 
-        A newline in `full` is the whole point of these tests; splicing it
-        into a `bash -c` string would make the TEST forge a second shell line
-        and prove nothing about the code under test.
-        """
-        script = (
-            f'PLUGIN_ROOT="{_PLUGIN_ROOT}"; SMM_DIR="{smm}"; '
-            f'source "{_SURFACE_MODULE}"; '
-            'emit_gate_commands "$XP_T_PATHS" "$XP_T_FULL"'
-        )
-        result = subprocess.run(
-            ["bash", "-c", script],
-            capture_output=True,
-            text=True,
-            env={
-                **os.environ,
-                "SMM_DIR": str(smm),
-                "XP_T_PATHS": paths,
-                "XP_T_FULL": full,
-            },
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
-
-    @staticmethod
-    def _commands(stdout: str) -> list[str]:
-        lines = stdout.splitlines()
-        if "### GATE_COMMANDS" not in lines:
-            return []
-        out: list[str] = []
-        for ln in lines[lines.index("### GATE_COMMANDS") + 1 :]:
-            if ln.startswith("#"):
-                break
-            if ln.startswith("- "):
-                out.append(ln[2:])
-        return out
-
-    @staticmethod
-    def _scope(stdout: str) -> str:
-        return next(
-            ln.split("=", 1)[1]
-            for ln in stdout.splitlines()
-            if ln.startswith("GATE_SCOPE=")
-        )
+    _commands = staticmethod(GateHarness.commands)
+    _scope = staticmethod(GateHarness.scope)
 
 
 class TestOneBulletIsOneCommand(_BlockHarness):

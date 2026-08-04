@@ -21,114 +21,42 @@ The surface-path tests therefore seed a surface explicitly, and each states
 the mutation that turns it red.
 """
 
-import json
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 from _bases import _PLUGIN_ROOT
+from _gate_harness import FULL as _FULL
+from _gate_harness import GateHarness
 
-_SURFACE_MODULE = _PLUGIN_ROOT / "skills" / "_preload_surface.sh"
 _STORY_CLOSE_PRELOAD = (
     _PLUGIN_ROOT / "skills" / "xp-story-close" / "scripts" / "preload.sh"
 )
 
-_FULL = "pytest -n auto THE-WHOLE-SUITE"
 
+class _GateResolutionBase(GateHarness):
+    """Naming shim over the shared harness — see `_gate_harness`.
 
-def _system_context(surfaces: list[dict] | None) -> dict:
-    doc: dict = {
-        "product": "x",
-        "architecture_overview": "x",
-        "stack": {"languages": ["Python"], "test_command": _FULL},
-        "modules": [],
-        "conventions": [],
-        "principles": [],
-        "project_specific": [],
-    }
-    if surfaces is not None:
-        doc["acceptance_surfaces"] = surfaces
-    return doc
-
-
-def _sprint(file_domain: list[str]) -> dict:
-    return {
-        "sprint_id": "sprint-test",
-        "goal": "gate",
-        "started": "2026-08-03",
-        "milestone": "test",
-        "stories": [
-            {
-                "id": "story-001",
-                "title": "Test",
-                "status": "closing",
-                "dependencies": [],
-                "milestone_ref": "test",
-                "design_sources": "test",
-                "context": "test",
-                "file_domain": file_domain,
-                "interface_contracts": [],
-                "acceptance_criteria": ["test"],
-            }
-        ],
-    }
-
-
-class _GateResolutionBase(unittest.TestCase):
-    """Drives `emit_gate_commands` directly, so the surface path is exercised
-    without standing up a story-shaped git branch."""
+    Values now travel by ENV instead of being interpolated into the bash
+    source. This harness previously could not express a newline-, quote- or
+    separator-bearing command at all; any assertion whose RESULT changed under
+    the switch is a finding, not a diff to smooth over.
+    """
 
     def _seed(self, surfaces: list[dict] | None, file_domain: list[str]) -> Path:
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        smm = tmp / "data" / "proj" / "smm"
-        smm.mkdir(parents=True)
-        (smm / "events.jsonl").write_text("")
-        (smm / "system_context.json").write_text(json.dumps(_system_context(surfaces)))
-        (smm / "sprint.json").write_text(json.dumps(_sprint(file_domain)))
-        return smm
+        return self.seed(surfaces, file_domain=file_domain)
 
     def _resolve(
         self, smm: Path, *, paths: str = "src/cli/main.py", full: str = _FULL
     ) -> str:
-        script = (
-            f'PLUGIN_ROOT="{_PLUGIN_ROOT}"; SMM_DIR="{smm}"; '
-            f'source "{_SURFACE_MODULE}"; '
-            f'emit_gate_commands "{paths}" "{full}"'
-        )
-        result = subprocess.run(
-            ["bash", "-c", script],
-            capture_output=True,
-            text=True,
-            env={**os.environ, "SMM_DIR": str(smm)},
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        return result.stdout
+        return self.resolve(smm, paths=paths, full=full)
 
-    @staticmethod
-    def _commands(stdout: str) -> list[str]:
-        """The `- `-prefixed lines under the heading, STOPPING at the next
-        markdown heading.
-
-        Reading to EOF instead would swallow the shared close-pipeline
-        reference's own `- ` bullets, which the preload appends after this
-        block — caught by running the real preload by hand, not by a test.
-        """
-        lines = stdout.splitlines()
-        if "### GATE_COMMANDS" not in lines:
-            return []
-        out: list[str] = []
-        for ln in lines[lines.index("### GATE_COMMANDS") + 1 :]:
-            if ln.startswith("#"):
-                break
-            if ln.startswith("- "):
-                out.append(ln[2:])
-        return out
+    _commands = staticmethod(GateHarness.commands)
 
 
 class TestResolutionPrefersSurfaceCommands(_GateResolutionBase):
@@ -395,27 +323,12 @@ class TestConditionThreeConsumesTheResolvedSet(unittest.TestCase):
         self.assertNotIn("falling back to the full", self.skill)
 
 
-class TestStoryClosePreloadEmitsTheGateBlock(unittest.TestCase):
+class TestStoryClosePreloadEmitsTheGateBlock(GateHarness):
     """End-to-end through the real preload, on the shape every project is in
     today: no surface declares paths, so the gate falls back and says so."""
 
     def test_preload_emits_scope_and_block(self) -> None:
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        smm = tmp / "data" / "proj" / "smm"
-        smm.mkdir(parents=True)
-        (smm / "events.jsonl").write_text("")
-        (smm / "system_context.json").write_text(json.dumps(_system_context(None)))
-        env = dict(os.environ)
-        env["XP_AGENTS_DATA"] = str(smm.parent.parent)
-        env["SMM_DIR"] = str(smm)
-        out = subprocess.run(
-            ["bash", str(_STORY_CLOSE_PRELOAD)],
-            cwd=smm,
-            capture_output=True,
-            text=True,
-            env=env,
-        ).stdout
+        out = self._real_preload_stdout()
         self.assertIn("GATE_SCOPE=", out)
         self.assertIn("### GATE_COMMANDS", out)
         self.assertIn(f"- {_FULL}", out)
@@ -456,12 +369,7 @@ class TestStoryClosePreloadEmitsTheGateBlock(unittest.TestCase):
         )
 
     def _real_preload_stdout(self) -> str:
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
-        smm = tmp / "data" / "proj" / "smm"
-        smm.mkdir(parents=True)
-        (smm / "events.jsonl").write_text("")
-        (smm / "system_context.json").write_text(json.dumps(_system_context(None)))
+        smm = self.seed(None)
         env = dict(os.environ)
         env["XP_AGENTS_DATA"] = str(smm.parent.parent)
         env["SMM_DIR"] = str(smm)
