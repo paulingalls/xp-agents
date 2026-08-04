@@ -14,6 +14,19 @@ ACCEPTANCE_SURFACE_SIGNAL_MAXLENGTH: int = 100
 # A surface `paths` entry is a repo-relative glob, so it is bounded by the
 # same order of magnitude as a signal string rather than a command.
 ACCEPTANCE_SURFACE_PATH_MAXLENGTH: int = 200
+# ...and, unlike every other author-supplied list here, the COUNT is bounded
+# too. `paths` renders into system_context, which is injected into agents, so
+# an unbounded list is unbounded injected context on every turn — the budget
+# rule the project applies to all injected context, not just SKILL.md. 20
+# globs describe a surface's ownership with room to spare; a surface needing
+# more is really two surfaces. Safe to add as a hard rule because the field is
+# new in this milestone (no installed base can trip it) and because budget
+# errors are enforced on the WRITE path only — `load_system_context` passes
+# `enforce_budget=False`, so no existing document can turn a hook read into a
+# raise. `signals` carries no count cap for exactly the opposite reason: it
+# predates this rule and capping it now would reject saves of documents that
+# are already on disk.
+ACCEPTANCE_SURFACE_PATHS_MAXCOUNT: int = 20
 # A surface `command` is the same kind of value as `stack.test_command` — a
 # narrowed one, not a different species — so it carries the same bound.
 # `system_context_schema.STACK_FIELD_MAXLENGTH` holds the other half; they are
@@ -277,6 +290,17 @@ def _validate_acceptance_surface_entry(
         if not isinstance(entry["paths"], list):
             errors.append(f"acceptance_surfaces[{idx}].paths must be a list")
         else:
+            if (
+                enforce_budget
+                and len(entry["paths"]) > ACCEPTANCE_SURFACE_PATHS_MAXCOUNT
+            ):
+                errors.append(
+                    budget_error(
+                        f"acceptance_surfaces[{idx}].paths entries",
+                        len(entry["paths"]),
+                        ACCEPTANCE_SURFACE_PATHS_MAXCOUNT,
+                    )
+                )
             for pi, path in enumerate(entry["paths"]):
                 if not isinstance(path, str):
                     errors.append(

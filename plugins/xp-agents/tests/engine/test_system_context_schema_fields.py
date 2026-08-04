@@ -19,6 +19,7 @@ from _system_context_fixtures import valid_doc
 from system_context_schema import (
     ACCEPTANCE_SURFACE_COMMAND_MAXLENGTH,
     ACCEPTANCE_SURFACE_PATH_MAXLENGTH,
+    ACCEPTANCE_SURFACE_PATHS_MAXCOUNT,
     CONVENTION_MAXLENGTH,
     MODULE_FIELD_MAXLENGTH,
     PRINCIPLE_FIELD_MAXLENGTH,
@@ -347,6 +348,38 @@ class TestAcceptanceSurfaceCommandAndPaths(unittest.TestCase):
         )
         errors = validate_system_context(doc)
         self.assertTrue(any("paths" in e and "budget" in e for e in errors), errors)
+
+    def test_too_many_path_entries_is_over_budget(self) -> None:
+        """`paths` renders into system_context, which is injected into every
+        agent — so the COUNT is budgeted, not just each entry's length.
+        Mutation: drop the count check -> red, and 200 globs ride along on
+        every injection."""
+        doc = valid_doc(
+            acceptance_surfaces=[
+                _surface(
+                    paths=[
+                        f"src/{i}/**"
+                        for i in range(ACCEPTANCE_SURFACE_PATHS_MAXCOUNT + 1)
+                    ]
+                )
+            ]
+        )
+        errors = validate_system_context(doc)
+        self.assertTrue(any("paths" in e and "budget" in e for e in errors), errors)
+
+    def test_exactly_the_cap_is_allowed(self) -> None:
+        """The refutation: an off-by-one that rejected the cap itself would
+        also pass the test above."""
+        doc = valid_doc(
+            acceptance_surfaces=[
+                _surface(
+                    paths=[
+                        f"src/{i}/**" for i in range(ACCEPTANCE_SURFACE_PATHS_MAXCOUNT)
+                    ]
+                )
+            ]
+        )
+        self.assertEqual(validate_system_context(doc), [])
 
     def test_command_without_paths_is_rejected(self) -> None:
         """An unselectable command is an inert declaration, not a valid one:

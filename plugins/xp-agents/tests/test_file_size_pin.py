@@ -58,7 +58,7 @@ _SHIPPED_ROOT_FLOORS = {
 _BAND_CEILINGS = {
     # shipped (16)
     "plugins/xp-agents/smm/seed_smm.py": 499,
-    "plugins/xp-agents/scripts/spawn_teammate.py": 498,
+    "plugins/xp-agents/scripts/spawn_teammate.py": 457,  # ratcheted from 498 (split)
     "plugins/xp-agents/scripts/close_common.py": 496,
     "plugins/xp-agents/smm/sprint_cli_mutate.py": 496,
     "plugins/xp-agents/scripts/in_place_marker.py": 490,
@@ -99,6 +99,13 @@ _BAND_CEILINGS = {
     "plugins/xp-agents/tests/hooks/test_lint_config_style_flags.py": 483,
     "plugins/xp-agents/tests/hooks/test_spawn_teammate_branch_release.py": 482,
     "plugins/xp-agents/tests/hooks/test_bash.py": 481,
+    # Entered the band at review: `acceptance_surfaces[].paths` gained a COUNT
+    # budget (it renders into every agent injection, so an unbounded list is
+    # unbounded injected context) and both directions of it are pinned.
+    # `TestAcceptanceSurface*` is the cohesive group to extract next — two
+    # classes, one fixture, sharing nothing with the module/principle/
+    # project_specific validation above them.
+    "plugins/xp-agents/tests/engine/test_system_context_schema_fields.py": 480,
     # Entered the band at review: the never-run-nothing class gained the two
     # runnability cases (a whitespace-only `stack.test_command`, a blank
     # surface `command`) that used to emit a scope claiming a command it could
